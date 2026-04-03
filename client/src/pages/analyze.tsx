@@ -1975,12 +1975,29 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                   )}
                 </span>
                 <div className="text-xs mt-1 opacity-70">
-                  {data.vrp_regime === "high" && 
-                    "💡 Options are expensive vs recent moves — edge favors selling premium (credit spreads, covered calls, iron condors)"}
-                  {data.vrp_regime === "low" && 
-                    "💡 Options are cheap vs recent moves — edge favors buying options (debit spreads, calls, puts) ahead of a potential move"}
-                  {data.vrp_regime === "neutral" && 
-                    "💡 Options are fairly priced — no strong edge on either side. Look at the recommendation card below for the best trade."}
+                  {data.vrp_regime === "high" && (
+                    <span>
+                      💡 <strong>Sell options</strong> — IV is inflated vs real moves.
+                      Best plays: <strong>Sell a Call</strong> (bearish/neutral), <strong>Sell a Put</strong> (bullish/neutral),
+                      <strong> Iron Condor</strong> (neutral), <strong>Covered Call</strong> (own the stock).
+                      You collect premium upfront and profit if the stock doesn’t move much.
+                    </span>
+                  )}
+                  {data.vrp_regime === "low" && (
+                    <span>
+                      💡 <strong>Buy options</strong> — IV is cheap vs real moves.
+                      Best plays: <strong>Buy a Call</strong> (bullish), <strong>Buy a Put</strong> (bearish),
+                      <strong> Debit Spread</strong> (lower cost, defined risk).
+                      You pay less for options that could pay off big if the stock moves.
+                    </span>
+                  )}
+                  {data.vrp_regime === "neutral" && (
+                    <span>
+                      💡 Options are fairly priced — no strong vol edge.
+                      Focus on direction: <strong>Buy a Call</strong> if bullish, <strong>Buy a Put</strong> if bearish.
+                      See the Recommendation card below for the best specific trade.
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
