@@ -336,7 +336,7 @@ async function runBackgroundScanner(): Promise<void> {
   console.log("[scanner] Background scanner starting…");
 
   // Use Tier 1 only — keeps CPU usage low on local machines
-  const universe: string[] = Array.from(new Set(TIER1_TICKERS));
+  let universe: string[] = Array.from(new Set(TIER1_TICKERS));
   console.log(`[scanner] Universe size: ${universe.length} tickers (Tier 1 only)`);
 
   // Perpetual loop
