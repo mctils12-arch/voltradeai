@@ -399,8 +399,8 @@ export function registerBotRoutes(app: Express) {
 
   async function runAutonomousCycle() {
     if (!state.active || state.killSwitch || autoRunning) return;
-    // Don't re-run if last scan was less than 90 seconds ago
-    if (Date.now() - lastAutoRun < 90000 && lastAutoRun > 0) return;
+    // Don't re-run if last scan was less than 30 seconds ago
+    if (Date.now() - lastAutoRun < 30000 && lastAutoRun > 0) return;
     autoRunning = true;
     audit("AUTO", "Starting autonomous scan cycle...");
 
@@ -668,7 +668,7 @@ export function registerBotRoutes(app: Express) {
 
     // Run autonomous cycle
     await runAutonomousCycle();
-  }, 2 * 60 * 1000); // Every 2 minutes during market hours, checked inside
+  }, 45 * 1000); // Every 45 seconds — fast enough for edge, safe for Railway resources
 
   // Route: Get last scan result
   app.get("/api/bot/last-scan", requireAuth, (_req, res) => {
@@ -761,11 +761,35 @@ export function registerBotRoutes(app: Express) {
     }
   });
 
-  // Auto-start: run first cycle 30 seconds after server boots
+  // Auto-start: log all rules and begin
   setTimeout(() => {
-    audit("AUTO", "Bot auto-started on server boot");
-    runAutonomousCycle();
-  }, 30000);
+    audit("SYSTEM", "=== VolTradeAI Bot v1.0 Initialized ===");
+    audit("SYSTEM", `Mode: PAPER TRADING (Alpaca)`);
+    audit("RULES", `Scan interval: 45 seconds during trading hours`);
+    audit("RULES", `Max positions: ${MAX_POSITIONS} at once`);
+    audit("RULES", `Max position size: ${MAX_POSITION_SIZE * 100}% of portfolio per trade`);
+    audit("RULES", `Max total exposure: ${MAX_TOTAL_EXPOSURE * 100}% of portfolio invested`);
+    audit("RULES", `Stop loss: ${STOP_LOSS_PCT * 100}% per position`);
+    audit("RULES", `Take profit: ${TAKE_PROFIT_PCT * 100}% per position`);
+    audit("RULES", `Daily loss limit: ${DAILY_LOSS_LIMIT}% — all trading halts if hit`);
+    audit("RULES", `Kill switch: OFF (manual emergency stop available)`);
+    audit("RULES", `Options: Regular hours only (9:30am-4pm ET)`);
+    audit("RULES", `Stocks: Extended hours OK (4am-8pm ET, limit orders only)`);
+    audit("RULES", `Extended hours: No fractional shares, no market orders, no short selling`);
+    audit("RULES", `PDT: If account < $25K, max 3 day trades per 5 business days`);
+    audit("RULES", `Minimum score to trade: 65/100 combined edge score`);
+    audit("RULES", `Minimum stock price: $5 | Minimum volume: 500K daily`);
+    audit("SCHEDULE", `4am-9:30am ET: Pre-market scanning + stock trading`);
+    audit("SCHEDULE", `9:30am-4pm ET: Full trading (stocks + options)`);
+    audit("SCHEDULE", `4pm-8pm ET: After-hours scanning + stock trading`);
+    audit("SCHEDULE", `8pm-10pm ET: Evening research — analyze today's movers`);
+    audit("SCHEDULE", `10pm-12am ET: Backtest validation — check strategies still work`);
+    audit("SCHEDULE", `12am-2am ET: Earnings analysis — upcoming reporters`);
+    audit("SCHEDULE", `2am-4am ET: Pre-market report — compile morning trade list`);
+    audit("SYSTEM", "Bot auto-started. First scan in 15 seconds...");
+    
+    setTimeout(() => runAutonomousCycle(), 15000);
+  }, 5000);
 
   // Route: Force immediate scan
   app.post("/api/bot/run-now", requireAuth, async (_req, res) => {
