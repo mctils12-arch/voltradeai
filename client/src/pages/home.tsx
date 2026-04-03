@@ -1705,8 +1705,8 @@ function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void
       </div>
 
       {displayResults.map((r, i) => {
-        const vrpColor = r.vrp > 5 ? "text-emerald-400" : r.vrp > 0 ? "text-blue-400" : "text-rose-400";
-        const scoreColor = r.scan_score >= 65 ? "text-emerald-400" : r.scan_score >= 45 ? "text-amber-400" : "text-slate-400";
+        const vrpColor = (r.vrp ?? 0) > 5 ? "text-emerald-400" : (r.vrp ?? 0) > 0 ? "text-blue-400" : "text-rose-400";
+        const scoreColor = (r.scan_score ?? 0) >= 65 ? "text-emerald-400" : (r.scan_score ?? 0) >= 45 ? "text-amber-400" : "text-slate-400";
         const hvPct = r.hv_percentile;
         // Freshness dot
         const freshDot = r.freshness === 'fresh' ? '🟢' : r.freshness === 'recent' ? '🟡' : r.freshness === 'stale' ? '🔴' : '';
@@ -1732,9 +1732,9 @@ function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void
             <span className="flex-1 text-xs text-slate-300 truncate">
               {actionDisplay}
             </span>
-            <span className="w-12 text-right font-mono text-xs text-slate-300">{r.atm_iv.toFixed(1)}%</span>
+            <span className="w-12 text-right font-mono text-xs text-slate-300">{r.atm_iv != null ? r.atm_iv.toFixed(1) + '%' : '—'}</span>
             <span className={`w-10 text-right font-mono text-xs ${vrpColor}`}>
-              {r.vrp > 0 ? '+' : ''}{r.vrp.toFixed(1)}
+              {r.vrp != null ? (r.vrp > 0 ? '+' : '') + r.vrp.toFixed(1) : '—'}
             </span>
             <span className={`w-14 text-right font-mono text-xs ${sentColor}`}>
               {r.sentiment_score !== undefined ? r.sentiment_score.toFixed(0) : '—'}
