@@ -600,6 +600,92 @@ export function registerBotRoutes(app: Express) {
     res.json(lastScanResult || { message: "No scan run yet. Activate the bot to start." });
   });
 
+  // Route: Market calendar — holidays and early closes
+  app.get("/api/bot/calendar", requireAuth, async (_req, res) => {
+    try {
+      // Get next 30 days of market calendar from Alpaca
+      const today = new Date().toISOString().split("T")[0];
+      const future = new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+      const cal = await alpaca(`/v2/calendar?start=${today}&end=${future}`);
+      
+      // Find all trading days
+      const tradingDays = new Set((cal as any[]).map((d: any) => d.date));
+      
+      // Find holidays (non-trading weekdays)
+      const holidays: Array<{date: string; name: string}> = [];
+      const earlyCloses: Array<{date: string; close: string}> = [];
+      
+      // Known US market holidays
+      const holidayNames: Record<string, string> = {
+        "01-01": "New Year's Day",
+        "01-20": "Martin Luther King Jr. Day",
+        "02-17": "Presidents' Day",
+        "04-18": "Good Friday",
+        "05-26": "Memorial Day",
+        "06-19": "Juneteenth",
+        "07-04": "Independence Day",
+        "09-01": "Labor Day",
+        "11-27": "Thanksgiving Day",
+        "12-25": "Christmas Day",
+      };
+      
+      // Check next 30 days for non-trading weekdays
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(Date.now() + i * 86400000);
+        const dayOfWeek = d.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) continue; // Skip weekends
+        const dateStr = d.toISOString().split("T")[0];
+        if (!tradingDays.has(dateStr)) {
+          const mmdd = dateStr.substring(5);
+          holidays.push({
+            date: dateStr,
+            name: holidayNames[mmdd] || "Market Holiday",
+          });
+        }
+      }
+      
+      // Check for early closes (close time before 16:00)
+      for (const day of (cal as any[])) {
+        if (day.close && day.close < "16:00") {
+          earlyCloses.push({ date: day.date, close: day.close });
+        }
+      }
+      
+      // Tomorrow check
+      const tomorrow = new Date(Date.now() + 86400000);
+      const tomorrowStr = tomorrow.toISOString().split("T")[0];
+      const tomorrowDay = tomorrow.getDay();
+      let tomorrowStatus = "open";
+      let tomorrowNote = "";
+      
+      if (tomorrowDay === 0 || tomorrowDay === 6) {
+        tomorrowStatus = "weekend";
+        tomorrowNote = "Market is closed — it's the weekend.";
+      } else if (!tradingDays.has(tomorrowStr)) {
+        tomorrowStatus = "holiday";
+        const mmdd = tomorrowStr.substring(5);
+        tomorrowNote = `Market is closed tomorrow for ${holidayNames[mmdd] || "a market holiday"}.`;
+      } else {
+        const tomorrowCal = (cal as any[]).find((d: any) => d.date === tomorrowStr);
+        if (tomorrowCal?.close && tomorrowCal.close < "16:00") {
+          tomorrowStatus = "early_close";
+          tomorrowNote = `Market closes early tomorrow at ${tomorrowCal.close} ET.`;
+        } else {
+          tomorrowNote = "Market is open tomorrow, regular hours.";
+        }
+      }
+      
+      res.json({
+        tomorrow: { status: tomorrowStatus, note: tomorrowNote, date: tomorrowStr },
+        holidays,
+        earlyCloses,
+        tradingDaysNext30: tradingDays.size,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Route: Force immediate scan
   app.post("/api/bot/run-now", requireAuth, async (_req, res) => {
     if (autoRunning) return res.json({ message: "Already running..." });

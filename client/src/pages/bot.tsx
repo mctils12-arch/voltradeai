@@ -74,6 +74,36 @@ function signalColor(type: string) {
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
+function CalendarBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/bot/calendar"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/bot/calendar"); return r.json(); },
+    staleTime: 600000, // 10 min
+  });
+
+  if (!data || !data.tomorrow) return null;
+
+  const { tomorrow, holidays } = data;
+  const isAlert = tomorrow.status === "holiday" || tomorrow.status === "early_close";
+  const bgColor = isAlert ? "rgba(255,159,10,0.1)" : "rgba(48,209,88,0.06)";
+  const borderColor = isAlert ? "rgba(255,159,10,0.2)" : "rgba(48,209,88,0.1)";
+  const textColor = isAlert ? "#ff9f0a" : "#6e6e73";
+
+  return (
+    <div style={{ padding: "10px 14px", background: bgColor, border: `1px solid ${borderColor}`, borderRadius: "10px", marginBottom: "16px", fontSize: "12px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <span style={{ fontSize: "14px" }}>{isAlert ? "⚠️" : "📅"}</span>
+        <span style={{ color: textColor, fontWeight: 600 }}>{tomorrow.note}</span>
+      </div>
+      {holidays && holidays.length > 0 && (
+        <div style={{ marginTop: "6px", color: "#6e6e73", fontSize: "11px" }}>
+          Upcoming closures: {holidays.map((h: any) => `${h.name} (${h.date})`).join(" \u00b7 ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BotDashboard() {
   // ── Local state for backtest form ─────────────────────────────────────────
   const [btTicker, setBtTicker] = useState("SPY");
@@ -204,6 +234,9 @@ export default function BotDashboard() {
           </Tip>
         </div>
       </div>
+
+      {/* ── Calendar / Holiday Banner ── */}
+      <CalendarBanner />
 
       {/* ── Account Overview ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "20px" }}>
