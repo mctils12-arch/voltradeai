@@ -1475,10 +1475,26 @@ def compute_options_flow(calls, puts):
 
 def analyze_ticker(ticker_symbol):
     import yfinance as yf
+    import time
     ticker_symbol = ticker_symbol.upper().strip()
 
-    ticker = yf.Ticker(ticker_symbol)
-    hist   = ticker.history(period="1y")   # 1 year for HV percentile calc
+    # Retry up to 3 times on rate limit
+    for attempt in range(3):
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            hist   = ticker.history(period="1y")
+            if not hist.empty:
+                break
+            if attempt < 2:
+                time.sleep(3)
+        except Exception as e:
+            if "Too Many Requests" in str(e) or "rate" in str(e).lower():
+                if attempt < 2:
+                    time.sleep(5 * (attempt + 1))
+                    continue
+            raise
+    else:
+        hist = ticker.history(period="1y")
 
     if hist.empty:
         return {"error": f"No data found for '{ticker_symbol}'. Please check the ticker symbol."}

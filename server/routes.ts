@@ -176,7 +176,7 @@ async function scanBatch(tickers: string[]): Promise<ScanResult[]> {
 
 async function refreshTier1(): Promise<void> {
   try {
-    const BATCH = 10; // parallel batches for speed
+    const BATCH = 3; // small batches to avoid Yahoo Finance rate limits
     for (let i = 0; i < TIER1_TICKERS.length; i += BATCH) {
       const batch = TIER1_TICKERS.slice(i, i + BATCH);
       const results = await scanBatch(batch);
@@ -188,8 +188,8 @@ async function refreshTier1(): Promise<void> {
         .filter(r => TIER1_TICKERS.includes(r.ticker));
       tier1Cache = sortByScore(applyFreshness(allCached));
       tier1LastUpdate = Date.now();
-      // Pause between batches to stay under memory limits
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Pause between batches to avoid Yahoo Finance rate limiting
+      await new Promise(resolve => setTimeout(resolve, 8000));
     }
     console.log(`[scanner] Tier1 refresh complete — ${tier1Cache.length} tickers`);
   } catch (err) {
@@ -490,12 +490,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Startup: scan top 10 in parallel (all at once = ~5s), then full Tier1 in background
-  const TOP10 = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "META", "GOOGL", "AMD"];
+  const TOP3 = ["SPY", "QQQ", "NVDA"];
   setTimeout(async () => {
-    console.log("[scanner] Parallel quick-start: scanning top 10 tickers...");
+    console.log("[scanner] Quick-start: scanning top 3 tickers...");
     try {
-      // scanBatch already runs in parallel via Promise.allSettled
-      const quickResults = await scanBatch(TOP10);
+      const quickResults = await scanBatch(TOP3);
       tier1Cache = sortByScore(applyFreshness(quickResults));
       tier1LastUpdate = Date.now();
       for (const r of quickResults) fullUniverseCache.set(r.ticker, r);
