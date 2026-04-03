@@ -96,7 +96,15 @@ function applyFreshness(results: ScanResult[]): ScanResult[] {
 }
 
 function sortByScore(results: ScanResult[]): ScanResult[] {
-  return [...results].sort((a, b) => (b.scan_score ?? 0) - (a.scan_score ?? 0));
+  return [...results]
+    // Filter out junk: penny stocks, insane IV, missing data
+    .filter(r => {
+      if (!r.spot || r.spot < 5) return false;        // no penny stocks
+      if (!r.atm_iv || r.atm_iv > 300) return false;  // no insane IV
+      if (!r.vrp || r.vrp > 200) return false;         // no distorted VRP
+      return true;
+    })
+    .sort((a, b) => (b.scan_score ?? 0) - (a.scan_score ?? 0));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,11 +135,13 @@ async function scanSingleTicker(ticker: string): Promise<ScanResult | null> {
       volume_ratio: raw.vol_metrics?.volume_ratio_5d,
       best_strategy: raw.top_spreads?.[0]?.type ?? null,
       top_spread_score: raw.top_spreads?.[0]?.score ?? 0,
-      scan_score: raw.scan_score ?? raw.score ?? Math.round(
-        (raw.vrp ?? 0) * 3.5 + (raw.top_spreads?.[0]?.score ?? 0) * 0.35 +
-        (raw.vol_metrics?.hv_percentile ?? 50) * 0.2 +
-        (raw.vol_metrics?.volume_ratio_5d ?? 1) * 5
-      ),
+      // Score 0-100: blend of spread quality, VRP edge, HV percentile, volume
+      scan_score: raw.scan_score ?? raw.score ?? Math.min(100, Math.round(
+        (Math.min(raw.top_spreads?.[0]?.score ?? 0, 100)) * 0.40 +
+        (Math.min(Math.max((raw.vrp ?? 0), 0), 20) / 20 * 100) * 0.30 +
+        (raw.vol_metrics?.hv_percentile ?? 50) * 0.20 +
+        (Math.min(raw.vol_metrics?.volume_ratio_5d ?? 1, 5) / 5 * 100) * 0.10
+      )),
       sentiment_score: raw.sentiment?.score,
       sentiment_signal: raw.sentiment?.signal,
       rec_action: raw.recommendation?.action,
