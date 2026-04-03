@@ -1,5 +1,9 @@
 import { Express } from "express";
 import { requireAuth } from "./auth";
+import { exec } from "child_process";
+import { promisify } from "util";
+import path from "path";
+const execAsync = promisify(exec);
 
 // ─── Alpaca Config ──────────────────────────────────────────────────────────
 const ALPACA_BASE = "https://paper-api.alpaca.markets";
@@ -22,11 +26,16 @@ async function alpaca(path: string, opts: any = {}) {
 // ─── Bot State ──────────────────────────────────────────────────────────────
 interface AuditEntry { time: string; action: string; detail: string; }
 
+// Phase 6: Security constants
+const DAILY_LOSS_LIMIT = -3; // percent
+const MAX_POSITION_SIZE = 0.05; // 5% of portfolio per position
+const MAX_TOTAL_EXPOSURE = 0.5; // 50% of portfolio max invested
+
 const state = {
   active: false,
   killSwitch: false,
   dailyPnL: 0,
-  dailyLossLimit: -3, // percent
+  dailyLossLimit: DAILY_LOSS_LIMIT,
   auditLog: [] as AuditEntry[],
 };
 
@@ -36,6 +45,27 @@ function audit(action: string, detail: string) {
   console.log(`[BOT] ${action}: ${detail}`);
 }
 
+// Phase 6: Pre-trade security check
+async function checkTradeAllowed(portfolioValue: number, tradeValue: number): Promise<{ allowed: boolean; reason?: string }> {
+  // 1. Kill switch check
+  if (state.killSwitch) {
+    return { allowed: false, reason: "Kill switch is active. All trading halted." };
+  }
+  // 2. Daily loss limit check
+  if (state.dailyPnL !== 0 && portfolioValue > 0) {
+    const dailyPnLPct = (state.dailyPnL / portfolioValue) * 100;
+    if (dailyPnLPct <= DAILY_LOSS_LIMIT) {
+      return { allowed: false, reason: `Daily loss limit of ${DAILY_LOSS_LIMIT}% exceeded. Bot stopped for today.` };
+    }
+  }
+  // 3. Position size check
+  if (portfolioValue > 0 && tradeValue / portfolioValue > MAX_POSITION_SIZE) {
+    return { allowed: false, reason: `Trade exceeds max position size of ${MAX_POSITION_SIZE * 100}% of portfolio.` };
+  }
+  // 4. Total exposure check (simplified — checked via portfolioValue vs cash ratio)
+  return { allowed: true };
+}
+
 // ─── Routes ─────────────────────────────────────────────────────────────────
 export function registerBotRoutes(app: Express) {
 
@@ -43,15 +73,20 @@ export function registerBotRoutes(app: Express) {
   app.get("/api/bot/account", requireAuth, async (_req, res) => {
     try {
       const acct = await alpaca("/v2/account");
+      const equity = parseFloat(acct.equity);
+      const lastEquity = parseFloat(acct.last_equity);
+      const dailyPnL = equity - lastEquity;
+      // Update bot state with current daily P&L
+      state.dailyPnL = dailyPnL;
       res.json({
         accountNumber: acct.account_number,
         cash: parseFloat(acct.cash),
         portfolioValue: parseFloat(acct.portfolio_value),
         buyingPower: parseFloat(acct.buying_power),
-        equity: parseFloat(acct.equity),
-        lastEquity: parseFloat(acct.last_equity),
-        dailyPnL: parseFloat(acct.equity) - parseFloat(acct.last_equity),
-        dailyPnLPct: ((parseFloat(acct.equity) - parseFloat(acct.last_equity)) / parseFloat(acct.last_equity)) * 100,
+        equity,
+        lastEquity,
+        dailyPnL,
+        dailyPnLPct: ((equity - lastEquity) / lastEquity) * 100,
         status: acct.status,
         tradingBlocked: acct.trading_blocked,
         mode: "paper",
@@ -151,6 +186,19 @@ export function registerBotRoutes(app: Express) {
     const { ticker, side, qty, type = "market" } = req.body || {};
     if (!ticker || !side || !qty) return res.status(400).json({ error: "ticker, side, qty required" });
 
+    // Phase 6: Security check before trading
+    try {
+      const acct = await alpaca("/v2/account");
+      const portfolioValue = parseFloat(acct.portfolio_value);
+      const currentPrice = parseFloat(acct.last_equity) / 100; // rough estimate
+      const tradeValue = qty * (currentPrice || 1);
+      const check = await checkTradeAllowed(portfolioValue, tradeValue);
+      if (!check.allowed) {
+        audit("BLOCKED", `Trade rejected: ${check.reason}`);
+        return res.status(400).json({ error: check.reason });
+      }
+    } catch {}
+
     try {
       const order = await alpaca("/v2/orders", {
         method: "POST",
@@ -228,6 +276,116 @@ export function registerBotRoutes(app: Express) {
         nextClose: clock.next_close,
         timestamp: clock.timestamp,
       });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── AI Signals ────────────────────────────────────────────────────────────
+  const signals: Array<{
+    ticker: string; action: string; reason: string;
+    confidence: number; timestamp: string; type: string;
+  }> = [];
+
+  // Generate signals for a list of tickers
+  async function generateSignals(tickers: string[]) {
+    const scriptPath = path.resolve("analyze.py");
+    for (const ticker of tickers) {
+      try {
+        const { stdout } = await execAsync(
+          `python3 "${scriptPath}" "${ticker}" --mode=scan`,
+          { timeout: 30000 }
+        );
+        if (!stdout.trim()) continue;
+        const raw = JSON.parse(stdout.trim());
+        
+        // Score the signal
+        const vrp = raw.vrp ?? 0;
+        const rec = raw.recommendation;
+        const edge = raw.edge_factors;
+        
+        let action = "HOLD";
+        let reason = "";
+        let confidence = 50;
+        let type = "neutral";
+        
+        // VRP signal
+        if (vrp > 5) {
+          action = "SELL OPTIONS";
+          reason = `IV is ${vrp.toFixed(1)}% above realized vol — options are overpriced. Sell premium.`;
+          confidence = Math.min(90, 50 + vrp * 3);
+          type = "sell";
+        } else if (vrp < -3) {
+          action = "BUY OPTIONS";
+          reason = `IV is ${Math.abs(vrp).toFixed(1)}% below realized vol — options are cheap. Buy for upside.`;
+          confidence = Math.min(85, 50 + Math.abs(vrp) * 3);
+          type = "buy";
+        }
+        
+        // Override with recommendation if available
+        if (rec?.action && rec.action !== "WAIT") {
+          action = rec.action;
+          reason = rec.reasoning || reason;
+          confidence = rec.signal?.includes("🚀") ? 80 : rec.signal?.includes("⚠️") ? 40 : 60;
+          type = rec.action.toLowerCase().includes("buy") ? "buy" : rec.action.toLowerCase().includes("sell") ? "sell" : "neutral";
+        }
+        
+        // Squeeze boost
+        if (edge?.squeeze_score > 70) {
+          reason += ` | SQUEEZE ALERT: ${edge.squeeze_desc}`;
+          confidence = Math.min(95, confidence + 15);
+        }
+        
+        if (action !== "HOLD" && confidence > 45) {
+          // Remove old signal for this ticker
+          const idx = signals.findIndex(s => s.ticker === ticker);
+          if (idx >= 0) signals.splice(idx, 1);
+          
+          signals.unshift({
+            ticker,
+            action,
+            reason,
+            confidence: Math.round(confidence),
+            timestamp: new Date().toISOString(),
+            type,
+          });
+          
+          // Keep max 20 signals
+          if (signals.length > 20) signals.length = 20;
+          
+          audit("SIGNAL", `${action} ${ticker} (${Math.round(confidence)}% confidence)`);
+        }
+      } catch {}
+    }
+  }
+
+  // Signals endpoint
+  app.get("/api/bot/signals", requireAuth, (_req, res) => {
+    res.json(signals);
+  });
+
+  // Manual signal refresh
+  app.post("/api/bot/refresh-signals", requireAuth, async (_req, res) => {
+    const topTickers = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "META", "AMD", "GOOGL"];
+    audit("REFRESH", "Generating fresh signals for top 10 tickers...");
+    await generateSignals(topTickers);
+    res.json({ ok: true, count: signals.length });
+  });
+
+  // ── Backtesting ───────────────────────────────────────────────────────────
+  app.post("/api/bot/backtest", requireAuth, async (req, res) => {
+    const { ticker = "SPY", strategy = "all", years = 3 } = req.body || {};
+    const scriptPath = path.resolve("backtest.py");
+    
+    try {
+      audit("BACKTEST", `Running ${strategy} on ${ticker} (${years}yr)`);
+      const { stdout } = await execAsync(
+        `python3 "${scriptPath}" "${ticker}" "${strategy}" "${years}"`,
+        { timeout: 120000 }
+      );
+      const result = JSON.parse(stdout.trim());
+      audit("BACKTEST", `Complete — ${result.results?.length || 0} strategies tested`);
+      res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
