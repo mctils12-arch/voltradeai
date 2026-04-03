@@ -2,7 +2,6 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import Home from "@/pages/home";
-import LoginPage from "@/pages/login";
 import { Component, ReactNode } from "react";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
@@ -27,7 +26,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
   }
 }
 
-function AuthGate() {
+function AppShell() {
   const { data, isLoading } = useQuery({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
@@ -38,26 +37,16 @@ function AuthGate() {
     retry: false,
   });
 
-  if (isLoading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000", color: "#6e6e73" }}>
-        Loading...
-      </div>
-    );
-  }
+  const authenticated = !isLoading && !!data?.authenticated;
 
-  if (!data?.authenticated) {
-    return <LoginPage onLogin={() => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] })} />;
-  }
-
-  return <Home />;
+  return <Home authenticated={authenticated} authLoading={isLoading} />;
 }
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
-        <AuthGate />
+        <AppShell />
         <Toaster />
       </ErrorBoundary>
     </QueryClientProvider>

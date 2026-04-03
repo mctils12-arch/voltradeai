@@ -1405,3 +1405,96 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   font-weight: 600;
   border: 1px solid;
 }
+
+/* ── Mobile Navigation ── */
+
+/* Desktop: show top nav, hide mobile elements */
+.mobile-top-bar { display: none; }
+.mobile-bottom-bar { display: none; }
+.desktop-nav { display: flex; }
+
+/* Mobile breakpoint: under 640px */
+@media (max-width: 639px) {
+  /* Hide desktop top nav on mobile */
+  .desktop-nav { display: none !important; }
+
+  /* Mobile top bar — just logo + buttons */
+  .mobile-top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    height: 48px;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0 0.75rem;
+  }
+
+  /* Mobile bottom tab bar */
+  .mobile-bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    height: 64px;
+    background: rgba(0, 0, 0, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    padding: 0 4px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .mobile-tab-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex: 1;
+    padding: 6px 0;
+    color: var(--text-tertiary);
+    transition: color 150ms ease;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-tab-btn.active {
+    color: #0a84ff;
+  }
+  .mobile-tab-label {
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1;
+  }
+  .mobile-tab-lock {
+    position: absolute;
+    top: 2px;
+    right: calc(50% - 18px);
+    font-size: 8px;
+  }
+
+  /* Adjust page content for mobile: shorter top bar, bottom bar padding */
+  .page-container {
+    padding-top: calc(48px + 0.75rem) !important;
+    padding-bottom: calc(64px + 1rem) !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+
+  /* Tighten up various elements for mobile */
+  .search-input { height: 42px; font-size: 0.9rem; }
+  .analyze-btn { height: 42px; padding: 0 1rem; font-size: 0.82rem; }
+  .company-name { font-size: 1rem; }
+  .chip { font-size: 0.7rem; padding: 0.2rem 0.55rem; }
+  .metric-card { padding: 0.65rem 0.75rem; }
+  .glass-card { border-radius: 12px; }
+}
