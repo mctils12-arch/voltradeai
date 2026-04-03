@@ -40,9 +40,10 @@ function Logo() {
 interface HomeProps {
   authenticated: boolean;
   authLoading: boolean;
+  isMobile: boolean;
 }
 
-export default function Home({ authenticated, authLoading }: HomeProps) {
+export default function Home({ authenticated, authLoading, isMobile }: HomeProps) {
   const [activeTab, setActiveTab] = useState<TabId>("analyze");
   const [dark, setDark] = useState(true);
   const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
@@ -116,14 +117,11 @@ export default function Home({ authenticated, authLoading }: HomeProps) {
             <button
               key={tab.id}
               className={`tab-btn ${activeTab === tab.id ? "active" : ""}`}
-              onClick={() => handleTabClick(tab.id)}
+              onClick={() => setActiveTab(tab.id)}
               aria-current={activeTab === tab.id ? "page" : undefined}
             >
               {tab.icon}
               {tab.label}
-              {tab.requiresAuth && !authenticated && (
-                <span style={{ fontSize: 9, opacity: 0.5, marginLeft: 2 }}>🔒</span>
-              )}
             </button>
           ))}
         </div>
@@ -137,26 +135,14 @@ export default function Home({ authenticated, authLoading }: HomeProps) {
           >
             {dark ? <Sun size={15} /> : <Moon size={15} />}
           </button>
-          {authenticated ? (
-            <button
-              className="theme-toggle-btn"
-              onClick={handleLogout}
-              aria-label="Sign out"
-              title="Sign out"
-            >
-              <LogOut size={15} />
-            </button>
-          ) : (
-            <button
-              className="theme-toggle-btn"
-              onClick={() => setShowLogin(true)}
-              aria-label="Sign in"
-              title="Sign in"
-              style={{ color: "#0a84ff" }}
-            >
-              <LogIn size={15} />
-            </button>
-          )}
+          <button
+            className="theme-toggle-btn"
+            onClick={handleLogout}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut size={15} />
+          </button>
         </div>
       </nav>
 
@@ -201,7 +187,19 @@ export default function Home({ authenticated, authLoading }: HomeProps) {
           <WatchlistPage onSelectTicker={handleSelectTicker} />
         )}
         {activeTab === "bot" && (
-          authenticated ? <BotDashboard /> : null
+          authenticated ? <BotDashboard /> : (
+            <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
+              <Bot size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
+              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>Sign in to access the AI Trading Bot</p>
+              <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>The bot scans the market, finds opportunities, and trades automatically.</p>
+              <button
+                onClick={() => setShowLogin(true)}
+                style={{ marginTop: "1.5rem", padding: "10px 24px", background: "#0a84ff", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+              >
+                Sign In
+              </button>
+            </div>
+          )
         )}
       </main>
 

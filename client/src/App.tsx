@@ -2,7 +2,8 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import Home from "@/pages/home";
-import { Component, ReactNode } from "react";
+import LoginPage from "@/pages/login";
+import { Component, ReactNode, useState, useEffect } from "react";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   constructor(props: any) {
@@ -26,6 +27,16 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
   }
 }
 
+function useMobile(breakpoint = 640) {
+  const [mobile, setMobile] = useState(window.innerWidth < breakpoint);
+  useEffect(() => {
+    const handler = () => setMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, [breakpoint]);
+  return mobile;
+}
+
 function AppShell() {
   const { data, isLoading } = useQuery({
     queryKey: ["/api/auth/me"],
@@ -38,8 +49,24 @@ function AppShell() {
   });
 
   const authenticated = !isLoading && !!data?.authenticated;
+  const isMobile = useMobile();
 
-  return <Home authenticated={authenticated} authLoading={isLoading} />;
+  // Desktop: require login first (original behavior)
+  if (!isMobile) {
+    if (isLoading) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000", color: "#6e6e73" }}>
+          Loading...
+        </div>
+      );
+    }
+    if (!authenticated) {
+      return <LoginPage onLogin={() => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] })} />;
+    }
+  }
+
+  // Desktop authenticated OR mobile (public)
+  return <Home authenticated={authenticated} authLoading={isLoading} isMobile={isMobile} />;
 }
 
 function App() {
