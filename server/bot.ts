@@ -449,17 +449,25 @@ export function registerBotRoutes(app: Express) {
         }
 
         try {
+          // Check if we're in extended hours
+          const clock = await alpaca("/v2/clock");
+          const isExtended = !clock.is_open;
+          
           const order = await alpaca("/v2/orders", {
             method: "POST",
             body: JSON.stringify({
               symbol: trade.ticker,
               qty: String(trade.shares),
               side: "buy",
-              type: "market",
-              time_in_force: "day",
+              type: isExtended ? "limit" : "market",
+              // Extended hours requires limit orders
+              ...(isExtended ? { limit_price: String(trade.price) } : {}),
+              time_in_force: isExtended ? "day" : "day",
+              extended_hours: isExtended,
             }),
           });
-          audit("AUTO-TRADE", `BUY ${trade.shares} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
+          const session = isExtended ? "[EXTENDED]" : "[REGULAR]";
+          audit("AUTO-TRADE", `${session} BUY ${trade.shares} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
         } catch (e: any) {
           audit("AUTO-ERROR", `Failed to buy ${trade.ticker}: ${e.message}`);
         }
@@ -477,15 +485,109 @@ export function registerBotRoutes(app: Express) {
     lastAutoRun = Date.now();
   }
 
+  // ── Overnight Research Engine (8pm-4am ET) ───────────────────────────────
+  let lastResearchRun = 0;
+
+  async function runOvernightResearch(etHour: number) {
+    // Only run once per hour to save resources
+    if (Date.now() - lastResearchRun < 55 * 60 * 1000) return;
+    lastResearchRun = Date.now();
+    autoRunning = true;
+
+    try {
+      // 8pm-10pm: Scan market, find tomorrow's opportunities
+      if (etHour >= 20 && etHour < 22) {
+        audit("RESEARCH", "Evening scan — analyzing today's movers for tomorrow's plays");
+        const enginePath3 = path.resolve("bot_engine.py");
+        const { stdout } = await execAsync(`python3 "${enginePath3}" scan`, { timeout: 180000 });
+        lastScanResult = JSON.parse(stdout.trim());
+        audit("RESEARCH", `Scanned ${lastScanResult.scanned || 0} stocks — top picks identified for morning`);
+      }
+
+      // 10pm-12am: Run backtests on current strategies to validate they still work
+      if (etHour >= 22 || etHour < 0) {
+        audit("RESEARCH", "Running backtest validation on active strategies...");
+        const btPath = path.resolve("backtest.py");
+        try {
+          const { stdout: btOut } = await execAsync(
+            `python3 "${btPath}" SPY all 2`, { timeout: 120000 }
+          );
+          const btResult = JSON.parse(btOut.trim());
+          const results = btResult.results || [];
+          for (const r of results) {
+            const status = (r.sharpe || 0) >= 1.0 ? "PASSING" : (r.sharpe || 0) >= 0.5 ? "MARGINAL" : "FAILING";
+            audit("RESEARCH", `Backtest ${r.strategy}: Sharpe ${r.sharpe}, Return ${r.totalReturn}%, Drawdown ${r.maxDrawdown}% — ${status}`);
+          }
+        } catch {}
+      }
+
+      // 12am-2am: Deep analyze earnings reporters for tomorrow
+      if (etHour >= 0 && etHour < 2) {
+        audit("RESEARCH", "Analyzing upcoming earnings and overnight news...");
+        const earningsTickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"];
+        for (const t of earningsTickers) {
+          try {
+            const { stdout: aOut } = await execAsync(
+              `python3 "${path.resolve('analyze.py')}" "${t}" --mode=scan`, { timeout: 30000 }
+            );
+            const analysis = JSON.parse(aOut.trim());
+            const ei = analysis.earnings_intel;
+            if (ei && ei.days_to_earnings >= 0 && ei.days_to_earnings <= 5) {
+              audit("RESEARCH", `EARNINGS ALERT: ${t} reports in ${ei.days_to_earnings} days (${ei.timing}). Beat rate: ${ei.beat_pct}%. IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
+            }
+          } catch {}
+        }
+      }
+
+      // 2am-4am: Prepare pre-market report
+      if (etHour >= 2 && etHour < 4) {
+        audit("RESEARCH", "Compiling pre-market report...");
+        // Re-scan to get freshest data
+        const enginePath4 = path.resolve("bot_engine.py");
+        try {
+          const { stdout: scanOut } = await execAsync(`python3 "${enginePath4}" scan`, { timeout: 180000 });
+          lastScanResult = JSON.parse(scanOut.trim());
+          const topTrades = lastScanResult.new_trades || [];
+          if (topTrades.length > 0) {
+            audit("RESEARCH", `PRE-MARKET REPORT: ${topTrades.length} trade opportunities ready. Top pick: ${topTrades[0].ticker} (score ${topTrades[0].score})`);
+          } else {
+            audit("RESEARCH", "PRE-MARKET REPORT: No high-conviction trades found. Bot will monitor during pre-market.");
+          }
+        } catch {}
+      }
+
+    } catch (e: any) {
+      audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
+    }
+
+    autoRunning = false;
+  }
+
   // Auto-run every 15 minutes when bot is active
+  // Trades during: pre-market (4am-9:30am ET), regular hours (9:30am-4pm ET), after hours (4pm-8pm ET)
+  // Research during: 8pm-4am ET
   setInterval(async () => {
     if (!state.active || state.killSwitch) return;
 
-    // Check if market is open
+    // Check market status — trade in extended hours too
     try {
       const clock = await alpaca("/v2/clock");
-      if (!clock.is_open) {
-        return; // Don't trade when market is closed
+      const now = new Date(clock.timestamp);
+      const etHour = now.getUTCHours() - 4; // Approximate ET
+      const isExtendedHours = (etHour >= 4 && etHour < 9.5) || (etHour >= 16 && etHour < 20);
+      const isRegularHours = clock.is_open;
+      
+      if (!isRegularHours && !isExtendedHours) {
+        // 8pm-4am ET = Research & Preparation mode
+        // Run full analysis, backtests, revalidation — no live trades
+        if (!autoRunning) {
+          await runOvernightResearch(etHour);
+        }
+        return;
+      }
+      
+      if (isExtendedHours) {
+        audit("AUTO", "Running extended hours scan (pre-market/after-hours)");
       }
     } catch { return; }
 
