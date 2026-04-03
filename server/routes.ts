@@ -166,19 +166,22 @@ async function scanBatch(tickers: string[]): Promise<ScanResult[]> {
 
 async function refreshTier1(): Promise<void> {
   try {
-    const BATCH = 20;
-    const fresh: ScanResult[] = [];
+    const BATCH = 5; // small batches to avoid overloading
     for (let i = 0; i < TIER1_TICKERS.length; i += BATCH) {
       const batch = TIER1_TICKERS.slice(i, i + BATCH);
       const results = await scanBatch(batch);
-      fresh.push(...results);
-      // Also update fullUniverseCache
       for (const r of results) {
         fullUniverseCache.set(r.ticker, r);
       }
+      // Update tier1Cache incrementally so scanner shows results as they come in
+      const allCached = Array.from(fullUniverseCache.values())
+        .filter(r => TIER1_TICKERS.includes(r.ticker));
+      tier1Cache = sortByScore(applyFreshness(allCached));
+      tier1LastUpdate = Date.now();
+      // Pause between batches to stay under memory limits
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
-    tier1Cache = sortByScore(applyFreshness(fresh));
-    tier1LastUpdate = Date.now();
+    console.log(`[scanner] Tier1 refresh complete — ${tier1Cache.length} tickers`);
   } catch (err) {
     console.error("[scanner] Tier1 refresh error:", err);
   }
@@ -476,17 +479,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
-  // Pre-warm: run a quick scan of top 10 tickers on startup so scanner has data
-  setTimeout(() => {
-    console.log("[scanner] Pre-warming with top 10 tickers...");
-    const warmBatch = TIER1_TICKERS.slice(0, 10);
-    scanBatch(warmBatch).then(results => {
-      tier1Cache = sortByScore(applyFreshness(results));
+  // Startup scan: scan top 5 tickers immediately (fast), then rest in background
+  const TOP5 = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA"];
+  setTimeout(async () => {
+    console.log("[scanner] Quick-start scanning top 5 tickers...");
+    try {
+      const quickResults = await scanBatch(TOP5);
+      tier1Cache = sortByScore(applyFreshness(quickResults));
       tier1LastUpdate = Date.now();
-      for (const r of results) fullUniverseCache.set(r.ticker, r);
-      console.log(`[scanner] Pre-warm complete — ${results.length} tickers cached`);
-    }).catch(err => console.error("[scanner] Pre-warm failed:", err));
-  }, 3000);
+      for (const r of quickResults) fullUniverseCache.set(r.ticker, r);
+      console.log(`[scanner] Quick-start done — ${quickResults.length} tickers ready`);
+    } catch (err) {
+      console.error("[scanner] Quick-start failed:", err);
+    }
+    // Then scan the rest of Tier 1 in background
+    console.log("[scanner] Starting full Tier 1 scan in background...");
+    refreshTier1().catch(console.error);
+  }, 2000);
 
   return httpServer;
 }
