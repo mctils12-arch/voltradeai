@@ -401,6 +401,20 @@ export function registerBotRoutes(app: Express) {
     if (!state.active || state.killSwitch || autoRunning) return;
     // Don't re-run if last scan was less than 30 seconds ago
     if (Date.now() - lastAutoRun < 30000 && lastAutoRun > 0) return;
+
+    // CHECK: Is market actually open for ANY trading?
+    try {
+      const clockCheck = await alpaca("/v2/clock");
+      const nowCheck = new Date(clockCheck.timestamp);
+      const etH = nowCheck.getUTCHours() - 4;
+      const isAnyTradingWindow = clockCheck.is_open || (etH >= 4 && etH < 20);
+      
+      if (!isAnyTradingWindow) {
+        // Market fully closed (8pm-4am ET) — do research only, no trades
+        return;
+      }
+    } catch { return; }
+
     autoRunning = true;
     audit("AUTO", "Starting autonomous scan cycle...");
 
@@ -786,9 +800,23 @@ export function registerBotRoutes(app: Express) {
     audit("SCHEDULE", `10pm-12am ET: Backtest validation — check strategies still work`);
     audit("SCHEDULE", `12am-2am ET: Earnings analysis — upcoming reporters`);
     audit("SCHEDULE", `2am-4am ET: Pre-market report — compile morning trade list`);
-    audit("SYSTEM", "Bot auto-started. First scan in 15 seconds...");
-    
-    setTimeout(() => runAutonomousCycle(), 15000);
+    // Check if market is in any trading window before first scan
+    alpaca("/v2/clock").then((clock: any) => {
+      const now3 = new Date(clock.timestamp);
+      const etH3 = now3.getUTCHours() - 4;
+      const canTrade = clock.is_open || (etH3 >= 4 && etH3 < 20);
+      
+      if (canTrade) {
+        audit("SYSTEM", "Market is in a trading window. First scan starting...");
+        setTimeout(() => runAutonomousCycle(), 5000);
+      } else {
+        const nextOpen = clock.next_open ? new Date(clock.next_open).toLocaleString("en-US", { timeZone: "America/New_York" }) : "unknown";
+        audit("SYSTEM", `Market is closed. No trading until next session. Next open: ${nextOpen} ET`);
+        audit("SYSTEM", "Bot is idle. Will auto-scan when market opens.");
+      }
+    }).catch(() => {
+      audit("SYSTEM", "Could not check market status. Will retry on next cycle.");
+    });
   }, 5000);
 
   // Route: Force immediate scan
