@@ -1471,6 +1471,209 @@ def compute_options_flow(calls, puts):
         return 1.0, "Balanced", 0.0, 0.0
 
 
+# ── New Edge Factors ─────────────────────────────────────────────────────────
+
+def compute_put_call_ratio(calls_df, puts_df):
+    """
+    Put/Call ratio from open interest.
+    > 1.5 = extreme fear (contrarian buy)
+    < 0.5 = extreme greed (contrarian sell)
+    Returns: ratio, signal, interpretation
+    """
+    try:
+        call_oi = float(calls_df['openInterest'].fillna(0).sum()) if calls_df is not None and not calls_df.empty else 0
+        put_oi  = float(puts_df['openInterest'].fillna(0).sum())  if puts_df  is not None and not puts_df.empty  else 0
+        if call_oi == 0:
+            return None, "Unknown", "No open interest data"
+        ratio = round(put_oi / call_oi, 2)
+        if ratio > 1.5:
+            signal = "Extreme Fear"
+            interp = "Heavy put buying — contrarian BUY signal. Market expects big drop."
+        elif ratio > 1.0:
+            signal = "Bearish"
+            interp = "More puts than calls — cautious/bearish positioning."
+        elif ratio > 0.7:
+            signal = "Neutral"
+            interp = "Normal put/call balance — no extreme positioning."
+        elif ratio > 0.5:
+            signal = "Bullish"
+            interp = "More calls than puts — bullish positioning."
+        else:
+            signal = "Extreme Greed"
+            interp = "Heavy call buying — contrarian SELL signal. Euphoria may be peaking."
+        return ratio, signal, interp
+    except Exception:
+        return None, "Unknown", "Could not compute"
+
+
+def compute_iv_crush_score(atm_iv, earnings_intel_data):
+    """
+    IV Crush Score — how much IV is likely to drop after earnings.
+    Higher = better opportunity to sell IV before earnings.
+    Returns: score 0-100, expected crush %, recommendation
+    """
+    try:
+        days_to_earn = earnings_intel_data.get('days_to_earnings')
+        iv_implied   = earnings_intel_data.get('iv_implied_move')
+        hist_move    = earnings_intel_data.get('historical_avg_move')
+        beat_pct     = earnings_intel_data.get('beat_pct', 50) or 50
+
+        if days_to_earn is None or days_to_earn < 0 or days_to_earn > 21:
+            return None, None, "No upcoming earnings within 21 days"
+
+        if iv_implied is None or hist_move is None:
+            return None, None, "Insufficient data"
+
+        # IV crush = difference between IV implied move and historical actual move
+        crush_pct = round(iv_implied - hist_move, 1)
+        
+        # Score: higher = more IV overpricing = better to sell
+        score = min(100, max(0, int((crush_pct / max(hist_move, 1)) * 100)))
+
+        if crush_pct > 5:
+            rec = f"Strong IV Crush setup — IV implying {iv_implied:.1f}% move but history shows {hist_move:.1f}%. Sell straddle {days_to_earn}d before earnings."
+        elif crush_pct > 2:
+            rec = f"Moderate IV Crush — sell iron condor or strangle before earnings."
+        elif crush_pct < -2:
+            rec = f"IV is CHEAP vs history — consider buying a straddle before earnings."
+        else:
+            rec = "IV fairly priced vs earnings history. No strong crush play."
+
+        return score, crush_pct, rec
+    except Exception:
+        return None, None, "Could not compute"
+
+
+def compute_short_squeeze_score(fundamentals, sentiment_data, vol_metrics):
+    """
+    Short Squeeze Score 0-100.
+    High score = high squeeze potential.
+    Factors: short float %, days to cover, sentiment, volume spike, price momentum.
+    """
+    try:
+        short_pct    = fundamentals.get('short_pct_float', 0) or 0
+        days_cover   = fundamentals.get('short_ratio', 0) or 0
+        sentiment    = sentiment_data.get('score', 50) or 50
+        vol_spike    = vol_metrics.get('volume_ratio_5d', 1) or 1
+        reddit_buzz  = sentiment_data.get('reddit_buzz', 0) or 0
+
+        score = 0
+
+        # Short float (max 40 pts) — higher short = more fuel
+        if short_pct >= 30:   score += 40
+        elif short_pct >= 20: score += 30
+        elif short_pct >= 15: score += 20
+        elif short_pct >= 10: score += 12
+        elif short_pct >= 5:  score += 5
+
+        # Days to cover (max 20 pts) — longer = shorts more trapped
+        if days_cover >= 10:  score += 20
+        elif days_cover >= 7: score += 14
+        elif days_cover >= 5: score += 8
+        elif days_cover >= 3: score += 4
+
+        # Sentiment (max 20 pts) — retail buying into shorts
+        if sentiment >= 75:   score += 20
+        elif sentiment >= 60: score += 12
+        elif sentiment >= 50: score += 6
+
+        # Volume spike (max 10 pts) — unusual activity
+        if vol_spike >= 3:    score += 10
+        elif vol_spike >= 2:  score += 6
+        elif vol_spike >= 1.5: score += 3
+
+        # Reddit buzz (max 10 pts)
+        if reddit_buzz >= 8:  score += 10
+        elif reddit_buzz >= 5: score += 6
+        elif reddit_buzz >= 3: score += 3
+
+        score = min(100, score)
+
+        if score >= 70:
+            signal = "High Squeeze Risk"
+            desc   = f"Short float {short_pct:.1f}%, {days_cover:.1f} days to cover — shorts are trapped. Retail FOMO building."
+        elif score >= 50:
+            signal = "Moderate Squeeze Potential"
+            desc   = f"Short float {short_pct:.1f}% with rising sentiment. Watch for volume catalyst."
+        elif score >= 30:
+            signal = "Low Squeeze Risk"
+            desc   = f"Some short interest but not enough for a major squeeze."
+        else:
+            signal = "No Squeeze Risk"
+            desc   = f"Low short interest — stock moves on fundamentals."
+
+        return score, signal, desc
+    except Exception:
+        return 0, "Unknown", "Could not compute"
+
+
+def compute_gamma_pin(calls_df, puts_df, spot):
+    """
+    Find the gamma pin level — the strike with highest total open interest.
+    This is the 'magnet' price where market makers force the stock to gravitate.
+    Returns: pin_strike, total_oi, distance_pct
+    """
+    try:
+        if calls_df is None or puts_df is None:
+            return None, None, None
+
+        # Combine OI by strike
+        oi_map = {}
+        for df in [calls_df, puts_df]:
+            for _, row in df.iterrows():
+                strike = float(row.get('strike', 0))
+                oi     = float(row.get('openInterest', 0) or 0)
+                if strike > 0:
+                    oi_map[strike] = oi_map.get(strike, 0) + oi
+
+        if not oi_map:
+            return None, None, None
+
+        # Find strike with max OI
+        pin_strike = max(oi_map, key=oi_map.get)
+        total_oi   = int(oi_map[pin_strike])
+        distance_pct = round((pin_strike - spot) / spot * 100, 1)
+
+        return round(pin_strike, 2), total_oi, distance_pct
+    except Exception:
+        return None, None, None
+
+
+def compute_relative_strength(hist, spy_hist=None):
+    """
+    Relative strength vs SPY over last 20 days.
+    > 0 = outperforming market
+    < 0 = underperforming market
+    Returns: rs_score, signal
+    """
+    try:
+        if len(hist) < 20:
+            return None, "Insufficient data"
+
+        stock_return = (hist['Close'].iloc[-1] / hist['Close'].iloc[-20] - 1) * 100
+
+        # If no SPY data, just use absolute return as proxy
+        if spy_hist is None or len(spy_hist) < 20:
+            if stock_return > 5:   signal = "Strong"
+            elif stock_return > 0: signal = "Positive"
+            elif stock_return > -5: signal = "Weak"
+            else:                  signal = "Very Weak"
+            return round(stock_return, 1), signal
+
+        spy_return = (spy_hist['Close'].iloc[-1] / spy_hist['Close'].iloc[-20] - 1) * 100
+        rs = round(stock_return - spy_return, 1)
+
+        if rs > 10:    signal = "Strong Outperformer"
+        elif rs > 3:   signal = "Outperforming Market"
+        elif rs > -3:  signal = "In line with Market"
+        elif rs > -10: signal = "Underperforming"
+        else:          signal = "Weak — Lagging Market"
+
+        return rs, signal
+    except Exception:
+        return None, "Unknown"
+
+
 # ── Main analysis ──────────────────────────────────────────────────────────────
 
 def analyze_ticker(ticker_symbol):
@@ -1877,6 +2080,62 @@ def analyze_ticker(ticker_symbol):
             "caution_flag": None,
         }
 
+    # ── New Edge Factors ──────────────────────────────────────────────────
+
+    # Put/Call Ratio
+    edge_factors = {}
+    try:
+        _first_calls = _gex_calls
+        _first_puts  = _gex_puts
+        pcr, pcr_signal, pcr_interp = compute_put_call_ratio(_first_calls, _first_puts)
+        if pcr is not None:
+            edge_factors['put_call_ratio'] = pcr
+            edge_factors['put_call_signal'] = pcr_signal
+            edge_factors['put_call_interp'] = pcr_interp
+    except Exception:
+        pass
+
+    # IV Crush Score
+    try:
+        iv_crush_score, iv_crush_pct, iv_crush_rec = compute_iv_crush_score(atm_iv, earnings_intel_data)
+        if iv_crush_score is not None:
+            edge_factors['iv_crush_score'] = iv_crush_score
+            edge_factors['iv_crush_pct'] = iv_crush_pct
+            edge_factors['iv_crush_rec'] = iv_crush_rec
+    except Exception:
+        pass
+
+    # Short Squeeze Score
+    try:
+        squeeze_score, squeeze_signal, squeeze_desc = compute_short_squeeze_score(
+            fundamentals, sentiment_data, vol_metrics
+        )
+        edge_factors['squeeze_score'] = squeeze_score
+        edge_factors['squeeze_signal'] = squeeze_signal
+        edge_factors['squeeze_desc'] = squeeze_desc
+    except Exception:
+        pass
+
+    # Gamma Pin Level
+    try:
+        pin_strike, pin_oi, pin_dist = compute_gamma_pin(_gex_calls, _gex_puts, spot)
+        if pin_strike is not None:
+            edge_factors['gamma_pin'] = pin_strike
+            edge_factors['gamma_pin_oi'] = pin_oi
+            edge_factors['gamma_pin_dist_pct'] = pin_dist
+    except Exception:
+        pass
+
+    # Relative Strength
+    try:
+        _spy = yf.Ticker("SPY").history(period="1mo")
+        rs_score, rs_signal = compute_relative_strength(hist, _spy)
+        if rs_score is not None:
+            edge_factors['relative_strength'] = rs_score
+            edge_factors['relative_strength_signal'] = rs_signal
+    except Exception:
+        pass
+
     # ── Module 3: Recommendation Engine ──────────────────────────────────
     try:
         recommendation_data = get_recommendation(
@@ -1916,6 +2175,7 @@ def analyze_ticker(ticker_symbol):
         "sentiment":        sentiment_data,
         "earnings_intel":   earnings_intel_data,
         "recommendation":   recommendation_data,
+        "edge_factors":     edge_factors,
     }
 
     return result

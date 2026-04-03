@@ -87,6 +87,23 @@ interface Recommendation {
   leveraged_bear?: string;
 }
 
+interface EdgeFactors {
+  put_call_ratio?: number;
+  put_call_signal?: string;
+  put_call_interp?: string;
+  iv_crush_score?: number;
+  iv_crush_pct?: number;
+  iv_crush_rec?: string;
+  squeeze_score?: number;
+  squeeze_signal?: string;
+  squeeze_desc?: string;
+  gamma_pin?: number;
+  gamma_pin_oi?: number;
+  gamma_pin_dist_pct?: number;
+  relative_strength?: number;
+  relative_strength_signal?: string;
+}
+
 interface Fundamentals {
   // Live price
   open?: number; day_high?: number; day_low?: number;
@@ -131,6 +148,7 @@ interface AnalysisResult {
   sentiment?: Sentiment;
   earnings_intel?: EarningsIntel;
   recommendation?: Recommendation;
+  edge_factors?: EdgeFactors;
   error?: string;
 }
 
@@ -1621,6 +1639,105 @@ function ScanProgressBar() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Edge Factors Panel
+// ────────────────────────────────────────────────────────────────────────────
+
+function EdgeFactorsPanel({ ef, spot }: { ef: EdgeFactors; spot: number }) {
+  return (
+    <div className="panel" data-testid="section-edge-factors">
+      <div className="panel-title">
+        <Zap size={14} />
+        Edge Factors
+        <span className="ml-auto text-xs text-slate-500">Advanced signals for higher accuracy</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+
+        {/* Put/Call Ratio */}
+        {ef.put_call_ratio != null && (
+          <div className="mini-metric col-span-2">
+            <div className="mini-label">Put/Call Ratio (Open Interest)</div>
+            <div className={`mini-value ${
+              ef.put_call_signal === 'Extreme Fear' ? 'text-emerald-400' :
+              ef.put_call_signal === 'Extreme Greed' ? 'text-rose-400' :
+              ef.put_call_signal === 'Bearish' ? 'text-amber-400' :
+              ef.put_call_signal === 'Bullish' ? 'text-blue-400' : 'text-slate-300'
+            }`}>
+              {Number(ef.put_call_ratio).toFixed(2)} — {ef.put_call_signal}
+            </div>
+            <div className="text-xs text-slate-500 mt-0.5">{ef.put_call_interp}</div>
+          </div>
+        )}
+
+        {/* Short Squeeze */}
+        {ef.squeeze_score != null && (
+          <div className="mini-metric col-span-2">
+            <div className="mini-label">Short Squeeze Score</div>
+            <div className="flex items-center gap-2 mt-1">
+              <div className="flex-1 h-2 rounded-full bg-white/10">
+                <div
+                  className={`h-full rounded-full ${ef.squeeze_score >= 70 ? 'bg-rose-500' : ef.squeeze_score >= 50 ? 'bg-amber-500' : 'bg-slate-500'}`}
+                  style={{ width: `${ef.squeeze_score}%` }}
+                />
+              </div>
+              <span className={`text-sm font-mono font-bold ${ef.squeeze_score >= 70 ? 'text-rose-400' : ef.squeeze_score >= 50 ? 'text-amber-400' : 'text-slate-400'}`}>
+                {ef.squeeze_score}/100
+              </span>
+            </div>
+            <div className="text-xs font-semibold mt-1">{ef.squeeze_signal}</div>
+            <div className="text-xs text-slate-500 mt-0.5">{ef.squeeze_desc}</div>
+          </div>
+        )}
+
+        {/* IV Crush */}
+        {ef.iv_crush_score != null && (
+          <div className="mini-metric col-span-2">
+            <div className="mini-label">IV Crush Score (Earnings)</div>
+            <div className={`mini-value ${ef.iv_crush_score >= 60 ? 'text-emerald-400' : ef.iv_crush_score >= 30 ? 'text-amber-400' : 'text-slate-300'}`}>
+              {ef.iv_crush_score}/100
+              {ef.iv_crush_pct != null && <span className="text-slate-500 ml-2 text-xs font-normal">Expected crush: {Number(ef.iv_crush_pct).toFixed(1)}%</span>}
+            </div>
+            <div className="text-xs text-slate-500 mt-0.5">{ef.iv_crush_rec}</div>
+          </div>
+        )}
+
+        {/* Gamma Pin */}
+        {ef.gamma_pin != null && (
+          <div className="mini-metric">
+            <div className="mini-label">Gamma Pin Level</div>
+            <div className="mini-value text-blue-400">${Number(ef.gamma_pin).toFixed(2)}</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              {ef.gamma_pin_dist_pct != null && `${ef.gamma_pin_dist_pct > 0 ? '+' : ''}${Number(ef.gamma_pin_dist_pct).toFixed(1)}% from spot`}
+              {ef.gamma_pin_oi != null && ` · ${(ef.gamma_pin_oi / 1000).toFixed(0)}K OI`}
+            </div>
+          </div>
+        )}
+
+        {/* Relative Strength */}
+        {ef.relative_strength != null && (
+          <div className="mini-metric">
+            <div className="mini-label">Relative Strength (20d vs SPY)</div>
+            <div className={`mini-value ${ef.relative_strength > 3 ? 'text-emerald-400' : ef.relative_strength < -3 ? 'text-rose-400' : 'text-slate-300'}`}>
+              {ef.relative_strength > 0 ? '+' : ''}{Number(ef.relative_strength).toFixed(1)}%
+            </div>
+            <div className="text-xs text-slate-500 mt-0.5">{ef.relative_strength_signal}</div>
+          </div>
+        )}
+
+      </div>
+
+      <div className="mt-3 text-xs text-slate-500 leading-relaxed">
+        <strong>P/C Ratio</strong> = Put/Call open interest ratio. High = fear (buy signal). Low = greed (sell signal).<br/>
+        <strong>Squeeze Score</strong> = probability of a short squeeze based on short float, days to cover, and sentiment.<br/>
+        <strong>IV Crush</strong> = how much IV is overpriced before earnings — sell options if high.<br/>
+        <strong>Gamma Pin</strong> = the strike price where market makers will pin the stock near expiry (highest open interest).<br/>
+        <strong>Relative Strength</strong> = how much this stock is outperforming/underperforming SPY over 20 days.
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Market scanner
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -2131,6 +2248,11 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                 {data.sentiment && <SentimentPanel sentiment={data.sentiment} />}
                 {data.earnings_intel && <EarningsIntelPanel intel={data.earnings_intel} />}
               </div>
+            )}
+
+            {/* Edge Factors Panel */}
+            {data.edge_factors && Object.keys(data.edge_factors).length > 0 && (
+              <EdgeFactorsPanel ef={data.edge_factors} spot={data.spot} />
             )}
 
             {/* Volume & Bennett metrics */}
