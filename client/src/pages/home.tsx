@@ -731,8 +731,8 @@ function VolSurfaceChart({ data }: { data: VolSurface[] }) {
   if (!data || data.length === 0) return null;
   const maxIv = Math.max(...data.map(d => d.atm_iv)) * 1.15;
   return (
-    <div className="mt-4">
-      <div className="text-xs text-slate-400 mb-2" style={{ textTransform: 'none', letterSpacing: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Term Structure — ATM IV by Expiry</div>
+    <div className="mt-4" style={{ overflow: 'hidden' }}>
+      <div className="text-xs text-slate-400 mb-2" style={{ textTransform: 'none', letterSpacing: 0, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', display: 'block' }}>Term Structure — ATM IV by Expiry</div>
       <div className="flex items-end gap-2" style={{ height: '64px', marginTop: '4px' }}>
         {data.map((d, i) => {
           const h = Math.max(4, (d.atm_iv / maxIv) * 60);
