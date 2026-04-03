@@ -336,7 +336,7 @@ async function runBackgroundScanner(): Promise<void> {
   console.log("[scanner] Background scanner starting…");
 
   // Use Tier 1 only — keeps CPU usage low on local machines
-  let universe: string[] = Array.from(new Set(TIER1_TICKERS));
+  const universe: string[] = Array.from(new Set(TIER1_TICKERS));
   console.log(`[scanner] Universe size: ${universe.length} tickers (Tier 1 only)`);
 
   // Perpetual loop
@@ -477,14 +477,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Scan progress ─────────────────────────────────────────────────────────
   app.get("/api/scan/progress", (_req, res) => {
+    const total = fullScanProgress.total || 1;
+    const pct = Math.round((fullScanProgress.current / total) * 100);
     return res.json({
-      progress: { ...fullScanProgress },
+      progress: pct,
       cached_count: fullUniverseCache.size,
     });
   });
 
-  // Background scanner disabled — runs on-demand only to save CPU
-  // setTimeout(() => { runBackgroundScanner()... }, 2000);
+  // Pre-warm: run a quick scan of top 10 tickers on startup so scanner has data
+  setTimeout(() => {
+    console.log("[scanner] Pre-warming with top 10 tickers...");
+    const warmBatch = TIER1_TICKERS.slice(0, 10);
+    scanBatch(warmBatch).then(results => {
+      tier1Cache = sortByScore(applyFreshness(results));
+      tier1LastUpdate = Date.now();
+      for (const r of results) fullUniverseCache.set(r.ticker, r);
+      console.log(`[scanner] Pre-warm complete — ${results.length} tickers cached`);
+    }).catch(err => console.error("[scanner] Pre-warm failed:", err));
+  }, 3000);
 
   return httpServer;
 }
