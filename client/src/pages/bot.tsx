@@ -106,12 +106,6 @@ function CalendarBanner() {
 
 export default function BotDashboard() {
   // ── Local state for backtest form ─────────────────────────────────────────
-  const [btTicker, setBtTicker] = useState("SPY");
-  const [btStrategy, setBtStrategy] = useState("all");
-  const [btYears, setBtYears] = useState("3");
-  const [btResults, setBtResults] = useState<any>(null);
-  const [btLoading, setBtLoading] = useState(false);
-  const [btError, setBtError] = useState("");
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const { data: acct } = useQuery({
@@ -172,26 +166,6 @@ export default function BotDashboard() {
   const isKilled = status?.killSwitch ?? false;
   const isActive = status?.active ?? false;
 
-  // ── Backtest runner ───────────────────────────────────────────────────────
-  async function runBacktest() {
-    setBtLoading(true);
-    setBtError("");
-    setBtResults(null);
-    try {
-      const r = await apiRequest("POST", "/api/bot/backtest", {
-        ticker: btTicker.toUpperCase().trim(),
-        strategy: btStrategy,
-        years: parseInt(btYears),
-      });
-      const data = await r.json();
-      if (data.error) { setBtError(data.error); }
-      else { setBtResults(data); }
-    } catch (e: any) {
-      setBtError(e.message || "Backtest failed");
-    } finally {
-      setBtLoading(false);
-    }
-  }
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -371,152 +345,6 @@ export default function BotDashboard() {
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Zap size={28} style={{ color: "#3a3a3c", marginBottom: "12px" }} />
             <p style={{ color: "#6e6e73", fontSize: "13px", margin: 0 }}>No signals yet. Click <strong style={{ color: "#ff9f0a" }}>Refresh Signals</strong> to scan top 10 tickers.</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Backtest Panel ── */}
-      <div style={{ ...card, marginBottom: "20px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-          <BarChart2 size={14} style={{ color: "#0a84ff" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>
-            <Tip id="backtest">Strategy Backtesting</Tip>
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "11px", color: "#6e6e73" }}>Historical walk-forward validation</span>
-        </div>
-
-        {/* Form row */}
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <span style={{ ...label }}>Ticker</span>
-            <input
-              value={btTicker}
-              onChange={e => setBtTicker(e.target.value.toUpperCase())}
-              placeholder="SPY"
-              style={{
-                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: "8px", padding: "8px 12px", color: "#f5f5f7", fontSize: "13px",
-                fontFamily: "monospace", width: "90px", outline: "none",
-              }}
-            />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <span style={{ ...label }}>Strategy</span>
-            <select
-              value={btStrategy}
-              onChange={e => setBtStrategy(e.target.value)}
-              style={{
-                background: "rgba(30,30,35,0.95)", border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: "8px", padding: "8px 12px", color: "#f5f5f7", fontSize: "13px", outline: "none",
-              }}
-            >
-              <option value="all">All Strategies</option>
-              <option value="momentum">Momentum</option>
-              <option value="mean_reversion">Mean Reversion</option>
-              <option value="vol_selling">Vol Selling</option>
-              <option value="combined">Combined</option>
-            </select>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <span style={{ ...label }}>Years</span>
-            <select
-              value={btYears}
-              onChange={e => setBtYears(e.target.value)}
-              style={{
-                background: "rgba(30,30,35,0.95)", border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: "8px", padding: "8px 12px", color: "#f5f5f7", fontSize: "13px", outline: "none",
-              }}
-            >
-              <option value="1">1 year</option>
-              <option value="2">2 years</option>
-              <option value="3">3 years</option>
-              <option value="5">5 years</option>
-            </select>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-            <button
-              onClick={runBacktest}
-              disabled={btLoading}
-              style={{
-                display: "flex", alignItems: "center", gap: "6px",
-                padding: "8px 20px", borderRadius: "8px", border: "none",
-                background: btLoading ? "#333" : "#0a84ff", color: "white",
-                fontSize: "13px", fontWeight: 600, cursor: btLoading ? "not-allowed" : "pointer",
-              }}
-            >
-              <TrendingUp size={14} />
-              {btLoading ? "Running..." : "Run Backtest"}
-            </button>
-          </div>
-        </div>
-
-        {btError && (
-          <div style={{ background: "rgba(255,69,58,0.1)", border: "1px solid rgba(255,69,58,0.2)", borderRadius: "8px", padding: "10px 14px", color: "#ff453a", fontSize: "13px", marginBottom: "12px" }}>
-            Error: {btError}
-          </div>
-        )}
-
-        {btLoading && (
-          <div style={{ textAlign: "center", padding: "24px 0", color: "#6e6e73", fontSize: "13px" }}>
-            Downloading historical data and running simulations... (may take 30–60s)
-          </div>
-        )}
-
-        {btResults && Array.isArray(btResults.results) && (
-          <div>
-            <div style={{ fontSize: "12px", color: "#6e6e73", marginBottom: "10px" }}>
-              {btResults.ticker} · {btResults.years}yr backtest
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-                <thead>
-                  <tr style={{ color: "#6e6e73", textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                    <th style={{ padding: "8px 10px" }}>Strategy</th>
-                    <th style={{ padding: "8px 6px", textAlign: "right" }}><Tip id="annualReturn">Annual Return</Tip></th>
-                    <th style={{ padding: "8px 6px", textAlign: "right" }}><Tip id="totalReturn">Total Return</Tip></th>
-                    <th style={{ padding: "8px 6px", textAlign: "right" }}><Tip id="sharpe">Sharpe</Tip></th>
-                    <th style={{ padding: "8px 6px", textAlign: "right" }}><Tip id="maxDrawdown">Max DD</Tip></th>
-                    <th style={{ padding: "8px 6px", textAlign: "right" }}><Tip id="winrate">Win Rate</Tip></th>
-                    <th style={{ padding: "8px 6px", textAlign: "right" }}>Trades</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {btResults.results.map((r: any, i: number) => (
-                    <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                      <td style={{ padding: "10px 10px", color: "#f5f5f7", fontWeight: 600, fontSize: "12px" }}>
-                        {r.error ? (
-                          <span style={{ color: "#ff453a" }}>{r.strategy} — {r.error}</span>
-                        ) : r.strategy}
-                      </td>
-                      {!r.error && (<>
-                        <td style={{ padding: "10px 6px", textAlign: "right", fontFamily: "monospace", color: (r.annualReturn ?? 0) >= 0 ? "#30d158" : "#ff453a" }}>
-                          {(r.annualReturn ?? 0) >= 0 ? "+" : ""}{Number(r.annualReturn ?? 0).toFixed(1)}%
-                        </td>
-                        <td style={{ padding: "10px 6px", textAlign: "right", fontFamily: "monospace", color: (r.totalReturn ?? 0) >= 0 ? "#30d158" : "#ff453a" }}>
-                          {(r.totalReturn ?? 0) >= 0 ? "+" : ""}{Number(r.totalReturn ?? 0).toFixed(1)}%
-                        </td>
-                        <td style={{ padding: "10px 6px", textAlign: "right", fontFamily: "monospace", fontWeight: 700, color: sharpeColor(r.sharpe ?? 0) }}>
-                          {Number(r.sharpe ?? 0).toFixed(2)}
-                        </td>
-                        <td style={{ padding: "10px 6px", textAlign: "right", fontFamily: "monospace", color: "#ff453a" }}>
-                          {Number(r.maxDrawdown ?? 0).toFixed(1)}%
-                        </td>
-                        <td style={{ padding: "10px 6px", textAlign: "right", fontFamily: "monospace", color: (r.winRate ?? 0) >= 55 ? "#30d158" : "#a1a1a6" }}>
-                          {Number(r.winRate ?? 0).toFixed(1)}%
-                        </td>
-                        <td style={{ padding: "10px 6px", textAlign: "right", color: "#6e6e73" }}>
-                          {r.totalTrades?.toLocaleString()}
-                        </td>
-                      </>)}
-                      {r.error && <td colSpan={6} />}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ marginTop: "10px", fontSize: "11px", color: "#3a3a3c", lineHeight: 1.6 }}>
-              Sharpe: <span style={{ color: "#30d158" }}>green &gt; 1.0</span>, <span style={{ color: "#ff9f0a" }}>amber &gt; 0.5</span>, <span style={{ color: "#ff453a" }}>red &lt; 0.5</span>. Past performance does not guarantee future results.
-            </div>
           </div>
         )}
       </div>

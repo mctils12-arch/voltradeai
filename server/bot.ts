@@ -32,7 +32,7 @@ const MAX_POSITION_SIZE = 0.05; // 5% of portfolio per position
 const MAX_TOTAL_EXPOSURE = 0.5; // 50% of portfolio max invested
 
 const state = {
-  active: false,
+  active: true,  // Bot starts automatically — always on unless killed
   killSwitch: false,
   dailyPnL: 0,
   dailyLossLimit: DAILY_LOSS_LIMIT,
@@ -685,6 +685,12 @@ export function registerBotRoutes(app: Express) {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // Auto-start: run first cycle 30 seconds after server boots
+  setTimeout(() => {
+    audit("AUTO", "Bot auto-started on server boot");
+    runAutonomousCycle();
+  }, 30000);
 
   // Route: Force immediate scan
   app.post("/api/bot/run-now", requireAuth, async (_req, res) => {
