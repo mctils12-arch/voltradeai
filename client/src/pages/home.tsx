@@ -1619,6 +1619,11 @@ function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    refetchInterval: (data: any) => {
+      // Keep polling every 15s until we have results
+      if (!data || !data.results || data.results.length === 0) return 15000;
+      return false;
+    },
     retry: false,
   });
 
@@ -1633,7 +1638,7 @@ function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void
           <span>Market Scanner</span>
           <div className="ml-auto flex items-center gap-1.5 text-xs text-slate-400">
             <RefreshCw size={12} className="animate-spin" />
-            Scanning {">"}50 tickers…
+            Loading scanner data… (may take 30s on first load)
           </div>
         </div>
         <div className="scanner-loading">

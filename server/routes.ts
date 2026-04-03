@@ -444,26 +444,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const tier1Age = now - tier1LastUpdate;
     const tier1Stale = tier1LastUpdate === 0 || tier1Age > 5 * 60 * 1000;
 
-    // If tier1 cache is stale and we have nothing yet, do a synchronous seed
+    // Always return immediately with whatever is cached
+    // Trigger background refresh if stale or empty
     if (tier1Cache.length === 0 || tier1Stale) {
-      // Fire off refresh in background — don't await so the endpoint stays fast
-      // If nothing is cached yet, we do a quick seed of first 20 tickers synchronously
-      if (tier1Cache.length === 0) {
-        try {
-          const seedBatch = TIER1_TICKERS.slice(0, 20);
-          const seedResults = await scanBatch(seedBatch);
-          if (tier1Cache.length === 0) {
-            tier1Cache = sortByScore(applyFreshness(seedResults));
-            tier1LastUpdate = Date.now();
-            for (const r of seedResults) fullUniverseCache.set(r.ticker, r);
-          }
-        } catch {
-          // Seed failed — return empty with progress
-        }
-      } else {
-        // Refresh in background
-        refreshTier1().catch(console.error);
-      }
+      refreshTier1().catch(console.error);
     }
 
     const fullResults = sortByScore(
