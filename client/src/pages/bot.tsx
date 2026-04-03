@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ShieldAlert, Play, Square, Power, TrendingUp, TrendingDown, DollarSign, Activity, Clock, AlertTriangle } from "lucide-react";
+import ChartPage from "./chart";
 
 // ─── Tooltip helper ──────────────────────────────────────────────────────────
 const TIPS: Record<string, string> = {
@@ -176,6 +177,11 @@ export default function BotDashboard() {
         ) : (
           <p style={{ color: "#6e6e73", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The bot will generate signals and trade when activated.</p>
         )}
+      </div>
+
+      {/* Chart */}
+      <div style={{ ...card, marginBottom: "20px" }}>
+        <ChartPage />
       </div>
 
       {/* Audit Log */}

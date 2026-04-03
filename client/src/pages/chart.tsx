@@ -158,8 +158,13 @@ export default function ChartPage() {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // Clean up existing chart
-    if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+    // Clean up existing chart safely
+    try { if (chartRef.current) { chartRef.current.remove(); } } catch {}
+    chartRef.current = null;
+    candleRef.current = null;
+    volRef.current = null;
+    sma20Ref.current = null;
+    sma50Ref.current = null;
 
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#6e6e73" },
@@ -197,16 +202,23 @@ export default function ChartPage() {
       if (chartContainerRef.current) chart.applyOptions({ width: chartContainerRef.current.clientWidth });
     };
     window.addEventListener("resize", handleResize);
-    return () => { window.removeEventListener("resize", handleResize); chart.remove(); };
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      try { chart.remove(); } catch {}
+    };
   }, [timeframe]);
 
   // Create RSI chart
   useEffect(() => {
     if (!showRSI || !rsiContainerRef.current) {
-      if (rsiChartRef.current) { rsiChartRef.current.remove(); rsiChartRef.current = null; }
+      try { if (rsiChartRef.current) { rsiChartRef.current.remove(); } } catch {}
+      rsiChartRef.current = null;
+      rsiRef.current = null;
       return;
     }
-    if (rsiChartRef.current) { rsiChartRef.current.remove(); rsiChartRef.current = null; }
+    try { if (rsiChartRef.current) { rsiChartRef.current.remove(); } } catch {}
+    rsiChartRef.current = null;
+    rsiRef.current = null;
 
     const rsiChart = createChart(rsiContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#6e6e73" },
@@ -225,13 +237,17 @@ export default function ChartPage() {
       if (rsiContainerRef.current) rsiChart.applyOptions({ width: rsiContainerRef.current.clientWidth });
     };
     window.addEventListener("resize", handleResize);
-    return () => { window.removeEventListener("resize", handleResize); rsiChart.remove(); };
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      try { rsiChart.remove(); } catch {}
+    };
   }, [showRSI, timeframe]);
 
   // Update data
   useEffect(() => {
     if (!bars.length) return;
 
+    try {
     if (candleRef.current) candleRef.current.setData(bars);
 
     if (volRef.current && showVolume) {
@@ -256,6 +272,7 @@ export default function ChartPage() {
 
     if (chartRef.current) chartRef.current.timeScale().fitContent();
     if (rsiChartRef.current) rsiChartRef.current.timeScale().fitContent();
+    } catch {}
   }, [bars, showSMA20, showSMA50, showVolume, showRSI]);
 
   // Current price info
