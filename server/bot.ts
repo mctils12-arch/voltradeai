@@ -588,11 +588,162 @@ export function registerBotRoutes(app: Express) {
     }
   });
 
+  // ── Smart Execution Engine ──────────────────────────────────────────────────
+
+  // Morning queue: trades discovered after-hours, executed at 9:30am market open
+  interface QueuedTrade {
+    ticker: string;
+    side: string;
+    shares: number;
+    price: number;
+    score: number;
+    reasons: string[];
+    trade_type: string;
+    recommendation?: string;
+    rec_reasoning?: string;
+    position_value: number;
+    queuedAt: string;
+    vrp?: number;
+  }
+  const morningQueue: QueuedTrade[] = [];
+
+  // Track open orders so we can sweep stale ones
+  interface TrackedOrder {
+    orderId: string;
+    ticker: string;
+    score: number;
+    placedAt: number; // epoch ms
+    side: string;
+    qty: number;
+    limitPrice: number;
+  }
+  const openOrders: TrackedOrder[] = [];
+
+  // ── Stale Order Sweeper ──────────────────────────────────────────────────
+  const STALE_ORDER_MINUTES = 12; // cancel unfilled limits after 12 minutes
+
+  async function sweepStaleOrders() {
+    if (openOrders.length === 0) return;
+
+    const now = Date.now();
+    const staleThreshold = STALE_ORDER_MINUTES * 60 * 1000;
+    const toCancel: TrackedOrder[] = [];
+
+    for (const tracked of openOrders) {
+      if (now - tracked.placedAt > staleThreshold) {
+        toCancel.push(tracked);
+      }
+    }
+
+    for (const stale of toCancel) {
+      try {
+        await alpaca(`/v2/orders/${stale.orderId}`, { method: "DELETE" });
+        audit("SWEEP", `Cancelled stale order: ${stale.side.toUpperCase()} ${stale.qty} ${stale.ticker} (unfilled for ${STALE_ORDER_MINUTES}+ min, score ${stale.score}) — buying power freed`);
+        // Remove from tracked list
+        const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
+        if (idx >= 0) openOrders.splice(idx, 1);
+      } catch (e: any) {
+        // Order may have already filled or been cancelled
+        const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
+        if (idx >= 0) openOrders.splice(idx, 1);
+      }
+    }
+
+    // Also sync with Alpaca — remove tracked orders that Alpaca says are filled/cancelled
+    try {
+      const alpacaOrders = await alpaca("/v2/orders?status=open");
+      const alpacaIds = new Set((alpacaOrders as any[]).map((o: any) => o.id));
+      for (let i = openOrders.length - 1; i >= 0; i--) {
+        if (!alpacaIds.has(openOrders[i].orderId)) {
+          openOrders.splice(i, 1); // Filled or cancelled externally
+        }
+      }
+    } catch {}
+  }
+
+  // ── Score-Based Order Replacement ──────────────────────────────────────────
+  async function replaceIfBetter(newTrade: any): Promise<boolean> {
+    // Find the lowest-score open order
+    if (openOrders.length === 0) return false;
+
+    const weakest = openOrders.reduce((a, b) => a.score < b.score ? a : b);
+
+    // Only replace if new trade is significantly better (10+ points)
+    if (newTrade.score <= weakest.score + 10) return false;
+
+    try {
+      await alpaca(`/v2/orders/${weakest.orderId}`, { method: "DELETE" });
+      audit("REPLACE", `Cancelled ${weakest.ticker} (score ${weakest.score}) → replacing with ${newTrade.ticker} (score ${newTrade.score})`);
+      const idx = openOrders.findIndex(o => o.orderId === weakest.orderId);
+      if (idx >= 0) openOrders.splice(idx, 1);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ── Morning Queue Execution ────────────────────────────────────────────────
+  async function executeMorningQueue() {
+    if (morningQueue.length === 0) return;
+
+    audit("MORNING", `Executing ${morningQueue.length} queued trades from overnight research...`);
+
+    // Sort by score descending — best picks first
+    morningQueue.sort((a, b) => b.score - a.score);
+
+    const acct = await alpaca("/v2/account");
+    const equity = parseFloat(acct.equity || "100000");
+    let slotsUsed = 0;
+
+    try {
+      const positions = await alpaca("/v2/positions");
+      slotsUsed = Array.isArray(positions) ? positions.length : 0;
+    } catch {}
+
+    for (const trade of morningQueue) {
+      if (state.killSwitch) break;
+      if (slotsUsed >= MAX_POSITIONS) {
+        audit("MORNING", `Max positions (${MAX_POSITIONS}) reached — skipping remaining queue`);
+        break;
+      }
+      if (trade.position_value > equity * MAX_POSITION_SIZE) {
+        audit("MORNING-BLOCKED", `${trade.ticker}: Position too large`);
+        continue;
+      }
+
+      try {
+        const order = await alpaca("/v2/orders", {
+          method: "POST",
+          body: JSON.stringify({
+            symbol: trade.ticker,
+            qty: String(Math.floor(trade.shares)),
+            side: trade.side === "short" ? "sell" : (trade.side || "buy"),
+            type: "market", // Market orders at open for instant fill
+            time_in_force: "day",
+          }),
+        });
+
+        audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
+        notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} (score: ${trade.score})`);
+        slotsUsed++;
+      } catch (e: any) {
+        audit("MORNING-ERROR", `Failed: ${trade.ticker} — ${e.message}`);
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    // Clear the queue
+    morningQueue.length = 0;
+    audit("MORNING", "Queue cleared.");
+  }
+
   // ── Autonomous Bot Engine ─────────────────────────────────────────────────
 
   let lastAutoRun = 0;
   let autoRunning = false;
   let lastScanResult: any = null;
+  let morningQueueExecuted = false; // Track if we ran the morning queue today
 
   async function runAutonomousCycle() {
     if (!state.active || state.killSwitch || autoRunning) return;
@@ -690,7 +841,7 @@ export function registerBotRoutes(app: Express) {
         }
       }
 
-      // Step 3: Execute new trades — with full brokerage rule awareness
+      // Step 3: Execute new trades — Smart Execution Engine
       const clock2 = await alpaca("/v2/clock");
       const isMarketOpen = clock2.is_open;
       const now2 = new Date(clock2.timestamp);
@@ -699,12 +850,17 @@ export function registerBotRoutes(app: Express) {
       const isAfterHours = !isMarketOpen && etHour2 >= 16 && etHour2 < 20;
       const isExtended = isPreMarket || isAfterHours;
 
-      // BROKERAGE RULES:
-      // - Options: ONLY 9:30am-4pm ET (regular hours)
-      // - Stocks extended hours: limit orders only, no fractional shares
-      // - No market orders in extended hours
-      // - PDT rule: if account < $25K, max 3 day trades per 5 business days
-      // - Alpaca: no short selling in extended hours
+      // SMART EXECUTION RULES:
+      // - Regular hours (9:30am-4pm): Market orders for instant fill
+      // - Pre-market (4am-9:30am): Queue for market open (no chasing thin liquidity)
+      // - After-hours (4pm-8pm): Queue for next market open
+      // - Options: Regular hours only
+      // - Stale limit orders cancelled after 12 minutes
+      // - Better-scoring picks replace weaker unfilled orders
+      // - Morning queue executes market orders at 9:30am for guaranteed fills
+
+      // Run stale order sweeper every cycle
+      await sweepStaleOrders();
 
       const acct2 = await alpaca("/v2/account");
       const equity = parseFloat(acct2.equity || "100000");
@@ -715,6 +871,12 @@ export function registerBotRoutes(app: Express) {
         audit("AUTO-BLOCKED", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). All trading halted for today.`);
         notify("alert", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). Trading halted for today.`);
       } else {
+        // Execute morning queue on first regular-hours cycle of the day
+        if (isMarketOpen && !morningQueueExecuted && morningQueue.length > 0) {
+          await executeMorningQueue();
+          morningQueueExecuted = true;
+        }
+
         for (const trade of (result.new_trades || [])) {
           if (state.killSwitch) break;
 
@@ -728,10 +890,14 @@ export function registerBotRoutes(app: Express) {
           const isOptionsOrder = (trade.trade_type === "options") || trade.recommendation?.toLowerCase().includes("option");
           if (isOptionsOrder) {
             if (!isMarketOpen) {
-              audit("AUTO-BLOCKED", `${trade.ticker}: Options can only trade during regular hours (9:30am-4pm ET). Queuing for market open.`);
+              // Queue for morning instead of blocking
+              const existsInQueue = morningQueue.some(q => q.ticker === trade.ticker);
+              if (!existsInQueue) {
+                morningQueue.push({ ...trade, queuedAt: new Date().toISOString() });
+                audit("QUEUE", `${trade.ticker}: Options queued for market open (score ${trade.score})`);
+              }
               continue;
             }
-            // Log options intent — full execution requires options-enabled account
             await placeOptionsOrder(
               trade.ticker,
               trade.vrp > 0 ? "call" : "put",
@@ -743,49 +909,74 @@ export function registerBotRoutes(app: Express) {
             continue;
           }
 
-          // No short selling in extended hours
-          if (isExtended && trade.side === "short") {
-            audit("AUTO-BLOCKED", `${trade.ticker}: Short selling not allowed in extended hours`);
+          // ── EXTENDED HOURS: Queue for morning, don't chase thin liquidity ──
+          if (isExtended) {
+            // Replace weaker queued trades if this one is better
+            const weakIdx = morningQueue.findIndex(q => q.score < trade.score - 10);
+            if (weakIdx >= 0 && morningQueue.length >= MAX_POSITIONS) {
+              const replaced = morningQueue[weakIdx];
+              morningQueue.splice(weakIdx, 1);
+              audit("QUEUE-REPLACE", `Replaced ${replaced.ticker} (score ${replaced.score}) with ${trade.ticker} (score ${trade.score}) in morning queue`);
+            }
+
+            const existsInQueue = morningQueue.some(q => q.ticker === trade.ticker);
+            if (!existsInQueue && morningQueue.length < MAX_POSITIONS) {
+              morningQueue.push({ ...trade, queuedAt: new Date().toISOString() });
+              audit("QUEUE", `${trade.ticker}: Queued for market open (score ${trade.score}) — extended hours, no chasing thin liquidity`);
+            }
             continue;
           }
 
-          // Extended hours — stocks only, limit orders only, no fractional shares
-          const qty = isExtended ? Math.floor(trade.shares) : trade.shares;
+          // ── REGULAR HOURS: Execute immediately with market orders ──
+          const qty = Math.floor(trade.shares);
           if (qty <= 0) continue;
 
-          try {
-            const orderBody: any = {
-              symbol: trade.ticker,
-              qty: String(qty),
-              side: trade.side === "short" ? "sell" : (trade.side || "buy"),
-              time_in_force: "day",
-            };
-
-            if (isExtended) {
-              // Extended hours: MUST use limit order, set extended_hours flag
-              orderBody.type = "limit";
-              orderBody.limit_price = String(trade.price);
-              orderBody.extended_hours = true;
-            } else {
-              // Regular hours: market order for fastest fill
-              orderBody.type = "market";
+          // Check if buying power is locked — try to replace weaker open orders
+          const acctCheck = await alpaca("/v2/account");
+          const buyingPower = parseFloat(acctCheck.buying_power || "0");
+          if (trade.position_value > buyingPower) {
+            const replaced = await replaceIfBetter(trade);
+            if (!replaced) {
+              audit("AUTO-BLOCKED", `${trade.ticker}: Not enough buying power ($${buyingPower.toFixed(0)} available, need $${trade.position_value.toFixed(0)})`);
+              continue;
             }
+            // Wait for order cancellation to free buying power
+            await new Promise(r => setTimeout(r, 1000));
+          }
 
+          try {
+            const sideStr = trade.side === "short" ? "sell" : (trade.side || "buy");
             const order = await alpaca("/v2/orders", {
               method: "POST",
-              body: JSON.stringify(orderBody),
+              body: JSON.stringify({
+                symbol: trade.ticker,
+                qty: String(qty),
+                side: sideStr,
+                type: "market",
+                time_in_force: "day",
+              }),
             });
 
-            const session = isPreMarket ? "[PRE-MARKET]" : isAfterHours ? "[AFTER-HOURS]" : "[REGULAR]";
-            const orderType = isExtended ? "LIMIT" : "MARKET";
             const sideLabel = trade.side === "short" ? "SHORT" : (trade.side || "BUY").toUpperCase();
-            audit("AUTO-TRADE", `${session} ${orderType} ${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
+            audit("AUTO-TRADE", `[REGULAR] MARKET ${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
             notify("trade", `${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} (score: ${trade.score})`);
+
+            // Track the order for stale sweeping (market orders fill instantly, but just in case)
+            if (order?.id) {
+              openOrders.push({
+                orderId: order.id,
+                ticker: trade.ticker,
+                score: trade.score,
+                placedAt: Date.now(),
+                side: sideStr,
+                qty,
+                limitPrice: trade.price,
+              });
+            }
           } catch (e: any) {
             audit("AUTO-ERROR", `Failed to trade ${trade.ticker}: ${e.message}`);
           }
 
-          // Delay between orders to avoid rate limits
           await new Promise(r => setTimeout(r, 500));
         }
       }
@@ -916,7 +1107,12 @@ export function registerBotRoutes(app: Express) {
       }
 
       if (isExtendedHours) {
-        audit("AUTO", "Running extended hours scan (pre-market/after-hours)");
+        audit("AUTO", "Running extended hours scan — findings queued for market open");
+      }
+
+      // Reset morning queue flag at start of each trading day (4am ET)
+      if (etHour >= 4 && etHour < 5) {
+        morningQueueExecuted = false;
       }
     } catch { return; }
 
@@ -1028,9 +1224,14 @@ export function registerBotRoutes(app: Express) {
     audit("RULES", `Strategy scoring: Momentum 25%, VRP 25%, MeanRev 20%, Squeeze 15%, Volume 15%`);
     audit("RULES", `Correlation check: Max ${2} stocks per sector`);
     audit("RULES", `Sell/Short: Negative momentum + bearish sentiment → SHORT | High VRP → SELL OPTIONS`);
-    audit("SCHEDULE", `4am-9:30am ET: Pre-market scanning + stock trading`);
-    audit("SCHEDULE", `9:30am-4pm ET: Full trading (stocks + options)`);
-    audit("SCHEDULE", `4pm-8pm ET: After-hours scanning + stock trading`);
+    audit("EXECUTION", `Smart Execution: Extended hours → queue for morning, no chasing thin liquidity`);
+    audit("EXECUTION", `Smart Execution: Regular hours → market orders for instant fill`);
+    audit("EXECUTION", `Smart Execution: Stale order sweeper — cancel unfilled limits after ${STALE_ORDER_MINUTES} min`);
+    audit("EXECUTION", `Smart Execution: Score-based replacement — better picks replace weaker unfilled orders`);
+    audit("EXECUTION", `Smart Execution: Morning queue — overnight research executed at 9:30am market open`);
+    audit("SCHEDULE", `4am-9:30am ET: Pre-market research → queue for market open`);
+    audit("SCHEDULE", `9:30am-4pm ET: Full trading (market orders + options)`);
+    audit("SCHEDULE", `4pm-8pm ET: After-hours research → queue for next open`);
     audit("SCHEDULE", `8pm-10pm ET: Evening research — analyze today's movers`);
     audit("SCHEDULE", `10pm-12am ET: Backtest validation — check strategies still work`);
     audit("SCHEDULE", `12am-2am ET: Earnings analysis — upcoming reporters`);
