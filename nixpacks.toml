@@ -1,12 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "python312", "python312Packages.virtualenv"]
+nixPkgs = ["nodejs_20", "python312", "curl"]
 
 [phases.install]
-cmds = [
-  "npm install",
-  "python3 -m virtualenv /app/venv",
-  "/app/venv/bin/pip install yfinance scipy numpy --quiet"
-]
+cmds = ["npm install"]
 
 [start]
-cmd = "node dist/index.cjs"
+cmd = "bash start.sh"
