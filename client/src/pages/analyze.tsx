@@ -737,22 +737,30 @@ function VolSurfaceChart({ data }: { data: VolSurface[] }) {
   const maxIv = Math.max(...data.map(d => d.atm_iv)) * 1.15;
   return (
     <div className="mt-4">
-      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '12px', fontWeight: 500 }}>
+      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: 500 }}>
         Term Structure — ATM IV by Expiry
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '60px', marginTop: '4px' }}>
+      {/* Fixed-height chart area — bars grow from bottom up, no overflow */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '56px' }}>
         {data.map((d, i) => {
-          const h = Math.max(4, (d.atm_iv / maxIv) * 60);
+          const h = Math.max(6, (d.atm_iv / maxIv) * 56);
           const vrpColor = d.vrp > 3 ? '#10b981' : d.vrp < -2 ? '#f43f5e' : '#f59e0b';
           return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1"
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '56px' }}
               title={`${d.expiry}: IV=${d.atm_iv}%, VRP=${d.vrp > 0 ? '+' : ''}${d.vrp}%`}>
-              <div className="text-xs font-mono text-slate-400" style={{ fontSize: '9px' }}>{d.atm_iv.toFixed(1)}</div>
-              <div className="w-full rounded-sm transition-all" style={{ height: `${h}px`, backgroundColor: vrpColor, opacity: 0.85 }} />
-              <div className="text-slate-500 text-center" style={{ fontSize: '8px' }}>{d.days}d</div>
+              <div style={{ width: '100%', height: `${h}px`, backgroundColor: vrpColor, opacity: 0.85, borderRadius: '3px 3px 0 0' }} />
             </div>
           );
         })}
+      </div>
+      {/* Labels row BELOW the bars */}
+      <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ flex: 1, textAlign: 'center' }}>
+            <div style={{ fontSize: '9px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{d.atm_iv.toFixed(1)}</div>
+            <div style={{ fontSize: '8px', color: 'var(--text-tertiary)' }}>{d.days}d</div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -2056,6 +2064,16 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                 {data.vol_surface && data.vol_surface.length > 0 && (
                   <VolSurfaceChart data={data.vol_surface} />
                 )}
+                {/* Acronym legend */}
+                <div style={{ marginTop: '12px', padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '10px', color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+                  <strong style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>What these mean:</strong>
+                  <b>RV</b> = Realized Volatility — how much the stock <em>actually moved</em> over the last N days (annualized %)<br/>
+                  <b>IV</b> = Implied Volatility — how much the <em>options market expects</em> the stock to move (annualized %)<br/>
+                  <b>ATM IV</b> = At-the-Money Implied Vol — IV of the option closest to the current stock price<br/>
+                  <b>VRP</b> = Volatility Risk Premium — IV minus RV. Positive = options are overpriced vs real moves<br/>
+                  <b>Term Structure</b> = IV across different expiry dates. Rising = normal (calm market). Flat/inverted = stress<br/>
+                  <b>Bars color:</b> <span style={{color:'#10b981'}}>Green</span> = high VRP (sell options edge) · <span style={{color:'#f43f5e'}}>Red</span> = negative VRP (buy options edge) · <span style={{color:'#f59e0b'}}>Amber</span> = neutral
+                </div>
               </div>
 
               {/* Best opportunity */}
