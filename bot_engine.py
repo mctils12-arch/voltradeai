@@ -21,6 +21,25 @@ import time
 import numpy as np
 from datetime import datetime, timedelta
 
+# ── Strategy imports ─────────────────────────────────────────────────────────
+_STRATEGIES_DIR = os.path.join(os.path.dirname(__file__), "strategies")
+sys.path.insert(0, _STRATEGIES_DIR)
+
+try:
+    import momentum as momentum_strategy
+except ImportError:
+    momentum_strategy = None
+
+try:
+    import mean_reversion as mean_reversion_strategy
+except ImportError:
+    mean_reversion_strategy = None
+
+try:
+    import squeeze as squeeze_strategy
+except ImportError:
+    squeeze_strategy = None
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
@@ -34,25 +53,73 @@ TAKE_PROFIT_PCT = 0.06     # 6% take profit (3:1 reward/risk)
 MIN_SCORE = 65             # Minimum combined score to trade
 MIN_VOLUME = 500000        # Minimum avg daily volume
 MIN_PRICE = 5              # Minimum stock price
+MAX_SECTOR_POSITIONS = 2   # Max 2 stocks from the same sector
 
-# ── Data Fetching ───────────────────────────────────────────────────────────
+# ── Sector Map (for correlation / diversification check) ─────────────────────
+SECTOR_MAP = {
+    "AAPL": "tech", "MSFT": "tech", "GOOGL": "tech", "GOOG": "tech",
+    "META": "tech", "AMZN": "tech", "NVDA": "tech", "AMD": "tech",
+    "INTC": "tech", "ORCL": "tech", "CRM": "tech", "ADBE": "tech",
+    "QCOM": "tech", "TXN": "tech", "AVGO": "tech", "AMAT": "tech",
+    "NOW": "tech", "SNOW": "tech", "PLTR": "tech", "UBER": "tech",
+    "TSLA": "auto", "F": "auto", "GM": "auto", "TM": "auto", "RIVN": "auto",
+    "JPM": "finance", "BAC": "finance", "GS": "finance", "MS": "finance",
+    "WFC": "finance", "C": "finance", "AXP": "finance", "V": "finance", "MA": "finance",
+    "JNJ": "health", "PFE": "health", "MRK": "health", "UNH": "health",
+    "ABBV": "health", "LLY": "health", "BMY": "health", "AMGN": "health",
+    "XOM": "energy", "CVX": "energy", "COP": "energy", "SLB": "energy",
+    "SPY": "etf", "QQQ": "etf", "IWM": "etf", "DIA": "etf", "GLD": "etf",
+    "AMZN": "consumer", "WMT": "consumer", "TGT": "consumer", "COST": "consumer",
+}
+
+# ── EWMA / GARCH Volatility ──────────────────────────────────────────────────
+
+def ewma_vol(returns, lambd=0.94):
+    """
+    EWMA (RiskMetrics) volatility estimate — reacts faster than rolling stddev.
+    Annualised and expressed as a percentage.
+    """
+    if len(returns) < 5:
+        return None
+    arr = np.array(returns, dtype=float)
+    var = float(np.var(arr))
+    for r in arr:
+        var = lambd * var + (1 - lambd) * float(r) ** 2
+    return round(float(np.sqrt(var * 252)) * 100, 2)
+
+
+def garch_vol_estimate(returns, omega=0.00001, alpha=0.05, beta=0.90):
+    """
+    Simple GARCH(1,1) annualised volatility estimate.
+    """
+    if len(returns) < 30:
+        return None
+    arr = np.array(returns, dtype=float)
+    var = float(np.var(arr))
+    for r in arr:
+        var = omega + alpha * float(r) ** 2 + beta * var
+    return round(float(np.sqrt(var * 252)) * 100, 2)
+
+# ── Data Fetching ────────────────────────────────────────────────────────────
 
 def get_polygon_snapshot():
     """Get all US stocks from Polygon Grouped Daily (instant, 1 API call)."""
     import requests
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    # Try yesterday, if weekend try Friday
     for days_back in range(1, 5):
         date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        url = f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date}?adjusted=true&apiKey={POLYGON_KEY}"
+        url = (
+            f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date}"
+            f"?adjusted=true&apiKey={POLYGON_KEY}"
+        )
         try:
             r = requests.get(url, timeout=15)
             data = r.json()
             if data.get("resultsCount", 0) > 0:
                 return data.get("results", [])
-        except:
+        except Exception:
             continue
     return []
+
 
 def get_stock_details(ticker):
     """Get detailed analysis from analyze.py."""
@@ -64,9 +131,10 @@ def get_stock_details(ticker):
         )
         if result.stdout.strip():
             return json.loads(result.stdout.strip())
-    except:
+    except Exception:
         pass
     return None
+
 
 def get_alpaca_account():
     """Get Alpaca account info."""
@@ -76,6 +144,7 @@ def get_alpaca_account():
     }, timeout=10)
     return r.json()
 
+
 def get_alpaca_positions():
     """Get current Alpaca positions."""
     import requests
@@ -84,13 +153,12 @@ def get_alpaca_positions():
     }, timeout=10)
     return r.json()
 
-# ── Strategy Scoring ────────────────────────────────────────────────────────
+# ── Strategy Scoring ─────────────────────────────────────────────────────────
 
 def score_stock(stock_data):
     """
-    Score a stock across all strategies. Returns combined score 0-100.
-    
-    stock_data from Polygon: {T: ticker, o: open, h: high, l: low, c: close, v: volume, vw: vwap}
+    Quick-score a stock from Polygon snapshot data (no API calls).
+    Returns None if the stock doesn't pass basic filters.
     """
     ticker = stock_data.get("T", "")
     close = stock_data.get("c", 0)
@@ -99,22 +167,21 @@ def score_stock(stock_data):
     low = stock_data.get("l", 0)
     volume = stock_data.get("v", 0)
     vwap = stock_data.get("vw", 0)
-    
+
     # Basic filters
     if close < MIN_PRICE or volume < MIN_VOLUME:
         return None
     if "." in ticker or len(ticker) > 5:  # Skip warrants, units, etc.
         return None
-    
+
     # Calculate quick signals from available data
     change_pct = ((close - open_price) / open_price * 100) if open_price > 0 else 0
     range_pct = ((high - low) / low * 100) if low > 0 else 0
     vwap_dist = ((close - vwap) / vwap * 100) if vwap > 0 else 0
-    
-    # Quick scoring (no API calls needed — just math on Polygon data)
+
     score = 50  # Start neutral
     reasons = []
-    
+
     # Price action score
     if change_pct > 3:
         score += 10
@@ -122,17 +189,16 @@ def score_stock(stock_data):
     elif change_pct < -3:
         score += 8  # Mean reversion candidate
         reasons.append(f"Down {abs(change_pct):.1f}% today — bounce candidate")
-    
+
     # Volume score (unusual volume = institutional interest)
-    # We don't have avg volume from Polygon snapshot, so use absolute thresholds
     if volume > 20000000:
         score += 15
-        reasons.append(f"Very high volume ({volume/1e6:.0f}M)")
+        reasons.append(f"Very high volume ({volume / 1e6:.0f}M)")
     elif volume > 5000000:
         score += 8
     elif volume > 1000000:
         score += 3
-    
+
     # VWAP position (above VWAP = buying pressure)
     if vwap_dist > 1:
         score += 5
@@ -140,17 +206,16 @@ def score_stock(stock_data):
     elif vwap_dist < -1:
         score += 3
         reasons.append("Below VWAP — potential dip buy")
-    
+
     # Volatility (intraday range) — higher range = more opportunity
     if range_pct > 5:
         score += 10
         reasons.append(f"Wide range ({range_pct:.1f}%) — active stock")
     elif range_pct > 3:
         score += 5
-    
-    # Cap at 100
+
     score = max(0, min(100, score))
-    
+
     return {
         "ticker": ticker,
         "price": round(close, 2),
@@ -162,200 +227,363 @@ def score_stock(stock_data):
         "reasons": reasons,
     }
 
+
 def deep_score(ticker, quick_result):
     """
     Deep analysis on a pre-filtered stock using analyze.py.
-    Adds VRP, sentiment, earnings, edge factors to the score.
+    Integrates all three strategy modules (momentum, mean_reversion, squeeze)
+    plus VRP, sentiment, earnings, EWMA/GARCH vol and edge factors.
     """
     detail = get_stock_details(ticker)
     if not detail or "error" in detail:
         return quick_result
-    
-    score = quick_result.get("quick_score", 50)
+
     reasons = list(quick_result.get("reasons", []))
-    
-    # VRP signal (max +20)
-    vrp = detail.get("vrp", 0)
-    if vrp and vrp > 5:
-        score += 15
+    change_pct = quick_result.get("change_pct", 0)
+
+    # ── Pull key metrics from analyze.py output ──────────────────────────────
+    vrp = detail.get("vrp", 0) or 0
+    rec = detail.get("recommendation", {}) or {}
+    sentiment = detail.get("sentiment", {}) or {}
+    edge = detail.get("edge_factors", {}) or {}
+    vol_metrics = detail.get("vol_metrics", {}) or {}
+
+    rsi = vol_metrics.get("rsi_14") or None
+    volume_ratio = vol_metrics.get("volume_ratio_5d") or 1.0
+
+    # ── Strategy module scores ────────────────────────────────────────────────
+
+    # 1. Momentum score (use 12-month and 1-month returns from edge factors)
+    momentum_score = 50
+    mom_12_1 = edge.get("relative_strength", 0) or 0  # proxy for 12mo momentum
+    mom_1m = change_pct  # proxy — best we have from quick data
+    avg_volume = quick_result.get("volume", 0)
+
+    if momentum_strategy:
+        try:
+            m_result = momentum_strategy.score(mom_12_1, mom_1m, avg_volume)
+            momentum_score = m_result.get("score", 50)
+            if m_result.get("signal") not in ("NO DATA", "SKIP", "NEUTRAL"):
+                reasons.append(f"Momentum: {m_result['signal']} ({m_result['reason']})")
+        except Exception:
+            pass
+
+    # 2. Mean reversion score
+    mean_reversion_score = 50
+    change_5d = -(abs(change_pct) * 3) if change_pct < -1 else change_pct  # rough proxy
+    if mean_reversion_strategy and rsi is not None:
+        try:
+            mr_result = mean_reversion_strategy.score(rsi, change_5d, volume_ratio)
+            mean_reversion_score = mr_result.get("score", 50)
+            if mr_result.get("signal") not in ("NO DATA", "NO EDGE"):
+                reasons.append(f"MeanRev: {mr_result['signal']} ({mr_result['reason']})")
+        except Exception:
+            pass
+
+    # 3. VRP score (volatility risk premium)
+    vrp_score = 50
+    if vrp > 8:
+        vrp_score = 85
         reasons.append(f"High VRP (+{vrp:.1f}%) — sell options edge")
-    elif vrp and vrp < -3:
-        score += 10
+    elif vrp > 5:
+        vrp_score = 70
+        reasons.append(f"Elevated VRP (+{vrp:.1f}%) — options overpriced")
+    elif vrp > 0:
+        vrp_score = 55
+    elif vrp < -3:
+        vrp_score = 65
         reasons.append(f"Cheap IV ({vrp:.1f}%) — buy options edge")
-    
-    # Recommendation
-    rec = detail.get("recommendation", {})
+    else:
+        vrp_score = 45
+
+    # 4. Squeeze score
+    squeeze_score_val = 50
+    squeeze_raw = edge.get("squeeze_score", 0) or 0
+    short_pct = edge.get("short_float_pct", 0) or 0
+    days_to_cover = edge.get("days_to_cover", 0) or 0
+    sent_score_val = sentiment.get("score", 50) or 50
+    reddit_buzz = sentiment.get("reddit_buzz", 0) or 0
+
+    if squeeze_strategy:
+        try:
+            sq_result = squeeze_strategy.score(short_pct, days_to_cover, sent_score_val, volume_ratio, reddit_buzz)
+            squeeze_score_val = sq_result.get("score", 50)
+            if sq_result.get("signal") not in ("NONE", "LOW RISK"):
+                reasons.append(f"Squeeze: {sq_result['signal']} ({sq_result['reason']})")
+        except Exception:
+            squeeze_score_val = min(100, max(0, squeeze_raw))
+    else:
+        squeeze_score_val = min(100, max(0, squeeze_raw))
+
+    # 5. Volume score
+    volume_score = 50
+    if volume_ratio > 3:
+        volume_score = 90
+    elif volume_ratio > 2:
+        volume_score = 75
+    elif volume_ratio > 1.5:
+        volume_score = 60
+    elif volume_ratio > 1:
+        volume_score = 50
+    else:
+        volume_score = 35
+
+    # ── EWMA / GARCH vol adjustment ──────────────────────────────────────────
+    ewma_rv = vol_metrics.get("ewma_rv") or None
+    garch_rv = vol_metrics.get("garch_rv") or None
+    rv20 = vol_metrics.get("rv20") or None
+
+    # If EWMA vol > realized vol by a large margin, options are expensive → SELL
+    vol_premium_bonus = 0
+    if ewma_rv and rv20:
+        ewma_premium = ewma_rv - rv20
+        if ewma_premium > 5:
+            vol_premium_bonus = 8
+            reasons.append(f"EWMA vol ({ewma_rv:.1f}%) >> RV20 ({rv20:.1f}%) — elevated vol")
+        elif ewma_premium < -5:
+            vol_premium_bonus = 5
+            reasons.append(f"Vol compressed — low EWMA ({ewma_rv:.1f}%)")
+
+    # ── Combined score ───────────────────────────────────────────────────────
+    combined_score = (
+        momentum_score * 0.25 +
+        mean_reversion_score * 0.20 +
+        vrp_score * 0.25 +
+        squeeze_score_val * 0.15 +
+        volume_score * 0.15
+    ) + vol_premium_bonus
+
+    # Recommendation boost
     if rec:
         action = rec.get("action", "")
         if "BUY" in action.upper():
-            score += 15
+            combined_score += 8
             reasons.append(f"AI recommends: {action}")
         elif "SELL" in action.upper() and "OPTIONS" in action.upper():
-            score += 10
+            combined_score += 6
             reasons.append(f"AI recommends: {action}")
-    
-    # Sentiment
-    sentiment = detail.get("sentiment", {})
-    if sentiment:
-        sent_score = sentiment.get("score", 50)
-        contrarian = sentiment.get("contrarian_flag")
-        if contrarian == "Squeeze Watch":
-            score += 15
-            reasons.append("SQUEEZE WATCH — retail hype + high short interest")
-        elif contrarian == "Buy the Dip":
-            score += 10
-            reasons.append("Buy the Dip signal — retail panic, institutions buying")
-        elif sent_score > 75:
-            score += 5
-    
+
+    # Sentiment boost / penalty
+    contrarian = sentiment.get("contrarian_flag")
+    if contrarian == "Squeeze Watch":
+        combined_score += 10
+        reasons.append("SQUEEZE WATCH — retail hype + high short interest")
+    elif contrarian == "Buy the Dip":
+        combined_score += 8
+        reasons.append("Buy the Dip signal — retail panic, institutions buying")
+    elif sent_score_val > 75:
+        combined_score += 4
+
     # Edge factors
-    edge = detail.get("edge_factors", {})
-    if edge:
-        squeeze = edge.get("squeeze_score", 0)
-        if squeeze and squeeze > 70:
-            score += 15
-            reasons.append(f"Squeeze score: {squeeze}/100")
-        
-        rs = edge.get("relative_strength", 0)
-        if rs and rs > 5:
-            score += 8
-            reasons.append(f"Outperforming SPY by {rs:.1f}%")
-    
-    score = max(0, min(100, score))
-    
+    rs = edge.get("relative_strength", 0)
+    if rs and rs > 5:
+        combined_score += 6
+        reasons.append(f"Outperforming SPY by {rs:.1f}%")
+
+    combined_score = max(0, min(100, combined_score))
+
+    # ── Determine trade SIDE ─────────────────────────────────────────────────
+    momentum_is_negative = (momentum_score < 40 or change_pct < -2)
+    sentiment_is_bearish = (sent_score_val < 40)
+    vrp_is_high = (vrp > 5)
+    rsi_overbought = (rsi is not None and rsi > 70)
+
+    side = "buy"
+    trade_type = "stock"
+    action_label = "BUY"
+
+    if combined_score > 65:
+        if vrp_is_high:
+            side = "sell"
+            trade_type = "options"
+            action_label = "SELL OPTIONS"
+        elif momentum_is_negative and sentiment_is_bearish:
+            side = "short"
+            action_label = "SHORT"
+        elif rsi_overbought:
+            side = "sell"
+            action_label = "SELL"
+        # else: default BUY
+
     return {
         **quick_result,
-        "deep_score": score,
+        "deep_score": round(combined_score, 1),
         "reasons": reasons,
         "vrp": vrp,
+        "side": side,
+        "trade_type": trade_type,
+        "action_label": action_label,
         "recommendation": rec.get("action") if rec else None,
         "rec_reasoning": rec.get("reasoning") if rec else None,
-        "sentiment_score": sentiment.get("score") if sentiment else None,
+        "sentiment_score": sent_score_val,
+        "rsi": rsi,
+        "momentum_score": round(momentum_score, 1),
+        "mean_reversion_score": round(mean_reversion_score, 1),
+        "vrp_score": round(vrp_score, 1),
+        "squeeze_score": round(squeeze_score_val, 1),
+        "volume_score": round(volume_score, 1),
+        "ewma_rv": ewma_rv,
+        "garch_rv": garch_rv,
         "horizon": rec.get("horizon") if rec else None,
         "leveraged_bull": rec.get("leveraged_bull") if rec else None,
         "leveraged_bear": rec.get("leveraged_bear") if rec else None,
     }
 
-# ── Position Management ─────────────────────────────────────────────────────
+# ── Correlation / Sector Check ───────────────────────────────────────────────
+
+def check_sector_correlation(ticker, existing_tickers):
+    """
+    Returns True if adding this ticker would exceed MAX_SECTOR_POSITIONS
+    for its sector. False = safe to trade.
+    """
+    sector = SECTOR_MAP.get(ticker.upper(), "unknown")
+    if sector == "unknown":
+        return False  # Unknown sector → allow (conservative)
+    count = sum(
+        1 for t in existing_tickers
+        if SECTOR_MAP.get(t.upper(), "unknown") == sector
+    )
+    return count >= MAX_SECTOR_POSITIONS
+
+# ── Position Management ──────────────────────────────────────────────────────
 
 def manage_positions():
     """Check existing positions, recommend closes for stop-loss or take-profit."""
     try:
         positions = get_alpaca_positions()
-    except:
+    except Exception:
         return {"actions": [], "error": "Could not fetch positions"}
-    
+
     if not isinstance(positions, list):
         return {"actions": [], "positions": 0}
-    
+
     actions = []
     for pos in positions:
         ticker = pos.get("symbol", "")
-        entry = float(pos.get("avg_entry_price", 0))
         current = float(pos.get("current_price", 0))
         pnl_pct = float(pos.get("unrealized_plpc", 0)) * 100
-        
+        side = pos.get("side", "long")
+
         if pnl_pct <= -STOP_LOSS_PCT * 100:
             actions.append({
                 "action": "CLOSE",
                 "ticker": ticker,
-                "reason": f"STOP LOSS hit: {pnl_pct:.2f}% loss (limit: -{STOP_LOSS_PCT*100:.0f}%)",
+                "side": side,
+                "reason": f"STOP LOSS hit: {pnl_pct:.2f}% loss (limit: -{STOP_LOSS_PCT * 100:.0f}%)",
                 "type": "stop_loss",
             })
         elif pnl_pct >= TAKE_PROFIT_PCT * 100:
             actions.append({
                 "action": "CLOSE",
                 "ticker": ticker,
-                "reason": f"TAKE PROFIT hit: +{pnl_pct:.2f}% gain (target: +{TAKE_PROFIT_PCT*100:.0f}%)",
+                "side": side,
+                "reason": f"TAKE PROFIT hit: +{pnl_pct:.2f}% gain (target: +{TAKE_PROFIT_PCT * 100:.0f}%)",
                 "type": "take_profit",
             })
-    
+
     return {"actions": actions, "positions": len(positions)}
 
-# ── Main Scan ───────────────────────────────────────────────────────────────
+# ── Main Scan ────────────────────────────────────────────────────────────────
 
 def scan_market():
     """
     Full market scan:
     1. Get all stocks from Polygon (instant)
     2. Quick-score all of them (math only, no API calls)
-    3. Deep-analyze top 15
-    4. Return top 5 with trade recommendations
+    3. Deep-analyze top 30
+    4. Return top 5 with trade recommendations (buy / sell / short)
     """
     # Step 1: Get all stocks
     all_stocks = get_polygon_snapshot()
     if not all_stocks:
         return {"error": "Could not fetch market data", "trades": []}
-    
+
     # Step 2: Quick score all stocks
     scored = []
     for stock in all_stocks:
         result = score_stock(stock)
         if result and result["quick_score"] >= 55:
             scored.append(result)
-    
+
     # Sort by quick score
     scored.sort(key=lambda x: x["quick_score"], reverse=True)
-    
-    # Step 3: Deep analyze top 15
-    top_candidates = scored[:15]
+
+    # Step 3: Deep analyze top 30
+    top_candidates = scored[:30]
     deep_scored = []
     for candidate in top_candidates:
         try:
             deep = deep_score(candidate["ticker"], candidate)
             deep_scored.append(deep)
-        except:
+        except Exception:
             deep_scored.append(candidate)
-    
+
     # Sort by deep score (or quick score if no deep)
     deep_scored.sort(key=lambda x: x.get("deep_score", x.get("quick_score", 0)), reverse=True)
-    
+
     # Step 4: Get account info for position sizing
     try:
         account = get_alpaca_account()
         portfolio_value = float(account.get("portfolio_value", 100000))
         cash = float(account.get("cash", 100000))
-    except:
+    except Exception:
         portfolio_value = 100000
         cash = 100000
-    
+
     # Step 5: Check current positions
     try:
         current_positions = get_alpaca_positions()
-        current_tickers = [p.get("symbol") for p in current_positions] if isinstance(current_positions, list) else []
+        current_tickers = (
+            [p.get("symbol") for p in current_positions]
+            if isinstance(current_positions, list) else []
+        )
         num_positions = len(current_tickers)
-    except:
+    except Exception:
         current_tickers = []
         num_positions = 0
-    
+
     # Step 6: Generate trade recommendations
     trades = []
     slots_available = MAX_POSITIONS - num_positions
-    
+
     for stock in deep_scored:
         if len(trades) >= slots_available:
             break
-        
+
         final_score = stock.get("deep_score", stock.get("quick_score", 0))
         ticker = stock["ticker"]
-        
+
         # Skip if already holding
         if ticker in current_tickers:
             continue
-        
+
         # Skip if below minimum score
         if final_score < MIN_SCORE:
             continue
-        
+
+        # Correlation / sector check — don't over-concentrate
+        if check_sector_correlation(ticker, current_tickers + [t["ticker"] for t in trades]):
+            continue
+
         # Position size
         position_value = min(portfolio_value * MAX_POSITION_PCT, cash * 0.9)
         shares = int(position_value / stock["price"]) if stock["price"] > 0 else 0
-        
+
         if shares <= 0:
             continue
-        
+
+        side = stock.get("side", "buy")
+        action_label = stock.get("action_label", "BUY")
+
+        # For SELL signals without existing position — convert to BUY (no naked sells on paper)
+        if side == "sell" and stock.get("trade_type") != "options":
+            side = "buy"
+            action_label = "BUY"
+
         trades.append({
-            "action": "BUY",
+            "action": action_label,
+            "side": side,
+            "trade_type": stock.get("trade_type", "stock"),
             "ticker": ticker,
             "shares": shares,
             "price": stock["price"],
@@ -366,11 +594,20 @@ def scan_market():
             "stop_loss": round(stock["price"] * (1 - STOP_LOSS_PCT), 2),
             "take_profit": round(stock["price"] * (1 + TAKE_PROFIT_PCT), 2),
             "position_value": round(shares * stock["price"], 2),
+            "momentum_score": stock.get("momentum_score"),
+            "mean_reversion_score": stock.get("mean_reversion_score"),
+            "vrp_score": stock.get("vrp_score"),
+            "squeeze_score": stock.get("squeeze_score"),
+            "volume_score": stock.get("volume_score"),
+            "ewma_rv": stock.get("ewma_rv"),
+            "garch_rv": stock.get("garch_rv"),
+            "rsi": stock.get("rsi"),
+            "vrp": stock.get("vrp"),
         })
-    
+
     # Step 7: Check position management
     mgmt = manage_positions()
-    
+
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_stocks),
@@ -387,15 +624,17 @@ def scan_market():
             "price": s["price"],
             "score": s.get("deep_score", s.get("quick_score", 0)),
             "change_pct": s["change_pct"],
+            "side": s.get("side", "buy"),
+            "action_label": s.get("action_label", "BUY"),
             "reasons": s.get("reasons", [])[:2],
         } for s in deep_scored[:10]],
     }
 
-# ── Entry Point ─────────────────────────────────────────────────────────────
+# ── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "full"
-    
+
     if mode == "scan":
         result = scan_market()
     elif mode == "manage":
@@ -404,5 +643,5 @@ if __name__ == "__main__":
         result = scan_market()
     else:
         result = {"error": f"Unknown mode: {mode}"}
-    
+
     print(json.dumps(result))

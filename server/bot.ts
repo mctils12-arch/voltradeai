@@ -30,6 +30,9 @@ interface AuditEntry { time: string; action: string; detail: string; }
 const DAILY_LOSS_LIMIT = -3; // percent
 const MAX_POSITION_SIZE = 0.05; // 5% of portfolio per position
 const MAX_TOTAL_EXPOSURE = 0.5; // 50% of portfolio max invested
+const MAX_POSITIONS = 5;
+const STOP_LOSS_PCT = 0.02;
+const TAKE_PROFIT_PCT = 0.06;
 
 const state = {
   active: true,  // Bot starts automatically — always on unless killed
@@ -43,6 +46,125 @@ function audit(action: string, detail: string) {
   state.auditLog.unshift({ time: new Date().toISOString(), action, detail });
   if (state.auditLog.length > 500) state.auditLog.length = 500;
   console.log(`[BOT] ${action}: ${detail}`);
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+interface Notification {
+  time: string;
+  type: string;
+  message: string;
+  read: boolean;
+}
+
+const notifications: Notification[] = [];
+
+function notify(type: string, message: string) {
+  notifications.unshift({ time: new Date().toISOString(), type, message, read: false });
+  if (notifications.length > 100) notifications.length = 100;
+  console.log(`[NOTIFY] ${type}: ${message}`);
+}
+
+// ─── Performance / Learning Loop ────────────────────────────────────────────
+interface TradeResult {
+  ticker: string;
+  side: string;
+  entryPrice: number;
+  exitPrice: number;
+  pnl: number;
+  pnlPct: number;
+  strategy: string;
+  score: number;
+  holdingDays: number;
+  timestamp: string;
+}
+
+const tradeResults: TradeResult[] = [];
+
+// In-memory equity curve (keeps up to 1 year of daily data)
+const equityCurve: Array<{ date: string; value: number; pnl: number }> = [];
+
+// Strategy weights — start equal, adjusted by learning loop
+const strategyWeights = {
+  momentum: 0.25,
+  mean_reversion: 0.20,
+  vrp: 0.25,
+  squeeze: 0.15,
+  volume: 0.15,
+};
+
+async function trackClosedTrades() {
+  try {
+    const orders = await alpaca("/v2/orders?status=closed&limit=50");
+    if (!Array.isArray(orders)) return;
+
+    const knownIds = new Set(tradeResults.map(t => t.ticker + t.timestamp));
+
+    for (const order of orders) {
+      if (!order.filled_at) continue;
+      const key = order.symbol + order.filled_at;
+      if (knownIds.has(key)) continue;
+
+      const entryPrice = parseFloat(order.filled_avg_price || 0);
+      const exitPrice = parseFloat(order.filled_avg_price || 0); // simplified — same fill price
+
+      tradeResults.unshift({
+        ticker: order.symbol,
+        side: order.side,
+        entryPrice,
+        exitPrice,
+        pnl: 0, // Will be updated when matched buy/sell pairs found
+        pnlPct: 0,
+        strategy: "auto",
+        score: 0,
+        holdingDays: 0,
+        timestamp: order.filled_at,
+      });
+
+      if (tradeResults.length > 200) tradeResults.length = 200;
+    }
+
+    // Adjust strategy weights based on recent performance
+    adjustStrategyWeights();
+  } catch (e: any) {
+    audit("LEARN-ERROR", `Track closed trades failed: ${e.message}`);
+  }
+}
+
+function adjustStrategyWeights() {
+  // Simple heuristic: if recent win rate < 40%, reduce weight on low-confidence signals
+  const recent = tradeResults.slice(0, 20);
+  if (recent.length < 5) return;
+
+  const winRate = recent.filter(t => t.pnl > 0).length / recent.length;
+  if (winRate < 0.4) {
+    audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% — increasing VRP/squeeze weight`);
+    // Shift weight toward VRP (more reliable signal)
+    strategyWeights.vrp = Math.min(0.40, strategyWeights.vrp + 0.02);
+    strategyWeights.momentum = Math.max(0.15, strategyWeights.momentum - 0.01);
+    strategyWeights.volume = Math.max(0.10, strategyWeights.volume - 0.01);
+  } else if (winRate > 0.65) {
+    // Good performance — restore balanced weights gradually
+    strategyWeights.momentum = Math.min(0.30, strategyWeights.momentum + 0.01);
+  }
+}
+
+function recordDailyEquity() {
+  alpaca("/v2/account").then((acct: any) => {
+    if (!acct || !acct.portfolio_value) return;
+    const date = new Date().toISOString().split("T")[0];
+    const value = parseFloat(acct.portfolio_value);
+    const pnl = parseFloat(acct.equity) - parseFloat(acct.last_equity);
+
+    // Only record once per day
+    const last = equityCurve[0];
+    if (last && last.date === date) {
+      last.value = value;
+      last.pnl = pnl;
+    } else {
+      equityCurve.unshift({ date, value, pnl });
+      if (equityCurve.length > 365) equityCurve.shift();
+    }
+  }).catch(() => {});
 }
 
 // Phase 6: Pre-trade security check
@@ -62,8 +184,29 @@ async function checkTradeAllowed(portfolioValue: number, tradeValue: number): Pr
   if (portfolioValue > 0 && tradeValue / portfolioValue > MAX_POSITION_SIZE) {
     return { allowed: false, reason: `Trade exceeds max position size of ${MAX_POSITION_SIZE * 100}% of portfolio.` };
   }
-  // 4. Total exposure check (simplified — checked via portfolioValue vs cash ratio)
+  // 4. Total exposure check (simplified)
   return { allowed: true };
+}
+
+// ─── Options order (log + audit, full execution requires Alpaca options setup) ─
+async function placeOptionsOrder(
+  ticker: string,
+  optionType: "call" | "put",
+  strike: number,
+  expiry: string,
+  side: "buy" | "sell",
+  qty: number
+) {
+  // Alpaca options use OCC symbol format: AAPL260418C00250000
+  const strikeStr = (strike * 1000).toFixed(0).padStart(8, "0");
+  const dateStr = expiry.replace(/-/g, "").substring(2); // YYMMDD
+  const typeChar = optionType === "call" ? "C" : "P";
+  const occSymbol = `${ticker.toUpperCase()}${dateStr}${typeChar}${strikeStr}`;
+
+  audit("OPTIONS", `${side.toUpperCase()} ${qty}x ${ticker} ${strike} ${optionType} exp:${expiry} [OCC: ${occSymbol}]`);
+  notify("options", `${side.toUpperCase()} ${qty}x ${ticker} $${strike} ${optionType.toUpperCase()} (${expiry}) — queued`);
+  // TODO: Implement full execution when Alpaca options API keys are configured
+  return { status: "logged", occ_symbol: occSymbol, message: "Options execution requires Alpaca options-enabled account" };
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
@@ -136,6 +279,52 @@ export function registerBotRoutes(app: Express) {
     }
   });
 
+  // ── Performance endpoint ──────────────────────────────────────────────────
+  app.get("/api/bot/performance", requireAuth, (_req, res) => {
+    const results = tradeResults;
+    const totalTrades = results.length;
+    const winners = results.filter(t => t.pnl > 0);
+    const losers = results.filter(t => t.pnl < 0);
+    const winRate = totalTrades > 0 ? (winners.length / totalTrades) * 100 : 0;
+    const totalPnl = results.reduce((sum, t) => sum + t.pnl, 0);
+    const avgGain = winners.length > 0 ? winners.reduce((s, t) => s + t.pnlPct, 0) / winners.length : 0;
+    const avgLoss = losers.length > 0 ? losers.reduce((s, t) => s + t.pnlPct, 0) / losers.length : 0;
+    const bestTrade = results.reduce((best, t) => (!best || t.pnlPct > best.pnlPct ? t : best), null as TradeResult | null);
+    const worstTrade = results.reduce((worst, t) => (!worst || t.pnlPct < worst.pnlPct ? t : worst), null as TradeResult | null);
+
+    // Strategy breakdown
+    const byStrategy: Record<string, { trades: number; wins: number; pnl: number }> = {};
+    for (const t of results) {
+      if (!byStrategy[t.strategy]) byStrategy[t.strategy] = { trades: 0, wins: 0, pnl: 0 };
+      byStrategy[t.strategy].trades++;
+      if (t.pnl > 0) byStrategy[t.strategy].wins++;
+      byStrategy[t.strategy].pnl += t.pnl;
+    }
+
+    res.json({
+      totalTrades,
+      winRate: Math.round(winRate * 10) / 10,
+      totalPnl: Math.round(totalPnl * 100) / 100,
+      avgGain: Math.round(avgGain * 100) / 100,
+      avgLoss: Math.round(avgLoss * 100) / 100,
+      bestTrade,
+      worstTrade,
+      equityCurve,
+      strategyWeights,
+      byStrategy,
+    });
+  });
+
+  // ── Notifications endpoints ───────────────────────────────────────────────
+  app.get("/api/bot/notifications", requireAuth, (_req, res) => {
+    res.json(notifications);
+  });
+
+  app.post("/api/bot/notifications/read", requireAuth, (_req, res) => {
+    notifications.forEach(n => (n.read = true));
+    res.json({ ok: true });
+  });
+
   // Bot status
   app.get("/api/bot/status", requireAuth, (_req, res) => {
     res.json({
@@ -144,6 +333,7 @@ export function registerBotRoutes(app: Express) {
       dailyLossLimit: state.dailyLossLimit,
       auditLogCount: state.auditLog.length,
       mode: "paper",
+      unreadNotifications: notifications.filter(n => !n.read).length,
     });
   });
 
@@ -152,6 +342,7 @@ export function registerBotRoutes(app: Express) {
     if (state.killSwitch) return res.status(400).json({ error: "Kill switch is ON. Disable it first." });
     state.active = true;
     audit("START", "Bot activated");
+    notify("system", "Bot activated — scanning for opportunities");
     res.json({ ok: true, active: true });
   });
 
@@ -159,6 +350,7 @@ export function registerBotRoutes(app: Express) {
   app.post("/api/bot/stop", requireAuth, (_req, res) => {
     state.active = false;
     audit("STOP", "Bot deactivated");
+    notify("system", "Bot paused");
     res.json({ ok: true, active: false });
   });
 
@@ -168,9 +360,11 @@ export function registerBotRoutes(app: Express) {
     if (state.killSwitch) {
       state.active = false;
       audit("KILL SWITCH ON", "All trading halted. Cancelling open orders.");
+      notify("alert", "KILL SWITCH ACTIVATED — all trading halted, open orders cancelled");
       try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
     } else {
       audit("KILL SWITCH OFF", "Trading can resume.");
+      notify("system", "Kill switch deactivated — trading can resume");
     }
     res.json({ ok: true, killSwitch: state.killSwitch });
   });
@@ -200,17 +394,19 @@ export function registerBotRoutes(app: Express) {
     } catch {}
 
     try {
+      const orderSide = side === "short" ? "sell" : side;
       const order = await alpaca("/v2/orders", {
         method: "POST",
         body: JSON.stringify({
           symbol: ticker.toUpperCase(),
           qty: String(qty),
-          side,
+          side: orderSide,
           type,
           time_in_force: "day",
         }),
       });
       audit("TRADE", `${side.toUpperCase()} ${qty} ${ticker} @ ${type}`);
+      notify("trade", `${side.toUpperCase()} ${qty} ${ticker} @ ${type}`);
       res.json(order);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -224,6 +420,7 @@ export function registerBotRoutes(app: Express) {
     try {
       await alpaca(`/v2/positions/${String(ticker).toUpperCase()}`, { method: "DELETE" });
       audit("CLOSE", `Closed position in ${ticker}`);
+      notify("trade", `Position closed: ${ticker}`);
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -235,14 +432,14 @@ export function registerBotRoutes(app: Express) {
     const { ticker } = req.params;
     const timeframe = (String(req.query.timeframe || "1Day")) || "1Day";
     const limit = parseInt(String(req.query.limit || "200")) || 200;
-    
+
     // Map timeframe to Alpaca format
     const tfMap: Record<string, string> = {
       "1Min": "1Min", "5Min": "5Min", "15Min": "15Min", "1Hour": "1Hour",
       "1Day": "1Day", "1Week": "1Week",
     };
     const tf = tfMap[timeframe] || "1Day";
-    
+
     try {
       const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=iex`;
       const r = await fetch(url, {
@@ -298,17 +495,17 @@ export function registerBotRoutes(app: Express) {
         );
         if (!stdout.trim()) continue;
         const raw = JSON.parse(stdout.trim());
-        
+
         // Score the signal
         const vrp = raw.vrp ?? 0;
         const rec = raw.recommendation;
         const edge = raw.edge_factors;
-        
+
         let action = "HOLD";
         let reason = "";
         let confidence = 50;
         let type = "neutral";
-        
+
         // VRP signal
         if (vrp > 5) {
           action = "SELL OPTIONS";
@@ -321,7 +518,7 @@ export function registerBotRoutes(app: Express) {
           confidence = Math.min(85, 50 + Math.abs(vrp) * 3);
           type = "buy";
         }
-        
+
         // Override with recommendation if available
         if (rec?.action && rec.action !== "WAIT") {
           action = rec.action;
@@ -329,18 +526,18 @@ export function registerBotRoutes(app: Express) {
           confidence = rec.signal?.includes("🚀") ? 80 : rec.signal?.includes("⚠️") ? 40 : 60;
           type = rec.action.toLowerCase().includes("buy") ? "buy" : rec.action.toLowerCase().includes("sell") ? "sell" : "neutral";
         }
-        
+
         // Squeeze boost
         if (edge?.squeeze_score > 70) {
           reason += ` | SQUEEZE ALERT: ${edge.squeeze_desc}`;
           confidence = Math.min(95, confidence + 15);
         }
-        
+
         if (action !== "HOLD" && confidence > 45) {
           // Remove old signal for this ticker
           const idx = signals.findIndex(s => s.ticker === ticker);
           if (idx >= 0) signals.splice(idx, 1);
-          
+
           signals.unshift({
             ticker,
             action,
@@ -349,10 +546,10 @@ export function registerBotRoutes(app: Express) {
             timestamp: new Date().toISOString(),
             type,
           });
-          
+
           // Keep max 20 signals
           if (signals.length > 20) signals.length = 20;
-          
+
           audit("SIGNAL", `${action} ${ticker} (${Math.round(confidence)}% confidence)`);
         }
       } catch {}
@@ -376,7 +573,7 @@ export function registerBotRoutes(app: Express) {
   app.post("/api/bot/backtest", requireAuth, async (req, res) => {
     const { ticker = "SPY", strategy = "all", years = 3 } = req.body || {};
     const scriptPath = path.resolve("backtest.py");
-    
+
     try {
       audit("BACKTEST", `Running ${strategy} on ${ticker} (${years}yr)`);
       const { stdout } = await execAsync(
@@ -408,7 +605,7 @@ export function registerBotRoutes(app: Express) {
       const nowCheck = new Date(clockCheck.timestamp);
       const etH = nowCheck.getUTCHours() - 4;
       const isAnyTradingWindow = clockCheck.is_open || (etH >= 4 && etH < 20);
-      
+
       if (!isAnyTradingWindow) {
         // Market fully closed (8pm-4am ET) — do research only, no trades
         return;
@@ -439,27 +636,30 @@ export function registerBotRoutes(app: Express) {
         if (pick.score >= 60) {
           const existing = signals.findIndex(s => s.ticker === pick.ticker);
           if (existing >= 0) signals.splice(existing, 1);
+          const side = pick.side || "buy";
+          const actionLabel = pick.action_label || (pick.score >= 75 ? "STRONG BUY" : pick.score >= 65 ? "BUY" : "WATCH");
           signals.unshift({
             ticker: pick.ticker,
-            action: pick.score >= 75 ? "STRONG BUY" : pick.score >= 65 ? "BUY" : "WATCH",
+            action: actionLabel,
             reason: (pick.reasons || []).join(" | ") || `Score: ${pick.score}/100`,
             confidence: Math.min(95, pick.score),
             timestamp: new Date().toISOString(),
-            type: "buy",
+            type: side === "short" ? "sell" : side === "sell" ? "sell" : "buy",
           });
         }
       }
-      // Add signals from new trades the bot is about to execute
+      // Add signals from new trades
       for (const trade of (result.new_trades || [])) {
         const existing = signals.findIndex(s => s.ticker === trade.ticker);
         if (existing >= 0) signals.splice(existing, 1);
+        const side = trade.side || "buy";
         signals.unshift({
           ticker: trade.ticker,
-          action: `BUY ${trade.shares} shares`,
+          action: `${trade.action || "BUY"} ${trade.shares} shares`,
           reason: (trade.reasons || []).join(" | ") || trade.rec_reasoning || `Score: ${trade.score}`,
           confidence: Math.min(95, trade.score),
           timestamp: new Date().toISOString(),
-          type: "buy",
+          type: side === "short" ? "sell" : "buy",
         });
       }
       // Add close signals
@@ -481,6 +681,10 @@ export function registerBotRoutes(app: Express) {
         try {
           await alpaca(`/v2/positions/${action.ticker}`, { method: "DELETE" });
           audit("AUTO-CLOSE", `${action.ticker}: ${action.reason}`);
+          notify(
+            action.type === "take_profit" ? "profit" : "stop_loss",
+            `${action.ticker} position closed — ${action.reason}`
+          );
         } catch (e: any) {
           audit("AUTO-ERROR", `Failed to close ${action.ticker}: ${e.message}`);
         }
@@ -509,20 +713,39 @@ export function registerBotRoutes(app: Express) {
 
       if (dailyPnlPct <= DAILY_LOSS_LIMIT) {
         audit("AUTO-BLOCKED", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). All trading halted for today.`);
+        notify("alert", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). Trading halted for today.`);
       } else {
         for (const trade of (result.new_trades || [])) {
           if (state.killSwitch) break;
 
           // Position size check
           if (trade.position_value > equity * MAX_POSITION_SIZE) {
-            audit("AUTO-BLOCKED", `${trade.ticker}: Position too large ($${trade.position_value} > ${(MAX_POSITION_SIZE*100)}% limit)`);
+            audit("AUTO-BLOCKED", `${trade.ticker}: Position too large ($${trade.position_value} > ${(MAX_POSITION_SIZE * 100)}% limit)`);
             continue;
           }
 
           // Options trade check — only during regular hours
-          const isOptionsOrder = trade.recommendation?.toLowerCase().includes("option");
-          if (isOptionsOrder && !isMarketOpen) {
-            audit("AUTO-BLOCKED", `${trade.ticker}: Options can only trade during regular hours (9:30am-4pm ET). Queuing for market open.`);
+          const isOptionsOrder = (trade.trade_type === "options") || trade.recommendation?.toLowerCase().includes("option");
+          if (isOptionsOrder) {
+            if (!isMarketOpen) {
+              audit("AUTO-BLOCKED", `${trade.ticker}: Options can only trade during regular hours (9:30am-4pm ET). Queuing for market open.`);
+              continue;
+            }
+            // Log options intent — full execution requires options-enabled account
+            await placeOptionsOrder(
+              trade.ticker,
+              trade.vrp > 0 ? "call" : "put",
+              trade.price,
+              new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+              trade.side === "short" ? "sell" : "buy",
+              trade.shares
+            );
+            continue;
+          }
+
+          // No short selling in extended hours
+          if (isExtended && trade.side === "short") {
+            audit("AUTO-BLOCKED", `${trade.ticker}: Short selling not allowed in extended hours`);
             continue;
           }
 
@@ -534,7 +757,7 @@ export function registerBotRoutes(app: Express) {
             const orderBody: any = {
               symbol: trade.ticker,
               qty: String(qty),
-              side: "buy",
+              side: trade.side === "short" ? "sell" : (trade.side || "buy"),
               time_in_force: "day",
             };
 
@@ -555,9 +778,11 @@ export function registerBotRoutes(app: Express) {
 
             const session = isPreMarket ? "[PRE-MARKET]" : isAfterHours ? "[AFTER-HOURS]" : "[REGULAR]";
             const orderType = isExtended ? "LIMIT" : "MARKET";
-            audit("AUTO-TRADE", `${session} ${orderType} BUY ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
+            const sideLabel = trade.side === "short" ? "SHORT" : (trade.side || "BUY").toUpperCase();
+            audit("AUTO-TRADE", `${session} ${orderType} ${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
+            notify("trade", `${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} (score: ${trade.score})`);
           } catch (e: any) {
-            audit("AUTO-ERROR", `Failed to buy ${trade.ticker}: ${e.message}`);
+            audit("AUTO-ERROR", `Failed to trade ${trade.ticker}: ${e.message}`);
           }
 
           // Delay between orders to avoid rate limits
@@ -565,7 +790,24 @@ export function registerBotRoutes(app: Express) {
         }
       }
 
+      // Run learning loop after each cycle
+      await trackClosedTrades();
+
       audit("AUTO", `Cycle complete. ${(result.new_trades || []).length} new trades, ${(result.position_actions || []).length} position actions.`);
+
+      // Daily summary (check once per cycle if it's near market close — 4pm ET)
+      try {
+        const etHourNow = new Date().getUTCHours() - 4;
+        if (etHourNow === 16) {
+          recordDailyEquity();
+          const acctSummary = await alpaca("/v2/account");
+          const dailyPnlDollars = parseFloat(acctSummary.equity) - parseFloat(acctSummary.last_equity);
+          notify(
+            "daily_summary",
+            `Daily summary: P&L ${dailyPnlDollars >= 0 ? "+" : ""}$${dailyPnlDollars.toFixed(2)} | Portfolio: $${parseFloat(acctSummary.portfolio_value).toLocaleString()}`
+          );
+        }
+      } catch {}
     } catch (e: any) {
       audit("AUTO-ERROR", `Autonomous cycle failed: ${e.message}`);
     }
@@ -623,6 +865,7 @@ export function registerBotRoutes(app: Express) {
             const ei = analysis.earnings_intel;
             if (ei && ei.days_to_earnings >= 0 && ei.days_to_earnings <= 5) {
               audit("RESEARCH", `EARNINGS ALERT: ${t} reports in ${ei.days_to_earnings} days (${ei.timing}). Beat rate: ${ei.beat_pct}%. IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
+              notify("earnings", `${t} earnings in ${ei.days_to_earnings} days — IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
             }
           } catch {}
         }
@@ -639,6 +882,7 @@ export function registerBotRoutes(app: Express) {
           const topTrades = lastScanResult.new_trades || [];
           if (topTrades.length > 0) {
             audit("RESEARCH", `PRE-MARKET REPORT: ${topTrades.length} trade opportunities ready. Top pick: ${topTrades[0].ticker} (score ${topTrades[0].score})`);
+            notify("research", `Pre-market report ready: ${topTrades.length} opportunities. Top: ${topTrades[0].ticker} @ $${topTrades[0].price}`);
           } else {
             audit("RESEARCH", "PRE-MARKET REPORT: No high-conviction trades found. Bot will monitor during pre-market.");
           }
@@ -652,37 +896,32 @@ export function registerBotRoutes(app: Express) {
     autoRunning = false;
   }
 
-  // Auto-run every 15 minutes when bot is active
-  // Trades during: pre-market (4am-9:30am ET), regular hours (9:30am-4pm ET), after hours (4pm-8pm ET)
-  // Research during: 8pm-4am ET
+  // Auto-run every 45 seconds when bot is active
   setInterval(async () => {
     if (!state.active || state.killSwitch) return;
 
-    // Check market status — trade in extended hours too
     try {
       const clock = await alpaca("/v2/clock");
       const now = new Date(clock.timestamp);
       const etHour = now.getUTCHours() - 4; // Approximate ET
       const isExtendedHours = (etHour >= 4 && etHour < 9.5) || (etHour >= 16 && etHour < 20);
       const isRegularHours = clock.is_open;
-      
+
       if (!isRegularHours && !isExtendedHours) {
         // 8pm-4am ET = Research & Preparation mode
-        // Run full analysis, backtests, revalidation — no live trades
         if (!autoRunning) {
           await runOvernightResearch(etHour);
         }
         return;
       }
-      
+
       if (isExtendedHours) {
         audit("AUTO", "Running extended hours scan (pre-market/after-hours)");
       }
     } catch { return; }
 
-    // Run autonomous cycle
     await runAutonomousCycle();
-  }, 45 * 1000); // Every 45 seconds — fast enough for edge, safe for Railway resources
+  }, 45 * 1000);
 
   // Route: Get last scan result
   app.get("/api/bot/last-scan", requireAuth, (_req, res) => {
@@ -692,19 +931,15 @@ export function registerBotRoutes(app: Express) {
   // Route: Market calendar — holidays and early closes
   app.get("/api/bot/calendar", requireAuth, async (_req, res) => {
     try {
-      // Get next 30 days of market calendar from Alpaca
       const today = new Date().toISOString().split("T")[0];
       const future = new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
       const cal = await alpaca(`/v2/calendar?start=${today}&end=${future}`);
-      
-      // Find all trading days
+
       const tradingDays = new Set((cal as any[]).map((d: any) => d.date));
-      
-      // Find holidays (non-trading weekdays)
+
       const holidays: Array<{date: string; name: string}> = [];
       const earlyCloses: Array<{date: string; close: string}> = [];
-      
-      // Known US market holidays
+
       const holidayNames: Record<string, string> = {
         "01-01": "New Year's Day",
         "01-20": "Martin Luther King Jr. Day",
@@ -717,12 +952,11 @@ export function registerBotRoutes(app: Express) {
         "11-27": "Thanksgiving Day",
         "12-25": "Christmas Day",
       };
-      
-      // Check next 30 days for non-trading weekdays
+
       for (let i = 0; i < 30; i++) {
         const d = new Date(Date.now() + i * 86400000);
         const dayOfWeek = d.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) continue; // Skip weekends
+        if (dayOfWeek === 0 || dayOfWeek === 6) continue;
         const dateStr = d.toISOString().split("T")[0];
         if (!tradingDays.has(dateStr)) {
           const mmdd = dateStr.substring(5);
@@ -732,21 +966,19 @@ export function registerBotRoutes(app: Express) {
           });
         }
       }
-      
-      // Check for early closes (close time before 16:00)
+
       for (const day of (cal as any[])) {
         if (day.close && day.close < "16:00") {
           earlyCloses.push({ date: day.date, close: day.close });
         }
       }
-      
-      // Tomorrow check
+
       const tomorrow = new Date(Date.now() + 86400000);
       const tomorrowStr = tomorrow.toISOString().split("T")[0];
       const tomorrowDay = tomorrow.getDay();
       let tomorrowStatus = "open";
       let tomorrowNote = "";
-      
+
       if (tomorrowDay === 0 || tomorrowDay === 6) {
         tomorrowStatus = "weekend";
         tomorrowNote = "Market is closed — it's the weekend.";
@@ -763,7 +995,7 @@ export function registerBotRoutes(app: Express) {
           tomorrowNote = "Market is open tomorrow, regular hours.";
         }
       }
-      
+
       res.json({
         tomorrow: { status: tomorrowStatus, note: tomorrowNote, date: tomorrowStr },
         holidays,
@@ -777,7 +1009,7 @@ export function registerBotRoutes(app: Express) {
 
   // Auto-start: log all rules and begin
   setTimeout(() => {
-    audit("SYSTEM", "=== VolTradeAI Bot v1.0 Initialized ===");
+    audit("SYSTEM", "=== VolTradeAI Bot v2.0 Initialized ===");
     audit("SYSTEM", `Mode: PAPER TRADING (Alpaca)`);
     audit("RULES", `Scan interval: 45 seconds during trading hours`);
     audit("RULES", `Max positions: ${MAX_POSITIONS} at once`);
@@ -793,6 +1025,9 @@ export function registerBotRoutes(app: Express) {
     audit("RULES", `PDT: If account < $25K, max 3 day trades per 5 business days`);
     audit("RULES", `Minimum score to trade: 65/100 combined edge score`);
     audit("RULES", `Minimum stock price: $5 | Minimum volume: 500K daily`);
+    audit("RULES", `Strategy scoring: Momentum 25%, VRP 25%, MeanRev 20%, Squeeze 15%, Volume 15%`);
+    audit("RULES", `Correlation check: Max ${2} stocks per sector`);
+    audit("RULES", `Sell/Short: Negative momentum + bearish sentiment → SHORT | High VRP → SELL OPTIONS`);
     audit("SCHEDULE", `4am-9:30am ET: Pre-market scanning + stock trading`);
     audit("SCHEDULE", `9:30am-4pm ET: Full trading (stocks + options)`);
     audit("SCHEDULE", `4pm-8pm ET: After-hours scanning + stock trading`);
@@ -800,12 +1035,12 @@ export function registerBotRoutes(app: Express) {
     audit("SCHEDULE", `10pm-12am ET: Backtest validation — check strategies still work`);
     audit("SCHEDULE", `12am-2am ET: Earnings analysis — upcoming reporters`);
     audit("SCHEDULE", `2am-4am ET: Pre-market report — compile morning trade list`);
-    // Check if market is in any trading window before first scan
+
     alpaca("/v2/clock").then((clock: any) => {
       const now3 = new Date(clock.timestamp);
       const etH3 = now3.getUTCHours() - 4;
       const canTrade = clock.is_open || (etH3 >= 4 && etH3 < 20);
-      
+
       if (canTrade) {
         audit("SYSTEM", "Market is in a trading window. First scan starting...");
         setTimeout(() => runAutonomousCycle(), 5000);

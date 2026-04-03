@@ -62,6 +62,39 @@ def realized_vol(hist, window=20):
     var  = sum((r - mean)**2 for r in returns) / (len(returns) - 1)
     return round(math.sqrt(var * 252) * 100, 2)
 
+def ewma_vol(hist, lambd=0.94, window=60):
+    """EWMA volatility — reacts faster than rolling window (RiskMetrics)."""
+    try:
+        import numpy as _np
+        returns = _np.log(hist['Close'] / hist['Close'].shift(1)).dropna()
+        if len(returns) < window:
+            return realized_vol(hist, 20)
+        recent = returns.iloc[-window:]
+        var = float(recent.var())
+        for r in recent:
+            var = lambd * var + (1 - lambd) * float(r) ** 2
+        return round(float(_np.sqrt(var * 252)) * 100, 2)
+    except Exception:
+        return realized_vol(hist, 20)
+
+def garch_vol(hist, window=252):
+    """Simple GARCH(1,1) volatility estimate."""
+    try:
+        import numpy as _np
+        returns = _np.log(hist['Close'] / hist['Close'].shift(1)).dropna()
+        if len(returns) < window:
+            return realized_vol(hist, 20)
+        recent = returns.iloc[-window:]
+        omega = 0.00001
+        alpha = 0.05
+        beta  = 0.90
+        var = float(recent.var())
+        for r in recent:
+            var = omega + alpha * float(r) ** 2 + beta * var
+        return round(float(_np.sqrt(var * 252)) * 100, 2)
+    except Exception:
+        return realized_vol(hist, 20)
+
 def bid_ask_quality(bid, ask):
     mid = (bid + ask) / 2
     if mid <= 0:
@@ -1711,6 +1744,10 @@ def analyze_ticker(ticker_symbol):
     rv20 = realized_vol(hist, 20) or 20.0
     rv30 = realized_vol(hist, 30) or 20.0
 
+    # EWMA + GARCH volatility (faster-reacting estimates)
+    ewma_rv = ewma_vol(hist, lambd=0.94, window=60) or rv20
+    garch_rv_val = garch_vol(hist, window=min(252, len(hist))) or rv20
+
     # Volume + Bennett metrics
     vol_metrics = compute_volume_metrics(hist)
 
@@ -1881,6 +1918,12 @@ def analyze_ticker(ticker_symbol):
     if rsi        is not None: vol_metrics['rsi_14']        = rsi
     if mfi        is not None: vol_metrics['mfi']           = mfi
     if insider_net is not None: vol_metrics['insider_net']  = insider_net
+    # EWMA + GARCH vol estimates
+    vol_metrics['ewma_rv']  = ewma_rv
+    vol_metrics['garch_rv'] = garch_rv_val
+    vol_metrics['rv20']     = rv20
+    vol_metrics['rv10']     = rv10
+    vol_metrics['rv30']     = rv30
 
     # ── Real-time price & fundamentals ───────────────────────────────────────
     def _safe(v, mult=1, digits=2):
@@ -2219,7 +2262,15 @@ def quick_scan(ticker_symbol):
         rv10 = realized_vol(hist, 10) or rv20
         r    = 0.05
 
+        # EWMA + GARCH vol for scanner
+        _ewma_rv  = ewma_vol(hist, lambd=0.94, window=60) or rv20
+        _garch_rv = garch_vol(hist, window=min(252, len(hist))) or rv20
+
         vol_metrics = compute_volume_metrics(hist)
+        vol_metrics['ewma_rv']  = _ewma_rv
+        vol_metrics['garch_rv'] = _garch_rv
+        vol_metrics['rv20']     = rv20
+        vol_metrics['rv10']     = rv10
 
         try:
             all_exps = ticker.options or []
@@ -2324,7 +2375,11 @@ def quick_scan(ticker_symbol):
             "best_strategy":    best_type,
             "top_spread_score": round(top_score, 1),
             "scan_score":       scan_score,
-            # New fields
+            # Volatility estimates
+            "ewma_rv":          _ewma_rv,
+            "garch_rv":         _garch_rv,
+            "vol_metrics":      vol_metrics,
+            # Sentiment + recommendation
             "sentiment_score":  sentiment_score,
             "sentiment_signal": sentiment_signal,
             "rec_action":       rec_action,

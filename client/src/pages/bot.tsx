@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ShieldAlert, Play, Square, TrendingUp, Activity, Clock,
-  RefreshCw, Shield, Lock, BarChart2, Zap,
+  RefreshCw, Shield, Lock, BarChart2, Zap, Bell, ArrowUp, ArrowDown,
 } from "lucide-react";
 import ChartPage from "./chart";
 
@@ -32,6 +32,8 @@ const TIPS: Record<string, string> = {
   dailyLossLimit: "If the bot loses more than this percentage in a single day, all trading automatically halts until reset.",
   positionSize: "The bot will never put more than this percentage of your portfolio into a single trade.",
   totalExposure: "Maximum percentage of your portfolio that can be invested at any one time.",
+  performance: "Live performance tracking — win rate, P&L, and equity curve across all bot trades.",
+  notifications: "Real-time alerts for trades executed, stop losses hit, earnings events, and daily summaries.",
 };
 
 function Tip({ id, children }: { id: string; children: React.ReactNode }) {
@@ -73,7 +75,154 @@ function signalColor(type: string) {
   return "#ff9f0a";
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Mini equity curve chart ──────────────────────────────────────────────────
+function MiniEquityCurve({ data }: { data: Array<{ date: string; value: number; pnl: number }> }) {
+  if (!data || data.length < 2) {
+    return (
+      <div style={{ height: "48px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: "11px", color: "#3a3a3c" }}>Equity curve builds as trades complete</span>
+      </div>
+    );
+  }
+
+  const reversed = [...data].reverse();
+  const values = reversed.map(d => d.value);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const range = maxV - minV || 1;
+  const w = 300;
+  const h = 48;
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w;
+    const y = h - ((v - minV) / range) * h;
+    return `${x},${y}`;
+  }).join(" ");
+
+  const isUp = values[values.length - 1] >= values[0];
+
+  return (
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={isUp ? "#30d158" : "#ff453a"}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// ─── Notification Bell ────────────────────────────────────────────────────────
+function NotificationBell({ notifications, onMarkRead }: {
+  notifications: Array<{ time: string; type: string; message: string; read: boolean }>;
+  onMarkRead: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const typeColor = (type: string) => {
+    if (type === "alert" || type === "stop_loss") return "#ff453a";
+    if (type === "profit" || type === "trade") return "#30d158";
+    if (type === "earnings") return "#ff9f0a";
+    return "#0a84ff";
+  };
+
+  const typeIcon = (type: string) => {
+    if (type === "alert" || type === "stop_loss") return "🛑";
+    if (type === "profit") return "✅";
+    if (type === "trade") return "📈";
+    if (type === "earnings") return "📊";
+    if (type === "daily_summary") return "📋";
+    return "ℹ️";
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => {
+          setOpen(o => !o);
+          if (!open && unreadCount > 0) onMarkRead();
+        }}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: "36px", height: "36px", borderRadius: "10px",
+          border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
+          cursor: "pointer", position: "relative", color: "#a1a1a6",
+        }}
+        title="Notifications"
+      >
+        <Bell size={15} />
+        {unreadCount > 0 && (
+          <span style={{
+            position: "absolute", top: "-4px", right: "-4px",
+            background: "#ff453a", borderRadius: "50%",
+            width: "16px", height: "16px", fontSize: "9px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "white", fontWeight: 700, border: "2px solid #000",
+          }}>
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 200,
+          width: "320px", maxHeight: "400px", overflowY: "auto",
+          background: "rgba(20,20,20,0.97)", border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: "14px", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+          backdropFilter: "blur(20px)",
+        }}>
+          <div style={{
+            padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "#f5f5f7" }}>
+              <Tip id="notifications">Notifications</Tip>
+            </span>
+            {notifications.length > 0 && (
+              <button onClick={onMarkRead} style={{
+                fontSize: "11px", color: "#0a84ff", background: "none", border: "none", cursor: "pointer",
+              }}>
+                Mark all read
+              </button>
+            )}
+          </div>
+          {notifications.length === 0 ? (
+            <div style={{ padding: "24px", textAlign: "center", color: "#6e6e73", fontSize: "12px" }}>
+              No notifications yet
+            </div>
+          ) : (
+            notifications.map((n, i) => (
+              <div key={i} style={{
+                padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)",
+                background: n.read ? "transparent" : "rgba(10,132,255,0.05)",
+                display: "flex", gap: "10px", alignItems: "flex-start",
+              }}>
+                <span style={{ fontSize: "14px", marginTop: "1px" }}>{typeIcon(n.type)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "12px", color: "#f5f5f7", lineHeight: 1.4, wordBreak: "break-word" }}>
+                    {n.message}
+                  </div>
+                  <div style={{ fontSize: "10px", color: "#6e6e73", marginTop: "3px" }}>
+                    {new Date(n.time).toLocaleString()}
+                  </div>
+                </div>
+                {!n.read && (
+                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#0a84ff", flexShrink: 0, marginTop: "5px" }} />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Calendar Banner component ────────────────────────────────────────────────
 function CalendarBanner() {
   const { data } = useQuery({
     queryKey: ["/api/bot/calendar"],
@@ -104,9 +253,131 @@ function CalendarBanner() {
   );
 }
 
-export default function BotDashboard() {
-  // ── Local state for backtest form ─────────────────────────────────────────
+// ─── Performance Card ─────────────────────────────────────────────────────────
+function PerformanceCard({ perf }: { perf: any }) {
+  if (!perf) {
+    return (
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+          <TrendingUp size={14} style={{ color: "#0a84ff" }} />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>
+            <Tip id="performance">Performance</Tip>
+          </span>
+        </div>
+        <p style={{ color: "#6e6e73", fontSize: "13px", textAlign: "center", padding: "16px 0" }}>
+          Performance data builds as trades complete.
+        </p>
+      </div>
+    );
+  }
 
+  const { totalTrades, winRate, totalPnl, avgGain, avgLoss, bestTrade, worstTrade, equityCurve } = perf;
+  const winRateColor = winRate >= 60 ? "#30d158" : winRate >= 45 ? "#ff9f0a" : "#ff453a";
+  const pnlColor = totalPnl >= 0 ? "#30d158" : "#ff453a";
+
+  return (
+    <div style={{ ...card, marginBottom: "20px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+        <TrendingUp size={14} style={{ color: "#0a84ff" }} />
+        <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>
+          <Tip id="performance">Performance</Tip>
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: "11px", color: "#6e6e73" }}>
+          {totalTrades} total trades
+        </span>
+      </div>
+
+      {/* Stats row */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))",
+        gap: "12px",
+        marginBottom: "16px",
+      }}>
+        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+          <div style={label}>Total P&L</div>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: pnlColor }}>
+            {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
+          </div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+          <div style={label}><Tip id="winrate">Win Rate</Tip></div>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: winRateColor }}>
+            {winRate.toFixed(1)}%
+          </div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+          <div style={label}>Avg Gain</div>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#30d158" }}>
+            +{avgGain.toFixed(2)}%
+          </div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+          <div style={label}>Avg Loss</div>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#ff453a" }}>
+            {avgLoss.toFixed(2)}%
+          </div>
+        </div>
+      </div>
+
+      {/* Best / Worst trade */}
+      {(bestTrade || worstTrade) && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
+          {bestTrade && (
+            <div style={{ background: "rgba(48,209,88,0.06)", border: "1px solid rgba(48,209,88,0.15)", borderRadius: "10px", padding: "10px" }}>
+              <div style={{ fontSize: "10px", color: "#6e6e73", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                Best Trade
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <ArrowUp size={12} style={{ color: "#30d158" }} />
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#f5f5f7", fontSize: "13px" }}>
+                  {bestTrade.ticker}
+                </span>
+                <span style={{ fontSize: "12px", color: "#30d158", marginLeft: "auto", fontWeight: 600 }}>
+                  +{bestTrade.pnlPct.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+          )}
+          {worstTrade && (
+            <div style={{ background: "rgba(255,69,58,0.06)", border: "1px solid rgba(255,69,58,0.15)", borderRadius: "10px", padding: "10px" }}>
+              <div style={{ fontSize: "10px", color: "#6e6e73", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                Worst Trade
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <ArrowDown size={12} style={{ color: "#ff453a" }} />
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#f5f5f7", fontSize: "13px" }}>
+                  {worstTrade.ticker}
+                </span>
+                <span style={{ fontSize: "12px", color: "#ff453a", marginLeft: "auto", fontWeight: 600 }}>
+                  {worstTrade.pnlPct.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Equity curve */}
+      {equityCurve && equityCurve.length >= 2 && (
+        <div>
+          <div style={{ ...label, marginBottom: "8px" }}>Equity Curve</div>
+          <MiniEquityCurve data={equityCurve} />
+        </div>
+      )}
+
+      {/* No trades yet */}
+      {totalTrades === 0 && (
+        <p style={{ color: "#6e6e73", fontSize: "12px", textAlign: "center", padding: "8px 0" }}>
+          Performance data builds as the bot executes trades.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+export default function BotDashboard() {
   // ── Queries ───────────────────────────────────────────────────────────────
   const { data: acct } = useQuery({
     queryKey: ["/api/bot/account"],
@@ -128,10 +399,20 @@ export default function BotDashboard() {
     queryFn: async () => { const r = await apiRequest("GET", "/api/bot/audit"); return r.json(); },
     refetchInterval: 15000,
   });
-  const { data: signals, refetch: refetchSignals } = useQuery({
+  const { data: signals } = useQuery({
     queryKey: ["/api/bot/signals"],
     queryFn: async () => { const r = await apiRequest("GET", "/api/bot/signals"); return r.json(); },
     refetchInterval: 30000,
+  });
+  const { data: perfData } = useQuery({
+    queryKey: ["/api/bot/performance"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/bot/performance"); return r.json(); },
+    refetchInterval: 60000,
+  });
+  const { data: notifData, refetch: refetchNotifs } = useQuery({
+    queryKey: ["/api/bot/notifications"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/bot/notifications"); return r.json(); },
+    refetchInterval: 15000,
   });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -151,20 +432,28 @@ export default function BotDashboard() {
     mutationFn: (ticker: string) => apiRequest("POST", "/api/bot/close", { ticker }).then(r => r.json()),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/bot/positions"] }); queryClient.invalidateQueries({ queryKey: ["/api/bot/audit"] }); },
   });
+  const markAllRead = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/bot/notifications/read").then(r => r.json()),
+    onSuccess: () => refetchNotifs(),
+  });
 
   // ── Derived values ────────────────────────────────────────────────────────
   const dailyPnl = acct?.dailyPnL ?? 0;
   const dailyPnlPct = acct?.dailyPnLPct ?? 0;
   const isKilled = status?.killSwitch ?? false;
   const isActive = status?.active ?? false;
-
+  const notifList = Array.isArray(notifData) ? notifData : [];
+  const unreadCount = notifList.filter((n: any) => !n.read).length;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "24px 16px" }}>
 
       {/* ── Header ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: "20px", flexWrap: "wrap", gap: "12px",
+      }}>
         <div>
           <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "#f5f5f7", margin: 0 }}>Trading Bot</h1>
           <div style={{ display: "flex", gap: "8px", marginTop: "6px", alignItems: "center" }}>
@@ -183,7 +472,13 @@ export default function BotDashboard() {
             </Tip>
           </div>
         </div>
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {/* Notifications Bell */}
+          <NotificationBell
+            notifications={notifList}
+            onMarkRead={() => markAllRead.mutate()}
+          />
+
           {!isActive ? (
             <button onClick={() => startBot.mutate()} disabled={isKilled} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "10px", border: "none", background: isKilled ? "#333" : "#30d158", color: "white", fontSize: "13px", fontWeight: 600, cursor: isKilled ? "not-allowed" : "pointer" }}>
               <Play size={14} /> Start
@@ -205,27 +500,36 @@ export default function BotDashboard() {
       <CalendarBanner />
 
       {/* ── Account Overview ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "20px" }}>
         <div style={card}>
           <div style={label}><Tip id="portfolio">Portfolio Value</Tip></div>
-          <div style={{ ...bigNum, color: "#f5f5f7" }}>${(acct?.portfolioValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ ...bigNum, color: "#f5f5f7", fontSize: "clamp(18px, 4vw, 28px)" }}>
+            ${(acct?.portfolioValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
         </div>
         <div style={card}>
           <div style={label}><Tip id="cash">Cash Available</Tip></div>
-          <div style={{ ...bigNum, color: "#a1a1a6" }}>${(acct?.cash ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ ...bigNum, color: "#a1a1a6", fontSize: "clamp(18px, 4vw, 28px)" }}>
+            ${(acct?.cash ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
         </div>
         <div style={card}>
           <div style={label}><Tip id="dailyPnl">Today's P&L</Tip></div>
-          <div style={{ ...bigNum, color: dailyPnl >= 0 ? "#30d158" : "#ff453a" }}>
+          <div style={{ ...bigNum, color: dailyPnl >= 0 ? "#30d158" : "#ff453a", fontSize: "clamp(18px, 4vw, 28px)" }}>
             {dailyPnl >= 0 ? "+" : ""}{dailyPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            <span style={{ fontSize: "14px", marginLeft: "6px" }}>({dailyPnlPct >= 0 ? "+" : ""}{Number(dailyPnlPct ?? 0).toFixed(2)}%)</span>
+            <span style={{ fontSize: "12px", marginLeft: "6px" }}>({dailyPnlPct >= 0 ? "+" : ""}{Number(dailyPnlPct ?? 0).toFixed(2)}%)</span>
           </div>
         </div>
         <div style={card}>
           <div style={label}><Tip id="buyingPower">Buying Power</Tip></div>
-          <div style={{ ...bigNum, color: "#a1a1a6", fontSize: "22px" }}>${(acct?.buyingPower ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+          <div style={{ ...bigNum, color: "#a1a1a6", fontSize: "clamp(16px, 3vw, 22px)" }}>
+            ${(acct?.buyingPower ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </div>
         </div>
       </div>
+
+      {/* ── Performance Card ── */}
+      <PerformanceCard perf={perfData} />
 
       {/* ── Open Positions ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
@@ -235,8 +539,8 @@ export default function BotDashboard() {
           <span style={{ marginLeft: "auto", fontSize: "12px", color: "#6e6e73" }}>{Array.isArray(positions) ? positions.length : 0} positions</span>
         </div>
         {Array.isArray(positions) && positions.length > 0 ? (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "480px" }}>
               <thead>
                 <tr style={{ color: "#6e6e73", textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                   <th style={{ padding: "8px 12px" }}>Ticker</th>
@@ -347,7 +651,7 @@ export default function BotDashboard() {
           <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>Security Controls</span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "16px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "16px" }}>
           {/* Kill Switch status */}
           <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "14px", border: `1px solid ${isKilled ? "rgba(255,69,58,0.3)" : "rgba(255,255,255,0.06)"}` }}>
             <div style={{ ...label, marginBottom: "8px" }}><Tip id="killSwitch">Kill Switch</Tip></div>
@@ -402,6 +706,9 @@ export default function BotDashboard() {
           <span style={{ display: "flex", alignItems: "center", gap: "5px", padding: "4px 12px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: "rgba(255,255,255,0.04)", color: "#a1a1a6", border: "1px solid rgba(255,255,255,0.08)" }}>
             <Lock size={10} /> API keys encrypted
           </span>
+          <span style={{ padding: "4px 12px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: "rgba(191,90,242,0.1)", color: "#bf5af2", border: "1px solid rgba(191,90,242,0.2)" }}>
+            {unreadCount} unread alerts
+          </span>
         </div>
       </div>
 
@@ -415,7 +722,7 @@ export default function BotDashboard() {
         <div style={{ maxHeight: "250px", overflowY: "auto" }}>
           {Array.isArray(audit) && audit.length > 0 ? (
             audit.map((a: any, i: number) => (
-              <div key={i} style={{ display: "flex", gap: "10px", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: "12px" }}>
+              <div key={i} style={{ display: "flex", gap: "10px", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: "12px", flexWrap: "wrap" }}>
                 <span style={{ color: "#6e6e73", fontFamily: "monospace", flexShrink: 0, width: "130px" }}>{new Date(a.time).toLocaleString()}</span>
                 <span style={{ color: "#0a84ff", fontWeight: 600, flexShrink: 0, width: "80px" }}>{a.action}</span>
                 <span style={{ color: "#a1a1a6" }}>{a.detail}</span>
