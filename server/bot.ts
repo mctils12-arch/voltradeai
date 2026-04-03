@@ -417,6 +417,48 @@ export function registerBotRoutes(app: Express) {
 
       audit("AUTO", `Scanned ${result.scanned} stocks, filtered to ${result.filtered}, deep-analyzed ${result.deep_analyzed}`);
 
+      // Auto-generate signals from scan results
+      const topPicks = result.top_10 || [];
+      for (const pick of topPicks) {
+        if (pick.score >= 60) {
+          const existing = signals.findIndex(s => s.ticker === pick.ticker);
+          if (existing >= 0) signals.splice(existing, 1);
+          signals.unshift({
+            ticker: pick.ticker,
+            action: pick.score >= 75 ? "STRONG BUY" : pick.score >= 65 ? "BUY" : "WATCH",
+            reason: (pick.reasons || []).join(" | ") || `Score: ${pick.score}/100`,
+            confidence: Math.min(95, pick.score),
+            timestamp: new Date().toISOString(),
+            type: "buy",
+          });
+        }
+      }
+      // Add signals from new trades the bot is about to execute
+      for (const trade of (result.new_trades || [])) {
+        const existing = signals.findIndex(s => s.ticker === trade.ticker);
+        if (existing >= 0) signals.splice(existing, 1);
+        signals.unshift({
+          ticker: trade.ticker,
+          action: `BUY ${trade.shares} shares`,
+          reason: (trade.reasons || []).join(" | ") || trade.rec_reasoning || `Score: ${trade.score}`,
+          confidence: Math.min(95, trade.score),
+          timestamp: new Date().toISOString(),
+          type: "buy",
+        });
+      }
+      // Add close signals
+      for (const action of (result.position_actions || [])) {
+        signals.unshift({
+          ticker: action.ticker,
+          action: "CLOSE",
+          reason: action.reason,
+          confidence: 90,
+          timestamp: new Date().toISOString(),
+          type: action.type === "take_profit" ? "sell" : "stop",
+        });
+      }
+      if (signals.length > 30) signals.length = 30;
+
       // Step 2: Execute position management (stop-loss / take-profit)
       for (const action of (result.position_actions || [])) {
         if (state.killSwitch) break;

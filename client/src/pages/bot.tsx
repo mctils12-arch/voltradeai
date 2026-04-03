@@ -151,14 +151,6 @@ export default function BotDashboard() {
     mutationFn: (ticker: string) => apiRequest("POST", "/api/bot/close", { ticker }).then(r => r.json()),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/bot/positions"] }); queryClient.invalidateQueries({ queryKey: ["/api/bot/audit"] }); },
   });
-  const refreshSignals = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/bot/refresh-signals").then(r => r.json()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bot/signals"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/bot/audit"] });
-      refetchSignals();
-    },
-  });
 
   // ── Derived values ────────────────────────────────────────────────────────
   const dailyPnl = acct?.dailyPnL ?? 0;
@@ -291,17 +283,12 @@ export default function BotDashboard() {
             {Array.isArray(signals) ? signals.length : 0} active signals
           </span>
           <button
-            onClick={() => refreshSignals.mutate()}
-            disabled={refreshSignals.isPending}
             style={{
               display: "flex", alignItems: "center", gap: "6px",
               padding: "6px 14px", borderRadius: "8px", border: "1px solid rgba(255,159,10,0.3)",
               background: "rgba(255,159,10,0.1)", color: "#ff9f0a", fontSize: "12px", fontWeight: 600,
-              cursor: refreshSignals.isPending ? "not-allowed" : "pointer", opacity: refreshSignals.isPending ? 0.6 : 1,
             }}
           >
-            <RefreshCw size={12} style={{ animation: refreshSignals.isPending ? "spin 1s linear infinite" : "none" }} />
-            {refreshSignals.isPending ? "Scanning..." : "Refresh Signals"}
           </button>
         </div>
 
@@ -344,7 +331,6 @@ export default function BotDashboard() {
         ) : (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Zap size={28} style={{ color: "#3a3a3c", marginBottom: "12px" }} />
-            <p style={{ color: "#6e6e73", fontSize: "13px", margin: 0 }}>No signals yet. Click <strong style={{ color: "#ff9f0a" }}>Refresh Signals</strong> to scan top 10 tickers.</p>
           </div>
         )}
       </div>
