@@ -1,10 +1,8 @@
-import { Switch, Route, Router } from "wouter";
-import { useHashLocation } from "wouter/use-hash-location";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import Home from "@/pages/home";
-import NotFound from "@/pages/not-found";
+import LoginPage from "@/pages/login";
 import { Component, ReactNode } from "react";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
@@ -19,7 +17,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
     if (this.state.error) {
       return (
         <div style={{ padding: 32, color: '#f43f5e', fontFamily: 'monospace', background: '#0d1117', minHeight: '100vh' }}>
-          <h2>Something went wrong rendering results.</h2>
+          <h2>Something went wrong.</h2>
           <pre style={{ fontSize: 12, opacity: 0.7, whiteSpace: 'pre-wrap' }}>{this.state.error}</pre>
           <button onClick={() => this.setState({ error: null })} style={{ marginTop: 16, padding: '8px 16px', background: '#1e40af', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Try Again</button>
         </div>
@@ -29,16 +27,37 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
   }
 }
 
+function AuthGate() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/auth/me"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/auth/me");
+      return r.json();
+    },
+    staleTime: 60000,
+    retry: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000", color: "#6e6e73" }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (!data?.authenticated) {
+    return <LoginPage onLogin={() => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] })} />;
+  }
+
+  return <Home />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
-        <Router hook={useHashLocation}>
-          <Switch>
-            <Route path="/" component={Home} />
-            <Route component={NotFound} />
-          </Switch>
-        </Router>
+        <AuthGate />
         <Toaster />
       </ErrorBoundary>
     </QueryClientProvider>

@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark } from "lucide-react";
+import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 import AnalyzePage from "./analyze";
 import ScannerPage from "./scanner";
 import NewsPage from "./news";
 import WatchlistPage from "./watchlist";
+import BotDashboard from "./bot";
 
 // ── Tab types ─────────────────────────────────────────────────────────────────
 
-type TabId = "analyze" | "scanner" | "news" | "watchlist";
+type TabId = "analyze" | "scanner" | "news" | "watchlist" | "bot";
 
 interface Tab {
   id: TabId;
@@ -20,6 +22,7 @@ const TABS: Tab[] = [
   { id: "scanner",   label: "Scanner",   icon: <ScanLine   size={14} /> },
   { id: "news",      label: "News",      icon: <Newspaper  size={14} /> },
   { id: "watchlist", label: "Watchlist", icon: <Bookmark   size={14} /> },
+  { id: "bot",       label: "Bot",       icon: <Bot        size={14} /> },
 ];
 
 // ── VolTradeAI Logo SVG ───────────────────────────────────────────────────────
@@ -85,15 +88,25 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Theme toggle */}
-        <button
-          className="theme-toggle-btn"
-          onClick={() => setDark(!dark)}
-          aria-label="Toggle light/dark mode"
-          title={dark ? "Switch to light mode" : "Switch to dark mode"}
-        >
-          {dark ? <Sun size={15} /> : <Moon size={15} />}
-        </button>
+        {/* Right side: theme + logout */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            className="theme-toggle-btn"
+            onClick={() => setDark(!dark)}
+            aria-label="Toggle light/dark mode"
+            title={dark ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {dark ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+          <button
+            className="theme-toggle-btn"
+            onClick={async () => { await apiRequest("POST", "/api/auth/logout"); window.location.reload(); }}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut size={15} />
+          </button>
+        </div>
       </nav>
 
       {/* ── Page content ── */}
@@ -112,6 +125,9 @@ export default function Home() {
         )}
         {activeTab === "watchlist" && (
           <WatchlistPage onSelectTicker={handleSelectTicker} />
+        )}
+        {activeTab === "bot" && (
+          <BotDashboard />
         )}
       </main>
     </div>

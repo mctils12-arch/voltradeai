@@ -5,6 +5,9 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs";
 import https from "https";
+import cookieParser from "cookie-parser";
+import { registerAuthRoutes } from "./auth";
+import { registerBotRoutes } from "./bot";
 
 const execAsync = promisify(exec);
 
@@ -396,6 +399,11 @@ async function runBackgroundScanner(): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+
+  // ── Auth & Bot ────────────────────────────────────────────────────────────
+  app.use(cookieParser());
+  registerAuthRoutes(app);
+  registerBotRoutes(app);
 
   // ── Single-ticker analysis ────────────────────────────────────────────────
   app.get("/api/analyze/:ticker", async (req, res) => {
