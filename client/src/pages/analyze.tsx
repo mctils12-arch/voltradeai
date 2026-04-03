@@ -968,73 +968,134 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
         </div>
       )}
 
-      {/* New: GEX, IV Rank, Flow, RSI, MFI, Insider */}
+      {/* Edge Signals */}
       {(metrics.gex !== undefined || metrics.iv_rank !== undefined || metrics.rsi_14 !== undefined ||
         metrics.mfi !== undefined || metrics.flow_signal || metrics.insider_net !== undefined) && (
         <div className="mt-3 pt-3 border-t border-white/[0.06]">
-          <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">Edge Signals</div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Edge Signals</div>
+          <div className="space-y-3">
+
             {metrics.gex !== undefined && (
-              <div className="mini-metric">
-                <div className="mini-label">GEX Regime</div>
-                <div className={`mini-value ${metrics.gex_regime === 'pinned' ? 'text-amber-400' : 'text-blue-400'}`}>
-                  {metrics.gex_regime === 'pinned' ? '📌 Pinned' : '💥 Explosive'}
-                  <span className="text-slate-500 ml-1 font-mono text-xs">{metrics.gex !== undefined ? (metrics.gex > 0 ? '+' : '') + (metrics.gex / 1e6).toFixed(0) + 'M' : ''}</span>
+              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-200">GEX Regime</span>
+                  <span className={`text-xs font-bold ${metrics.gex_regime === 'pinned' ? 'text-amber-400' : 'text-blue-400'}`}>
+                    {metrics.gex_regime === 'pinned' ? '📌 Pinned' : '💥 Explosive'}
+                    <span className="text-slate-500 ml-1 font-mono text-xs">{(metrics.gex > 0 ? '+' : '') + (metrics.gex / 1e6).toFixed(0)}M</span>
+                  </span>
                 </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  <b>Gamma Exposure (GEX)</b> — measures what market makers must do to stay hedged.
+                  {metrics.gex_regime === 'pinned'
+                    ? ' Positive GEX = makers sell options and buy/sell stock to keep price stable. Expect LOW volatility, stock stays in a range. Bad for buying options, good for selling them.'
+                    : ' Negative GEX = makers amplify moves in the same direction. Expect HIGH volatility and strong trends. Good for buying options or directional trades.'}
+                </p>
               </div>
             )}
+
             {metrics.iv_rank !== undefined && (
-              <div className="mini-metric">
-                <div className="mini-label">IV Rank (1yr)</div>
-                <div className={`mini-value ${metrics.iv_rank > 75 ? 'text-rose-400' : metrics.iv_rank > 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                  {metrics.iv_rank.toFixed(0)}th
-                  <span className="text-slate-500 ml-1">{metrics.iv_rank > 75 ? 'Sell' : metrics.iv_rank < 30 ? 'Buy' : 'Neutral'}</span>
+              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-200">IV Rank (1-Year)</span>
+                  <span className={`text-xs font-bold ${metrics.iv_rank > 75 ? 'text-rose-400' : metrics.iv_rank < 30 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {metrics.iv_rank.toFixed(0)}th percentile — {metrics.iv_rank > 75 ? '✦ Sell Options' : metrics.iv_rank < 30 ? '✦ Buy Options' : 'Neutral'}
+                  </span>
                 </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  <b>IV Rank</b> = Where today's implied volatility sits in its own 1-year history (0–100).
+                  {metrics.iv_rank > 75
+                    ? ' 75th+ percentile = IV is near its yearly HIGH. Options are expensive. Sell a call, sell a put, or sell an iron condor to collect inflated premium.'
+                    : metrics.iv_rank < 30
+                    ? ' Below 30th percentile = IV is near its yearly LOW. Options are cheap. Buy a call (bullish) or buy a put (bearish) for less cost.'
+                    : ' Mid-range — no strong edge from IV level alone.'}
+                </p>
               </div>
             )}
+
             {metrics.flow_signal && (
-              <div className="mini-metric">
-                <div className="mini-label">Options Flow</div>
-                <div className={`mini-value ${
-                  metrics.flow_signal === 'Bullish Flow' ? 'text-emerald-400' :
-                  metrics.flow_signal === 'Bearish Flow' ? 'text-rose-400' : 'text-slate-300'
-                }`}>
-                  {metrics.flow_signal}
-                  {metrics.flow_ratio !== undefined && <span className="text-slate-500 ml-1 font-mono text-xs">{metrics.flow_ratio.toFixed(2)}x</span>}
+              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-200">Options Flow</span>
+                  <span className={`text-xs font-bold ${
+                    metrics.flow_signal === 'Bullish Flow' ? 'text-emerald-400' :
+                    metrics.flow_signal === 'Bearish Flow' ? 'text-rose-400' : 'text-slate-300'
+                  }`}>
+                    {metrics.flow_signal}
+                    {metrics.flow_ratio !== undefined && <span className="text-slate-500 ml-1 font-mono">({metrics.flow_ratio.toFixed(2)}x calls/puts)</span>}
+                  </span>
                 </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  <b>Options Flow</b> = ratio of call volume vs put volume today.
+                  {metrics.flow_signal === 'Bullish Flow'
+                    ? ' More calls traded than puts — traders are betting on upside. Often a sign of institutional or smart money positioning bullish.'
+                    : metrics.flow_signal === 'Bearish Flow'
+                    ? ' More puts traded than calls — traders are hedging or betting on downside. Watch for a potential drop.'
+                    : ' Balanced call/put activity — no strong directional signal from flow today.'}
+                </p>
               </div>
             )}
+
             {metrics.rsi_14 !== undefined && (
-              <div className="mini-metric">
-                <div className="mini-label">RSI (14)</div>
-                <div className={`mini-value font-mono ${
-                  metrics.rsi_14 > 70 ? 'text-rose-400' : metrics.rsi_14 < 30 ? 'text-emerald-400' : 'text-slate-300'
-                }`}>
-                  {metrics.rsi_14.toFixed(1)}
-                  <span className="text-slate-500 ml-1">{metrics.rsi_14 > 70 ? 'Overbought' : metrics.rsi_14 < 30 ? 'Oversold' : ''}</span>
+              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-200">RSI — 14 Day</span>
+                  <span className={`text-xs font-bold font-mono ${
+                    metrics.rsi_14 > 70 ? 'text-rose-400' : metrics.rsi_14 < 30 ? 'text-emerald-400' : 'text-slate-300'
+                  }`}>
+                    {metrics.rsi_14.toFixed(1)} — {metrics.rsi_14 > 70 ? 'Overbought ⚠️' : metrics.rsi_14 < 30 ? 'Oversold 🔥' : 'Neutral'}
+                  </span>
                 </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  <b>RSI (Relative Strength Index)</b> = measures momentum on a 0–100 scale.
+                  {metrics.rsi_14 > 70
+                    ? ' Above 70 = overbought. Stock has risen too fast and may pull back. Consider selling calls, buying puts, or waiting for a better entry to buy the stock.'
+                    : metrics.rsi_14 < 30
+                    ? ' Below 30 = oversold. Stock has dropped too fast and a bounce is likely. Good time to buy calls, sell puts, or buy the stock at a discount.'
+                    : ' Between 30–70 = normal range, no extreme signal.'}
+                </p>
               </div>
             )}
+
             {metrics.mfi !== undefined && (
-              <div className="mini-metric">
-                <div className="mini-label">Money Flow (MFI)</div>
-                <div className={`mini-value font-mono ${
-                  metrics.mfi > 80 ? 'text-rose-400' : metrics.mfi < 20 ? 'text-emerald-400' : 'text-slate-300'
-                }`}>
-                  {metrics.mfi.toFixed(1)}
-                  <span className="text-slate-500 ml-1">{metrics.mfi > 80 ? 'Overbought' : metrics.mfi < 20 ? 'Oversold' : ''}</span>
+              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-200">Money Flow Index (MFI)</span>
+                  <span className={`text-xs font-bold font-mono ${
+                    metrics.mfi > 80 ? 'text-rose-400' : metrics.mfi < 20 ? 'text-emerald-400' : 'text-slate-300'
+                  }`}>
+                    {metrics.mfi.toFixed(1)} — {metrics.mfi > 80 ? 'Overbought ⚠️' : metrics.mfi < 20 ? 'Oversold 🔥' : 'Neutral'}
+                  </span>
                 </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  <b>MFI</b> = Like RSI but also factors in VOLUME — more reliable.
+                  {metrics.mfi > 80
+                    ? ' Above 80 = money is flowing OUT at high prices (distribution). Strong warning sign — insiders may be selling into strength.'
+                    : metrics.mfi < 20
+                    ? ' Below 20 = money is flowing IN at low prices (accumulation). Strong buy signal — institutions may be loading up.'
+                    : ' 20–80 = normal range, no extreme signal.'}
+                </p>
               </div>
             )}
+
             {metrics.insider_net !== undefined && (
-              <div className="mini-metric">
-                <div className="mini-label">Insider Net (90d)</div>
-                <div className={`mini-value font-mono ${metrics.insider_net > 0 ? 'text-emerald-400' : metrics.insider_net < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
-                  {metrics.insider_net > 0 ? '+' : ''}{fmtBig(metrics.insider_net)}
-                  <span className="text-slate-500 ml-1">{metrics.insider_net > 0 ? 'Buying' : metrics.insider_net < 0 ? 'Selling' : ''}</span>
+              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-200">Insider Net Activity (90 days)</span>
+                  <span className={`text-xs font-bold font-mono ${metrics.insider_net > 0 ? 'text-emerald-400' : metrics.insider_net < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                    {metrics.insider_net > 0 ? '+' : ''}{fmtBig(metrics.insider_net)} — {metrics.insider_net > 0 ? 'Net Buying' : metrics.insider_net < 0 ? 'Net Selling' : 'Neutral'}
+                  </span>
                 </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  <b>Insider Activity</b> = Net dollars of stock bought minus sold by executives and board members in the last 90 days (SEC filings).
+                  {metrics.insider_net > 0
+                    ? ' Insiders are buying their own company stock — they believe it is undervalued. One of the most reliable bullish signals.'
+                    : metrics.insider_net < 0
+                    ? ' Insiders are net sellers — could be routine profit-taking or a warning sign. Check if multiple insiders are selling.'
+                    : ' No significant insider buying or selling reported.'}
+                </p>
               </div>
             )}
+
           </div>
         </div>
       )}
@@ -1372,6 +1433,29 @@ function RecommendationCard({ rec, ticker }: { rec: Recommendation; ticker: stri
 
       {/* Reasoning */}
       <p className="text-sm text-slate-200 mt-3 leading-relaxed">{rec.reasoning}</p>
+
+      {/* What exactly to do */}
+      <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', borderLeft: '3px solid var(--accent)' }}>
+        <div className="text-xs font-semibold text-slate-300 mb-1">What to do:</div>
+        <div className="text-xs text-slate-400 leading-relaxed">
+          {rec.action.includes('BUY STOCK') || rec.action.includes('Buy Stock') ? (
+            <span>📈 <b>Buy the stock</b> — purchase shares outright. Profit when the stock goes up. More capital required but simpler than options. Set a stop-loss below recent support.</span>
+          ) : rec.action.includes('SELL OPTIONS') || rec.action.includes('Sell Options') || rec.action.includes('SELL') ? (
+            <span>💰 <b>Sell options to collect premium</b> — sell a call (bearish/neutral) or sell a put (bullish/neutral). You get paid upfront and keep the money if the stock doesn't move past your strike. Risk: stock can move against you.</span>
+          ) : rec.action.includes('BUY OPTIONS') || rec.action.includes('Buy Options') || rec.action.includes('BUY CALL') || rec.action.includes('BUY PUT') ? (
+            <span>🎯 <b>Buy options for leverage</b> — buy a call if bullish, buy a put if bearish. You pay a premium upfront for the right (not obligation) to buy/sell at a set price. Max loss = premium paid. Max gain = unlimited (calls) or large (puts).</span>
+          ) : rec.action.includes('WAIT') || rec.action.includes('HOLD') ? (
+            <span>⏳ <b>Wait for a better setup</b> — signals are mixed right now. No strong edge detected. Watch the stock and re-analyze when IV changes or a catalyst appears.</span>
+          ) : (
+            <span>📊 Review the signals above and the best spread recommendations below to determine your entry.</span>
+          )}
+        </div>
+        {(rec.leveraged_bull || rec.leveraged_bear) && (
+          <div className="text-xs text-slate-500 mt-2">
+            <b>Leveraged alternative:</b> Instead of options, use <span className="text-emerald-400 font-mono">{rec.leveraged_bull}</span> (2x bull) or <span className="text-rose-400 font-mono">{rec.leveraged_bear}</span> (2x bear) ETF for a simpler leveraged position with no expiry.
+          </div>
+        )}
+      </div>
 
       {/* Alt trade idea */}
       {rec.alt && (
