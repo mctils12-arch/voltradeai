@@ -391,4 +391,118 @@ export function registerBotRoutes(app: Express) {
     }
   });
 
+  // ── Autonomous Bot Engine ─────────────────────────────────────────────────
+
+  let lastAutoRun = 0;
+  let autoRunning = false;
+  let lastScanResult: any = null;
+
+  async function runAutonomousCycle() {
+    if (!state.active || state.killSwitch || autoRunning) return;
+    autoRunning = true;
+    audit("AUTO", "Starting autonomous scan cycle...");
+
+    try {
+      // Step 1: Run bot_engine.py to scan market and get recommendations
+      const enginePath = path.resolve("bot_engine.py");
+      const { stdout } = await execAsync(`python3 "${enginePath}" full`, { timeout: 180000 });
+      const result = JSON.parse(stdout.trim());
+      lastScanResult = result;
+
+      if (result.error) {
+        audit("AUTO", `Scan error: ${result.error}`);
+        autoRunning = false;
+        return;
+      }
+
+      audit("AUTO", `Scanned ${result.scanned} stocks, filtered to ${result.filtered}, deep-analyzed ${result.deep_analyzed}`);
+
+      // Step 2: Execute position management (stop-loss / take-profit)
+      for (const action of (result.position_actions || [])) {
+        if (state.killSwitch) break;
+        try {
+          await alpaca(`/v2/positions/${action.ticker}`, { method: "DELETE" });
+          audit("AUTO-CLOSE", `${action.ticker}: ${action.reason}`);
+        } catch (e: any) {
+          audit("AUTO-ERROR", `Failed to close ${action.ticker}: ${e.message}`);
+        }
+      }
+
+      // Step 3: Execute new trades
+      for (const trade of (result.new_trades || [])) {
+        if (state.killSwitch) break;
+
+        // Security checks
+        const acct = await alpaca("/v2/account");
+        const equity = parseFloat(acct.equity || "100000");
+        const lastEquity = parseFloat(acct.last_equity || "100000");
+        const dailyPnlPct = ((equity - lastEquity) / lastEquity) * 100;
+
+        if (dailyPnlPct <= DAILY_LOSS_LIMIT) {
+          audit("AUTO-BLOCKED", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). No new trades.`);
+          break;
+        }
+
+        if (trade.position_value > equity * MAX_POSITION_SIZE) {
+          audit("AUTO-BLOCKED", `${trade.ticker} position too large ($${trade.position_value} > ${(MAX_POSITION_SIZE*100)}% of portfolio)`);
+          continue;
+        }
+
+        try {
+          const order = await alpaca("/v2/orders", {
+            method: "POST",
+            body: JSON.stringify({
+              symbol: trade.ticker,
+              qty: String(trade.shares),
+              side: "buy",
+              type: "market",
+              time_in_force: "day",
+            }),
+          });
+          audit("AUTO-TRADE", `BUY ${trade.shares} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
+        } catch (e: any) {
+          audit("AUTO-ERROR", `Failed to buy ${trade.ticker}: ${e.message}`);
+        }
+
+        // Small delay between orders
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
+      audit("AUTO", `Cycle complete. ${(result.new_trades || []).length} new trades, ${(result.position_actions || []).length} position actions.`);
+    } catch (e: any) {
+      audit("AUTO-ERROR", `Autonomous cycle failed: ${e.message}`);
+    }
+
+    autoRunning = false;
+    lastAutoRun = Date.now();
+  }
+
+  // Auto-run every 15 minutes when bot is active
+  setInterval(async () => {
+    if (!state.active || state.killSwitch) return;
+
+    // Check if market is open
+    try {
+      const clock = await alpaca("/v2/clock");
+      if (!clock.is_open) {
+        return; // Don't trade when market is closed
+      }
+    } catch { return; }
+
+    // Run autonomous cycle
+    await runAutonomousCycle();
+  }, 15 * 60 * 1000); // Every 15 minutes
+
+  // Route: Get last scan result
+  app.get("/api/bot/last-scan", requireAuth, (_req, res) => {
+    res.json(lastScanResult || { message: "No scan run yet. Activate the bot to start." });
+  });
+
+  // Route: Force immediate scan
+  app.post("/api/bot/run-now", requireAuth, async (_req, res) => {
+    if (autoRunning) return res.json({ message: "Already running..." });
+    res.json({ message: "Autonomous cycle starting..." });
+    runAutonomousCycle();
+  });
+
 }
