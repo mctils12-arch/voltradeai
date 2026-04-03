@@ -176,7 +176,7 @@ async function scanBatch(tickers: string[]): Promise<ScanResult[]> {
 
 async function refreshTier1(): Promise<void> {
   try {
-    const BATCH = 5; // small batches to avoid overloading
+    const BATCH = 10; // parallel batches for speed
     for (let i = 0; i < TIER1_TICKERS.length; i += BATCH) {
       const batch = TIER1_TICKERS.slice(i, i + BATCH);
       const results = await scanBatch(batch);
@@ -489,21 +489,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
-  // Startup scan: scan top 5 tickers immediately (fast), then rest in background
-  const TOP5 = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA"];
+  // Startup: scan top 10 in parallel (all at once = ~5s), then full Tier1 in background
+  const TOP10 = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "META", "GOOGL", "AMD"];
   setTimeout(async () => {
-    console.log("[scanner] Quick-start scanning top 5 tickers...");
+    console.log("[scanner] Parallel quick-start: scanning top 10 tickers...");
     try {
-      const quickResults = await scanBatch(TOP5);
+      // scanBatch already runs in parallel via Promise.allSettled
+      const quickResults = await scanBatch(TOP10);
       tier1Cache = sortByScore(applyFreshness(quickResults));
       tier1LastUpdate = Date.now();
       for (const r of quickResults) fullUniverseCache.set(r.ticker, r);
-      console.log(`[scanner] Quick-start done — ${quickResults.length} tickers ready`);
+      console.log(`[scanner] Quick-start done — ${quickResults.length} tickers ready in ~5s`);
     } catch (err) {
       console.error("[scanner] Quick-start failed:", err);
     }
-    // Then scan the rest of Tier 1 in background
-    console.log("[scanner] Starting full Tier 1 scan in background...");
+    // Then scan the rest of Tier 1 in background in batches of 10
+    console.log("[scanner] Starting full Tier 1 background scan...");
     refreshTier1().catch(console.error);
   }, 2000);
 
