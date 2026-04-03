@@ -1448,14 +1448,15 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
   const beatBarPct = totalGames > 0 ? (intel.beat_count / totalGames) * 100 : 50;
 
   const ivVsHistColor = intel.options_edge > 0 ? 'text-emerald-400' : 'text-rose-400';
-  const maxHistIV = Math.max(intel.iv_implied_move, intel.historical_avg_move, 1);
+  const maxHistIV = Math.max(intel.iv_implied_move ?? 0, intel.historical_avg_move ?? 0, 1);
 
   const timingColor = intel.timing === 'AMC' ? 'bg-violet-400/20 text-violet-300 border border-violet-400/30'
     : intel.timing === 'BMO' ? 'bg-blue-400/20 text-blue-300 border border-blue-400/30'
     : 'bg-slate-700/50 text-slate-300 border border-slate-600/30';
 
-  const recColor2 = intel.earnings_recommendation.toLowerCase().includes('buy') ? 'text-emerald-400'
-    : intel.earnings_recommendation.toLowerCase().includes('avoid') || intel.earnings_recommendation.toLowerCase().includes('sell') ? 'text-rose-400'
+  const earningsRec = intel.earnings_recommendation ?? '';
+  const recColor2 = earningsRec.toLowerCase().includes('buy') ? 'text-emerald-400'
+    : earningsRec.toLowerCase().includes('avoid') || earningsRec.toLowerCase().includes('sell') ? 'text-rose-400'
     : 'text-amber-400';
 
   return (
@@ -1469,10 +1470,10 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
             {intel.timing}
           </span>
         )}
-        {intel.days_to_earnings >= 0 && intel.days_to_earnings <= 60 && (
+        {intel.days_to_earnings != null && intel.days_to_earnings >= 0 && intel.days_to_earnings <= 60 && (
           <span className="ml-auto text-xs text-amber-400">⚠️ {intel.days_to_earnings}d to earnings</span>
         )}
-        {intel.days_to_earnings < 0 && (
+        {intel.days_to_earnings != null && intel.days_to_earnings < 0 && (
           <span className="ml-auto text-xs text-slate-500">Last earnings {Math.abs(intel.days_to_earnings)}d ago</span>
         )}
       </div>
@@ -1505,27 +1506,31 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
       )}
 
       {/* IV implied vs historical move comparison */}
-      <div className="mb-3">
-        <div className="text-xs text-slate-400 mb-2">Expected Move Comparison</div>
-        {[
-          { label: 'IV Implied Move', val: intel.iv_implied_move, color: 'bg-blue-500' },
-          { label: 'Historical Avg Move', val: intel.historical_avg_move, color: 'bg-amber-500' },
-        ].map(({ label, val, color }) => (
-          <div key={label} className="cone-row">
-            <span className="cone-label">{label}</span>
-            <div className="cone-bar-track">
-              <div className={`cone-bar ${color}`} style={{ width: `${(val / maxHistIV) * 100}%` }} />
+      {(intel.iv_implied_move != null && intel.historical_avg_move != null) && (
+        <div className="mb-3">
+          <div className="text-xs text-slate-400 mb-2">Expected Move Comparison</div>
+          {[
+            { label: 'IV Implied Move', val: intel.iv_implied_move, color: 'bg-blue-500' },
+            { label: 'Historical Avg Move', val: intel.historical_avg_move, color: 'bg-amber-500' },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="cone-row">
+              <span className="cone-label">{label}</span>
+              <div className="cone-bar-track">
+                <div className={`cone-bar ${color}`} style={{ width: `${(val / maxHistIV) * 100}%` }} />
+              </div>
+              <span className="cone-value">{val.toFixed(1)}%</span>
             </div>
-            <span className="cone-value">{val.toFixed(1)}%</span>
-          </div>
-        ))}
-        <div className={`text-xs font-semibold mt-1.5 ${ivVsHistColor}`}>
-          Options edge: {intel.options_edge > 0 ? '+' : ''}{intel.options_edge.toFixed(1)}%
-          <span className="text-slate-500 font-normal ml-1">
-            ({intel.options_edge > 0 ? 'IV overpriced vs history — consider selling' : 'IV underpriced vs history — consider buying'})
-          </span>
+          ))}
+          {intel.options_edge != null && (
+            <div className={`text-xs font-semibold mt-1.5 ${ivVsHistColor}`}>
+              Options edge: {intel.options_edge > 0 ? '+' : ''}{intel.options_edge.toFixed(1)}%
+              <span className="text-slate-500 font-normal ml-1">
+                ({intel.options_edge > 0 ? 'IV overpriced vs history — consider selling' : 'IV underpriced vs history — consider buying'})
+              </span>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Gap-and-hold + recommendation */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1544,10 +1549,12 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
       </div>
 
       {/* Earnings recommendation */}
-      <div className={`mt-3 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]`}>
-        <div className="text-xs text-slate-400 mb-0.5">Earnings Play Recommendation</div>
-        <div className={`text-sm font-semibold ${recColor2}`}>{intel.earnings_recommendation}</div>
-      </div>
+      {earningsRec && (
+        <div className={`mt-3 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]`}>
+          <div className="text-xs text-slate-400 mb-0.5">Earnings Play Recommendation</div>
+          <div className={`text-sm font-semibold ${recColor2}`}>{earningsRec}</div>
+        </div>
+      )}
 
       {/* Caution flag */}
       {intel.caution_flag && (
