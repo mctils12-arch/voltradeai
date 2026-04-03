@@ -1575,7 +1575,8 @@ function ScanProgressBar() {
     staleTime: 0,
   });
 
-  if (!data || data.progress >= 100) return null;
+  const progress = Number(data?.progress ?? 0);
+  if (!data || progress >= 100) return null;
 
   return (
     <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-blue-400/5 border border-blue-400/20 mb-2">
@@ -1588,11 +1589,11 @@ function ScanProgressBar() {
         <div className="h-1 rounded-full bg-white/10">
           <div
             className="h-full rounded-full bg-blue-500 transition-all duration-500"
-            style={{ width: `${Math.min(data.progress, 100)}%` }}
+            style={{ width: `${Math.min(progress, 100)}%` }}
           />
         </div>
       </div>
-      <span className="text-xs text-blue-400 font-mono">{data.progress.toFixed(0)}%</span>
+      <span className="text-xs text-blue-400 font-mono">{progress.toFixed(0)}%</span>
     </div>
   );
 }
