@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut } from "lucide-react";
+import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, CandlestickChart } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import AnalyzePage from "./analyze";
 import ScannerPage from "./scanner";
 import NewsPage from "./news";
 import WatchlistPage from "./watchlist";
 import BotDashboard from "./bot";
+import ChartPage from "./chart";
 
 // ── Tab types ─────────────────────────────────────────────────────────────────
 
-type TabId = "analyze" | "scanner" | "news" | "watchlist" | "bot";
+type TabId = "analyze" | "scanner" | "news" | "watchlist" | "chart" | "bot";
 
 interface Tab {
   id: TabId;
@@ -18,11 +19,12 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: "analyze",   label: "Analyze",   icon: <BarChart2  size={14} /> },
-  { id: "scanner",   label: "Scanner",   icon: <ScanLine   size={14} /> },
-  { id: "news",      label: "News",      icon: <Newspaper  size={14} /> },
-  { id: "watchlist", label: "Watchlist", icon: <Bookmark   size={14} /> },
-  { id: "bot",       label: "Bot",       icon: <Bot        size={14} /> },
+  { id: "analyze",   label: "Analyze",   icon: <BarChart2       size={14} /> },
+  { id: "chart",     label: "Chart",     icon: <CandlestickChart size={14} /> },
+  { id: "scanner",   label: "Scanner",   icon: <ScanLine        size={14} /> },
+  { id: "news",      label: "News",      icon: <Newspaper       size={14} /> },
+  { id: "watchlist", label: "Watchlist", icon: <Bookmark        size={14} /> },
+  { id: "bot",       label: "Bot",       icon: <Bot             size={14} /> },
 ];
 
 // ── VolTradeAI Logo SVG ───────────────────────────────────────────────────────
@@ -125,6 +127,9 @@ export default function Home() {
         )}
         {activeTab === "watchlist" && (
           <WatchlistPage onSelectTicker={handleSelectTicker} />
+        )}
+        {activeTab === "chart" && (
+          <ChartPage />
         )}
         {activeTab === "bot" && (
           <BotDashboard />

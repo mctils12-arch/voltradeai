@@ -174,11 +174,63 @@ export function registerBotRoutes(app: Express) {
     const { ticker } = req.body || {};
     if (!ticker) return res.status(400).json({ error: "ticker required" });
     try {
-      await alpaca(`/v2/positions/${ticker.toUpperCase()}`, { method: "DELETE" });
+      await alpaca(`/v2/positions/${String(ticker).toUpperCase()}`, { method: "DELETE" });
       audit("CLOSE", `Closed position in ${ticker}`);
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // ── Chart data from Alpaca ──────────────────────────────────────────────────
+  app.get("/api/bot/bars/:ticker", requireAuth, async (req, res) => {
+    const { ticker } = req.params;
+    const timeframe = (String(req.query.timeframe || "1Day")) || "1Day";
+    const limit = parseInt(String(req.query.limit || "200")) || 200;
+    
+    // Map timeframe to Alpaca format
+    const tfMap: Record<string, string> = {
+      "1Min": "1Min", "5Min": "5Min", "15Min": "15Min", "1Hour": "1Hour",
+      "1Day": "1Day", "1Week": "1Week",
+    };
+    const tf = tfMap[timeframe] || "1Day";
+    
+    try {
+      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=iex`;
+      const r = await fetch(url, {
+        headers: {
+          "APCA-API-KEY-ID": ALPACA_KEY,
+          "APCA-API-SECRET-KEY": ALPACA_SECRET,
+        },
+      });
+      const data = await r.json();
+      const bars = (data.bars || []).map((b: any) => ({
+        time: Math.floor(new Date(b.t).getTime() / 1000),
+        open: b.o,
+        high: b.h,
+        low: b.l,
+        close: b.c,
+        volume: b.v,
+      }));
+      res.json({ bars, ticker: String(ticker).toUpperCase(), timeframe: tf });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Market status ───────────────────────────────────────────────────────────
+  app.get("/api/bot/market-status", async (_req, res) => {
+    try {
+      const clock = await alpaca("/v2/clock");
+      res.json({
+        isOpen: clock.is_open,
+        nextOpen: clock.next_open,
+        nextClose: clock.next_close,
+        timestamp: clock.timestamp,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
 }
