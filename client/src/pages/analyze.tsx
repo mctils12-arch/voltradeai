@@ -2021,6 +2021,16 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
             <span className="text-rose-400 font-semibold">
               {data?.error || "Something went wrong. Please try again."}
             </span>
+            {(data as any)?.no_options && (
+              <div className="mt-3">
+                <p className="text-xs text-slate-400 mb-2">These always work — click to analyze:</p>
+                <div className="chip-row">
+                  {["SPY","QQQ","AAPL","TSLA","NVDA","MSFT","AMZN","META","AMD","COIN","GME"].map(t => (
+                    <button key={t} className="chip" onClick={() => selectTicker(t)} data-testid={`chip-${t}`}>{t}</button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

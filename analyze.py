@@ -1724,7 +1724,7 @@ def analyze_ticker(ticker_symbol):
         all_expirations = []
 
     if not all_expirations:
-        return {"error": f"No options data available for '{ticker_symbol}'. Try a liquid symbol like SPY, AAPL, TSLA."}
+        return {"error": f"'{ticker_symbol}' has no options market. Most stocks under $5 or with low volume don't have options. Try: SPY, QQQ, AAPL, TSLA, NVDA, MSFT, AMZN, META, GOOGL, AMD, COIN, GME", "no_options": True}
 
     valid_exps = []
     for exp in all_expirations:
