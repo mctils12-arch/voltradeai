@@ -14,21 +14,22 @@ const execAsync = promisify(exec);
 
 export interface ScanResult {
   ticker: string;
-  scan_score?: number;
-  price?: number;
-  change_pct?: number;
-  volume?: number;
-  iv_rank?: number;
-  iv_percentile?: number;
-  put_call_ratio?: number;
-  unusual_activity?: boolean;
-  signal?: string;
+  spot: number;
+  price_change_pct: number;
+  atm_iv: number;
+  rv20: number;
+  vrp: number;
+  hv_percentile?: number;
+  volume_ratio?: number;
+  best_strategy?: string | null;
+  top_spread_score: number;
+  scan_score: number;
   sentiment_score?: number;
   sentiment_signal?: string;
   rec_action?: string;
   rec_signal?: string;
   freshness?: "fresh" | "recent" | "stale";
-  scanned_at?: number; // epoch ms
+  scanned_at?: number;
   error?: string;
 }
 
@@ -114,22 +115,28 @@ async function scanSingleTicker(ticker: string): Promise<ScanResult | null> {
 
     const raw = JSON.parse(output);
 
-    // Normalise into ScanResult shape
+    // Normalise into ScanResult shape — map from full analysis output
     const result: ScanResult = {
       ticker: ticker.toUpperCase(),
-      scan_score: raw.scan_score ?? raw.score ?? 0,
-      price: raw.price,
-      change_pct: raw.change_pct ?? raw.change_percent,
-      volume: raw.volume,
-      iv_rank: raw.iv_rank,
-      iv_percentile: raw.iv_percentile,
-      put_call_ratio: raw.put_call_ratio,
-      unusual_activity: raw.unusual_activity,
-      signal: raw.signal,
-      sentiment_score: raw.sentiment_score,
-      sentiment_signal: raw.sentiment_signal,
-      rec_action: raw.rec_action,
-      rec_signal: raw.rec_signal,
+      spot: raw.spot ?? raw.price ?? 0,
+      price_change_pct: raw.price_change_pct ?? raw.change_pct ?? 0,
+      atm_iv: raw.atm_iv ?? 0,
+      rv20: raw.rv20 ?? 0,
+      vrp: raw.vrp ?? 0,
+      hv_percentile: raw.vol_metrics?.hv_percentile,
+      volume_ratio: raw.vol_metrics?.volume_ratio_5d,
+      best_strategy: raw.top_spreads?.[0]?.type ?? null,
+      top_spread_score: raw.top_spreads?.[0]?.score ?? 0,
+      scan_score: raw.scan_score ?? raw.score ?? Math.round(
+        (raw.vrp ?? 0) * 3.5 + (raw.top_spreads?.[0]?.score ?? 0) * 0.35 +
+        (raw.vol_metrics?.hv_percentile ?? 50) * 0.2 +
+        (raw.vol_metrics?.volume_ratio_5d ?? 1) * 5
+      ),
+      sentiment_score: raw.sentiment?.score,
+      sentiment_signal: raw.sentiment?.signal,
+      rec_action: raw.recommendation?.action,
+      rec_signal: raw.recommendation?.signal,
+      freshness: "fresh" as const,
       scanned_at: Date.now(),
     };
     return result;
