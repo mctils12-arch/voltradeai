@@ -106,7 +106,7 @@ async function scanSingleTicker(ticker: string): Promise<ScanResult | null> {
   const scriptPath = path.resolve(process.cwd(), "analyze.py");
   try {
     const { stdout } = await execAsync(
-      `python3 "${scriptPath}" "${ticker.toUpperCase()}" --mode=scan`,
+      `/app/venv/bin/python3 "${scriptPath}" "${ticker.toUpperCase()}" --mode=scan`,
       { timeout: 15000, maxBuffer: 1024 * 1024 * 2 }
     );
     const output = stdout.trim();
@@ -409,7 +409,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     try {
       const { stdout } = await execAsync(
-        `python3 "${scriptPath}" "${ticker.toUpperCase()}"`,
+        `/app/venv/bin/python3 "${scriptPath}" "${ticker.toUpperCase()}"`,
         { timeout: 120000, maxBuffer: 1024 * 1024 * 10 }
       );
 
