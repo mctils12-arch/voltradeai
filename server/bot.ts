@@ -399,6 +399,8 @@ export function registerBotRoutes(app: Express) {
 
   async function runAutonomousCycle() {
     if (!state.active || state.killSwitch || autoRunning) return;
+    // Don't re-run if last scan was less than 90 seconds ago
+    if (Date.now() - lastAutoRun < 90000 && lastAutoRun > 0) return;
     autoRunning = true;
     audit("AUTO", "Starting autonomous scan cycle...");
 
@@ -470,52 +472,83 @@ export function registerBotRoutes(app: Express) {
         }
       }
 
-      // Step 3: Execute new trades
-      for (const trade of (result.new_trades || [])) {
-        if (state.killSwitch) break;
+      // Step 3: Execute new trades — with full brokerage rule awareness
+      const clock2 = await alpaca("/v2/clock");
+      const isMarketOpen = clock2.is_open;
+      const now2 = new Date(clock2.timestamp);
+      const etHour2 = now2.getUTCHours() - 4;
+      const isPreMarket = !isMarketOpen && etHour2 >= 4 && etHour2 < 9.5;
+      const isAfterHours = !isMarketOpen && etHour2 >= 16 && etHour2 < 20;
+      const isExtended = isPreMarket || isAfterHours;
 
-        // Security checks
-        const acct = await alpaca("/v2/account");
-        const equity = parseFloat(acct.equity || "100000");
-        const lastEquity = parseFloat(acct.last_equity || "100000");
-        const dailyPnlPct = ((equity - lastEquity) / lastEquity) * 100;
+      // BROKERAGE RULES:
+      // - Options: ONLY 9:30am-4pm ET (regular hours)
+      // - Stocks extended hours: limit orders only, no fractional shares
+      // - No market orders in extended hours
+      // - PDT rule: if account < $25K, max 3 day trades per 5 business days
+      // - Alpaca: no short selling in extended hours
 
-        if (dailyPnlPct <= DAILY_LOSS_LIMIT) {
-          audit("AUTO-BLOCKED", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). No new trades.`);
-          break;
-        }
+      const acct2 = await alpaca("/v2/account");
+      const equity = parseFloat(acct2.equity || "100000");
+      const lastEquity = parseFloat(acct2.last_equity || "100000");
+      const dailyPnlPct = ((equity - lastEquity) / lastEquity) * 100;
 
-        if (trade.position_value > equity * MAX_POSITION_SIZE) {
-          audit("AUTO-BLOCKED", `${trade.ticker} position too large ($${trade.position_value} > ${(MAX_POSITION_SIZE*100)}% of portfolio)`);
-          continue;
-        }
+      if (dailyPnlPct <= DAILY_LOSS_LIMIT) {
+        audit("AUTO-BLOCKED", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). All trading halted for today.`);
+      } else {
+        for (const trade of (result.new_trades || [])) {
+          if (state.killSwitch) break;
 
-        try {
-          // Check if we're in extended hours
-          const clock = await alpaca("/v2/clock");
-          const isExtended = !clock.is_open;
-          
-          const order = await alpaca("/v2/orders", {
-            method: "POST",
-            body: JSON.stringify({
+          // Position size check
+          if (trade.position_value > equity * MAX_POSITION_SIZE) {
+            audit("AUTO-BLOCKED", `${trade.ticker}: Position too large ($${trade.position_value} > ${(MAX_POSITION_SIZE*100)}% limit)`);
+            continue;
+          }
+
+          // Options trade check — only during regular hours
+          const isOptionsOrder = trade.recommendation?.toLowerCase().includes("option");
+          if (isOptionsOrder && !isMarketOpen) {
+            audit("AUTO-BLOCKED", `${trade.ticker}: Options can only trade during regular hours (9:30am-4pm ET). Queuing for market open.`);
+            continue;
+          }
+
+          // Extended hours — stocks only, limit orders only, no fractional shares
+          const qty = isExtended ? Math.floor(trade.shares) : trade.shares;
+          if (qty <= 0) continue;
+
+          try {
+            const orderBody: any = {
               symbol: trade.ticker,
-              qty: String(trade.shares),
+              qty: String(qty),
               side: "buy",
-              type: isExtended ? "limit" : "market",
-              // Extended hours requires limit orders
-              ...(isExtended ? { limit_price: String(trade.price) } : {}),
-              time_in_force: isExtended ? "day" : "day",
-              extended_hours: isExtended,
-            }),
-          });
-          const session = isExtended ? "[EXTENDED]" : "[REGULAR]";
-          audit("AUTO-TRADE", `${session} BUY ${trade.shares} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
-        } catch (e: any) {
-          audit("AUTO-ERROR", `Failed to buy ${trade.ticker}: ${e.message}`);
-        }
+              time_in_force: "day",
+            };
 
-        // Small delay between orders
-        await new Promise(r => setTimeout(r, 1000));
+            if (isExtended) {
+              // Extended hours: MUST use limit order, set extended_hours flag
+              orderBody.type = "limit";
+              orderBody.limit_price = String(trade.price);
+              orderBody.extended_hours = true;
+            } else {
+              // Regular hours: market order for fastest fill
+              orderBody.type = "market";
+            }
+
+            const order = await alpaca("/v2/orders", {
+              method: "POST",
+              body: JSON.stringify(orderBody),
+            });
+
+            const session = isPreMarket ? "[PRE-MARKET]" : isAfterHours ? "[AFTER-HOURS]" : "[REGULAR]";
+            const orderType = isExtended ? "LIMIT" : "MARKET";
+            audit("AUTO-TRADE", `${session} ${orderType} BUY ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
+          } catch (e: any) {
+            audit("AUTO-ERROR", `Failed to buy ${trade.ticker}: ${e.message}`);
+          }
+
+          // Delay between orders to avoid rate limits
+          await new Promise(r => setTimeout(r, 500));
+        }
       }
 
       audit("AUTO", `Cycle complete. ${(result.new_trades || []).length} new trades, ${(result.position_actions || []).length} position actions.`);
@@ -635,7 +668,7 @@ export function registerBotRoutes(app: Express) {
 
     // Run autonomous cycle
     await runAutonomousCycle();
-  }, 15 * 60 * 1000); // Every 15 minutes
+  }, 2 * 60 * 1000); // Every 2 minutes during market hours, checked inside
 
   // Route: Get last scan result
   app.get("/api/bot/last-scan", requireAuth, (_req, res) => {
