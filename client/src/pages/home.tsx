@@ -1380,7 +1380,7 @@ function SentimentPanel({ sentiment }: { sentiment: Sentiment }) {
         {/* Score dial */}
         <div className="mini-metric">
           <div className="mini-label">Sentiment Score</div>
-          <div className={`mini-value text-2xl font-bold ${scoreColor}`}>{score.toFixed(0)}<span className="text-sm">/100</span></div>
+          <div className={`mini-value text-2xl font-bold ${scoreColor}`}>{Number(score ?? 0).toFixed(0)}<span className="text-sm">/100</span></div>
           <div className="text-xs text-slate-500 mt-0.5">{signal}</div>
         </div>
         {/* Bull % */}
@@ -1390,7 +1390,7 @@ function SentimentPanel({ sentiment }: { sentiment: Sentiment }) {
             <div className="flex-1 h-2 rounded-full bg-white/10">
               <div className={`h-full rounded-full ${bullBarColor}`} style={{ width: `${bull_pct}%` }} />
             </div>
-            <span className={`text-sm font-mono font-bold ${bullBarColor.replace('bg-', 'text-').replace('-500', '-400')}`}>{bull_pct.toFixed(0)}%</span>
+            <span className={`text-sm font-mono font-bold ${bullBarColor.replace('bg-', 'text-').replace('-500', '-400')}`}>{Number(bull_pct ?? 0).toFixed(0)}%</span>
           </div>
           <div className="flex justify-between text-xs text-slate-500 mt-0.5">
             <span>Bearish</span><span>Bullish</span>
@@ -1402,14 +1402,14 @@ function SentimentPanel({ sentiment }: { sentiment: Sentiment }) {
         <div className="mini-metric">
           <div className="mini-label">Reddit Buzz</div>
           <div className={`mini-value ${reddit_buzz > 7 ? 'text-orange-400' : reddit_buzz > 4 ? 'text-amber-400' : 'text-slate-300'}`}>
-            {reddit_buzz.toFixed(1)}/10
+            {Number(reddit_buzz ?? 0).toFixed(1)}/10
             {reddit_buzz > 7 && <span className="ml-1">🔥</span>}
           </div>
         </div>
         <div className="mini-metric">
           <div className="mini-label">Google Trend Spike</div>
           <div className={`mini-value ${trend_spike > 75 ? 'text-rose-400' : trend_spike > 50 ? 'text-amber-400' : 'text-slate-300'}`}>
-            {trend_spike.toFixed(0)}<span className="text-slate-500">/100</span>
+            {Number(trend_spike ?? 0).toFixed(0)}<span className="text-slate-500">/100</span>
           </div>
         </div>
       </div>
@@ -1484,7 +1484,7 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
           <div className="flex justify-between text-xs text-slate-400 mb-1">
             <span>Beat/Miss History ({totalGames} quarters)</span>
             <span className={intel.beat_pct >= 60 ? 'text-emerald-400' : 'text-rose-400'}>
-              {intel.beat_pct.toFixed(0)}% beat rate
+              {Number(intel.beat_pct ?? 0).toFixed(0)}% beat rate
             </span>
           </div>
           <div className="h-3 rounded-full bg-white/10 overflow-hidden">
@@ -1497,7 +1497,7 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
             <span>Miss ({intel.miss_count})</span>
             {intel.avg_surprise_pct !== 0 && (
               <span className={intel.avg_surprise_pct > 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                Avg surprise: {intel.avg_surprise_pct > 0 ? '+' : ''}{intel.avg_surprise_pct.toFixed(1)}%
+                Avg surprise: {intel.avg_surprise_pct > 0 ? '+' : ''}{Number(intel.avg_surprise_pct ?? 0).toFixed(1)}%
               </span>
             )}
             <span>Beat ({intel.beat_count})</span>
@@ -1543,7 +1543,7 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
         {intel.max_drop_pct > 0 && (
           <div className="mini-metric">
             <div className="mini-label">Max Historical Drop</div>
-            <div className="mini-value text-rose-400">-{intel.max_drop_pct.toFixed(1)}%</div>
+            <div className="mini-value text-rose-400">-{Number(intel.max_drop_pct ?? 0).toFixed(1)}%</div>
           </div>
         )}
       </div>
@@ -1740,7 +1740,7 @@ function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void
               {r.sentiment_score !== undefined ? r.sentiment_score.toFixed(0) : '—'}
             </span>
             <span className={`w-14 text-right font-mono text-xs font-semibold ${scoreColor}`}>
-              {r.scan_score.toFixed(0)}
+              {(r.scan_score ?? 0).toFixed(0)}
             </span>
           </button>
         );
