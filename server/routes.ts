@@ -497,7 +497,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!data.results) return res.json({ results: [] });
 
       const results = data.results
-        .filter((r: any) => r.v > 500000 && r.c > 5)
+        .filter((r: any) => r.v > 50000 && r.c > 1 && r.T && !r.T.includes('.'))
         .map((r: any) => ({
           ticker: r.T,
           close: r.c,
@@ -505,13 +505,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           high: r.h,
           low: r.l,
           volume: r.v,
-          change_pct: ((r.c - r.o) / r.o * 100),
+          change_pct: Number(((r.c - r.o) / r.o * 100).toFixed(2)),
           vwap: r.vw,
         }))
-        .sort((a: any, b: any) => b.volume - a.volume)
-        .slice(0, 500);
-
-      res.json({ results, date: yesterday });
+        .sort((a: any, b: any) => b.volume - a.volume);
+      // No slice — return all tradeable stocks
+      res.json({ results, date: yesterday, total: results.length });
     } catch (err) {
       console.error("[market-snapshot] Error:", err);
       res.status(500).json({ error: "Market snapshot failed" });

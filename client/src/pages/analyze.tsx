@@ -736,17 +736,11 @@ function VolSurfaceChart({ data }: { data: VolSurface[] }) {
   if (!data || data.length === 0) return null;
   const maxIv = Math.max(...data.map(d => d.atm_iv)) * 1.15;
   return (
-    <div className="mt-4" style={{ position: 'relative' }}>
-      <div style={{
-        fontSize: '11px',
-        color: 'var(--text-secondary)',
-        marginBottom: '8px',
-        position: 'relative',
-        zIndex: 2
-      }}>
+    <div className="mt-4">
+      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '12px', fontWeight: 500 }}>
         Term Structure — ATM IV by Expiry
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '60px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '60px', marginTop: '4px' }}>
         {data.map((d, i) => {
           const h = Math.max(4, (d.atm_iv / maxIv) * 60);
           const vrpColor = d.vrp > 3 ? '#10b981' : d.vrp < -2 ? '#f43f5e' : '#f59e0b';
@@ -1774,8 +1768,9 @@ function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void
       )}
 
       <p className="text-xs text-slate-500 mt-2 px-0.5">
-        Score = 35% VRP edge + 35% best spread score + 20% HV percentile + 10% volume spike.
-        Sentiment score 0–100. 🟢 fresh &lt;5min · 🟡 recent &lt;20min · 🔴 stale. Click any row to analyze.
+        💡 How the scanner works: It scores every ticker on options edge (how much implied vol exceeds real vol), 
+        the quality of the best available spread, how elevated volatility is vs its own history, and recent volume spikes.
+        A score of 70+ = strong edge. 🟢 fresh &lt;5min · 🟡 recent &lt;20min · 🔴 stale. Click any row to deep-analyze.
       </p>
     </div>
   );
@@ -1957,7 +1952,7 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
               <MetricCard
                 label="Vol Risk Premium"
                 value={`${data.vrp > 0 ? "+" : ""}${data.vrp.toFixed(1)}%`}
-                sub={data.vrp_regime === "high" ? "Sell vol ↑" : data.vrp_regime === "low" ? "Buy vol ↓" : "Neutral →"}
+                sub={data.vrp_regime === "high" ? "Sell options ↑ (IV expensive)" : data.vrp_regime === "low" ? "Buy options ↓ (IV cheap)" : "Neutral →"}
                 highlight={data.vrp_regime === "high" ? "up" : data.vrp_regime === "low" ? "down" : "neutral"}
               />
               <MetricCard
@@ -1970,7 +1965,7 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
             {/* VRP signal banner */}
             <div className={`vrp-banner ${data.vrp_regime}`} data-testid="text-vrp-signal">
               <Activity size={14} className="flex-shrink-0 mt-0.5" />
-              <div>
+              <div style={{ flex: 1 }}>
                 <span className="font-semibold">Volatility Signal: </span>
                 {data.vrp_signal}
                 <span className="text-xs ml-2 opacity-60">
@@ -1979,6 +1974,14 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                     <> · Skew: {data.skew > 0 ? '+' : ''}{data.skew.toFixed(1)}%</>
                   )}
                 </span>
+                <div className="text-xs mt-1 opacity-70">
+                  {data.vrp_regime === "high" && 
+                    "💡 Options are expensive vs recent moves — edge favors selling premium (credit spreads, covered calls, iron condors)"}
+                  {data.vrp_regime === "low" && 
+                    "💡 Options are cheap vs recent moves — edge favors buying options (debit spreads, calls, puts) ahead of a potential move"}
+                  {data.vrp_regime === "neutral" && 
+                    "💡 Options are fairly priced — no strong edge on either side. Look at the recommendation card below for the best trade."}
+                </div>
               </div>
             </div>
 

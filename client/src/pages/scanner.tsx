@@ -117,7 +117,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
             Market Scanner
           </h1>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            {tickers.length > 0 ? `${tickers.length} stocks • ` : ''}
+            {tickers.length > 0 ? `${tickers.length.toLocaleString()} stocks • ` : ''}
             {data?.date ? `Data for ${data.date}` : 'Loading market data…'}
             {lastUpdate && ` • Updated ${lastUpdate}`}
           </p>
@@ -248,7 +248,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                 </tr>
               </thead>
               <tbody>
-                {sorted.slice(0, 200).map((row) => {
+                {sorted.slice(0, 500).map((row) => {
                   const isUp = row.change_pct >= 0;
                   return (
                     <tr
@@ -307,7 +307,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                 color: 'var(--text-tertiary)',
                 borderTop: '1px solid var(--border-subtle)',
               }}>
-                Showing top 200 of {sorted.length} results. Use the search or filters to narrow down.
+                Showing top 500 of {sorted.length.toLocaleString()} results. Use the search bar or filters to find any stock.
               </div>
             )}
           </div>
@@ -315,7 +315,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
       </div>
 
       <p style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: '0.875rem', textAlign: 'center' }}>
-        Data from Polygon.io · Previous trading day · Min. 500K volume, $5+ price · Click any row to analyze
+        Data from Polygon.io · Previous trading day · All US stocks with $1+ price and 50K+ daily volume · Click any row to deep-analyze with VRP algorithm
       </p>
     </div>
   );
