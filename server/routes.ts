@@ -14,22 +14,21 @@ const execAsync = promisify(exec);
 
 export interface ScanResult {
   ticker: string;
-  spot: number;
-  price_change_pct: number;
-  atm_iv: number;
-  rv20: number;
-  vrp: number;
-  hv_percentile?: number;
-  volume_ratio?: number;
-  best_strategy?: string | null;
-  top_spread_score: number;
-  scan_score: number;
+  scan_score?: number;
+  price?: number;
+  change_pct?: number;
+  volume?: number;
+  iv_rank?: number;
+  iv_percentile?: number;
+  put_call_ratio?: number;
+  unusual_activity?: boolean;
+  signal?: string;
   sentiment_score?: number;
   sentiment_signal?: string;
   rec_action?: string;
   rec_signal?: string;
   freshness?: "fresh" | "recent" | "stale";
-  scanned_at?: number;
+  scanned_at?: number; // epoch ms
   error?: string;
 }
 
@@ -96,15 +95,7 @@ function applyFreshness(results: ScanResult[]): ScanResult[] {
 }
 
 function sortByScore(results: ScanResult[]): ScanResult[] {
-  return [...results]
-    // Filter out junk: penny stocks, insane IV, missing data
-    .filter(r => {
-      if (!r.spot || r.spot < 5) return false;        // no penny stocks
-      if (!r.atm_iv || r.atm_iv > 300) return false;  // no insane IV
-      if (!r.vrp || r.vrp > 200) return false;         // no distorted VRP
-      return true;
-    })
-    .sort((a, b) => (b.scan_score ?? 0) - (a.scan_score ?? 0));
+  return [...results].sort((a, b) => (b.scan_score ?? 0) - (a.scan_score ?? 0));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,30 +114,22 @@ async function scanSingleTicker(ticker: string): Promise<ScanResult | null> {
 
     const raw = JSON.parse(output);
 
-    // Normalise into ScanResult shape — map from full analysis output
+    // Normalise into ScanResult shape
     const result: ScanResult = {
       ticker: ticker.toUpperCase(),
-      spot: raw.spot ?? raw.price ?? 0,
-      price_change_pct: raw.price_change_pct ?? raw.change_pct ?? 0,
-      atm_iv: raw.atm_iv ?? 0,
-      rv20: raw.rv20 ?? 0,
-      vrp: raw.vrp ?? 0,
-      hv_percentile: raw.vol_metrics?.hv_percentile,
-      volume_ratio: raw.vol_metrics?.volume_ratio_5d,
-      best_strategy: raw.top_spreads?.[0]?.type ?? null,
-      top_spread_score: raw.top_spreads?.[0]?.score ?? 0,
-      // Score 0-100: blend of spread quality, VRP edge, HV percentile, volume
-      scan_score: raw.scan_score ?? raw.score ?? Math.min(100, Math.round(
-        (Math.min(raw.top_spreads?.[0]?.score ?? 0, 100)) * 0.40 +
-        (Math.min(Math.max((raw.vrp ?? 0), 0), 20) / 20 * 100) * 0.30 +
-        (raw.vol_metrics?.hv_percentile ?? 50) * 0.20 +
-        (Math.min(raw.vol_metrics?.volume_ratio_5d ?? 1, 5) / 5 * 100) * 0.10
-      )),
-      sentiment_score: raw.sentiment?.score,
-      sentiment_signal: raw.sentiment?.signal,
-      rec_action: raw.recommendation?.action,
-      rec_signal: raw.recommendation?.signal,
-      freshness: "fresh" as const,
+      scan_score: raw.scan_score ?? raw.score ?? 0,
+      price: raw.price,
+      change_pct: raw.change_pct ?? raw.change_percent,
+      volume: raw.volume,
+      iv_rank: raw.iv_rank,
+      iv_percentile: raw.iv_percentile,
+      put_call_ratio: raw.put_call_ratio,
+      unusual_activity: raw.unusual_activity,
+      signal: raw.signal,
+      sentiment_score: raw.sentiment_score,
+      sentiment_signal: raw.sentiment_signal,
+      rec_action: raw.rec_action,
+      rec_signal: raw.rec_signal,
       scanned_at: Date.now(),
     };
     return result;
@@ -176,22 +159,19 @@ async function scanBatch(tickers: string[]): Promise<ScanResult[]> {
 
 async function refreshTier1(): Promise<void> {
   try {
-    const BATCH = 3; // small batches to avoid Yahoo Finance rate limits
+    const BATCH = 20;
+    const fresh: ScanResult[] = [];
     for (let i = 0; i < TIER1_TICKERS.length; i += BATCH) {
       const batch = TIER1_TICKERS.slice(i, i + BATCH);
       const results = await scanBatch(batch);
+      fresh.push(...results);
+      // Also update fullUniverseCache
       for (const r of results) {
         fullUniverseCache.set(r.ticker, r);
       }
-      // Update tier1Cache incrementally so scanner shows results as they come in
-      const allCached = Array.from(fullUniverseCache.values())
-        .filter(r => TIER1_TICKERS.includes(r.ticker));
-      tier1Cache = sortByScore(applyFreshness(allCached));
-      tier1LastUpdate = Date.now();
-      // Pause between batches to avoid Yahoo Finance rate limiting
-      await new Promise(resolve => setTimeout(resolve, 8000));
     }
-    console.log(`[scanner] Tier1 refresh complete — ${tier1Cache.length} tickers`);
+    tier1Cache = sortByScore(applyFreshness(fresh));
+    tier1LastUpdate = Date.now();
   } catch (err) {
     console.error("[scanner] Tier1 refresh error:", err);
   }
@@ -457,10 +437,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const tier1Age = now - tier1LastUpdate;
     const tier1Stale = tier1LastUpdate === 0 || tier1Age > 5 * 60 * 1000;
 
-    // Always return immediately with whatever is cached
-    // Trigger background refresh if stale or empty
+    // If tier1 cache is stale and we have nothing yet, do a synchronous seed
     if (tier1Cache.length === 0 || tier1Stale) {
-      refreshTier1().catch(console.error);
+      // Fire off refresh in background — don't await so the endpoint stays fast
+      // If nothing is cached yet, we do a quick seed of first 20 tickers synchronously
+      if (tier1Cache.length === 0) {
+        try {
+          const seedBatch = TIER1_TICKERS.slice(0, 20);
+          const seedResults = await scanBatch(seedBatch);
+          if (tier1Cache.length === 0) {
+            tier1Cache = sortByScore(applyFreshness(seedResults));
+            tier1LastUpdate = Date.now();
+            for (const r of seedResults) fullUniverseCache.set(r.ticker, r);
+          }
+        } catch {
+          // Seed failed — return empty with progress
+        }
+      } else {
+        // Refresh in background
+        refreshTier1().catch(console.error);
+      }
     }
 
     const fullResults = sortByScore(
@@ -489,23 +485,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
-  // Startup: scan top 10 in parallel (all at once = ~5s), then full Tier1 in background
-  const TOP3 = ["SPY", "QQQ", "NVDA"];
-  setTimeout(async () => {
-    console.log("[scanner] Quick-start: scanning top 3 tickers...");
+  // ── Market snapshot (Polygon grouped daily) ───────────────────────────────
+  app.get("/api/market-snapshot", async (req, res) => {
+    const POLYGON_KEY = process.env.POLYGON_API_KEY || "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
     try {
-      const quickResults = await scanBatch(TOP3);
-      tier1Cache = sortByScore(applyFreshness(quickResults));
-      tier1LastUpdate = Date.now();
-      for (const r of quickResults) fullUniverseCache.set(r.ticker, r);
-      console.log(`[scanner] Quick-start done — ${quickResults.length} tickers ready in ~5s`);
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${yesterday}?adjusted=true&apiKey=${POLYGON_KEY}`;
+      const response = await fetch(url);
+      const data: any = await response.json();
+
+      if (!data.results) return res.json({ results: [] });
+
+      const results = data.results
+        .filter((r: any) => r.v > 500000 && r.c > 5)
+        .map((r: any) => ({
+          ticker: r.T,
+          close: r.c,
+          open: r.o,
+          high: r.h,
+          low: r.l,
+          volume: r.v,
+          change_pct: ((r.c - r.o) / r.o * 100),
+          vwap: r.vw,
+        }))
+        .sort((a: any, b: any) => b.volume - a.volume)
+        .slice(0, 500);
+
+      res.json({ results, date: yesterday });
     } catch (err) {
-      console.error("[scanner] Quick-start failed:", err);
+      console.error("[market-snapshot] Error:", err);
+      res.status(500).json({ error: "Market snapshot failed" });
     }
-    // Then scan the rest of Tier 1 in background in batches of 10
-    console.log("[scanner] Starting full Tier 1 background scan...");
-    refreshTier1().catch(console.error);
-  }, 2000);
+  });
+
+  // ── Polygon news ─────────────────────────────────────────────────────────────
+  app.get("/api/news", async (req, res) => {
+    const POLYGON_KEY = process.env.POLYGON_API_KEY || "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
+    const ticker = req.query.ticker as string || "";
+    try {
+      const url = ticker
+        ? `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=20&apiKey=${POLYGON_KEY}`
+        : `https://api.polygon.io/v2/reference/news?limit=20&apiKey=${POLYGON_KEY}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      res.json(data);
+    } catch (err) {
+      console.error("[news] Error:", err);
+      res.status(500).json({ error: "News fetch failed" });
+    }
+  });
+
+  // Pre-warm: run a quick scan of top 10 tickers on startup so scanner has data
+  setTimeout(() => {
+    console.log("[scanner] Pre-warming with top 10 tickers...");
+    const warmBatch = TIER1_TICKERS.slice(0, 10);
+    scanBatch(warmBatch).then(results => {
+      tier1Cache = sortByScore(applyFreshness(results));
+      tier1LastUpdate = Date.now();
+      for (const r of results) fullUniverseCache.set(r.ticker, r);
+      console.log(`[scanner] Pre-warm complete — ${results.length} tickers cached`);
+    }).catch(err => console.error("[scanner] Pre-warm failed:", err));
+  }, 3000);
 
   return httpServer;
 }
