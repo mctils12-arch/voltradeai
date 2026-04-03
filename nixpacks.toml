@@ -1,14 +1,11 @@
 [phases.setup]
-nixPkgs = [
-  "nodejs_20",
-  "python312",
-  "python312Packages.yfinance",
-  "python312Packages.scipy",
-  "python312Packages.numpy"
-]
+nixPkgs = ["nodejs_20", "python312"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = [
+  "npm install",
+  "python3 -m pip install yfinance scipy numpy --break-system-packages --quiet"
+]
 
 [start]
-cmd = "npm run build && node dist/index.cjs"
+cmd = "node dist/index.cjs"
