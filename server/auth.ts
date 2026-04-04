@@ -3,10 +3,13 @@ import crypto from "crypto";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import path from "path";
+import fs from "fs";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 const OWNER_EMAIL = process.env.OWNER_EMAIL || "mctils12@gmail.com";
-const DB_PATH = process.env.DB_PATH || path.resolve(process.cwd(), "voltrade.db");
+// Store database on persistent volume (/data) so it survives deploys
+const DATA_DIR = fs.existsSync("/data") ? "/data" : process.cwd();
+const DB_PATH = process.env.DB_PATH || path.resolve(DATA_DIR, "voltrade.db");
 
 // ─── Database setup ──────────────────────────────────────────────────────────
 export const db = new Database(DB_PATH);
