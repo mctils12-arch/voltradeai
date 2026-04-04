@@ -265,6 +265,13 @@ def deep_score(ticker, quick_result):
     except Exception:
         alt = {}
 
+    # Social intelligence (Reddit, Google Trends, multi-source news)
+    try:
+        from social_data import get_social_intelligence
+        social = get_social_intelligence(ticker)
+    except Exception:
+        social = {}
+
     # ── Pull key metrics from analyze.py output ──────────────────────────────
     vrp = detail.get("vrp", 0) or 0
     rec = detail.get("recommendation", {}) or {}
@@ -584,6 +591,35 @@ def deep_score(ticker, quick_result):
     
     combined_score += alt_adjustment
 
+    # ── Social & search data scoring ──────────────────────────────────────────
+    social_adjustment = 0
+    if social:
+        social_signal = social.get("combined_signal", 0)
+        social_adjustment = social_signal  # Already weighted and clamped to -15 to +15
+        
+        # Add specific reasons
+        reddit = social.get("reddit", {})
+        trends = social.get("google_trends", {})
+        news_m = social.get("news_multi", {})
+        
+        if trends.get("has_spike"):
+            reasons.append(f"Google Trends spike: {trends.get('spike_ratio', 0)}x normal search interest")
+        elif trends.get("trend_direction") == "rising":
+            reasons.append("Google search interest rising")
+        
+        if reddit.get("buzz_level") in ("high", "viral"):
+            reasons.append(f"Reddit buzz: {reddit.get('buzz_level')} ({reddit.get('total_mentions', 0)} mentions, {reddit.get('bullish_pct', 50):.0f}% bullish)")
+            if reddit.get("wsb_mentions", 0) > 10 and reddit.get("bullish_pct", 50) > 80:
+                reasons.append("WSB hype warning — extreme bullishness often precedes drops")
+        
+        if news_m.get("freshness") == "breaking":
+            reasons.append(f"Breaking news: {news_m.get('total_articles', 0)} articles from {len(news_m.get('sources', {}))} sources")
+        
+        if social.get("confidence") == "low":
+            social_adjustment = int(social_adjustment * 0.5)
+    
+    combined_score += social_adjustment
+
     # Recommendation boost
     if rec:
         action = rec.get("action", "")
@@ -653,6 +689,14 @@ def deep_score(ticker, quick_result):
             "unemployment": alt.get("fred_macro", {}).get("unemployment", 4.0) if alt else 4.0,
             "patent_signal": alt.get("patent", {}).get("signal", 0) if alt else 0,
             "ftd_signal": alt.get("ftd", {}).get("signal", 0) if alt else 0,
+            "reddit_mentions": social.get("reddit", {}).get("total_mentions", 0) if social else 0,
+            "reddit_sentiment": social.get("reddit", {}).get("sentiment_score", 0) if social else 0,
+            "reddit_wsb_mentions": social.get("reddit", {}).get("wsb_mentions", 0) if social else 0,
+            "google_trends_spike": social.get("google_trends", {}).get("spike_ratio", 1.0) if social else 1.0,
+            "google_trends_interest": social.get("google_trends", {}).get("current_interest", 0) if social else 0,
+            "news_multi_articles": social.get("news_multi", {}).get("total_articles", 0) if social else 0,
+            "news_multi_sentiment": social.get("news_multi", {}).get("sentiment_score", 0) if social else 0,
+            "social_combined_signal": social.get("combined_signal", 0) if social else 0,
         }
         ml_result = ml_score(ml_features)
 

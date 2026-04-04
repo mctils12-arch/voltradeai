@@ -51,6 +51,9 @@ FEATURE_COLS = [
     "wiki_spike_ratio", "short_pressure_signal", "congressional_signal",
     "geopolitical_risk", "yield_curve", "credit_spread", "unemployment",
     "patent_signal", "ftd_signal",
+    "reddit_mentions", "reddit_sentiment", "reddit_wsb_mentions",
+    "google_trends_spike", "google_trends_interest",
+    "news_multi_articles", "news_multi_sentiment", "social_combined_signal",
 ]
 
 # ── Default fallback weights ───────────────────────────────────────────────────

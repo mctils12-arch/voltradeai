@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install Python packages
-RUN python3 -m pip install yfinance scipy numpy scikit-learn joblib --break-system-packages --quiet
+RUN python3 -m pip install yfinance scipy numpy scikit-learn joblib pytrends --break-system-packages --quiet
 
 # Install Node packages
 COPY package.json package-lock.json ./
