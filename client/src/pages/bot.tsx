@@ -41,13 +41,13 @@ function Tip({ id, children }: { id: string; children: React.ReactNode }) {
   const tip = TIPS[id];
   if (!tip) return <>{children}</>;
   return (
-    <span style={{ position: "relative", cursor: "help", borderBottom: "1px dotted rgba(255,255,255,0.3)" }}
+    <span style={{ position: "relative", cursor: "help", borderBottom: "1px dotted rgba(0, 229, 255, 0.3)" }}
       onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
       {children}
       {show && (
         <span style={{ position: "absolute", bottom: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
-          background: "rgba(30,30,30,0.95)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "10px",
-          padding: "10px 14px", fontSize: "12px", color: "#d1d1d6", lineHeight: 1.5, width: "260px", zIndex: 100,
+          background: "rgba(3, 8, 15, 0.95)", border: "1px solid rgba(0, 229, 255, 0.15)", borderRadius: "4px",
+          padding: "10px 14px", fontSize: "12px", color: "#c8d6e5", lineHeight: 1.5, width: "260px", zIndex: 100,
           backdropFilter: "blur(12px)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
           {tip}
         </span>
@@ -57,22 +57,22 @@ function Tip({ id, children }: { id: string; children: React.ReactNode }) {
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
-const card: React.CSSProperties = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "20px", backdropFilter: "blur(20px)" };
-const label: React.CSSProperties = { fontSize: "11px", color: "#6e6e73", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" };
-const bigNum: React.CSSProperties = { fontSize: "28px", fontWeight: 700, fontFamily: "'SF Mono', 'Fira Code', monospace" };
+const card: React.CSSProperties = { background: "rgba(0, 20, 40, 0.5)", border: "1px solid rgba(0, 229, 255, 0.1)", borderRadius: "6px", padding: "20px", backdropFilter: "blur(20px)" };
+const label: React.CSSProperties = { fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px", fontFamily: "'JetBrains Mono', monospace" };
+const bigNum: React.CSSProperties = { fontSize: "28px", fontWeight: 700, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", color: "#c8d6e5" };
 
 // ─── Sharpe color helper ──────────────────────────────────────────────────────
 function sharpeColor(v: number) {
-  if (v >= 1) return "#30d158";
-  if (v >= 0.5) return "#ff9f0a";
-  return "#ff453a";
+  if (v >= 1) return "#00ff41";
+  if (v >= 0.5) return "#d4a017";
+  return "#ff3333";
 }
 
 // ─── Signal type color ────────────────────────────────────────────────────────
 function signalColor(type: string) {
-  if (type === "buy") return "#30d158";
-  if (type === "sell") return "#ff453a";
-  return "#ff9f0a";
+  if (type === "buy") return "#00ff41";
+  if (type === "sell") return "#ff3333";
+  return "#d4a017";
 }
 
 // ─── Mini equity curve chart ──────────────────────────────────────────────────
@@ -80,7 +80,7 @@ function MiniEquityCurve({ data }: { data: Array<{ date: string; value: number; 
   if (!data || data.length < 2) {
     return (
       <div style={{ height: "48px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ fontSize: "11px", color: "#3a3a3c" }}>Equity curve builds as trades complete</span>
+        <span style={{ fontSize: "11px", color: "#2a3a4c" }}>Equity curve builds as trades complete</span>
       </div>
     );
   }
@@ -105,7 +105,7 @@ function MiniEquityCurve({ data }: { data: Array<{ date: string; value: number; 
       <polyline
         points={pts}
         fill="none"
-        stroke={isUp ? "#30d158" : "#ff453a"}
+        stroke={isUp ? "#00ff41" : "#ff3333"}
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -123,10 +123,10 @@ function NotificationBell({ notifications, onMarkRead }: {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const typeColor = (type: string) => {
-    if (type === "alert" || type === "stop_loss") return "#ff453a";
-    if (type === "profit" || type === "trade") return "#30d158";
-    if (type === "earnings") return "#ff9f0a";
-    return "#0a84ff";
+    if (type === "alert" || type === "stop_loss") return "#ff3333";
+    if (type === "profit" || type === "trade") return "#00ff41";
+    if (type === "earnings") return "#d4a017";
+    return "#00e5ff";
   };
 
   const typeIcon = (type: string) => {
@@ -147,8 +147,8 @@ function NotificationBell({ notifications, onMarkRead }: {
         }}
         style={{
           display: "flex", alignItems: "center", justifyContent: "center",
-          width: "36px", height: "36px", borderRadius: "10px",
-          border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
+          width: "36px", height: "36px", borderRadius: "4px",
+          border: "1px solid rgba(0, 229, 255, 0.12)", background: "rgba(0, 229, 255, 0.08)",
           cursor: "pointer", position: "relative", color: "#a1a1a6",
         }}
         title="Notifications"
@@ -157,7 +157,7 @@ function NotificationBell({ notifications, onMarkRead }: {
         {unreadCount > 0 && (
           <span style={{
             position: "absolute", top: "-4px", right: "-4px",
-            background: "#ff453a", borderRadius: "50%",
+            background: "#ff3333", borderRadius: "50%",
             width: "16px", height: "16px", fontSize: "9px",
             display: "flex", alignItems: "center", justifyContent: "center",
             color: "white", fontWeight: 700, border: "2px solid #000",
@@ -171,47 +171,47 @@ function NotificationBell({ notifications, onMarkRead }: {
         <div style={{
           position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 200,
           width: "320px", maxHeight: "400px", overflowY: "auto",
-          background: "rgba(20,20,20,0.97)", border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: "14px", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+          background: "rgba(3, 8, 15, 0.97)", border: "1px solid rgba(0, 229, 255, 0.12)",
+          borderRadius: "6px", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
           backdropFilter: "blur(20px)",
         }}>
           <div style={{
-            padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)",
+            padding: "12px 16px", borderBottom: "1px solid rgba(0, 229, 255, 0.1)",
             display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "#f5f5f7" }}>
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "#c8d6e5" }}>
               <Tip id="notifications">Notifications</Tip>
             </span>
             {notifications.length > 0 && (
               <button onClick={onMarkRead} style={{
-                fontSize: "11px", color: "#0a84ff", background: "none", border: "none", cursor: "pointer",
+                fontSize: "11px", color: "#00e5ff", background: "none", border: "none", cursor: "pointer",
               }}>
                 Mark all read
               </button>
             )}
           </div>
           {notifications.length === 0 ? (
-            <div style={{ padding: "24px", textAlign: "center", color: "#6e6e73", fontSize: "12px" }}>
+            <div style={{ padding: "24px", textAlign: "center", color: "#4a5c70", fontSize: "12px" }}>
               No notifications yet
             </div>
           ) : (
             notifications.map((n, i) => (
               <div key={i} style={{
-                padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)",
-                background: n.read ? "transparent" : "rgba(10,132,255,0.05)",
+                padding: "10px 16px", borderBottom: "1px solid rgba(0, 15, 30, 0.4)",
+                background: n.read ? "transparent" : "rgba(0,229,255,0.05)",
                 display: "flex", gap: "10px", alignItems: "flex-start",
               }}>
                 <span style={{ fontSize: "14px", marginTop: "1px" }}>{typeIcon(n.type)}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "12px", color: "#f5f5f7", lineHeight: 1.4, wordBreak: "break-word" }}>
+                  <div style={{ fontSize: "12px", color: "#c8d6e5", lineHeight: 1.4, wordBreak: "break-word" }}>
                     {n.message}
                   </div>
-                  <div style={{ fontSize: "10px", color: "#6e6e73", marginTop: "3px" }}>
+                  <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "3px" }}>
                     {new Date(n.time).toLocaleString()}
                   </div>
                 </div>
                 {!n.read && (
-                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#0a84ff", flexShrink: 0, marginTop: "5px" }} />
+                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#00e5ff", flexShrink: 0, marginTop: "5px" }} />
                 )}
               </div>
             ))
@@ -234,18 +234,18 @@ function CalendarBanner() {
 
   const { tomorrow, holidays } = data;
   const isAlert = tomorrow.status === "holiday" || tomorrow.status === "early_close";
-  const bgColor = isAlert ? "rgba(255,159,10,0.1)" : "rgba(48,209,88,0.06)";
-  const borderColor = isAlert ? "rgba(255,159,10,0.2)" : "rgba(48,209,88,0.1)";
-  const textColor = isAlert ? "#ff9f0a" : "#6e6e73";
+  const bgColor = isAlert ? "rgba(212,160,23,0.1)" : "rgba(0,255,65,0.06)";
+  const borderColor = isAlert ? "rgba(212,160,23,0.2)" : "rgba(0,255,65,0.1)";
+  const textColor = isAlert ? "#d4a017" : "#4a5c70";
 
   return (
-    <div style={{ padding: "10px 14px", background: bgColor, border: `1px solid ${borderColor}`, borderRadius: "10px", marginBottom: "16px", fontSize: "12px" }}>
+    <div style={{ padding: "10px 14px", background: bgColor, border: `1px solid ${borderColor}`, borderRadius: "4px", marginBottom: "16px", fontSize: "12px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <span style={{ fontSize: "14px" }}>{isAlert ? "⚠️" : "📅"}</span>
         <span style={{ color: textColor, fontWeight: 600 }}>{tomorrow.note}</span>
       </div>
       {holidays && holidays.length > 0 && (
-        <div style={{ marginTop: "6px", color: "#6e6e73", fontSize: "11px" }}>
+        <div style={{ marginTop: "6px", color: "#4a5c70", fontSize: "11px" }}>
           Upcoming closures: {holidays.map((h: any) => `${h.name} (${h.date})`).join(" \u00b7 ")}
         </div>
       )}
@@ -259,12 +259,12 @@ function PerformanceCard({ perf }: { perf: any }) {
     return (
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-          <TrendingUp size={14} style={{ color: "#0a84ff" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>
+          <TrendingUp size={14} style={{ color: "#00e5ff" }} />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
             <Tip id="performance">Performance</Tip>
           </span>
         </div>
-        <p style={{ color: "#6e6e73", fontSize: "13px", textAlign: "center", padding: "16px 0" }}>
+        <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "16px 0" }}>
           Performance data builds as trades complete.
         </p>
       </div>
@@ -272,17 +272,17 @@ function PerformanceCard({ perf }: { perf: any }) {
   }
 
   const { totalTrades, winRate, totalPnl, avgGain, avgLoss, bestTrade, worstTrade, equityCurve } = perf;
-  const winRateColor = winRate >= 60 ? "#30d158" : winRate >= 45 ? "#ff9f0a" : "#ff453a";
-  const pnlColor = totalPnl >= 0 ? "#30d158" : "#ff453a";
+  const winRateColor = winRate >= 60 ? "#00ff41" : winRate >= 45 ? "#d4a017" : "#ff3333";
+  const pnlColor = totalPnl >= 0 ? "#00ff41" : "#ff3333";
 
   return (
     <div style={{ ...card, marginBottom: "20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-        <TrendingUp size={14} style={{ color: "#0a84ff" }} />
-        <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>
+        <TrendingUp size={14} style={{ color: "#00e5ff" }} />
+        <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
           <Tip id="performance">Performance</Tip>
         </span>
-        <span style={{ marginLeft: "auto", fontSize: "11px", color: "#6e6e73" }}>
+        <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>
           {totalTrades} total trades
         </span>
       </div>
@@ -294,27 +294,27 @@ function PerformanceCard({ perf }: { perf: any }) {
         gap: "12px",
         marginBottom: "16px",
       }}>
-        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Total P&L</div>
           <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: pnlColor }}>
             {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
           </div>
         </div>
-        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}><Tip id="winrate">Win Rate</Tip></div>
           <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: winRateColor }}>
             {winRate.toFixed(1)}%
           </div>
         </div>
-        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Avg Gain</div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#30d158" }}>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#00ff41" }}>
             +{avgGain.toFixed(2)}%
           </div>
         </div>
-        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px" }}>
+        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Avg Loss</div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#ff453a" }}>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#ff3333" }}>
             {avgLoss.toFixed(2)}%
           </div>
         </div>
@@ -324,32 +324,32 @@ function PerformanceCard({ perf }: { perf: any }) {
       {(bestTrade || worstTrade) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
           {bestTrade && (
-            <div style={{ background: "rgba(48,209,88,0.06)", border: "1px solid rgba(48,209,88,0.15)", borderRadius: "10px", padding: "10px" }}>
-              <div style={{ fontSize: "10px", color: "#6e6e73", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+            <div style={{ background: "rgba(0,255,65,0.06)", border: "1px solid rgba(0,255,65,0.15)", borderRadius: "4px", padding: "10px" }}>
+              <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
                 Best Trade
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <ArrowUp size={12} style={{ color: "#30d158" }} />
-                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#f5f5f7", fontSize: "13px" }}>
+                <ArrowUp size={12} style={{ color: "#00ff41" }} />
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
                   {bestTrade.ticker}
                 </span>
-                <span style={{ fontSize: "12px", color: "#30d158", marginLeft: "auto", fontWeight: 600 }}>
+                <span style={{ fontSize: "12px", color: "#00ff41", marginLeft: "auto", fontWeight: 600 }}>
                   +{bestTrade.pnlPct.toFixed(2)}%
                 </span>
               </div>
             </div>
           )}
           {worstTrade && (
-            <div style={{ background: "rgba(255,69,58,0.06)", border: "1px solid rgba(255,69,58,0.15)", borderRadius: "10px", padding: "10px" }}>
-              <div style={{ fontSize: "10px", color: "#6e6e73", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+            <div style={{ background: "rgba(255,51,51,0.06)", border: "1px solid rgba(255,51,51,0.15)", borderRadius: "4px", padding: "10px" }}>
+              <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
                 Worst Trade
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <ArrowDown size={12} style={{ color: "#ff453a" }} />
-                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#f5f5f7", fontSize: "13px" }}>
+                <ArrowDown size={12} style={{ color: "#ff3333" }} />
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
                   {worstTrade.ticker}
                 </span>
-                <span style={{ fontSize: "12px", color: "#ff453a", marginLeft: "auto", fontWeight: 600 }}>
+                <span style={{ fontSize: "12px", color: "#ff3333", marginLeft: "auto", fontWeight: 600 }}>
                   {worstTrade.pnlPct.toFixed(2)}%
                 </span>
               </div>
@@ -368,7 +368,7 @@ function PerformanceCard({ perf }: { perf: any }) {
 
       {/* No trades yet */}
       {totalTrades === 0 && (
-        <p style={{ color: "#6e6e73", fontSize: "12px", textAlign: "center", padding: "8px 0" }}>
+        <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "8px 0" }}>
           Performance data builds as the bot executes trades.
         </p>
       )}
@@ -455,18 +455,19 @@ export default function BotDashboard() {
         marginBottom: "20px", flexWrap: "wrap", gap: "12px",
       }}>
         <div>
-          <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "#f5f5f7", margin: 0 }}>Trading Bot</h1>
+          <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "#c8d6e5", margin: 0 }}>Trading Bot</h1>
           <div style={{ display: "flex", gap: "8px", marginTop: "6px", alignItems: "center" }}>
             <span style={{
-              padding: "3px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600,
-              background: isKilled ? "rgba(255,69,58,0.15)" : isActive ? "rgba(48,209,88,0.15)" : "rgba(255,159,10,0.15)",
-              color: isKilled ? "#ff453a" : isActive ? "#30d158" : "#ff9f0a",
-              border: `1px solid ${isKilled ? "rgba(255,69,58,0.3)" : isActive ? "rgba(48,209,88,0.3)" : "rgba(255,159,10,0.3)"}`,
+              padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 600,
+              background: isKilled ? "rgba(255,51,51,0.15)" : isActive ? "rgba(0,255,65,0.15)" : "rgba(212,160,23,0.15)",
+              color: isKilled ? "#ff3333" : isActive ? "#00ff41" : "#d4a017",
+              border: `1px solid ${isKilled ? "rgba(255,51,51,0.3)" : isActive ? "rgba(0,255,65,0.3)" : "rgba(212,160,23,0.3)"}`,
+
             }}>
               {isKilled ? "KILLED" : isActive ? "ACTIVE" : "PAUSED"}
             </span>
             <Tip id="paperTrading">
-              <span style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: "rgba(10,132,255,0.15)", color: "#0a84ff", border: "1px solid rgba(10,132,255,0.3)" }}>
+              <span style={{ padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,229,255,0.15)", color: "#00e5ff", border: "1px solid rgba(0,229,255,0.3)" }}>
                 PAPER TRADING
               </span>
             </Tip>
@@ -480,16 +481,16 @@ export default function BotDashboard() {
           />
 
           {!isActive ? (
-            <button onClick={() => startBot.mutate()} disabled={isKilled} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "10px", border: "none", background: isKilled ? "#333" : "#30d158", color: "white", fontSize: "13px", fontWeight: 600, cursor: isKilled ? "not-allowed" : "pointer" }}>
+            <button onClick={() => startBot.mutate()} disabled={isKilled} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: "none", background: isKilled ? "#0d1a28" : "#00ff41", color: isKilled ? "#4a5c70" : "#0a1420", fontSize: "13px", fontWeight: 600, cursor: isKilled ? "not-allowed" : "pointer" }}>
               <Play size={14} /> Start
             </button>
           ) : (
-            <button onClick={() => stopBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "10px", border: "none", background: "#ff9f0a", color: "black", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+            <button onClick={() => stopBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: "none", background: "#d4a017", color: "black", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
               <Square size={14} /> Pause
             </button>
           )}
           <Tip id="killSwitch">
-            <button onClick={() => killBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "10px", border: isKilled ? "2px solid #ff453a" : "2px solid rgba(255,69,58,0.3)", background: isKilled ? "rgba(255,69,58,0.2)" : "transparent", color: "#ff453a", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
+            <button onClick={() => killBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: isKilled ? "2px solid #ff3333" : "2px solid rgba(255,51,51,0.3)", background: isKilled ? "rgba(255,51,51,0.2)" : "transparent", color: "#ff3333", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
               <ShieldAlert size={14} /> {isKilled ? "Unkill" : "Kill Switch"}
             </button>
           </Tip>
@@ -503,7 +504,7 @@ export default function BotDashboard() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "20px" }}>
         <div style={card}>
           <div style={label}><Tip id="portfolio">Portfolio Value</Tip></div>
-          <div style={{ ...bigNum, color: "#f5f5f7", fontSize: "clamp(18px, 4vw, 28px)" }}>
+          <div style={{ ...bigNum, color: "#c8d6e5", fontSize: "clamp(18px, 4vw, 28px)" }}>
             ${(acct?.portfolioValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
@@ -515,7 +516,7 @@ export default function BotDashboard() {
         </div>
         <div style={card}>
           <div style={label}><Tip id="dailyPnl">Today's P&L</Tip></div>
-          <div style={{ ...bigNum, color: dailyPnl >= 0 ? "#30d158" : "#ff453a", fontSize: "clamp(18px, 4vw, 28px)" }}>
+          <div style={{ ...bigNum, color: dailyPnl >= 0 ? "#00ff41" : "#ff3333", fontSize: "clamp(18px, 4vw, 28px)" }}>
             {dailyPnl >= 0 ? "+" : ""}{dailyPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             <span style={{ fontSize: "12px", marginLeft: "6px" }}>({dailyPnlPct >= 0 ? "+" : ""}{Number(dailyPnlPct ?? 0).toFixed(2)}%)</span>
           </div>
@@ -534,15 +535,15 @@ export default function BotDashboard() {
       {/* ── Open Positions ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-          <Activity size={14} style={{ color: "#0a84ff" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}><Tip id="position">Open Positions</Tip></span>
-          <span style={{ marginLeft: "auto", fontSize: "12px", color: "#6e6e73" }}>{Array.isArray(positions) ? positions.length : 0} positions</span>
+          <Activity size={14} style={{ color: "#00e5ff" }} />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}><Tip id="position">Open Positions</Tip></span>
+          <span style={{ marginLeft: "auto", fontSize: "12px", color: "#4a5c70" }}>{Array.isArray(positions) ? positions.length : 0} positions</span>
         </div>
         {Array.isArray(positions) && positions.length > 0 ? (
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "480px" }}>
               <thead>
-                <tr style={{ color: "#6e6e73", textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
                   <th style={{ padding: "8px 12px" }}>Ticker</th>
                   <th style={{ padding: "8px 6px" }}>Side</th>
                   <th style={{ padding: "8px 6px", textAlign: "right" }}>Qty</th>
@@ -554,17 +555,17 @@ export default function BotDashboard() {
               </thead>
               <tbody>
                 {positions.map((p: any) => (
-                  <tr key={p.ticker} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                    <td style={{ padding: "8px 12px", fontWeight: 700, color: "#f5f5f7", fontFamily: "monospace" }}>{p.ticker}</td>
-                    <td style={{ padding: "8px 6px", color: p.side === "long" ? "#30d158" : "#ff453a" }}>{p.side}</td>
+                  <tr key={p.ticker} style={{ borderBottom: "1px solid rgba(0, 15, 30, 0.4)" }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>{p.ticker}</td>
+                    <td style={{ padding: "8px 6px", color: p.side === "long" ? "#00ff41" : "#ff3333" }}>{p.side}</td>
                     <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace" }}>{p.qty}</td>
                     <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", color: "#a1a1a6" }}>${Number(p.entryPrice ?? 0).toFixed(2)}</td>
                     <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace" }}>${Number(p.currentPrice ?? 0).toFixed(2)}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: (p.pnl ?? 0) >= 0 ? "#30d158" : "#ff453a" }}>
+                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: (p.pnl ?? 0) >= 0 ? "#00ff41" : "#ff3333" }}>
                       {(p.pnl ?? 0) >= 0 ? "+" : ""}${Number(p.pnl ?? 0).toFixed(2)} ({(p.pnlPct ?? 0) >= 0 ? "+" : ""}{Number(p.pnlPct ?? 0).toFixed(2)}%)
                     </td>
                     <td style={{ padding: "8px 6px" }}>
-                      <button onClick={() => closePos.mutate(p.ticker)} style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid rgba(255,69,58,0.3)", background: "transparent", color: "#ff453a", fontSize: "11px", cursor: "pointer" }}>Close</button>
+                      <button onClick={() => closePos.mutate(p.ticker)} style={{ padding: "4px 10px", borderRadius: "4px", border: "1px solid rgba(255,51,51,0.3)", background: "transparent", color: "#ff3333", fontSize: "11px", cursor: "pointer" }}>Close</button>
                     </td>
                   </tr>
                 ))}
@@ -572,25 +573,25 @@ export default function BotDashboard() {
             </table>
           </div>
         ) : (
-          <p style={{ color: "#6e6e73", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The bot will generate signals and trade when activated.</p>
+          <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The bot will generate signals and trade when activated.</p>
         )}
       </div>
 
       {/* ── AI Signals Panel ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-          <Zap size={14} style={{ color: "#ff9f0a" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>
+          <Zap size={14} style={{ color: "#d4a017" }} />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
             <Tip id="confidence">AI Trade Signals</Tip>
           </span>
-          <span style={{ marginLeft: "auto", fontSize: "11px", color: "#6e6e73" }}>
+          <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>
             {Array.isArray(signals) ? signals.length : 0} active signals
           </span>
           <button
             style={{
               display: "flex", alignItems: "center", gap: "6px",
-              padding: "6px 14px", borderRadius: "8px", border: "1px solid rgba(255,159,10,0.3)",
-              background: "rgba(255,159,10,0.1)", color: "#ff9f0a", fontSize: "12px", fontWeight: 600,
+              padding: "6px 14px", borderRadius: "4px", border: "1px solid rgba(212,160,23,0.3)",
+              background: "rgba(212,160,23,0.1)", color: "#d4a017", fontSize: "12px", fontWeight: 600,
             }}
           >
           </button>
@@ -600,41 +601,41 @@ export default function BotDashboard() {
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {signals.map((sig: any, i: number) => (
               <div key={i} style={{
-                background: "rgba(255,255,255,0.03)", border: `1px solid rgba(255,255,255,0.06)`,
+                background: "rgba(0, 20, 40, 0.4)", border: `1px solid rgba(0, 229, 255, 0.08)`,
                 borderLeft: `3px solid ${signalColor(sig.type)}`,
-                borderRadius: "10px", padding: "12px 14px",
+                borderRadius: "4px", padding: "12px 14px",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "15px", color: "#f5f5f7" }}>{sig.ticker}</span>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "15px", color: "#c8d6e5" }}>{sig.ticker}</span>
                   <span style={{
-                    padding: "2px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700,
-                    background: sig.type === "buy" ? "rgba(48,209,88,0.15)" : sig.type === "sell" ? "rgba(255,69,58,0.15)" : "rgba(255,159,10,0.15)",
+                    padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700,
+                    background: sig.type === "buy" ? "rgba(0,255,65,0.15)" : sig.type === "sell" ? "rgba(255,51,51,0.15)" : "rgba(212,160,23,0.15)",
                     color: signalColor(sig.type),
                   }}>{sig.action}</span>
-                  <span style={{ marginLeft: "auto", fontSize: "11px", color: "#6e6e73" }}>
+                  <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>
                     {new Date(sig.timestamp).toLocaleTimeString()}
                   </span>
                 </div>
                 <p style={{ color: "#a1a1a6", fontSize: "12px", margin: "0 0 8px 0", lineHeight: 1.5 }}>{sig.reason}</p>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontSize: "11px", color: "#6e6e73", flexShrink: 0 }}>
+                  <span style={{ fontSize: "11px", color: "#4a5c70", flexShrink: 0 }}>
                     <Tip id="confidence">Confidence</Tip>
                   </span>
-                  <div style={{ flex: 1, height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
+                  <div style={{ flex: 1, height: "4px", background: "rgba(0, 229, 255, 0.1)", borderRadius: "2px", overflow: "hidden" }}>
                     <div style={{
                       height: "100%", width: `${sig.confidence}%`, borderRadius: "2px",
-                      background: sig.confidence >= 70 ? "#30d158" : sig.confidence >= 50 ? "#ff9f0a" : "#ff453a",
+                      background: sig.confidence >= 70 ? "#00ff41" : sig.confidence >= 50 ? "#d4a017" : "#ff3333",
                       transition: "width 0.5s ease",
                     }} />
                   </div>
-                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#f5f5f7", flexShrink: 0 }}>{sig.confidence}%</span>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#c8d6e5", flexShrink: 0 }}>{sig.confidence}%</span>
                 </div>
               </div>
             ))}
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
-            <Zap size={28} style={{ color: "#3a3a3c", marginBottom: "12px" }} />
+            <Zap size={28} style={{ color: "#2a3a4c", marginBottom: "12px" }} />
           </div>
         )}
       </div>
@@ -647,18 +648,18 @@ export default function BotDashboard() {
       {/* ── Security Controls ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-          <Shield size={14} style={{ color: "#30d158" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>Security Controls</span>
+          <Shield size={14} style={{ color: "#00ff41" }} />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>Security Controls</span>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "16px" }}>
           {/* Kill Switch status */}
-          <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "14px", border: `1px solid ${isKilled ? "rgba(255,69,58,0.3)" : "rgba(255,255,255,0.06)"}` }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: `1px solid ${isKilled ? "rgba(255,51,51,0.3)" : "rgba(0, 229, 255, 0.08)"}` }}>
             <div style={{ ...label, marginBottom: "8px" }}><Tip id="killSwitch">Kill Switch</Tip></div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <div style={{
-                width: "44px", height: "24px", borderRadius: "12px", position: "relative", cursor: "pointer",
-                background: isKilled ? "#ff453a" : "rgba(255,255,255,0.1)",
+                width: "44px", height: "24px", borderRadius: "6px", position: "relative", cursor: "pointer",
+                background: isKilled ? "#ff3333" : "rgba(0, 229, 255, 0.12)",
                 transition: "background 0.2s",
               }} onClick={() => killBot.mutate()}>
                 <div style={{
@@ -667,46 +668,46 @@ export default function BotDashboard() {
                   transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
                 }} />
               </div>
-              <span style={{ fontSize: "13px", fontWeight: 600, color: isKilled ? "#ff453a" : "#6e6e73" }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: isKilled ? "#ff3333" : "#4a5c70" }}>
                 {isKilled ? "ACTIVE" : "OFF"}
               </span>
             </div>
           </div>
 
           {/* Daily loss limit */}
-          <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "14px", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="dailyLossLimit">Daily Loss Limit</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#ff9f0a" }}>−3%</div>
-            <div style={{ fontSize: "11px", color: "#6e6e73", marginTop: "4px" }}>Auto-halts trading if exceeded</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#d4a017" }}>−3%</div>
+            <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Auto-halts trading if exceeded</div>
           </div>
 
           {/* Max position size */}
-          <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "14px", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="positionSize">Max Position Size</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#0a84ff" }}>5%</div>
-            <div style={{ fontSize: "11px", color: "#6e6e73", marginTop: "4px" }}>Per trade, of portfolio</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#00e5ff" }}>5%</div>
+            <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Per trade, of portfolio</div>
           </div>
 
           {/* Max exposure */}
-          <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "14px", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="totalExposure">Max Exposure</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#bf5af2" }}>50%</div>
-            <div style={{ fontSize: "11px", color: "#6e6e73", marginTop: "4px" }}>Max portfolio invested</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#a855f7" }}>50%</div>
+            <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Max portfolio invested</div>
           </div>
         </div>
 
         {/* Mode & security badges */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-          <span style={{ padding: "4px 12px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: "rgba(10,132,255,0.15)", color: "#0a84ff", border: "1px solid rgba(10,132,255,0.2)" }}>
+          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,229,255,0.15)", color: "#00e5ff", border: "1px solid rgba(0,229,255,0.2)" }}>
             Paper Trading Mode
           </span>
-          <span style={{ padding: "4px 12px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: "rgba(48,209,88,0.1)", color: "#30d158", border: "1px solid rgba(48,209,88,0.2)" }}>
+          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,255,65,0.1)", color: "#00ff41", border: "1px solid rgba(0,255,65,0.2)" }}>
             {status?.auditLogCount ?? 0} Audit Entries
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: "5px", padding: "4px 12px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: "rgba(255,255,255,0.04)", color: "#a1a1a6", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: "5px", padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0, 20, 40, 0.5)", color: "#c8d6e5", border: "1px solid rgba(0, 229, 255, 0.1)" }}>
             <Lock size={10} /> API keys encrypted
           </span>
-          <span style={{ padding: "4px 12px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: "rgba(191,90,242,0.1)", color: "#bf5af2", border: "1px solid rgba(191,90,242,0.2)" }}>
+          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(168,85,247,0.1)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.2)" }}>
             {unreadCount} unread alerts
           </span>
         </div>
@@ -715,21 +716,21 @@ export default function BotDashboard() {
       {/* ── Audit Log ── */}
       <div style={{ ...card }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-          <Clock size={14} style={{ color: "#0a84ff" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f7" }}>Activity Log</span>
-          <span style={{ marginLeft: "auto", fontSize: "11px", color: "#6e6e73" }}>Every trade and decision is logged</span>
+          <Clock size={14} style={{ color: "#00e5ff" }} />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>Activity Log</span>
+          <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>Every trade and decision is logged</span>
         </div>
         <div style={{ maxHeight: "250px", overflowY: "auto" }}>
           {Array.isArray(audit) && audit.length > 0 ? (
             audit.map((a: any, i: number) => (
-              <div key={i} style={{ display: "flex", gap: "10px", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: "12px", flexWrap: "wrap" }}>
-                <span style={{ color: "#6e6e73", fontFamily: "monospace", flexShrink: 0, width: "130px" }}>{new Date(a.time).toLocaleString()}</span>
-                <span style={{ color: "#0a84ff", fontWeight: 600, flexShrink: 0, width: "80px" }}>{a.action}</span>
+              <div key={i} style={{ display: "flex", gap: "10px", padding: "6px 0", borderBottom: "1px solid rgba(0, 15, 30, 0.4)", fontSize: "12px", flexWrap: "wrap" }}>
+                <span style={{ color: "#4a5c70", fontFamily: "monospace", flexShrink: 0, width: "130px" }}>{new Date(a.time).toLocaleString()}</span>
+                <span style={{ color: "#00e5ff", fontWeight: 600, flexShrink: 0, width: "80px" }}>{a.action}</span>
                 <span style={{ color: "#a1a1a6" }}>{a.detail}</span>
               </div>
             ))
           ) : (
-            <p style={{ color: "#6e6e73", fontSize: "12px", textAlign: "center", padding: "16px 0" }}>No activity yet. Start the bot to begin.</p>
+            <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "16px 0" }}>No activity yet. Start the bot to begin.</p>
           )}
         </div>
       </div>
