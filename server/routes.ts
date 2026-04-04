@@ -6,7 +6,7 @@ import path from "path";
 import fs from "fs";
 import https from "https";
 import cookieParser from "cookie-parser";
-import { registerAuthRoutes } from "./auth";
+import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 
 const execAsync = promisify(exec);
@@ -404,6 +404,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.use(cookieParser());
   registerAuthRoutes(app);
   registerBotRoutes(app);
+
+  // ── Watchlist persistence ─────────────────────────────────────────────────
+  try {
+    db.prepare("CREATE TABLE IF NOT EXISTS watchlists (user_email TEXT, ticker TEXT, added_at TEXT, PRIMARY KEY (user_email, ticker))").run();
+  } catch {}
+
+  app.get("/api/watchlist", (req, res) => {
+    const session = (req as any).cookies?.session;
+    if (!session) return res.json({ tickers: [] });
+
+    const sessionRow = db.prepare("SELECT user_id FROM sessions WHERE token = ?").get(session) as any;
+    if (!sessionRow) return res.json({ tickers: [] });
+
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(sessionRow.user_id) as any;
+    if (!user) return res.json({ tickers: [] });
+
+    const rows = db.prepare("SELECT ticker FROM watchlists WHERE user_email = ? ORDER BY added_at DESC").all(user.email) as any[];
+    res.json({ tickers: rows.map((r: any) => r.ticker) });
+  });
+
+  app.post("/api/watchlist/add", (req, res) => {
+    const session = (req as any).cookies?.session;
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+
+    const sessionRow = db.prepare("SELECT user_id FROM sessions WHERE token = ?").get(session) as any;
+    if (!sessionRow) return res.status(401).json({ error: "Not authenticated" });
+
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(sessionRow.user_id) as any;
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const { ticker } = req.body;
+    if (!ticker) return res.status(400).json({ error: "Ticker required" });
+
+    try {
+      db.prepare("INSERT OR IGNORE INTO watchlists (user_email, ticker, added_at) VALUES (?, ?, ?)").run(
+        user.email, ticker.toUpperCase(), new Date().toISOString()
+      );
+    } catch {}
+
+    res.json({ ok: true });
+  });
+
+  app.post("/api/watchlist/remove", (req, res) => {
+    const session = (req as any).cookies?.session;
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+
+    const sessionRow = db.prepare("SELECT user_id FROM sessions WHERE token = ?").get(session) as any;
+    if (!sessionRow) return res.status(401).json({ error: "Not authenticated" });
+
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(sessionRow.user_id) as any;
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const { ticker } = req.body;
+    if (ticker) {
+      db.prepare("DELETE FROM watchlists WHERE user_email = ? AND ticker = ?").run(user.email, ticker.toUpperCase());
+    }
+
+    res.json({ ok: true });
+  });
 
   // ── Single-ticker analysis ────────────────────────────────────────────────
   app.get("/api/analyze/:ticker", async (req, res) => {

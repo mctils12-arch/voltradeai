@@ -59,7 +59,7 @@ function Tip({ id, children }: { id: string; children: React.ReactNode }) {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const card: React.CSSProperties = { background: "rgba(0, 20, 40, 0.5)", border: "1px solid rgba(0, 229, 255, 0.1)", borderRadius: "6px", padding: "20px", backdropFilter: "blur(20px)" };
 const label: React.CSSProperties = { fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px", fontFamily: "'JetBrains Mono', monospace" };
-const bigNum: React.CSSProperties = { fontSize: "28px", fontWeight: 700, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", color: "#c8d6e5" };
+const bigNum: React.CSSProperties = { fontSize: "clamp(18px, 3.5vw, 28px)", fontWeight: 700, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", color: "#c8d6e5", wordBreak: "break-word", overflow: "hidden", textOverflow: "ellipsis" };
 
 // ─── Sharpe color helper ──────────────────────────────────────────────────────
 function sharpeColor(v: number) {
@@ -501,7 +501,7 @@ export default function BotDashboard() {
       <CalendarBanner />
 
       {/* ── Account Overview ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px", marginBottom: "20px" }}>
         <div style={card}>
           <div style={label}><Tip id="portfolio">Portfolio Value</Tip></div>
           <div style={{ ...bigNum, color: "#c8d6e5", fontSize: "clamp(18px, 4vw, 28px)" }}>

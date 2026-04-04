@@ -45,7 +45,7 @@ function CityMatrixCanvas() {
     let buildings: Building[] = [];
     let streams: Stream[] = [];
 
-    const CHARS = "01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン$€¥£₿∞≈±∑∏∂∆∇αβγδε".split("");
+    const CHARS = "0101001101101001".split("");
 
     function generateCity() {
       buildings = [];
@@ -54,8 +54,31 @@ function CityMatrixCanvas() {
       let x = -10;
 
       while (x < W + 50) {
-        const w = 20 + Math.random() * 70;
-        const h = 80 + Math.random() * (H * 0.55);
+        // NYC-style building variety
+        const roll = Math.random();
+        let w: number, h: number;
+        
+        if (roll < 0.05) {
+          // Tall skyscraper (like One WTC)
+          w = 30 + Math.random() * 20;
+          h = H * 0.7 + Math.random() * (H * 0.2);
+        } else if (roll < 0.15) {
+          // Tall tower
+          w = 25 + Math.random() * 35;
+          h = H * 0.5 + Math.random() * (H * 0.25);
+        } else if (roll < 0.35) {
+          // Medium high-rise
+          w = 30 + Math.random() * 50;
+          h = H * 0.3 + Math.random() * (H * 0.25);
+        } else if (roll < 0.6) {
+          // Standard building
+          w = 25 + Math.random() * 60;
+          h = H * 0.15 + Math.random() * (H * 0.25);
+        } else {
+          // Low building
+          w = 20 + Math.random() * 45;
+          h = H * 0.08 + Math.random() * (H * 0.15);
+        }
         const bTop = groundY - h;
 
         // Windows
@@ -86,15 +109,15 @@ function CityMatrixCanvas() {
           streams.push({
             x: x + 5 + Math.random() * (w - 10),
             y: bTop - Math.random() * 200,
-            speed: 1 + Math.random() * 3,
-            length: 8 + Math.floor(Math.random() * 20),
+            speed: 1.5 + Math.random() * 4,
+            length: 5 + Math.floor(Math.random() * 12),
             chars: Array.from({ length: 30 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
             opacity: 0.15 + Math.random() * 0.35,
             buildingTop: bTop,
           });
         }
 
-        x += w + 2 + Math.random() * 8;
+        x += w + Math.random() * 3; // Tight NYC spacing
       }
     }
 
@@ -133,6 +156,13 @@ function CityMatrixCanvas() {
         bGrad.addColorStop(1, "#060e18");
         ctx!.fillStyle = bGrad;
         ctx!.fillRect(b.x, bTop, b.w, b.h);
+
+        // Right edge shadow for depth
+        const edgeGrad = ctx!.createLinearGradient(b.x + b.w - 8, bTop, b.x + b.w, bTop);
+        edgeGrad.addColorStop(0, "transparent");
+        edgeGrad.addColorStop(1, "rgba(0, 0, 0, 0.3)");
+        ctx!.fillStyle = edgeGrad;
+        ctx!.fillRect(b.x + b.w - 8, bTop, 8, b.h);
 
         // Building outline
         ctx!.strokeStyle = "rgba(0, 229, 255, 0.08)";
@@ -193,7 +223,7 @@ function CityMatrixCanvas() {
       ctx!.stroke();
 
       // Draw Matrix data streams
-      ctx!.font = "10px 'JetBrains Mono', 'Courier New', monospace";
+      ctx!.font = "9px 'JetBrains Mono', 'Courier New', monospace";
       for (const s of streams) {
         s.y += s.speed;
 
@@ -210,7 +240,7 @@ function CityMatrixCanvas() {
 
         // Draw each character in the stream
         for (let i = 0; i < s.length; i++) {
-          const cy = s.y + i * 12;
+          const cy = s.y + i * 10;
           if (cy < 0 || cy > s.buildingTop + 10) continue;
 
           const fade = 1 - (i / s.length);
@@ -266,10 +296,12 @@ function CityMatrixCanvas() {
 export default function LoginPage({ onLogin }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"login" | "reset">("login");
+  const [mode, setMode] = useState<"login" | "reset" | "signup">("login");
   const [resetSent, setResetSent] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,6 +331,41 @@ export default function LoginPage({ onLogin }: LoginProps) {
       setResetSent(true);
     } catch {
       setError("Reset failed");
+    }
+    setLoading(false);
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/auth/register", { email, password });
+      const data = await res.json();
+      if (data.ok) {
+        // Auto-login after registration
+        const loginRes = await apiRequest("POST", "/api/auth/login", { email, password });
+        const loginData = await loginRes.json();
+        if (loginData.ok) {
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          onLogin?.();
+        } else {
+          setSignupSuccess(true);
+          setMode("login");
+        }
+      } else {
+        setError(data.error || "Registration failed");
+      }
+    } catch {
+      setError("Connection failed");
     }
     setLoading(false);
   };
@@ -370,9 +437,15 @@ export default function LoginPage({ onLogin }: LoginProps) {
             <span style={{ color: "#00e5ff" }}>AI</span>
           </div>
           <div style={{ fontSize: 11, color: "#4a5c70", letterSpacing: "0.15em", marginTop: 6, textTransform: "uppercase", fontFamily: "'JetBrains Mono', monospace" }}>
-            {mode === "login" ? "SIGN IN TO YOUR ACCOUNT" : "RESET YOUR PASSWORD"}
+            {mode === "login" ? "SIGN IN TO YOUR ACCOUNT" : mode === "signup" ? "CREATE AN ACCOUNT" : "RESET YOUR PASSWORD"}
           </div>
         </div>
+
+        {signupSuccess && mode === "login" && (
+          <div style={{ color: "#30d158", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>
+            Account created! Sign in below.
+          </div>
+        )}
 
         {mode === "login" ? (
           <form onSubmit={handleSubmit}>
@@ -404,6 +477,45 @@ export default function LoginPage({ onLogin }: LoginProps) {
               onMouseOut={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.08)"; (e.target as HTMLElement).style.boxShadow = "none"; }}
             >
               {loading ? "AUTHENTICATING..." : "SIGN IN"}
+            </button>
+          </form>
+        ) : mode === "signup" ? (
+          <form onSubmit={handleSignup}>
+            <input
+              type="email" placeholder="Email" value={email}
+              onChange={e => setEmail(e.target.value)} required
+              style={inputStyle}
+              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+            />
+            <input
+              type="password" placeholder="Password (min 6 chars)" value={password}
+              onChange={e => setPassword(e.target.value)} required
+              style={inputStyle}
+              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+            />
+            <input
+              type="password" placeholder="Confirm Password" value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)} required
+              style={{ ...inputStyle, marginBottom: 16 }}
+              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+            />
+            {error && <div style={{ color: "#ff3333", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
+            <button type="submit" disabled={loading} style={{
+              width: "100%", padding: "12px",
+              background: "rgba(0, 229, 255, 0.08)",
+              border: "1px solid rgba(0, 229, 255, 0.3)",
+              borderRadius: 4, color: "#00e5ff", fontSize: 12,
+              fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
+              fontFamily: "'JetBrains Mono', monospace",
+              cursor: "pointer", transition: "all 200ms ease",
+            }}
+              onMouseOver={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.15)"; (e.target as HTMLElement).style.boxShadow = "0 0 20px rgba(0, 229, 255, 0.1)"; }}
+              onMouseOut={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.08)"; (e.target as HTMLElement).style.boxShadow = "none"; }}
+            >
+              {loading ? "CREATING ACCOUNT..." : "CREATE ACCOUNT"}
             </button>
           </form>
         ) : (
@@ -444,6 +556,19 @@ export default function LoginPage({ onLogin }: LoginProps) {
             }}
           >
             {mode === "login" ? "Forgot Password?" : "← Back to Sign In"}
+          </button>
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 12 }}>
+          <button
+            onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); setConfirmPassword(""); }}
+            style={{
+              background: "none", border: "none", color: "#00e5ff",
+              fontSize: 11, cursor: "pointer", letterSpacing: "0.08em",
+              fontFamily: "'JetBrains Mono', monospace", opacity: 0.6,
+            }}
+          >
+            {mode === "signup" ? "Already have an account? Sign In" : "Don't have an account? Create one"}
           </button>
         </div>
       </div>

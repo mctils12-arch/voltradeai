@@ -49,6 +49,7 @@ function AppShell() {
   });
 
   const authenticated = !isLoading && !!data?.authenticated;
+  const isOwner = !isLoading && !!data?.isOwner;
   const isMobile = useMobile();
 
   // Desktop: require login first (original behavior)
@@ -66,7 +67,7 @@ function AppShell() {
   }
 
   // Desktop authenticated OR mobile (public)
-  return <Home authenticated={authenticated} authLoading={isLoading} isMobile={isMobile} />;
+  return <Home authenticated={authenticated} authLoading={isLoading} isMobile={isMobile} isOwner={isOwner} />;
 }
 
 function App() {

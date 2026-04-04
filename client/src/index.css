@@ -108,62 +108,67 @@
 
 /* LIGHT MODE — forced to tactical (no light mode, always dark tactical) */
 .light {
-  --bg-primary: #050a12;
-  --bg-secondary: #0a0e17;
-  --bg-card: rgba(0, 20, 40, 0.6);
-  --bg-card-hover: rgba(0, 30, 55, 0.75);
-  --border: rgba(0, 229, 255, 0.15);
-  --border-subtle: rgba(0, 229, 255, 0.08);
-  --text-primary: #c8d6e5;
-  --text-secondary: #7a8ba0;
-  --text-tertiary: #4a5568;
+  --bg-primary: #e8ecf1;
+  --bg-secondary: #dce1e8;
+  --bg-card: rgba(0, 40, 70, 0.06);
+  --bg-card-hover: rgba(0, 40, 70, 0.10);
+  --border: rgba(0, 80, 120, 0.15);
+  --border-subtle: rgba(0, 80, 120, 0.08);
+  --text-primary: #0a1628;
+  --text-secondary: #3a4a5c;
+  --text-tertiary: #6a7a8c;
+  --accent: #0088aa;
+  --accent-green: #00994d;
+  --accent-red: #cc2222;
+  --accent-orange: #b38600;
+  --accent-purple: #7c3aed;
 
-  --bg: #050a12;
-  --surface: rgba(0, 20, 40, 0.5);
-  --surface-2: rgba(0, 25, 50, 0.6);
-  --surface-3: rgba(0, 30, 60, 0.7);
-  --border-color: rgba(0, 229, 255, 0.15);
-  --border-subtle-color: rgba(0, 229, 255, 0.08);
-  --text: #c8d6e5;
-  --text-muted: #7a8ba0;
-  --text-faint: #4a5568;
-  --accent-color: #00e5ff;
-  --accent-hover: #33ecff;
+  --bg: #e8ecf1;
+  --surface: rgba(0, 40, 70, 0.05);
+  --surface-2: rgba(0, 40, 70, 0.08);
+  --surface-3: rgba(0, 40, 70, 0.12);
+  --border-color: rgba(0, 80, 120, 0.15);
+  --border-subtle-color: rgba(0, 80, 120, 0.08);
+  --text: #0a1628;
+  --text-muted: #3a4a5c;
+  --text-faint: #6a7a8c;
+  --accent-color: #0088aa;
+  --accent-hover: #006688;
 
-  --button-outline: rgba(0, 229, 255, 0.12);
-  --badge-outline: rgba(0, 229, 255, 0.06);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(0, 229, 255, 0.03);
-  --elevate-2: rgba(0, 229, 255, 0.07);
-  --background: 215 50% 4%;
-  --foreground: 210 20% 80%;
-  --border: 215 30% 15%;
-  --card: 215 40% 8%;
-  --card-foreground: 210 20% 80%;
-  --card-border: 190 100% 30%;
-  --sidebar: 215 45% 6%;
-  --sidebar-foreground: 210 20% 80%;
-  --sidebar-border: 190 100% 15%;
-  --sidebar-primary: 187 100% 50%;
-  --sidebar-primary-foreground: 215 50% 4%;
-  --sidebar-accent: 215 30% 12%;
-  --sidebar-accent-foreground: 210 20% 80%;
-  --sidebar-ring: 187 100% 50%;
-  --popover: 215 45% 7%;
-  --popover-foreground: 210 20% 80%;
-  --popover-border: 190 100% 20%;
-  --primary: 187 100% 50%;
-  --primary-foreground: 215 50% 4%;
-  --secondary: 215 30% 12%;
-  --secondary-foreground: 210 20% 80%;
-  --muted: 215 30% 15%;
-  --muted-foreground: 210 15% 50%;
-  --accent: 187 100% 50%;
-  --accent-foreground: 215 50% 4%;
-  --destructive: 0 80% 60%;
+  --button-outline: rgba(0,60,100,.12);
+  --badge-outline: rgba(0,60,100,.06);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,40,70,.04);
+  --elevate-2: rgba(0,40,70,.08);
+  --background: 210 15% 92%;
+  --foreground: 215 50% 10%;
+  --border: 210 20% 80%;
+  --card: 210 15% 95%;
+  --card-foreground: 215 50% 10%;
+  --card-border: 210 20% 85%;
+  --sidebar: 210 15% 93%;
+  --sidebar-foreground: 215 50% 10%;
+  --sidebar-border: 210 20% 82%;
+  --sidebar-primary: 195 100% 33%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 210 15% 85%;
+  --sidebar-accent-foreground: 215 50% 10%;
+  --sidebar-ring: 195 100% 33%;
+  --popover: 210 15% 95%;
+  --popover-foreground: 215 50% 10%;
+  --popover-border: 210 20% 86%;
+  --primary: 195 100% 33%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 210 15% 88%;
+  --secondary-foreground: 215 50% 10%;
+  --muted: 210 15% 88%;
+  --muted-foreground: 215 20% 40%;
+  --accent: 195 100% 33%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 80% 45%;
   --destructive-foreground: 0 0% 98%;
-  --input: 215 30% 20%;
-  --ring: 187 100% 50%;
+  --input: 210 20% 75%;
+  --ring: 195 100% 33%;
 }
 
 /* Also support .dark class for backward compat — tactical theme */
@@ -343,8 +348,8 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   gap: 0.5rem;
 }
 .light .tab-nav {
-  background: rgba(5, 10, 18, 0.92);
-  border-bottom-color: rgba(0, 229, 255, 0.15);
+  background: rgba(232, 236, 241, 0.92);
+  border-bottom-color: rgba(0, 80, 120, 0.12);
 }
 .tab-nav-logo {
   display: flex;

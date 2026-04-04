@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Plus, Trash2, TrendingUp, TrendingDown, Search, RefreshCw } from "lucide-react";
@@ -164,16 +164,42 @@ function WatchlistRow({
 export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
   const [tickers, setTickers] = useState<string[]>([]);
   const [input, setInput] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  const addTicker = () => {
+  // Load watchlist from API on mount
+  useEffect(() => {
+    apiRequest("GET", "/api/watchlist")
+      .then(r => r.json())
+      .then(data => {
+        if (data.tickers && Array.isArray(data.tickers)) {
+          setTickers(data.tickers);
+          setIsLoggedIn(true);
+        }
+      })
+      .catch(() => {
+        // Not logged in or failed — stay with local state
+      });
+  }, []);
+
+  const addTicker = async () => {
     const t = input.trim().toUpperCase();
     if (!t || tickers.includes(t)) return;
     setTickers(prev => [...prev, t]);
     setInput("");
+    if (isLoggedIn) {
+      try {
+        await apiRequest("POST", "/api/watchlist/add", { ticker: t });
+      } catch {}
+    }
   };
 
-  const removeTicker = (t: string) => {
+  const removeTicker = async (t: string) => {
     setTickers(prev => prev.filter(x => x !== t));
+    if (isLoggedIn) {
+      try {
+        await apiRequest("POST", "/api/watchlist/remove", { ticker: t });
+      } catch {}
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -195,8 +221,8 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
         </h1>
         <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
           {tickers.length > 0
-            ? `Tracking ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''} · Resets on page refresh`
-            : 'Add tickers to track · Resets on page refresh'}
+            ? `Tracking ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''} · ${isLoggedIn ? 'Saved to your account' : 'Sign in to save'}`
+            : `Add tickers to track · ${isLoggedIn ? 'Saved to your account' : 'Sign in to save'}`}
         </p>
       </div>
 
@@ -276,7 +302,13 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
             {["SPY", "QQQ", "AAPL", "TSLA", "NVDA", "AMZN", "MSFT", "META"].map(t => (
               <button
                 key={t}
-                onClick={() => setTickers(prev => prev.includes(t) ? prev : [...prev, t])}
+                onClick={async () => {
+                  if (tickers.includes(t)) return;
+                  setTickers(prev => [...prev, t]);
+                  if (isLoggedIn) {
+                    try { await apiRequest("POST", "/api/watchlist/add", { ticker: t }); } catch {}
+                  }
+                }}
                 className="chip"
               >
                 {t}
@@ -352,7 +384,7 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
         marginTop: '1.25rem',
         textAlign: 'center',
       }}>
-        Watchlist is stored in memory · Resets on page refresh · Click Analyze to open full analysis
+        {isLoggedIn ? 'Watchlist saved to your account · Persists across sessions' : 'Sign in to save your watchlist · Click Analyze to open full analysis'}
       </p>
     </div>
   );

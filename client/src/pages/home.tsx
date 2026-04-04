@@ -41,9 +41,10 @@ interface HomeProps {
   authenticated: boolean;
   authLoading: boolean;
   isMobile: boolean;
+  isOwner?: boolean;
 }
 
-export default function Home({ authenticated, authLoading, isMobile }: HomeProps) {
+export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
   const [activeTab, setActiveTab] = useState<TabId>("analyze");
   const [dark, setDark] = useState(true);
   const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
@@ -189,17 +190,23 @@ export default function Home({ authenticated, authLoading, isMobile }: HomeProps
           <WatchlistPage onSelectTicker={handleSelectTicker} />
         )}
         {activeTab === "bot" && (
-          authenticated ? <BotDashboard /> : (
+          authenticated && isOwner ? <BotDashboard /> : (
             <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
               <Bot size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
-              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>Sign in to access the AI Trading Bot</p>
-              <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>The bot scans the market, finds opportunities, and trades automatically.</p>
-              <button
-                onClick={() => setShowLogin(true)}
-                style={{ marginTop: "1.5rem", padding: "10px 24px", background: "rgba(0, 229, 255, 0.15)", color: "#00e5ff", border: "1px solid #00e5ff", borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "0.1em" }}
-              >
-                Sign In
-              </button>
+              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                {authenticated ? "Bot access is restricted to the account owner" : "Sign in to access the AI Trading Bot"}
+              </p>
+              {!authenticated && (
+                <>
+                  <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>The bot scans the market, finds opportunities, and trades automatically.</p>
+                  <button
+                    onClick={() => setShowLogin(true)}
+                    style={{ marginTop: "1.5rem", padding: "10px 24px", background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.3)", color: "#00e5ff", borderRadius: 4, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase" }}
+                  >
+                    Sign In
+                  </button>
+                </>
+              )}
             </div>
           )
         )}
