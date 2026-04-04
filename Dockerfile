@@ -1,10 +1,12 @@
 FROM node:20-slim
 
-# Install Python and pip
+# Install Python, pip, and build tools (needed for better-sqlite3)
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
+    build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
