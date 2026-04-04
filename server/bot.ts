@@ -59,11 +59,13 @@ function broadcastSSE(data: any) {
 }
 
 function audit(action: string, detail: string) {
-  const entry = { time: new Date().toISOString(), action, detail };
+  const entry = { time: new Date().toISOString(), type: action, action, detail, message: detail };
   state.auditLog.unshift(entry);
   if (state.auditLog.length > 500) state.auditLog.length = 500;
   console.log(`[BOT] ${action}: ${detail}`);
   broadcastSSE(entry);
+  // Persist to database (survives deploys)
+  try { persistAudit(action, detail); } catch {}
 }
 
 // ─── Notifications ──────────────────────────────────────────────────────────
@@ -265,6 +267,33 @@ async function placeOptionsOrder(
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
+// ─── Persistent Audit Log (survives deploys) ────────────────────────────────
+import { db } from "./auth";
+try {
+  db.prepare(`CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    time TEXT NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL
+  )`).run();
+} catch {}
+
+function persistAudit(type: string, message: string) {
+  try {
+    db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
+      new Date().toISOString(), type, message.slice(0, 500)
+    );
+    // Keep last 2000 entries
+    db.prepare("DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT 2000)").run();
+  } catch {}
+}
+
+function getPersistedAuditLog(limit = 100): any[] {
+  try {
+    return db.prepare("SELECT time, type, message FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as any[];
+  } catch { return []; }
+}
+
 export function registerBotRoutes(app: Express) {
 
   // SSE for live bot audit log updates
@@ -437,7 +466,13 @@ export function registerBotRoutes(app: Express) {
 
   // Audit log
   app.get("/api/bot/audit", requireAuth, (_req, res) => {
-    res.json(state.auditLog.slice(0, 100));
+    // Return in-memory log, fall back to persistent DB log if empty (e.g. after redeploy)
+    if (state.auditLog.length > 0) {
+      res.json(state.auditLog.slice(0, 100));
+    } else {
+      const persisted = getPersistedAuditLog(100);
+      res.json(persisted.map((e: any) => ({ time: e.time, action: e.type, type: e.type, detail: e.message, message: e.message })));
+    }
   });
 
   // Place a trade (manual or from bot signals)
