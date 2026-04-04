@@ -40,6 +40,8 @@ const state = {
   dailyPnL: 0,
   dailyLossLimit: DAILY_LOSS_LIMIT,
   auditLog: [] as AuditEntry[],
+  positionSizeMultiplier: 1.0,
+  minScoreThreshold: 65,
 };
 
 function audit(action: string, detail: string) {
@@ -740,7 +742,7 @@ export function registerBotRoutes(app: Express) {
         audit("MORNING", `Max positions (${MAX_POSITIONS}) reached — skipping remaining queue`);
         break;
       }
-      if (trade.position_value > equity * MAX_POSITION_SIZE) {
+      if (trade.position_value > equity * MAX_POSITION_SIZE * state.positionSizeMultiplier) {
         audit("MORNING-BLOCKED", `${trade.ticker}: Position too large`);
         continue;
       }
@@ -801,6 +803,35 @@ export function registerBotRoutes(app: Express) {
     if (!state.active || state.killSwitch || autoRunning) return;
     // Don't re-run if last scan was less than 30 seconds ago
     if (Date.now() - lastAutoRun < 30000 && lastAutoRun > 0) return;
+
+    // ── Self-Diagnostic Check ──
+    let diagParams: any = { position_size_multiplier: 1.0, min_score_threshold: 65, should_pause: false, force_retrain: false, problems_summary: "All systems healthy" };
+    try {
+      const { stdout: diagOut } = await execAsync(`python3 -c "
+from diagnostics import get_auto_fix_params
+import json
+print(json.dumps(get_auto_fix_params()))
+"`, { timeout: 15000 });
+      diagParams = JSON.parse(diagOut.trim());
+
+      if (diagParams.problems_summary !== "All systems healthy") {
+        audit("DIAGNOSTIC", diagParams.problems_summary);
+      }
+
+      if (diagParams.should_pause) {
+        audit("DIAGNOSTIC-PAUSE", "Bot paused by self-diagnostic system — critical issues detected");
+        notify("alert", "Bot auto-paused: " + diagParams.problems_summary);
+        return;
+      }
+
+      if (diagParams.force_retrain) {
+        audit("DIAGNOSTIC", "Forcing ML model retrain due to performance degradation");
+        execAsync(`python3 -c "from ml_model import train_model; train_model()"`, { timeout: 60000 }).catch(() => {});
+      }
+
+      state.positionSizeMultiplier = diagParams.position_size_multiplier || 1.0;
+      state.minScoreThreshold = diagParams.min_score_threshold || 65;
+    } catch {}
 
     // CHECK: Is market actually open for ANY trading?
     try {
@@ -1018,6 +1049,27 @@ print(json.dumps(result))
         audit("AUTO-BLOCKED", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). All trading halted for today.`);
         notify("alert", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). Trading halted for today.`);
       } else {
+        // Weekly loss check
+        try {
+          const { stdout: weeklyOut } = await execAsync(`python3 -c "
+from diagnostics import check_weekly_loss
+import json
+# Simple equity history from Alpaca
+history = [{'date': '${new Date().toISOString().split('T')[0]}', 'equity': ${equity}}]
+print(json.dumps(check_weekly_loss(history)))
+"`, { timeout: 5000 });
+          const weeklyResult = JSON.parse(weeklyOut.trim());
+          if (weeklyResult.action === "pause") {
+            audit("WEEKLY-LIMIT", weeklyResult.reason);
+            notify("alert", weeklyResult.reason);
+            state.active = false;
+            return;
+          } else if (weeklyResult.action === "reduce") {
+            audit("WEEKLY-WARNING", weeklyResult.reason);
+            state.positionSizeMultiplier = Math.min(state.positionSizeMultiplier, 0.5);
+          }
+        } catch {}
+
         // Execute morning queue on first regular-hours cycle of the day
         if (isMarketOpen && !morningQueueExecuted && morningQueue.length > 0) {
           await executeMorningQueue();
@@ -1030,9 +1082,16 @@ print(json.dumps(result))
           // Skip trades already consumed by upgrade logic
           if ((trade as any)._consumed) continue;
 
+          // Diagnostic: skip low-confidence trades when system detects issues
+          if (trade.score < state.minScoreThreshold) {
+            audit("DIAG-SKIP", `${trade.ticker}: Score ${trade.score} below diagnostic threshold ${state.minScoreThreshold}`);
+            continue;
+          }
+
           // Position size check
-          if (trade.position_value > equity * MAX_POSITION_SIZE) {
-            audit("AUTO-BLOCKED", `${trade.ticker}: Position too large ($${trade.position_value} > ${(MAX_POSITION_SIZE * 100)}% limit)`);
+          const effectivePositionSize = MAX_POSITION_SIZE * (state.positionSizeMultiplier || 1.0);
+          if (trade.position_value > equity * effectivePositionSize) {
+            audit("AUTO-BLOCKED", `${trade.ticker}: Position too large ($${trade.position_value} > ${(effectivePositionSize * 100).toFixed(1)}% limit)`);
             continue;
           }
 
@@ -1428,6 +1487,23 @@ print(json.dumps(result))
     res.json({ message: "Autonomous cycle starting..." });
     runAutonomousCycle();
   });
+
+  // ── Self-Diagnostic Status ───────────────────────────────────────
+  app.get("/api/bot/diagnostics", requireAuth, async (_req, res) => {
+    try {
+      const { stdout } = await execAsync(`python3 -c "
+from diagnostics import run_diagnostics, get_auto_fix_params
+import json
+report = run_diagnostics()
+params = get_auto_fix_params()
+print(json.dumps({'report': report, 'auto_fix': params}))
+"`, { timeout: 15000 });
+      res.json(JSON.parse(stdout.trim()));
+    } catch (e: any) {
+      res.json({ error: e.message });
+    }
+  });
+
 
   // ── ML Model Status ───────────────────────────────────────────────────────
   app.get("/api/bot/ml-status", requireAuth, async (_req, res) => {
