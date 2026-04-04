@@ -46,6 +46,10 @@ except ImportError:
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
 ALPACA_KEY = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+ALPACA_DATA_URL = "https://data.alpaca.markets"
+
+def _alpaca_headers():
+    return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
 MAX_POSITIONS = 5          # Max stocks to hold at once
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
@@ -103,23 +107,6 @@ def garch_vol_estimate(returns, omega=0.00001, alpha=0.05, beta=0.90):
 
 # ── Data Fetching ────────────────────────────────────────────────────────────
 
-def get_polygon_snapshot():
-    """Get all US stocks from Polygon Grouped Daily (instant, 1 API call)."""
-    import requests
-    for days_back in range(1, 5):
-        date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        url = (
-            f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date}"
-            f"?adjusted=true&apiKey={POLYGON_KEY}"
-        )
-        try:
-            r = requests.get(url, timeout=15)
-            data = r.json()
-            if data.get("resultsCount", 0) > 0:
-                return data.get("results", [])
-        except Exception:
-            continue
-    return []
 
 
 def get_stock_details(ticker):
@@ -320,10 +307,10 @@ def deep_score(ticker, quick_result):
     try:
         end_d = datetime.now().strftime("%Y-%m-%d")
         start_d = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
-        bars_url = (f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_d}/{end_d}"
-                    f"?adjusted=true&sort=asc&limit=30&apiKey={POLYGON_KEY}")
-        bars_resp = requests.get(bars_url, timeout=8)
-        bars_data = bars_resp.json().get("results", [])
+        bars_url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
+                    f"?timeframe=1Day&start={start_d}&limit=30&adjustment=all")
+        bars_resp = requests.get(bars_url, headers=_alpaca_headers(), timeout=8)
+        bars_data = bars_resp.json().get("bars", [])
         if len(bars_data) >= 14:
             # ADX calculation (14-period)
             highs = [b["h"] for b in bars_data]
@@ -959,16 +946,16 @@ def manage_positions():
 
 
 def _get_atr(ticker, period=14):
-    """Get 14-day ATR for a ticker using Polygon daily bars."""
+    """Get 14-day ATR for a ticker using Alpaca daily bars."""
     import requests
     try:
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        url = (f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
-               f"?adjusted=true&sort=desc&limit={period + 5}&apiKey={POLYGON_KEY}")
-        resp = requests.get(url, timeout=10)
+        url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
+               f"?timeframe=1Day&start={start}&limit={period + 5}&adjustment=all")
+        resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
         data = resp.json()
-        results = data.get("results", [])
+        results = data.get("bars", [])
         if len(results) < period:
             return None
         
@@ -977,8 +964,7 @@ def _get_atr(ticker, period=14):
         for i in range(1, min(period + 1, len(results))):
             h = results[i].get("h", 0)
             l = results[i].get("l", 0)
-            prev_c = results[i - 1].get("c", 0)  # Note: sorted desc so i-1 is more recent
-            # Actually with desc sort, results[0] is most recent
+            prev_c = results[i - 1].get("c", 0)  # ascending sort: i-1 is the prior day
             # True Range = max(H-L, |H-prevClose|, |L-prevClose|)
             tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
             trs.append(tr)
@@ -994,58 +980,84 @@ def _get_atr(ticker, period=14):
 def scan_market():
     """
     Full market scan:
-    1. Get all stocks from Polygon (instant)
-    2. Quick-score all of them (math only, no API calls)
+    1. Get stock universe from Alpaca (most-actives + movers)
+    2. Fetch snapshots for price/volume data, quick-score
     3. Deep-analyze top 30
     4. Return top 5 with trade recommendations (buy / sell / short)
     """
-    # Step 1: Get all stocks
-    all_stocks = get_polygon_snapshot()
-    if not all_stocks:
-        return {"error": "Could not fetch market data", "trades": []}
-
-    # Supplement scan universe with Alpaca most-active stocks
+    # Step 1 & 2: Fetch stock universe from Alpaca (unlimited, no rate limit)
+    all_tickers = []
     try:
-        alpaca_url = "https://data.alpaca.markets/v1beta1/screener/stocks/most-actives?by=volume&top=50"
-        alpaca_headers = {
-            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
-            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
-        }
-        alpaca_resp = requests.get(alpaca_url, headers=alpaca_headers, timeout=8)
-        alpaca_active = alpaca_resp.json().get("most_actives", [])
-        alpaca_tickers = [s["symbol"] for s in alpaca_active if s.get("symbol") and s.get("volume", 0) > 500000]
+        # Most active by volume
+        resp = requests.get(f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=200",
+                           headers=_alpaca_headers(), timeout=15)
+        active = resp.json().get("most_actives", [])
+        for s in active:
+            sym = s.get("symbol", "")
+            vol = s.get("volume", 0)
+            if sym and vol > 100000:
+                all_tickers.append({"ticker": sym, "volume": vol})
     except Exception:
-        alpaca_tickers = []
+        pass
 
-    # Step 2: Quick score all stocks
-    scored = []
-    for stock in all_stocks:
-        result = score_stock(stock)
-        if result and result["quick_score"] >= 55:
-            scored.append(result)
+    try:
+        # Top movers (gainers + losers)
+        resp = requests.get(f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/movers?top=50",
+                           headers=_alpaca_headers(), timeout=10)
+        movers = resp.json()
+        for s in movers.get("gainers", []) + movers.get("losers", []):
+            sym = s.get("symbol", "")
+            if sym and not any(t["ticker"] == sym for t in all_tickers):
+                all_tickers.append({"ticker": sym, "volume": 0})
+    except Exception:
+        pass
 
-    # Sort by quick score
-    scored.sort(key=lambda x: x["quick_score"], reverse=True)
+    # Get snapshots for price data
+    ticker_symbols = [t["ticker"] for t in all_tickers[:200]]
+    quick_results = []
 
-    # Add Alpaca most-active stocks that weren't in the Polygon scan
-    existing_tickers = set(r["ticker"] for r in scored)
-    for at in alpaca_tickers:
-        if at not in existing_tickers:
-            try:
-                result = deep_score(at, {
-                    "ticker": at,
-                    "price": 0,
-                    "change_pct": 0,
-                    "volume": 1000000,
+    for i in range(0, len(ticker_symbols), 50):
+        batch = ticker_symbols[i:i+50]
+        try:
+            resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols={','.join(batch)}",
+                               headers=_alpaca_headers(), timeout=15)
+            snap_data = resp.json()
+            for sym, snap in snap_data.items():
+                bar = snap.get("dailyBar", {})
+                prev = snap.get("prevDailyBar", {})
+                c = float(bar.get("c", 0))
+                o = float(bar.get("o", c))
+                pc = float(prev.get("c", c))
+                v = int(bar.get("v", 0))
+                if c < 5 or v < 500000:
+                    continue
+                # Skip non-standard tickers
+                if "." in sym or len(sym) > 5:
+                    continue
+                change_pct = ((c - pc) / pc * 100) if pc > 0 else 0
+                quick_results.append({
+                    "ticker": sym,
+                    "price": round(c, 2),
+                    "close": c,
+                    "open": o,
+                    "prev_close": pc,
+                    "volume": v,
+                    "change_pct": round(change_pct, 2),
+                    "quick_score": abs(change_pct) * 2 + (v / 1000000) * 3,
+                    "above_vwap": c > o,
                     "range_pct": 0,
                     "vwap_dist": 0,
-                    "quick_score": 55,
-                    "reasons": ["Alpaca most-active"],
+                    "reasons": [],
                 })
-                if result and result.get("deep_score", result.get("quick_score", 0)) >= 50:
-                    scored.append(result)
-            except Exception:
-                continue
+        except Exception:
+            continue
+
+    if not quick_results:
+        return {"error": "Could not fetch market data from Alpaca", "trades": []}
+
+    # Sort by quick score
+    quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
+    scored = quick_results
 
     # Step 3: Deep analyze top 30
     top_candidates = scored[:30]
@@ -1149,7 +1161,7 @@ def scan_market():
 
     return {
         "timestamp": datetime.now().isoformat(),
-        "scanned": len(all_stocks),
+        "scanned": len(all_tickers),
         "filtered": len(scored),
         "deep_analyzed": len(deep_scored),
         "portfolio_value": portfolio_value,
