@@ -125,6 +125,40 @@ async function trackClosedTrades() {
 
     // Adjust strategy weights based on recent performance
     adjustStrategyWeights();
+
+    // Self-improving: feed closed trades back to ML training data
+    if (tradeResults.length > 0) {
+      try {
+        const feedbackData = tradeResults.slice(0, 20).map(t => ({
+          ticker: t.ticker,
+          side: t.side,
+          pnl_pct: t.pnlPct,
+          holding_days: t.holdingDays,
+          strategy: t.strategy,
+          score: t.score,
+          won: t.pnlPct > 0 ? 1 : 0,
+          timestamp: t.timestamp,
+        }));
+        const feedbackJson = JSON.stringify(feedbackData).replace(/'/g, "\\'");
+        execAsync(`python3 -c "
+import json, os
+feedback = json.loads('${feedbackJson}')
+path = '/tmp/voltrade_trade_feedback.json'
+existing = []
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            existing = json.load(f)
+    except: pass
+existing.extend(feedback)
+# Keep last 500 trades
+existing = existing[-500:]
+with open(path, 'w') as f:
+    json.dump(existing, f)
+print(json.dumps({'saved': len(feedback), 'total': len(existing)}))
+"`, { timeout: 5000 }).catch(() => {});
+      } catch {}
+    }
   } catch (e: any) {
     audit("LEARN-ERROR", `Track closed trades failed: ${e.message}`);
   }
@@ -844,6 +878,48 @@ export function registerBotRoutes(app: Express) {
       }
       if (signals.length > 30) signals.length = 30;
 
+      // Exit prediction model — ask ML if any positions should be closed
+      try {
+        const positionsForML = await alpaca("/v2/positions");
+        if (Array.isArray(positionsForML) && positionsForML.length > 0) {
+          for (const pos of positionsForML) {
+            const ticker = pos.symbol;
+            const pnlPct = parseFloat(pos.unrealized_plpc || "0") * 100;
+            const currentPrice = parseFloat(pos.current_price || "0");
+            const entryPrice = parseFloat(pos.avg_entry_price || currentPrice);
+            const qty = Math.abs(parseInt(pos.qty || "0"));
+            
+            // Only ask ML for positions not already flagged by rule-based stops
+            const alreadyFlagged = (result.position_actions || []).some((a: any) => a.ticker === ticker);
+            if (alreadyFlagged) continue;
+
+            try {
+              const { stdout: exitOut } = await execAsync(`python3 -c "
+from ml_model import predict_exit
+import json
+result = predict_exit({
+    'ticker': '${ticker}',
+    'pnl_pct': ${pnlPct},
+    'entry_price': ${entryPrice},
+    'current_price': ${currentPrice},
+    'holding_days': 3,
+})
+print(json.dumps(result))
+"`, { timeout: 8000 });
+              const exitResult = JSON.parse(exitOut.trim());
+              if (exitResult.action === "SELL" && exitResult.confidence > 0.65) {
+                audit("ML-EXIT", `ML recommends closing ${ticker}: ${exitResult.reason} (${(exitResult.confidence * 100).toFixed(0)}% confidence)`);
+                try {
+                  await alpaca(`/v2/positions/${ticker}`, { method: "DELETE" });
+                  audit("ML-EXIT-TRADE", `Closed ${ticker} on ML recommendation (P&L: ${pnlPct.toFixed(1)}%)`);
+                  notify("ml_exit", `ML closed ${ticker} (P&L: ${pnlPct.toFixed(1)}%) — ${exitResult.reason}`);
+                } catch {}
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+
       // Step 2: Execute position management (stop-loss / take-profit)
       for (const action of (result.position_actions || [])) {
         if (state.killSwitch) break;
@@ -856,6 +932,59 @@ export function registerBotRoutes(app: Express) {
           );
         } catch (e: any) {
           audit("AUTO-ERROR", `Failed to close ${action.ticker}: ${e.message}`);
+        }
+      }
+
+      // Step 2.5: Upgrade trades — sell weak positions if much better picks available
+      const upgradeCandidates = result.upgrade_candidates || [];
+      const newTrades = result.new_trades || [];
+      
+      if (upgradeCandidates.length > 0 && newTrades.length > 0) {
+        // Sort candidates by score ascending (weakest first)
+        upgradeCandidates.sort((a: any, b: any) => (a.score || 0) - (b.score || 0));
+        // Sort new trades by score descending (best first)
+        const sortedNew = [...newTrades].sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+
+        for (const candidate of upgradeCandidates) {
+          if (state.killSwitch) break;
+          // Find a new trade that scores 20+ points higher
+          const betterPick = sortedNew.find((t: any) => 
+            t.score >= (candidate.score || 50) + 20 && 
+            !upgradeCandidates.some((uc: any) => uc.ticker === t.ticker)
+          );
+
+          if (betterPick) {
+            try {
+              // Sell the weak position
+              await alpaca(`/v2/positions/${candidate.ticker}`, { method: "DELETE" });
+              audit("UPGRADE", `Sold ${candidate.ticker} (P&L: ${candidate.pnl_pct?.toFixed(1)}%, score ~${candidate.score?.toFixed(0)}) → upgrading to ${betterPick.ticker} (score ${betterPick.score})`);
+              notify("upgrade", `Upgraded: sold ${candidate.ticker} → buying ${betterPick.ticker} (score ${betterPick.score})`);
+
+              // Mark this new trade as consumed so we don't buy it again in Step 3
+              betterPick._consumed = true;
+
+              // Wait for settlement
+              await new Promise(r => setTimeout(r, 1000));
+
+              // Buy the better pick
+              const upgradeQty = Math.floor(candidate.market_value / betterPick.price);
+              if (upgradeQty > 0) {
+                await alpaca("/v2/orders", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    symbol: betterPick.ticker,
+                    qty: String(upgradeQty),
+                    side: betterPick.side === "short" ? "sell" : "buy",
+                    type: "market",
+                    time_in_force: "day",
+                  }),
+                });
+                audit("UPGRADE-TRADE", `MARKET BUY ${upgradeQty} ${betterPick.ticker} @ ~$${betterPick.price} | Score: ${betterPick.score} | Replaced ${candidate.ticker}`);
+              }
+            } catch (e: any) {
+              audit("UPGRADE-ERROR", `Failed to upgrade ${candidate.ticker} → ${betterPick.ticker}: ${e.message}`);
+            }
+          }
         }
       }
 
@@ -897,6 +1026,9 @@ export function registerBotRoutes(app: Express) {
 
         for (const trade of (result.new_trades || [])) {
           if (state.killSwitch) break;
+
+          // Skip trades already consumed by upgrade logic
+          if ((trade as any)._consumed) continue;
 
           // Position size check
           if (trade.position_value > equity * MAX_POSITION_SIZE) {

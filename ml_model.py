@@ -694,9 +694,95 @@ def load_weights() -> dict:
         return DEFAULT_WEIGHTS.copy()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══ Exit Prediction Model ─────────────────────────────────────────────────────────────────────────────
+
+def predict_exit(position_data: dict) -> dict:
+    """
+    Predict whether to hold or sell a position.
+    Uses a combination of rules and learned patterns from trade feedback.
+    
+    position_data: {ticker, pnl_pct, entry_price, current_price, holding_days}
+    Returns: {action: "HOLD"/"SELL", confidence: 0-1, reason: "..."}
+    """
+    pnl = position_data.get("pnl_pct", 0)
+    holding_days = position_data.get("holding_days", 0)
+    ticker = position_data.get("ticker", "")
+    
+    # Load trade feedback to learn from past exits
+    feedback_path = "/tmp/voltrade_trade_feedback.json"
+    avg_winner_hold = 5  # defaults
+    avg_loser_hold = 3
+    win_rate = 0.5
+    feedback = []
+    
+    try:
+        if os.path.exists(feedback_path):
+            with open(feedback_path) as f:
+                feedback = json.load(f)
+            if len(feedback) >= 10:
+                winners = [t for t in feedback if t.get("pnl_pct", 0) > 0]
+                losers = [t for t in feedback if t.get("pnl_pct", 0) <= 0]
+                if winners:
+                    avg_winner_hold = sum(t.get("holding_days", 5) for t in winners) / len(winners)
+                if losers:
+                    avg_loser_hold = sum(t.get("holding_days", 3) for t in losers) / len(losers)
+                win_rate = len(winners) / len(feedback) if feedback else 0.5
+    except Exception:
+        pass
+    
+    # Decision logic learned from feedback + rules
+    
+    # Rule 1: Losing trade held too long — cut it
+    if pnl < -1.0 and holding_days > avg_loser_hold * 1.5:
+        return {
+            "action": "SELL",
+            "confidence": 0.75,
+            "reason": f"Held losing trade {holding_days} days (avg loser exits at {avg_loser_hold:.0f} days)"
+        }
+    
+    # Rule 2: Small gain being held too long — take profit, don't let it reverse
+    if 0.5 < pnl < 3.0 and holding_days > avg_winner_hold * 1.2:
+        return {
+            "action": "SELL",
+            "confidence": 0.68,
+            "reason": f"Small gain (+{pnl:.1f}%) held {holding_days} days — avg winner exits at {avg_winner_hold:.0f} days"
+        }
+    
+    # Rule 3: Good gain pulling back — learned from feedback
+    if pnl > 0 and pnl < 1.5 and holding_days > 5:
+        # Check if similar trades in feedback ended up losing
+        try:
+            similar = [t for t in feedback if 0 < t.get("pnl_pct", 0) < 2 and t.get("holding_days", 0) > 5]
+            if len(similar) >= 3:
+                similar_losers = [t for t in similar if t.get("pnl_pct", 0) < 0]
+                if len(similar_losers) / len(similar) > 0.6:
+                    return {
+                        "action": "SELL",
+                        "confidence": 0.70,
+                        "reason": f"Pattern match: {len(similar_losers)}/{len(similar)} similar trades ended in losses"
+                    }
+        except Exception:
+            pass
+    
+    # Rule 4: Strong winner — let it ride
+    if pnl > 4.0:
+        return {
+            "action": "HOLD",
+            "confidence": 0.80,
+            "reason": f"Strong gain (+{pnl:.1f}%) — let it ride toward ATR take-profit"
+        }
+    
+    # Default: hold
+    return {
+        "action": "HOLD",
+        "confidence": 0.55,
+        "reason": "No exit signal — holding position"
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # CLI / __main__
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import sys

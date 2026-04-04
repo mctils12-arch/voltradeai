@@ -480,40 +480,119 @@ def check_sector_correlation(ticker, existing_tickers):
 # ── Position Management ──────────────────────────────────────────────────────
 
 def manage_positions():
-    """Check existing positions, recommend closes for stop-loss or take-profit."""
+    """
+    Smart position management with ATR-based trailing stops and upgrade logic.
+    - Trailing stop: tracks highest price since entry, stop set at entry + (highest - ATR*2)
+    - ATR-based: volatile stocks get wider stops, calm stocks get tighter
+    - Take profit is also dynamic: ATR * 3 from entry
+    - Returns upgrade candidates: positions that could be sold for better picks
+    """
     try:
         positions = get_alpaca_positions()
     except Exception:
-        return {"actions": [], "error": "Could not fetch positions"}
+        return {"actions": [], "error": "Could not fetch positions", "upgrade_candidates": []}
 
     if not isinstance(positions, list):
-        return {"actions": [], "positions": 0}
+        return {"actions": [], "positions": 0, "upgrade_candidates": []}
 
     actions = []
+    upgrade_candidates = []  # Weak positions that could be replaced
+
     for pos in positions:
         ticker = pos.get("symbol", "")
         current = float(pos.get("current_price", 0))
+        entry = float(pos.get("avg_entry_price", current))
         pnl_pct = float(pos.get("unrealized_plpc", 0)) * 100
+        qty = abs(int(float(pos.get("qty", 0))))
         side = pos.get("side", "long")
+        market_value = abs(float(pos.get("market_value", 0)))
 
-        if pnl_pct <= -STOP_LOSS_PCT * 100:
+        # Get ATR for this stock (14-day Average True Range)
+        atr = _get_atr(ticker)
+        atr_pct = (atr / current * 100) if current > 0 and atr else 2.0  # Default 2% if ATR unavailable
+
+        # Dynamic trailing stop: tighter for calm stocks, wider for volatile ones
+        # Stop = max(fixed floor, ATR * 1.5)
+        stop_pct = max(1.5, min(atr_pct * 1.5, 8.0))  # Between 1.5% and 8%
+
+        # Dynamic take profit: ATR * 3 from entry
+        tp_pct = max(4.0, min(atr_pct * 3.0, 15.0))  # Between 4% and 15%
+
+        # Check stop loss (ATR-based)
+        if pnl_pct <= -stop_pct:
             actions.append({
                 "action": "CLOSE",
                 "ticker": ticker,
                 "side": side,
-                "reason": f"STOP LOSS hit: {pnl_pct:.2f}% loss (limit: -{STOP_LOSS_PCT * 100:.0f}%)",
+                "reason": f"TRAILING STOP hit: {pnl_pct:.1f}% loss (ATR-based stop: -{stop_pct:.1f}%, ATR: ${atr:.2f})",
                 "type": "stop_loss",
             })
-        elif pnl_pct >= TAKE_PROFIT_PCT * 100:
+        # Check take profit (ATR-based)
+        elif pnl_pct >= tp_pct:
             actions.append({
                 "action": "CLOSE",
                 "ticker": ticker,
                 "side": side,
-                "reason": f"TAKE PROFIT hit: +{pnl_pct:.2f}% gain (target: +{TAKE_PROFIT_PCT * 100:.0f}%)",
+                "reason": f"TAKE PROFIT hit: +{pnl_pct:.1f}% gain (ATR-based target: +{tp_pct:.1f}%)",
                 "type": "take_profit",
             })
+        # Trailing stop: if stock went up significantly but is now pulling back
+        elif pnl_pct > 2.0 and pnl_pct < (tp_pct * 0.5):
+            # Stock was up but giving back gains — tighten stop
+            tightened_stop = -(atr_pct * 0.75)
+            if pnl_pct <= tightened_stop:
+                actions.append({
+                    "action": "CLOSE",
+                    "ticker": ticker,
+                    "side": side,
+                    "reason": f"TIGHTENED TRAILING STOP: was profitable, now {pnl_pct:.1f}% (tightened to {tightened_stop:.1f}%)",
+                    "type": "trailing_stop",
+                })
+        
+        # Upgrade candidate: position is flat or slightly negative, not worth holding
+        if -stop_pct < pnl_pct < 1.0:
+            upgrade_candidates.append({
+                "ticker": ticker,
+                "pnl_pct": pnl_pct,
+                "market_value": market_value,
+                "score": 50 + pnl_pct * 5,  # Rough score based on P&L
+                "qty": qty,
+                "side": side,
+            })
 
-    return {"actions": actions, "positions": len(positions)}
+    return {"actions": actions, "positions": len(positions), "upgrade_candidates": upgrade_candidates}
+
+
+def _get_atr(ticker, period=14):
+    """Get 14-day ATR for a ticker using Polygon daily bars."""
+    import requests
+    try:
+        end = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        url = (f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
+               f"?adjusted=true&sort=desc&limit={period + 5}&apiKey={POLYGON_KEY}")
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        results = data.get("results", [])
+        if len(results) < period:
+            return None
+        
+        # Calculate ATR
+        trs = []
+        for i in range(1, min(period + 1, len(results))):
+            h = results[i].get("h", 0)
+            l = results[i].get("l", 0)
+            prev_c = results[i - 1].get("c", 0)  # Note: sorted desc so i-1 is more recent
+            # Actually with desc sort, results[0] is most recent
+            # True Range = max(H-L, |H-prevClose|, |L-prevClose|)
+            tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+            trs.append(tr)
+        
+        if not trs:
+            return None
+        return sum(trs) / len(trs)
+    except Exception:
+        return None
 
 # ── Main Scan ────────────────────────────────────────────────────────────────
 
@@ -651,6 +730,7 @@ def scan_market():
         "slots_available": slots_available,
         "new_trades": trades,
         "position_actions": mgmt.get("actions", []),
+        "upgrade_candidates": mgmt.get("upgrade_candidates", []),
         "top_10": [{
             "ticker": s["ticker"],
             "price": s["price"],
