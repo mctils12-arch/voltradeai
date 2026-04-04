@@ -137,12 +137,7 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
     if (tickers.length === 0) return;
     setPricesLoading(true);
     const symbols = tickers.join(",");
-    fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${symbols}`, {
-      headers: {
-        "APCA-API-KEY-ID": "PKMDHJOVQEVIB4UHZXUYVTIDBU",
-        "APCA-API-SECRET-KEY": "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et",
-      },
-    })
+    apiRequest("GET", `/api/market/snapshots?symbols=${symbols}`)
       .then(r => r.json())
       .then(data => {
         const newPrices: Record<string, { price: number; change: number }> = {};

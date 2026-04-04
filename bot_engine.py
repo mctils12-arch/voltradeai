@@ -41,6 +41,17 @@ try:
 except ImportError:
     squeeze_strategy = None
 
+STRATEGIES_LOADED = all([
+    momentum_strategy is not None,
+    mean_reversion_strategy is not None,
+    squeeze_strategy is not None,
+])
+
+# ── yfinance cache (module-level, avoids re-fetching same ticker within 5 min) ──
+_yf_cache: dict = {}
+_yf_cache_time: dict = {}
+_YF_CACHE_TTL = 300  # 5 minutes
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
@@ -259,37 +270,44 @@ def deep_score(ticker, quick_result):
     except Exception:
         social = {}
 
-    # Analyst ratings + valuation multiples (yfinance)
+    # Analyst ratings + valuation multiples (yfinance) — with 5-min cache
     yf_fundamentals = {}
-    try:
-        import yfinance as yf
-        _yticker = yf.Ticker(ticker)
-        _yinfo = _yticker.info or {}
-        yf_fundamentals = {
-            "forward_pe": _yinfo.get("forwardPE") or 0,
-            "trailing_pe": _yinfo.get("trailingPE") or 0,
-            "price_to_book": _yinfo.get("priceToBook") or 0,
-            "ev_ebitda": _yinfo.get("enterpriseToEbitda") or 0,
-            "price_to_sales": _yinfo.get("priceToSalesTrailing12Months") or 0,
-            "peg_ratio": _yinfo.get("pegRatio") or 0,
-            "target_mean": _yinfo.get("targetMeanPrice") or 0,
-            "target_high": _yinfo.get("targetHighPrice") or 0,
-            "target_low": _yinfo.get("targetLowPrice") or 0,
-            "current_price": _yinfo.get("currentPrice") or _yinfo.get("regularMarketPrice") or 0,
-            "recommendation": _yinfo.get("recommendationKey") or "none",
-            "num_analysts": _yinfo.get("numberOfAnalystOpinions") or 0,
-        }
-        # Get buy/hold/sell counts from recommendations
-        _recs = _yticker.recommendations
-        if _recs is not None and not _recs.empty:
-            _latest = _recs.iloc[0]
-            yf_fundamentals["strong_buy_count"] = int(_latest.get("strongBuy", 0))
-            yf_fundamentals["buy_count"] = int(_latest.get("buy", 0))
-            yf_fundamentals["hold_count"] = int(_latest.get("hold", 0))
-            yf_fundamentals["sell_count"] = int(_latest.get("sell", 0))
-            yf_fundamentals["strong_sell_count"] = int(_latest.get("strongSell", 0))
-    except Exception:
-        pass
+    _yf_cache_key = ticker
+    if _yf_cache_key in _yf_cache and (time.time() - _yf_cache_time.get(_yf_cache_key, 0)) < _YF_CACHE_TTL:
+        yf_fundamentals = _yf_cache[_yf_cache_key]
+    else:
+        try:
+            import yfinance as yf
+            _yticker = yf.Ticker(ticker)
+            _yinfo = _yticker.info or {}
+            yf_fundamentals = {
+                "forward_pe": _yinfo.get("forwardPE") or 0,
+                "trailing_pe": _yinfo.get("trailingPE") or 0,
+                "price_to_book": _yinfo.get("priceToBook") or 0,
+                "ev_ebitda": _yinfo.get("enterpriseToEbitda") or 0,
+                "price_to_sales": _yinfo.get("priceToSalesTrailing12Months") or 0,
+                "peg_ratio": _yinfo.get("pegRatio") or 0,
+                "target_mean": _yinfo.get("targetMeanPrice") or 0,
+                "target_high": _yinfo.get("targetHighPrice") or 0,
+                "target_low": _yinfo.get("targetLowPrice") or 0,
+                "current_price": _yinfo.get("currentPrice") or _yinfo.get("regularMarketPrice") or 0,
+                "recommendation": _yinfo.get("recommendationKey") or "none",
+                "num_analysts": _yinfo.get("numberOfAnalystOpinions") or 0,
+            }
+            # Get buy/hold/sell counts from recommendations
+            _recs = _yticker.recommendations
+            if _recs is not None and not _recs.empty:
+                _latest = _recs.iloc[0]
+                yf_fundamentals["strong_buy_count"] = int(_latest.get("strongBuy", 0))
+                yf_fundamentals["buy_count"] = int(_latest.get("buy", 0))
+                yf_fundamentals["hold_count"] = int(_latest.get("hold", 0))
+                yf_fundamentals["sell_count"] = int(_latest.get("sell", 0))
+                yf_fundamentals["strong_sell_count"] = int(_latest.get("strongSell", 0))
+            # Store in cache
+            _yf_cache[_yf_cache_key] = yf_fundamentals
+            _yf_cache_time[_yf_cache_key] = time.time()
+        except Exception:
+            pass
 
     # ── Pull key metrics from analyze.py output ──────────────────────────────
     vrp = detail.get("vrp", 0) or 0

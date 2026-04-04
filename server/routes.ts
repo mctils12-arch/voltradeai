@@ -601,6 +601,103 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Alpaca Data Proxy (keeps API keys server-side) ──────────────────────────
+  const ALPACA_KEY = process.env.ALPACA_KEY || "PKMDHJOVQEVIB4UHZXUYVTIDBU";
+  const ALPACA_SECRET = process.env.ALPACA_SECRET || "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
+  const alpacaHeaders = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
+
+  // Market scanner data
+  app.get("/api/market/scanner", async (_req, res) => {
+    try {
+      const [activeRes, moversRes] = await Promise.all([
+        fetch("https://data.alpaca.markets/v1beta1/screener/stocks/most-actives?by=volume&top=100", { headers: alpacaHeaders }),
+        fetch("https://data.alpaca.markets/v1beta1/screener/stocks/movers?top=50", { headers: alpacaHeaders }),
+      ]);
+      const active = await activeRes.json();
+      const movers = await moversRes.json();
+
+      const tickerSet = new Set<string>();
+      (active.most_actives || []).forEach((s: any) => tickerSet.add(s.symbol));
+      (movers.gainers || []).forEach((s: any) => tickerSet.add(s.symbol));
+      (movers.losers || []).forEach((s: any) => tickerSet.add(s.symbol));
+      ["AAPL","MSFT","GOOGL","AMZN","TSLA","NVDA","META","AMD","NFLX","SPY","QQQ","DIS","BA","JPM","GS","V","MA","COIN","PLTR","SOFI"].forEach(t => tickerSet.add(t));
+
+      const allTickers = Array.from(tickerSet).slice(0, 150);
+      const stocks: any[] = [];
+
+      for (let i = 0; i < allTickers.length; i += 50) {
+        const batch = allTickers.slice(i, i + 50).join(",");
+        try {
+          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}`, { headers: alpacaHeaders });
+          const snapData = await snapRes.json();
+          for (const [ticker, snap] of Object.entries(snapData) as any) {
+            const bar = snap.dailyBar || {};
+            const prev = snap.prevDailyBar || {};
+            const c = bar.c || 0;
+            const pc = prev.c || c;
+            const change = pc > 0 ? ((c - pc) / pc) * 100 : 0;
+            if (c > 1 && bar.v > 50000) {
+              stocks.push({ ticker, close: c, open: bar.o || c, high: bar.h || c, low: bar.l || c, volume: bar.v || 0, vwap: bar.vw || c, change_pct: Math.round(change * 100) / 100 });
+            }
+          }
+        } catch {}
+      }
+      stocks.sort((a: any, b: any) => b.volume - a.volume);
+      res.json({ results: stocks, date: new Date().toISOString().split("T")[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Sector heatmap data
+  app.get("/api/market/sectors", async (_req, res) => {
+    try {
+      const etfs = "XLK,XLF,XLE,XLV,XLI,XLC,XLY,XLP,XLU,XLRE,XLB";
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}`, { headers: alpacaHeaders });
+      res.json(await snapRes.json());
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Stock snapshots (for watchlist prices)
+  app.get("/api/market/snapshots", async (req, res) => {
+    try {
+      const symbols = req.query.symbols as string || "";
+      if (!symbols) return res.json({});
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${symbols}`, { headers: alpacaHeaders });
+      res.json(await snapRes.json());
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // News proxy
+  app.get("/api/market/news", async (req, res) => {
+    try {
+      const ticker = req.query.ticker as string || "";
+      const url = ticker
+        ? `https://data.alpaca.markets/v1beta1/news?limit=20&sort=desc&symbols=${ticker}`
+        : `https://data.alpaca.markets/v1beta1/news?limit=20&sort=desc`;
+      const newsRes = await fetch(url, { headers: alpacaHeaders });
+      const json = await newsRes.json();
+      // Transform to standard format
+      const results = (json.news || []).map((n: any) => ({
+        id: n.id || "",
+        title: n.headline || "",
+        description: n.summary || "",
+        published_utc: n.created_at || "",
+        article_url: n.url || "",
+        tickers: n.symbols || [],
+        keywords: [],
+        publisher: { name: n.source || "Unknown", favicon_url: "" },
+      }));
+      res.json({ results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, results: [] });
+    }
+  });
+
   // Pre-warm: run a quick scan of top 10 tickers on startup so scanner has data
   setTimeout(() => {
     console.log("[scanner] Pre-warming with top 10 tickers...");

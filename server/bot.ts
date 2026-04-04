@@ -45,12 +45,24 @@ const state = {
   diagCycleCount: 0,
   consecutiveStopLosses: 0,
   circuitBreakerUntil: 0,  // epoch ms — paused until this time
+  alpacaFailCount: 0,       // consecutive Alpaca ping failures
 };
 
+// ─── SSE Clients ────────────────────────────────────────────────────────────
+const sseClients: Set<any> = new Set();
+
+function broadcastSSE(data: any) {
+  for (const client of sseClients) {
+    try { client.write(`data: ${JSON.stringify(data)}\n\n`); } catch {}
+  }
+}
+
 function audit(action: string, detail: string) {
-  state.auditLog.unshift({ time: new Date().toISOString(), action, detail });
+  const entry = { time: new Date().toISOString(), action, detail };
+  state.auditLog.unshift(entry);
   if (state.auditLog.length > 500) state.auditLog.length = 500;
   console.log(`[BOT] ${action}: ${detail}`);
+  broadcastSSE(entry);
 }
 
 // ─── Notifications ──────────────────────────────────────────────────────────
@@ -165,7 +177,7 @@ with open(TRADE_FEEDBACK_PATH, 'w') as f:
     json.dump(existing, f)
 print(json.dumps({'saved': len(feedback), 'total': len(existing)}))
 "`, { timeout: 5000 }).catch(() => {});
-      } catch {}
+      } catch (err: any) { console.error("[bot]", err?.message || err); }
     }
   } catch (e: any) {
     audit("LEARN-ERROR", `Track closed trades failed: ${e.message}`);
@@ -253,6 +265,17 @@ async function placeOptionsOrder(
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
 export function registerBotRoutes(app: Express) {
+
+  // SSE for live bot audit log updates
+  app.get("/api/bot/stream", requireAuth, (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    });
+    sseClients.add(res);
+    req.on("close", () => sseClients.delete(res));
+  });
 
   // Account info from Alpaca
   app.get("/api/bot/account", requireAuth, async (_req, res) => {
@@ -403,7 +426,7 @@ export function registerBotRoutes(app: Express) {
       state.active = false;
       audit("KILL SWITCH ON", "All trading halted. Cancelling open orders.");
       notify("alert", "KILL SWITCH ACTIVATED — all trading halted, open orders cancelled");
-      try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
+      try { await alpaca("/v2/orders", { method: "DELETE" }); } catch (err: any) { console.error("[bot]", err?.message || err); }
     } else {
       audit("KILL SWITCH OFF", "Trading can resume.");
       notify("system", "Kill switch deactivated — trading can resume");
@@ -433,7 +456,7 @@ export function registerBotRoutes(app: Express) {
         audit("BLOCKED", `Trade rejected: ${check.reason}`);
         return res.status(400).json({ error: check.reason });
       }
-    } catch {}
+    } catch (err: any) { console.error("[bot]", err?.message || err); }
 
     try {
       const orderSide = side === "short" ? "sell" : side;
@@ -594,7 +617,7 @@ export function registerBotRoutes(app: Express) {
 
           audit("SIGNAL", `${action} ${ticker} (${Math.round(confidence)}% confidence)`);
         }
-      } catch {}
+      } catch (err: any) { console.error("[bot]", err?.message || err); }
     }
   }
 
@@ -700,7 +723,7 @@ export function registerBotRoutes(app: Express) {
           openOrders.splice(i, 1); // Filled or cancelled externally
         }
       }
-    } catch {}
+    } catch (err: any) { console.error("[bot]", err?.message || err); }
   }
 
   // ── Score-Based Order Replacement ──────────────────────────────────────────
@@ -740,7 +763,7 @@ export function registerBotRoutes(app: Express) {
     try {
       const positions = await alpaca("/v2/positions");
       slotsUsed = Array.isArray(positions) ? positions.length : 0;
-    } catch {}
+    } catch (err: any) { console.error("[bot]", err?.message || err); }
 
     // Track sectors of current positions for correlation check
     const positionSectors: Record<string, number> = {};
@@ -753,7 +776,7 @@ export function registerBotRoutes(app: Express) {
           positionSectors[sym] = 1;
         }
       }
-    } catch {}
+    } catch (err: any) { console.error("[bot]", err?.message || err); }
 
     for (const trade of morningQueue) {
       if (state.killSwitch) break;
@@ -785,7 +808,7 @@ export function registerBotRoutes(app: Express) {
             audit("MORNING-ADJUST", `${trade.ticker}: Price moved ${gapPct.toFixed(1)}%, adjusted qty to ${trade.shares} shares`);
           }
         }
-      } catch {}
+      } catch (err: any) { console.error("[bot]", err?.message || err); }
 
       try {
         const order = await alpaca("/v2/orders", {
@@ -817,7 +840,7 @@ export function registerBotRoutes(app: Express) {
             score: trade.score,
           });
           execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${morningFillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
-        } catch {}
+        } catch (err: any) { console.error("[bot]", err?.message || err); }
 
         slotsUsed++;
       } catch (e: any) {
@@ -887,7 +910,7 @@ print(json.dumps(get_auto_fix_params()))
 
       state.positionSizeMultiplier = diagParams.position_size_multiplier || 1.0;
       state.minScoreThreshold = diagParams.min_score_threshold || 65;
-    } catch {}
+    } catch (err: any) { console.error("[bot]", err?.message || err); }
     } // end every-5th-cycle diagnostic
 
     // CHECK: Is market actually open for ANY trading?
@@ -914,12 +937,19 @@ print(json.dumps(get_auto_fix_params()))
           { timeout: 10000 }
         );
         if (!pingOut.trim().includes("ok")) {
-          audit("FALLBACK", "Polygon API not responding — skipping this cycle to avoid stale data");
+          state.alpacaFailCount = (state.alpacaFailCount || 0) + 1;
+          if (state.alpacaFailCount >= 3) {
+            audit("FALLBACK", `Alpaca down for ${state.alpacaFailCount} cycles — entering degraded mode`);
+          }
+          audit("FALLBACK", "Alpaca API not responding — skipping this cycle");
           autoRunning = false;
           return;
+        } else {
+          state.alpacaFailCount = 0;
         }
-      } catch {
-        audit("FALLBACK", "Polygon API check failed — skipping cycle");
+      } catch (err: any) {
+        state.alpacaFailCount = (state.alpacaFailCount || 0) + 1;
+        audit("FALLBACK", `Alpaca API check failed — skipping cycle (fail #${state.alpacaFailCount})`);
         autoRunning = false;
         return;
       }
@@ -1018,12 +1048,12 @@ print(json.dumps(result))
                   await alpaca(`/v2/positions/${ticker}`, { method: "DELETE" });
                   audit("ML-EXIT-TRADE", `Closed ${ticker} on ML recommendation (P&L: ${pnlPct.toFixed(1)}%)`);
                   notify("ml_exit", `ML closed ${ticker} (P&L: ${pnlPct.toFixed(1)}%) — ${exitResult.reason}`);
-                } catch {}
+                } catch (err: any) { console.error("[bot]", err?.message || err); }
               }
-            } catch {}
+            } catch (err: any) { console.error("[bot]", err?.message || err); }
           }
         }
-      } catch {}
+      } catch (err: any) { console.error("[bot]", err?.message || err); }
 
       // Step 2: Execute position management (stop-loss / take-profit)
       for (const action of (result.position_actions || [])) {
@@ -1153,7 +1183,7 @@ print(json.dumps(check_weekly_loss(history)))
             audit("WEEKLY-WARNING", weeklyResult.reason);
             state.positionSizeMultiplier = Math.min(state.positionSizeMultiplier, 0.5);
           }
-        } catch {}
+        } catch (err: any) { console.error("[bot]", err?.message || err); }
 
         // Execute morning queue on first regular-hours cycle of the day
         if (isMarketOpen && !morningQueueExecuted && morningQueue.length > 0) {
@@ -1242,7 +1272,7 @@ print(json.dumps(check_weekly_loss(history)))
                 continue;
               }
             }
-          } catch {}
+          } catch (err: any) { console.error("[bot]", err?.message || err); }
 
           // ── Slippage simulator: estimate real-world fill cost ──
           // Paper trades fill at exact price. Real trades don't.
@@ -1306,7 +1336,7 @@ print(json.dumps(check_weekly_loss(history)))
                 score: trade.score,
               });
               execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
-            } catch {}
+            } catch (err: any) { console.error("[bot]", err?.message || err); }
 
             // Track the order for stale sweeping (market orders fill instantly, but just in case)
             if (order?.id) {
@@ -1345,7 +1375,7 @@ print(json.dumps(check_weekly_loss(history)))
             `Daily summary: P&L ${dailyPnlDollars >= 0 ? "+" : ""}$${dailyPnlDollars.toFixed(2)} | Portfolio: $${parseFloat(acctSummary.portfolio_value).toLocaleString()}`
           );
         }
-      } catch {}
+      } catch (err: any) { console.error("[bot]", err?.message || err); }
     } catch (e: any) {
       audit("AUTO-ERROR", `Autonomous cycle failed: ${e.message}`);
     }
@@ -1387,7 +1417,7 @@ print(json.dumps(check_weekly_loss(history)))
             const status = (r.sharpe || 0) >= 1.0 ? "PASSING" : (r.sharpe || 0) >= 0.5 ? "MARGINAL" : "FAILING";
             audit("RESEARCH", `Backtest ${r.strategy}: Sharpe ${r.sharpe}, Return ${r.totalReturn}%, Drawdown ${r.maxDrawdown}% — ${status}`);
           }
-        } catch {}
+        } catch (err: any) { console.error("[bot]", err?.message || err); }
       }
 
       // 12am-2am: Deep analyze earnings reporters for tomorrow
@@ -1405,7 +1435,7 @@ print(json.dumps(check_weekly_loss(history)))
               audit("RESEARCH", `EARNINGS ALERT: ${t} reports in ${ei.days_to_earnings} days (${ei.timing}). Beat rate: ${ei.beat_pct}%. IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
               notify("earnings", `${t} earnings in ${ei.days_to_earnings} days — IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
             }
-          } catch {}
+          } catch (err: any) { console.error("[bot]", err?.message || err); }
         }
       }
 
@@ -1424,7 +1454,7 @@ print(json.dumps(check_weekly_loss(history)))
           } else {
             audit("RESEARCH", "PRE-MARKET REPORT: No high-conviction trades found. Bot will monitor during pre-market.");
           }
-        } catch {}
+        } catch (err: any) { console.error("[bot]", err?.message || err); }
       }
 
     } catch (e: any) {

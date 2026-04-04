@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Search, RefreshCw, ExternalLink, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -83,34 +84,14 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
     };
   }, [tickerFilter]);
 
-  const ALPACA_KEY = "PKMDHJOVQEVIB4UHZXUYVTIDBU";
-  const ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
-
   const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery<NewsResponse>({
-    queryKey: ["/alpaca-news", debouncedTicker],
+    queryKey: ["/api/market/news", debouncedTicker],
     queryFn: async () => {
       const url = debouncedTicker
-        ? `https://data.alpaca.markets/v1beta1/news?limit=20&sort=desc&symbols=${debouncedTicker}`
-        : `https://data.alpaca.markets/v1beta1/news?limit=20&sort=desc`;
-      const res = await fetch(url, {
-        headers: { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET },
-      });
-      const json = await res.json();
-      // Transform Alpaca format to match our component
-      const results = (json.news || []).map((n: any) => ({
-        id: n.id || Math.random().toString(),
-        title: n.headline || "",
-        description: n.summary || "",
-        published_utc: n.created_at || n.updated_at || "",
-        article_url: n.url || "",
-        tickers: n.symbols || [],
-        keywords: [],
-        publisher: {
-          name: n.source || "Unknown",
-          favicon_url: "",
-        },
-      }));
-      return { results };
+        ? `/api/market/news?ticker=${debouncedTicker}`
+        : `/api/market/news`;
+      const res = await apiRequest("GET", url);
+      return res.json();
     },
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,

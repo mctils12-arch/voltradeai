@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { apiRequest } from "@/lib/queryClient";
 
 interface SectorData {
   name: string;
@@ -47,13 +48,7 @@ export default function SectorHeatmap() {
   useEffect(() => {
     async function fetchSectors() {
       try {
-        const etfs = SECTOR_ETFS.map(s => s.etf).join(",");
-        const res = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}`, {
-          headers: {
-            "APCA-API-KEY-ID": "PKMDHJOVQEVIB4UHZXUYVTIDBU",
-            "APCA-API-SECRET-KEY": "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et",
-          },
-        });
+        const res = await apiRequest("GET", "/api/market/sectors");
         const data = await res.json();
         const results: SectorData[] = [];
         for (const s of SECTOR_ETFS) {

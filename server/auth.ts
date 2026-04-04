@@ -120,6 +120,21 @@ export function registerAuthRoutes(app: Express) {
         email.toLowerCase(), hash, role, new Date().toISOString()
       );
 
+      // Send welcome email (non-blocking)
+      const RESEND_KEY = process.env.RESEND_KEY || "re_CVz83ewP_JWjJUhtFnNQywduyCj2wnRrM";
+      if (RESEND_KEY) {
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: "VolTradeAI <onboarding@resend.dev>",
+            to: email,
+            subject: "Welcome to VolTradeAI",
+            html: `<h2>Welcome to VolTradeAI</h2><p>Your account has been created successfully.</p><p>You can now save your watchlists and access all features at <a href="https://voltradeai.com">voltradeai.com</a></p>`,
+          }),
+        }).catch(() => {});
+      }
+
       res.json({ ok: true, message: "Account created successfully" });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
