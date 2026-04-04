@@ -23,7 +23,7 @@ const TABS: Tab[] = [
   { id: "scanner",   label: "Scanner",   icon: <ScanLine size={14} />,  mobileIcon: <ScanLine size={20} />,  requiresAuth: false },
   { id: "news",      label: "News",      icon: <Newspaper size={14} />, mobileIcon: <Newspaper size={20} />, requiresAuth: false },
   { id: "watchlist", label: "Watchlist", icon: <Bookmark size={14} />,  mobileIcon: <Bookmark size={20} />,  requiresAuth: false },
-  { id: "bot",       label: "Bot",       icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true },
+  { id: "bot",       label: "AI Engine",  icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true },
 ];
 
 function Logo() {
@@ -81,19 +81,20 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   if (showLogin) {
     return (
       <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: dark ? "#050a12" : "#e8ecf1" }}>
-        <div style={{ position: "absolute", top: 16, left: 16, zIndex: 200 }}>
+        <div style={{ position: "fixed", top: 16, left: 16, zIndex: 9990 }}>
           <button
             onClick={() => setShowLogin(false)}
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "8px 16px", borderRadius: 3,
-              background: "rgba(0, 20, 40, 0.7)", border: "1px solid rgba(0, 229, 255, 0.25)",
-              color: "#7a8ba0", fontSize: 12, fontWeight: 500,
+              background: "rgba(0, 20, 40, 0.9)", border: "1px solid rgba(0, 229, 255, 0.3)",
+              color: "#00e5ff", fontSize: 12, fontWeight: 500,
               fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
-              textTransform: "uppercase",
+              textTransform: "uppercase", cursor: "pointer",
+              boxShadow: "0 0 12px rgba(0, 229, 255, 0.1)",
             }}
           >
-            <X size={14} /> Back
+            <X size={14} /> BACK
           </button>
         </div>
         <LoginPage onLogin={handleLoginSuccess} />
@@ -194,11 +195,11 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
               <Bot size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
               <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
-                {authenticated ? "Bot access is restricted to the account owner" : "Sign in to access the AI Trading Bot"}
+                {authenticated ? "AI Trading Engine access is restricted to the account owner" : "Sign in to access the AI Trading Engine"}
               </p>
               {!authenticated && (
                 <>
-                  <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>The bot scans the market, finds opportunities, and trades automatically.</p>
+                  <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>The AI engine scans the market, finds opportunities, and trades automatically.</p>
                   <button
                     onClick={() => setShowLogin(true)}
                     style={{ marginTop: "1.5rem", padding: "10px 24px", background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.3)", color: "#00e5ff", borderRadius: 4, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase" }}

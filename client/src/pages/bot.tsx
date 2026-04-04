@@ -455,7 +455,7 @@ export default function BotDashboard() {
         marginBottom: "20px", flexWrap: "wrap", gap: "12px",
       }}>
         <div>
-          <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "#c8d6e5", margin: 0 }}>Trading Bot</h1>
+          <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "#c8d6e5", margin: 0 }}>AI Trading Engine</h1>
           <div style={{ display: "flex", gap: "8px", marginTop: "6px", alignItems: "center" }}>
             <span style={{
               padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 600,
