@@ -175,7 +175,7 @@ export function registerAuthRoutes(app: Express) {
         email.toLowerCase(), token, expires
       );
 
-      const RESEND_KEY = process.env.RESEND_KEY || "";
+      const RESEND_KEY = process.env.RESEND_KEY || "re_CVz83ewP_JWjJUhtFnNQywduyCj2wnRrM";
       const resetUrl = `${req.headers.origin || "https://voltradeai.com"}/reset?token=${token}`;
 
       if (RESEND_KEY) {
