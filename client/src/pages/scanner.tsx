@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, RefreshCw, TrendingUp, TrendingDown, BarChart2, ChevronUp, ChevronDown } from "lucide-react";
+import { Search, RefreshCw, TrendingUp, TrendingDown, BarChart2, ChevronUp, ChevronDown, Info } from "lucide-react";
 import SectorHeatmap from "@/components/SectorHeatmap";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -70,6 +70,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [showCriteria, setShowCriteria] = useState(false);
 
   const ALPACA_KEY = "PKMDHJOVQEVIB4UHZXUYVTIDBU";
   const ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
@@ -225,6 +226,101 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
           <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
           {isFetching ? "Refreshing…" : "Refresh"}
         </button>
+      </div>
+
+      {/* Scanner Criteria Info */}
+      <div style={{
+        marginBottom: "1rem",
+        background: "rgba(0, 8, 20, 0.6)",
+        border: `1px solid ${showCriteria ? "rgba(0, 229, 255, 0.25)" : "rgba(0, 229, 255, 0.1)"}`,
+        borderRadius: 8,
+        overflow: "hidden",
+        transition: "border-color 200ms ease",
+      }}>
+        <button
+          onClick={() => setShowCriteria(!showCriteria)}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            padding: "0.75rem 1rem",
+            background: "transparent",
+            border: "none",
+            color: "#00e5ff",
+            fontSize: "0.8rem",
+            fontWeight: 600,
+            fontFamily: "'JetBrains Mono', monospace",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <Info size={14} />
+          What does the scanner look for?
+          <span style={{
+            marginLeft: "auto",
+            fontSize: 10,
+            color: "#4a5c70",
+            transition: "transform 200ms ease",
+            transform: showCriteria ? "rotate(180deg)" : "rotate(0deg)",
+          }}>
+            ▼
+          </span>
+        </button>
+        {showCriteria && (
+          <div style={{
+            padding: "0 1rem 1rem 1rem",
+            fontSize: "0.8rem",
+            lineHeight: 1.65,
+            color: "#8a9bb0",
+            borderTop: "1px solid rgba(0, 229, 255, 0.08)",
+          }}>
+            <p style={{ marginTop: "0.75rem", marginBottom: "0.75rem", color: "#a0b4c8" }}>
+              The scanner surfaces the most active and fast-moving US stocks in real time. Here's what powers the analysis:
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {[
+                { label: "VOLUME & LIQUIDITY", color: "#00e5ff", desc: "Filters for stocks with 50K+ daily volume and $1+ price. Flags unusually high volume (5M-20M+) as a sign of institutional interest." },
+                { label: "PRICE MOMENTUM", color: "#30d158", desc: "Scores 12-month and 1-month momentum. Stocks with strong directional moves (+30-50%) get the highest momentum ratings. Weighted 25% of the deep score." },
+                { label: "VOLATILITY EDGE (VRP)", color: "#d4a017", desc: "Compares implied volatility to realized volatility. When IV exceeds RV by 5-8%+, options are overpriced — a sell-premium edge. Also checks EWMA and GARCH models. Weighted 25%." },
+                { label: "MEAN REVERSION", color: "#af52de", desc: "Detects oversold stocks using RSI (below 30) and 5-day drops over 5-10%. Volume spikes above 2x average confirm capitulation. Weighted 20%." },
+                { label: "SHORT SQUEEZE", color: "#ff453a", desc: "Scores stocks with high short interest (15-30%+), long days-to-cover (5-10+), bullish sentiment, and social media buzz. Weighted 15%." },
+                { label: "VWAP POSITION", desc: "Checks if price is above or below volume-weighted average price. Above VWAP signals buyer control; below signals potential dip-buy." },
+                { label: "TREND & FLOW", desc: "ADX measures trend strength (>40 = strong trend). On-Balance Volume (OBV) tracks smart money accumulation vs distribution." },
+                { label: "MACRO CONTEXT", desc: "Adjusts scores based on VIX regime (high VIX favors vol-selling, low VIX favors momentum), sector momentum, and market risk-on/risk-off regime." },
+              ].map(item => (
+                <div key={item.label} style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
+                  <span style={{
+                    fontSize: "0.65rem",
+                    fontWeight: 700,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    letterSpacing: "0.06em",
+                    color: item.color || "#5a7a94",
+                    whiteSpace: "nowrap",
+                    paddingTop: "0.15rem",
+                    minWidth: "140px",
+                  }}>
+                    {item.label}
+                  </span>
+                  <span>{item.desc}</span>
+                </div>
+              ))}
+            </div>
+            <p style={{
+              marginTop: "0.75rem",
+              padding: "0.6rem 0.75rem",
+              background: "rgba(0, 229, 255, 0.04)",
+              border: "1px solid rgba(0, 229, 255, 0.08)",
+              borderRadius: 4,
+              fontSize: "0.75rem",
+              color: "#6a8ca8",
+            }}>
+              Each stock receives a composite score out of 100 combining all factors. The AI engine uses these scores to surface the highest-probability setups — click any row to open full analysis.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Sector Heatmap */}

@@ -1,15 +1,14 @@
-import { useState, useEffect } from "react";
-import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, Menu, X, Search } from "lucide-react";
+import { useState } from "react";
+import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AnalyzePage from "./analyze";
 import ScannerPage from "./scanner";
 import NewsPage from "./news";
 import WatchlistPage from "./watchlist";
 import BotDashboard from "./bot";
-import SearchPage from "./search";
 import LoginPage from "./login";
 
-type TabId = "search" | "analyze" | "scanner" | "news" | "watchlist" | "bot";
+type TabId = "analyze" | "scanner" | "news" | "watchlist" | "bot";
 
 interface Tab {
   id: TabId;
@@ -20,7 +19,6 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: "search",    label: "Search",    icon: <Search size={14} />,    mobileIcon: <Search size={20} />,    requiresAuth: false },
   { id: "analyze",   label: "Analyze",   icon: <BarChart2 size={14} />, mobileIcon: <BarChart2 size={20} />, requiresAuth: false },
   { id: "scanner",   label: "Scanner",   icon: <ScanLine size={14} />,  mobileIcon: <ScanLine size={20} />,  requiresAuth: false },
   { id: "news",      label: "News",      icon: <Newspaper size={14} />, mobileIcon: <Newspaper size={20} />, requiresAuth: false },
@@ -47,7 +45,7 @@ interface HomeProps {
 }
 
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("search");
+  const [activeTab, setActiveTab] = useState<TabId>("scanner");
   const [dark, setDark] = useState(true);
   const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
   const [showLogin, setShowLogin] = useState(false);
@@ -194,10 +192,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       </nav>
 
       {/* ── Page content ── */}
-      <main className={`${activeTab === "search" ? "search-page-container" : "page-container"} tab-page`}>
-        {activeTab === "search" && (
-          <SearchPage onSelectTicker={handleSelectTicker} />
-        )}
+      <main className="page-container tab-page">
         {activeTab === "analyze" && (
           <AnalyzePage key={analyzeTarget} initialTicker={analyzeTarget} />
         )}
