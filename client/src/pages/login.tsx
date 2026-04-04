@@ -1,9 +1,276 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import loginBgPath from "@assets/login_bg.png";
 
 interface LoginProps {
   onLogin?: () => void;
+}
+
+// ── Matrix City Canvas ──────────────────────────────────────────────────────
+
+function CityMatrixCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let W = window.innerWidth;
+    let H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+
+    const handleResize = () => {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      canvas.width = W;
+      canvas.height = H;
+      generateCity();
+    };
+    window.addEventListener("resize", handleResize);
+
+    interface Building {
+      x: number; w: number; h: number;
+      windows: { wx: number; wy: number; lit: boolean; color: string; flicker: number; size: number }[];
+      antennaHeight: number;
+      hasCrown: boolean;
+      crownType: number;
+    }
+    interface Stream {
+      x: number; y: number; speed: number; length: number; chars: string[];
+      opacity: number; buildingTop: number;
+    }
+
+    const CHARS = "01".split("");
+    let buildings: Building[] = [];
+    let streams: Stream[] = [];
+
+    function generateCity() {
+      buildings = [];
+      streams = [];
+      const groundY = H * 0.92;
+      let x = -5;
+
+      while (x < W + 20) {
+        const roll = Math.random();
+        let w: number, h: number;
+        if (roll < 0.04) { w = 28 + Math.random() * 18; h = H * 0.72 + Math.random() * (H * 0.18); }
+        else if (roll < 0.12) { w = 22 + Math.random() * 30; h = H * 0.52 + Math.random() * (H * 0.22); }
+        else if (roll < 0.3) { w = 28 + Math.random() * 45; h = H * 0.32 + Math.random() * (H * 0.22); }
+        else if (roll < 0.6) { w = 22 + Math.random() * 55; h = H * 0.18 + Math.random() * (H * 0.22); }
+        else { w = 18 + Math.random() * 40; h = H * 0.08 + Math.random() * (H * 0.14); }
+
+        const bTop = groundY - h;
+        const cols = Math.floor((w - 6) / 9);
+        const rows = Math.floor((h - 12) / 10);
+        const winArr: Building["windows"][number][] = [];
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            winArr.push({
+              wx: x + 3 + c * 9,
+              wy: bTop + 6 + r * 10,
+              lit: Math.random() < 0.35,
+              color: Math.random() < 0.6 ? "cyan" : "gold",
+              flicker: Math.random() * 2000,
+              size: 4 + Math.random() * 2,
+            });
+          }
+        }
+        const antennaHeight = Math.random() < 0.25 ? 12 + Math.random() * 30 : 0;
+        const hasCrown = h > H * 0.4 && Math.random() < 0.4;
+        const crownType = Math.floor(Math.random() * 3);
+
+        buildings.push({ x, w, h, windows: winArr, antennaHeight, hasCrown, crownType });
+
+        // Binary streams from this building
+        const streamCount = Math.max(1, Math.floor(w / 20));
+        for (let s = 0; s < streamCount; s++) {
+          streams.push({
+            x: x + 4 + Math.random() * (w - 8),
+            y: bTop - Math.random() * 400,
+            speed: 1.2 + Math.random() * 3.5,
+            length: 6 + Math.floor(Math.random() * 14),
+            chars: Array.from({ length: 25 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
+            opacity: 0.12 + Math.random() * 0.28,
+            buildingTop: bTop,
+          });
+        }
+        x += w + Math.random() * 3;
+      }
+    }
+
+    generateCity();
+    let time = 0;
+
+    function draw() {
+      time++;
+      ctx!.clearRect(0, 0, W, H);
+
+      // Sky gradient
+      const grad = ctx!.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "#010306");
+      grad.addColorStop(0.4, "#030810");
+      grad.addColorStop(0.7, "#04091a");
+      grad.addColorStop(1, "#050c1e");
+      ctx!.fillStyle = grad;
+      ctx!.fillRect(0, 0, W, H);
+
+      const groundY = H * 0.92;
+
+      // Buildings
+      for (const b of buildings) {
+        const bTop = groundY - b.h;
+
+        // Body gradient
+        const bGrad = ctx!.createLinearGradient(b.x, bTop, b.x + b.w, groundY);
+        bGrad.addColorStop(0, "#080e1c");
+        bGrad.addColorStop(0.5, "#060b16");
+        bGrad.addColorStop(1, "#040810");
+        ctx!.fillStyle = bGrad;
+        ctx!.fillRect(b.x, bTop, b.w, b.h);
+
+        // Right edge depth shadow
+        const edgeGrad = ctx!.createLinearGradient(b.x + b.w - 10, bTop, b.x + b.w, bTop);
+        edgeGrad.addColorStop(0, "transparent");
+        edgeGrad.addColorStop(1, "rgba(0, 0, 0, 0.4)");
+        ctx!.fillStyle = edgeGrad;
+        ctx!.fillRect(b.x + b.w - 10, bTop, 10, b.h);
+
+        // Left edge highlight
+        ctx!.fillStyle = "rgba(0, 229, 255, 0.03)";
+        ctx!.fillRect(b.x, bTop, 2, b.h);
+
+        // Roof line
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.12)";
+        ctx!.lineWidth = 1;
+        ctx!.beginPath();
+        ctx!.moveTo(b.x, bTop);
+        ctx!.lineTo(b.x + b.w, bTop);
+        ctx!.stroke();
+
+        // Building outline
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.05)";
+        ctx!.lineWidth = 0.5;
+        ctx!.strokeRect(b.x, bTop, b.w, b.h);
+
+        // Crown (for tall buildings)
+        if (b.hasCrown) {
+          ctx!.fillStyle = "rgba(0, 229, 255, 0.06)";
+          if (b.crownType === 0) {
+            // Pointed spire
+            ctx!.beginPath();
+            ctx!.moveTo(b.x + b.w / 2 - 4, bTop);
+            ctx!.lineTo(b.x + b.w / 2, bTop - 15);
+            ctx!.lineTo(b.x + b.w / 2 + 4, bTop);
+            ctx!.fill();
+          } else if (b.crownType === 1) {
+            // Stepped top
+            ctx!.fillRect(b.x + b.w * 0.2, bTop - 8, b.w * 0.6, 8);
+            ctx!.fillRect(b.x + b.w * 0.35, bTop - 14, b.w * 0.3, 6);
+          }
+        }
+
+        // Antenna with blinking red light
+        if (b.antennaHeight > 0) {
+          const ax = b.x + b.w / 2;
+          ctx!.strokeStyle = "rgba(0, 229, 255, 0.15)";
+          ctx!.lineWidth = 1;
+          ctx!.beginPath();
+          ctx!.moveTo(ax, bTop);
+          ctx!.lineTo(ax, bTop - b.antennaHeight);
+          ctx!.stroke();
+          // Blinking red light
+          const blinkPhase = Math.sin(time * 0.04 + b.x * 0.1);
+          if (blinkPhase > 0) {
+            const alpha = blinkPhase * 0.9;
+            ctx!.fillStyle = `rgba(255, 40, 40, ${alpha})`;
+            ctx!.beginPath();
+            ctx!.arc(ax, bTop - b.antennaHeight, 2, 0, Math.PI * 2);
+            ctx!.fill();
+            // Glow
+            ctx!.fillStyle = `rgba(255, 40, 40, ${alpha * 0.3})`;
+            ctx!.beginPath();
+            ctx!.arc(ax, bTop - b.antennaHeight, 6, 0, Math.PI * 2);
+            ctx!.fill();
+          }
+        }
+
+        // Windows
+        for (const win of b.windows) {
+          if (!win.lit) {
+            if (Math.random() < 0.0003) win.lit = true;
+            continue;
+          }
+          if (Math.random() < 0.0005) { win.lit = false; continue; }
+          const flick = Math.sin(time * 0.015 + win.flicker) * 0.5 + 0.5;
+          const alpha = 0.06 + flick * 0.22;
+          ctx!.fillStyle = win.color === "cyan"
+            ? `rgba(0, 229, 255, ${alpha})`
+            : `rgba(220, 180, 50, ${alpha})`;
+          ctx!.fillRect(win.wx, win.wy, win.size, win.size);
+        }
+      }
+
+      // Ground line + glow
+      ctx!.strokeStyle = "rgba(0, 229, 255, 0.08)";
+      ctx!.lineWidth = 1;
+      ctx!.beginPath();
+      ctx!.moveTo(0, groundY);
+      ctx!.lineTo(W, groundY);
+      ctx!.stroke();
+      // Ground fog
+      const fogGrad = ctx!.createLinearGradient(0, groundY - 30, 0, groundY + 10);
+      fogGrad.addColorStop(0, "transparent");
+      fogGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.015)");
+      fogGrad.addColorStop(1, "rgba(0, 229, 255, 0.008)");
+      ctx!.fillStyle = fogGrad;
+      ctx!.fillRect(0, groundY - 30, W, 40);
+
+      // Binary streams
+      ctx!.font = "9px 'JetBrains Mono', 'Courier New', monospace";
+      for (const s of streams) {
+        s.y += s.speed;
+        if (s.y > s.buildingTop + 15) {
+          s.y = s.buildingTop - 100 - Math.random() * 350;
+          for (let i = 0; i < s.chars.length; i++) {
+            if (Math.random() < 0.4) s.chars[i] = CHARS[Math.floor(Math.random() * 2)];
+          }
+        }
+        for (let i = 0; i < s.length; i++) {
+          const cy = s.y + i * 10;
+          if (cy < 0 || cy > s.buildingTop + 8) continue;
+          const fade = 1 - (i / s.length);
+          const alpha = s.opacity * fade;
+          ctx!.fillStyle = i === 0
+            ? `rgba(180, 255, 255, ${Math.min(alpha * 1.8, 0.6)})`
+            : `rgba(0, 229, 255, ${alpha})`;
+          ctx!.fillText(s.chars[i % s.chars.length], s.x, cy);
+          if (Math.random() < 0.04) s.chars[i % s.chars.length] = CHARS[Math.floor(Math.random() * 2)];
+        }
+      }
+
+      // Scan line
+      const scanY = (time * 1.2) % (H * 2) - H * 0.3;
+      const scanGrad = ctx!.createLinearGradient(0, scanY - 15, 0, scanY + 15);
+      scanGrad.addColorStop(0, "transparent");
+      scanGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.025)");
+      scanGrad.addColorStop(1, "transparent");
+      ctx!.fillStyle = scanGrad;
+      ctx!.fillRect(0, scanY - 15, W, 30);
+
+      animId = requestAnimationFrame(draw);
+    }
+
+    draw();
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />;
 }
 
 // ── Login Page ───────────────────────────────────────────────────────────────
@@ -140,17 +407,8 @@ export default function LoginPage({ onLogin }: LoginProps) {
       position: "relative",
       overflow: "hidden",
     }}>
-      {/* Background image + overlay */}
-      <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
-        <img src={loginBgPath} alt="" style={{
-          position: "absolute", inset: 0, width: "100%", height: "100%",
-          objectFit: "cover", objectPosition: "center 40%",
-        }} />
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "linear-gradient(180deg, rgba(3,5,10,0.6) 0%, rgba(3,5,10,0.8) 100%)",
-        }} />
-      </div>
+      {/* Animated Matrix city */}
+      <CityMatrixCanvas />
 
       {/* Binary data streams overlay */}
       <div style={{ position: "absolute", inset: 0, overflow: "hidden", zIndex: 1, opacity: 0.08, pointerEvents: "none" }}>
