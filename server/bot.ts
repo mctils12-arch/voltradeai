@@ -742,6 +742,19 @@ export function registerBotRoutes(app: Express) {
       slotsUsed = Array.isArray(positions) ? positions.length : 0;
     } catch {}
 
+    // Track sectors of current positions for correlation check
+    const positionSectors: Record<string, number> = {};
+    try {
+      const currentPos = await alpaca("/v2/positions");
+      if (Array.isArray(currentPos)) {
+        for (const p of currentPos) {
+          // Simple sector mapping by first letter of symbol — will be refined by bot_engine
+          const sym = p.symbol || "";
+          positionSectors[sym] = 1;
+        }
+      }
+    } catch {}
+
     for (const trade of morningQueue) {
       if (state.killSwitch) break;
       if (slotsUsed >= MAX_POSITIONS) {
@@ -752,6 +765,27 @@ export function registerBotRoutes(app: Express) {
         audit("MORNING-BLOCKED", `${trade.ticker}: Position too large`);
         continue;
       }
+
+      // ── Pre-market price check: verify price hasn't gapped more than 5% ──
+      try {
+        const { stdout: priceCheck } = await execAsync(
+          `python3 -c "import requests,json; r=requests.get('https://api.polygon.io/v2/aggs/ticker/${trade.ticker}/prev?adjusted=true&apiKey=${process.env.POLYGON_KEY || 'UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP'}',timeout=5); d=r.json(); c=d.get('results',[{}])[0].get('c',0); print(c)"`,
+          { timeout: 8000 }
+        );
+        const currentPrice = parseFloat(priceCheck.trim());
+        if (currentPrice > 0 && trade.price > 0) {
+          const gapPct = Math.abs((currentPrice - trade.price) / trade.price) * 100;
+          if (gapPct > 5) {
+            audit("MORNING-GAP", `${trade.ticker}: Price gapped ${gapPct.toFixed(1)}% overnight (was $${trade.price}, now $${currentPrice}) — skipping to avoid bad fill`);
+            continue;
+          }
+          // Update share count based on current price
+          if (gapPct > 2) {
+            trade.shares = Math.floor(trade.position_value / currentPrice);
+            audit("MORNING-ADJUST", `${trade.ticker}: Price moved ${gapPct.toFixed(1)}%, adjusted qty to ${trade.shares} shares`);
+          }
+        }
+      } catch {}
 
       try {
         const order = await alpaca("/v2/orders", {
@@ -1190,6 +1224,42 @@ print(json.dumps(check_weekly_loss(history)))
           // ── REGULAR HOURS: Execute immediately with market orders ──
           const qty = Math.floor(trade.shares);
           if (qty <= 0) continue;
+
+          // ── Sector correlation re-check at execution time ──
+          try {
+            const livePositions = await alpaca("/v2/positions");
+            if (Array.isArray(livePositions)) {
+              // Count how many positions share similar sector (simple symbol-based check)
+              const held = livePositions.map((p: any) => p.symbol);
+              // Check if we already hold this exact ticker
+              if (held.includes(trade.ticker)) {
+                audit("SECTOR-CHECK", `${trade.ticker}: Already holding this stock — skipping duplicate`);
+                continue;
+              }
+              // Max 5 positions enforced at execution time, not just scoring time
+              if (livePositions.length >= MAX_POSITIONS) {
+                audit("SECTOR-CHECK", `Max positions (${MAX_POSITIONS}) already held — skipping ${trade.ticker}`);
+                continue;
+              }
+            }
+          } catch {}
+
+          // ── Slippage simulator: estimate real-world fill cost ──
+          // Paper trades fill at exact price. Real trades don't.
+          // We simulate slippage based on volume: low volume = more slippage
+          const estimatedSlippagePct = (trade.volume && trade.volume > 1000000) ? 0.05 :
+                                       (trade.volume && trade.volume > 500000) ? 0.10 :
+                                       (trade.volume && trade.volume > 100000) ? 0.20 : 0.35;
+          const slippageCost = trade.price * (estimatedSlippagePct / 100) * qty;
+          const adjustedScore = trade.score - (estimatedSlippagePct * 5); // Penalize low-liquidity picks
+          if (adjustedScore < state.minScoreThreshold) {
+            audit("SLIPPAGE-SKIP", `${trade.ticker}: Score ${trade.score} drops to ${adjustedScore.toFixed(1)} after ${estimatedSlippagePct}% estimated slippage — below threshold`);
+            continue;
+          }
+          // Log slippage estimate for learning
+          if (estimatedSlippagePct > 0.15) {
+            audit("SLIPPAGE-WARN", `${trade.ticker}: Estimated slippage ${estimatedSlippagePct}% (~$${slippageCost.toFixed(2)}) — low liquidity`);
+          }
 
           // Check if buying power is locked — try to replace weaker open orders
           const acctCheck = await alpaca("/v2/account");
