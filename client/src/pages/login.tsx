@@ -397,8 +397,8 @@ export default function LoginPage({ onLogin }: LoginProps) {
       <div style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 10, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em" }}>
         VOLTRADE // SI-TK // NOFORN
       </div>
-      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 20, fontSize: 10, color: "#ff3333", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
-        <span style={{ display: "inline-block", animation: "blink 2s ease infinite" }}>●</span> REC {new Date().toISOString().slice(0, 19).replace("T", " ")}
+      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 20, fontSize: 11, color: "#00e5ff", opacity: 0.4, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.12em" }}>
+        VOLTRADEAI
       </div>
       <div style={{ position: "absolute", bottom: 16, left: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
         SYS: ONLINE | ML: 36 FEATURES | ALPACA: CONNECTED

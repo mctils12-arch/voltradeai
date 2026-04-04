@@ -80,7 +80,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   // Login overlay
   if (showLogin) {
     return (
-      <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: "#050a12" }}>
+      <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: dark ? "#050a12" : "#e8ecf1" }}>
         <div style={{ position: "absolute", top: 16, left: 16, zIndex: 200 }}>
           <button
             onClick={() => setShowLogin(false)}
@@ -104,12 +104,12 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   return (
     <div className={dark ? "dark" : "light"} style={{
       minHeight: "100dvh",
-      background: "#050a12",
-      color: "#c8d6e5",
+      background: dark ? "#050a12" : "#e8ecf1",
+      color: dark ? "#c8d6e5" : "#0a1628",
     }}>
 
       {/* ── Desktop top nav bar (hidden on mobile) ── */}
-      <nav className="tab-nav desktop-nav">
+      <nav className="tab-nav desktop-nav" style={dark ? {} : { background: 'rgba(232, 236, 241, 0.92)' }}>
         <div className="tab-nav-logo">
           <Logo />
           <span className="tab-nav-logo-text"><span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span></span>
@@ -150,7 +150,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       </nav>
 
       {/* ── Mobile top bar (shown only on mobile) ── */}
-      <nav className="mobile-top-bar" style={dark ? {} : { background: 'rgba(5, 10, 18, 0.92)' }}>
+      <nav className="mobile-top-bar" style={dark ? {} : { background: 'rgba(232, 236, 241, 0.92)', borderBottomColor: 'rgba(0, 80, 120, 0.12)' }}>
         <div className="tab-nav-logo">
           <Logo />
           <span className="tab-nav-logo-text"><span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span></span>

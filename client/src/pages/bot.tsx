@@ -63,15 +63,15 @@ const bigNum: React.CSSProperties = { fontSize: "clamp(18px, 3.5vw, 28px)", font
 
 // ─── Sharpe color helper ──────────────────────────────────────────────────────
 function sharpeColor(v: number) {
-  if (v >= 1) return "#00ff41";
+  if (v >= 1) return "#30d158";
   if (v >= 0.5) return "#d4a017";
-  return "#ff3333";
+  return "#ff453a";
 }
 
 // ─── Signal type color ────────────────────────────────────────────────────────
 function signalColor(type: string) {
-  if (type === "buy") return "#00ff41";
-  if (type === "sell") return "#ff3333";
+  if (type === "buy") return "#30d158";
+  if (type === "sell") return "#ff453a";
   return "#d4a017";
 }
 
@@ -105,7 +105,7 @@ function MiniEquityCurve({ data }: { data: Array<{ date: string; value: number; 
       <polyline
         points={pts}
         fill="none"
-        stroke={isUp ? "#00ff41" : "#ff3333"}
+        stroke={isUp ? "#30d158" : "#ff453a"}
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -123,8 +123,8 @@ function NotificationBell({ notifications, onMarkRead }: {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const typeColor = (type: string) => {
-    if (type === "alert" || type === "stop_loss") return "#ff3333";
-    if (type === "profit" || type === "trade") return "#00ff41";
+    if (type === "alert" || type === "stop_loss") return "#ff453a";
+    if (type === "profit" || type === "trade") return "#30d158";
     if (type === "earnings") return "#d4a017";
     return "#00e5ff";
   };
@@ -157,7 +157,7 @@ function NotificationBell({ notifications, onMarkRead }: {
         {unreadCount > 0 && (
           <span style={{
             position: "absolute", top: "-4px", right: "-4px",
-            background: "#ff3333", borderRadius: "50%",
+            background: "#ff453a", borderRadius: "50%",
             width: "16px", height: "16px", fontSize: "9px",
             display: "flex", alignItems: "center", justifyContent: "center",
             color: "white", fontWeight: 700, border: "2px solid #000",
@@ -272,8 +272,8 @@ function PerformanceCard({ perf }: { perf: any }) {
   }
 
   const { totalTrades, winRate, totalPnl, avgGain, avgLoss, bestTrade, worstTrade, equityCurve } = perf;
-  const winRateColor = winRate >= 60 ? "#00ff41" : winRate >= 45 ? "#d4a017" : "#ff3333";
-  const pnlColor = totalPnl >= 0 ? "#00ff41" : "#ff3333";
+  const winRateColor = winRate >= 60 ? "#30d158" : winRate >= 45 ? "#d4a017" : "#ff453a";
+  const pnlColor = totalPnl >= 0 ? "#30d158" : "#ff453a";
 
   return (
     <div style={{ ...card, marginBottom: "20px" }}>
@@ -308,13 +308,13 @@ function PerformanceCard({ perf }: { perf: any }) {
         </div>
         <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Avg Gain</div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#00ff41" }}>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#30d158" }}>
             +{avgGain.toFixed(2)}%
           </div>
         </div>
         <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Avg Loss</div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#ff3333" }}>
+          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#ff453a" }}>
             {avgLoss.toFixed(2)}%
           </div>
         </div>
@@ -329,11 +329,11 @@ function PerformanceCard({ perf }: { perf: any }) {
                 Best Trade
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <ArrowUp size={12} style={{ color: "#00ff41" }} />
+                <ArrowUp size={12} style={{ color: "#30d158" }} />
                 <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
                   {bestTrade.ticker}
                 </span>
-                <span style={{ fontSize: "12px", color: "#00ff41", marginLeft: "auto", fontWeight: 600 }}>
+                <span style={{ fontSize: "12px", color: "#30d158", marginLeft: "auto", fontWeight: 600 }}>
                   +{bestTrade.pnlPct.toFixed(2)}%
                 </span>
               </div>
@@ -345,11 +345,11 @@ function PerformanceCard({ perf }: { perf: any }) {
                 Worst Trade
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <ArrowDown size={12} style={{ color: "#ff3333" }} />
+                <ArrowDown size={12} style={{ color: "#ff453a" }} />
                 <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
                   {worstTrade.ticker}
                 </span>
-                <span style={{ fontSize: "12px", color: "#ff3333", marginLeft: "auto", fontWeight: 600 }}>
+                <span style={{ fontSize: "12px", color: "#ff453a", marginLeft: "auto", fontWeight: 600 }}>
                   {worstTrade.pnlPct.toFixed(2)}%
                 </span>
               </div>
@@ -460,7 +460,7 @@ export default function BotDashboard() {
             <span style={{
               padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 600,
               background: isKilled ? "rgba(255,51,51,0.15)" : isActive ? "rgba(0,255,65,0.15)" : "rgba(212,160,23,0.15)",
-              color: isKilled ? "#ff3333" : isActive ? "#00ff41" : "#d4a017",
+              color: isKilled ? "#ff453a" : isActive ? "#30d158" : "#d4a017",
               border: `1px solid ${isKilled ? "rgba(255,51,51,0.3)" : isActive ? "rgba(0,255,65,0.3)" : "rgba(212,160,23,0.3)"}`,
 
             }}>
@@ -481,7 +481,7 @@ export default function BotDashboard() {
           />
 
           {!isActive ? (
-            <button onClick={() => startBot.mutate()} disabled={isKilled} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: "none", background: isKilled ? "#0d1a28" : "#00ff41", color: isKilled ? "#4a5c70" : "#0a1420", fontSize: "13px", fontWeight: 600, cursor: isKilled ? "not-allowed" : "pointer" }}>
+            <button onClick={() => startBot.mutate()} disabled={isKilled} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: "none", background: isKilled ? "#0d1a28" : "#30d158", color: isKilled ? "#4a5c70" : "#0a1420", fontSize: "13px", fontWeight: 600, cursor: isKilled ? "not-allowed" : "pointer" }}>
               <Play size={14} /> Start
             </button>
           ) : (
@@ -490,7 +490,7 @@ export default function BotDashboard() {
             </button>
           )}
           <Tip id="killSwitch">
-            <button onClick={() => killBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: isKilled ? "2px solid #ff3333" : "2px solid rgba(255,51,51,0.3)", background: isKilled ? "rgba(255,51,51,0.2)" : "transparent", color: "#ff3333", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
+            <button onClick={() => killBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: isKilled ? "2px solid #ff453a" : "2px solid rgba(255,69,58,0.3)", background: isKilled ? "rgba(255,51,51,0.2)" : "transparent", color: "#ff453a", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
               <ShieldAlert size={14} /> {isKilled ? "Unkill" : "Kill Switch"}
             </button>
           </Tip>
@@ -516,7 +516,7 @@ export default function BotDashboard() {
         </div>
         <div style={card}>
           <div style={label}><Tip id="dailyPnl">Today's P&L</Tip></div>
-          <div style={{ ...bigNum, color: dailyPnl >= 0 ? "#00ff41" : "#ff3333", fontSize: "clamp(18px, 4vw, 28px)" }}>
+          <div style={{ ...bigNum, color: dailyPnl >= 0 ? "#30d158" : "#ff453a", fontSize: "clamp(18px, 4vw, 28px)" }}>
             {dailyPnl >= 0 ? "+" : ""}{dailyPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             <span style={{ fontSize: "12px", marginLeft: "6px" }}>({dailyPnlPct >= 0 ? "+" : ""}{Number(dailyPnlPct ?? 0).toFixed(2)}%)</span>
           </div>
@@ -557,15 +557,15 @@ export default function BotDashboard() {
                 {positions.map((p: any) => (
                   <tr key={p.ticker} style={{ borderBottom: "1px solid rgba(0, 15, 30, 0.4)" }}>
                     <td style={{ padding: "8px 12px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>{p.ticker}</td>
-                    <td style={{ padding: "8px 6px", color: p.side === "long" ? "#00ff41" : "#ff3333" }}>{p.side}</td>
+                    <td style={{ padding: "8px 6px", color: p.side === "long" ? "#30d158" : "#ff453a" }}>{p.side}</td>
                     <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace" }}>{p.qty}</td>
                     <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", color: "#a1a1a6" }}>${Number(p.entryPrice ?? 0).toFixed(2)}</td>
                     <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace" }}>${Number(p.currentPrice ?? 0).toFixed(2)}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: (p.pnl ?? 0) >= 0 ? "#00ff41" : "#ff3333" }}>
+                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: (p.pnl ?? 0) >= 0 ? "#30d158" : "#ff453a" }}>
                       {(p.pnl ?? 0) >= 0 ? "+" : ""}${Number(p.pnl ?? 0).toFixed(2)} ({(p.pnlPct ?? 0) >= 0 ? "+" : ""}{Number(p.pnlPct ?? 0).toFixed(2)}%)
                     </td>
                     <td style={{ padding: "8px 6px" }}>
-                      <button onClick={() => closePos.mutate(p.ticker)} style={{ padding: "4px 10px", borderRadius: "4px", border: "1px solid rgba(255,51,51,0.3)", background: "transparent", color: "#ff3333", fontSize: "11px", cursor: "pointer" }}>Close</button>
+                      <button onClick={() => closePos.mutate(p.ticker)} style={{ padding: "4px 10px", borderRadius: "4px", border: "1px solid rgba(255,51,51,0.3)", background: "transparent", color: "#ff453a", fontSize: "11px", cursor: "pointer" }}>Close</button>
                     </td>
                   </tr>
                 ))}
@@ -624,7 +624,7 @@ export default function BotDashboard() {
                   <div style={{ flex: 1, height: "4px", background: "rgba(0, 229, 255, 0.1)", borderRadius: "2px", overflow: "hidden" }}>
                     <div style={{
                       height: "100%", width: `${sig.confidence}%`, borderRadius: "2px",
-                      background: sig.confidence >= 70 ? "#00ff41" : sig.confidence >= 50 ? "#d4a017" : "#ff3333",
+                      background: sig.confidence >= 70 ? "#30d158" : sig.confidence >= 50 ? "#d4a017" : "#ff453a",
                       transition: "width 0.5s ease",
                     }} />
                   </div>
@@ -648,7 +648,7 @@ export default function BotDashboard() {
       {/* ── Security Controls ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-          <Shield size={14} style={{ color: "#00ff41" }} />
+          <Shield size={14} style={{ color: "#30d158" }} />
           <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>Security Controls</span>
         </div>
 
@@ -659,7 +659,7 @@ export default function BotDashboard() {
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <div style={{
                 width: "44px", height: "24px", borderRadius: "6px", position: "relative", cursor: "pointer",
-                background: isKilled ? "#ff3333" : "rgba(0, 229, 255, 0.12)",
+                background: isKilled ? "#ff453a" : "rgba(0, 229, 255, 0.12)",
                 transition: "background 0.2s",
               }} onClick={() => killBot.mutate()}>
                 <div style={{
@@ -668,7 +668,7 @@ export default function BotDashboard() {
                   transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
                 }} />
               </div>
-              <span style={{ fontSize: "13px", fontWeight: 600, color: isKilled ? "#ff3333" : "#4a5c70" }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: isKilled ? "#ff453a" : "#4a5c70" }}>
                 {isKilled ? "ACTIVE" : "OFF"}
               </span>
             </div>
@@ -701,7 +701,7 @@ export default function BotDashboard() {
           <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,229,255,0.15)", color: "#00e5ff", border: "1px solid rgba(0,229,255,0.2)" }}>
             Paper Trading Mode
           </span>
-          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,255,65,0.1)", color: "#00ff41", border: "1px solid rgba(0,255,65,0.2)" }}>
+          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,255,65,0.1)", color: "#30d158", border: "1px solid rgba(0,255,65,0.2)" }}>
             {status?.auditLogCount ?? 0} Audit Entries
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: "5px", padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0, 20, 40, 0.5)", color: "#c8d6e5", border: "1px solid rgba(0, 229, 255, 0.1)" }}>

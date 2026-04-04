@@ -187,7 +187,7 @@ export function registerAuthRoutes(app: Express) {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              from: "VolTradeAI <noreply@voltradeai.com>",
+              from: "VolTradeAI <onboarding@resend.dev>",
               to: email,
               subject: "Password Reset — VolTradeAI",
               html: `<p>Click this link to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour.</p>`,
