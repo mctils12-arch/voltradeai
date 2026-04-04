@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import { Search, RefreshCw, TrendingUp, TrendingDown, BarChart2, ChevronUp, ChevronDown } from "lucide-react";
 import SectorHeatmap from "@/components/SectorHeatmap";
 
@@ -69,13 +68,48 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
+  // Fetch market data from Polygon grouped daily
+  const POLYGON_KEY = "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
   const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery<MarketSnapshotResponse>({
-    queryKey: ["/api/market-snapshot"],
+    queryKey: ["/api/polygon-scan"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/market-snapshot");
-      return res.json();
+      // Try today, yesterday, and 2 days ago (weekends/holidays)
+      const dates = [];
+      for (let i = 0; i < 5; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dates.push(d.toISOString().split("T")[0]);
+      }
+
+      for (const date of dates) {
+        try {
+          const res = await fetch(
+            `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${POLYGON_KEY}`
+          );
+          const json = await res.json();
+          if (json.results && json.results.length > 0) {
+            // Transform to our format
+            const stocks = json.results
+              .filter((r: any) => r.v > 100000 && r.c > 1) // min volume and price
+              .map((r: any) => ({
+                ticker: r.T,
+                close: r.c,
+                open: r.o,
+                high: r.h,
+                low: r.l,
+                volume: r.v,
+                vwap: r.vw || r.c,
+                change_pct: r.o > 0 ? ((r.c - r.o) / r.o) * 100 : 0,
+              }))
+              .sort((a: any, b: any) => b.volume - a.volume)
+              .slice(0, 200); // Top 200 by volume
+            return { results: stocks, date };
+          }
+        } catch {}
+      }
+      return { results: [], date: "" };
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 300000, // 5 minutes
     retry: 2,
   });
 
