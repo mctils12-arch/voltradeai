@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VolTradeAI Autonomous Bot Engine
+VolTradeAI Autonomous AI Trading Engine
 ─────────────────────────────────
 Scans all tradeable stocks, scores them across multiple strategies,
 picks the best trades, and executes via Alpaca.

@@ -65,7 +65,7 @@ function MarketStatusBanner() {
       </span>
       <span style={{ marginLeft: "auto", color: "#6e6e73", fontSize: "11px" }}>
         <Clock size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
-        Bot is {isOpen ? "monitoring signals" : "updating algorithms"}
+        AI engine is {isOpen ? "monitoring signals" : "updating algorithms"}
       </span>
     </div>
   );

@@ -37,7 +37,7 @@ WEEKLY_LOSS_LIMIT = -8.0  # Pause if -8% in a week
 
 def check_weekly_loss(equity_history: list) -> dict:
     """
-    Check if the bot has lost more than the weekly limit.
+    Check if the AI engine has lost more than the weekly limit.
     equity_history: list of {"date": "YYYY-MM-DD", "equity": float}
     Returns: {"safe": bool, "weekly_pnl_pct": float, "action": "continue"/"pause"/"reduce"}
     """
@@ -378,7 +378,7 @@ def run_diagnostics() -> dict:
 
     # 6. Generate recommendations
     if report["overall_status"] == "degraded":
-        report["recommendations"].append("Bot should reduce position sizes or pause until issues resolve")
+        report["recommendations"].append("AI engine should reduce position sizes or pause until issues resolve")
     if model.get("retrain_needed"):
         report["recommendations"].append("Force ML model retrain to incorporate recent data")
     if perf.get("degradation_detected"):
@@ -422,7 +422,7 @@ def run_diagnostics() -> dict:
 
 def get_auto_fix_params() -> dict:
     """
-    Run diagnostics and return actionable parameters the bot should use.
+    Run diagnostics and return actionable parameters the AI engine should use.
     Called every scan cycle.
     Returns: {
         "position_size_multiplier": 0.5-1.0,

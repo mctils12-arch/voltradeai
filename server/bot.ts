@@ -35,7 +35,7 @@ const STOP_LOSS_PCT = 0.02;
 const TAKE_PROFIT_PCT = 0.06;
 
 const state = {
-  active: true,  // Bot starts automatically — always on unless killed
+  active: true,  // AI engine starts automatically — always on unless killed
   killSwitch: false,
   dailyPnL: 0,
   dailyLossLimit: DAILY_LOSS_LIMIT,
@@ -50,7 +50,7 @@ const state = {
 function audit(action: string, detail: string) {
   state.auditLog.unshift({ time: new Date().toISOString(), action, detail });
   if (state.auditLog.length > 500) state.auditLog.length = 500;
-  console.log(`[BOT] ${action}: ${detail}`);
+  console.log(`[AI ENGINE] ${action}: ${detail}`);
 }
 
 // ─── Notifications ──────────────────────────────────────────────────────────
@@ -219,7 +219,7 @@ async function checkTradeAllowed(portfolioValue: number, tradeValue: number): Pr
   if (state.dailyPnL !== 0 && portfolioValue > 0) {
     const dailyPnLPct = (state.dailyPnL / portfolioValue) * 100;
     if (dailyPnLPct <= DAILY_LOSS_LIMIT) {
-      return { allowed: false, reason: `Daily loss limit of ${DAILY_LOSS_LIMIT}% exceeded. Bot stopped for today.` };
+      return { allowed: false, reason: `Daily loss limit of ${DAILY_LOSS_LIMIT}% exceeded. AI engine stopped for today.` };
     }
   }
   // 3. Position size check
@@ -383,16 +383,16 @@ export function registerBotRoutes(app: Express) {
   app.post("/api/bot/start", requireAuth, (_req, res) => {
     if (state.killSwitch) return res.status(400).json({ error: "Kill switch is ON. Disable it first." });
     state.active = true;
-    audit("START", "Bot activated");
-    notify("system", "Bot activated — scanning for opportunities");
+    audit("START", "AI engine activated");
+    notify("system", "AI engine activated — scanning for opportunities");
     res.json({ ok: true, active: true });
   });
 
   // Stop bot
   app.post("/api/bot/stop", requireAuth, (_req, res) => {
     state.active = false;
-    audit("STOP", "Bot deactivated");
-    notify("system", "Bot paused");
+    audit("STOP", "AI engine deactivated");
+    notify("system", "AI engine paused");
     res.json({ ok: true, active: false });
   });
 
@@ -832,7 +832,7 @@ export function registerBotRoutes(app: Express) {
     audit("MORNING", "Queue cleared.");
   }
 
-  // ── Autonomous Bot Engine ─────────────────────────────────────────────────
+  // ── Autonomous AI Trading Engine ──────────────────────────────────────────
 
   let lastAutoRun = 0;
   let autoRunning = false;
@@ -848,7 +848,7 @@ export function registerBotRoutes(app: Express) {
     if (state.circuitBreakerUntil > Date.now()) {
       const minutesLeft = Math.round((state.circuitBreakerUntil - Date.now()) / 60000);
       if (state.diagCycleCount % 10 === 0) { // Log every 10th cycle so it doesn't spam
-        audit("CIRCUIT-BREAKER", `Bot paused — ${minutesLeft} minutes remaining`);
+        audit("CIRCUIT-BREAKER", `AI engine paused — ${minutesLeft} minutes remaining`);
       }
       return;
     } else if (state.circuitBreakerUntil > 0 && state.circuitBreakerUntil <= Date.now()) {
@@ -875,8 +875,8 @@ print(json.dumps(get_auto_fix_params()))
       }
 
       if (diagParams.should_pause) {
-        audit("DIAGNOSTIC-PAUSE", "Bot paused by self-diagnostic system — critical issues detected");
-        notify("alert", "Bot auto-paused: " + diagParams.problems_summary);
+        audit("DIAGNOSTIC-PAUSE", "AI engine paused by self-diagnostic system — critical issues detected");
+        notify("alert", "AI engine auto-paused: " + diagParams.problems_summary);
         return;
       }
 
@@ -1040,8 +1040,8 @@ print(json.dumps(result))
             state.consecutiveStopLosses++;
             if (state.consecutiveStopLosses >= 3) {
               state.circuitBreakerUntil = Date.now() + 3600000; // 1 hour
-              audit("CIRCUIT-BREAKER", `3 consecutive stop-losses hit — bot paused for 1 hour`);
-              notify("alert", "Circuit breaker triggered: 3 consecutive stop-losses. Bot paused for 1 hour.");
+              audit("CIRCUIT-BREAKER", `3 consecutive stop-losses hit — AI engine paused for 1 hour`);
+              notify("alert", "Circuit breaker triggered: 3 consecutive stop-losses. AI engine paused for 1 hour.");
             }
           } else if (action.type === "take_profit") {
             state.consecutiveStopLosses = 0; // Reset on a win
@@ -1422,7 +1422,7 @@ print(json.dumps(check_weekly_loss(history)))
             audit("RESEARCH", `PRE-MARKET REPORT: ${topTrades.length} trade opportunities ready. Top pick: ${topTrades[0].ticker} (score ${topTrades[0].score})`);
             notify("research", `Pre-market report ready: ${topTrades.length} opportunities. Top: ${topTrades[0].ticker} @ $${topTrades[0].price}`);
           } else {
-            audit("RESEARCH", "PRE-MARKET REPORT: No high-conviction trades found. Bot will monitor during pre-market.");
+            audit("RESEARCH", "PRE-MARKET REPORT: No high-conviction trades found. AI engine will monitor during pre-market.");
           }
         } catch {}
       }
@@ -1434,7 +1434,7 @@ print(json.dumps(check_weekly_loss(history)))
     autoRunning = false;
   }
 
-  // Auto-run every 45 seconds when bot is active
+  // Auto-run every 45 seconds when AI engine is active
   setInterval(async () => {
     if (!state.active || state.killSwitch) return;
 
@@ -1468,7 +1468,7 @@ print(json.dumps(check_weekly_loss(history)))
 
   // Route: Get last scan result
   app.get("/api/bot/last-scan", requireAuth, (_req, res) => {
-    res.json(lastScanResult || { message: "No scan run yet. Activate the bot to start." });
+    res.json(lastScanResult || { message: "No scan run yet. Activate the AI engine to start." });
   });
 
   // Route: Market calendar — holidays and early closes
@@ -1552,7 +1552,7 @@ print(json.dumps(check_weekly_loss(history)))
 
   // Auto-start: log all rules and begin
   setTimeout(() => {
-    audit("SYSTEM", "=== VolTradeAI Bot v2.0 Initialized ===");
+    audit("SYSTEM", "=== VolTradeAI AI Trading Engine v2.0 Initialized ===");
     audit("SYSTEM", `Mode: PAPER TRADING (Alpaca)`);
     audit("RULES", `Scan interval: 45 seconds during trading hours`);
     audit("RULES", `Max positions: ${MAX_POSITIONS} at once`);
@@ -1595,7 +1595,7 @@ print(json.dumps(check_weekly_loss(history)))
       } else {
         const nextOpen = clock.next_open ? new Date(clock.next_open).toLocaleString("en-US", { timeZone: "America/New_York" }) : "unknown";
         audit("SYSTEM", `Market is closed. No trading until next session. Next open: ${nextOpen} ET`);
-        audit("SYSTEM", "Bot is idle. Will auto-scan when market opens.");
+        audit("SYSTEM", "AI engine is idle. Will auto-scan when market opens.");
       }
     }).catch(() => {
       audit("SYSTEM", "Could not check market status. Will retry on next cycle.");

@@ -24,15 +24,15 @@ const TIPS: Record<string, string> = {
   vrpSelling: "Selling options when they're overpriced vs how much the stock actually moves. You collect money upfront and keep it if the stock stays calm.",
   momentum: "Buying stocks that have been going up recently. Research shows trends tend to continue for weeks or months.",
   pead: "Post-Earnings Announcement Drift — when a company beats earnings expectations, the stock usually keeps rising for weeks after.",
-  regime: "What kind of market we're in right now: calm, choppy, trending up, or crashing. The bot uses different strategies for each.",
+  regime: "What kind of market we're in right now: calm, choppy, trending up, or crashing. The AI engine uses different strategies for each.",
   confidence: "How sure the AI is about this signal. 80%+ means strong conviction based on multiple factors agreeing.",
   annualReturn: "Average return per year if you ran this strategy continuously.",
   totalReturn: "Total percentage gained (or lost) over the entire backtest period.",
   maxDrawdown: "Worst peak-to-trough decline during the backtest. Smaller is safer.",
-  dailyLossLimit: "If the bot loses more than this percentage in a single day, all trading automatically halts until reset.",
-  positionSize: "The bot will never put more than this percentage of your portfolio into a single trade.",
+  dailyLossLimit: "If the AI engine loses more than this percentage in a single day, all trading automatically halts until reset.",
+  positionSize: "The AI engine will never put more than this percentage of your portfolio into a single trade.",
   totalExposure: "Maximum percentage of your portfolio that can be invested at any one time.",
-  performance: "Live performance tracking — win rate, P&L, and equity curve across all bot trades.",
+  performance: "Live performance tracking — win rate, P&L, and equity curve across all AI engine trades.",
   notifications: "Real-time alerts for trades executed, stop losses hit, earnings events, and daily summaries.",
 };
 
@@ -369,7 +369,7 @@ function PerformanceCard({ perf }: { perf: any }) {
       {/* No trades yet */}
       {totalTrades === 0 && (
         <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "8px 0" }}>
-          Performance data builds as the bot executes trades.
+          Performance data builds as the AI engine executes trades.
         </p>
       )}
     </div>
@@ -573,7 +573,7 @@ export default function BotDashboard() {
             </table>
           </div>
         ) : (
-          <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The bot will generate signals and trade when activated.</p>
+          <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The AI engine will generate signals and trade when activated.</p>
         )}
       </div>
 
@@ -730,7 +730,7 @@ export default function BotDashboard() {
               </div>
             ))
           ) : (
-            <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "16px 0" }}>No activity yet. Start the bot to begin.</p>
+            <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "16px 0" }}>No activity yet. Start the AI engine to begin.</p>
           )}
         </div>
       </div>
