@@ -24,6 +24,12 @@ from datetime import datetime, timedelta
 import requests
 import numpy as np
 
+try:
+    import lightgbm as lgb
+    HAS_LIGHTGBM = True
+except ImportError:
+    HAS_LIGHTGBM = False
+
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.WARNING)
 
@@ -87,7 +93,8 @@ def _load_model():
     try:
         import joblib
         bundle = joblib.load(MODEL_PATH)
-        if isinstance(bundle, dict) and "rf" in bundle and "gb" in bundle:
+        # Accept both LightGBM bundles (model_type key) and legacy sklearn bundles (rf/gb keys)
+        if isinstance(bundle, dict) and ("model_type" in bundle or ("rf" in bundle and "gb" in bundle)):
             return bundle
     except Exception:
         pass
@@ -125,28 +132,33 @@ def ml_score(features_dict: dict) -> dict:
         if bundle is not None:
             try:
                 X = _features_to_array(features_dict)
-                rf = bundle["rf"]
-                gb = bundle["gb"]
 
-                prob_rf = rf.predict_proba(X)[0][1]   # P(class=1)
-                prob_gb = gb.predict_proba(X)[0][1]
-                prob    = (prob_rf + prob_gb) / 2.0   # ensemble average
+                model_type = bundle.get("model_type", "sklearn_ensemble")
 
-                score_0_100 = round(float(prob) * 100, 1)
-                confidence  = round(float(prob), 4)
-
-                if prob >= 0.60:
-                    signal = "BUY"
-                elif prob <= 0.40:
-                    signal = "SELL"
+                if model_type == "lightgbm":
+                    model = bundle["model"]
+                    prob = float(model.predict(X)[0])
+                    predicted_class = 1 if prob > 0.5 else 0
                 else:
-                    signal = "HOLD"
+                    # Support both new bundle["model"] tuple and old bundle["rf"]/bundle["gb"] keys
+                    if "model" in bundle:
+                        rf, gb = bundle["model"]
+                    else:
+                        rf, gb = bundle["rf"], bundle["gb"]
+                    prob_rf = rf.predict_proba(X)[:, 1][0]
+                    prob_gb = gb.predict_proba(X)[:, 1][0]
+                    prob = (prob_rf + prob_gb) / 2
+                    predicted_class = 1 if prob > 0.5 else 0
+
+                ml_s = prob * 100  # Scale 0-1 probability to 0-100 score
+
+                signal = "BUY" if predicted_class == 1 and prob > 0.6 else "SELL" if predicted_class == 0 and prob < 0.4 else "HOLD"
 
                 return {
-                    "ml_score":      score_0_100,
-                    "ml_confidence": confidence,
+                    "ml_score":      round(ml_s, 1),
+                    "ml_confidence": round(prob if predicted_class == 1 else 1 - prob, 3),
                     "ml_signal":     signal,
-                    "model_type":    "ensemble",
+                    "model_type":    model_type,
                 }
             except Exception:
                 pass  # fall through to rule-based
@@ -618,49 +630,65 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
             X, y, test_size=0.2, random_state=42, stratify=y
         )
 
-        # Random Forest
-        rf_pipeline = Pipeline([
-            ("scaler", StandardScaler()),
-            ("clf", RandomForestClassifier(
-                n_estimators=100,
-                max_depth=6,
-                min_samples_leaf=10,
-                random_state=42,
-                n_jobs=-1,
-                class_weight="balanced",
-            )),
-        ])
-        rf_pipeline.fit(X_train, y_train)
+        if HAS_LIGHTGBM:
+            # LightGBM — 5-10x faster, better accuracy, standard in quant finance
+            print(json.dumps({"status": "training_lightgbm", "samples": len(all_samples)}))
 
-        # Gradient Boosting (sklearn's built-in, no xgboost needed)
-        gb_pipeline = Pipeline([
-            ("scaler", StandardScaler()),
-            ("clf", GradientBoostingClassifier(
-                n_estimators=100,
-                max_depth=4,
-                learning_rate=0.1,
-                subsample=0.8,
-                random_state=42,
-            )),
-        ])
-        gb_pipeline.fit(X_train, y_train)
+            train_data = lgb.Dataset(X_train, label=y_train, feature_name=FEATURE_COLS)
+            valid_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
 
-        # Ensemble accuracy on test set
-        rf_probs = rf_pipeline.predict_proba(X_test)[:, 1]
-        gb_probs = gb_pipeline.predict_proba(X_test)[:, 1]
-        ensemble_probs = (rf_probs + gb_probs) / 2
-        ensemble_preds = (ensemble_probs >= 0.5).astype(int)
-        accuracy = float((ensemble_preds == y_test).mean())
+            params = {
+                "objective": "binary",
+                "metric": "auc",
+                "boosting_type": "gbdt",
+                "num_leaves": 63,
+                "learning_rate": 0.05,
+                "feature_fraction": 0.8,
+                "bagging_fraction": 0.8,
+                "bagging_freq": 5,
+                "verbose": -1,
+                "n_jobs": -1,
+                "min_child_samples": 20,
+                "reg_alpha": 0.1,
+                "reg_lambda": 0.1,
+            }
 
-        # Save bundle
-        bundle = {
-            "rf":        rf_pipeline,
-            "gb":        gb_pipeline,
-            "accuracy":  round(accuracy, 4),
-            "samples":   n_samples,
-            "features":  21,
-            "timestamp": datetime.now().isoformat(),
-        }
+            model = lgb.train(
+                params,
+                train_data,
+                num_boost_round=300,
+                valid_sets=[valid_data],
+                callbacks=[lgb.early_stopping(stopping_rounds=30), lgb.log_evaluation(0)],
+            )
+
+            # Evaluate
+            y_pred = (model.predict(X_test) > 0.5).astype(int)
+            accuracy = float((y_pred == y_test).mean())
+
+            # Feature importance
+            importance = dict(zip(FEATURE_COLS, model.feature_importance(importance_type="gain").tolist()))
+            top_features = sorted(importance.items(), key=lambda x: -x[1])[:10]
+
+            bundle = {"model": model, "model_type": "lightgbm", "features": FEATURE_COLS, "accuracy": accuracy, "top_features": top_features,
+                      "samples": n_samples, "timestamp": datetime.now().isoformat()}
+        else:
+            # Fallback to sklearn if LightGBM not available
+            print(json.dumps({"status": "training_sklearn_fallback"}))
+
+            rf = Pipeline([("scaler", StandardScaler()), ("clf", RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1))])
+            gb = Pipeline([("scaler", StandardScaler()), ("clf", GradientBoostingClassifier(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=42))])
+
+            rf.fit(X_train, y_train)
+            gb.fit(X_train, y_train)
+
+            y_pred_rf = rf.predict(X_test)
+            y_pred_gb = gb.predict(X_test)
+            y_pred = ((rf.predict_proba(X_test)[:, 1] + gb.predict_proba(X_test)[:, 1]) / 2 > 0.5).astype(int)
+            accuracy = float((y_pred == y_test).mean())
+
+            bundle = {"model": (rf, gb), "model_type": "sklearn_ensemble", "features": FEATURE_COLS, "accuracy": accuracy, "top_features": [],
+                      "samples": n_samples, "timestamp": datetime.now().isoformat()}
+
         joblib.dump(bundle, MODEL_PATH)
 
         elapsed = round(time.time() - t0, 1)

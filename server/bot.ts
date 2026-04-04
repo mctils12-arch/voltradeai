@@ -1365,39 +1365,64 @@ print(json.dumps(run_diagnostics()))
     }
   }, 45000);
 
-  // TIER 2: Intelligence (every 5 minutes) — find and execute trades
-  setInterval(async () => {
-    if (!state.active || state.killSwitch || tier2Running) return;
-    if (state.circuitBreakerUntil > Date.now()) return;
+  // TIER 2: Intelligence (adaptive interval based on market time)
+  function getTier2Interval(): number {
+    const now = new Date();
+    const etHour = now.getUTCHours() - 4;
+    const etMin = now.getUTCMinutes();
+    const etTime = etHour + etMin / 60;
+
+    // Market open rush (9:30-10:30 ET): scan every 2 minutes
+    if (etTime >= 9.5 && etTime < 10.5) return 120000;
+    // Mid-morning (10:30-12 ET): every 4 minutes
+    if (etTime >= 10.5 && etTime < 12) return 240000;
+    // Quiet midday (12-2pm ET): every 7 minutes — deeper analysis window
+    if (etTime >= 12 && etTime < 14) return 420000;
+    // Power hour (2-4pm ET): every 3 minutes
+    if (etTime >= 14 && etTime < 16) return 180000;
+    // After hours (4-8pm ET): every 15 minutes — research only
+    if (etTime >= 16 && etTime < 20) return 900000;
+    // Pre-market (4-9:30am ET): every 10 minutes
+    if (etTime >= 4 && etTime < 9.5) return 600000;
+    // Overnight: every 30 minutes
+    return 1800000;
+  }
+
+  async function scheduleTier2() {
+    if (!state.active || state.killSwitch || tier2Running) {
+      setTimeout(scheduleTier2, getTier2Interval());
+      return;
+    }
+    if (state.circuitBreakerUntil > Date.now()) {
+      setTimeout(scheduleTier2, getTier2Interval());
+      return;
+    }
 
     try {
       const clock = await alpaca("/v2/clock");
       const now = new Date(clock.timestamp);
       const etH = now.getUTCHours() - 4;
       const isAnyWindow = clock.is_open || (etH >= 4 && etH < 20);
-
-      // Reset morning queue flag at start of each trading day (4am ET)
-      if (etH >= 4 && etH < 5) {
-        state.morningQueueExecuted = false;
-      }
-
       if (!isAnyWindow) {
-        // 8pm-4am ET — overnight research mode
-        if (!autoRunning) {
-          await runOvernightResearch(etH);
-        }
+        setTimeout(scheduleTier2, getTier2Interval());
         return;
       }
 
       tier2Running = true;
+      const interval = getTier2Interval();
+      audit("TIER2", `Starting scan (interval: ${Math.round(interval / 60000)}min based on market time)`);
       await tier2Intelligence(clock.is_open, etH);
     } catch (err: any) {
       console.error("[tier2]", err?.message || err);
       audit("TIER2-ERROR", String(err?.message || err).slice(0, 200));
     } finally {
       tier2Running = false;
+      setTimeout(scheduleTier2, getTier2Interval());
     }
-  }, 300000); // 5 minutes
+  }
+
+  // Start Tier 2 with adaptive scheduling
+  setTimeout(scheduleTier2, 10000); // First run after 10 seconds
 
   // TIER 3: Strategic (every 2 hours) — ML retrain, macro, manipulation scan
   setInterval(async () => {
@@ -1414,8 +1439,7 @@ print(json.dumps(run_diagnostics()))
     }
   }, 7200000); // 2 hours
 
-  // Run Tier 2 and Tier 3 once on startup after a delay
-  setTimeout(() => { tier2Intelligence(false, new Date().getUTCHours() - 4).catch(() => {}); }, 10000);
+  // Run Tier 3 once on startup after a delay (Tier 2 is handled by scheduleTier2)
   setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
 
   // Route: Get last scan result
