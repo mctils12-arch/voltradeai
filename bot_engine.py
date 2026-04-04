@@ -241,6 +241,15 @@ def deep_score(ticker, quick_result):
     reasons = list(quick_result.get("reasons", []))
     change_pct = quick_result.get("change_pct", 0)
 
+    # Fetch macro context
+    try:
+        from macro_data import get_macro_snapshot, get_news_sentiment
+        macro = get_macro_snapshot()
+        news_sent = get_news_sentiment(ticker)
+    except Exception:
+        macro = {}
+        news_sent = {}
+
     # ── Pull key metrics from analyze.py output ──────────────────────────────
     vrp = detail.get("vrp", 0) or 0
     rec = detail.get("recommendation", {}) or {}
@@ -344,6 +353,56 @@ def deep_score(ticker, quick_result):
             vol_premium_bonus = 5
             reasons.append(f"Vol compressed — low EWMA ({ewma_rv:.1f}%)")
 
+    # ── Macro & News Factors ──────────────────────────────────────────────
+    macro_adjustment = 0
+    news_adjustment = 0
+
+    # VIX regime affects strategy preference
+    vix_regime = macro.get("vix_regime", "medium")
+    if vix_regime == "extreme":
+        # High VIX: favor vol-selling (VRP), penalize momentum
+        macro_adjustment += 5 if vrp > 0 else -10
+        reasons.append(f"VIX extreme ({macro.get('vix', 'N/A')}) — favoring vol strategies")
+    elif vix_regime == "low":
+        # Low VIX: favor momentum, penalize vol-selling (low premiums)
+        macro_adjustment += 5 if mom_12_1 > 0 else -5
+        reasons.append(f"VIX low ({macro.get('vix', 'N/A')}) — favoring momentum")
+
+    # Sector momentum — boost stocks in hot sectors, penalize cold ones
+    sector_mom = macro.get("sector_momentum", {})
+    stock_sector = SECTOR_MAP.get(ticker, "Other")
+    sector_pct = sector_mom.get(stock_sector, 0)
+    if sector_pct > 1.5:
+        macro_adjustment += 8
+        reasons.append(f"Sector tailwind: {stock_sector} +{sector_pct:.1f}%")
+    elif sector_pct < -1.5:
+        macro_adjustment -= 8
+        reasons.append(f"Sector headwind: {stock_sector} {sector_pct:.1f}%")
+
+    # Market regime
+    regime = macro.get("market_regime", "neutral")
+    if regime == "risk_off":
+        # Risk-off: penalize aggressive buys, favor defensive
+        macro_adjustment -= 5
+        reasons.append("Market regime: risk-off")
+    elif regime == "risk_on":
+        macro_adjustment += 3
+
+    # News sentiment scoring
+    news_score_val = news_sent.get("sentiment_score", 0)
+    if news_score_val >= 60:
+        news_adjustment += 10
+        reasons.append(f"News very bullish ({news_sent.get('headline_count', 0)} articles)")
+    elif news_score_val >= 20:
+        news_adjustment += 5
+        reasons.append(f"News bullish ({news_sent.get('headline_count', 0)} articles)")
+    elif news_score_val <= -60:
+        news_adjustment -= 12
+        reasons.append(f"News very bearish: {news_sent.get('top_headline', '')[:60]}")
+    elif news_score_val <= -20:
+        news_adjustment -= 6
+        reasons.append(f"News bearish ({news_sent.get('headline_count', 0)} articles)")
+
     # ── Combined score ───────────────────────────────────────────────────────
     combined_score = (
         momentum_score * 0.25 +
@@ -352,6 +411,7 @@ def deep_score(ticker, quick_result):
         squeeze_score_val * 0.15 +
         volume_score * 0.15
     ) + vol_premium_bonus
+    combined_score += macro_adjustment + news_adjustment
 
     # Recommendation boost
     if rec:
@@ -401,6 +461,12 @@ def deep_score(ticker, quick_result):
             "iv_rank": detail.get("iv_rank", 50) or 50,
             "sentiment_score": sent_score_val,
             "sector_encoded": hash(SECTOR_MAP.get(ticker, "unknown")) % 10,
+            "vix": macro.get("vix", 20),
+            "vix_regime_encoded": {"low": 0, "medium": 1, "high": 2, "extreme": 3}.get(macro.get("vix_regime", "medium"), 1),
+            "sector_momentum": sector_mom.get(stock_sector, 0),
+            "market_regime_encoded": {"risk_on": 2, "neutral": 1, "risk_off": 0}.get(macro.get("market_regime", "neutral"), 1),
+            "news_sentiment": news_score_val,
+            "treasury_10y": macro.get("treasury_10y", 4.25),
         }
         ml_result = ml_score(ml_features)
 

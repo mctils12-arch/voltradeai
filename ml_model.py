@@ -37,6 +37,8 @@ FEATURE_COLS = [
     "rsi_14", "vrp", "ewma_vol", "garch_vol", "change_pct_today",
     "range_pct", "vwap_position", "put_call_ratio", "iv_rank",
     "sentiment_score", "sector_encoded",
+    "vix", "vix_regime_encoded", "sector_momentum", "market_regime_encoded",
+    "news_sentiment", "treasury_10y",
 ]
 
 # ── Default fallback weights ───────────────────────────────────────────────────
@@ -313,7 +315,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
 
     Returns:
         {"status": "trained"/"cached"/"failed", "accuracy": float,
-         "features": 15, "samples": int, "timestamp": str}
+         "features": 21, "samples": int, "timestamp": str}
     """
     # If model exists and is fresh enough, skip retraining
     if _model_is_fresh(max_age_days=7):
@@ -322,7 +324,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
             return {
                 "status":    "cached",
                 "accuracy":  bundle.get("accuracy", 0),
-                "features":  15,
+                "features":  21,
                 "samples":   bundle.get("samples", 0),
                 "timestamp": bundle.get("timestamp", ""),
             }
@@ -340,7 +342,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
             "status":    "failed",
             "error":     "Not enough training samples",
             "accuracy":  0,
-            "features":  15,
+            "features":  21,
             "samples":   n_samples,
             "timestamp": datetime.now().isoformat(),
         }
@@ -405,7 +407,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
             "gb":        gb_pipeline,
             "accuracy":  round(accuracy, 4),
             "samples":   n_samples,
-            "features":  15,
+            "features":  21,
             "timestamp": datetime.now().isoformat(),
         }
         joblib.dump(bundle, MODEL_PATH)
@@ -416,7 +418,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
         return {
             "status":    "trained",
             "accuracy":  round(accuracy, 4),
-            "features":  15,
+            "features":  21,
             "samples":   n_samples,
             "elapsed_sec": elapsed,
             "timestamp": datetime.now().isoformat(),
@@ -427,7 +429,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
             "status":    "failed",
             "error":     str(e),
             "accuracy":  0,
-            "features":  15,
+            "features":  21,
             "samples":   n_samples,
             "timestamp": datetime.now().isoformat(),
         }
