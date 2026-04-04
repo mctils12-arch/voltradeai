@@ -429,10 +429,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
       <CityMatrixCanvas />
 
       {/* Corner HUD markers */}
-      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 10, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em" }}>
-        VOLTRADE // SI-TK // NOFORN
-      </div>
-      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 20, fontSize: 11, color: "#00e5ff", opacity: 0.4, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.12em" }}>
+      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 12, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em", fontWeight: 600 }}>
         VOLTRADEAI
       </div>
       <div style={{ position: "absolute", bottom: 16, left: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>

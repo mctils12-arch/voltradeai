@@ -121,11 +121,14 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             <button
               key={tab.id}
               className={`tab-btn ${activeTab === tab.id ? "active" : ""}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabClick(tab.id)}
               aria-current={activeTab === tab.id ? "page" : undefined}
             >
               {tab.icon}
               {tab.label}
+              {tab.requiresAuth && !authenticated && (
+                <span style={{ fontSize: 9, opacity: 0.5, marginLeft: 2 }}>🔒</span>
+              )}
             </button>
           ))}
         </div>
@@ -139,14 +142,26 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
           >
             {dark ? <Sun size={15} /> : <Moon size={15} />}
           </button>
-          <button
-            className="theme-toggle-btn"
-            onClick={handleLogout}
-            aria-label="Sign out"
-            title="Sign out"
-          >
-            <LogOut size={15} />
-          </button>
+          {authenticated ? (
+            <button
+              className="theme-toggle-btn"
+              onClick={handleLogout}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut size={15} />
+            </button>
+          ) : (
+            <button
+              className="theme-toggle-btn"
+              onClick={() => setShowLogin(true)}
+              aria-label="Sign in"
+              title="Sign in"
+              style={{ color: "#00e5ff" }}
+            >
+              <LogIn size={15} />
+            </button>
+          )}
         </div>
       </nav>
 

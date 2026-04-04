@@ -59,19 +59,7 @@ function AppShell() {
     return <LoginPage onLogin={() => { window.history.replaceState({}, "", window.location.pathname); queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }); }} />;
   }
 
-  // Desktop: require login first (original behavior)
-  if (!isMobile) {
-    if (isLoading) {
-      return (
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#020408", color: "#4a5c70" }}>
-          Loading...
-        </div>
-      );
-    }
-    if (!authenticated) {
-      return <LoginPage onLogin={() => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] })} />;
-    }
-  }
+  // All screens: public access. Login only needed for AI Engine + Watchlist saves.
 
   // Desktop authenticated OR mobile (public)
   return <Home authenticated={authenticated} authLoading={isLoading} isMobile={isMobile} isOwner={isOwner} />;
