@@ -725,6 +725,24 @@ export function registerBotRoutes(app: Express) {
 
         audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
         notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} (score: ${trade.score})`);
+
+        // Track fill for ML learning
+        try {
+          const morningFillData = JSON.stringify({
+            ticker: trade.ticker,
+            order_type: "market",
+            side: trade.side === "short" ? "sell" : (trade.side || "buy"),
+            qty: Math.floor(trade.shares),
+            expected_price: trade.price,
+            fill_price: trade.price,
+            time_placed: trade.queuedAt || new Date().toISOString(),
+            session: "regular",
+            volume: 0,
+            score: trade.score,
+          });
+          execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${morningFillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
+        } catch {}
+
         slotsUsed++;
       } catch (e: any) {
         audit("MORNING-ERROR", `Failed: ${trade.ticker} — ${e.message}`);
@@ -960,6 +978,23 @@ export function registerBotRoutes(app: Express) {
             const sideLabel = trade.side === "short" ? "SHORT" : (trade.side || "BUY").toUpperCase();
             audit("AUTO-TRADE", `[REGULAR] MARKET ${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
             notify("trade", `${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} (score: ${trade.score})`);
+
+            // Track fill for ML learning
+            try {
+              const fillData = JSON.stringify({
+                ticker: trade.ticker,
+                order_type: "market",
+                side: sideStr || trade.side || "buy",
+                qty,
+                expected_price: trade.price,
+                fill_price: trade.price,
+                time_placed: new Date().toISOString(),
+                session: isMarketOpen ? "regular" : isPreMarket ? "premarket" : "afterhours",
+                volume: trade.volume || 0,
+                score: trade.score,
+              });
+              execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
+            } catch {}
 
             // Track the order for stale sweeping (market orders fill instantly, but just in case)
             if (order?.id) {
@@ -1260,6 +1295,35 @@ export function registerBotRoutes(app: Express) {
     if (autoRunning) return res.json({ message: "Already running..." });
     res.json({ message: "Autonomous cycle starting..." });
     runAutonomousCycle();
+  });
+
+  // ── ML Model Status ───────────────────────────────────────────────────────
+  app.get("/api/bot/ml-status", requireAuth, async (_req, res) => {
+    try {
+      const { stdout } = await execAsync(
+        `python3 -c "
+import json, os, time
+status = {'model_exists': os.path.exists('/tmp/voltrade_ml_model.pkl')}
+if status['model_exists']:
+    status['model_age_hours'] = round((time.time() - os.path.getmtime('/tmp/voltrade_ml_model.pkl')) / 3600, 1)
+fills_path = '/tmp/voltrade_fills.json'
+if os.path.exists(fills_path):
+    with open(fills_path) as f:
+        fills = json.load(f)
+    status['total_fills'] = len(fills)
+else:
+    status['total_fills'] = 0
+weights_path = '/tmp/voltrade_weights.json'
+if os.path.exists(weights_path):
+    with open(weights_path) as f:
+        status['learned_weights'] = json.load(f)
+print(json.dumps(status))
+"`, { timeout: 10000 }
+      );
+      res.json(JSON.parse(stdout.trim()));
+    } catch (e: any) {
+      res.json({ error: e.message });
+    }
   });
 
 }

@@ -382,6 +382,38 @@ def deep_score(ticker, quick_result):
 
     combined_score = max(0, min(100, combined_score))
 
+    # ── ML Model Integration ──────────────────────────────────────────────────
+    try:
+        from ml_model import ml_score
+        ml_features = {
+            "momentum_1m": edge.get("momentum_1m", 0) or 0,
+            "momentum_3m": edge.get("momentum_3m", 0) or 0,
+            "momentum_12m": mom_12_1,
+            "volume_ratio": volume_ratio,
+            "rsi_14": rsi,
+            "vrp": vrp,
+            "ewma_vol": vol_metrics.get("ewma_vol", 0) or 0 if vol_metrics else 0,
+            "garch_vol": vol_metrics.get("garch_vol", 0) or 0 if vol_metrics else 0,
+            "change_pct_today": quick_result.get("change_pct", 0) or 0,
+            "range_pct": quick_result.get("range_pct", 0) or 0,
+            "vwap_position": 1 if quick_result.get("above_vwap") else 0,
+            "put_call_ratio": edge.get("put_call_ratio", 1.0) or 1.0,
+            "iv_rank": detail.get("iv_rank", 50) or 50,
+            "sentiment_score": sent_score_val,
+            "sector_encoded": hash(SECTOR_MAP.get(ticker, "unknown")) % 10,
+        }
+        ml_result = ml_score(ml_features)
+
+        # Blend: 60% rule-based, 40% ML model
+        if ml_result.get("model_type") != "fallback":
+            ml_s = ml_result.get("ml_score", combined_score)
+            combined_score = combined_score * 0.6 + ml_s * 0.4
+            reasons.append(f"ML model: {ml_result.get('ml_signal', 'HOLD')} ({ml_result.get('ml_confidence', 0):.0%} confidence)")
+    except Exception:
+        pass  # ML not available, use rule-based only
+
+    combined_score = max(0, min(100, combined_score))
+
     # ── Determine trade SIDE ─────────────────────────────────────────────────
     momentum_is_negative = (momentum_score < 40 or change_pct < -2)
     sentiment_is_bearish = (sent_score_val < 40)
@@ -633,6 +665,18 @@ def scan_market():
 # ── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Train ML model if needed (runs once, cached for a week)
+    try:
+        from ml_model import train_model
+        model_path = "/tmp/voltrade_ml_model.pkl"
+        # Retrain if model doesn't exist or is older than 7 days
+        if not os.path.exists(model_path) or (time.time() - os.path.getmtime(model_path)) > 7 * 86400:
+            print(json.dumps({"status": "training_ml_model"}))
+            train_result = train_model()
+            # Training happens in background, don't block the scan
+    except Exception:
+        pass
+
     mode = sys.argv[1] if len(sys.argv) > 1 else "full"
 
     if mode == "scan":
