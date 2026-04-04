@@ -119,97 +119,146 @@ function CityMatrixCanvas() {
 
       const groundY = H * 0.92;
 
-      // Buildings
+      // Buildings — glass tower rendering
       for (const b of buildings) {
         const bTop = groundY - b.h;
 
-        // Body gradient
+        // Glass facade body — semi-transparent with visible structure
         const bGrad = ctx!.createLinearGradient(b.x, bTop, b.x + b.w, groundY);
-        bGrad.addColorStop(0, "#080e1c");
-        bGrad.addColorStop(0.5, "#060b16");
-        bGrad.addColorStop(1, "#040810");
+        bGrad.addColorStop(0, "rgba(8, 18, 35, 0.85)");
+        bGrad.addColorStop(0.3, "rgba(6, 14, 28, 0.75)");
+        bGrad.addColorStop(0.7, "rgba(4, 10, 22, 0.8)");
+        bGrad.addColorStop(1, "rgba(3, 8, 16, 0.9)");
         ctx!.fillStyle = bGrad;
         ctx!.fillRect(b.x, bTop, b.w, b.h);
 
-        // Right edge depth shadow
-        const edgeGrad = ctx!.createLinearGradient(b.x + b.w - 10, bTop, b.x + b.w, bTop);
+        // Glass reflection streak (diagonal light on facade)
+        const reflGrad = ctx!.createLinearGradient(b.x, bTop, b.x + b.w * 0.6, bTop + b.h * 0.4);
+        reflGrad.addColorStop(0, "rgba(0, 229, 255, 0.04)");
+        reflGrad.addColorStop(0.3, "rgba(0, 229, 255, 0.02)");
+        reflGrad.addColorStop(1, "transparent");
+        ctx!.fillStyle = reflGrad;
+        ctx!.fillRect(b.x, bTop, b.w * 0.6, b.h * 0.5);
+
+        // Horizontal floor plate lines (see-through glass structure)
+        const floorHeight = 10;
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.06)";
+        ctx!.lineWidth = 0.5;
+        for (let fy = bTop + floorHeight; fy < groundY; fy += floorHeight) {
+          ctx!.beginPath();
+          ctx!.moveTo(b.x, fy);
+          ctx!.lineTo(b.x + b.w, fy);
+          ctx!.stroke();
+        }
+
+        // Vertical mullion lines (glass panel divisions)
+        const panelWidth = Math.max(8, b.w / Math.floor(b.w / 10));
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.04)";
+        ctx!.lineWidth = 0.5;
+        for (let fx = b.x + panelWidth; fx < b.x + b.w; fx += panelWidth) {
+          ctx!.beginPath();
+          ctx!.moveTo(fx, bTop);
+          ctx!.lineTo(fx, groundY);
+          ctx!.stroke();
+        }
+
+        // Right edge — darker glass face (3D depth)
+        const edgeW = Math.min(12, b.w * 0.15);
+        const edgeGrad = ctx!.createLinearGradient(b.x + b.w - edgeW, bTop, b.x + b.w, bTop);
         edgeGrad.addColorStop(0, "transparent");
-        edgeGrad.addColorStop(1, "rgba(0, 0, 0, 0.4)");
+        edgeGrad.addColorStop(1, "rgba(0, 0, 0, 0.5)");
         ctx!.fillStyle = edgeGrad;
-        ctx!.fillRect(b.x + b.w - 10, bTop, 10, b.h);
+        ctx!.fillRect(b.x + b.w - edgeW, bTop, edgeW, b.h);
 
-        // Left edge highlight
-        ctx!.fillStyle = "rgba(0, 229, 255, 0.03)";
-        ctx!.fillRect(b.x, bTop, 2, b.h);
+        // Left edge — cyan glass highlight
+        ctx!.fillStyle = "rgba(0, 229, 255, 0.05)";
+        ctx!.fillRect(b.x, bTop, 1.5, b.h);
 
-        // Roof line
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.12)";
-        ctx!.lineWidth = 1;
+        // Roof line glow
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.18)";
+        ctx!.lineWidth = 1.5;
         ctx!.beginPath();
         ctx!.moveTo(b.x, bTop);
         ctx!.lineTo(b.x + b.w, bTop);
         ctx!.stroke();
 
-        // Building outline
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.05)";
-        ctx!.lineWidth = 0.5;
+        // Building outline — subtle glass edge
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.07)";
+        ctx!.lineWidth = 0.8;
         ctx!.strokeRect(b.x, bTop, b.w, b.h);
 
         // Crown (for tall buildings)
         if (b.hasCrown) {
-          ctx!.fillStyle = "rgba(0, 229, 255, 0.06)";
+          ctx!.fillStyle = "rgba(0, 229, 255, 0.08)";
           if (b.crownType === 0) {
-            // Pointed spire
             ctx!.beginPath();
-            ctx!.moveTo(b.x + b.w / 2 - 4, bTop);
-            ctx!.lineTo(b.x + b.w / 2, bTop - 15);
-            ctx!.lineTo(b.x + b.w / 2 + 4, bTop);
+            ctx!.moveTo(b.x + b.w / 2 - 5, bTop);
+            ctx!.lineTo(b.x + b.w / 2, bTop - 20);
+            ctx!.lineTo(b.x + b.w / 2 + 5, bTop);
+            ctx!.fill();
+            // Spire glow
+            ctx!.fillStyle = "rgba(0, 229, 255, 0.15)";
+            ctx!.beginPath();
+            ctx!.arc(b.x + b.w / 2, bTop - 20, 2, 0, Math.PI * 2);
             ctx!.fill();
           } else if (b.crownType === 1) {
-            // Stepped top
-            ctx!.fillRect(b.x + b.w * 0.2, bTop - 8, b.w * 0.6, 8);
-            ctx!.fillRect(b.x + b.w * 0.35, bTop - 14, b.w * 0.3, 6);
+            ctx!.fillRect(b.x + b.w * 0.15, bTop - 10, b.w * 0.7, 10);
+            ctx!.fillRect(b.x + b.w * 0.3, bTop - 18, b.w * 0.4, 8);
+          } else {
+            // Angled crown
+            ctx!.beginPath();
+            ctx!.moveTo(b.x, bTop);
+            ctx!.lineTo(b.x + b.w * 0.5, bTop - 12);
+            ctx!.lineTo(b.x + b.w, bTop);
+            ctx!.fill();
           }
         }
 
         // Antenna with blinking red light
         if (b.antennaHeight > 0) {
           const ax = b.x + b.w / 2;
-          ctx!.strokeStyle = "rgba(0, 229, 255, 0.15)";
+          ctx!.strokeStyle = "rgba(100, 120, 140, 0.3)";
           ctx!.lineWidth = 1;
           ctx!.beginPath();
           ctx!.moveTo(ax, bTop);
           ctx!.lineTo(ax, bTop - b.antennaHeight);
           ctx!.stroke();
-          // Blinking red light
           const blinkPhase = Math.sin(time * 0.04 + b.x * 0.1);
           if (blinkPhase > 0) {
             const alpha = blinkPhase * 0.9;
             ctx!.fillStyle = `rgba(255, 40, 40, ${alpha})`;
             ctx!.beginPath();
-            ctx!.arc(ax, bTop - b.antennaHeight, 2, 0, Math.PI * 2);
+            ctx!.arc(ax, bTop - b.antennaHeight, 2.5, 0, Math.PI * 2);
             ctx!.fill();
-            // Glow
-            ctx!.fillStyle = `rgba(255, 40, 40, ${alpha * 0.3})`;
+            ctx!.fillStyle = `rgba(255, 40, 40, ${alpha * 0.25})`;
             ctx!.beginPath();
-            ctx!.arc(ax, bTop - b.antennaHeight, 6, 0, Math.PI * 2);
+            ctx!.arc(ax, bTop - b.antennaHeight, 8, 0, Math.PI * 2);
             ctx!.fill();
           }
         }
 
-        // Windows
+        // Windows — glass panel glow (see-through feel)
         for (const win of b.windows) {
           if (!win.lit) {
-            if (Math.random() < 0.0003) win.lit = true;
+            // Unlit windows still show faint glass reflection
+            ctx!.fillStyle = "rgba(0, 229, 255, 0.008)";
+            ctx!.fillRect(win.wx, win.wy, win.size, win.size * 0.6);
+            if (Math.random() < 0.0004) win.lit = true;
             continue;
           }
-          if (Math.random() < 0.0005) { win.lit = false; continue; }
-          const flick = Math.sin(time * 0.015 + win.flicker) * 0.5 + 0.5;
-          const alpha = 0.06 + flick * 0.22;
+          if (Math.random() < 0.0004) { win.lit = false; continue; }
+          const flick = Math.sin(time * 0.012 + win.flicker) * 0.5 + 0.5;
+          const alpha = 0.08 + flick * 0.25;
+          // Inner glow (warm light from inside office)
           ctx!.fillStyle = win.color === "cyan"
-            ? `rgba(0, 229, 255, ${alpha})`
-            : `rgba(220, 180, 50, ${alpha})`;
-          ctx!.fillRect(win.wx, win.wy, win.size, win.size);
+            ? `rgba(0, 200, 235, ${alpha})`
+            : `rgba(240, 200, 80, ${alpha})`;
+          ctx!.fillRect(win.wx, win.wy, win.size, win.size * 0.6);
+          // Outer glow halo (light bleeding through glass)
+          ctx!.fillStyle = win.color === "cyan"
+            ? `rgba(0, 229, 255, ${alpha * 0.15})`
+            : `rgba(240, 200, 80, ${alpha * 0.12})`;
+          ctx!.fillRect(win.wx - 1, win.wy - 0.5, win.size + 2, win.size * 0.6 + 1);
         }
       }
 
