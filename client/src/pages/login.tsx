@@ -1,9 +1,267 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface LoginProps {
   onLogin?: () => void;
 }
+
+// ── City + Matrix Canvas Animation ───────────────────────────────────────────
+
+function CityMatrixCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let W = window.innerWidth;
+    let H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+
+    const handleResize = () => {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      canvas.width = W;
+      canvas.height = H;
+      generateCity();
+    };
+    window.addEventListener("resize", handleResize);
+
+    // ── Generate city buildings ──
+    interface Building {
+      x: number; w: number; h: number;
+      windows: { wx: number; wy: number; lit: boolean; color: string; flicker: number }[];
+      antennaHeight: number;
+    }
+    interface Stream {
+      x: number; y: number; speed: number; length: number; chars: string[];
+      opacity: number; buildingTop: number;
+    }
+
+    let buildings: Building[] = [];
+    let streams: Stream[] = [];
+
+    const CHARS = "01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン$€¥£₿∞≈±∑∏∂∆∇αβγδε".split("");
+
+    function generateCity() {
+      buildings = [];
+      streams = [];
+      const groundY = H * 0.95;
+      let x = -10;
+
+      while (x < W + 50) {
+        const w = 20 + Math.random() * 70;
+        const h = 80 + Math.random() * (H * 0.55);
+        const bTop = groundY - h;
+
+        // Windows
+        const windows: Building["windows"][] = [];
+        const cols = Math.floor((w - 8) / 10);
+        const rows = Math.floor((h - 15) / 12);
+        const winArr: Building["windows"][number][] = [];
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const lit = Math.random() < 0.3;
+            winArr.push({
+              wx: x + 4 + c * 10,
+              wy: bTop + 8 + r * 12,
+              lit,
+              color: Math.random() < 0.7 ? "#00e5ff" : "#d4a017",
+              flicker: Math.random() * 1000,
+            });
+          }
+        }
+
+        const antennaHeight = Math.random() < 0.3 ? 10 + Math.random() * 25 : 0;
+
+        buildings.push({ x, w, h, windows: winArr, antennaHeight });
+
+        // Data streams from this building's top
+        const streamCount = Math.floor(1 + Math.random() * 3);
+        for (let s = 0; s < streamCount; s++) {
+          streams.push({
+            x: x + 5 + Math.random() * (w - 10),
+            y: bTop - Math.random() * 200,
+            speed: 1 + Math.random() * 3,
+            length: 8 + Math.floor(Math.random() * 20),
+            chars: Array.from({ length: 30 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
+            opacity: 0.15 + Math.random() * 0.35,
+            buildingTop: bTop,
+          });
+        }
+
+        x += w + 2 + Math.random() * 8;
+      }
+    }
+
+    generateCity();
+
+    let time = 0;
+
+    function draw() {
+      time++;
+      ctx!.clearRect(0, 0, W, H);
+
+      // Background gradient
+      const grad = ctx!.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "#020408");
+      grad.addColorStop(0.5, "#040810");
+      grad.addColorStop(1, "#060c18");
+      ctx!.fillStyle = grad;
+      ctx!.fillRect(0, 0, W, H);
+
+      // Subtle fog/glow at the base
+      const fogGrad = ctx!.createLinearGradient(0, H * 0.7, 0, H);
+      fogGrad.addColorStop(0, "transparent");
+      fogGrad.addColorStop(1, "rgba(0, 229, 255, 0.02)");
+      ctx!.fillStyle = fogGrad;
+      ctx!.fillRect(0, H * 0.7, W, H * 0.3);
+
+      const groundY = H * 0.95;
+
+      // Draw buildings
+      for (const b of buildings) {
+        const bTop = groundY - b.h;
+
+        // Building body — dark with slight gradient
+        const bGrad = ctx!.createLinearGradient(b.x, bTop, b.x, groundY);
+        bGrad.addColorStop(0, "#0a1420");
+        bGrad.addColorStop(1, "#060e18");
+        ctx!.fillStyle = bGrad;
+        ctx!.fillRect(b.x, bTop, b.w, b.h);
+
+        // Building outline
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.08)";
+        ctx!.lineWidth = 0.5;
+        ctx!.strokeRect(b.x, bTop, b.w, b.h);
+
+        // Roof edge highlight
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.15)";
+        ctx!.lineWidth = 1;
+        ctx!.beginPath();
+        ctx!.moveTo(b.x, bTop);
+        ctx!.lineTo(b.x + b.w, bTop);
+        ctx!.stroke();
+
+        // Antenna
+        if (b.antennaHeight > 0) {
+          const ax = b.x + b.w / 2;
+          ctx!.strokeStyle = "rgba(0, 229, 255, 0.2)";
+          ctx!.lineWidth = 1;
+          ctx!.beginPath();
+          ctx!.moveTo(ax, bTop);
+          ctx!.lineTo(ax, bTop - b.antennaHeight);
+          ctx!.stroke();
+          // Blinking light
+          if (Math.sin(time * 0.05 + b.x) > 0.3) {
+            ctx!.fillStyle = "#ff3333";
+            ctx!.beginPath();
+            ctx!.arc(ax, bTop - b.antennaHeight, 1.5, 0, Math.PI * 2);
+            ctx!.fill();
+          }
+        }
+
+        // Windows
+        for (const win of b.windows) {
+          if (!win.lit) continue;
+          const flick = Math.sin(time * 0.02 + win.flicker) * 0.5 + 0.5;
+          const alpha = 0.05 + flick * 0.2;
+          // Occasionally toggle windows
+          if (Math.random() < 0.001) win.lit = !win.lit;
+          ctx!.fillStyle = win.color === "#00e5ff"
+            ? `rgba(0, 229, 255, ${alpha})`
+            : `rgba(212, 160, 23, ${alpha})`;
+          ctx!.fillRect(win.wx, win.wy, 6, 6);
+        }
+        // Randomly light up dark windows
+        for (const win of b.windows) {
+          if (win.lit) continue;
+          if (Math.random() < 0.0005) win.lit = true;
+        }
+      }
+
+      // Ground line
+      ctx!.strokeStyle = "rgba(0, 229, 255, 0.1)";
+      ctx!.lineWidth = 1;
+      ctx!.beginPath();
+      ctx!.moveTo(0, groundY);
+      ctx!.lineTo(W, groundY);
+      ctx!.stroke();
+
+      // Draw Matrix data streams
+      ctx!.font = "10px 'JetBrains Mono', 'Courier New', monospace";
+      for (const s of streams) {
+        s.y += s.speed;
+
+        // Reset when stream goes below building top area
+        if (s.y > s.buildingTop + 20) {
+          s.y = s.buildingTop - 150 - Math.random() * 300;
+          // Randomize chars
+          for (let i = 0; i < s.chars.length; i++) {
+            if (Math.random() < 0.3) {
+              s.chars[i] = CHARS[Math.floor(Math.random() * CHARS.length)];
+            }
+          }
+        }
+
+        // Draw each character in the stream
+        for (let i = 0; i < s.length; i++) {
+          const cy = s.y + i * 12;
+          if (cy < 0 || cy > s.buildingTop + 10) continue;
+
+          const fade = 1 - (i / s.length);
+          const alpha = s.opacity * fade;
+
+          if (i === 0) {
+            // Leading character is brightest (white-cyan)
+            ctx!.fillStyle = `rgba(200, 255, 255, ${alpha * 1.5})`;
+          } else {
+            ctx!.fillStyle = `rgba(0, 229, 255, ${alpha})`;
+          }
+          ctx!.fillText(s.chars[i % s.chars.length], s.x, cy);
+
+          // Randomly change characters as they fall
+          if (Math.random() < 0.05) {
+            s.chars[i % s.chars.length] = CHARS[Math.floor(Math.random() * CHARS.length)];
+          }
+        }
+      }
+
+      // Horizontal scan line
+      const scanY = (time * 1.5) % (H * 2) - H * 0.5;
+      ctx!.strokeStyle = "rgba(0, 229, 255, 0.06)";
+      ctx!.lineWidth = 1;
+      ctx!.beginPath();
+      ctx!.moveTo(0, scanY);
+      ctx!.lineTo(W, scanY);
+      ctx!.stroke();
+      // Glow around scan line
+      const scanGrad = ctx!.createLinearGradient(0, scanY - 20, 0, scanY + 20);
+      scanGrad.addColorStop(0, "transparent");
+      scanGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.015)");
+      scanGrad.addColorStop(1, "transparent");
+      ctx!.fillStyle = scanGrad;
+      ctx!.fillRect(0, scanY - 20, W, 40);
+
+      animId = requestAnimationFrame(draw);
+    }
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />;
+}
+
+// ── Login Page ───────────────────────────────────────────────────────────────
 
 export default function LoginPage({ onLogin }: LoginProps) {
   const [email, setEmail] = useState("");
@@ -45,136 +303,46 @@ export default function LoginPage({ onLogin }: LoginProps) {
     setLoading(false);
   };
 
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "12px 14px", marginBottom: 12,
+    background: "rgba(0, 15, 30, 0.7)",
+    border: "1px solid rgba(0, 229, 255, 0.15)",
+    borderRadius: 4, color: "#c8d6e5", fontSize: 13,
+    fontFamily: "'JetBrains Mono', monospace",
+    outline: "none", boxSizing: "border-box",
+    letterSpacing: "0.03em",
+  };
+
   return (
     <div style={{
       minHeight: "100dvh",
-      background: "#030508",
+      background: "#020408",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       position: "relative",
       overflow: "hidden",
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     }}>
-      {/* Matrix rain + city skyline background */}
-      <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
-        <canvas id="matrixCanvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.4 }} />
-        {/* City skyline SVG */}
-        <svg viewBox="0 0 1440 400" preserveAspectRatio="xMidYMax slice" style={{
-          position: "absolute", bottom: 0, left: 0, right: 0, width: "100%", height: "50%", opacity: 0.15,
-        }}>
-          {/* Buildings */}
-          <rect x="50" y="120" width="40" height="280" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="55" y="130" width="8" height="8" fill="#00e5ff" fillOpacity="0.15" />
-          <rect x="55" y="145" width="8" height="8" fill="#00e5ff" fillOpacity="0.1" />
-          <rect x="55" y="160" width="8" height="8" fill="#00e5ff" fillOpacity="0.2" />
-          <rect x="70" y="140" width="8" height="8" fill="#00e5ff" fillOpacity="0.12" />
-          <rect x="70" y="155" width="8" height="8" fill="#00e5ff" fillOpacity="0.08" />
-          
-          <rect x="120" y="80" width="60" height="320" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="128" y="90" width="6" height="6" fill="#00e5ff" fillOpacity="0.2" />
-          <rect x="140" y="90" width="6" height="6" fill="#d4a017" fillOpacity="0.15" />
-          <rect x="152" y="90" width="6" height="6" fill="#00e5ff" fillOpacity="0.1" />
-          <rect x="128" y="105" width="6" height="6" fill="#00e5ff" fillOpacity="0.12" />
-          <rect x="140" y="105" width="6" height="6" fill="#00e5ff" fillOpacity="0.18" />
-          <rect x="152" y="105" width="6" height="6" fill="#d4a017" fillOpacity="0.1" />
-          <rect x="128" y="120" width="6" height="6" fill="#d4a017" fillOpacity="0.12" />
-          <rect x="140" y="120" width="6" height="6" fill="#00e5ff" fillOpacity="0.15" />
+      {/* Animated city + matrix background */}
+      <CityMatrixCanvas />
 
-          <rect x="210" y="150" width="35" height="250" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="215" y="160" width="5" height="5" fill="#00e5ff" fillOpacity="0.15" />
-          <rect x="225" y="160" width="5" height="5" fill="#00e5ff" fillOpacity="0.1" />
-          <rect x="235" y="160" width="5" height="5" fill="#d4a017" fillOpacity="0.12" />
-          
-          <rect x="280" y="60" width="80" height="340" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="290" y="70" width="8" height="8" fill="#00e5ff" fillOpacity="0.2" />
-          <rect x="305" y="70" width="8" height="8" fill="#d4a017" fillOpacity="0.15" />
-          <rect x="320" y="70" width="8" height="8" fill="#00e5ff" fillOpacity="0.1" />
-          <rect x="335" y="70" width="8" height="8" fill="#00e5ff" fillOpacity="0.18" />
-          <rect x="290" y="88" width="8" height="8" fill="#d4a017" fillOpacity="0.12" />
-          <rect x="305" y="88" width="8" height="8" fill="#00e5ff" fillOpacity="0.15" />
-          <rect x="320" y="88" width="8" height="8" fill="#00e5ff" fillOpacity="0.08" />
-          
-          <rect x="390" y="100" width="45" height="300" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="460" y="130" width="55" height="270" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="540" y="50" width="70" height="350" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="640" y="90" width="40" height="310" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="710" y="110" width="50" height="290" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="790" y="40" width="85" height="360" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="900" y="100" width="50" height="300" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="980" y="70" width="65" height="330" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="1070" y="130" width="40" height="270" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="1140" y="80" width="75" height="320" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="1240" y="110" width="50" height="290" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="1310" y="90" width="60" height="310" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          <rect x="1390" y="140" width="50" height="260" fill="#0a1628" stroke="#00e5ff" strokeWidth="0.5" strokeOpacity="0.3" />
-          
-          {/* Random lit windows on all buildings */}
-          {Array.from({length: 80}, (_, i) => {
-            const bx = [50,120,210,280,390,460,540,640,710,790,900,980,1070,1140,1240,1310][i % 16];
-            const bw = [40,60,35,80,45,55,70,40,50,85,50,65,40,75,50,60][i % 16];
-            const by = [120,80,150,60,100,130,50,90,110,40,100,70,130,80,110,90][i % 16];
-            const wx = bx + 5 + Math.floor((i * 7) % (bw - 12));
-            const wy = by + 10 + Math.floor((i * 13) % 120);
-            const colors = ["#00e5ff", "#d4a017", "#00e5ff", "#00e5ff", "#d4a017"];
-            return <rect key={i} x={wx} y={wy} width="5" height="5" fill={colors[i % 5]} fillOpacity={0.05 + (i % 5) * 0.04} />;
-          })}
-        </svg>
-        
-        {/* Streaming data columns (Matrix-style) from building tops */}
-        <div style={{ position: "absolute", inset: 0, overflow: "hidden", opacity: 0.12 }}>
-          {Array.from({length: 20}, (_, i) => (
-            <div key={i} className="matrix-stream" style={{
-              position: "absolute",
-              left: `${5 + i * 5}%`,
-              top: "-100%",
-              width: "1px",
-              height: "200%",
-              background: `linear-gradient(180deg, transparent 0%, #00e5ff 30%, #00e5ff 50%, transparent 100%)`,
-              animation: `matrixFall ${3 + (i % 4) * 2}s linear infinite`,
-              animationDelay: `${(i * 0.7) % 5}s`,
-            }} />
-          ))}
-        </div>
-      </div>
-
-      {/* CSS animations */}
-      <style>{`
-        @keyframes matrixFall {
-          0% { transform: translateY(-50%); }
-          100% { transform: translateY(50%); }
-        }
-        @keyframes blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-        @keyframes scanline {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(100vh); }
-        }
-      `}</style>
-
-      {/* Scan line sweep */}
-      <div style={{
-        position: "absolute", top: 0, left: 0, right: 0, height: "2px",
-        background: "linear-gradient(90deg, transparent, rgba(0,229,255,0.3), transparent)",
-        animation: "scanline 4s linear infinite",
-        zIndex: 1,
-      }} />
-
-      {/* Corner markers */}
-      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 2, fontSize: 10, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em" }}>
+      {/* Corner HUD markers */}
+      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 10, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em" }}>
         VOLTRADE // SI-TK // NOFORN
       </div>
-      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 2, fontSize: 10, color: "#ff3333", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
-        <span style={{ animation: "blink 2s ease infinite" }}>●</span> REC {new Date().toISOString().slice(0,19).replace('T',' ')}
+      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 20, fontSize: 10, color: "#ff3333", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
+        <span style={{ display: "inline-block", animation: "blink 2s ease infinite" }}>●</span> REC {new Date().toISOString().slice(0, 19).replace("T", " ")}
       </div>
-      <div style={{ position: "absolute", bottom: 16, left: 16, zIndex: 2, fontSize: 9, color: "#4a5568", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
+      <div style={{ position: "absolute", bottom: 16, left: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
         SYS: ONLINE | ML: 36 FEATURES | ALPACA: CONNECTED
       </div>
-      <div style={{ position: "absolute", bottom: 16, right: 16, zIndex: 2, fontSize: 9, color: "#4a5568", fontFamily: "'JetBrains Mono', monospace" }}>
+      <div style={{ position: "absolute", bottom: 16, right: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace" }}>
         v2.0 // PAPER TRADING MODE
       </div>
+
+      <style>{`
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+      `}</style>
 
       {/* Login card */}
       <div style={{
@@ -183,27 +351,25 @@ export default function LoginPage({ onLogin }: LoginProps) {
         width: "100%",
         maxWidth: 380,
         padding: "2.5rem 2rem",
-        background: "rgba(3, 5, 8, 0.88)",
+        background: "rgba(3, 5, 10, 0.92)",
         border: "1px solid rgba(0, 229, 255, 0.12)",
         borderRadius: 6,
-        boxShadow: "0 0 40px rgba(0, 229, 255, 0.04), 0 0 80px rgba(0, 0, 0, 0.6)",
+        boxShadow: "0 0 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 229, 255, 0.03)",
+        backdropFilter: "blur(12px)",
         margin: "0 1rem",
       }}>
-        {/* Classification header */}
         <div style={{ textAlign: "center", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: 9, letterSpacing: "0.2em", color: "#00e5ff", opacity: 0.5 }}>
+          <span style={{ fontSize: 9, letterSpacing: "0.2em", color: "#00e5ff", opacity: 0.4, fontFamily: "'JetBrains Mono', monospace" }}>
             TOP SECRET // AUTHORIZED PERSONNEL ONLY
           </span>
         </div>
 
-        {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
           <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "0.08em", fontFamily: "'Inter', 'JetBrains Mono', sans-serif" }}>
-            <span style={{ color: "#ffffff" }}>Vol</span>
-            <span style={{ color: "#ffffff" }}>Trade</span>
+            <span style={{ color: "#ffffff" }}>VolTrade</span>
             <span style={{ color: "#00e5ff" }}>AI</span>
           </div>
-          <div style={{ fontSize: 11, color: "#5a6577", letterSpacing: "0.15em", marginTop: 6, textTransform: "uppercase" }}>
+          <div style={{ fontSize: 11, color: "#4a5c70", letterSpacing: "0.15em", marginTop: 6, textTransform: "uppercase", fontFamily: "'JetBrains Mono', monospace" }}>
             {mode === "login" ? "SIGN IN TO YOUR ACCOUNT" : "RESET YOUR PASSWORD"}
           </div>
         </div>
@@ -213,46 +379,29 @@ export default function LoginPage({ onLogin }: LoginProps) {
             <input
               type="email" placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)} required
-              style={{
-                width: "100%", padding: "12px 14px", marginBottom: 12,
-                background: "rgba(0, 15, 30, 0.6)",
-                border: "1px solid rgba(0, 229, 255, 0.15)",
-                borderRadius: 4, color: "#c8d6e5", fontSize: 13,
-                fontFamily: "'JetBrains Mono', monospace",
-                outline: "none", boxSizing: "border-box",
-                letterSpacing: "0.03em",
-              }}
-              onFocus={e => e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"}
-              onBlur={e => e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"}
+              style={inputStyle}
+              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
             />
             <input
               type="password" placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)} required
-              style={{
-                width: "100%", padding: "12px 14px", marginBottom: 16,
-                background: "rgba(0, 15, 30, 0.6)",
-                border: "1px solid rgba(0, 229, 255, 0.15)",
-                borderRadius: 4, color: "#c8d6e5", fontSize: 13,
-                fontFamily: "'JetBrains Mono', monospace",
-                outline: "none", boxSizing: "border-box",
-                letterSpacing: "0.03em",
-              }}
-              onFocus={e => e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"}
-              onBlur={e => e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"}
+              style={{ ...inputStyle, marginBottom: 16 }}
+              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
             />
-            {error && <div style={{ color: "#ff3333", fontSize: 12, marginBottom: 12, textAlign: "center" }}>{error}</div>}
+            {error && <div style={{ color: "#ff3333", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
             <button type="submit" disabled={loading} style={{
-              width: "100%", padding: "12px", 
+              width: "100%", padding: "12px",
               background: "rgba(0, 229, 255, 0.08)",
               border: "1px solid rgba(0, 229, 255, 0.3)",
               borderRadius: 4, color: "#00e5ff", fontSize: 12,
               fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
               fontFamily: "'JetBrains Mono', monospace",
-              cursor: "pointer",
-              transition: "all 200ms ease",
+              cursor: "pointer", transition: "all 200ms ease",
             }}
-            onMouseOver={e => { (e.target as any).style.background = "rgba(0, 229, 255, 0.15)"; (e.target as any).style.boxShadow = "0 0 20px rgba(0, 229, 255, 0.1)"; }}
-            onMouseOut={e => { (e.target as any).style.background = "rgba(0, 229, 255, 0.08)"; (e.target as any).style.boxShadow = "none"; }}
+              onMouseOver={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.15)"; (e.target as HTMLElement).style.boxShadow = "0 0 20px rgba(0, 229, 255, 0.1)"; }}
+              onMouseOut={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.08)"; (e.target as HTMLElement).style.boxShadow = "none"; }}
             >
               {loading ? "AUTHENTICATING..." : "SIGN IN"}
             </button>
@@ -260,22 +409,14 @@ export default function LoginPage({ onLogin }: LoginProps) {
         ) : (
           <form onSubmit={handleReset}>
             {resetSent ? (
-              <div style={{ textAlign: "center", color: "#00e5ff", fontSize: 13, padding: "1rem 0" }}>
+              <div style={{ textAlign: "center", color: "#00e5ff", fontSize: 13, padding: "1rem 0", fontFamily: "'JetBrains Mono', monospace" }}>
                 Reset link sent to {email}
               </div>
             ) : (
               <>
-                <input
-                  type="email" placeholder="Email" value={email}
+                <input type="email" placeholder="Email" value={email}
                   onChange={e => setEmail(e.target.value)} required
-                  style={{
-                    width: "100%", padding: "12px 14px", marginBottom: 16,
-                    background: "rgba(0, 15, 30, 0.6)",
-                    border: "1px solid rgba(0, 229, 255, 0.15)",
-                    borderRadius: 4, color: "#c8d6e5", fontSize: 13,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    outline: "none", boxSizing: "border-box",
-                  }}
+                  style={{ ...inputStyle, marginBottom: 16 }}
                 />
                 {error && <div style={{ color: "#ff3333", fontSize: 12, marginBottom: 12, textAlign: "center" }}>{error}</div>}
                 <button type="submit" disabled={loading} style={{
@@ -284,8 +425,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
                   border: "1px solid rgba(0, 229, 255, 0.3)",
                   borderRadius: 4, color: "#00e5ff", fontSize: 12,
                   fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
-                  fontFamily: "'JetBrains Mono', monospace",
-                  cursor: "pointer",
+                  fontFamily: "'JetBrains Mono', monospace", cursor: "pointer",
                 }}>
                   {loading ? "SENDING..." : "SEND RESET LINK"}
                 </button>
@@ -300,8 +440,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
             style={{
               background: "none", border: "none", color: "#d4a017",
               fontSize: 11, cursor: "pointer", letterSpacing: "0.1em",
-              fontFamily: "'JetBrains Mono', monospace",
-              opacity: 0.7,
+              fontFamily: "'JetBrains Mono', monospace", opacity: 0.7,
             }}
           >
             {mode === "login" ? "Forgot Password?" : "← Back to Sign In"}
