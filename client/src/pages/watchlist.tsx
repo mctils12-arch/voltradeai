@@ -165,19 +165,28 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
   const [tickers, setTickers] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // Load watchlist from API on mount
   useEffect(() => {
-    apiRequest("GET", "/api/watchlist")
+    apiRequest("GET", "/api/auth/me")
       .then(r => r.json())
       .then(data => {
-        if (data.tickers && Array.isArray(data.tickers)) {
-          setTickers(data.tickers);
+        if (data.authenticated) {
           setIsLoggedIn(true);
+          // Fetch watchlist
+          return apiRequest("GET", "/api/watchlist").then(r => r.json());
         }
+        return null;
+      })
+      .then(data => {
+        if (data && data.tickers && Array.isArray(data.tickers)) {
+          setTickers(data.tickers);
+        }
+        setAuthChecked(true);
       })
       .catch(() => {
-        // Not logged in or failed — stay with local state
+        setAuthChecked(true);
       });
   }, []);
 
@@ -226,8 +235,8 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
         </p>
       </div>
 
-      {/* Sign up reminder */}
-      {!isLoggedIn && (
+      {/* Sign up reminder — only shows after auth check confirms not logged in */}
+      {authChecked && !isLoggedIn && (
         <div style={{
           padding: '12px 16px',
           marginBottom: '1rem',
