@@ -42,6 +42,9 @@ const state = {
   auditLog: [] as AuditEntry[],
   positionSizeMultiplier: 1.0,
   minScoreThreshold: 65,
+  diagCycleCount: 0,
+  consecutiveStopLosses: 0,
+  circuitBreakerUntil: 0,  // epoch ms — paused until this time
 };
 
 function audit(action: string, detail: string) {
@@ -144,18 +147,21 @@ async function trackClosedTrades() {
         const feedbackJson = JSON.stringify(feedbackData).replace(/'/g, "\\'");
         execAsync(`python3 -c "
 import json, os
+try:
+    from storage_config import TRADE_FEEDBACK_PATH
+except ImportError:
+    TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
 feedback = json.loads('${feedbackJson}')
-path = '/tmp/voltrade_trade_feedback.json'
 existing = []
-if os.path.exists(path):
+if os.path.exists(TRADE_FEEDBACK_PATH):
     try:
-        with open(path) as f:
+        with open(TRADE_FEEDBACK_PATH) as f:
             existing = json.load(f)
     except: pass
 existing.extend(feedback)
 # Keep last 500 trades
 existing = existing[-500:]
-with open(path, 'w') as f:
+with open(TRADE_FEEDBACK_PATH, 'w') as f:
     json.dump(existing, f)
 print(json.dumps({'saved': len(feedback), 'total': len(existing)}))
 "`, { timeout: 5000 }).catch(() => {});
@@ -804,8 +810,24 @@ export function registerBotRoutes(app: Express) {
     // Don't re-run if last scan was less than 30 seconds ago
     if (Date.now() - lastAutoRun < 30000 && lastAutoRun > 0) return;
 
-    // ── Self-Diagnostic Check ──
-    let diagParams: any = { position_size_multiplier: 1.0, min_score_threshold: 65, should_pause: false, force_retrain: false, problems_summary: "All systems healthy" };
+    // Circuit breaker check
+    if (state.circuitBreakerUntil > Date.now()) {
+      const minutesLeft = Math.round((state.circuitBreakerUntil - Date.now()) / 60000);
+      if (state.diagCycleCount % 10 === 0) { // Log every 10th cycle so it doesn't spam
+        audit("CIRCUIT-BREAKER", `Bot paused — ${minutesLeft} minutes remaining`);
+      }
+      return;
+    } else if (state.circuitBreakerUntil > 0 && state.circuitBreakerUntil <= Date.now()) {
+      // Circuit breaker expired — resume
+      state.circuitBreakerUntil = 0;
+      state.consecutiveStopLosses = 0;
+      audit("CIRCUIT-BREAKER", "Circuit breaker expired — resuming trading");
+    }
+
+    // ── Self-Diagnostic Check (every 5th cycle) ──
+    state.diagCycleCount++;
+    let diagParams: any = { position_size_multiplier: state.positionSizeMultiplier, min_score_threshold: state.minScoreThreshold, should_pause: false, force_retrain: false, problems_summary: "" };
+    if (state.diagCycleCount % 5 === 0) {
     try {
       const { stdout: diagOut } = await execAsync(`python3 -c "
 from diagnostics import get_auto_fix_params
@@ -832,6 +854,7 @@ print(json.dumps(get_auto_fix_params()))
       state.positionSizeMultiplier = diagParams.position_size_multiplier || 1.0;
       state.minScoreThreshold = diagParams.min_score_threshold || 65;
     } catch {}
+    } // end every-5th-cycle diagnostic
 
     // CHECK: Is market actually open for ANY trading?
     try {
@@ -850,6 +873,23 @@ print(json.dumps(get_auto_fix_params()))
     audit("AUTO", "Starting autonomous scan cycle...");
 
     try {
+      // Fallback mode: verify Polygon is responding before scanning
+      try {
+        const { stdout: pingOut } = await execAsync(
+          `python3 -c "import requests; r=requests.get('https://api.polygon.io/v2/aggs/ticker/SPY/prev?apiKey=${process.env.POLYGON_KEY || 'UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP'}', timeout=5); print('ok' if r.status_code==200 else 'fail')"`,
+          { timeout: 10000 }
+        );
+        if (!pingOut.trim().includes("ok")) {
+          audit("FALLBACK", "Polygon API not responding — skipping this cycle to avoid stale data");
+          autoRunning = false;
+          return;
+        }
+      } catch {
+        audit("FALLBACK", "Polygon API check failed — skipping cycle");
+        autoRunning = false;
+        return;
+      }
+
       // Step 1: Run bot_engine.py to scan market and get recommendations
       const enginePath = path.resolve("bot_engine.py");
       const { stdout } = await execAsync(`python3 "${enginePath}" full`, { timeout: 180000 });
@@ -961,6 +1001,17 @@ print(json.dumps(result))
             action.type === "take_profit" ? "profit" : "stop_loss",
             `${action.ticker} position closed — ${action.reason}`
           );
+          // Circuit breaker tracking
+          if (action.type === "stop_loss" || action.type === "trailing_stop") {
+            state.consecutiveStopLosses++;
+            if (state.consecutiveStopLosses >= 3) {
+              state.circuitBreakerUntil = Date.now() + 3600000; // 1 hour
+              audit("CIRCUIT-BREAKER", `3 consecutive stop-losses hit — bot paused for 1 hour`);
+              notify("alert", "Circuit breaker triggered: 3 consecutive stop-losses. Bot paused for 1 hour.");
+            }
+          } else if (action.type === "take_profit") {
+            state.consecutiveStopLosses = 0; // Reset on a win
+          }
         } catch (e: any) {
           audit("AUTO-ERROR", `Failed to close ${action.ticker}: ${e.message}`);
         }
@@ -1511,19 +1562,23 @@ print(json.dumps({'report': report, 'auto_fix': params}))
       const { stdout } = await execAsync(
         `python3 -c "
 import json, os, time
-status = {'model_exists': os.path.exists('/tmp/voltrade_ml_model.pkl')}
+try:
+    from storage_config import ML_MODEL_PATH, FILLS_PATH, WEIGHTS_PATH
+except ImportError:
+    ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'
+    FILLS_PATH = '/tmp/voltrade_fills.json'
+    WEIGHTS_PATH = '/tmp/voltrade_weights.json'
+status = {'model_exists': os.path.exists(ML_MODEL_PATH)}
 if status['model_exists']:
-    status['model_age_hours'] = round((time.time() - os.path.getmtime('/tmp/voltrade_ml_model.pkl')) / 3600, 1)
-fills_path = '/tmp/voltrade_fills.json'
-if os.path.exists(fills_path):
-    with open(fills_path) as f:
+    status['model_age_hours'] = round((time.time() - os.path.getmtime(ML_MODEL_PATH)) / 3600, 1)
+if os.path.exists(FILLS_PATH):
+    with open(FILLS_PATH) as f:
         fills = json.load(f)
     status['total_fills'] = len(fills)
 else:
     status['total_fills'] = 0
-weights_path = '/tmp/voltrade_weights.json'
-if os.path.exists(weights_path):
-    with open(weights_path) as f:
+if os.path.exists(WEIGHTS_PATH):
+    with open(WEIGHTS_PATH) as f:
         status['learned_weights'] = json.load(f)
 print(json.dumps(status))
 "`, { timeout: 10000 }

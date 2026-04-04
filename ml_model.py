@@ -26,10 +26,16 @@ import numpy as np
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.WARNING)
 
+try:
+    from storage_config import ML_MODEL_PATH, FILLS_PATH, WEIGHTS_PATH, TRADE_FEEDBACK_PATH
+except ImportError:
+    ML_MODEL_PATH = "/tmp/voltrade_ml_model.pkl"
+    FILLS_PATH = "/tmp/voltrade_fills.json"
+    WEIGHTS_PATH = "/tmp/voltrade_weights.json"
+    TRADE_FEEDBACK_PATH = "/tmp/voltrade_trade_feedback.json"
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
-MODEL_PATH   = "/tmp/voltrade_ml_model.pkl"
-FILLS_PATH   = "/tmp/voltrade_fills.json"
-WEIGHTS_PATH = "/tmp/voltrade_weights.json"
+MODEL_PATH   = ML_MODEL_PATH
 
 # ── Feature columns (must match training order) ────────────────────────────────
 FEATURE_COLS = [
@@ -716,7 +722,7 @@ def predict_exit(position_data: dict) -> dict:
     ticker = position_data.get("ticker", "")
     
     # Load trade feedback to learn from past exits
-    feedback_path = "/tmp/voltrade_trade_feedback.json"
+    feedback_path = TRADE_FEEDBACK_PATH
     avg_winner_hold = 5  # defaults
     avg_loser_hold = 3
     win_rate = 0.5

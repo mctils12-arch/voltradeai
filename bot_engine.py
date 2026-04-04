@@ -655,10 +655,23 @@ def deep_score(ticker, quick_result):
         }
         ml_result = ml_score(ml_features)
 
-        # Blend: 60% rule-based, 40% ML model
+        # Blend: dynamic ratio loaded from tracker, default 60/40
         if ml_result.get("model_type") != "fallback":
             ml_s = ml_result.get("ml_score", combined_score)
-            combined_score = combined_score * 0.6 + ml_s * 0.4
+            # Dynamic blend: load tracked accuracy, default 60/40
+            try:
+                from storage_config import BLEND_TRACKER_PATH
+                if os.path.exists(BLEND_TRACKER_PATH):
+                    with open(BLEND_TRACKER_PATH) as _bf:
+                        _blend = json.load(_bf)
+                    rule_weight = _blend.get("rule_weight", 0.6)
+                    ml_weight = _blend.get("ml_weight", 0.4)
+                else:
+                    rule_weight, ml_weight = 0.6, 0.4
+            except Exception:
+                rule_weight, ml_weight = 0.6, 0.4
+            combined_score = combined_score * rule_weight + ml_s * ml_weight
+            reasons.append(f"Blend: {rule_weight:.0%} rules + {ml_weight:.0%} ML")
             reasons.append(f"ML model: {ml_result.get('ml_signal', 'HOLD')} ({ml_result.get('ml_confidence', 0):.0%} confidence)")
     except Exception:
         pass  # ML not available, use rule-based only

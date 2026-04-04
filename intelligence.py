@@ -13,10 +13,16 @@ import re
 import requests
 from datetime import datetime, timedelta
 
+try:
+    from storage_config import EVENT_MEMORY_PATH, EARNINGS_MEMORY_PATH, INSIDER_CACHE_PATH
+except ImportError:
+    EVENT_MEMORY_PATH = "/tmp/voltrade_event_memory.json"
+    EARNINGS_MEMORY_PATH = "/tmp/voltrade_earnings_memory.json"
+    INSIDER_CACHE_PATH = "/tmp/voltrade_insider_cache.json"
+
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
-EVENT_DB_PATH = "/tmp/voltrade_event_memory.json"
-INSIDER_CACHE_PATH = "/tmp/voltrade_insider_cache.json"
-EARNINGS_DB_PATH = "/tmp/voltrade_earnings_memory.json"
+EVENT_DB_PATH = EVENT_MEMORY_PATH
+EARNINGS_DB_PATH = EARNINGS_MEMORY_PATH
 
 # ── News Event Classification ─────────────────────────────────────────────────
 

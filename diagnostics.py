@@ -13,9 +13,22 @@ import time
 import glob
 from datetime import datetime, timedelta
 
-DIAG_PATH = "/tmp/voltrade_diagnostics.json"
-HEALTH_PATH = "/tmp/voltrade_health_log.json"
-CACHE_DIR = "/tmp/voltrade_alt_cache"
+try:
+    from storage_config import (DATA_DIR, ML_MODEL_PATH, TRADE_FEEDBACK_PATH,
+                                 HEALTH_LOG_PATH, INSIDER_CACHE_PATH, EVENT_MEMORY_PATH,
+                                 CACHE_DIR as ALT_CACHE_DIR)
+except ImportError:
+    DATA_DIR = "/tmp"
+    ML_MODEL_PATH = "/tmp/voltrade_ml_model.pkl"
+    TRADE_FEEDBACK_PATH = "/tmp/voltrade_trade_feedback.json"
+    HEALTH_LOG_PATH = "/tmp/voltrade_health_log.json"
+    INSIDER_CACHE_PATH = "/tmp/voltrade_insider_cache.json"
+    EVENT_MEMORY_PATH = "/tmp/voltrade_event_memory.json"
+    ALT_CACHE_DIR = "/tmp/voltrade_alt_cache"
+
+DIAG_PATH = os.path.join(DATA_DIR, "voltrade_diagnostics.json")
+HEALTH_PATH = HEALTH_LOG_PATH
+CACHE_DIR = ALT_CACHE_DIR
 MAX_CACHE_SIZE_MB = 50  # Max total cache size
 MAX_FILE_SIZE_MB = 5    # Max single file size
 WEEKLY_LOSS_LIMIT = -8.0  # Pause if -8% in a week
@@ -72,12 +85,12 @@ def check_weekly_loss(equity_history: list) -> dict:
 
 EXPECTED_CACHE_FRESHNESS = {
     "macro": {"file": "/tmp/voltrade_macro_cache.json", "max_age_hours": 1, "critical": True},
-    "insider": {"file": "/tmp/voltrade_insider_cache.json", "max_age_hours": 2, "critical": False},
+    "insider": {"file": INSIDER_CACHE_PATH, "max_age_hours": 2, "critical": False},
     "fred": {"file": "/tmp/voltrade_alt_cache/fred_macro_expanded.json", "max_age_hours": 8, "critical": False},
     "gdelt": {"file": "/tmp/voltrade_alt_cache/gdelt_risk.json", "max_age_hours": 4, "critical": False},
-    "ml_model": {"file": "/tmp/voltrade_ml_model.pkl", "max_age_hours": 168, "critical": True},  # 7 days
-    "event_memory": {"file": "/tmp/voltrade_event_memory.json", "max_age_hours": 48, "critical": False},
-    "trade_feedback": {"file": "/tmp/voltrade_trade_feedback.json", "max_age_hours": 168, "critical": False},
+    "ml_model": {"file": ML_MODEL_PATH, "max_age_hours": 168, "critical": True},  # 7 days
+    "event_memory": {"file": EVENT_MEMORY_PATH, "max_age_hours": 48, "critical": False},
+    "trade_feedback": {"file": TRADE_FEEDBACK_PATH, "max_age_hours": 168, "critical": False},
 }
 
 def check_cache_freshness() -> dict:
@@ -211,7 +224,7 @@ def check_model_health() -> dict:
     Tracks win rate, prediction accuracy, and retrain status.
     """
     result = {
-        "model_exists": os.path.exists("/tmp/voltrade_ml_model.pkl"),
+        "model_exists": os.path.exists(ML_MODEL_PATH),
         "model_age_hours": 0,
         "retrain_needed": False,
         "retrain_overdue": False,
@@ -219,14 +232,14 @@ def check_model_health() -> dict:
     }
 
     if result["model_exists"]:
-        age = time.time() - os.path.getmtime("/tmp/voltrade_ml_model.pkl")
+        age = time.time() - os.path.getmtime(ML_MODEL_PATH)
         result["model_age_hours"] = round(age / 3600, 1)
         result["retrain_needed"] = age > 7 * 86400  # > 7 days
         result["retrain_overdue"] = age > 10 * 86400  # > 10 days
 
     # Check trade feedback for win rate
     try:
-        feedback_path = "/tmp/voltrade_trade_feedback.json"
+        feedback_path = TRADE_FEEDBACK_PATH
         if os.path.exists(feedback_path):
             with open(feedback_path) as f:
                 trades = json.load(f)
@@ -370,6 +383,36 @@ def run_diagnostics() -> dict:
         report["recommendations"].append("Force ML model retrain to incorporate recent data")
     if perf.get("degradation_detected"):
         report["recommendations"].append("Win rate dropping — model may be overfitting, need more diverse training data")
+
+    # Update dynamic blend ratio based on performance
+    try:
+        from storage_config import BLEND_TRACKER_PATH
+        blend_path = BLEND_TRACKER_PATH
+    except ImportError:
+        blend_path = "/tmp/voltrade_blend_tracker.json"
+
+    try:
+        if perf.get("total_trades", 0) >= 20:
+            win_rate = perf.get("win_rate", 50)
+            recent_wr = perf.get("recent_win_rate_20", 50)
+
+            # If recent performance is good, trust ML more
+            if recent_wr > 60:
+                ml_w = min(0.55, 0.4 + (recent_wr - 50) * 0.003)  # Max 55% ML
+            elif recent_wr < 40:
+                ml_w = max(0.2, 0.4 - (50 - recent_wr) * 0.004)  # Min 20% ML
+            else:
+                ml_w = 0.4
+
+            rule_w = round(1.0 - ml_w, 2)
+            ml_w = round(ml_w, 2)
+
+            with open(blend_path, "w") as f:
+                json.dump({"rule_weight": rule_w, "ml_weight": ml_w, "updated": datetime.now().isoformat()}, f)
+
+            report["blend_weights"] = {"rule": rule_w, "ml": ml_w}
+    except Exception:
+        pass
 
     # Save report
     _save_report(report)
