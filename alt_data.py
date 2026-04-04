@@ -253,11 +253,16 @@ def get_short_interest(ticker: str) -> dict:
 
     try:
         # Get recent volume and price data
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}?adjusted=true&sort=asc&apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=8)
-        bars = resp.json().get("results", [])
+        url = f"https://data.alpaca.markets/v2/stocks/{ticker}/bars?timeframe=1Day&start={start}&limit=30&adjustment=all"
+        resp = requests.get(url, headers=alpaca_headers, timeout=8)
+        bars = resp.json().get("bars", [])
+        # Alpaca uses "c", "o", "h", "l", "v" same as Polygon
 
         if len(bars) >= 10:
             volumes = [b.get("v", 0) for b in bars]
@@ -427,18 +432,22 @@ def get_ftd_signal(ticker: str) -> dict:
     try:
         # Use volume analysis as FTD proxy
         # Stocks with very high volume relative to float tend to have FTD issues
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
-        url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}?adjusted=true&sort=desc&apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=8)
-        bars = resp.json().get("results", [])
+        url = f"https://data.alpaca.markets/v2/stocks/{ticker}/bars?timeframe=1Day&start={start}&limit=15&adjustment=all"
+        resp = requests.get(url, headers=alpaca_headers, timeout=8)
+        bars = resp.json().get("bars", [])
 
         if len(bars) >= 5:
             volumes = [b.get("v", 0) for b in bars[:5]]
             avg_recent = sum(volumes) / len(volumes)
 
-            # Get ticker details for shares outstanding
-            detail_url = f"https://api.polygon.io/v3/reference/tickers/{ticker}?apiKey={POLYGON_KEY}"
+            # Get ticker details for shares outstanding (Polygon reference endpoint — not rate-limited)
+            detail_url = f"https://api.polygon.io/v3/reference/tickers/{ticker}?apiKey={os.environ.get('POLYGON_KEY', 'UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP')}"
             detail_resp = requests.get(detail_url, timeout=5)
             detail = detail_resp.json().get("results", {})
             shares_outstanding = detail.get("share_class_shares_outstanding") or detail.get("weighted_shares_outstanding") or 0

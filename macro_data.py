@@ -133,19 +133,27 @@ def get_macro_snapshot() -> dict:
     except Exception:
         result["dollar_index"] = 104.0
 
-    # Sector ETF momentum from Polygon
+    # Sector ETF momentum from Alpaca (single batch call instead of 11 Polygon calls)
     sector_momentum = {}
-    for etf, sector in SECTOR_ETFS.items():
-        try:
-            url = f"https://api.polygon.io/v2/aggs/ticker/{etf}/prev?adjusted=true&apiKey={POLYGON_KEY}"
-            resp = requests.get(url, timeout=5)
-            data = resp.json()
-            r = data.get("results", [{}])[0]
-            o = float(r.get("o", 0))
-            c = float(r.get("c", 0))
-            pct = ((c - o) / o * 100) if o else 0
+    try:
+        etf_symbols = ",".join(SECTOR_ETFS.keys())
+        alpaca_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={etf_symbols}"
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
+        resp = requests.get(alpaca_url, headers=alpaca_headers, timeout=10)
+        snap_data = resp.json()
+        for etf, sector in SECTOR_ETFS.items():
+            snap = snap_data.get(etf, {})
+            bar = snap.get("dailyBar", {})
+            prev = snap.get("prevDailyBar", {})
+            c = float(bar.get("c", 0))
+            pc = float(prev.get("c", c))
+            pct = ((c - pc) / pc * 100) if pc > 0 else 0
             sector_momentum[sector] = round(pct, 2)
-        except Exception:
+    except Exception:
+        for sector in SECTOR_ETFS.values():
             sector_momentum[sector] = 0.0
 
     result["sector_momentum"] = sector_momentum
@@ -186,10 +194,16 @@ def get_news_sentiment(ticker: str) -> dict:
     }
     """
     try:
-        url = f"https://api.polygon.io/v2/reference/news?ticker={ticker}&limit=10&order=desc&sort=published_utc&apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=8)
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
+        url = f"https://data.alpaca.markets/v1beta1/news?limit=10&sort=desc&symbols={ticker}"
+        resp = requests.get(url, headers=alpaca_headers, timeout=8)
         data = resp.json()
-        articles = data.get("results", [])
+        articles = data.get("news", [])
+        # Transform: Alpaca uses "headline" and "summary" instead of "title" and "description"
+        articles = [{"title": a.get("headline", ""), "description": a.get("summary", "")} for a in articles]
     except Exception:
         return {"sentiment_score": 0, "sentiment_label": "neutral", "headline_count": 0,
                 "top_headline": "", "positive_count": 0, "negative_count": 0}

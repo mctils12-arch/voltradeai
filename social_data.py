@@ -309,14 +309,18 @@ def get_news_multi_source(ticker: str) -> dict:
 
     headlines = []
 
-    # Source 1: Polygon (already our primary)
+    # Source 1: Alpaca news (primary)
     try:
-        url = f"https://api.polygon.io/v2/reference/news?ticker={ticker}&limit=10&order=desc&sort=published_utc&apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=8)
-        articles = resp.json().get("results", [])
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
+        url = f"https://data.alpaca.markets/v1beta1/news?limit=10&sort=desc&symbols={ticker}"
+        resp = requests.get(url, headers=alpaca_headers, timeout=8)
+        articles = resp.json().get("news", [])
         for a in articles:
-            headlines.append({"title": a.get("title", ""), "source": "polygon"})
-        result["sources"]["polygon"] = len(articles)
+            headlines.append({"title": a.get("headline", ""), "source": "alpaca"})
+        result["sources"]["alpaca"] = len(articles)
     except Exception:
         pass
 

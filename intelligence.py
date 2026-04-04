@@ -118,9 +118,14 @@ def classify_news(ticker: str) -> dict:
     Returns detailed event classification, trap detection, and weighted score.
     """
     try:
-        url = f"https://api.polygon.io/v2/reference/news?ticker={ticker}&limit=15&order=desc&sort=published_utc&apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=10)
-        articles = resp.json().get("results", [])
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
+        url = f"https://data.alpaca.markets/v1beta1/news?limit=15&sort=desc&symbols={ticker}"
+        resp = requests.get(url, headers=alpaca_headers, timeout=10)
+        data = resp.json()
+        articles = [{"title": a.get("headline", ""), "description": a.get("summary", ""), "published_utc": a.get("created_at", "")} for a in data.get("news", [])]
     except Exception:
         return {"events": [], "score": 0, "trap_warning": False, "headline_count": 0}
 
@@ -276,13 +281,17 @@ def get_insider_activity(ticker: str) -> dict:
     except Exception:
         pass
 
-    # Also check Polygon for insider data if available
+    # Also check Alpaca for insider news signals
     try:
-        url = f"https://api.polygon.io/v2/reference/news?ticker={ticker}&limit=5&apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=5)
-        articles = resp.json().get("results", [])
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
+        url = f"https://data.alpaca.markets/v1beta1/news?limit=5&sort=desc&symbols={ticker}"
+        resp = requests.get(url, headers=alpaca_headers, timeout=5)
+        articles = resp.json().get("news", [])
         for article in articles:
-            title = (article.get("title", "") or "").lower()
+            title = (article.get("headline", "") or "").lower()
             if "insider" in title and "buy" in title:
                 result["buy_count"] += 1
             elif "insider" in title and ("sell" in title or "sale" in title):
@@ -357,13 +366,17 @@ def check_earnings_pattern(ticker: str) -> dict:
 
         result["historical_reactions"] = ticker_history[-4:]
 
-    # Check if earnings are coming up (from Polygon news)
+    # Check if earnings are coming up (from Alpaca news)
     try:
-        url = f"https://api.polygon.io/v2/reference/news?ticker={ticker}&limit=5&apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=5)
-        articles = resp.json().get("results", [])
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
+        url = f"https://data.alpaca.markets/v1beta1/news?limit=5&sort=desc&symbols={ticker}"
+        resp = requests.get(url, headers=alpaca_headers, timeout=5)
+        articles = resp.json().get("news", [])
         for article in articles:
-            title = (article.get("title", "") or "").lower()
+            title = (article.get("headline", "") or "").lower()
             if any(w in title for w in ["earnings", "quarterly results", "q1", "q2", "q3", "q4", "fiscal"]):
                 # Check if it mentions beat/miss
                 is_beat = any(w in title for w in ["beat", "tops", "exceeds", "above"])
@@ -371,8 +384,8 @@ def check_earnings_pattern(ticker: str) -> dict:
                 if is_beat or is_miss:
                     result["latest_earnings"] = {
                         "beat": is_beat,
-                        "headline": article.get("title", "")[:120],
-                        "date": article.get("published_utc", ""),
+                        "headline": article.get("headline", "")[:120],
+                        "date": article.get("created_at", ""),
                     }
     except Exception:
         pass
