@@ -338,7 +338,7 @@ def _alpaca_headers():
         "APCA-API-SECRET-KEY": ALPACA_SECRET,
     }
 
-def _fetch_alpaca_training_data(days=60):
+def _fetch_alpaca_training_data(days=60, max_tickers=500):
     """
     Fetch historical data from Alpaca for ML training.
     Returns list of feature dicts with labels.
@@ -366,17 +366,29 @@ def _fetch_alpaca_training_data(days=60):
         if t not in tickers:
             tickers.append(t)
     
-    tickers = tickers[:80]  # Cap at 80 to avoid timeout
+    tickers = tickers[:max_tickers]  # Increased: batch API makes this fast
     
     start_date = (datetime.now() - timedelta(days=days + 10)).strftime("%Y-%m-%d")
     
+    # Batch fetch bars (24 tickers per request instead of 1 at a time)
+    all_bars: dict = {}  # ticker -> list of bars
+    for i in range(0, len(tickers), 20):
+        batch = tickers[i:i+20]
+        try:
+            url = (f"{ALPACA_DATA_URL}/v2/stocks/bars"
+                   f"?symbols={','.join(batch)}&timeframe=1Day&start={start_date}&limit=1000&adjustment=all")
+            resp = requests.get(url, headers=_alpaca_headers(), timeout=15)
+            data = resp.json()
+            batch_bars = data.get("bars", {})
+            for sym, b in batch_bars.items():
+                all_bars[sym] = b
+        except Exception:
+            continue
+        time.sleep(0.1)
+
     for ticker in tickers:
         try:
-            url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
-                   f"?timeframe=1Day&start={start_date}&limit=200&adjustment=all")
-            resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
-            data = resp.json()
-            bars = data.get("bars", [])
+            bars = all_bars.get(ticker, [])
             
             if len(bars) < 20:
                 continue
