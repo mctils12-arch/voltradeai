@@ -976,7 +976,7 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
           <div className="space-y-3">
 
             {metrics.gex !== undefined && (
-              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              <div style={{ padding: '8px 10px', background: 'rgba(0, 20, 40, 0.5)', borderRadius: '8px' }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-200">GEX Regime</span>
                   <span className={`text-xs font-bold ${metrics.gex_regime === 'pinned' ? 'text-amber-400' : 'text-blue-400'}`}>
@@ -994,7 +994,7 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
             )}
 
             {metrics.iv_rank !== undefined && (
-              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              <div style={{ padding: '8px 10px', background: 'rgba(0, 20, 40, 0.5)', borderRadius: '8px' }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-200">IV Rank (1-Year)</span>
                   <span className={`text-xs font-bold ${metrics.iv_rank > 75 ? 'text-rose-400' : metrics.iv_rank < 30 ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -1013,7 +1013,7 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
             )}
 
             {metrics.flow_signal && (
-              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              <div style={{ padding: '8px 10px', background: 'rgba(0, 20, 40, 0.5)', borderRadius: '8px' }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-200">Options Flow</span>
                   <span className={`text-xs font-bold ${
@@ -1036,7 +1036,7 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
             )}
 
             {metrics.rsi_14 !== undefined && (
-              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              <div style={{ padding: '8px 10px', background: 'rgba(0, 20, 40, 0.5)', borderRadius: '8px' }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-200">RSI — 14 Day</span>
                   <span className={`text-xs font-bold font-mono ${
@@ -1057,7 +1057,7 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
             )}
 
             {metrics.mfi !== undefined && (
-              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              <div style={{ padding: '8px 10px', background: 'rgba(0, 20, 40, 0.5)', borderRadius: '8px' }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-200">Money Flow Index (MFI)</span>
                   <span className={`text-xs font-bold font-mono ${
@@ -1078,7 +1078,7 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
             )}
 
             {metrics.insider_net !== undefined && (
-              <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              <div style={{ padding: '8px 10px', background: 'rgba(0, 20, 40, 0.5)', borderRadius: '8px' }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-200">Insider Net Activity (90 days)</span>
                   <span className={`text-xs font-bold font-mono ${metrics.insider_net > 0 ? 'text-emerald-400' : metrics.insider_net < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
@@ -1435,7 +1435,7 @@ function RecommendationCard({ rec, ticker }: { rec: Recommendation; ticker: stri
       <p className="text-sm text-slate-200 mt-3 leading-relaxed">{rec.reasoning}</p>
 
       {/* What exactly to do */}
-      <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', borderLeft: '3px solid var(--accent)' }}>
+      <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(0, 20, 40, 0.6)', borderRadius: '10px', borderLeft: '3px solid var(--accent)' }}>
         <div className="text-xs font-semibold text-slate-300 mb-1">What to do:</div>
         <div className="text-xs text-slate-400 leading-relaxed">
           {rec.action.includes('BUY STOCK') || rec.action.includes('Buy Stock') ? (
@@ -2065,6 +2065,18 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
   return (
     <div>
 
+        {/* Page heading badge */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+          <span style={{
+            fontSize: 9, padding: "3px 8px", borderRadius: 3,
+            background: "rgba(0, 229, 255, 0.1)", border: "1px solid rgba(0, 229, 255, 0.2)",
+            color: "#00e5ff", fontFamily: "'JetBrains Mono', monospace",
+            letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
+          }}>
+            MARKET INTEL
+          </span>
+        </div>
+
         {/* Search */}
         <form onSubmit={handleSubmit} className="search-form" data-testid="form-ticker">
           <div className="search-wrapper">
@@ -2276,7 +2288,7 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                   <VolSurfaceChart data={data.vol_surface} />
                 )}
                 {/* Acronym legend */}
-                <div style={{ marginTop: '12px', padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '10px', color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+                <div style={{ marginTop: '12px', padding: '8px 10px', background: 'rgba(0, 20, 40, 0.5)', borderRadius: '8px', fontSize: '10px', color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
                   <strong style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>What these mean:</strong>
                   <b>RV</b> = Realized Volatility — how much the stock <em>actually moved</em> over the last N days (annualized %)<br/>
                   <b>IV</b> = Implied Volatility — how much the <em>options market expects</em> the stock to move (annualized %)<br/>
