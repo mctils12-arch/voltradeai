@@ -260,6 +260,70 @@ def deep_score(ticker, quick_result):
     rsi = vol_metrics.get("rsi_14") or None
     volume_ratio = vol_metrics.get("volume_ratio_5d") or 1.0
 
+    # ── ADX (trend strength) + OBV (smart money flow) ─────────────────────────
+    adx_value = None
+    obv_signal = 0  # -1 = distribution, 0 = neutral, +1 = accumulation
+    try:
+        end_d = datetime.now().strftime("%Y-%m-%d")
+        start_d = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
+        bars_url = (f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_d}/{end_d}"
+                    f"?adjusted=true&sort=asc&limit=30&apiKey={POLYGON_KEY}")
+        bars_resp = requests.get(bars_url, timeout=8)
+        bars_data = bars_resp.json().get("results", [])
+        if len(bars_data) >= 14:
+            # ADX calculation (14-period)
+            highs = [b["h"] for b in bars_data]
+            lows = [b["l"] for b in bars_data]
+            closes = [b["c"] for b in bars_data]
+            volumes = [b.get("v", 0) for b in bars_data]
+
+            plus_dm_list = []
+            minus_dm_list = []
+            tr_list = []
+            for i in range(1, len(bars_data)):
+                up_move = highs[i] - highs[i-1]
+                down_move = lows[i-1] - lows[i]
+                plus_dm_list.append(up_move if up_move > down_move and up_move > 0 else 0)
+                minus_dm_list.append(down_move if down_move > up_move and down_move > 0 else 0)
+                tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
+                tr_list.append(tr)
+
+            if len(tr_list) >= 14:
+                # Smoothed averages (Wilder's method)
+                atr14 = sum(tr_list[:14]) / 14
+                plus_dm14 = sum(plus_dm_list[:14]) / 14
+                minus_dm14 = sum(minus_dm_list[:14]) / 14
+                for i in range(14, len(tr_list)):
+                    atr14 = (atr14 * 13 + tr_list[i]) / 14
+                    plus_dm14 = (plus_dm14 * 13 + plus_dm_list[i]) / 14
+                    minus_dm14 = (minus_dm14 * 13 + minus_dm_list[i]) / 14
+
+                plus_di = (plus_dm14 / atr14 * 100) if atr14 > 0 else 0
+                minus_di = (minus_dm14 / atr14 * 100) if atr14 > 0 else 0
+                dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100 if (plus_di + minus_di) > 0 else 0
+                adx_value = round(dx, 1)
+
+            # OBV calculation
+            obv = 0
+            obv_values = [0]
+            for i in range(1, len(closes)):
+                if closes[i] > closes[i-1]:
+                    obv += volumes[i]
+                elif closes[i] < closes[i-1]:
+                    obv -= volumes[i]
+                obv_values.append(obv)
+
+            # OBV trend: compare last 5-day OBV avg to previous 5-day
+            if len(obv_values) >= 10:
+                recent_obv = sum(obv_values[-5:]) / 5
+                prev_obv = sum(obv_values[-10:-5]) / 5
+                if recent_obv > prev_obv * 1.05:
+                    obv_signal = 1  # Accumulation
+                elif recent_obv < prev_obv * 0.95:
+                    obv_signal = -1  # Distribution
+    except Exception:
+        pass
+
     # ── Strategy module scores ────────────────────────────────────────────────
 
     # 1. Momentum score (use 12-month and 1-month returns from edge factors)
@@ -413,6 +477,32 @@ def deep_score(ticker, quick_result):
     ) + vol_premium_bonus
     combined_score += macro_adjustment + news_adjustment
 
+    # ADX trend strength adjustment
+    adx_adjustment = 0
+    if adx_value is not None:
+        if adx_value > 40:
+            # Strong trend — boost momentum trades, penalize mean reversion
+            adx_adjustment += 6
+            reasons.append(f"ADX {adx_value} — strong trend")
+        elif adx_value > 25:
+            adx_adjustment += 3
+            reasons.append(f"ADX {adx_value} — moderate trend")
+        elif adx_value < 15:
+            # No trend — penalize momentum, boost mean reversion
+            adx_adjustment -= 4
+            reasons.append(f"ADX {adx_value} — no trend (choppy)")
+
+    # OBV smart money flow adjustment
+    obv_adjustment = 0
+    if obv_signal == 1:
+        obv_adjustment += 5
+        reasons.append("OBV rising — smart money accumulating")
+    elif obv_signal == -1:
+        obv_adjustment -= 5
+        reasons.append("OBV falling — smart money distributing")
+
+    combined_score += adx_adjustment + obv_adjustment
+
     # Recommendation boost
     if rec:
         action = rec.get("action", "")
@@ -467,6 +557,8 @@ def deep_score(ticker, quick_result):
             "market_regime_encoded": {"risk_on": 2, "neutral": 1, "risk_off": 0}.get(macro.get("market_regime", "neutral"), 1),
             "news_sentiment": news_score_val,
             "treasury_10y": macro.get("treasury_10y", 4.25),
+            "adx": adx_value if adx_value is not None else 20,
+            "obv_signal": obv_signal,
         }
         ml_result = ml_score(ml_features)
 
