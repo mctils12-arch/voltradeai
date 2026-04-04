@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import { Search, RefreshCw, ExternalLink, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -85,10 +84,13 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
   }, [tickerFilter]);
 
   const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery<NewsResponse>({
-    queryKey: ["/api/news", debouncedTicker],
+    queryKey: ["/polygon-news", debouncedTicker],
     queryFn: async () => {
-      const url = debouncedTicker ? `/api/news?ticker=${debouncedTicker}` : `/api/news`;
-      const res = await apiRequest("GET", url);
+      const POLYGON_KEY = "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
+      const url = debouncedTicker
+        ? `https://api.polygon.io/v2/reference/news?limit=20&order=desc&sort=published_utc&ticker=${debouncedTicker}&apiKey=${POLYGON_KEY}`
+        : `https://api.polygon.io/v2/reference/news?limit=20&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
+      const res = await fetch(url);
       return res.json();
     },
     staleTime: 5 * 60 * 1000,

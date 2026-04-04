@@ -1,47 +1,23 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Plus, Trash2, TrendingUp, TrendingDown, Search, RefreshCw } from "lucide-react";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface SpotData {
-  spot: number;
-  price_change: number;
-  price_change_pct: number;
-  company_name: string;
-  error?: string;
-}
 
 // ── Watchlist Row ─────────────────────────────────────────────────────────────
 
 function WatchlistRow({
   ticker,
+  priceData,
+  pricesLoading,
   onRemove,
   onAnalyze,
 }: {
   ticker: string;
+  priceData?: { price: number; change: number };
+  pricesLoading: boolean;
   onRemove: () => void;
   onAnalyze: () => void;
 }) {
-  const { data, isLoading, isError, refetch } = useQuery<SpotData>({
-    queryKey: ["/api/analyze-spot", ticker],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/analyze/${ticker}`);
-      const json = await res.json();
-      return {
-        spot: json.spot,
-        price_change: json.price_change,
-        price_change_pct: json.price_change_pct,
-        company_name: json.company_name,
-        error: json.error,
-      };
-    },
-    staleTime: 60 * 1000,
-    retry: 1,
-  });
-
-  const isUp = data && data.price_change >= 0;
+  const isUp = priceData ? priceData.change >= 0 : true;
 
   return (
     <tr>
@@ -55,41 +31,28 @@ function WatchlistRow({
           }}>
             {ticker}
           </span>
-          {data?.company_name && !data.error && (
-            <div style={{
-              fontSize: '0.72rem',
-              color: 'var(--text-secondary)',
-              marginTop: '0.1rem',
-              maxWidth: '180px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {data.company_name}
-            </div>
-          )}
         </div>
       </td>
       <td style={{ textAlign: 'right' }}>
-        {isLoading ? (
+        {pricesLoading && !priceData ? (
           <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
             <RefreshCw size={12} className="animate-spin" style={{ display: 'inline' }} />
           </span>
-        ) : isError || data?.error ? (
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>—</span>
-        ) : data ? (
+        ) : priceData ? (
           <span style={{
             fontFamily: 'var(--font-mono)',
             fontWeight: 600,
             fontSize: '0.9rem',
             color: 'var(--text-primary)',
           }}>
-            ${Number(data.spot ?? 0).toFixed(2)}
+            ${Number(priceData.price ?? 0).toFixed(2)}
           </span>
-        ) : null}
+        ) : (
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>—</span>
+        )}
       </td>
       <td style={{ textAlign: 'right' }}>
-        {!isLoading && !isError && data && !data.error ? (
+        {priceData ? (
           <span style={{
             fontFamily: 'var(--font-mono)',
             fontWeight: 600,
@@ -100,7 +63,7 @@ function WatchlistRow({
             gap: '0.2rem',
           }}>
             {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-            {isUp ? '+' : ''}{Number(data.price_change_pct ?? 0).toFixed(2)}%
+            {isUp ? '+' : ''}{Number(priceData.change ?? 0).toFixed(2)}%
           </span>
         ) : (
           <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>—</span>
@@ -166,6 +129,35 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
   const [input, setInput] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [prices, setPrices] = useState<Record<string, { price: number; change: number }>>({});
+  const [pricesLoading, setPricesLoading] = useState(false);
+
+  // Fetch prices from Alpaca whenever tickers change
+  useEffect(() => {
+    if (tickers.length === 0) return;
+    setPricesLoading(true);
+    const symbols = tickers.join(",");
+    fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${symbols}`, {
+      headers: {
+        "APCA-API-KEY-ID": "PKMDHJOVQEVIB4UHZXUYVTIDBU",
+        "APCA-API-SECRET-KEY": "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et",
+      },
+    })
+      .then(r => r.json())
+      .then(data => {
+        const newPrices: Record<string, { price: number; change: number }> = {};
+        for (const [ticker, snap] of Object.entries(data) as any) {
+          const bar = snap.dailyBar || {};
+          const prev = snap.prevDailyBar || {};
+          const c = bar.c || 0;
+          const pc = prev.c || c;
+          newPrices[ticker] = { price: c, change: pc > 0 ? ((c - pc) / pc) * 100 : 0 };
+        }
+        setPrices(newPrices);
+      })
+      .catch(() => {})
+      .finally(() => setPricesLoading(false));
+  }, [tickers]);
 
   // Load watchlist from API on mount
   useEffect(() => {
@@ -398,6 +390,8 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
                 <WatchlistRow
                   key={t}
                   ticker={t}
+                  priceData={prices[t]}
+                  pricesLoading={pricesLoading}
                   onRemove={() => removeTicker(t)}
                   onAnalyze={() => onSelectTicker(t)}
                 />

@@ -47,19 +47,25 @@ export default function SectorHeatmap() {
   useEffect(() => {
     async function fetchSectors() {
       try {
+        const etfs = SECTOR_ETFS.map(s => s.etf).join(",");
+        const res = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}`, {
+          headers: {
+            "APCA-API-KEY-ID": "PKMDHJOVQEVIB4UHZXUYVTIDBU",
+            "APCA-API-SECRET-KEY": "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et",
+          },
+        });
+        const data = await res.json();
         const results: SectorData[] = [];
         for (const s of SECTOR_ETFS) {
-          try {
-            const res = await fetch(
-              `https://api.polygon.io/v2/aggs/ticker/${s.etf}/prev?adjusted=true&apiKey=UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP`
-            );
-            const data = await res.json();
-            const bar = data.results?.[0];
-            if (bar) {
-              const change = ((bar.c - bar.o) / bar.o) * 100;
-              results.push({ name: s.name, etf: s.etf, change: Math.round(change * 100) / 100, marketCap: s.weight });
-            }
-          } catch {}
+          const snap = data[s.etf];
+          if (snap) {
+            const bar = snap.dailyBar || {};
+            const prev = snap.prevDailyBar || {};
+            const c = bar.c || 0;
+            const pc = prev.c || c;
+            const change = pc > 0 ? ((c - pc) / pc) * 100 : 0;
+            results.push({ name: s.name, etf: s.etf, change: Math.round(change * 100) / 100, marketCap: s.weight });
+          }
         }
         setSectors(results);
       } catch {}

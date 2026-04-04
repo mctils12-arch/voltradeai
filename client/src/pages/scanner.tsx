@@ -5,7 +5,7 @@ import SectorHeatmap from "@/components/SectorHeatmap";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface MarketTicker {
+interface StockData {
   ticker: string;
   close: number;
   open: number;
@@ -16,8 +16,11 @@ interface MarketTicker {
   vwap: number;
 }
 
+// MarketTicker is an alias kept for compatibility
+type MarketTicker = StockData;
+
 interface MarketSnapshotResponse {
-  results: MarketTicker[];
+  results: StockData[];
   date: string;
 }
 
@@ -68,49 +71,64 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
-  // Fetch market data from Polygon grouped daily
-  const POLYGON_KEY = "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
-  const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery<MarketSnapshotResponse>({
-    queryKey: ["/api/polygon-scan"],
-    queryFn: async () => {
-      // Try today, yesterday, and 2 days ago (weekends/holidays)
-      const dates = [];
-      for (let i = 0; i < 5; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        dates.push(d.toISOString().split("T")[0]);
-      }
+  const ALPACA_KEY = "PKMDHJOVQEVIB4UHZXUYVTIDBU";
+  const ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
+  const alpacaHeaders = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
 
-      for (const date of dates) {
+  const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery<MarketSnapshotResponse>({
+    queryKey: ["/alpaca-scanner"],
+    queryFn: async () => {
+      // Step 1: Get most active + movers from Alpaca
+      const [activeRes, moversRes] = await Promise.all([
+        fetch("https://data.alpaca.markets/v1beta1/screener/stocks/most-actives?by=volume&top=100", { headers: alpacaHeaders }),
+        fetch("https://data.alpaca.markets/v1beta1/screener/stocks/movers?top=50", { headers: alpacaHeaders }),
+      ]);
+      const activeData = await activeRes.json();
+      const moversData = await moversRes.json();
+
+      // Collect unique tickers
+      const tickerSet = new Set<string>();
+      (activeData.most_actives || []).forEach((s: any) => tickerSet.add(s.symbol));
+      (moversData.gainers || []).forEach((s: any) => tickerSet.add(s.symbol));
+      (moversData.losers || []).forEach((s: any) => tickerSet.add(s.symbol));
+      // Add popular tickers
+      ["AAPL","MSFT","GOOGL","AMZN","TSLA","NVDA","META","AMD","NFLX","SPY","QQQ","DIS","BA","JPM","GS","V","MA","COIN","PLTR","SOFI"].forEach(t => tickerSet.add(t));
+
+      const allTickers = Array.from(tickerSet).slice(0, 150);
+
+      // Step 2: Get snapshots for all tickers (batch in groups of 50)
+      const stocks: StockData[] = [];
+      for (let i = 0; i < allTickers.length; i += 50) {
+        const batch = allTickers.slice(i, i + 50).join(",");
         try {
-          const res = await fetch(
-            `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${POLYGON_KEY}`
-          );
-          const json = await res.json();
-          if (json.results && json.results.length > 0) {
-            // Transform to our format
-            const stocks = json.results
-              .filter((r: any) => r.v > 100000 && r.c > 1) // min volume and price
-              .map((r: any) => ({
-                ticker: r.T,
-                close: r.c,
-                open: r.o,
-                high: r.h,
-                low: r.l,
-                volume: r.v,
-                vwap: r.vw || r.c,
-                change_pct: r.o > 0 ? ((r.c - r.o) / r.o) * 100 : 0,
-              }))
-              .sort((a: any, b: any) => b.volume - a.volume)
-              .slice(0, 200); // Top 200 by volume
-            return { results: stocks, date };
+          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}`, { headers: alpacaHeaders });
+          const snapData = await snapRes.json();
+          for (const [ticker, snap] of Object.entries(snapData) as any) {
+            const bar = snap.dailyBar || {};
+            const prev = snap.prevDailyBar || {};
+            const c = bar.c || 0;
+            const pc = prev.c || c;
+            const change = pc > 0 ? ((c - pc) / pc) * 100 : 0;
+            if (c > 1 && bar.v > 50000) {
+              stocks.push({
+                ticker,
+                close: c,
+                open: bar.o || c,
+                high: bar.h || c,
+                low: bar.l || c,
+                volume: bar.v || 0,
+                vwap: bar.vw || c,
+                change_pct: Math.round(change * 100) / 100,
+              });
+            }
           }
         } catch {}
       }
-      return { results: [], date: "" };
+
+      stocks.sort((a, b) => b.volume - a.volume);
+      return { results: stocks, date: new Date().toISOString().split("T")[0] };
     },
-    staleTime: 300000, // 5 minutes
-    retry: 2,
+    staleTime: 120000, // 2 minutes
   });
 
   const handleSort = (key: SortKey) => {
@@ -609,7 +627,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
         fontFamily: "'JetBrains Mono', monospace",
         letterSpacing: "0.04em",
       }}>
-        DATA: POLYGON.IO · PREVIOUS TRADING DAY · US STOCKS $1+ · 50K+ DAILY VOL · CLICK ROW TO ANALYZE
+        DATA: ALPACA MARKETS · REAL-TIME SNAPSHOTS · US STOCKS $1+ · 50K+ DAILY VOL · CLICK ROW TO ANALYZE
       </p>
     </div>
   );
