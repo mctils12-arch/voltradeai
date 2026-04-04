@@ -1077,8 +1077,8 @@ def scan_market():
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
     scored = quick_results
 
-    # Step 3: Deep analyze top 30
-    top_candidates = scored[:30]
+    # Step 3: Deep analyze top 10
+    top_candidates = scored[:10]
     deep_scored = []
     for candidate in top_candidates:
         try:

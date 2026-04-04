@@ -401,7 +401,8 @@ def get_social_intelligence(ticker: str) -> dict:
     Returns combined score and individual signals.
     """
     reddit = get_reddit_sentiment(ticker)
-    trends = get_google_trends(ticker)
+    # Google Trends disabled — rate limits cause timeouts, Wikipedia pageviews covers attention
+    trends = {"current_interest": 0, "avg_interest": 0, "spike_ratio": 1.0, "has_spike": False, "trend_direction": "stable", "signal": 0}
     news = get_news_multi_source(ticker)
 
     # Weighted combination based on research:

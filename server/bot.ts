@@ -46,6 +46,7 @@ const state = {
   consecutiveStopLosses: 0,
   circuitBreakerUntil: 0,  // epoch ms — paused until this time
   alpacaFailCount: 0,       // consecutive Alpaca ping failures
+  morningQueueExecuted: false, // Track if we ran the morning queue today
 };
 
 // ─── SSE Clients ────────────────────────────────────────────────────────────
@@ -855,124 +856,130 @@ export function registerBotRoutes(app: Express) {
     audit("MORNING", "Queue cleared.");
   }
 
-  // ── Autonomous Bot Engine ─────────────────────────────────────────────────
+  // ── Three-Tier Engine ────────────────────────────────────────────────────
 
-  let lastAutoRun = 0;
-  let autoRunning = false;
+  let autoRunning = false; // used by runOvernightResearch
   let lastScanResult: any = null;
-  let morningQueueExecuted = false; // Track if we ran the morning queue today
 
-  async function runAutonomousCycle() {
-    if (!state.active || state.killSwitch || autoRunning) return;
-    // Don't re-run if last scan was less than 30 seconds ago
-    if (Date.now() - lastAutoRun < 30000 && lastAutoRun > 0) return;
+  // ── Tier 1: Reflex — positions, stops, order execution (45s) ──────────────
 
-    // Circuit breaker check
-    if (state.circuitBreakerUntil > Date.now()) {
-      const minutesLeft = Math.round((state.circuitBreakerUntil - Date.now()) / 60000);
-      if (state.diagCycleCount % 10 === 0) { // Log every 10th cycle so it doesn't spam
-        audit("CIRCUIT-BREAKER", `Bot paused — ${minutesLeft} minutes remaining`);
+  async function tier1Reflex() {
+    try {
+      // 1. Sweep stale orders
+      await sweepStaleOrders();
+
+      // 2. Check positions — apply stop-losses via bot_engine
+      const { stdout } = await execAsync(`python3 -c "
+from bot_engine import manage_positions
+import json
+result = manage_positions()
+print(json.dumps(result))
+"`, { timeout: 15000 });
+
+      const mgmt = JSON.parse(stdout.trim());
+
+      // 3. Execute position actions (close on stop-loss/take-profit)
+      for (const action of (mgmt.actions || [])) {
+        try {
+          await alpaca(`/v2/positions/${action.ticker}`, { method: "DELETE" });
+          audit("TIER1-EXIT", `${action.reason}`);
+          notify("exit", `Closed ${action.ticker}: ${action.reason}`);
+
+          // Circuit breaker tracking
+          if (action.type === "stop_loss" || action.type === "trailing_stop") {
+            state.consecutiveStopLosses++;
+            if (state.consecutiveStopLosses >= 3) {
+              state.circuitBreakerUntil = Date.now() + 3600000;
+              audit("CIRCUIT-BREAKER", "3 consecutive stop-losses — paused 1 hour");
+              notify("alert", "Circuit breaker: 3 stops hit. Paused 1 hour.");
+            }
+          } else if (action.type === "take_profit") {
+            state.consecutiveStopLosses = 0;
+          }
+        } catch (err: any) {
+          console.error("[tier1-exit]", err?.message || err);
+        }
       }
+
+      // 4. Execute morning queue on first market-open cycle
+      const clockT1 = await alpaca("/v2/clock");
+      if (clockT1.is_open && !state.morningQueueExecuted && morningQueue.length > 0) {
+        await executeMorningQueue();
+        state.morningQueueExecuted = true;
+      }
+
+      // 5. Track closed trades for learning
+      await trackClosedTrades();
+
+    } catch (err: any) {
+      console.error("[tier1]", err?.message || err);
+    }
+  }
+
+  // ── Tier 2: Intelligence — find and execute trades (5 min) ────────────────
+
+  async function tier2Intelligence(isMarketOpen: boolean, etHour: number) {
+    audit("TIER2", "Starting intelligence scan...");
+
+    // 1. Alpaca health check
+    try {
+      const pingRes = await alpaca("/v2/account");
+      if (!pingRes.equity) {
+        audit("TIER2", "Alpaca not responding — skipping cycle");
+        state.alpacaFailCount = (state.alpacaFailCount || 0) + 1;
+        return;
+      }
+      state.alpacaFailCount = 0;
+    } catch (err: any) {
+      state.alpacaFailCount = (state.alpacaFailCount || 0) + 1;
+      audit("TIER2-FAIL", `Alpaca down (${state.alpacaFailCount} consecutive)`);
       return;
-    } else if (state.circuitBreakerUntil > 0 && state.circuitBreakerUntil <= Date.now()) {
-      // Circuit breaker expired — resume
-      state.circuitBreakerUntil = 0;
-      state.consecutiveStopLosses = 0;
-      audit("CIRCUIT-BREAKER", "Circuit breaker expired — resuming trading");
     }
 
-    // ── Self-Diagnostic Check (every 5th cycle) ──
+    // 2. Diagnostic check (every 5th Tier 2 cycle)
     state.diagCycleCount++;
-    let diagParams: any = { position_size_multiplier: state.positionSizeMultiplier, min_score_threshold: state.minScoreThreshold, should_pause: false, force_retrain: false, problems_summary: "" };
     if (state.diagCycleCount % 5 === 0) {
-    try {
-      const { stdout: diagOut } = await execAsync(`python3 -c "
+      try {
+        const { stdout: diagOut } = await execAsync(`python3 -c "
 from diagnostics import get_auto_fix_params
 import json
 print(json.dumps(get_auto_fix_params()))
 "`, { timeout: 15000 });
-      diagParams = JSON.parse(diagOut.trim());
-
-      if (diagParams.problems_summary !== "All systems healthy") {
-        audit("DIAGNOSTIC", diagParams.problems_summary);
-      }
-
-      if (diagParams.should_pause) {
-        audit("DIAGNOSTIC-PAUSE", "Bot paused by self-diagnostic system — critical issues detected");
-        notify("alert", "Bot auto-paused: " + diagParams.problems_summary);
-        return;
-      }
-
-      if (diagParams.force_retrain) {
-        audit("DIAGNOSTIC", "Forcing ML model retrain due to performance degradation");
-        execAsync(`python3 -c "from ml_model import train_model; train_model()"`, { timeout: 60000 }).catch(() => {});
-      }
-
-      state.positionSizeMultiplier = diagParams.position_size_multiplier || 1.0;
-      state.minScoreThreshold = diagParams.min_score_threshold || 65;
-    } catch (err: any) { console.error("[bot]", err?.message || err); }
-    } // end every-5th-cycle diagnostic
-
-    // CHECK: Is market actually open for ANY trading?
-    try {
-      const clockCheck = await alpaca("/v2/clock");
-      const nowCheck = new Date(clockCheck.timestamp);
-      const etH = nowCheck.getUTCHours() - 4;
-      const isAnyTradingWindow = clockCheck.is_open || (etH >= 4 && etH < 20);
-
-      if (!isAnyTradingWindow) {
-        // Market fully closed (8pm-4am ET) — do research only, no trades
-        return;
-      }
-    } catch { return; }
-
-    autoRunning = true;
-    audit("AUTO", "Starting autonomous scan cycle...");
-
-    try {
-      // Fallback mode: verify Polygon is responding before scanning
-      try {
-        const { stdout: pingOut } = await execAsync(
-          `python3 -c "import requests; r=requests.get('https://data.alpaca.markets/v2/stocks/SPY/snapshot', headers={'APCA-API-KEY-ID':'PKMDHJOVQEVIB4UHZXUYVTIDBU','APCA-API-SECRET-KEY':'9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et'}, timeout=5); print('ok' if r.status_code==200 else 'fail')"` ,
-          { timeout: 10000 }
-        );
-        if (!pingOut.trim().includes("ok")) {
-          state.alpacaFailCount = (state.alpacaFailCount || 0) + 1;
-          if (state.alpacaFailCount >= 3) {
-            audit("FALLBACK", `Alpaca down for ${state.alpacaFailCount} cycles — entering degraded mode`);
-          }
-          audit("FALLBACK", "Alpaca API not responding — skipping this cycle");
-          autoRunning = false;
+        const diagParams = JSON.parse(diagOut.trim());
+        state.positionSizeMultiplier = diagParams.position_size_multiplier || 1.0;
+        state.minScoreThreshold = diagParams.min_score_threshold || 65;
+        if (diagParams.problems_summary && diagParams.problems_summary !== "All systems healthy") {
+          audit("DIAGNOSTIC", diagParams.problems_summary);
+        }
+        if (diagParams.should_pause) {
+          audit("DIAGNOSTIC-PAUSE", "Critical issues — pausing");
           return;
-        } else {
-          state.alpacaFailCount = 0;
         }
       } catch (err: any) {
-        state.alpacaFailCount = (state.alpacaFailCount || 0) + 1;
-        audit("FALLBACK", `Alpaca API check failed — skipping cycle (fail #${state.alpacaFailCount})`);
-        autoRunning = false;
-        return;
+        console.error("[tier2-diag]", err?.message || err);
       }
+    }
 
-      // Step 1: Run bot_engine.py to scan market and get recommendations
-      const enginePath = path.resolve("bot_engine.py");
-      const { stdout } = await execAsync(`python3 "${enginePath}" full`, { timeout: 180000 });
+    // 3. Run bot_engine scan (quick scan + deep analyze top 10)
+    try {
+      const enginePath = require("path").resolve(process.cwd(), "bot_engine.py");
+      const { stdout } = await execAsync(`python3 "${enginePath}" full`, { timeout: 300000 }); // 5 min timeout
       const result = JSON.parse(stdout.trim());
-      lastScanResult = result;
 
-      if (result.error) {
-        audit("AUTO", `Scan error: ${result.error}`);
-        autoRunning = false;
+      if (!result || result.error) {
+        audit("TIER2", `Scan returned error: ${result?.error || "unknown"}`);
         return;
       }
 
-      audit("AUTO", `Scanned ${result.scanned} stocks, filtered to ${result.filtered}, deep-analyzed ${result.deep_analyzed}`);
+      audit("TIER2", `Scanned ${result.scanned || 0} stocks, ${(result.new_trades || []).length} trade candidates`);
+
+      lastScanResult = result;
 
       // Auto-generate signals from scan results
       const topPicks = result.top_10 || [];
       for (const pick of topPicks) {
         if (pick.score >= 60) {
-          const existing = signals.findIndex(s => s.ticker === pick.ticker);
+          const existing = signals.findIndex((s: any) => s.ticker === pick.ticker);
           if (existing >= 0) signals.splice(existing, 1);
           const side = pick.side || "buy";
           const actionLabel = pick.action_label || (pick.score >= 75 ? "STRONG BUY" : pick.score >= 65 ? "BUY" : "WATCH");
@@ -988,7 +995,7 @@ print(json.dumps(get_auto_fix_params()))
       }
       // Add signals from new trades
       for (const trade of (result.new_trades || [])) {
-        const existing = signals.findIndex(s => s.ticker === trade.ticker);
+        const existing = signals.findIndex((s: any) => s.ticker === trade.ticker);
         if (existing >= 0) signals.splice(existing, 1);
         const side = trade.side || "buy";
         signals.unshift({
@@ -1013,375 +1020,216 @@ print(json.dumps(get_auto_fix_params()))
       }
       if (signals.length > 30) signals.length = 30;
 
-      // Exit prediction model — ask ML if any positions should be closed
-      try {
-        const positionsForML = await alpaca("/v2/positions");
-        if (Array.isArray(positionsForML) && positionsForML.length > 0) {
-          for (const pos of positionsForML) {
-            const ticker = pos.symbol;
-            const pnlPct = parseFloat(pos.unrealized_plpc || "0") * 100;
-            const currentPrice = parseFloat(pos.current_price || "0");
-            const entryPrice = parseFloat(pos.avg_entry_price || currentPrice);
-            const qty = Math.abs(parseInt(pos.qty || "0"));
-            
-            // Only ask ML for positions not already flagged by rule-based stops
-            const alreadyFlagged = (result.position_actions || []).some((a: any) => a.ticker === ticker);
-            if (alreadyFlagged) continue;
-
-            try {
-              const { stdout: exitOut } = await execAsync(`python3 -c "
-from ml_model import predict_exit
-import json
-result = predict_exit({
-    'ticker': '${ticker}',
-    'pnl_pct': ${pnlPct},
-    'entry_price': ${entryPrice},
-    'current_price': ${currentPrice},
-    'holding_days': 3,
-})
-print(json.dumps(result))
-"`, { timeout: 8000 });
-              const exitResult = JSON.parse(exitOut.trim());
-              if (exitResult.action === "SELL" && exitResult.confidence > 0.65) {
-                audit("ML-EXIT", `ML recommends closing ${ticker}: ${exitResult.reason} (${(exitResult.confidence * 100).toFixed(0)}% confidence)`);
-                try {
-                  await alpaca(`/v2/positions/${ticker}`, { method: "DELETE" });
-                  audit("ML-EXIT-TRADE", `Closed ${ticker} on ML recommendation (P&L: ${pnlPct.toFixed(1)}%)`);
-                  notify("ml_exit", `ML closed ${ticker} (P&L: ${pnlPct.toFixed(1)}%) — ${exitResult.reason}`);
-                } catch (err: any) { console.error("[bot]", err?.message || err); }
-              }
-            } catch (err: any) { console.error("[bot]", err?.message || err); }
-          }
-        }
-      } catch (err: any) { console.error("[bot]", err?.message || err); }
-
-      // Step 2: Execute position management (stop-loss / take-profit)
-      for (const action of (result.position_actions || [])) {
-        if (state.killSwitch) break;
-        try {
-          await alpaca(`/v2/positions/${action.ticker}`, { method: "DELETE" });
-          audit("AUTO-CLOSE", `${action.ticker}: ${action.reason}`);
-          notify(
-            action.type === "take_profit" ? "profit" : "stop_loss",
-            `${action.ticker} position closed — ${action.reason}`
-          );
-          // Circuit breaker tracking
-          if (action.type === "stop_loss" || action.type === "trailing_stop") {
-            state.consecutiveStopLosses++;
-            if (state.consecutiveStopLosses >= 3) {
-              state.circuitBreakerUntil = Date.now() + 3600000; // 1 hour
-              audit("CIRCUIT-BREAKER", `3 consecutive stop-losses hit — bot paused for 1 hour`);
-              notify("alert", "Circuit breaker triggered: 3 consecutive stop-losses. Bot paused for 1 hour.");
-            }
-          } else if (action.type === "take_profit") {
-            state.consecutiveStopLosses = 0; // Reset on a win
-          }
-        } catch (e: any) {
-          audit("AUTO-ERROR", `Failed to close ${action.ticker}: ${e.message}`);
-        }
-      }
-
-      // Step 2.5: Upgrade trades — sell weak positions if much better picks available
-      const upgradeCandidates = result.upgrade_candidates || [];
-      const newTrades = result.new_trades || [];
-      
-      if (upgradeCandidates.length > 0 && newTrades.length > 0) {
-        // Sort candidates by score ascending (weakest first)
-        upgradeCandidates.sort((a: any, b: any) => (a.score || 0) - (b.score || 0));
-        // Sort new trades by score descending (best first)
-        const sortedNew = [...newTrades].sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
-
-        for (const candidate of upgradeCandidates) {
-          if (state.killSwitch) break;
-          // Find a new trade that scores 20+ points higher
-          const betterPick = sortedNew.find((t: any) => 
-            t.score >= (candidate.score || 50) + 20 && 
-            !upgradeCandidates.some((uc: any) => uc.ticker === t.ticker)
-          );
-
-          if (betterPick) {
-            try {
-              // Sell the weak position
-              await alpaca(`/v2/positions/${candidate.ticker}`, { method: "DELETE" });
-              audit("UPGRADE", `Sold ${candidate.ticker} (P&L: ${candidate.pnl_pct?.toFixed(1)}%, score ~${candidate.score?.toFixed(0)}) → upgrading to ${betterPick.ticker} (score ${betterPick.score})`);
-              notify("upgrade", `Upgraded: sold ${candidate.ticker} → buying ${betterPick.ticker} (score ${betterPick.score})`);
-
-              // Mark this new trade as consumed so we don't buy it again in Step 3
-              betterPick._consumed = true;
-
-              // Wait for settlement
-              await new Promise(r => setTimeout(r, 1000));
-
-              // Buy the better pick
-              const upgradeQty = Math.floor(candidate.market_value / betterPick.price);
-              if (upgradeQty > 0) {
-                await alpaca("/v2/orders", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    symbol: betterPick.ticker,
-                    qty: String(upgradeQty),
-                    side: betterPick.side === "short" ? "sell" : "buy",
-                    type: "market",
-                    time_in_force: "day",
-                  }),
-                });
-                audit("UPGRADE-TRADE", `MARKET BUY ${upgradeQty} ${betterPick.ticker} @ ~$${betterPick.price} | Score: ${betterPick.score} | Replaced ${candidate.ticker}`);
-              }
-            } catch (e: any) {
-              audit("UPGRADE-ERROR", `Failed to upgrade ${candidate.ticker} → ${betterPick.ticker}: ${e.message}`);
-            }
-          }
-        }
-      }
-
-      // Step 3: Execute new trades — Smart Execution Engine
-      const clock2 = await alpaca("/v2/clock");
-      const isMarketOpen = clock2.is_open;
-      const now2 = new Date(clock2.timestamp);
-      const etHour2 = now2.getUTCHours() - 4;
-      const isPreMarket = !isMarketOpen && etHour2 >= 4 && etHour2 < 9.5;
-      const isAfterHours = !isMarketOpen && etHour2 >= 16 && etHour2 < 20;
-      const isExtended = isPreMarket || isAfterHours;
-
-      // SMART EXECUTION RULES:
-      // - Regular hours (9:30am-4pm): Market orders for instant fill
-      // - Pre-market (4am-9:30am): Queue for market open (no chasing thin liquidity)
-      // - After-hours (4pm-8pm): Queue for next market open
-      // - Options: Regular hours only
-      // - Stale limit orders cancelled after 12 minutes
-      // - Better-scoring picks replace weaker unfilled orders
-      // - Morning queue executes market orders at 9:30am for guaranteed fills
-
-      // Run stale order sweeper every cycle
-      await sweepStaleOrders();
-
-      const acct2 = await alpaca("/v2/account");
-      const equity = parseFloat(acct2.equity || "100000");
-      const lastEquity = parseFloat(acct2.last_equity || "100000");
+      // 4. Check daily/weekly limits
+      const acct = await alpaca("/v2/account");
+      const equity = parseFloat(acct.equity || "100000");
+      const lastEquity = parseFloat(acct.last_equity || "100000");
       const dailyPnlPct = ((equity - lastEquity) / lastEquity) * 100;
 
-      if (dailyPnlPct <= DAILY_LOSS_LIMIT) {
-        audit("AUTO-BLOCKED", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). All trading halted for today.`);
-        notify("alert", `Daily loss limit hit (${dailyPnlPct.toFixed(2)}%). Trading halted for today.`);
-      } else {
-        // Weekly loss check
-        try {
-          const { stdout: weeklyOut } = await execAsync(`python3 -c "
+      if (dailyPnlPct <= -3) {
+        audit("TIER2-LIMIT", `Daily loss limit: ${dailyPnlPct.toFixed(1)}%`);
+        notify("alert", `Daily loss: ${dailyPnlPct.toFixed(1)}%. Trading halted.`);
+        return;
+      }
+
+      // Weekly loss check
+      try {
+        const { stdout: weeklyOut } = await execAsync(`python3 -c "
 from diagnostics import check_weekly_loss
 import json
-# Simple equity history from Alpaca
 history = [{'date': '${new Date().toISOString().split('T')[0]}', 'equity': ${equity}}]
 print(json.dumps(check_weekly_loss(history)))
 "`, { timeout: 5000 });
-          const weeklyResult = JSON.parse(weeklyOut.trim());
-          if (weeklyResult.action === "pause") {
-            audit("WEEKLY-LIMIT", weeklyResult.reason);
-            notify("alert", weeklyResult.reason);
-            state.active = false;
-            return;
-          } else if (weeklyResult.action === "reduce") {
-            audit("WEEKLY-WARNING", weeklyResult.reason);
-            state.positionSizeMultiplier = Math.min(state.positionSizeMultiplier, 0.5);
-          }
-        } catch (err: any) { console.error("[bot]", err?.message || err); }
-
-        // Execute morning queue on first regular-hours cycle of the day
-        if (isMarketOpen && !morningQueueExecuted && morningQueue.length > 0) {
-          await executeMorningQueue();
-          morningQueueExecuted = true;
+        const weeklyResult = JSON.parse(weeklyOut.trim());
+        if (weeklyResult.action === "pause") {
+          audit("WEEKLY-LIMIT", weeklyResult.reason);
+          notify("alert", weeklyResult.reason);
+          state.active = false;
+          return;
+        } else if (weeklyResult.action === "reduce") {
+          audit("WEEKLY-WARNING", weeklyResult.reason);
+          state.positionSizeMultiplier = Math.min(state.positionSizeMultiplier, 0.5);
         }
+      } catch (err: any) { console.error("[tier2-weekly]", err?.message || err); }
 
-        for (const trade of (result.new_trades || [])) {
-          if (state.killSwitch) break;
-
-          // Skip trades already consumed by upgrade logic
-          if ((trade as any)._consumed) continue;
-
-          // Diagnostic: skip low-confidence trades when system detects issues
-          if (trade.score < state.minScoreThreshold) {
-            audit("DIAG-SKIP", `${trade.ticker}: Score ${trade.score} below diagnostic threshold ${state.minScoreThreshold}`);
-            continue;
+      // 5. Execute trades or queue for morning
+      if (isMarketOpen) {
+        await executeTrades(result.new_trades || [], equity);
+      } else {
+        // Queue for morning
+        for (const trade of (result.new_trades || []).slice(0, MAX_POSITIONS)) {
+          if (!morningQueue.some((q: any) => q.ticker === trade.ticker)) {
+            morningQueue.push({ ...trade, queuedAt: new Date().toISOString() });
+            audit("QUEUE", `${trade.ticker} queued for market open (score ${trade.score})`);
           }
-
-          // Position size check
-          const effectivePositionSize = MAX_POSITION_SIZE * (state.positionSizeMultiplier || 1.0);
-          if (trade.position_value > equity * effectivePositionSize) {
-            audit("AUTO-BLOCKED", `${trade.ticker}: Position too large ($${trade.position_value} > ${(effectivePositionSize * 100).toFixed(1)}% limit)`);
-            continue;
-          }
-
-          // Options trade check — only during regular hours
-          const isOptionsOrder = (trade.trade_type === "options") || trade.recommendation?.toLowerCase().includes("option");
-          if (isOptionsOrder) {
-            if (!isMarketOpen) {
-              // Queue for morning instead of blocking
-              const existsInQueue = morningQueue.some(q => q.ticker === trade.ticker);
-              if (!existsInQueue) {
-                morningQueue.push({ ...trade, queuedAt: new Date().toISOString() });
-                audit("QUEUE", `${trade.ticker}: Options queued for market open (score ${trade.score})`);
-              }
-              continue;
-            }
-            await placeOptionsOrder(
-              trade.ticker,
-              trade.vrp > 0 ? "call" : "put",
-              trade.price,
-              new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
-              trade.side === "short" ? "sell" : "buy",
-              trade.shares
-            );
-            continue;
-          }
-
-          // ── EXTENDED HOURS: Queue for morning, don't chase thin liquidity ──
-          if (isExtended) {
-            // Replace weaker queued trades if this one is better
-            const weakIdx = morningQueue.findIndex(q => q.score < trade.score - 10);
-            if (weakIdx >= 0 && morningQueue.length >= MAX_POSITIONS) {
-              const replaced = morningQueue[weakIdx];
-              morningQueue.splice(weakIdx, 1);
-              audit("QUEUE-REPLACE", `Replaced ${replaced.ticker} (score ${replaced.score}) with ${trade.ticker} (score ${trade.score}) in morning queue`);
-            }
-
-            const existsInQueue = morningQueue.some(q => q.ticker === trade.ticker);
-            if (!existsInQueue && morningQueue.length < MAX_POSITIONS) {
-              morningQueue.push({ ...trade, queuedAt: new Date().toISOString() });
-              audit("QUEUE", `${trade.ticker}: Queued for market open (score ${trade.score}) — extended hours, no chasing thin liquidity`);
-            }
-            continue;
-          }
-
-          // ── REGULAR HOURS: Execute immediately with market orders ──
-          const qty = Math.floor(trade.shares);
-          if (qty <= 0) continue;
-
-          // ── Sector correlation re-check at execution time ──
-          try {
-            const livePositions = await alpaca("/v2/positions");
-            if (Array.isArray(livePositions)) {
-              // Count how many positions share similar sector (simple symbol-based check)
-              const held = livePositions.map((p: any) => p.symbol);
-              // Check if we already hold this exact ticker
-              if (held.includes(trade.ticker)) {
-                audit("SECTOR-CHECK", `${trade.ticker}: Already holding this stock — skipping duplicate`);
-                continue;
-              }
-              // Max 5 positions enforced at execution time, not just scoring time
-              if (livePositions.length >= MAX_POSITIONS) {
-                audit("SECTOR-CHECK", `Max positions (${MAX_POSITIONS}) already held — skipping ${trade.ticker}`);
-                continue;
-              }
-            }
-          } catch (err: any) { console.error("[bot]", err?.message || err); }
-
-          // ── Slippage simulator: estimate real-world fill cost ──
-          // Paper trades fill at exact price. Real trades don't.
-          // We simulate slippage based on volume: low volume = more slippage
-          const estimatedSlippagePct = (trade.volume && trade.volume > 1000000) ? 0.05 :
-                                       (trade.volume && trade.volume > 500000) ? 0.10 :
-                                       (trade.volume && trade.volume > 100000) ? 0.20 : 0.35;
-          const slippageCost = trade.price * (estimatedSlippagePct / 100) * qty;
-          const adjustedScore = trade.score - (estimatedSlippagePct * 5); // Penalize low-liquidity picks
-          if (adjustedScore < state.minScoreThreshold) {
-            audit("SLIPPAGE-SKIP", `${trade.ticker}: Score ${trade.score} drops to ${adjustedScore.toFixed(1)} after ${estimatedSlippagePct}% estimated slippage — below threshold`);
-            continue;
-          }
-          // Log slippage estimate for learning
-          if (estimatedSlippagePct > 0.15) {
-            audit("SLIPPAGE-WARN", `${trade.ticker}: Estimated slippage ${estimatedSlippagePct}% (~$${slippageCost.toFixed(2)}) — low liquidity`);
-          }
-
-          // Check if buying power is locked — try to replace weaker open orders
-          const acctCheck = await alpaca("/v2/account");
-          const buyingPower = parseFloat(acctCheck.buying_power || "0");
-          if (trade.position_value > buyingPower) {
-            const replaced = await replaceIfBetter(trade);
-            if (!replaced) {
-              audit("AUTO-BLOCKED", `${trade.ticker}: Not enough buying power ($${buyingPower.toFixed(0)} available, need $${trade.position_value.toFixed(0)})`);
-              continue;
-            }
-            // Wait for order cancellation to free buying power
-            await new Promise(r => setTimeout(r, 1000));
-          }
-
-          try {
-            const sideStr = trade.side === "short" ? "sell" : (trade.side || "buy");
-            const order = await alpaca("/v2/orders", {
-              method: "POST",
-              body: JSON.stringify({
-                symbol: trade.ticker,
-                qty: String(qty),
-                side: sideStr,
-                type: "market",
-                time_in_force: "day",
-              }),
-            });
-
-            const sideLabel = trade.side === "short" ? "SHORT" : (trade.side || "BUY").toUpperCase();
-            audit("AUTO-TRADE", `[REGULAR] MARKET ${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).join(" | ")}`);
-            notify("trade", `${sideLabel} ${qty} ${trade.ticker} @ ~$${trade.price} (score: ${trade.score})`);
-
-            // Track fill for ML learning
-            try {
-              const fillData = JSON.stringify({
-                ticker: trade.ticker,
-                order_type: "market",
-                side: sideStr || trade.side || "buy",
-                qty,
-                expected_price: trade.price,
-                fill_price: trade.price,
-                time_placed: new Date().toISOString(),
-                session: isMarketOpen ? "regular" : isPreMarket ? "premarket" : "afterhours",
-                volume: trade.volume || 0,
-                score: trade.score,
-              });
-              execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
-            } catch (err: any) { console.error("[bot]", err?.message || err); }
-
-            // Track the order for stale sweeping (market orders fill instantly, but just in case)
-            if (order?.id) {
-              openOrders.push({
-                orderId: order.id,
-                ticker: trade.ticker,
-                score: trade.score,
-                placedAt: Date.now(),
-                side: sideStr,
-                qty,
-                limitPrice: trade.price,
-              });
-            }
-          } catch (e: any) {
-            audit("AUTO-ERROR", `Failed to trade ${trade.ticker}: ${e.message}`);
-          }
-
-          await new Promise(r => setTimeout(r, 500));
         }
       }
 
-      // Run learning loop after each cycle
-      await trackClosedTrades();
-
-      audit("AUTO", `Cycle complete. ${(result.new_trades || []).length} new trades, ${(result.position_actions || []).length} position actions.`);
-
-      // Daily summary (check once per cycle if it's near market close — 4pm ET)
-      try {
-        const etHourNow = new Date().getUTCHours() - 4;
-        if (etHourNow === 16) {
-          recordDailyEquity();
-          const acctSummary = await alpaca("/v2/account");
-          const dailyPnlDollars = parseFloat(acctSummary.equity) - parseFloat(acctSummary.last_equity);
-          notify(
-            "daily_summary",
-            `Daily summary: P&L ${dailyPnlDollars >= 0 ? "+" : ""}$${dailyPnlDollars.toFixed(2)} | Portfolio: $${parseFloat(acctSummary.portfolio_value).toLocaleString()}`
-          );
-        }
-      } catch (err: any) { console.error("[bot]", err?.message || err); }
-    } catch (e: any) {
-      audit("AUTO-ERROR", `Autonomous cycle failed: ${e.message}`);
+    } catch (err: any) {
+      console.error("[tier2-scan]", err?.message || err);
+      audit("TIER2-ERROR", `Scan failed: ${String(err?.message || err).slice(0, 200)}`);
     }
+  }
 
-    autoRunning = false;
-    lastAutoRun = Date.now();
+  // ── Tier 2 trade execution helper ─────────────────────────────────────────
+
+  async function executeTrades(trades: any[], equity: number) {
+    const positions = await alpaca("/v2/positions").catch(() => []);
+    const held = Array.isArray(positions) ? positions.map((p: any) => p.symbol) : [];
+    let slotsUsed = held.length;
+
+    for (const trade of trades) {
+      if (state.killSwitch) break;
+      if (slotsUsed >= MAX_POSITIONS) break;
+      if (trade.score < state.minScoreThreshold) {
+        audit("SKIP", `${trade.ticker}: score ${trade.score} < threshold ${state.minScoreThreshold}`);
+        continue;
+      }
+      if (held.includes(trade.ticker)) continue; // Already holding
+      if ((trade as any)._consumed) continue;
+
+      const effectiveSize = MAX_POSITION_SIZE * state.positionSizeMultiplier;
+      if (trade.position_value > equity * effectiveSize) continue;
+
+      // Slippage check
+      const slippage = (trade.volume > 1000000) ? 0.05 : (trade.volume > 500000) ? 0.10 : (trade.volume > 100000) ? 0.20 : 0.35;
+      const adjScore = trade.score - (slippage * 5);
+      if (adjScore < state.minScoreThreshold) {
+        audit("SLIPPAGE-SKIP", `${trade.ticker}: adjusted score ${adjScore.toFixed(1)} below threshold`);
+        continue;
+      }
+
+      // Buying power check
+      const acctCheck = await alpaca("/v2/account");
+      const bp = parseFloat(acctCheck.buying_power || "0");
+      if (trade.position_value > bp) {
+        const replaced = await replaceIfBetter(trade);
+        if (!replaced) continue;
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
+      try {
+        const qty = Math.floor(trade.shares);
+        if (qty <= 0) continue;
+        const side = trade.side === "short" ? "sell" : (trade.side || "buy");
+
+        await alpaca("/v2/orders", {
+          method: "POST",
+          body: JSON.stringify({
+            symbol: trade.ticker, qty: String(qty), side, type: "market", time_in_force: "day",
+          }),
+        });
+
+        audit("TRADE", `MARKET ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).slice(0, 3).join(" | ")}`);
+        notify("trade", `${side.toUpperCase()} ${qty} ${trade.ticker} (score: ${trade.score})`);
+        slotsUsed++;
+
+        // Track fill
+        try {
+          const fillData = JSON.stringify({ ticker: trade.ticker, order_type: "market", side, qty, expected_price: trade.price, fill_price: trade.price, time_placed: new Date().toISOString(), session: "regular", volume: trade.volume || 0, score: trade.score });
+          execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}'))"`, { timeout: 5000 }).catch(() => {});
+        } catch (err: any) { console.error("[fill-track]", err?.message || err); }
+
+      } catch (err: any) {
+        audit("TRADE-ERROR", `${trade.ticker}: ${err?.message}`);
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  // ── Tier 3: Strategic — ML retrain, macro, manipulation scan (2h) ─────────
+
+  async function tier3Strategic() {
+    audit("TIER3", "Starting strategic scan...");
+
+    // 1. ML model retrain (if needed)
+    try {
+      const { stdout: modelCheck } = await execAsync(`python3 -c "
+import os, time, json
+path = '/data/voltrade_ml_model.pkl' if os.path.isdir('/data') else '/tmp/voltrade_ml_model.pkl'
+if not os.path.exists(path) or (time.time() - os.path.getmtime(path)) > 7 * 86400:
+    print(json.dumps({'needs_retrain': True}))
+else:
+    age_h = (time.time() - os.path.getmtime(path)) / 3600
+    print(json.dumps({'needs_retrain': False, 'age_hours': round(age_h, 1)}))
+"`, { timeout: 5000 });
+      const modelStatus = JSON.parse(modelCheck.trim());
+      if (modelStatus.needs_retrain) {
+        audit("TIER3", "ML model needs retrain — starting background training");
+        execAsync(`python3 -c "from ml_model import train_model; import json; print(json.dumps(train_model()))"`, { timeout: 120000 })
+          .then(({ stdout }) => { audit("TIER3", `ML retrain complete: ${stdout.trim().slice(0, 200)}`); })
+          .catch((err) => { audit("TIER3-ERROR", `ML retrain failed: ${err?.message}`); });
+      } else {
+        audit("TIER3", `ML model OK (${modelStatus.age_hours}h old)`);
+      }
+    } catch (err: any) { console.error("[tier3-ml]", err?.message || err); }
+
+    // 2. Manipulation detection scan
+    try {
+      const { stdout: manipOut } = await execAsync(`python3 -c "
+from manipulation_detect import scan_for_manipulation
+import json
+print(json.dumps(scan_for_manipulation()))
+"`, { timeout: 30000 });
+      const manipResult = JSON.parse(manipOut.trim());
+      if (manipResult.alerts && manipResult.alerts.length > 0) {
+        for (const alert of manipResult.alerts.slice(0, 5)) {
+          audit('MANIPULATION', alert.message || JSON.stringify(alert));
+        }
+      }
+    } catch (err: any) { console.error("[tier3-manip]", err?.message || err); }
+
+    // 3. Run full diagnostics
+    try {
+      const { stdout: diagFull } = await execAsync(`python3 -c "
+from diagnostics import run_diagnostics
+import json
+print(json.dumps(run_diagnostics()))
+"`, { timeout: 15000 });
+      const diagReport = JSON.parse(diagFull.trim());
+      if (diagReport.overall_status !== "healthy") {
+        audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues`);
+      }
+    } catch (err: any) { console.error("[tier3-diag]", err?.message || err); }
+
+    // 4. Record daily equity
+    recordDailyEquity();
+
+    audit("TIER3", "Strategic scan complete");
+  }
+
+  // ── Upgrade logic: sell weak positions if much better picks available ──────
+  // (kept for compatibility with runOvernightResearch and manual calls)
+  async function runUpgradeCandidates(upgradeCandidates: any[], newTrades: any[]) {
+    if (upgradeCandidates.length === 0 || newTrades.length === 0) return;
+
+    upgradeCandidates.sort((a: any, b: any) => (a.score || 0) - (b.score || 0));
+    const sortedNew = [...newTrades].sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+
+    for (const candidate of upgradeCandidates) {
+      if (state.killSwitch) break;
+      const betterPick = sortedNew.find((t: any) =>
+        t.score >= (candidate.score || 50) + 20 &&
+        !upgradeCandidates.some((uc: any) => uc.ticker === t.ticker)
+      );
+      if (betterPick) {
+        try {
+          await alpaca(`/v2/positions/${candidate.ticker}`, { method: "DELETE" });
+          audit("UPGRADE", `Sold ${candidate.ticker} → upgrading to ${betterPick.ticker} (score ${betterPick.score})`);
+          notify("upgrade", `Upgraded: sold ${candidate.ticker} → buying ${betterPick.ticker}`);
+          betterPick._consumed = true;
+          await new Promise(r => setTimeout(r, 1000));
+          const upgradeQty = Math.floor(candidate.market_value / betterPick.price);
+          if (upgradeQty > 0) {
+            await alpaca("/v2/orders", {
+              method: "POST",
+              body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: betterPick.side === "short" ? "sell" : "buy", type: "market", time_in_force: "day" }),
+            });
+          }
+        } catch (e: any) { audit("UPGRADE-ERROR", `Failed to upgrade: ${e.message}`); }
+      }
+    }
   }
 
   // ── Overnight Research Engine (8pm-4am ET) ───────────────────────────────
@@ -1464,37 +1312,76 @@ print(json.dumps(check_weekly_loss(history)))
     autoRunning = false;
   }
 
-  // Auto-run every 45 seconds when bot is active
+  // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
+  let tier2Running = false;
+  let tier3Running = false;
+
+  // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
   setInterval(async () => {
     if (!state.active || state.killSwitch) return;
+    if (state.circuitBreakerUntil > Date.now()) return;
+
+    try {
+      const clock = await alpaca("/v2/clock");
+      if (!clock.is_open) return; // Only during market hours
+      await tier1Reflex();
+    } catch (err: any) {
+      console.error("[tier1]", err?.message || err);
+    }
+  }, 45000);
+
+  // TIER 2: Intelligence (every 5 minutes) — find and execute trades
+  setInterval(async () => {
+    if (!state.active || state.killSwitch || tier2Running) return;
+    if (state.circuitBreakerUntil > Date.now()) return;
 
     try {
       const clock = await alpaca("/v2/clock");
       const now = new Date(clock.timestamp);
-      const etHour = now.getUTCHours() - 4; // Approximate ET
-      const isExtendedHours = (etHour >= 4 && etHour < 9.5) || (etHour >= 16 && etHour < 20);
-      const isRegularHours = clock.is_open;
+      const etH = now.getUTCHours() - 4;
+      const isAnyWindow = clock.is_open || (etH >= 4 && etH < 20);
 
-      if (!isRegularHours && !isExtendedHours) {
-        // 8pm-4am ET = Research & Preparation mode
+      // Reset morning queue flag at start of each trading day (4am ET)
+      if (etH >= 4 && etH < 5) {
+        state.morningQueueExecuted = false;
+      }
+
+      if (!isAnyWindow) {
+        // 8pm-4am ET — overnight research mode
         if (!autoRunning) {
-          await runOvernightResearch(etHour);
+          await runOvernightResearch(etH);
         }
         return;
       }
 
-      if (isExtendedHours) {
-        audit("AUTO", "Running extended hours scan — findings queued for market open");
-      }
+      tier2Running = true;
+      await tier2Intelligence(clock.is_open, etH);
+    } catch (err: any) {
+      console.error("[tier2]", err?.message || err);
+      audit("TIER2-ERROR", String(err?.message || err).slice(0, 200));
+    } finally {
+      tier2Running = false;
+    }
+  }, 300000); // 5 minutes
 
-      // Reset morning queue flag at start of each trading day (4am ET)
-      if (etHour >= 4 && etHour < 5) {
-        morningQueueExecuted = false;
-      }
-    } catch { return; }
+  // TIER 3: Strategic (every 2 hours) — ML retrain, macro, manipulation scan
+  setInterval(async () => {
+    if (!state.active || tier3Running) return;
 
-    await runAutonomousCycle();
-  }, 45 * 1000);
+    try {
+      tier3Running = true;
+      await tier3Strategic();
+    } catch (err: any) {
+      console.error("[tier3]", err?.message || err);
+      audit("TIER3-ERROR", String(err?.message || err).slice(0, 200));
+    } finally {
+      tier3Running = false;
+    }
+  }, 7200000); // 2 hours
+
+  // Run Tier 2 and Tier 3 once on startup after a delay
+  setTimeout(() => { tier2Intelligence(false, new Date().getUTCHours() - 4).catch(() => {}); }, 10000);
+  setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
 
   // Route: Get last scan result
   app.get("/api/bot/last-scan", requireAuth, (_req, res) => {
@@ -1620,8 +1507,8 @@ print(json.dumps(check_weekly_loss(history)))
       const canTrade = clock.is_open || (etH3 >= 4 && etH3 < 20);
 
       if (canTrade) {
-        audit("SYSTEM", "Market is in a trading window. First scan starting...");
-        setTimeout(() => runAutonomousCycle(), 5000);
+        audit("SYSTEM", "Market is in a trading window. Tier 2 scan starting...");
+        // Tier 2/3 startup timeouts already scheduled above
       } else {
         const nextOpen = clock.next_open ? new Date(clock.next_open).toLocaleString("en-US", { timeZone: "America/New_York" }) : "unknown";
         audit("SYSTEM", `Market is closed. No trading until next session. Next open: ${nextOpen} ET`);
@@ -1634,9 +1521,12 @@ print(json.dumps(check_weekly_loss(history)))
 
   // Route: Force immediate scan
   app.post("/api/bot/run-now", requireAuth, async (_req, res) => {
-    if (autoRunning) return res.json({ message: "Already running..." });
-    res.json({ message: "Autonomous cycle starting..." });
-    runAutonomousCycle();
+    if (tier2Running) return res.json({ message: "Tier 2 scan already running..." });
+    res.json({ message: "Tier 2 intelligence scan starting..." });
+    alpaca("/v2/clock").then((clock: any) => {
+      const etH = new Date(clock.timestamp).getUTCHours() - 4;
+      tier2Intelligence(clock.is_open, etH).catch(() => {});
+    }).catch(() => { tier2Intelligence(false, new Date().getUTCHours() - 4).catch(() => {}); });
   });
 
   // ── Self-Diagnostic Status ───────────────────────────────────────
