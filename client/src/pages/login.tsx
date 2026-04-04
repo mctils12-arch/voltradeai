@@ -297,11 +297,18 @@ export default function LoginPage({ onLogin }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"login" | "reset" | "signup">("login");
   const [resetSent, setResetSent] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [resetComplete, setResetComplete] = useState(false);
+
+  // Check if URL has a reset token
+  const urlParams = new URLSearchParams(window.location.search);
+  const resetToken = urlParams.get("token");
+  const [mode, setMode] = useState<"login" | "reset" | "signup" | "reset-confirm">(resetToken ? "reset-confirm" : "login");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -363,6 +370,34 @@ export default function LoginPage({ onLogin }: LoginProps) {
         }
       } else {
         setError(data.error || "Registration failed");
+      }
+    } catch {
+      setError("Connection failed");
+    }
+    setLoading(false);
+  };
+
+  const handleResetConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (newPassword !== confirmNewPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/auth/reset-confirm", { token: resetToken, newPassword });
+      const data = await res.json();
+      if (data.ok) {
+        setResetComplete(true);
+        // Clear the token from URL
+        window.history.replaceState({}, "", window.location.pathname);
+      } else {
+        setError(data.error || "Reset failed — link may have expired");
       }
     } catch {
       setError("Connection failed");
@@ -437,7 +472,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
             <span style={{ color: "#00e5ff" }}>AI</span>
           </div>
           <div style={{ fontSize: 11, color: "#4a5c70", letterSpacing: "0.15em", marginTop: 6, textTransform: "uppercase", fontFamily: "'JetBrains Mono', monospace" }}>
-            {mode === "login" ? "SIGN IN TO YOUR ACCOUNT" : mode === "signup" ? "CREATE AN ACCOUNT" : "RESET YOUR PASSWORD"}
+            {mode === "login" ? "SIGN IN TO YOUR ACCOUNT" : mode === "signup" ? "CREATE AN ACCOUNT" : mode === "reset-confirm" ? "SET NEW PASSWORD" : "RESET YOUR PASSWORD"}
           </div>
         </div>
 
@@ -519,6 +554,57 @@ export default function LoginPage({ onLogin }: LoginProps) {
             </button>
           </form>
         ) : (
+          mode === "reset-confirm" ? (
+          <form onSubmit={handleResetConfirm}>
+            {resetComplete ? (
+              <div style={{ textAlign: "center", padding: "1rem 0" }}>
+                <div style={{ color: "#30d158", fontSize: 13, marginBottom: 12, fontFamily: "'JetBrains Mono', monospace" }}>Password reset successfully</div>
+                <button
+                  type="button"
+                  onClick={() => { setMode("login"); setResetComplete(false); setNewPassword(""); setConfirmNewPassword(""); }}
+                  style={{
+                    width: "100%", padding: "12px",
+                    background: "rgba(0, 229, 255, 0.08)",
+                    border: "1px solid rgba(0, 229, 255, 0.3)",
+                    borderRadius: 4, color: "#00e5ff", fontSize: 12,
+                    fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
+                    fontFamily: "'JetBrains Mono', monospace", cursor: "pointer",
+                  }}
+                >
+                  SIGN IN WITH NEW PASSWORD
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="password" placeholder="New Password" value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)} required
+                  style={inputStyle}
+                  onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
+                  onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+                />
+                <input
+                  type="password" placeholder="Confirm New Password" value={confirmNewPassword}
+                  onChange={e => setConfirmNewPassword(e.target.value)} required
+                  style={{ ...inputStyle, marginBottom: 16 }}
+                  onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
+                  onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+                />
+                {error && <div style={{ color: "#ff453a", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
+                <button type="submit" disabled={loading} style={{
+                  width: "100%", padding: "12px",
+                  background: "rgba(0, 229, 255, 0.08)",
+                  border: "1px solid rgba(0, 229, 255, 0.3)",
+                  borderRadius: 4, color: "#00e5ff", fontSize: 12,
+                  fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
+                  fontFamily: "'JetBrains Mono', monospace", cursor: "pointer",
+                }}>
+                  {loading ? "RESETTING..." : "RESET PASSWORD"}
+                </button>
+              </>
+            )}
+          </form>
+        ) :
           <form onSubmit={handleReset}>
             {resetSent ? (
               <div style={{ textAlign: "center", color: "#00e5ff", fontSize: 13, padding: "1rem 0", fontFamily: "'JetBrains Mono', monospace" }}>
