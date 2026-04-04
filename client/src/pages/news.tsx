@@ -83,18 +83,37 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
     };
   }, [tickerFilter]);
 
+  const ALPACA_KEY = "PKMDHJOVQEVIB4UHZXUYVTIDBU";
+  const ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
+
   const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery<NewsResponse>({
-    queryKey: ["/polygon-news", debouncedTicker],
+    queryKey: ["/alpaca-news", debouncedTicker],
     queryFn: async () => {
-      const POLYGON_KEY = "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
       const url = debouncedTicker
-        ? `https://api.polygon.io/v2/reference/news?limit=20&order=desc&sort=published_utc&ticker=${debouncedTicker}&apiKey=${POLYGON_KEY}`
-        : `https://api.polygon.io/v2/reference/news?limit=20&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
-      const res = await fetch(url);
-      return res.json();
+        ? `https://data.alpaca.markets/v1beta1/news?limit=20&sort=desc&symbols=${debouncedTicker}`
+        : `https://data.alpaca.markets/v1beta1/news?limit=20&sort=desc`;
+      const res = await fetch(url, {
+        headers: { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET },
+      });
+      const json = await res.json();
+      // Transform Alpaca format to match our component
+      const results = (json.news || []).map((n: any) => ({
+        id: n.id || Math.random().toString(),
+        title: n.headline || "",
+        description: n.summary || "",
+        published_utc: n.created_at || n.updated_at || "",
+        article_url: n.url || "",
+        tickers: n.symbols || [],
+        keywords: [],
+        publisher: {
+          name: n.source || "Unknown",
+          favicon_url: "",
+        },
+      }));
+      return { results };
     },
     staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000, // auto-refresh every 5 min
+    refetchInterval: 5 * 60 * 1000,
     retry: 2,
   });
 
@@ -250,7 +269,7 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
         marginTop: '1.25rem',
         textAlign: 'center',
       }}>
-        News powered by Polygon.io · Sentiment derived from keywords · Not financial advice
+        News powered by Alpaca Markets · Sentiment derived from keywords · Not financial advice
       </p>
     </div>
   );
