@@ -257,6 +257,13 @@ def deep_score(ticker, quick_result):
     except Exception:
         intel = {}
 
+    # Alternative data sources (congressional, short interest, wiki, FRED, GDELT, patents)
+    try:
+        from alt_data import get_alt_data_score
+        alt = get_alt_data_score(ticker)
+    except Exception:
+        alt = {}
+
     # ── Pull key metrics from analyze.py output ──────────────────────────────
     vrp = detail.get("vrp", 0) or 0
     rec = detail.get("recommendation", {}) or {}
@@ -545,6 +552,37 @@ def deep_score(ticker, quick_result):
     
     combined_score += intel_adjustment
 
+    # ── Alternative data scoring ──────────────────────────────────────────────
+    alt_adjustment = 0
+    if alt:
+        alt_adjustment = max(-20, min(20, alt.get("alt_score", 0)))
+        
+        wiki = alt.get("wiki", {})
+        if wiki.get("has_spike"):
+            reasons.append(f"Wikipedia attention spike: {wiki.get('spike_ratio', 0)}x normal views")
+        
+        short = alt.get("short_interest", {})
+        if short.get("squeeze_potential"):
+            reasons.append("Short squeeze potential — price rising with heavy prior shorting")
+        elif short.get("short_pressure") == "high":
+            reasons.append("High short pressure — heavy selling on down days")
+        
+        congress = alt.get("congressional", {})
+        if congress.get("unusual_activity"):
+            reasons.append(f"Unusual insider filing activity ({congress.get('recent_filings', 0)} Form 4s in 2 weeks)")
+        
+        geo = alt.get("geopolitical", {})
+        if geo.get("risk_level") in ("high", "extreme"):
+            reasons.append(f"Geopolitical risk: {geo.get('risk_level')} — {', '.join(geo.get('active_risks', []))}")
+        
+        fred = alt.get("fred_macro", {})
+        if fred.get("yield_curve_inverted"):
+            reasons.append("Yield curve inverted — recession signal")
+        if fred.get("credit_stress"):
+            reasons.append("Credit spreads elevated — financial stress")
+    
+    combined_score += alt_adjustment
+
     # Recommendation boost
     if rec:
         action = rec.get("action", "")
@@ -605,6 +643,15 @@ def deep_score(ticker, quick_result):
             "trap_warning": 1 if intel.get("trap_warning") else 0,
             "insider_signal": intel.get("insider", {}).get("insider_signal", 0) if intel else 0,
             "sell_the_news_risk": 1 if intel.get("earnings_pattern", {}).get("sell_the_news_risk") else 0,
+            "wiki_spike_ratio": alt.get("wiki", {}).get("spike_ratio", 1.0) if alt else 1.0,
+            "short_pressure_signal": alt.get("short_interest", {}).get("signal", 0) if alt else 0,
+            "congressional_signal": alt.get("congressional", {}).get("signal", 0) if alt else 0,
+            "geopolitical_risk": alt.get("geopolitical", {}).get("risk_score", 0) if alt else 0,
+            "yield_curve": alt.get("fred_macro", {}).get("yield_curve", 0) if alt else 0,
+            "credit_spread": alt.get("fred_macro", {}).get("credit_spread", 0) if alt else 0,
+            "unemployment": alt.get("fred_macro", {}).get("unemployment", 4.0) if alt else 4.0,
+            "patent_signal": alt.get("patent", {}).get("signal", 0) if alt else 0,
+            "ftd_signal": alt.get("ftd", {}).get("signal", 0) if alt else 0,
         }
         ml_result = ml_score(ml_features)
 

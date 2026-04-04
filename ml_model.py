@@ -41,6 +41,9 @@ FEATURE_COLS = [
     "news_sentiment", "treasury_10y",
     "adx", "obv_signal",
     "intel_score", "trap_warning", "insider_signal", "sell_the_news_risk",
+    "wiki_spike_ratio", "short_pressure_signal", "congressional_signal",
+    "geopolitical_risk", "yield_curve", "credit_spread", "unemployment",
+    "patent_signal", "ftd_signal",
 ]
 
 # ── Default fallback weights ───────────────────────────────────────────────────
