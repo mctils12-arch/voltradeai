@@ -226,6 +226,26 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
         </p>
       </div>
 
+      {/* Sign up reminder */}
+      {!isLoggedIn && (
+        <div style={{
+          padding: '12px 16px',
+          marginBottom: '1rem',
+          background: 'rgba(0, 229, 255, 0.06)',
+          border: '1px solid rgba(0, 229, 255, 0.15)',
+          borderRadius: 6,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: 12, color: '#7a8ba0', fontFamily: "'JetBrains Mono', monospace" }}>
+            🔒 Create a free account to save your watchlist across sessions
+          </span>
+        </div>
+      )}
+
       {/* Add ticker */}
       <div style={{
         display: 'flex',
