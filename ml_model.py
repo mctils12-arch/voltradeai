@@ -21,6 +21,7 @@ import logging
 import warnings
 from datetime import datetime, timedelta
 
+import requests
 import numpy as np
 
 warnings.filterwarnings("ignore")
@@ -320,6 +321,165 @@ def _build_feature_matrix(api_key: str):
     return X, y, len(X_rows)
 
 
+# ── Alpaca Historical Data for Training ───────────────────────────────────────
+
+ALPACA_KEY = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+ALPACA_DATA_URL = "https://data.alpaca.markets"
+
+def _alpaca_headers():
+    return {
+        "APCA-API-KEY-ID": ALPACA_KEY,
+        "APCA-API-SECRET-KEY": ALPACA_SECRET,
+    }
+
+def _fetch_alpaca_training_data(days=60):
+    """
+    Fetch historical data from Alpaca for ML training.
+    Returns list of feature dicts with labels.
+    Better than Polygon free tier: no rate limits, deeper history.
+    """
+    samples = []
+    
+    # Get most active stocks to train on (diverse universe)
+    tickers = []
+    try:
+        resp = requests.get(
+            f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=50",
+            headers=_alpaca_headers(), timeout=10
+        )
+        data = resp.json()
+        tickers = [s["symbol"] for s in data.get("most_actives", []) if s.get("symbol")]
+    except Exception:
+        pass
+    
+    # Add core tickers to ensure coverage
+    core = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META", "AMD", "NFLX", 
+            "JPM", "BAC", "GS", "XOM", "CVX", "PFE", "JNJ", "UNH", "HD", "WMT", "DIS",
+            "SPY", "QQQ", "IWM", "BA", "CAT", "V", "MA", "CRM", "ADBE", "INTC"]
+    for t in core:
+        if t not in tickers:
+            tickers.append(t)
+    
+    tickers = tickers[:80]  # Cap at 80 to avoid timeout
+    
+    start_date = (datetime.now() - timedelta(days=days + 10)).strftime("%Y-%m-%d")
+    
+    for ticker in tickers:
+        try:
+            url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
+                   f"?timeframe=1Day&start={start_date}&limit=200&adjustment=all")
+            resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+            data = resp.json()
+            bars = data.get("bars", [])
+            
+            if len(bars) < 20:
+                continue
+            
+            # Compute features from bars
+            closes = [b["c"] for b in bars]
+            volumes = [b["v"] for b in bars]
+            highs = [b["h"] for b in bars]
+            lows = [b["l"] for b in bars]
+            opens = [b["o"] for b in bars]
+            
+            for i in range(20, len(bars) - 5):
+                # Features
+                c = closes[i]
+                if c <= 0:
+                    continue
+                
+                # Momentum
+                mom_1m = (c - closes[i-20]) / closes[i-20] * 100 if closes[i-20] > 0 else 0
+                mom_3m = (c - closes[max(0, i-60)]) / closes[max(0, i-60)] * 100 if closes[max(0, i-60)] > 0 else 0
+                
+                # Volume ratio
+                avg_vol_20 = sum(volumes[i-20:i]) / 20 if sum(volumes[i-20:i]) > 0 else 1
+                vol_ratio = volumes[i] / avg_vol_20 if avg_vol_20 > 0 else 1
+                
+                # RSI (14-day)
+                gains = []
+                losses = []
+                for j in range(i-13, i+1):
+                    change = closes[j] - closes[j-1] if j > 0 else 0
+                    if change > 0:
+                        gains.append(change)
+                        losses.append(0)
+                    else:
+                        gains.append(0)
+                        losses.append(abs(change))
+                avg_gain = sum(gains) / 14
+                avg_loss = sum(losses) / 14
+                rs = avg_gain / avg_loss if avg_loss > 0 else 100
+                rsi = 100 - (100 / (1 + rs))
+                
+                # Change today
+                change_pct = (c - opens[i]) / opens[i] * 100 if opens[i] > 0 else 0
+                
+                # Range
+                range_pct = (highs[i] - lows[i]) / c * 100 if c > 0 else 0
+                
+                # VWAP position (simplified)
+                vwap_pos = 1 if c > (highs[i] + lows[i]) / 2 else 0
+                
+                # Volatility (20-day)
+                returns = [(closes[j] - closes[j-1]) / closes[j-1] for j in range(i-19, i+1) if closes[j-1] > 0]
+                ewma_vol = (sum(r**2 for r in returns[-5:]) / 5) ** 0.5 * 100 if returns else 2
+                
+                # Label: did it go up 2%+ in next 5 days?
+                future_price = closes[min(i+5, len(closes)-1)]
+                label = 1 if (future_price - c) / c >= 0.02 else 0
+                
+                sample = {
+                    "momentum_1m": round(mom_1m, 2),
+                    "momentum_3m": round(mom_3m, 2),
+                    "momentum_12m": round(mom_1m * 2, 2),  # Proxy
+                    "volume_ratio": round(vol_ratio, 2),
+                    "rsi_14": round(rsi, 1),
+                    "vrp": 0,  # Not available from bars alone
+                    "ewma_vol": round(ewma_vol, 2),
+                    "garch_vol": round(ewma_vol * 1.1, 2),  # Proxy
+                    "change_pct_today": round(change_pct, 2),
+                    "range_pct": round(range_pct, 2),
+                    "vwap_position": vwap_pos,
+                    "put_call_ratio": 1.0,  # Default
+                    "iv_rank": 50,  # Default
+                    "sentiment_score": 0,  # Not available
+                    "sector_encoded": hash(ticker) % 10,
+                    "vix": 20,  # Default
+                    "vix_regime_encoded": 1,
+                    "sector_momentum": 0,
+                    "market_regime_encoded": 1,
+                    "news_sentiment": 0,
+                    "treasury_10y": 4.25,
+                    "adx": 20,  # Default
+                    "obv_signal": 0,
+                    "intel_score": 0,
+                    "trap_warning": 0,
+                    "insider_signal": 0,
+                    "sell_the_news_risk": 0,
+                    "wiki_spike_ratio": 1.0,
+                    "short_pressure_signal": 0,
+                    "congressional_signal": 0,
+                    "geopolitical_risk": 0,
+                    "yield_curve": 0.5,
+                    "credit_spread": 1.0,
+                    "unemployment": 4.0,
+                    "patent_signal": 0,
+                    "ftd_signal": 0,
+                    "_label": label,
+                }
+                samples.append(sample)
+            
+            # Small delay to be polite to API
+            time.sleep(0.1)
+            
+        except Exception:
+            continue
+    
+    return samples
+
+
 def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
     """
     Train (or retrain) the ML ensemble on recent Polygon historical data.
@@ -340,20 +500,83 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
                 "timestamp": bundle.get("timestamp", ""),
             }
 
-    print("Training ML model — fetching Polygon historical data...")
+    print("Training ML model — fetching training data...")
     t0 = time.time()
 
+    # Primary: Alpaca historical data (free, no rate limit, better quality)
+    print(json.dumps({"status": "fetching_alpaca_data"}))
     try:
-        X, y, n_samples = _build_feature_matrix(polygon_key)
+        alpaca_samples = _fetch_alpaca_training_data(days=60)
+        if len(alpaca_samples) >= 500:
+            all_samples = alpaca_samples
+            print(json.dumps({"status": "alpaca_data_loaded", "samples": len(all_samples)}))
+        else:
+            print(json.dumps({"status": "alpaca_insufficient", "samples": len(alpaca_samples), "falling_back": "polygon"}))
+            all_samples = alpaca_samples  # Use what we have, Polygon may add more below
     except Exception as e:
-        return {"status": "failed", "error": str(e), "accuracy": 0, "features": 15, "samples": 0, "timestamp": datetime.now().isoformat()}
+        print(json.dumps({"status": "alpaca_failed", "error": str(e)}))
+        all_samples = []
+
+    # Convert Alpaca samples to X/y arrays if we have enough
+    X, y, n_samples = None, None, 0
+    if len(all_samples) >= 500:
+        try:
+            X_rows = []
+            y_labels = []
+            for s in all_samples:
+                row = [float(s.get(col, 0) or 0) for col in FEATURE_COLS]
+                X_rows.append(row)
+                y_labels.append(int(s.get("_label", 0)))
+            X = np.array(X_rows, dtype=np.float32)
+            y = np.array(y_labels, dtype=np.int8)
+            n_samples = len(X_rows)
+        except Exception as e:
+            print(json.dumps({"status": "alpaca_convert_failed", "error": str(e)}))
+            X, y, n_samples = None, None, 0
+
+    if len(all_samples) < 500:
+        # Fallback: Polygon grouped daily data
+        try:
+            X_poly, y_poly, n_poly = _build_feature_matrix(polygon_key)
+        except Exception as e:
+            return {"status": "failed", "error": str(e), "accuracy": 0, "features": 15, "samples": 0, "timestamp": datetime.now().isoformat()}
+
+        # Convert any Alpaca samples we have to arrays and merge with Polygon
+        if len(all_samples) > 0 and X_poly is not None:
+            try:
+                X_rows = []
+                y_labels = []
+                for s in all_samples:
+                    row = [float(s.get(col, 0) or 0) for col in FEATURE_COLS]
+                    X_rows.append(row)
+                    y_labels.append(int(s.get("_label", 0)))
+                X_alp = np.array(X_rows, dtype=np.float32)
+                y_alp = np.array(y_labels, dtype=np.int8)
+                # Pad Polygon rows (15 features) to match FEATURE_COLS length
+                if X_poly.shape[1] < len(FEATURE_COLS):
+                    pad = np.zeros((X_poly.shape[0], len(FEATURE_COLS) - X_poly.shape[1]), dtype=np.float32)
+                    X_poly = np.hstack([X_poly, pad])
+                X = np.vstack([X_alp, X_poly])
+                y = np.concatenate([y_alp, y_poly])
+                n_samples = len(X)
+                all_samples.extend([None] * n_poly)  # Track combined count
+            except Exception:
+                X, y, n_samples = X_poly, y_poly, n_poly
+        elif X_poly is not None:
+            # Pad Polygon rows (15 features) to match FEATURE_COLS length
+            if X_poly.shape[1] < len(FEATURE_COLS):
+                pad = np.zeros((X_poly.shape[0], len(FEATURE_COLS) - X_poly.shape[1]), dtype=np.float32)
+                X_poly = np.hstack([X_poly, pad])
+            X, y, n_samples = X_poly, y_poly, n_poly
+        else:
+            X, y, n_samples = None, None, 0
 
     if X is None or n_samples < 50:
         return {
             "status":    "failed",
             "error":     "Not enough training samples",
             "accuracy":  0,
-            "features":  21,
+            "features":  len(FEATURE_COLS),
             "samples":   n_samples,
             "timestamp": datetime.now().isoformat(),
         }

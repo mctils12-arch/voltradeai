@@ -18,6 +18,7 @@ import sys
 import json
 import os
 import time
+import requests
 import numpy as np
 from datetime import datetime, timedelta
 
@@ -873,6 +874,19 @@ def scan_market():
     if not all_stocks:
         return {"error": "Could not fetch market data", "trades": []}
 
+    # Supplement scan universe with Alpaca most-active stocks
+    try:
+        alpaca_url = "https://data.alpaca.markets/v1beta1/screener/stocks/most-actives?by=volume&top=50"
+        alpaca_headers = {
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+        }
+        alpaca_resp = requests.get(alpaca_url, headers=alpaca_headers, timeout=8)
+        alpaca_active = alpaca_resp.json().get("most_actives", [])
+        alpaca_tickers = [s["symbol"] for s in alpaca_active if s.get("symbol") and s.get("volume", 0) > 500000]
+    except Exception:
+        alpaca_tickers = []
+
     # Step 2: Quick score all stocks
     scored = []
     for stock in all_stocks:
@@ -882,6 +896,26 @@ def scan_market():
 
     # Sort by quick score
     scored.sort(key=lambda x: x["quick_score"], reverse=True)
+
+    # Add Alpaca most-active stocks that weren't in the Polygon scan
+    existing_tickers = set(r["ticker"] for r in scored)
+    for at in alpaca_tickers:
+        if at not in existing_tickers:
+            try:
+                result = deep_score(at, {
+                    "ticker": at,
+                    "price": 0,
+                    "change_pct": 0,
+                    "volume": 1000000,
+                    "range_pct": 0,
+                    "vwap_dist": 0,
+                    "quick_score": 55,
+                    "reasons": ["Alpaca most-active"],
+                })
+                if result and result.get("deep_score", result.get("quick_score", 0)) >= 50:
+                    scored.append(result)
+            except Exception:
+                continue
 
     # Step 3: Deep analyze top 30
     top_candidates = scored[:30]
