@@ -46,26 +46,35 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", padding: "12px 14px", background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.12)", borderRadius: "10px", color: "#f5f5f7",
-    fontSize: "14px", outline: "none", marginBottom: "12px",
+    width: "100%", padding: "12px 14px", background: "rgba(0, 15, 30, 0.7)",
+    border: "1px solid rgba(0, 229, 255, 0.25)", borderRadius: "3px", color: "#c8d6e5",
+    fontSize: "13px", outline: "none", marginBottom: "12px",
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+    letterSpacing: "0.03em",
   };
   const btnStyle: React.CSSProperties = {
-    width: "100%", padding: "12px", background: "#0a84ff", color: "white",
-    border: "none", borderRadius: "10px", fontSize: "15px", fontWeight: 600,
-    cursor: "pointer", marginTop: "4px",
+    width: "100%", padding: "12px", background: "rgba(0, 229, 255, 0.15)",
+    color: "#00e5ff", border: "1px solid #00e5ff", borderRadius: "3px",
+    fontSize: "13px", fontWeight: 600, cursor: "pointer", marginTop: "4px",
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+    textTransform: "uppercase" as const, letterSpacing: "0.1em",
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000" }}>
-      <div style={{ width: "100%", maxWidth: "380px", padding: "32px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "20px", backdropFilter: "blur(20px)" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#050a12" }}>
+      <div style={{ width: "100%", maxWidth: "380px", padding: "32px", background: "rgba(0, 20, 40, 0.8)", border: "1px solid rgba(0, 229, 255, 0.25)", borderRadius: "3px", backdropFilter: "blur(20px)", boxShadow: "0 0 40px rgba(0, 229, 255, 0.05)" }}>
         
+        {/* Clearance notice */}
+        <div style={{ textAlign: "center", marginBottom: "16px", fontSize: "10px", color: "rgba(0, 229, 255, 0.4)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em", textTransform: "uppercase" }}>
+          TOP SECRET // AUTHORIZED PERSONNEL
+        </div>
+
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: "24px" }}>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "#f5f5f7", letterSpacing: "-0.5px" }}>
-            VolTrade<span style={{ color: "#0a84ff" }}>AI</span>
+          <div style={{ fontSize: "26px", fontWeight: 700, color: "#c8d6e5", letterSpacing: "0.05em", fontFamily: "'JetBrains Mono', monospace" }}>
+            <span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span>
           </div>
-          <p style={{ fontSize: "13px", color: "#6e6e73", marginTop: "4px" }}>
+          <p style={{ fontSize: "11px", color: "rgba(0, 229, 255, 0.5)", marginTop: "6px", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase" }}>
             {resetMode ? "Reset your password" : "Sign in to your account"}
           </p>
         </div>
@@ -74,9 +83,9 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
           <form onSubmit={handleLogin}>
             <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} required />
             <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} required />
-            {error && <p style={{ color: "#ff453a", fontSize: "13px", marginBottom: "8px" }}>{error}</p>}
-            <button type="submit" style={btnStyle} disabled={loading}>{loading ? "Signing in..." : "Sign In"}</button>
-            <button type="button" onClick={() => { setResetMode(true); setResetStep(0); }} style={{ background: "none", border: "none", color: "#0a84ff", fontSize: "13px", cursor: "pointer", marginTop: "12px", width: "100%", textAlign: "center" }}>
+            {error && <p style={{ color: "#ff3333", fontSize: "12px", marginBottom: "8px", fontFamily: "'JetBrains Mono', monospace" }}>{error}</p>}
+            <button type="submit" style={btnStyle} disabled={loading}>{loading ? "Authenticating..." : "Sign In"}</button>
+            <button type="button" onClick={() => { setResetMode(true); setResetStep(0); }} style={{ background: "none", border: "none", color: "#d4a017", fontSize: "12px", cursor: "pointer", marginTop: "12px", width: "100%", textAlign: "center", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
               Forgot Password?
             </button>
           </form>
@@ -95,8 +104,8 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
                 <button onClick={handleResetConfirm} style={btnStyle} disabled={loading}>Reset Password</button>
               </>
             )}
-            {resetMsg && <p style={{ color: "#a1a1a6", fontSize: "13px", marginTop: "8px", textAlign: "center" }}>{resetMsg}</p>}
-            <button onClick={() => { setResetMode(false); setResetStep(0); }} style={{ background: "none", border: "none", color: "#0a84ff", fontSize: "13px", cursor: "pointer", marginTop: "12px", width: "100%", textAlign: "center" }}>
+            {resetMsg && <p style={{ color: "#7a8ba0", fontSize: "12px", marginTop: "8px", textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{resetMsg}</p>}
+            <button onClick={() => { setResetMode(false); setResetStep(0); }} style={{ background: "none", border: "none", color: "#d4a017", fontSize: "12px", cursor: "pointer", marginTop: "12px", width: "100%", textAlign: "center", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
               Back to Sign In
             </button>
           </div>

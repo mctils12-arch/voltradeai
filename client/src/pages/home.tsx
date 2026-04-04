@@ -29,10 +29,10 @@ const TABS: Tab[] = [
 function Logo() {
   return (
     <svg aria-label="VolTradeAI" width="28" height="28" viewBox="0 0 32 32" fill="none">
-      <rect width="32" height="32" rx="8" fill="#0a84ff" fillOpacity="0.15" />
-      <rect width="32" height="32" rx="8" stroke="#0a84ff" strokeWidth="1" fill="none" strokeOpacity="0.4" />
-      <polyline points="4,22 10,14 16,18 22,8 28,12" stroke="#0a84ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <circle cx="22" cy="8" r="2.5" fill="#0a84ff" />
+      <rect width="32" height="32" rx="2" fill="#00e5ff" fillOpacity="0.1" />
+      <rect width="32" height="32" rx="2" stroke="#00e5ff" strokeWidth="1" fill="none" strokeOpacity="0.5" />
+      <polyline points="4,22 10,14 16,18 22,8 28,12" stroke="#00e5ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <circle cx="22" cy="8" r="2.5" fill="#00e5ff" />
     </svg>
   );
 }
@@ -79,15 +79,17 @@ export default function Home({ authenticated, authLoading, isMobile }: HomeProps
   // Login overlay
   if (showLogin) {
     return (
-      <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: dark ? "#000" : "#f5f5f7" }}>
+      <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: "#050a12" }}>
         <div style={{ position: "absolute", top: 16, left: 16, zIndex: 200 }}>
           <button
             onClick={() => setShowLogin(false)}
             style={{
               display: "flex", alignItems: "center", gap: 6,
-              padding: "8px 16px", borderRadius: 10,
-              background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
-              color: "#a1a1a6", fontSize: 13, fontWeight: 500,
+              padding: "8px 16px", borderRadius: 3,
+              background: "rgba(0, 20, 40, 0.7)", border: "1px solid rgba(0, 229, 255, 0.25)",
+              color: "#7a8ba0", fontSize: 12, fontWeight: 500,
+              fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
+              textTransform: "uppercase",
             }}
           >
             <X size={14} /> Back
@@ -101,15 +103,15 @@ export default function Home({ authenticated, authLoading, isMobile }: HomeProps
   return (
     <div className={dark ? "dark" : "light"} style={{
       minHeight: "100dvh",
-      background: dark ? "#000000" : "#f5f5f7",
-      color: dark ? "#f5f5f7" : "#1d1d1f",
+      background: "#050a12",
+      color: "#c8d6e5",
     }}>
 
       {/* ── Desktop top nav bar (hidden on mobile) ── */}
-      <nav className="tab-nav desktop-nav" style={dark ? {} : { background: 'rgba(255,255,255,0.85)' }}>
+      <nav className="tab-nav desktop-nav">
         <div className="tab-nav-logo">
           <Logo />
-          <span className="tab-nav-logo-text">VolTradeAI</span>
+          <span className="tab-nav-logo-text"><span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span></span>
         </div>
 
         <div className="tab-nav-tabs">
@@ -147,10 +149,10 @@ export default function Home({ authenticated, authLoading, isMobile }: HomeProps
       </nav>
 
       {/* ── Mobile top bar (shown only on mobile) ── */}
-      <nav className="mobile-top-bar" style={dark ? {} : { background: 'rgba(255,255,255,0.85)' }}>
+      <nav className="mobile-top-bar" style={dark ? {} : { background: 'rgba(5, 10, 18, 0.92)' }}>
         <div className="tab-nav-logo">
           <Logo />
-          <span className="tab-nav-logo-text">VolTradeAI</span>
+          <span className="tab-nav-logo-text"><span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
           <button
@@ -165,7 +167,7 @@ export default function Home({ authenticated, authLoading, isMobile }: HomeProps
               <LogOut size={15} />
             </button>
           ) : (
-            <button className="theme-toggle-btn" onClick={() => setShowLogin(true)} aria-label="Sign in" style={{ color: "#0a84ff" }}>
+            <button className="theme-toggle-btn" onClick={() => setShowLogin(true)} aria-label="Sign in" style={{ color: "#00e5ff" }}>
               <LogIn size={15} />
             </button>
           )}
@@ -194,7 +196,7 @@ export default function Home({ authenticated, authLoading, isMobile }: HomeProps
               <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>The bot scans the market, finds opportunities, and trades automatically.</p>
               <button
                 onClick={() => setShowLogin(true)}
-                style={{ marginTop: "1.5rem", padding: "10px 24px", background: "#0a84ff", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+                style={{ marginTop: "1.5rem", padding: "10px 24px", background: "rgba(0, 229, 255, 0.15)", color: "#00e5ff", border: "1px solid #00e5ff", borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "0.1em" }}
               >
                 Sign In
               </button>
@@ -204,7 +206,7 @@ export default function Home({ authenticated, authLoading, isMobile }: HomeProps
       </main>
 
       {/* ── Mobile bottom tab bar (shown only on mobile) ── */}
-      <nav className="mobile-bottom-bar" style={dark ? {} : { background: 'rgba(255,255,255,0.92)', borderTopColor: 'rgba(0,0,0,0.1)' }}>
+      <nav className="mobile-bottom-bar">
         {TABS.map(tab => (
           <button
             key={tab.id}
