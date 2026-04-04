@@ -54,6 +54,8 @@ FEATURE_COLS = [
     "reddit_mentions", "reddit_sentiment", "reddit_wsb_mentions",
     "google_trends_spike", "google_trends_interest",
     "news_multi_articles", "news_multi_sentiment", "social_combined_signal",
+    "forward_pe", "trailing_pe", "price_to_book", "ev_ebitda",
+    "price_to_sales", "analyst_target_upside", "analyst_buy_pct", "num_analysts",
 ]
 
 # ── Default fallback weights ───────────────────────────────────────────────────

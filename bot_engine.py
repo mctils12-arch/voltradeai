@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VolTradeAI Autonomous AI Trading Engine
+VolTradeAI Autonomous Bot Engine
 ─────────────────────────────────
 Scans all tradeable stocks, scores them across multiple strategies,
 picks the best trades, and executes via Alpaca.
@@ -271,6 +271,38 @@ def deep_score(ticker, quick_result):
         social = get_social_intelligence(ticker)
     except Exception:
         social = {}
+
+    # Analyst ratings + valuation multiples (yfinance)
+    yf_fundamentals = {}
+    try:
+        import yfinance as yf
+        _yticker = yf.Ticker(ticker)
+        _yinfo = _yticker.info or {}
+        yf_fundamentals = {
+            "forward_pe": _yinfo.get("forwardPE") or 0,
+            "trailing_pe": _yinfo.get("trailingPE") or 0,
+            "price_to_book": _yinfo.get("priceToBook") or 0,
+            "ev_ebitda": _yinfo.get("enterpriseToEbitda") or 0,
+            "price_to_sales": _yinfo.get("priceToSalesTrailing12Months") or 0,
+            "peg_ratio": _yinfo.get("pegRatio") or 0,
+            "target_mean": _yinfo.get("targetMeanPrice") or 0,
+            "target_high": _yinfo.get("targetHighPrice") or 0,
+            "target_low": _yinfo.get("targetLowPrice") or 0,
+            "current_price": _yinfo.get("currentPrice") or _yinfo.get("regularMarketPrice") or 0,
+            "recommendation": _yinfo.get("recommendationKey") or "none",
+            "num_analysts": _yinfo.get("numberOfAnalystOpinions") or 0,
+        }
+        # Get buy/hold/sell counts from recommendations
+        _recs = _yticker.recommendations
+        if _recs is not None and not _recs.empty:
+            _latest = _recs.iloc[0]
+            yf_fundamentals["strong_buy_count"] = int(_latest.get("strongBuy", 0))
+            yf_fundamentals["buy_count"] = int(_latest.get("buy", 0))
+            yf_fundamentals["hold_count"] = int(_latest.get("hold", 0))
+            yf_fundamentals["sell_count"] = int(_latest.get("sell", 0))
+            yf_fundamentals["strong_sell_count"] = int(_latest.get("strongSell", 0))
+    except Exception:
+        pass
 
     # ── Pull key metrics from analyze.py output ──────────────────────────────
     vrp = detail.get("vrp", 0) or 0
@@ -620,6 +652,52 @@ def deep_score(ticker, quick_result):
     
     combined_score += social_adjustment
 
+    # ── Analyst & valuation scoring ──────────────────────────────────────────────────────
+    fundamental_adjustment = 0
+    if yf_fundamentals:
+        # Analyst consensus
+        yf_rec = yf_fundamentals.get("recommendation", "none")
+        if yf_rec in ("strong_buy", "buy"):
+            fundamental_adjustment += 5
+            reasons.append(f"Analyst consensus: {yf_rec.upper()} ({yf_fundamentals.get('num_analysts', 0)} analysts)")
+        elif yf_rec in ("sell", "strong_sell", "underperform"):
+            fundamental_adjustment -= 6
+            reasons.append(f"Analyst consensus: {yf_rec.upper()} ({yf_fundamentals.get('num_analysts', 0)} analysts)")
+
+        # Price target upside/downside
+        target = yf_fundamentals.get("target_mean", 0)
+        current = yf_fundamentals.get("current_price", 0)
+        if target > 0 and current > 0:
+            upside_pct = ((target - current) / current) * 100
+            if upside_pct > 20:
+                fundamental_adjustment += 6
+                reasons.append(f"Analyst target: ${target:.0f} (+{upside_pct:.0f}% upside)")
+            elif upside_pct > 10:
+                fundamental_adjustment += 3
+                reasons.append(f"Analyst target: ${target:.0f} (+{upside_pct:.0f}% upside)")
+            elif upside_pct < -10:
+                fundamental_adjustment -= 5
+                reasons.append(f"Analyst target: ${target:.0f} ({upside_pct:.0f}% downside)")
+
+        # Valuation check — penalize extremely overvalued stocks
+        fwd_pe = yf_fundamentals.get("forward_pe", 0)
+        if fwd_pe > 50:
+            fundamental_adjustment -= 4
+            reasons.append(f"Expensive: Forward P/E {fwd_pe:.1f}")
+        elif fwd_pe > 0 and fwd_pe < 12:
+            fundamental_adjustment += 3
+            reasons.append(f"Cheap: Forward P/E {fwd_pe:.1f}")
+
+        ev_ebitda = yf_fundamentals.get("ev_ebitda", 0)
+        if ev_ebitda > 30:
+            fundamental_adjustment -= 3
+            reasons.append(f"High EV/EBITDA: {ev_ebitda:.1f}")
+        elif ev_ebitda > 0 and ev_ebitda < 10:
+            fundamental_adjustment += 2
+            reasons.append(f"Low EV/EBITDA: {ev_ebitda:.1f}")
+
+    combined_score += fundamental_adjustment
+
     # Recommendation boost
     if rec:
         action = rec.get("action", "")
@@ -697,6 +775,14 @@ def deep_score(ticker, quick_result):
             "news_multi_articles": social.get("news_multi", {}).get("total_articles", 0) if social else 0,
             "news_multi_sentiment": social.get("news_multi", {}).get("sentiment_score", 0) if social else 0,
             "social_combined_signal": social.get("combined_signal", 0) if social else 0,
+            "forward_pe": yf_fundamentals.get("forward_pe", 0),
+            "trailing_pe": yf_fundamentals.get("trailing_pe", 0),
+            "price_to_book": yf_fundamentals.get("price_to_book", 0),
+            "ev_ebitda": yf_fundamentals.get("ev_ebitda", 0),
+            "price_to_sales": yf_fundamentals.get("price_to_sales", 0),
+            "analyst_target_upside": ((yf_fundamentals.get("target_mean", 0) - yf_fundamentals.get("current_price", 1)) / max(yf_fundamentals.get("current_price", 1), 1) * 100) if yf_fundamentals.get("target_mean") else 0,
+            "analyst_buy_pct": (yf_fundamentals.get("strong_buy_count", 0) + yf_fundamentals.get("buy_count", 0)) / max(sum([yf_fundamentals.get("strong_buy_count", 0), yf_fundamentals.get("buy_count", 0), yf_fundamentals.get("hold_count", 0), yf_fundamentals.get("sell_count", 0), yf_fundamentals.get("strong_sell_count", 0)]), 1) * 100 if yf_fundamentals else 0,
+            "num_analysts": yf_fundamentals.get("num_analysts", 0),
         }
         ml_result = ml_score(ml_features)
 
