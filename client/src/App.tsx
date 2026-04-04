@@ -52,11 +52,18 @@ function AppShell() {
   const isOwner = !isLoading && !!data?.isOwner;
   const isMobile = useMobile();
 
+  // Check for password reset token in URL — always show login page if present
+  const hasResetToken = window.location.search.includes("token=");
+
+  if (hasResetToken) {
+    return <LoginPage onLogin={() => { window.history.replaceState({}, "", window.location.pathname); queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }); }} />;
+  }
+
   // Desktop: require login first (original behavior)
   if (!isMobile) {
     if (isLoading) {
       return (
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000", color: "#6e6e73" }}>
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#020408", color: "#4a5c70" }}>
           Loading...
         </div>
       );
