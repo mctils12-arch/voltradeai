@@ -250,6 +250,13 @@ def deep_score(ticker, quick_result):
         macro = {}
         news_sent = {}
 
+    # Full intelligence report (news classification + insider + earnings patterns)
+    try:
+        from intelligence import get_full_intelligence
+        intel = get_full_intelligence(ticker)
+    except Exception:
+        intel = {}
+
     # ── Pull key metrics from analyze.py output ──────────────────────────────
     vrp = detail.get("vrp", 0) or 0
     rec = detail.get("recommendation", {}) or {}
@@ -503,6 +510,41 @@ def deep_score(ticker, quick_result):
 
     combined_score += adx_adjustment + obv_adjustment
 
+    # ── Intelligence-based scoring ────────────────────────────────────────────
+    intel_adjustment = 0
+    if intel:
+        intel_score = intel.get("intel_score", 0)
+        
+        # Scale intel_score into a -15 to +15 adjustment
+        intel_adjustment = max(-15, min(15, int(intel_score * 0.3)))
+        
+        # Trap detection — major penalty
+        if intel.get("trap_warning"):
+            intel_adjustment = min(intel_adjustment, -10)
+            reasons.append(f"TRAP WARNING: {intel.get('trap_reason', 'conflicting signals')[:80]}")
+        
+        # Insider activity
+        insider = intel.get("insider", {})
+        if insider.get("net_direction") == "strong_selling":
+            reasons.append(f"Insiders heavily selling ({insider.get('sell_count', 0)} sells)")
+        elif insider.get("net_direction") == "strong_buying":
+            reasons.append(f"Insiders heavily buying ({insider.get('buy_count', 0)} buys)")
+        
+        # Earnings pattern
+        earnings_pat = intel.get("earnings_pattern", {})
+        if earnings_pat.get("sell_the_news_risk"):
+            intel_adjustment -= 5
+            reasons.append("Sell-the-news pattern detected — stock often drops on good earnings")
+        
+        # Top news event
+        news = intel.get("news", {})
+        if news.get("events"):
+            top_event = news["events"][0]
+            if abs(top_event.get("weight", 0)) >= 15:
+                reasons.append(f"Major event: {top_event['category'].replace('_', ' ')} — {top_event.get('headline', '')[:60]}")
+    
+    combined_score += intel_adjustment
+
     # Recommendation boost
     if rec:
         action = rec.get("action", "")
@@ -559,6 +601,10 @@ def deep_score(ticker, quick_result):
             "treasury_10y": macro.get("treasury_10y", 4.25),
             "adx": adx_value if adx_value is not None else 20,
             "obv_signal": obv_signal,
+            "intel_score": intel.get("intel_score", 0) if intel else 0,
+            "trap_warning": 1 if intel.get("trap_warning") else 0,
+            "insider_signal": intel.get("insider", {}).get("insider_signal", 0) if intel else 0,
+            "sell_the_news_risk": 1 if intel.get("earnings_pattern", {}).get("sell_the_news_risk") else 0,
         }
         ml_result = ml_score(ml_features)
 

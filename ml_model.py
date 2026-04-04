@@ -40,6 +40,7 @@ FEATURE_COLS = [
     "vix", "vix_regime_encoded", "sector_momentum", "market_regime_encoded",
     "news_sentiment", "treasury_10y",
     "adx", "obv_signal",
+    "intel_score", "trap_warning", "insider_signal", "sell_the_news_risk",
 ]
 
 # ── Default fallback weights ───────────────────────────────────────────────────
