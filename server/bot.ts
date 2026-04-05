@@ -1466,6 +1466,40 @@ print(json.dumps(check_weekly_loss(history)))
       }
 
       try {
+        // ── Options vs Stock execution ──
+        if (trade.use_options && trade.options_strategy !== "stock") {
+          // Execute via options engine
+          try {
+            const optionsData = JSON.stringify({
+              mode: "evaluate",
+              trade: { ticker: trade.ticker, price: trade.price, deep_score: trade.score, vrp: trade.vrp || 0, side: trade.side || "buy", action_label: trade.action || "BUY", rsi: trade.rsi || 50, ewma_rv: trade.ewma_rv || 2, garch_rv: trade.garch_rv || 2 },
+              equity, positions: Array.isArray(positions) ? positions : [],
+            }).replace(/'/g, "\\'");
+            const { stdout: optResult } = await execAsync(
+              `python3 -c "from options_execution import evaluate_and_execute; import json; print(json.dumps(evaluate_and_execute(json.loads('${optionsData}')['trade'], json.loads('${optionsData}')['equity'], json.loads('${optionsData}')['positions'])))"`,
+              { timeout: 30000 }
+            );
+            const optExec = JSON.parse(optResult.trim());
+
+            if (optExec.instrument === "options" && optExec.order?.status === "submitted") {
+              audit("OPTIONS-TRADE", `${trade.options_strategy.toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${optExec.reasoning?.slice(0, 120)}`);
+              notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${trade.options_edge_pct?.toFixed(1)}%)`);
+              slotsUsed++;
+              totalDeployed += optExec.contract?.max_cost || trade.position_value;
+              continue; // Skip stock execution
+            } else if (optExec.instrument === "options" && optExec.order?.status === "error") {
+              audit("OPTIONS-FALLBACK", `${trade.ticker}: ${optExec.order.detail?.slice(0, 150)} — falling back to stock`);
+              // Fall through to stock execution
+            } else {
+              // Options engine said stock is better
+              audit("OPTIONS-SKIP", `${trade.ticker}: ${optExec.reasoning?.slice(0, 100)}`);
+            }
+          } catch (optErr: any) {
+            audit("OPTIONS-ERROR", `${trade.ticker}: ${optErr?.message?.slice(0, 100)} — falling back to stock`);
+          }
+        }
+
+        // ── Stock execution (default or fallback from options) ──
         const qty = Math.floor(trade.shares);
         if (qty <= 0) continue;
         const side = trade.side === "short" ? "sell" : (trade.side || "buy");

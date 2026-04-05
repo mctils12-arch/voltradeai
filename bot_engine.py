@@ -1230,6 +1230,18 @@ def scan_market():
             side = "buy"
             action_label = "BUY"
 
+        # Options decision: should this trade use options instead of stock?
+        options_decision = {"use_options": False, "strategy": "stock", "reason": ""}
+        try:
+            from options_execution import should_use_options
+            options_decision = should_use_options(
+                {**stock, "score": final_score, "side": side, "action_label": action_label},
+                portfolio_value,
+                current_positions if isinstance(current_positions, list) else []
+            )
+        except Exception:
+            pass  # Options module not available, default to stock
+
         # Dynamic position sizing (replaces fixed 5%)
         if _has_sizer:
             sizing = calculate_position(
@@ -1284,6 +1296,10 @@ def scan_market():
             "garch_rv": stock.get("garch_rv"),
             "rsi": stock.get("rsi"),
             "vrp": stock.get("vrp"),
+            "use_options": options_decision.get("use_options", False),
+            "options_strategy": options_decision.get("strategy", "stock"),
+            "options_reasoning": options_decision.get("reason", ""),
+            "options_edge_pct": options_decision.get("edge_pct", 0),
         })
 
     # Step 7: Check position management
