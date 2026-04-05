@@ -585,6 +585,24 @@ for t in feedback:
     else: by_strat[s]['losses'] += 1
     by_strat[s]['total_pnl'] += t.get('pnl_pct', 0)
 
+# Realistic P&L (with slippage from fills tracker)
+total_slippage_cost = 0
+for f in fills:
+    slip = f.get('slippage_pct', 0) or 0
+    expected = f.get('expected_price', 0) or 0
+    qty = f.get('qty', 0) or 0
+    if expected > 0 and qty > 0:
+        total_slippage_cost += expected * qty * slip / 100
+
+# Estimated realistic P&L = paper P&L minus slippage drag
+realistic_total_pnl = total_pnl
+if len(fills) > 0:
+    avg_slippage_pct = sum(f.get('slippage_pct', 0) or 0 for f in fills) / len(fills)
+    # Each trade has entry + exit slippage
+    realistic_total_pnl = total_pnl - (avg_slippage_pct * 2 * len(feedback) / 100 * 100)
+else:
+    avg_slippage_pct = 0
+
 print(json.dumps({
     'total_trades': len(feedback),
     'total_fills': len(fills),
@@ -595,6 +613,10 @@ print(json.dumps({
     'profit_factor': round(profit_factor, 2) if profit_factor != float('inf') else 'inf',
     'by_strategy': by_strat,
     'recent_trades': feedback[-20:][::-1],
+    'realistic_pnl_pct': round(realistic_total_pnl, 2),
+    'avg_slippage_pct': round(avg_slippage_pct, 4),
+    'total_slippage_cost': round(total_slippage_cost, 2),
+    'slippage_gap_pct': round(total_pnl - realistic_total_pnl, 2),
 }))
 "`, { timeout: 10000 });
       
