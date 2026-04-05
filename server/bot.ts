@@ -1168,19 +1168,25 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
         audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
         notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} (score: ${trade.score})`);
 
-        // Track fill for ML learning
+        // Track fill with realistic slippage (morning queue = market open = wider slippage)
         try {
+          const mVol = trade.volume || 1000000;
+          let mSlip = 0.08; // Morning fills are worse (opening volatility)
+          if (mVol > 20000000) mSlip = 0.05 + Math.random() * 0.05;
+          else if (mVol > 5000000) mSlip = 0.08 + Math.random() * 0.07;
+          else mSlip = 0.15 + Math.random() * 0.10;
+          const mSide = trade.side === "short" ? "sell" : (trade.side || "buy");
+          const mDir = mSide === "buy" ? 1 : -1;
+          const mFillPrice = Math.round((trade.price * (1 + mDir * mSlip / 100)) * 100) / 100;
+
           const morningFillData = JSON.stringify({
-            ticker: trade.ticker,
-            order_type: "market",
-            side: trade.side === "short" ? "sell" : (trade.side || "buy"),
+            ticker: trade.ticker, order_type: "market", side: mSide,
             qty: Math.floor(trade.shares),
-            expected_price: trade.price,
-            fill_price: trade.price,
+            expected_price: trade.price, fill_price: mFillPrice,
+            slippage_applied_pct: mSlip,
             time_placed: trade.queuedAt || new Date().toISOString(),
-            session: "regular",
-            volume: 0,
-            score: trade.score,
+            session: "morning_queue", volume: mVol, score: trade.score,
+            instrument: trade.instrument || "stock",
           });
           execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${morningFillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
         } catch (err: any) { console.error("[bot]", err?.message || err); }
@@ -1558,9 +1564,35 @@ print(json.dumps(check_weekly_loss(history)))
         slotsUsed++;
         totalDeployed += trade.position_value;
 
-        // Track fill
+        // Track fill with realistic slippage estimate
+        // Paper trading gives perfect fills — we add estimated slippage so the ML
+        // learns from realistic data, not optimistic fills that never happen live
         try {
-          const fillData = JSON.stringify({ ticker: trade.ticker, order_type: "market", side, qty, expected_price: trade.price, fill_price: trade.price, time_placed: new Date().toISOString(), session: "regular", volume: trade.volume || 0, score: trade.score });
+          const vol = trade.volume || 1000000;
+          // Slippage model: higher volume = tighter fills
+          // Large cap (>20M vol): ~0.02-0.05% slippage
+          // Mid cap (5-20M vol):  ~0.05-0.10%
+          // Small cap (<5M vol):  ~0.10-0.25%
+          let slippagePct = 0.03; // Default
+          if (vol > 20000000) slippagePct = 0.02 + Math.random() * 0.03;
+          else if (vol > 5000000) slippagePct = 0.05 + Math.random() * 0.05;
+          else if (vol > 1000000) slippagePct = 0.08 + Math.random() * 0.07;
+          else slippagePct = 0.12 + Math.random() * 0.13;
+
+          // Buy = pay more, Sell = get less
+          const slippageDirection = (side === "buy") ? 1 : -1;
+          const realisticFillPrice = Math.round((trade.price * (1 + slippageDirection * slippagePct / 100)) * 100) / 100;
+
+          const fillData = JSON.stringify({
+            ticker: trade.ticker, order_type: "market", side, qty,
+            expected_price: trade.price,
+            fill_price: realisticFillPrice,
+            slippage_applied_pct: slippagePct,
+            time_placed: new Date().toISOString(),
+            session: "regular", volume: vol, score: trade.score,
+            instrument: trade.instrument || "stock",
+            entry_features: trade.entry_features || null,
+          });
           execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}'))"`, { timeout: 5000 }).catch(() => {});
         } catch (err: any) { console.error("[fill-track]", err?.message || err); }
 
