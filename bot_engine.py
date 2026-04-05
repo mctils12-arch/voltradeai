@@ -897,6 +897,8 @@ except Exception as e:
         "horizon": rec.get("horizon") if rec else None,
         "leveraged_bull": rec.get("leveraged_bull") if rec else None,
         "leveraged_bear": rec.get("leveraged_bear") if rec else None,
+        # Full 52-feature snapshot at entry time (for ML exit model training)
+        "entry_features": ml_features if 'ml_features' in dir() else None,
     }
 
 # ── Correlation / Sector Check ───────────────────────────────────────────────
@@ -1065,6 +1067,20 @@ def manage_positions():
             "days_held": days_held,
         }
 
+        # Exit context: full state at exit time (for ML exit model training)
+        exit_context = {
+            "atr_pct": round(atr_pct, 2),
+            "phase": phase,
+            "r_multiple": round(r_multiple, 2),
+            "peak_r": round(peak_r, 2),
+            "highest_pnl": round(highest_pnl, 2),
+            "stop_pct": round(stop_pct, 2),
+            "pnl_pct": round(pnl_pct, 2),
+            "days_held": days_held,
+            "current_price": current,
+            "entry_price": entry,
+        }
+
         # Execute stops
         if should_stop:
             stop_type = "trailing_stop" if phase >= 2 else "stop_loss"
@@ -1072,15 +1088,15 @@ def manage_positions():
                 reason = f"EVOLVING STOP Phase {phase}: P&L {pnl_pct:+.1f}% dropped {highest_pnl - pnl_pct:.1f}% from peak {highest_pnl:+.1f}% ({stop_reason})"
             else:
                 reason = f"STOP LOSS: {pnl_pct:.1f}% loss hit Phase 1 stop at -{stop_pct:.1f}% (ATR: ${atr or 0:.2f})"
-            actions.append({"action": "CLOSE", "ticker": ticker, "side": side, "reason": reason, "type": stop_type, "phase": phase})
+            actions.append({"action": "CLOSE", "ticker": ticker, "side": side, "reason": reason, "type": stop_type, "phase": phase, "exit_context": exit_context})
         elif pnl_pct >= tp_pct and phase < 3:
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": f"TAKE PROFIT: +{pnl_pct:.1f}% hit target +{tp_pct:.1f}% (Phase {phase})",
-                "type": "take_profit", "phase": phase})
+                "type": "take_profit", "phase": phase, "exit_context": exit_context})
         elif time_stop:
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": f"TIME STOP: {days_held} days held, P&L only {pnl_pct:+.1f}% — capital locked up",
-                "type": "time_stop", "phase": phase})
+                "type": "time_stop", "phase": phase, "exit_context": exit_context})
 
         # Upgrade candidate: position is flat or slightly negative in Phase 1
         if phase == 1 and -stop_pct < pnl_pct < 1.0:
@@ -1399,6 +1415,7 @@ def scan_market():
             "options_edge_pct": options_decision.get("edge_pct", 0),
             "rules_score": rules_only_score,
             "ml_score_raw": ml_only_score,
+            "entry_features": stock.get("entry_features"),  # 52-feature snapshot for ML exit training
         })
 
     # Step 7: Check position management

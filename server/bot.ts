@@ -100,6 +100,9 @@ interface TradeResult {
   score: number;
   rulesScore: number | null;  // Score before ML blend (for attribution)
   mlScore: number | null;     // ML-only score (for attribution)
+  instrument: string;         // stock / etf / options
+  entryFeatures: any;         // 52-feature snapshot at entry (for ML exit model)
+  exitContext: any;           // Stop phase, R-multiple, ATR at exit
   holdingDays: number;
   timestamp: string;
 }
@@ -187,6 +190,9 @@ async function trackClosedTrades() {
         score: 0,
         rulesScore: null,  // Populated when trade originates from scan
         mlScore: null,     // Populated when trade originates from scan
+        instrument: "stock",
+        entryFeatures: null,
+        exitContext: null,
         holdingDays: 0,
         timestamp: order.filled_at,
       });
@@ -207,10 +213,13 @@ async function trackClosedTrades() {
           holding_days: t.holdingDays,
           strategy: t.strategy,
           score: t.score,
-          rules_score: t.rulesScore || null,   // Score BEFORE ML blend
-          ml_score: t.mlScore || null,          // ML-only score
-          blended_score: t.score,               // Final blended score (same as score)
+          rules_score: t.rulesScore || null,
+          ml_score: t.mlScore || null,
+          blended_score: t.score,
           won: t.pnlPct > 0 ? 1 : 0,
+          instrument: t.instrument || "stock",
+          entry_features: t.entryFeatures || null,   // 52-feature snapshot at entry
+          exit_context: t.exitContext || null,        // Stop phase, R-multiple, ATR at exit
           timestamp: t.timestamp,
         }));
         const feedbackJson = JSON.stringify(feedbackData).replace(/'/g, "\\'");
