@@ -579,6 +579,89 @@ print(json.dumps({
     }
   });
 
+  // ── Trade History CSV Export ─────────────────────────────────────────────
+  app.get("/api/bot/export-trades", requireAuth, async (_req, res) => {
+    try {
+      const { stdout } = await execAsync(`python3 -c "
+import json, os, csv, io
+try:
+    from storage_config import TRADE_FEEDBACK_PATH, FILLS_PATH
+except ImportError:
+    TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
+    FILLS_PATH = '/tmp/voltrade_fills.json'
+
+feedback = []
+if os.path.exists(TRADE_FEEDBACK_PATH):
+    with open(TRADE_FEEDBACK_PATH) as f: feedback = json.load(f)
+
+fills = []
+if os.path.exists(FILLS_PATH):
+    with open(FILLS_PATH) as f: fills = json.load(f)
+
+out = io.StringIO()
+w = csv.writer(out)
+w.writerow(['Date', 'Ticker', 'Side', 'P&L %', 'Score', 'Strategy', 'Holding Days', 'Won'])
+for t in feedback:
+    w.writerow([
+        t.get('timestamp', ''),
+        t.get('ticker', ''),
+        t.get('side', ''),
+        round(t.get('pnl_pct', 0), 2),
+        t.get('score', ''),
+        t.get('strategy', ''),
+        t.get('holding_days', ''),
+        'Yes' if t.get('won') else 'No',
+    ])
+print(out.getvalue())
+"`, { timeout: 10000 });
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename=voltrade_trades_${new Date().toISOString().slice(0,10)}.csv`);
+      res.send(stdout);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Data Backup Endpoint (manual trigger or cron) ──────────────────────────
+  app.post("/api/bot/backup", requireAuth, async (_req, res) => {
+    try {
+      const { stdout } = await execAsync(`python3 -c "
+import json, os, shutil, time
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = '/tmp'
+
+backup_dir = os.path.join(DATA_DIR, 'backups')
+os.makedirs(backup_dir, exist_ok=True)
+
+timestamp = time.strftime('%Y%m%d_%H%M%S')
+backup_path = os.path.join(backup_dir, f'backup_{timestamp}')
+os.makedirs(backup_path, exist_ok=True)
+
+files_backed = []
+for fname in os.listdir(DATA_DIR):
+    fpath = os.path.join(DATA_DIR, fname)
+    if os.path.isfile(fpath) and (fname.endswith('.json') or fname.endswith('.pkl') or fname.endswith('.db')):
+        shutil.copy2(fpath, os.path.join(backup_path, fname))
+        files_backed.append(fname)
+
+# Keep only last 5 backups
+all_backups = sorted([d for d in os.listdir(backup_dir) if d.startswith('backup_')])
+while len(all_backups) > 5:
+    old = all_backups.pop(0)
+    shutil.rmtree(os.path.join(backup_dir, old), ignore_errors=True)
+
+print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path': backup_path, 'total_backups': min(len(all_backups)+1, 5)}))
+"`, { timeout: 30000 });
+      const result = JSON.parse(stdout.trim());
+      audit("BACKUP", `Data backed up: ${result.backed_up} files to ${result.path}`);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // Bot status
   app.get("/api/bot/status", requireAuth, (_req, res) => {
     res.json({
@@ -1564,6 +1647,36 @@ print(json.dumps(run_diagnostics()))
           audit("RETRAIN", `Daily retrain complete — accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.sample_count || 'N/A'}`);
         } catch (err: any) {
           audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
+        }
+
+        // Nightly auto-backup at 4am alongside retrain
+        try {
+          const { stdout: backupOut } = await execAsync(`python3 -c "
+import json, os, shutil, time
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = '/tmp'
+backup_dir = os.path.join(DATA_DIR, 'backups')
+os.makedirs(backup_dir, exist_ok=True)
+timestamp = time.strftime('%Y%m%d_%H%M%S')
+backup_path = os.path.join(backup_dir, f'backup_{timestamp}')
+os.makedirs(backup_path, exist_ok=True)
+count = 0
+for fname in os.listdir(DATA_DIR):
+    fpath = os.path.join(DATA_DIR, fname)
+    if os.path.isfile(fpath) and (fname.endswith('.json') or fname.endswith('.pkl') or fname.endswith('.db')):
+        shutil.copy2(fpath, os.path.join(backup_path, fname))
+        count += 1
+all_b = sorted([d for d in os.listdir(backup_dir) if d.startswith('backup_')])
+while len(all_b) > 5:
+    shutil.rmtree(os.path.join(backup_dir, all_b.pop(0)), ignore_errors=True)
+print(json.dumps({'files': count}))
+"`, { timeout: 30000 });
+          const bk = JSON.parse(backupOut.trim());
+          audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved`);
+        } catch (err: any) {
+          audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
         }
       }
 

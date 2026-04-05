@@ -18,6 +18,7 @@ import sys
 import json
 import os
 import time
+import subprocess
 import requests
 import numpy as np
 from datetime import datetime, timedelta
@@ -282,43 +283,53 @@ def deep_score(ticker, quick_result):
         pass
 
     # Analyst ratings + valuation multiples (yfinance) — with 5-min cache
+    # WRAPPED IN SUBPROCESS with 5s hard kill to prevent yfinance hangs
     yf_fundamentals = {}
     _yf_cache_key = ticker
     if _yf_cache_key in _yf_cache and (time.time() - _yf_cache_time.get(_yf_cache_key, 0)) < _YF_CACHE_TTL:
         yf_fundamentals = _yf_cache[_yf_cache_key]
     else:
         try:
-            import yfinance as yf
-            _yticker = yf.Ticker(ticker)
-            _yinfo = _yticker.info or {}
-            yf_fundamentals = {
-                "forward_pe": _yinfo.get("forwardPE") or 0,
-                "trailing_pe": _yinfo.get("trailingPE") or 0,
-                "price_to_book": _yinfo.get("priceToBook") or 0,
-                "ev_ebitda": _yinfo.get("enterpriseToEbitda") or 0,
-                "price_to_sales": _yinfo.get("priceToSalesTrailing12Months") or 0,
-                "peg_ratio": _yinfo.get("pegRatio") or 0,
-                "target_mean": _yinfo.get("targetMeanPrice") or 0,
-                "target_high": _yinfo.get("targetHighPrice") or 0,
-                "target_low": _yinfo.get("targetLowPrice") or 0,
-                "current_price": _yinfo.get("currentPrice") or _yinfo.get("regularMarketPrice") or 0,
-                "recommendation": _yinfo.get("recommendationKey") or "none",
-                "num_analysts": _yinfo.get("numberOfAnalystOpinions") or 0,
-            }
-            # Get buy/hold/sell counts from recommendations
-            _recs = _yticker.recommendations
-            if _recs is not None and not _recs.empty:
-                _latest = _recs.iloc[0]
-                yf_fundamentals["strong_buy_count"] = int(_latest.get("strongBuy", 0))
-                yf_fundamentals["buy_count"] = int(_latest.get("buy", 0))
-                yf_fundamentals["hold_count"] = int(_latest.get("hold", 0))
-                yf_fundamentals["sell_count"] = int(_latest.get("sell", 0))
-                yf_fundamentals["strong_sell_count"] = int(_latest.get("strongSell", 0))
-            # Store in cache
-            _yf_cache[_yf_cache_key] = yf_fundamentals
-            _yf_cache_time[_yf_cache_key] = time.time()
-        except Exception:
-            pass
+            _yf_script = f'''import yfinance as yf, json, sys
+try:
+    t = yf.Ticker("{ticker}")
+    info = t.info or {{}}
+    d = {{
+        "forward_pe": info.get("forwardPE") or 0,
+        "trailing_pe": info.get("trailingPE") or 0,
+        "price_to_book": info.get("priceToBook") or 0,
+        "ev_ebitda": info.get("enterpriseToEbitda") or 0,
+        "price_to_sales": info.get("priceToSalesTrailing12Months") or 0,
+        "peg_ratio": info.get("pegRatio") or 0,
+        "target_mean": info.get("targetMeanPrice") or 0,
+        "target_high": info.get("targetHighPrice") or 0,
+        "target_low": info.get("targetLowPrice") or 0,
+        "current_price": info.get("currentPrice") or info.get("regularMarketPrice") or 0,
+        "recommendation": info.get("recommendationKey") or "none",
+        "num_analysts": info.get("numberOfAnalystOpinions") or 0,
+    }}
+    recs = t.recommendations
+    if recs is not None and not recs.empty:
+        latest = recs.iloc[0]
+        d["strong_buy_count"] = int(latest.get("strongBuy", 0))
+        d["buy_count"] = int(latest.get("buy", 0))
+        d["hold_count"] = int(latest.get("hold", 0))
+        d["sell_count"] = int(latest.get("sell", 0))
+        d["strong_sell_count"] = int(latest.get("strongSell", 0))
+    print(json.dumps(d))
+except Exception as e:
+    print(json.dumps({{}}))
+'''
+            _yf_proc = subprocess.run(
+                ["python3", "-c", _yf_script],
+                capture_output=True, text=True, timeout=5  # HARD 5-second kill
+            )
+            if _yf_proc.stdout.strip():
+                yf_fundamentals = json.loads(_yf_proc.stdout.strip())
+                _yf_cache[_yf_cache_key] = yf_fundamentals
+                _yf_cache_time[_yf_cache_key] = time.time()
+        except (subprocess.TimeoutExpired, Exception):
+            pass  # yfinance hung or failed — skip, don't block Tier 2
 
     # ── Pull key metrics from analyze.py output ──────────────────────────────
     vrp = detail.get("vrp", 0) or 0
@@ -889,17 +900,56 @@ def deep_score(ticker, quick_result):
 
 def check_sector_correlation(ticker, existing_tickers):
     """
-    Returns True if adding this ticker would exceed MAX_SECTOR_POSITIONS
-    for its sector. False = safe to trade.
+    Returns True if adding this ticker would create dangerous concentration.
+    Checks both sector limits AND portfolio beta correlation.
+    False = safe to trade.
     """
+    # Check 1: Sector concentration
     sector = SECTOR_MAP.get(ticker.upper(), "unknown")
-    if sector == "unknown":
-        return False  # Unknown sector → allow (conservative)
-    count = sum(
-        1 for t in existing_tickers
-        if SECTOR_MAP.get(t.upper(), "unknown") == sector
-    )
-    return count >= MAX_SECTOR_POSITIONS
+    if sector != "unknown":
+        count = sum(
+            1 for t in existing_tickers
+            if SECTOR_MAP.get(t.upper(), "unknown") == sector
+        )
+        if count >= MAX_SECTOR_POSITIONS:
+            return True
+
+    # Check 2: High-beta concentration — don't load up on all volatile names
+    # If we already hold 3+ positions, check if adding this one makes the
+    # portfolio too correlated (all high-beta or all defensive)
+    if len(existing_tickers) >= 3:
+        try:
+            _beta_map = {
+                # High beta (>1.3) — tech/growth/meme
+                "TSLA": 2.0, "NVDA": 1.7, "AMD": 1.6, "MSTR": 2.5, "COIN": 2.0,
+                "META": 1.4, "AMZN": 1.3, "NFLX": 1.5, "SHOP": 1.8, "SQ": 1.7,
+                "ROKU": 1.9, "SNAP": 1.6, "PLTR": 1.8, "RIVN": 2.0, "LCID": 2.1,
+                "SOFI": 1.6, "HOOD": 1.9, "AFRM": 1.8, "UPST": 2.2, "SMCI": 2.0,
+                # Medium beta (0.8-1.3) — large cap blend
+                "AAPL": 1.2, "MSFT": 1.1, "GOOGL": 1.1, "GOOG": 1.1, "JPM": 1.1,
+                "V": 1.0, "MA": 1.0, "UNH": 0.9, "HD": 1.0, "DIS": 1.2,
+                # Low beta (<0.8) — defensive/utilities
+                "JNJ": 0.6, "PG": 0.5, "KO": 0.6, "PEP": 0.6, "WMT": 0.5,
+                "MRK": 0.5, "VZ": 0.4, "T": 0.6, "NEE": 0.5, "SO": 0.3,
+                "CL": 0.5, "GIS": 0.4, "K": 0.4, "ED": 0.3, "XEL": 0.3,
+            }
+            new_beta = _beta_map.get(ticker.upper(), 1.0)
+            existing_betas = [_beta_map.get(t.upper(), 1.0) for t in existing_tickers]
+            high_beta_count = sum(1 for b in existing_betas if b >= 1.5)
+
+            # Block if adding another high-beta stock when we already have 3+
+            if new_beta >= 1.5 and high_beta_count >= 3:
+                return True  # Too many volatile names
+
+            # Block if average portfolio beta would exceed 1.6
+            all_betas = existing_betas + [new_beta]
+            avg_beta = sum(all_betas) / len(all_betas)
+            if avg_beta > 1.6:
+                return True  # Portfolio too hot
+        except Exception:
+            pass
+
+    return False
 
 # ── Position Management ──────────────────────────────────────────────────────
 

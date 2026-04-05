@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -24,15 +24,15 @@ const TIPS: Record<string, string> = {
   vrpSelling: "Selling options when they're overpriced vs how much the stock actually moves. You collect money upfront and keep it if the stock stays calm.",
   momentum: "Buying stocks that have been going up recently. Research shows trends tend to continue for weeks or months.",
   pead: "Post-Earnings Announcement Drift — when a company beats earnings expectations, the stock usually keeps rising for weeks after.",
-  regime: "What kind of market we're in right now: calm, choppy, trending up, or crashing. The AI engine uses different strategies for each.",
+  regime: "What kind of market we're in right now: calm, choppy, trending up, or crashing. The bot uses different strategies for each.",
   confidence: "How sure the AI is about this signal. 80%+ means strong conviction based on multiple factors agreeing.",
   annualReturn: "Average return per year if you ran this strategy continuously.",
   totalReturn: "Total percentage gained (or lost) over the entire backtest period.",
   maxDrawdown: "Worst peak-to-trough decline during the backtest. Smaller is safer.",
-  dailyLossLimit: "If the AI engine loses more than this percentage in a single day, all trading automatically halts until reset.",
-  positionSize: "The AI engine will never put more than this percentage of your portfolio into a single trade.",
+  dailyLossLimit: "If the bot loses more than this percentage in a single day, all trading automatically halts until reset.",
+  positionSize: "The bot will never put more than this percentage of your portfolio into a single trade.",
   totalExposure: "Maximum percentage of your portfolio that can be invested at any one time.",
-  performance: "Live performance tracking — win rate, P&L, and equity curve across all AI engine trades.",
+  performance: "Live performance tracking — win rate, P&L, and equity curve across all bot trades.",
   notifications: "Real-time alerts for trades executed, stop losses hit, earnings events, and daily summaries.",
 };
 
@@ -369,8 +369,355 @@ function PerformanceCard({ perf }: { perf: any }) {
       {/* No trades yet */}
       {totalTrades === 0 && (
         <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "8px 0" }}>
-          Performance data builds as the AI engine executes trades.
+          Performance data builds as the bot executes trades.
         </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Performance Dashboard ──────────────────────────────────────────────────
+function PerformanceDashboard({ perfData }: { perfData: any }) {
+  const [open, setOpen] = useState(true);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Derive metrics from perfData
+  const totalTrades: number = perfData?.totalTrades ?? 0;
+  const winRate: number = perfData?.winRate ?? 0;
+  const profitFactor: number = perfData?.profitFactor ?? 0;
+  const avgGain: number = perfData?.avgGain ?? 0;
+  const avgLoss: number = perfData?.avgLoss ?? 0;
+  const drawdown: number = perfData?.currentDrawdown ?? perfData?.maxDrawdown ?? 0;
+  const equityCurve: Array<{ date: string; value: number }> = Array.isArray(perfData?.equityCurve)
+    ? perfData.equityCurve.map((d: any) => ({ date: d.date ?? "", value: d.value ?? 0 }))
+    : [];
+  const recentTrades: Array<any> = Array.isArray(perfData?.recentTrades)
+    ? perfData.recentTrades.slice(0, 10)
+    : Array.isArray(perfData?.trades)
+    ? perfData.trades.slice(0, 10)
+    : [];
+
+  // Win rate color
+  const winRateColor = winRate > 55 ? "#30d158" : winRate < 45 ? "#ff453a" : "#d4a017";
+  // Profit factor color
+  const pfColor = profitFactor > 1.5 ? "#30d158" : profitFactor < 1.0 ? "#ff453a" : "#d4a017";
+  // Drawdown color (negative = bad)
+  const ddColor = drawdown <= -10 ? "#ff453a" : drawdown <= -5 ? "#d4a017" : "#30d158";
+
+  // ── Canvas equity curve ──
+  const drawChart = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Use display size
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.offsetWidth;
+    const H = canvas.offsetHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+
+    // Background
+    ctx.clearRect(0, 0, W, H);
+
+    const PAD_LEFT = 56;
+    const PAD_RIGHT = 16;
+    const PAD_TOP = 16;
+    const PAD_BOTTOM = 28;
+    const chartW = W - PAD_LEFT - PAD_RIGHT;
+    const chartH = H - PAD_TOP - PAD_BOTTOM;
+
+    if (equityCurve.length < 2) {
+      // Empty state
+      ctx.font = "11px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#2a3a4c";
+      ctx.textAlign = "center";
+      ctx.fillText("Equity curve builds as trades complete", W / 2, H / 2);
+      return;
+    }
+
+    const values = equityCurve.map(d => d.value);
+    const minV = Math.min(...values);
+    const maxV = Math.max(...values);
+    const peak = Math.max(...values);
+    const range = maxV - minV || 1;
+
+    // Grid lines
+    const gridLines = 4;
+    ctx.setLineDash([2, 4]);
+    ctx.strokeStyle = "rgba(0,229,255,0.07)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= gridLines; i++) {
+      const y = PAD_TOP + (i / gridLines) * chartH;
+      ctx.beginPath();
+      ctx.moveTo(PAD_LEFT, y);
+      ctx.lineTo(PAD_LEFT + chartW, y);
+      ctx.stroke();
+      // Y axis labels
+      const val = maxV - (i / gridLines) * range;
+      ctx.setLineDash([]);
+      ctx.font = "9px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#2a3a4c";
+      ctx.textAlign = "right";
+      ctx.fillText(
+        val >= 1000 ? `$${(val / 1000).toFixed(1)}k` : `$${val.toFixed(0)}`,
+        PAD_LEFT - 4,
+        y + 3
+      );
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = "rgba(0,229,255,0.07)";
+    }
+    ctx.setLineDash([]);
+
+    // Build path
+    const toX = (i: number) => PAD_LEFT + (i / (values.length - 1)) * chartW;
+    const toY = (v: number) => PAD_TOP + ((maxV - v) / range) * chartH;
+
+    // Area fill
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(values[0]));
+    for (let i = 1; i < values.length; i++) ctx.lineTo(toX(i), toY(values[i]));
+    ctx.lineTo(toX(values.length - 1), PAD_TOP + chartH);
+    ctx.lineTo(toX(0), PAD_TOP + chartH);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, PAD_TOP, 0, PAD_TOP + chartH);
+    grad.addColorStop(0, "rgba(0,255,213,0.18)");
+    grad.addColorStop(1, "rgba(0,255,213,0.00)");
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Equity line
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(values[0]));
+    for (let i = 1; i < values.length; i++) ctx.lineTo(toX(i), toY(values[i]));
+    ctx.strokeStyle = "#00ffd5";
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    // Peak line (dotted amber)
+    const peakY = toY(peak);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(251,191,36,0.6)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD_LEFT, peakY);
+    ctx.lineTo(PAD_LEFT + chartW, peakY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Peak label
+    ctx.font = "9px 'JetBrains Mono', monospace";
+    ctx.fillStyle = "rgba(251,191,36,0.7)";
+    ctx.textAlign = "left";
+    ctx.fillText("PEAK", PAD_LEFT + chartW - 36, peakY - 3);
+
+    // X axis date labels (show up to 5)
+    const dates = equityCurve.map(d => d.date);
+    const labelCount = Math.min(5, dates.length);
+    ctx.font = "9px 'JetBrains Mono', monospace";
+    ctx.fillStyle = "#2a3a4c";
+    ctx.textAlign = "center";
+    for (let i = 0; i < labelCount; i++) {
+      const idx = Math.round((i / (labelCount - 1)) * (dates.length - 1));
+      const x = toX(idx);
+      const dateStr = dates[idx] ? dates[idx].slice(5) : ""; // MM-DD
+      ctx.fillText(dateStr, x, PAD_TOP + chartH + 16);
+    }
+  }, [equityCurve]);
+
+  useEffect(() => {
+    if (open) {
+      // Small delay to ensure layout
+      const t = setTimeout(drawChart, 50);
+      return () => clearTimeout(t);
+    }
+  }, [open, drawChart]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleResize = () => drawChart();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [open, drawChart]);
+
+  const sectionHeader: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: "8px",
+    cursor: "pointer", userSelect: "none",
+    marginBottom: open ? "20px" : 0,
+  };
+
+  const metricBox: React.CSSProperties = {
+    background: "rgba(0, 15, 30, 0.5)",
+    border: "1px solid rgba(0, 229, 255, 0.08)",
+    borderRadius: "4px",
+    padding: "14px 16px",
+  };
+
+  return (
+    <div style={{ ...card, marginBottom: "20px" }}>
+      {/* Header — click to collapse */}
+      <div style={sectionHeader} onClick={() => setOpen(o => !o)}>
+        <TrendingUp size={14} style={{ color: "#00ffd5" }} />
+        <span style={{ fontSize: "14px", fontWeight: 700, color: "#c8d6e5",
+          fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
+          PERFORMANCE
+        </span>
+        <span style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase",
+          letterSpacing: "0.5px", marginLeft: "4px" }}>
+          {totalTrades} trades
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: "18px", color: "#00ffd5", lineHeight: 1 }}>
+          {open ? "−" : "+"}
+        </span>
+      </div>
+
+      {open && (
+        <>
+          {/* ── Metrics grid ── */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+            gap: "10px",
+            marginBottom: "20px",
+          }}>
+            {/* Total Trades */}
+            <div style={metricBox}>
+              <div style={label}>Total Trades</div>
+              <div style={{ ...bigNum, color: "#c8d6e5" }}>{totalTrades}</div>
+            </div>
+
+            {/* Win Rate */}
+            <div style={{ ...metricBox, borderColor: `${winRateColor}22` }}>
+              <div style={label}><Tip id="winrate">Win Rate</Tip></div>
+              <div style={{ ...bigNum, color: winRateColor }}>
+                {winRate.toFixed(1)}%
+              </div>
+              <div style={{ marginTop: "6px", height: "3px", background: "rgba(0,229,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(winRate, 100)}%`, background: winRateColor, borderRadius: "2px", transition: "width 0.5s ease" }} />
+              </div>
+            </div>
+
+            {/* Profit Factor */}
+            <div style={{ ...metricBox, borderColor: `${pfColor}22` }}>
+              <div style={label}>Profit Factor</div>
+              <div style={{ ...bigNum, color: pfColor }}>
+                {profitFactor > 0 ? profitFactor.toFixed(2) : "—"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "4px" }}>
+                {profitFactor >= 1.5 ? "Excellent" : profitFactor >= 1.0 ? "Acceptable" : profitFactor > 0 ? "Below 1.0" : "No data"}
+              </div>
+            </div>
+
+            {/* Avg Win */}
+            <div style={metricBox}>
+              <div style={label}>Avg Win</div>
+              <div style={{ ...bigNum, color: "#30d158" }}>
+                {avgGain > 0 ? `+${avgGain.toFixed(2)}%` : "—"}
+              </div>
+            </div>
+
+            {/* Avg Loss */}
+            <div style={metricBox}>
+              <div style={label}>Avg Loss</div>
+              <div style={{ ...bigNum, color: "#ff453a" }}>
+                {avgLoss !== 0 ? `${avgLoss > 0 ? "-" : ""}${Math.abs(avgLoss).toFixed(2)}%` : "—"}
+              </div>
+            </div>
+
+            {/* Drawdown */}
+            <div style={{ ...metricBox, borderColor: drawdown < -5 ? "rgba(255,68,68,0.2)" : "rgba(0,229,255,0.08)" }}>
+              <div style={label}><Tip id="drawdown">Drawdown</Tip></div>
+              <div style={{ ...bigNum, color: ddColor }}>
+                {drawdown !== 0 ? `${drawdown.toFixed(2)}%` : "0.00%"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "4px" }}>From peak</div>
+            </div>
+          </div>
+
+          {/* ── Equity Curve Canvas ── */}
+          <div style={{ marginBottom: "20px" }}>
+            <div style={{ ...label, marginBottom: "10px", display: "flex", alignItems: "center", gap: "12px" }}>
+              Equity Curve
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ width: "18px", height: "2px", background: "#00ffd5", display: "inline-block" }} />
+                <span style={{ fontSize: "9px", color: "#4a5c70" }}>Equity</span>
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ width: "18px", borderTop: "1px dashed rgba(251,191,36,0.6)", display: "inline-block" }} />
+                <span style={{ fontSize: "9px", color: "#4a5c70" }}>Peak</span>
+              </span>
+            </div>
+            <div style={{
+              background: "rgba(0, 10, 20, 0.6)",
+              border: "1px solid rgba(0, 229, 255, 0.08)",
+              borderRadius: "4px",
+              overflow: "hidden",
+            }}>
+              <canvas
+                ref={canvasRef}
+                style={{ width: "100%", height: "160px", display: "block" }}
+              />
+            </div>
+          </div>
+
+          {/* ── Recent Trades Table ── */}
+          <div>
+            <div style={{ ...label, marginBottom: "10px" }}>Recent Trades (Last 10)</div>
+            {recentTrades.length > 0 ? (
+              <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", minWidth: "420px" }}>
+                  <thead>
+                    <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                      <th style={{ padding: "7px 10px", fontWeight: 500 }}>Ticker</th>
+                      <th style={{ padding: "7px 6px", fontWeight: 500 }}>Side</th>
+                      <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>P&L %</th>
+                      <th style={{ padding: "7px 6px", fontWeight: 500 }}>Strategy</th>
+                      <th style={{ padding: "7px 6px", fontWeight: 500 }}>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentTrades.map((t: any, i: number) => {
+                      const pnlPct = t.pnlPct ?? t.pnl_pct ?? t.returnPct ?? 0;
+                      const isProfit = pnlPct >= 0;
+                      return (
+                        <tr key={i} style={{
+                          borderBottom: "1px solid rgba(0, 15, 30, 0.5)",
+                          background: isProfit
+                            ? "rgba(48, 209, 88, 0.04)"
+                            : "rgba(255, 68, 68, 0.04)",
+                        }}>
+                          <td style={{ padding: "7px 10px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: "#c8d6e5" }}>
+                            {t.ticker ?? t.symbol ?? "—"}
+                          </td>
+                          <td style={{ padding: "7px 6px", color: (t.side ?? t.direction ?? "long") === "short" ? "#ff453a" : "#30d158", fontFamily: "monospace", fontSize: "11px", fontWeight: 600, textTransform: "uppercase" }}>
+                            {t.side ?? t.direction ?? "long"}
+                          </td>
+                          <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: isProfit ? "#30d158" : "#ff453a" }}>
+                            {isProfit ? "+" : ""}{Number(pnlPct).toFixed(2)}%
+                          </td>
+                          <td style={{ padding: "7px 6px", color: "#a1a1a6", fontSize: "11px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {t.strategy ?? t.signal ?? "—"}
+                          </td>
+                          <td style={{ padding: "7px 6px", color: "#4a5c70", fontFamily: "monospace", fontSize: "11px", whiteSpace: "nowrap" }}>
+                            {t.date ?? t.exitDate ?? t.time
+                              ? new Date(t.date ?? t.exitDate ?? t.time).toLocaleDateString()
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", padding: "24px 0", color: "#2a3a4c", fontSize: "12px" }}>
+                No completed trades yet. Performance data builds as the bot executes trades.
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -573,7 +920,7 @@ export default function BotDashboard() {
             </table>
           </div>
         ) : (
-          <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The AI engine will generate signals and trade when activated.</p>
+          <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The bot will generate signals and trade when activated.</p>
         )}
       </div>
 
@@ -714,7 +1061,7 @@ export default function BotDashboard() {
       </div>
 
       {/* ── Audit Log ── */}
-      <div style={{ ...card }}>
+      <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
           <Clock size={14} style={{ color: "#00e5ff" }} />
           <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>Activity Log</span>
@@ -730,10 +1077,13 @@ export default function BotDashboard() {
               </div>
             ))
           ) : (
-            <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "16px 0" }}>No activity yet. Start the AI engine to begin.</p>
+            <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "16px 0" }}>No activity yet. Start the bot to begin.</p>
           )}
         </div>
       </div>
+
+      {/* ── Performance Dashboard (detailed) ── */}
+      <PerformanceDashboard perfData={perfData} />
 
     </div>
   );
