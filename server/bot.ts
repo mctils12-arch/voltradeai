@@ -1173,7 +1173,7 @@ print(json.dumps(check_weekly_loss(history)))
     }
   }
 
-  // ── Tier 3: Strategic — ML retrain, macro, manipulation scan (2h) ─────────
+  // ── Tier 3: Strategic — ML retrain, macro, manipulation scan (1h) ─────────
 
   async function tier3Strategic() {
     audit("TIER3", "Starting strategic scan...");
@@ -1183,7 +1183,7 @@ print(json.dumps(check_weekly_loss(history)))
       const { stdout: modelCheck } = await execAsync(`python3 -c "
 import os, time, json
 path = '/data/voltrade_ml_model.pkl' if os.path.isdir('/data') else '/tmp/voltrade_ml_model.pkl'
-if not os.path.exists(path) or (time.time() - os.path.getmtime(path)) > 7 * 86400:
+if not os.path.exists(path) or (time.time() - os.path.getmtime(path)) > 86400:
     print(json.dumps({'needs_retrain': True}))
 else:
     age_h = (time.time() - os.path.getmtime(path)) / 3600
@@ -1340,6 +1340,21 @@ print(json.dumps(run_diagnostics()))
         } catch (err: any) { console.error("[bot]", err?.message || err); }
       }
 
+      // 4am ET: Daily ML retrain — fresh model before market opens
+      if (etHour === 4) {
+        audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
+        try {
+          const { stdout: trainOut } = await execAsync(
+            `python3 -c "from ml_model import train_model; import json; print(json.dumps(train_model()))"`,
+            { timeout: 120000 }
+          );
+          const trainResult = JSON.parse(trainOut.trim());
+          audit("RETRAIN", `Daily retrain complete — accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.sample_count || 'N/A'}`);
+        } catch (err: any) {
+          audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
+        }
+      }
+
     } catch (e: any) {
       audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
     }
@@ -1424,7 +1439,7 @@ print(json.dumps(run_diagnostics()))
   // Start Tier 2 with adaptive scheduling
   setTimeout(scheduleTier2, 10000); // First run after 10 seconds
 
-  // TIER 3: Strategic (every 2 hours) — ML retrain, macro, manipulation scan
+  // TIER 3: Strategic (every 1 hour) — ML retrain, macro, manipulation scan
   setInterval(async () => {
     if (!state.active || tier3Running) return;
 
@@ -1437,7 +1452,7 @@ print(json.dumps(run_diagnostics()))
     } finally {
       tier3Running = false;
     }
-  }, 7200000); // 2 hours
+  }, 3600000); // 1 hour
 
   // Run Tier 3 once on startup after a delay (Tier 2 is handled by scheduleTier2)
   setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
@@ -1617,9 +1632,10 @@ except ImportError:
     ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'
     FILLS_PATH = '/tmp/voltrade_fills.json'
     WEIGHTS_PATH = '/tmp/voltrade_weights.json'
-status = {'model_exists': os.path.exists(ML_MODEL_PATH)}
+status = {'model_exists': os.path.exists(ML_MODEL_PATH), 'retrain_schedule': 'Daily at 4am ET', 'retrain_threshold_hours': 24}
 if status['model_exists']:
     status['model_age_hours'] = round((time.time() - os.path.getmtime(ML_MODEL_PATH)) / 3600, 1)
+    status['needs_retrain'] = status['model_age_hours'] > 24
 if os.path.exists(FILLS_PATH):
     with open(FILLS_PATH) as f:
         fills = json.load(f)
