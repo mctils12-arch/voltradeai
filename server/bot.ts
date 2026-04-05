@@ -363,6 +363,21 @@ export function registerBotRoutes(app: Express) {
       const dailyPnL = equity - lastEquity;
       // Update bot state with current daily P&L
       state.dailyPnL = dailyPnL;
+
+      // ── Max Drawdown Kill Switch ──
+      if (state.equityPeak === 0) state.equityPeak = equity;
+      if (equity > state.equityPeak) state.equityPeak = equity;
+      const drawdownPct = ((equity - state.equityPeak) / state.equityPeak) * 100;
+      if (drawdownPct <= state.maxDrawdownPct && !state.killSwitch) {
+        state.killSwitch = true;
+        state.active = false;
+        const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${equity.toFixed(0)} is ${drawdownPct.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}. All trading stopped.`;
+        audit("DRAWDOWN-KILL", msg);
+        notify("critical", msg);
+        sendEmailAlert("MAX DRAWDOWN — Trading Stopped", msg);
+        try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
+      }
+
       res.json({
         accountNumber: acct.account_number,
         cash: parseFloat(acct.cash),
@@ -1055,6 +1070,21 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
 
     const acct = await alpaca("/v2/account");
     const equity = parseFloat(acct.equity || "100000");
+
+    // Max drawdown check on every Tier 1 cycle
+    if (state.equityPeak === 0) state.equityPeak = equity;
+    if (equity > state.equityPeak) state.equityPeak = equity;
+    const t1Drawdown = ((equity - state.equityPeak) / state.equityPeak) * 100;
+    if (t1Drawdown <= state.maxDrawdownPct && !state.killSwitch) {
+      state.killSwitch = true;
+      state.active = false;
+      const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${equity.toFixed(0)} is ${t1Drawdown.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}`;
+      audit("DRAWDOWN-KILL", msg);
+      sendEmailAlert("MAX DRAWDOWN — Trading Stopped", msg);
+      try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
+      return;
+    }
+
     let slotsUsed = 0;
 
     try {
