@@ -1706,32 +1706,24 @@ print(json.dumps({'files': count}))
           const bk = JSON.parse(backupOut.trim());
           audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved (local)`);
 
-          // Off-site backup: push data snapshot to GitHub
+          // Off-site backup: push data snapshot to GitHub data-backup branch
           try {
-            const { stdout: gitBackup } = await execAsync(`python3 -c "
-import json, os, shutil, subprocess, time
-try:
-    from storage_config import DATA_DIR
-except ImportError:
-    DATA_DIR = '/tmp'
-
-# Copy key files to a backup branch directory
-backup_staging = '/tmp/voltrade_github_backup'
-os.makedirs(backup_staging, exist_ok=True)
-count = 0
-for fname in os.listdir(DATA_DIR):
-    fpath = os.path.join(DATA_DIR, fname)
-    if os.path.isfile(fpath) and fname.endswith(('.json', '.pkl')):
-        shutil.copy2(fpath, os.path.join(backup_staging, fname))
-        count += 1
-print(json.dumps({'staged': count}))
-"`, { timeout: 15000 });
-            const staged = JSON.parse(gitBackup.trim());
-            if (staged.staged > 0) {
-              audit("BACKUP", `Off-site: ${staged.staged} files staged for GitHub`);
+            const backupScript = path.resolve("backup_to_github.py");
+            const { stdout: gitBackup } = await execAsync(
+              `python3 "${backupScript}"`, { timeout: 60000 }
+            );
+            const gbResult = JSON.parse(gitBackup.trim());
+            if (gbResult.status === "success") {
+              audit("BACKUP", `Off-site: ${gbResult.count} files pushed to GitHub (data-backup branch)`);
+            } else if (gbResult.status === "no_changes") {
+              audit("BACKUP", `Off-site: data unchanged since last backup`);
+            } else if (gbResult.status === "skipped") {
+              audit("BACKUP-WARN", `Off-site skipped: ${gbResult.reason}`);
+            } else {
+              audit("BACKUP-ERROR", `Off-site failed: ${gbResult.reason || 'unknown'}`);
             }
           } catch (err: any) {
-            audit("BACKUP-WARN", `Off-site backup staging failed: ${err?.message || err}`);
+            audit("BACKUP-WARN", `Off-site backup failed: ${err?.message || err}`);
           }
         } catch (err: any) {
           audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
