@@ -766,6 +766,8 @@ except Exception as e:
         reasons.append(f"Outperforming SPY by {rs:.1f}%")
 
     combined_score = max(0, min(100, combined_score))
+    rules_only_score = round(combined_score, 1)  # Capture BEFORE ML blend for attribution
+    ml_only_score = None  # Set below if ML runs
 
     # ── ML Model Integration ──────────────────────────────────────────────────
     try:
@@ -829,6 +831,7 @@ except Exception as e:
         # Blend: dynamic ratio loaded from tracker, default 60/40
         if ml_result.get("model_type") != "fallback":
             ml_s = ml_result.get("ml_score", combined_score)
+            ml_only_score = round(ml_s, 1)  # Capture ML score for attribution
             # Dynamic blend: load tracked accuracy, default 60/40
             try:
                 from storage_config import BLEND_TRACKER_PATH
@@ -1300,6 +1303,8 @@ def scan_market():
             "options_strategy": options_decision.get("strategy", "stock"),
             "options_reasoning": options_decision.get("reason", ""),
             "options_edge_pct": options_decision.get("edge_pct", 0),
+            "rules_score": rules_only_score,
+            "ml_score_raw": ml_only_score,
         })
 
     # Step 7: Check position management

@@ -98,6 +98,8 @@ interface TradeResult {
   pnlPct: number;
   strategy: string;
   score: number;
+  rulesScore: number | null;  // Score before ML blend (for attribution)
+  mlScore: number | null;     // ML-only score (for attribution)
   holdingDays: number;
   timestamp: string;
 }
@@ -183,6 +185,8 @@ async function trackClosedTrades() {
         pnlPct: 0,
         strategy: "auto",
         score: 0,
+        rulesScore: null,  // Populated when trade originates from scan
+        mlScore: null,     // Populated when trade originates from scan
         holdingDays: 0,
         timestamp: order.filled_at,
       });
@@ -203,6 +207,9 @@ async function trackClosedTrades() {
           holding_days: t.holdingDays,
           strategy: t.strategy,
           score: t.score,
+          rules_score: t.rulesScore || null,   // Score BEFORE ML blend
+          ml_score: t.mlScore || null,          // ML-only score
+          blended_score: t.score,               // Final blended score (same as score)
           won: t.pnlPct > 0 ? 1 : 0,
           timestamp: t.timestamp,
         }));
@@ -1513,7 +1520,8 @@ print(json.dumps(check_weekly_loss(history)))
 
         // Log with sizing details
         const sizingInfo = trade.sizing_reasoning ? ` | Sizing: ${trade.sizing_reasoning.slice(0, 150)}` : "";
-        audit("TRADE", `MARKET ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | $${trade.position_value} (${((trade.position_value / equity) * 100).toFixed(1)}%)${sizingInfo}`);
+        const scoreAttrib = trade.rules_score != null ? ` | Rules: ${trade.rules_score} ML: ${trade.ml_score_raw ?? 'N/A'} Blend: ${trade.score}` : "";
+        audit("TRADE", `MARKET ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score}${scoreAttrib} | $${trade.position_value} (${((trade.position_value / equity) * 100).toFixed(1)}%)${sizingInfo}`);
         notify("trade", `${side.toUpperCase()} ${qty} ${trade.ticker} @ $${trade.price} (${((trade.position_value / equity) * 100).toFixed(1)}% of portfolio)`);
         slotsUsed++;
         totalDeployed += trade.position_value;
