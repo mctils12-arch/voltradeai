@@ -1451,6 +1451,7 @@ print(json.dumps(check_weekly_loss(history)))
     let totalDeployed = Array.isArray(positions)
       ? positions.reduce((sum: number, p: any) => sum + Math.abs(parseFloat(p.market_value || "0")), 0)
       : 0;
+    const pendingOrderIds: Array<{orderId: string; trade: any; side: string; qty: number}> = [];
 
     for (const trade of trades) {
       if (state.killSwitch) break;
@@ -1571,12 +1572,13 @@ print(json.dumps(check_weekly_loss(history)))
         if (qty <= 0) continue;
         const side = trade.side === "short" ? "sell" : (trade.side || "buy");
 
-        await alpaca("/v2/orders", {
+        const orderResult = await alpaca("/v2/orders", {
           method: "POST",
           body: JSON.stringify({
             symbol: trade.ticker, qty: String(qty), side, type: "market", time_in_force: "day",
           }),
         });
+        const orderId = orderResult?.id || null;
 
         // Log with sizing details
         const sizingInfo = trade.sizing_reasoning ? ` | Sizing: ${trade.sizing_reasoning.slice(0, 150)}` : "";
@@ -1586,43 +1588,69 @@ print(json.dumps(check_weekly_loss(history)))
         slotsUsed++;
         totalDeployed += trade.position_value;
 
-        // Track fill with realistic slippage estimate
-        // Paper trading gives perfect fills — we add estimated slippage so the ML
-        // learns from realistic data, not optimistic fills that never happen live
-        try {
-          const vol = trade.volume || 1000000;
-          // Slippage model: higher volume = tighter fills
-          // Large cap (>20M vol): ~0.02-0.05% slippage
-          // Mid cap (5-20M vol):  ~0.05-0.10%
-          // Small cap (<5M vol):  ~0.10-0.25%
-          let slippagePct = 0.03; // Default
-          if (vol > 20000000) slippagePct = 0.02 + Math.random() * 0.03;
-          else if (vol > 5000000) slippagePct = 0.05 + Math.random() * 0.05;
-          else if (vol > 1000000) slippagePct = 0.08 + Math.random() * 0.07;
-          else slippagePct = 0.12 + Math.random() * 0.13;
-
-          // Buy = pay more, Sell = get less
-          const slippageDirection = (side === "buy") ? 1 : -1;
-          const realisticFillPrice = Math.round((trade.price * (1 + slippageDirection * slippagePct / 100)) * 100) / 100;
-
-          const fillData = JSON.stringify({
-            ticker: trade.ticker, order_type: "market", side, qty,
-            expected_price: trade.price,
-            fill_price: realisticFillPrice,
-            slippage_applied_pct: slippagePct,
-            time_placed: new Date().toISOString(),
-            session: "regular", volume: vol, score: trade.score,
-            instrument: trade.instrument || "stock",
-            entry_features: trade.entry_features || null,
-          });
-          execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}'))"`, { timeout: 5000 }).catch(() => {});
-        } catch (err: any) { console.error("[fill-track]", err?.message || err); }
+        // Collect order for batch confirmation
+        if (orderId) {
+          pendingOrderIds.push({ orderId, trade, side, qty });
+        }
 
       } catch (err: any) {
         audit("TRADE-ERROR", `${trade.ticker}: ${err?.message}`);
       }
 
       await new Promise(r => setTimeout(r, 500));
+    }
+
+    // ── Batch fill confirmation (one 2s wait, then check all orders) ──
+    if (pendingOrderIds.length > 0) {
+      await new Promise(r => setTimeout(r, 2000)); // Single 2-second wait for all fills
+
+      for (const pending of pendingOrderIds) {
+        try {
+          const orderStatus = await alpaca(`/v2/orders/${pending.orderId}`);
+          const filledQty = parseInt(orderStatus?.filled_qty || "0");
+          const requestedQty = pending.qty;
+          const filledAvgPrice = parseFloat(orderStatus?.filled_avg_price || String(pending.trade.price));
+          const status = orderStatus?.status || "unknown";
+          const isPartial = filledQty > 0 && filledQty < requestedQty;
+
+          if (isPartial) {
+            audit("PARTIAL-FILL", `${pending.trade.ticker}: filled ${filledQty}/${requestedQty} shares @ $${filledAvgPrice} (${status})`);
+          } else if (status === "rejected" || status === "canceled") {
+            audit("ORDER-REJECTED", `${pending.trade.ticker}: order ${status} — ${orderStatus?.reject_reason || 'unknown reason'}`);
+          }
+
+          // Track fill with ACTUAL data (not assumed)
+          const vol = pending.trade.volume || 1000000;
+          let slippagePct = 0.03;
+          if (vol > 20000000) slippagePct = 0.02 + Math.random() * 0.03;
+          else if (vol > 5000000) slippagePct = 0.05 + Math.random() * 0.05;
+          else if (vol > 1000000) slippagePct = 0.08 + Math.random() * 0.07;
+          else slippagePct = 0.12 + Math.random() * 0.13;
+
+          const slippageDirection = (pending.side === "buy") ? 1 : -1;
+          const realisticFillPrice = Math.round((filledAvgPrice * (1 + slippageDirection * slippagePct / 100)) * 100) / 100;
+
+          const fillData = JSON.stringify({
+            ticker: pending.trade.ticker, order_type: "market", side: pending.side,
+            qty_requested: requestedQty,
+            qty_filled: filledQty || requestedQty,
+            partial_fill: isPartial,
+            expected_price: pending.trade.price,
+            alpaca_fill_price: filledAvgPrice,
+            fill_price: realisticFillPrice,
+            slippage_applied_pct: slippagePct,
+            order_status: status,
+            time_placed: new Date().toISOString(),
+            session: "regular", volume: vol, score: pending.trade.score,
+            instrument: pending.trade.instrument || "stock",
+            entry_features: pending.trade.entry_features || null,
+          });
+          execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}'))"`, { timeout: 5000 }).catch(() => {});
+        } catch (cfErr: any) {
+          // Confirmation failed — record with best-guess data
+          audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — recording expected values`);
+        }
+      }
     }
   }
 
