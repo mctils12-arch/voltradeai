@@ -26,7 +26,7 @@ try:
 except ImportError:
     DATA_DIR = "/data/voltrade" if os.path.isdir("/data") else "/tmp"
 
-GITHUB_TOKEN = os.environ.get("GITHUB_BACKUP_TOKEN", "")
+GITHUB_TOKEN = os.environ.get("GITHUB_BACKUP_TOKEN", "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")
 REPO_URL = "https://github.com/mctils12-arch/voltradeai.git"
 BRANCH = "data-backup"
 CLONE_DIR = "/tmp/voltrade_backup_clone"
