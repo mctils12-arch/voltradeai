@@ -78,18 +78,71 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 // ─── Route registration ──────────────────────────────────────────────────────
+
+// ─── Login Rate Limiting ────────────────────────────────────────────────────
+const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
+
+function checkRateLimit(ip: string): { allowed: boolean; remaining: number; lockedMinutes?: number } {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry) return { allowed: true, remaining: MAX_LOGIN_ATTEMPTS };
+  if (entry.lockedUntil > now) {
+    const mins = Math.ceil((entry.lockedUntil - now) / 60000);
+    return { allowed: false, remaining: 0, lockedMinutes: mins };
+  }
+  if (entry.lockedUntil > 0 && entry.lockedUntil <= now) {
+    loginAttempts.delete(ip);
+    return { allowed: true, remaining: MAX_LOGIN_ATTEMPTS };
+  }
+  return { allowed: true, remaining: MAX_LOGIN_ATTEMPTS - entry.count };
+}
+
+function recordFailedLogin(ip: string) {
+  const entry = loginAttempts.get(ip) || { count: 0, lockedUntil: 0 };
+  entry.count++;
+  if (entry.count >= MAX_LOGIN_ATTEMPTS) {
+    entry.lockedUntil = Date.now() + LOCKOUT_MINUTES * 60000;
+    console.log(`[AUTH] IP ${ip} locked out for ${LOCKOUT_MINUTES} minutes after ${entry.count} failed attempts`);
+  }
+  loginAttempts.set(ip, entry);
+}
+
+function clearLoginAttempts(ip: string) { loginAttempts.delete(ip); }
+
+// Clean up stale entries hourly
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of loginAttempts.entries()) {
+    if (entry.lockedUntil > 0 && entry.lockedUntil <= now) loginAttempts.delete(ip);
+  }
+}, 3600000);
+
 export function registerAuthRoutes(app: Express) {
 
   // ── Login ────────────────────────────────────────────────────────────────
+  // Login — rate limited: 5 attempts then 15min lockout
   app.post("/api/auth/login", async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || "unknown";
+    const rateCheck = checkRateLimit(clientIp);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: `Too many login attempts. Try again in ${rateCheck.lockedMinutes} minutes.`,
+        locked: true, retryAfterMinutes: rateCheck.lockedMinutes,
+      });
+    }
+
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: "Email and password required" });
 
     const user = db.prepare("SELECT id, email, password_hash, role FROM users WHERE email = ?").get(email.toLowerCase()) as any;
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) { recordFailedLogin(clientIp); return res.status(401).json({ error: "Invalid credentials", attemptsRemaining: checkRateLimit(clientIp).remaining }); }
 
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+    if (!valid) { recordFailedLogin(clientIp); return res.status(401).json({ error: "Invalid credentials", attemptsRemaining: checkRateLimit(clientIp).remaining }); }
+
+    clearLoginAttempts(clientIp);
 
     const token = crypto.randomBytes(32).toString("hex");
     db.prepare("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)").run(token, user.id, Date.now());

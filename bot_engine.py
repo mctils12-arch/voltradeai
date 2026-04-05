@@ -270,6 +270,17 @@ def deep_score(ticker, quick_result):
     except Exception:
         social = {}
 
+    # Finnhub data (insider sentiment + recommendation trends)
+    finnhub = {}
+    try:
+        from finnhub_data import get_insider_sentiment, get_recommendation_trends
+        finnhub_insider = get_insider_sentiment(ticker)
+        finnhub_recs = get_recommendation_trends(ticker)
+        finnhub = {"insider_mspr": finnhub_insider.get("mspr", 0), "insider_signal": finnhub_insider.get("signal", "neutral"),
+                   "analyst_consensus": finnhub_recs.get("consensus", "hold"), "analyst_buy_count": finnhub_recs.get("buy", 0) + finnhub_recs.get("strong_buy", 0)}
+    except Exception:
+        pass
+
     # Analyst ratings + valuation multiples (yfinance) — with 5-min cache
     yf_fundamentals = {}
     _yf_cache_key = ticker
@@ -575,12 +586,25 @@ def deep_score(ticker, quick_result):
             intel_adjustment = min(intel_adjustment, -10)
             reasons.append(f"TRAP WARNING: {intel.get('trap_reason', 'conflicting signals')[:80]}")
         
-        # Insider activity
+        # Insider activity (SEC EDGAR)
         insider = intel.get("insider", {})
         if insider.get("net_direction") == "strong_selling":
             reasons.append(f"Insiders heavily selling ({insider.get('sell_count', 0)} sells)")
         elif insider.get("net_direction") == "strong_buying":
             reasons.append(f"Insiders heavily buying ({insider.get('buy_count', 0)} buys)")
+
+        # Finnhub insider sentiment (MSPR: -100 to +100, predicts 30-90 day moves)
+        if finnhub.get("insider_mspr"):
+            mspr = finnhub["insider_mspr"]
+            if mspr > 30:
+                intel_adjustment += 5
+                reasons.append(f"Finnhub insider sentiment: bullish (MSPR {mspr:.0f})")
+            elif mspr < -30:
+                intel_adjustment -= 5
+                reasons.append(f"Finnhub insider sentiment: bearish (MSPR {mspr:.0f})")
+        if finnhub.get("analyst_consensus") == "buy":
+            intel_adjustment += 3
+            reasons.append(f"Analyst consensus: BUY ({finnhub.get('analyst_buy_count', 0)} buy ratings)")
         
         # Earnings pattern
         earnings_pat = intel.get("earnings_pattern", {})

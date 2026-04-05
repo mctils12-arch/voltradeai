@@ -49,6 +49,8 @@ const state = {
   circuitBreakerUntil: 0,  // epoch ms — paused until this time
   alpacaFailCount: 0,       // consecutive Alpaca ping failures
   morningQueueExecuted: false, // Track if we ran the morning queue today
+  equityPeak: 0,              // High water mark for max drawdown kill switch
+  maxDrawdownPct: -10,        // Kill switch triggers at -10% from peak
 };
 
 // ─── SSE Clients ────────────────────────────────────────────────────────────
@@ -104,6 +106,49 @@ const tradeResults: TradeResult[] = [];
 
 // In-memory equity curve (keeps up to 1 year of daily data)
 const equityCurve: Array<{ date: string; value: number; pnl: number }> = [];
+
+// ─── Email Alerts (Resend) ────────────────────────────────────────────────────
+const RESEND_KEY = process.env.RESEND_KEY || "re_CVz83ewP_JWjJUhtFnNQywduyCj2wnRrM";
+const ALERT_EMAIL = process.env.ALERT_EMAIL || "mctils12@gmail.com";
+
+async function sendEmailAlert(subject: string, body: string) {
+  if (!RESEND_KEY) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: "VolTradeAI <onboarding@resend.dev>",
+        to: [ALERT_EMAIL],
+        subject: `[VolTradeAI] ${subject}`,
+        html: `<div style="font-family:monospace;background:#0a0a0a;color:#00ffd5;padding:20px;border-radius:8px;">
+          <h2 style="color:#ff4444;">${subject}</h2>
+          <p>${body}</p>
+          <p style="color:#666;margin-top:20px;">— VolTradeAI Automated Alert</p>
+        </div>`,
+      }),
+    });
+    audit("EMAIL", `Alert sent: ${subject}`);
+  } catch (err: any) {
+    console.error("[email-alert]", err?.message || err);
+  }
+}
+
+// ─── Graceful Shutdown ───────────────────────────────────────────────────────
+async function gracefulShutdown(signal: string) {
+  audit("SHUTDOWN", `Received ${signal} — cancelling open orders and shutting down...`);
+  try {
+    await alpaca("/v2/orders", { method: "DELETE" }); // Cancel ALL open orders
+    audit("SHUTDOWN", "All open orders cancelled");
+  } catch (err: any) {
+    audit("SHUTDOWN-ERROR", `Failed to cancel orders: ${err?.message}`);
+  }
+  persistAudit("SHUTDOWN", `Graceful shutdown on ${signal}`);
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Strategy weights — start equal, adjusted by learning loop
 const strategyWeights = {
@@ -422,6 +467,118 @@ export function registerBotRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // ── Health Check (for Railway and monitoring) ──────────────────────────────
+  app.get("/api/health", async (_req, res) => {
+    const checks: any = { timestamp: new Date().toISOString(), status: "ok", checks: {} };
+    
+    // Check 1: Node.js server is running (obviously)
+    checks.checks.server = { status: "ok" };
+    
+    // Check 2: SQLite database
+    try {
+      db.prepare("SELECT 1").get();
+      checks.checks.database = { status: "ok" };
+    } catch (err: any) {
+      checks.checks.database = { status: "error", detail: err?.message };
+      checks.status = "degraded";
+    }
+    
+    // Check 3: Alpaca API
+    try {
+      const acct = await alpaca("/v2/account");
+      checks.checks.alpaca = { status: "ok", account_status: acct.status };
+    } catch (err: any) {
+      checks.checks.alpaca = { status: "error", detail: err?.message };
+      checks.status = "degraded";
+    }
+    
+    // Check 4: Python engine
+    try {
+      const { stdout } = await execAsync('python3 -c "print(\'ok\')"', { timeout: 5000 });
+      checks.checks.python = { status: stdout.trim() === "ok" ? "ok" : "error" };
+    } catch (err: any) {
+      checks.checks.python = { status: "error", detail: err?.message };
+      checks.status = "degraded";
+    }
+    
+    // Check 5: Bot state
+    checks.checks.bot = {
+      status: state.killSwitch ? "killed" : state.active ? "active" : "stopped",
+      equityPeak: state.equityPeak,
+      drawdownPct: state.equityPeak > 0 ? (((state.equityPeak - state.equityPeak) / state.equityPeak) * 100).toFixed(1) : "N/A",
+    };
+    
+    const httpCode = checks.status === "ok" ? 200 : 503;
+    res.status(httpCode).json(checks);
+  });
+
+  // ── Performance Dashboard Data ────────────────────────────────────────────
+  app.get("/api/bot/performance", requireAuth, async (_req, res) => {
+    try {
+      // Get trade history from fills
+      const { stdout: fillsOut } = await execAsync(`python3 -c "
+import json, os
+try:
+    from storage_config import FILLS_PATH, TRADE_FEEDBACK_PATH
+except ImportError:
+    FILLS_PATH = '/tmp/voltrade_fills.json'
+    TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
+
+fills = []
+if os.path.exists(FILLS_PATH):
+    with open(FILLS_PATH) as f: fills = json.load(f)
+
+feedback = []
+if os.path.exists(TRADE_FEEDBACK_PATH):
+    with open(TRADE_FEEDBACK_PATH) as f: feedback = json.load(f)
+
+# Win rate
+wins = [t for t in feedback if t.get('pnl_pct', 0) > 0]
+losses = [t for t in feedback if t.get('pnl_pct', 0) <= 0]
+win_rate = len(wins) / len(feedback) * 100 if feedback else 0
+avg_win = sum(t.get('pnl_pct', 0) for t in wins) / len(wins) if wins else 0
+avg_loss = sum(t.get('pnl_pct', 0) for t in losses) / len(losses) if losses else 0
+total_pnl = sum(t.get('pnl_pct', 0) for t in feedback)
+
+# Profit factor
+gross_profit = sum(t.get('pnl_pct', 0) for t in wins)
+gross_loss = abs(sum(t.get('pnl_pct', 0) for t in losses))
+profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf') if gross_profit > 0 else 0
+
+# By strategy
+by_strat = {}
+for t in feedback:
+    s = t.get('strategy', 'unknown')
+    if s not in by_strat: by_strat[s] = {'wins': 0, 'losses': 0, 'total_pnl': 0}
+    if t.get('pnl_pct', 0) > 0: by_strat[s]['wins'] += 1
+    else: by_strat[s]['losses'] += 1
+    by_strat[s]['total_pnl'] += t.get('pnl_pct', 0)
+
+print(json.dumps({
+    'total_trades': len(feedback),
+    'total_fills': len(fills),
+    'win_rate': round(win_rate, 1),
+    'avg_win_pct': round(avg_win, 2),
+    'avg_loss_pct': round(avg_loss, 2),
+    'total_pnl_pct': round(total_pnl, 2),
+    'profit_factor': round(profit_factor, 2) if profit_factor != float('inf') else 'inf',
+    'by_strategy': by_strat,
+    'recent_trades': feedback[-20:][::-1],
+}))
+"`, { timeout: 10000 });
+      
+      const perf = JSON.parse(fillsOut.trim());
+      res.json({
+        ...perf,
+        equityCurve,
+        equityPeak: state.equityPeak,
+        currentDrawdown: state.equityPeak > 0 ? ((equityCurve[0]?.value || 0) - state.equityPeak) / state.equityPeak * 100 : 0,
+      });
+    } catch (err: any) {
+      res.json({ error: err?.message, total_trades: 0, equityCurve });
+    }
+  });
+
   // Bot status
   app.get("/api/bot/status", requireAuth, (_req, res) => {
     res.json({
@@ -430,6 +587,8 @@ export function registerBotRoutes(app: Express) {
       dailyLossLimit: state.dailyLossLimit,
       auditLogCount: state.auditLog.length,
       mode: "paper",
+      equityPeak: state.equityPeak,
+      maxDrawdownPct: state.maxDrawdownPct,
       unreadNotifications: notifications.filter(n => !n.read).length,
     });
   });
@@ -455,6 +614,7 @@ export function registerBotRoutes(app: Express) {
   app.post("/api/bot/kill", requireAuth, async (_req, res) => {
     state.killSwitch = !state.killSwitch;
     if (state.killSwitch) {
+      sendEmailAlert("Kill Switch Activated", "Kill switch manually activated. All trading stopped. Open orders cancelled.");
       state.active = false;
       audit("KILL SWITCH ON", "All trading halted. Cancelling open orders.");
       notify("alert", "KILL SWITCH ACTIVATED — all trading halted, open orders cancelled");
@@ -789,6 +949,22 @@ export function registerBotRoutes(app: Express) {
   async function executeMorningQueue() {
     if (morningQueue.length === 0) return;
 
+    // Filter out stale orders (queued more than 16 hours ago)
+    const now = Date.now();
+    const freshQueue = morningQueue.filter((t: any) => {
+      const queuedTime = t.queuedAt ? new Date(t.queuedAt).getTime() : 0;
+      const ageHours = (now - queuedTime) / 3600000;
+      if (ageHours > 16) {
+        audit("MORNING-STALE", `${t.ticker}: skipped — queued ${ageHours.toFixed(0)}h ago (max 16h)`);
+        return false;
+      }
+      return true;
+    });
+    if (freshQueue.length < morningQueue.length) {
+      audit("MORNING", `Dropped ${morningQueue.length - freshQueue.length} stale orders from queue`);
+    }
+    morningQueue.length = 0;
+    morningQueue.push(...freshQueue);
     audit("MORNING", `Executing ${morningQueue.length} queued trades from overnight research...`);
 
     // Sort by score descending — best picks first
@@ -927,6 +1103,7 @@ print(json.dumps(result))
             state.consecutiveStopLosses++;
             if (state.consecutiveStopLosses >= 3) {
               state.circuitBreakerUntil = Date.now() + 3600000;
+              sendEmailAlert("Circuit Breaker Triggered", "3 consecutive stop-losses — bot paused for 1 hour");
               audit("CIRCUIT-BREAKER", "3 consecutive stop-losses — paused 1 hour");
               notify("alert", "Circuit breaker: 3 stops hit. Paused 1 hour.");
             }
