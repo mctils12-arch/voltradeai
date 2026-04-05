@@ -26,13 +26,15 @@ async function alpaca(path: string, opts: any = {}) {
 // ─── Bot State ──────────────────────────────────────────────────────────────
 interface AuditEntry { time: string; action: string; detail: string; }
 
-// Phase 6: Security constants
-const DAILY_LOSS_LIMIT = -3; // percent
-const MAX_POSITION_SIZE = 0.05; // 5% of portfolio per position
-const MAX_TOTAL_EXPOSURE = 0.5; // 50% of portfolio max invested
-const MAX_POSITIONS = 5;
-const STOP_LOSS_PCT = 0.02;
-const TAKE_PROFIT_PCT = 0.06;
+// Phase 6: Security guardrails (absolute ceilings — dynamic sizing handles the real math)
+const DAILY_LOSS_LIMIT = -3; // percent — hard circuit breaker
+const MAX_POSITION_SIZE = 0.10; // 10% absolute ceiling (dynamic sizing targets 1-7%)
+const MAX_TOTAL_EXPOSURE = 0.50; // 50% max portfolio deployed
+const MAX_POSITIONS = 8; // absolute ceiling (dynamic sizing uses portfolio heat)
+const STOP_LOSS_PCT = 0.08; // 8% emergency backstop (dynamic sizing sets tighter ATR-based stops)
+const TAKE_PROFIT_PCT = 0.15; // 15% ceiling (dynamic sizing sets ATR-based targets)
+// NOTE: These are SAFETY NETS, not targets. The position_sizing.py engine
+// calculates the real values (typically 1-5% position size, 1.5-6% stops).
 
 const state = {
   active: true,  // Bot starts automatically — always on unless killed
@@ -40,7 +42,7 @@ const state = {
   dailyPnL: 0,
   dailyLossLimit: DAILY_LOSS_LIMIT,
   auditLog: [] as AuditEntry[],
-  positionSizeMultiplier: 1.0,
+  positionSizeMultiplier: 1.0, // Legacy — diagnostics can still reduce this as emergency brake
   minScoreThreshold: 65,
   diagCycleCount: 0,
   consecutiveStopLosses: 0,
@@ -1112,6 +1114,9 @@ print(json.dumps(check_weekly_loss(history)))
     const positions = await alpaca("/v2/positions").catch(() => []);
     const held = Array.isArray(positions) ? positions.map((p: any) => p.symbol) : [];
     let slotsUsed = held.length;
+    let totalDeployed = Array.isArray(positions)
+      ? positions.reduce((sum: number, p: any) => sum + Math.abs(parseFloat(p.market_value || "0")), 0)
+      : 0;
 
     for (const trade of trades) {
       if (state.killSwitch) break;
@@ -1123,16 +1128,43 @@ print(json.dumps(check_weekly_loss(history)))
       if (held.includes(trade.ticker)) continue; // Already holding
       if ((trade as any)._consumed) continue;
 
-      const effectiveSize = MAX_POSITION_SIZE * state.positionSizeMultiplier;
-      if (trade.position_value > equity * effectiveSize) continue;
-
-      // Slippage check
-      const slippage = (trade.volume > 1000000) ? 0.05 : (trade.volume > 500000) ? 0.10 : (trade.volume > 100000) ? 0.20 : 0.35;
-      const adjScore = trade.score - (slippage * 5);
-      if (adjScore < state.minScoreThreshold) {
-        audit("SLIPPAGE-SKIP", `${trade.ticker}: adjusted score ${adjScore.toFixed(1)} below threshold`);
+      // Dynamic sizing: trust position_sizing.py output but enforce absolute ceiling
+      const effectiveCeiling = MAX_POSITION_SIZE * state.positionSizeMultiplier;
+      if (trade.position_value > equity * effectiveCeiling) {
+        audit("SIZE-CAP", `${trade.ticker}: $${trade.position_value} exceeds ceiling ${(effectiveCeiling * 100).toFixed(1)}%`);
         continue;
       }
+
+      // Portfolio heat check — total deployed capital
+      if (totalDeployed + trade.position_value > equity * MAX_TOTAL_EXPOSURE) {
+        audit("HEAT-CAP", `${trade.ticker}: total exposure would exceed ${(MAX_TOTAL_EXPOSURE * 100)}%`);
+        break;
+      }
+
+      // Exchange halt check (via position_sizing.py)
+      try {
+        const { stdout: haltOut } = await execAsync(
+          `python3 -c "from position_sizing import check_halt_status; import json; print(json.dumps(check_halt_status('${trade.ticker}')))"`,
+          { timeout: 8000 }
+        );
+        const haltResult = JSON.parse(haltOut.trim());
+        if (haltResult.halted) {
+          audit("HALT-SKIP", `${trade.ticker}: stock is halted (status: ${haltResult.status})`);
+          continue;
+        }
+      } catch (err: any) {
+        // If halt check fails, proceed cautiously
+        audit("HALT-CHECK-WARN", `${trade.ticker}: halt check failed, proceeding`);
+      }
+
+      // Duplicate order check — skip if we already have a pending order for this ticker
+      try {
+        const openOrders = await alpaca("/v2/orders?status=open");
+        if (Array.isArray(openOrders) && openOrders.some((o: any) => o.symbol === trade.ticker)) {
+          audit("DUP-SKIP", `${trade.ticker}: already have a pending order`);
+          continue;
+        }
+      } catch (err: any) { /* proceed if check fails */ }
 
       // Buying power check
       const acctCheck = await alpaca("/v2/account");
@@ -1155,9 +1187,12 @@ print(json.dumps(check_weekly_loss(history)))
           }),
         });
 
-        audit("TRADE", `MARKET ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | ${(trade.reasons || []).slice(0, 3).join(" | ")}`);
-        notify("trade", `${side.toUpperCase()} ${qty} ${trade.ticker} (score: ${trade.score})`);
+        // Log with sizing details
+        const sizingInfo = trade.sizing_reasoning ? ` | Sizing: ${trade.sizing_reasoning.slice(0, 150)}` : "";
+        audit("TRADE", `MARKET ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score} | $${trade.position_value} (${((trade.position_value / equity) * 100).toFixed(1)}%)${sizingInfo}`);
+        notify("trade", `${side.toUpperCase()} ${qty} ${trade.ticker} @ $${trade.price} (${((trade.position_value / equity) * 100).toFixed(1)}% of portfolio)`);
         slotsUsed++;
+        totalDeployed += trade.position_value;
 
         // Track fill
         try {
@@ -1546,11 +1581,14 @@ print(json.dumps(run_diagnostics()))
     audit("SYSTEM", "=== VolTradeAI Bot v2.0 Initialized ===");
     audit("SYSTEM", `Mode: PAPER TRADING (Alpaca)`);
     audit("RULES", `Scan interval: 45 seconds during trading hours`);
-    audit("RULES", `Max positions: ${MAX_POSITIONS} at once`);
-    audit("RULES", `Max position size: ${MAX_POSITION_SIZE * 100}% of portfolio per trade`);
+    audit("RULES", `Max positions: ${MAX_POSITIONS} ceiling (dynamic sizing uses portfolio heat)`);
+    audit("RULES", `Position sizing: DYNAMIC — Kelly Criterion × volatility × confidence × VIX × earnings × liquidity × time`);
+    audit("RULES", `Position range: 1-${MAX_POSITION_SIZE * 100}% per trade (sized by conviction + risk)`);
     audit("RULES", `Max total exposure: ${MAX_TOTAL_EXPOSURE * 100}% of portfolio invested`);
-    audit("RULES", `Stop loss: ${STOP_LOSS_PCT * 100}% per position`);
-    audit("RULES", `Take profit: ${TAKE_PROFIT_PCT * 100}% per position`);
+    audit("RULES", `Stop loss: ATR-based (1.5-8% dynamic) | Emergency backstop: ${STOP_LOSS_PCT * 100}%`);
+    audit("RULES", `Take profit: ATR-based (4-15% dynamic) | Ceiling: ${TAKE_PROFIT_PCT * 100}%`);
+    audit("RULES", `Earnings proximity: auto-reduces position size near earnings dates`);
+    audit("RULES", `Exchange halt check: blocks orders on halted stocks`);
     audit("RULES", `Daily loss limit: ${DAILY_LOSS_LIMIT}% — all trading halts if hit`);
     audit("RULES", `Kill switch: OFF (manual emergency stop available)`);
     audit("RULES", `Options: Regular hours only (9:30am-4pm ET)`);

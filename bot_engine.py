@@ -1111,9 +1111,23 @@ def scan_market():
         current_tickers = []
         num_positions = 0
 
-    # Step 6: Generate trade recommendations
+    # Step 6: Generate trade recommendations using DYNAMIC POSITION SIZING
     trades = []
     slots_available = MAX_POSITIONS - num_positions
+
+    # Get macro context for position sizing
+    try:
+        from macro_data import get_macro_snapshot
+        _macro = get_macro_snapshot()
+    except Exception:
+        _macro = {}
+
+    # Import dynamic sizing engine
+    try:
+        from position_sizing import calculate_position, check_halt_status
+        _has_sizer = True
+    except ImportError:
+        _has_sizer = False
 
     for stock in deep_scored:
         if len(trades) >= slots_available:
@@ -1134,13 +1148,6 @@ def scan_market():
         if check_sector_correlation(ticker, current_tickers + [t["ticker"] for t in trades]):
             continue
 
-        # Position size
-        position_value = min(portfolio_value * MAX_POSITION_PCT, cash * 0.9)
-        shares = int(position_value / stock["price"]) if stock["price"] > 0 else 0
-
-        if shares <= 0:
-            continue
-
         side = stock.get("side", "buy")
         action_label = stock.get("action_label", "BUY")
 
@@ -1148,6 +1155,35 @@ def scan_market():
         if side == "sell" and stock.get("trade_type") != "options":
             side = "buy"
             action_label = "BUY"
+
+        # Dynamic position sizing (replaces fixed 5%)
+        if _has_sizer:
+            sizing = calculate_position(
+                trade={**stock, "score": final_score, "side": side},
+                equity=portfolio_value,
+                current_positions=current_positions if isinstance(current_positions, list) else [],
+                macro=_macro,
+            )
+            if sizing.get("blocked"):
+                continue  # Sizing engine blocked this trade (halted, too small, etc.)
+            shares = sizing["shares"]
+            position_value = sizing["position_value"]
+            stop_loss = sizing["stop_loss"]
+            take_profit = sizing["take_profit"]
+            sizing_reasoning = sizing.get("reasoning", "")
+            sizing_scalars = sizing.get("scalars", {})
+        else:
+            # Fallback to old fixed sizing if import fails
+            position_value = min(portfolio_value * MAX_POSITION_PCT, cash * 0.9)
+            shares = int(position_value / stock["price"]) if stock["price"] > 0 else 0
+            stop_loss = round(stock["price"] * (1 - STOP_LOSS_PCT), 2)
+            take_profit = round(stock["price"] * (1 + TAKE_PROFIT_PCT), 2)
+            position_value = round(shares * stock["price"], 2)
+            sizing_reasoning = "Fallback: fixed 5% sizing"
+            sizing_scalars = {}
+
+        if shares <= 0:
+            continue
 
         trades.append({
             "action": action_label,
@@ -1160,9 +1196,11 @@ def scan_market():
             "reasons": stock.get("reasons", []),
             "recommendation": stock.get("recommendation"),
             "rec_reasoning": stock.get("rec_reasoning"),
-            "stop_loss": round(stock["price"] * (1 - STOP_LOSS_PCT), 2),
-            "take_profit": round(stock["price"] * (1 + TAKE_PROFIT_PCT), 2),
-            "position_value": round(shares * stock["price"], 2),
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "position_value": position_value,
+            "sizing_reasoning": sizing_reasoning,
+            "sizing_scalars": sizing_scalars,
             "momentum_score": stock.get("momentum_score"),
             "mean_reversion_score": stock.get("mean_reversion_score"),
             "vrp_score": stock.get("vrp_score"),
