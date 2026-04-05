@@ -975,6 +975,14 @@ def manage_positions():
     actions = []
     upgrade_candidates = []  # Weak positions that could be replaced
 
+    # Load evolving stop state (persists across cycles)
+    _stop_state_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'voltrade_stop_state.json')
+    try:
+        with open(_stop_state_path) as f:
+            stop_state = json.load(f)
+    except Exception:
+        stop_state = {}
+
     for pos in positions:
         ticker = pos.get("symbol", "")
         current = float(pos.get("current_price", 0))
@@ -986,56 +994,118 @@ def manage_positions():
 
         # Get ATR for this stock (14-day Average True Range)
         atr = _get_atr(ticker)
-        atr_pct = (atr / current * 100) if current > 0 and atr else 2.0  # Default 2% if ATR unavailable
+        atr_pct = (atr / current * 100) if current > 0 and atr else 2.0
 
-        # Dynamic trailing stop: tighter for calm stocks, wider for volatile ones
-        # Stop = max(fixed floor, ATR * 1.5)
-        stop_pct = max(1.5, min(atr_pct * 1.5, 8.0))  # Between 1.5% and 8%
-
-        # Dynamic take profit: ATR * 3 from entry
-        tp_pct = max(4.0, min(atr_pct * 3.0, 15.0))  # Between 4% and 15%
-
-        # Check stop loss (ATR-based)
-        if pnl_pct <= -stop_pct:
-            actions.append({
-                "action": "CLOSE",
-                "ticker": ticker,
-                "side": side,
-                "reason": f"TRAILING STOP hit: {pnl_pct:.1f}% loss (ATR-based stop: -{stop_pct:.1f}%, ATR: ${atr:.2f})",
-                "type": "stop_loss",
-            })
-        # Check take profit (ATR-based)
-        elif pnl_pct >= tp_pct:
-            actions.append({
-                "action": "CLOSE",
-                "ticker": ticker,
-                "side": side,
-                "reason": f"TAKE PROFIT hit: +{pnl_pct:.1f}% gain (ATR-based target: +{tp_pct:.1f}%)",
-                "type": "take_profit",
-            })
-        # Trailing stop: if stock went up significantly but is now pulling back
-        elif pnl_pct > 2.0 and pnl_pct < (tp_pct * 0.5):
-            # Stock was up but giving back gains — tighten stop
-            tightened_stop = -(atr_pct * 0.75)
-            if pnl_pct <= tightened_stop:
-                actions.append({
-                    "action": "CLOSE",
-                    "ticker": ticker,
-                    "side": side,
-                    "reason": f"TIGHTENED TRAILING STOP: was profitable, now {pnl_pct:.1f}% (tightened to {tightened_stop:.1f}%)",
-                    "type": "trailing_stop",
-                })
+        # ── EVOLVING STOP SYSTEM ────────────────────────────────────────────
+        # Stops evolve through 4 phases as the trade profits:
+        #   Phase 1 (entry):     2.0x ATR stop, 3.0x ATR target
+        #   Phase 2 (at 1R):     Tighten to 1.5x ATR trailing from high
+        #   Phase 3 (at 2R):     Tighten to 1.0x ATR trailing from high  
+        #   Phase 4 (at 3R+):    Lock in at least 50% of max gain
+        # Options have different rules: time-based + delta-based decay
+        # ETFs use underlying's ATR * 2 (because 2x leverage)
         
-        # Upgrade candidate: position is flat or slightly negative, not worth holding
-        if -stop_pct < pnl_pct < 1.0:
+        # Initialize or load stop state for this position
+        ps = stop_state.get(ticker, {})
+        initial_risk_pct = ps.get("initial_risk_pct", atr_pct * 2.0)  # 1R = 2x ATR from entry
+        highest_pnl = max(ps.get("highest_pnl", 0), pnl_pct)  # Track peak P&L
+        r_multiple = pnl_pct / initial_risk_pct if initial_risk_pct > 0 else 0  # How many R's we're up
+        peak_r = highest_pnl / initial_risk_pct if initial_risk_pct > 0 else 0
+        
+        # Determine current phase and stop level
+        if peak_r >= 3.0:
+            # Phase 4: Lock in at least 50% of peak gain
+            stop_pct = -(highest_pnl * 0.50)  # Negative means loss threshold
+            phase = 4
+            stop_reason = f"Phase 4: protecting 50% of {highest_pnl:.1f}% peak gain"
+        elif peak_r >= 2.0:
+            # Phase 3: 1.0x ATR trailing from high water mark
+            stop_pct = max(1.0, atr_pct * 1.0)
+            phase = 3
+            stop_reason = f"Phase 3 (2R+): 1.0x ATR trailing"
+        elif peak_r >= 1.0:
+            # Phase 2: 1.5x ATR trailing from high water mark
+            stop_pct = max(1.5, atr_pct * 1.5)
+            phase = 2
+            stop_reason = f"Phase 2 (1R+): 1.5x ATR trailing"
+        else:
+            # Phase 1: Initial stop at 2.0x ATR
+            stop_pct = max(1.5, min(atr_pct * 2.0, 8.0))
+            phase = 1
+            stop_reason = f"Phase 1: 2.0x ATR initial stop"
+
+        # For phases 2-4, stop is relative to the HIGH WATER MARK, not entry
+        if phase >= 2:
+            # Stop triggers if current P&L drops more than stop_pct from the peak
+            drawdown_from_peak = highest_pnl - pnl_pct
+            should_stop = drawdown_from_peak >= stop_pct
+        else:
+            # Phase 1: stop triggers on absolute loss from entry
+            should_stop = pnl_pct <= -stop_pct
+
+        # Dynamic take profit: ATR * 3 from entry (but don't cap at phase 3+)
+        tp_pct = max(4.0, min(atr_pct * 3.0, 15.0)) if phase < 3 else 999  # No TP ceiling after 2R
+
+        # Time stop: 7 days with no progress (prevents capital lockup)
+        entry_date = ps.get("entry_date", time.strftime("%Y-%m-%d"))
+        try:
+            days_held = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+        except Exception:
+            days_held = 0
+        time_stop = days_held >= 7 and abs(pnl_pct) < 2.0  # Flat for a week
+
+        # Save updated stop state
+        stop_state[ticker] = {
+            "initial_risk_pct": round(initial_risk_pct, 2),
+            "highest_pnl": round(highest_pnl, 2),
+            "phase": phase,
+            "current_stop_pct": round(stop_pct, 2),
+            "r_multiple": round(r_multiple, 2),
+            "entry_date": entry_date if entry_date != time.strftime("%Y-%m-%d") else ps.get("entry_date", time.strftime("%Y-%m-%d")),
+            "days_held": days_held,
+        }
+
+        # Execute stops
+        if should_stop:
+            stop_type = "trailing_stop" if phase >= 2 else "stop_loss"
+            if phase >= 2:
+                reason = f"EVOLVING STOP Phase {phase}: P&L {pnl_pct:+.1f}% dropped {highest_pnl - pnl_pct:.1f}% from peak {highest_pnl:+.1f}% ({stop_reason})"
+            else:
+                reason = f"STOP LOSS: {pnl_pct:.1f}% loss hit Phase 1 stop at -{stop_pct:.1f}% (ATR: ${atr or 0:.2f})"
+            actions.append({"action": "CLOSE", "ticker": ticker, "side": side, "reason": reason, "type": stop_type, "phase": phase})
+        elif pnl_pct >= tp_pct and phase < 3:
+            actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
+                "reason": f"TAKE PROFIT: +{pnl_pct:.1f}% hit target +{tp_pct:.1f}% (Phase {phase})",
+                "type": "take_profit", "phase": phase})
+        elif time_stop:
+            actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
+                "reason": f"TIME STOP: {days_held} days held, P&L only {pnl_pct:+.1f}% — capital locked up",
+                "type": "time_stop", "phase": phase})
+
+        # Upgrade candidate: position is flat or slightly negative in Phase 1
+        if phase == 1 and -stop_pct < pnl_pct < 1.0:
             upgrade_candidates.append({
-                "ticker": ticker,
-                "pnl_pct": pnl_pct,
-                "market_value": market_value,
-                "score": 50 + pnl_pct * 5,  # Rough score based on P&L
-                "qty": qty,
-                "side": side,
+                "ticker": ticker, "pnl_pct": pnl_pct, "market_value": market_value,
+                "score": 50 + pnl_pct * 5, "qty": qty, "side": side,
             })
+
+    # Persist stop state
+    try:
+        with open(_stop_state_path, 'w') as f:
+            json.dump(stop_state, f)
+    except Exception:
+        pass
+
+    # Clean up stop state for positions no longer held
+    held_tickers = {pos.get('symbol', '') for pos in positions}
+    for old_ticker in list(stop_state.keys()):
+        if old_ticker not in held_tickers:
+            del stop_state[old_ticker]
+    try:
+        with open(_stop_state_path, 'w') as f:
+            json.dump(stop_state, f)
+    except Exception:
+        pass
 
     return {"actions": actions, "positions": len(positions), "upgrade_candidates": upgrade_candidates}
 
@@ -1233,17 +1303,36 @@ def scan_market():
             side = "buy"
             action_label = "BUY"
 
-        # Options decision: should this trade use options instead of stock?
+        # Instrument decision: stock vs 2x ETF vs options (unified selector)
+        instrument_decision = {"chosen": "stock", "strategy": "buy_stock", "reasoning": "default"}
         options_decision = {"use_options": False, "strategy": "stock", "reason": ""}
         try:
-            from options_execution import should_use_options
-            options_decision = should_use_options(
-                {**stock, "score": final_score, "side": side, "action_label": action_label},
-                portfolio_value,
-                current_positions if isinstance(current_positions, list) else []
+            from instrument_selector import select_instrument
+            instrument_decision = select_instrument(
+                trade={**stock, "score": final_score, "deep_score": final_score,
+                       "side": side, "action_label": action_label},
+                equity=portfolio_value,
+                positions=current_positions if isinstance(current_positions, list) else [],
+                macro=_macro,
             )
+            # Backward compat for options_execution fields
+            if instrument_decision.get("chosen") == "options":
+                options_decision = {"use_options": True, "strategy": instrument_decision.get("strategy", "stock"),
+                                    "reason": instrument_decision.get("reasoning", ""),
+                                    "edge_pct": instrument_decision.get("scores", {}).get("options", {}).get("edge_pct", 0)}
         except Exception:
-            pass  # Options module not available, default to stock
+            try:
+                from options_execution import should_use_options
+                options_decision = should_use_options(
+                    {**stock, "score": final_score, "side": side, "action_label": action_label},
+                    portfolio_value,
+                    current_positions if isinstance(current_positions, list) else []
+                )
+                if options_decision.get("use_options"):
+                    instrument_decision = {"chosen": "options", "strategy": options_decision["strategy"],
+                                           "reasoning": options_decision["reason"]}
+            except Exception:
+                pass  # Both modules unavailable, default to stock
 
         # Dynamic position sizing (replaces fixed 5%)
         if _has_sizer:
@@ -1299,6 +1388,11 @@ def scan_market():
             "garch_rv": stock.get("garch_rv"),
             "rsi": stock.get("rsi"),
             "vrp": stock.get("vrp"),
+            "instrument": instrument_decision.get("chosen", "stock"),
+            "instrument_strategy": instrument_decision.get("strategy", "buy_stock"),
+            "instrument_reasoning": instrument_decision.get("reasoning", ""),
+            "instrument_ticker": instrument_decision.get("ticker", ticker),  # Could be ETF ticker
+            "instrument_scores": instrument_decision.get("scores", {}),
             "use_options": options_decision.get("use_options", False),
             "options_strategy": options_decision.get("strategy", "stock"),
             "options_reasoning": options_decision.get("reason", ""),

@@ -1473,6 +1473,29 @@ print(json.dumps(check_weekly_loss(history)))
       }
 
       try {
+        // ── ETF execution (instrument selector chose 2x leveraged ETF) ──
+        if (trade.instrument === "etf" && trade.instrument_ticker && trade.instrument_ticker !== trade.ticker) {
+          const etfTicker = trade.instrument_ticker;
+          const etfShares = Math.max(1, Math.floor(trade.shares / 2)); // Half shares for 2x leverage
+          try {
+            await alpaca("/v2/orders", {
+              method: "POST",
+              body: JSON.stringify({
+                symbol: etfTicker, qty: String(etfShares), side: trade.side || "buy",
+                type: "market", time_in_force: "day",
+              }),
+            });
+            audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} (2x ETF for ${trade.ticker}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
+            notify("trade", `ETF: ${etfShares} ${etfTicker} (2x ${trade.ticker})`);
+            slotsUsed++;
+            totalDeployed += etfShares * trade.price; // Approximate
+            continue;
+          } catch (etfErr: any) {
+            audit("ETF-FALLBACK", `${etfTicker} order failed: ${etfErr?.message?.slice(0, 100)} — falling back to stock`);
+            // Fall through to stock/options execution
+          }
+        }
+
         // ── Options vs Stock execution ──
         if (trade.use_options && trade.options_strategy !== "stock") {
           // Execute via options engine
