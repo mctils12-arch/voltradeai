@@ -33,10 +33,17 @@ import requests
 from datetime import datetime, timedelta
 
 try:
-    from position_sizing import _earnings_scalar, check_halt_status
+    from position_sizing import (
+        _earnings_scalar, check_halt_status, _volatility_scalar,
+        _confidence_scalar, _regime_scalar, _kelly_fraction,
+        _liquidity_scalar, _portfolio_heat_scalar, _time_scalar,
+        _get_historical_stats, ABSOLUTE_MAX_POSITION_PCT,
+    )
+    _HAS_SIZER = True
 except ImportError:
     def _earnings_scalar(t): return 1.0
     def check_halt_status(t): return {"halted": False}
+    _HAS_SIZER = False
 
 logger = logging.getLogger("options_execution")
 
@@ -45,11 +52,63 @@ ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCv
 ALPACA_BASE = "https://paper-api.alpaca.markets"
 ALPACA_DATA = "https://data.alpaca.markets"
 
-MAX_OPTIONS_PCT = 0.10      # Max 10% of portfolio per options trade
-MAX_TOTAL_OPTIONS_PCT = 0.20 # Max 20% total options exposure
-MIN_OPTION_VOLUME = 100      # Minimum daily volume on the contract
-MIN_OPEN_INTEREST = 500      # Minimum open interest
-MAX_SPREAD_PCT = 0.15        # Max bid-ask spread as % of mid price
+# Absolute ceilings (safety nets — dynamic sizing targets lower values)
+MAX_OPTIONS_PCT_CEILING = 0.10   # Absolute max 10% per options trade
+MAX_TOTAL_OPTIONS_PCT = 0.20     # Absolute max 20% total options exposure
+MIN_OPTION_VOLUME = 100          # Minimum daily volume on the contract
+MIN_OPEN_INTEREST = 500          # Minimum open interest
+MAX_SPREAD_PCT = 0.15            # Max bid-ask spread as % of mid price
+
+
+def _dynamic_options_size(trade: dict, equity: float, existing_positions: list = None,
+                          macro: dict = None) -> float:
+    """
+    Calculate dynamic position size for options as a fraction of equity.
+    Uses the same scalars as the stock position sizer but with an options
+    risk multiplier (options are inherently leveraged, so base size is smaller).
+    
+    Returns: fraction of equity to allocate (e.g., 0.035 = 3.5%)
+    """
+    if not _HAS_SIZER:
+        return 0.05  # Fallback: 5% fixed
+    
+    # Start with Kelly base
+    stats = _get_historical_stats()
+    overall = stats["overall"]
+    kelly_base = _kelly_fraction(overall["win_rate"], overall["avg_win"], overall["avg_loss"])
+    
+    # Apply all the same scalars as stocks
+    score = trade.get("deep_score", trade.get("score", 50))
+    ewma_rv = trade.get("ewma_rv") or 2.0
+    garch_rv = trade.get("garch_rv")
+    volume = trade.get("volume", 0)
+    price = trade.get("price", 100)
+    
+    s_vol = _volatility_scalar(ewma_rv, garch_rv)
+    s_conf = _confidence_scalar(score, trade.get("ml_confidence"))
+    s_regime = _regime_scalar(
+        macro.get("vix") if macro else None,
+        macro.get("vix_regime") if macro else None,
+    )
+    s_earn = _earnings_scalar(trade.get("ticker", ""))
+    s_time = _time_scalar()
+    s_heat = _portfolio_heat_scalar(
+        existing_positions or [], equity, trade.get("sector")
+    )
+    preliminary = equity * kelly_base * s_vol * s_conf * s_regime * s_earn * s_time * s_heat
+    s_liq = _liquidity_scalar(volume, price, preliminary)
+    
+    # Options risk multiplier: options are 3-10x leveraged vs stock
+    # So we use ~50% of what the stock sizer would give
+    OPTIONS_LEVERAGE_DISCOUNT = 0.50
+    
+    dynamic_pct = (kelly_base * s_vol * s_conf * s_regime * s_earn 
+                   * s_time * s_heat * s_liq * OPTIONS_LEVERAGE_DISCOUNT)
+    
+    # Clamp to absolute ceiling
+    dynamic_pct = max(0.01, min(dynamic_pct, MAX_OPTIONS_PCT_CEILING))
+    
+    return dynamic_pct
 
 
 def _alpaca_headers():
@@ -360,7 +419,7 @@ def _select_buy_call(contracts: list, price: float, equity: float, ticker: str) 
     calls.sort(key=lambda c: abs(abs(c.get("delta", 0)) - target_delta))
     
     best = calls[0]
-    max_cost = equity * MAX_OPTIONS_PCT
+    max_cost = equity * size_pct  # Dynamic sizing
     qty = int(max_cost / (best["ask"] * 100))  # Each contract = 100 shares
     if qty <= 0:
         qty = 1  # Minimum 1 contract
@@ -395,7 +454,7 @@ def _select_buy_put(contracts: list, price: float, equity: float, ticker: str) -
     puts.sort(key=lambda c: abs(c.get("delta", 0) - target_delta))
     
     best = puts[0]
-    max_cost = equity * MAX_OPTIONS_PCT
+    max_cost = equity * size_pct  # Dynamic sizing
     qty = int(max_cost / (best["ask"] * 100))
     if qty <= 0:
         qty = 1
@@ -437,7 +496,7 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str) 
     
     # Cash required to secure: strike * 100 per contract
     cash_per_contract = best["strike"] * 100
-    max_contracts = int(equity * MAX_OPTIONS_PCT / cash_per_contract)
+    max_contracts = int(equity * size_pct / cash_per_contract)  # Dynamic sizing
     if max_contracts <= 0:
         return {"error": f"Not enough capital to sell cash-secured put at ${best['strike']} (need ${cash_per_contract:,.0f} per contract)"}
     
@@ -492,10 +551,10 @@ def _select_bull_spread(contracts: list, price: float, equity: float, ticker: st
     max_profit = round((spread_width - net_debit) * 100, 2)
     max_loss_per = round(net_debit * 100, 2)
     
-    max_contracts = int(equity * MAX_OPTIONS_PCT / max_loss_per) if max_loss_per > 0 else 0
+    max_contracts = int(equity * size_pct / max_loss_per) if max_loss_per > 0 else 0  # Dynamic sizing
     if max_contracts <= 0:
         max_contracts = 1
-    qty = min(max_contracts, 3)  # Max 3 spread contracts
+    qty = min(max_contracts, 5)  # Dynamic sizing may allow more
     
     return {
         "strategy": "bull_call_spread",
@@ -516,7 +575,7 @@ def _select_bull_spread(contracts: list, price: float, equity: float, ticker: st
     }
 
 
-def _select_bear_spread(contracts: list, price: float, equity: float, ticker: str) -> dict:
+def _select_bear_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Bear put spread: buy higher strike put, sell lower strike put. Defined risk."""
     puts = sorted(
         [c for c in contracts if c["option_type"] == "put"],
@@ -543,10 +602,10 @@ def _select_bear_spread(contracts: list, price: float, equity: float, ticker: st
     max_profit = round((spread_width - net_debit) * 100, 2)
     max_loss_per = round(net_debit * 100, 2)
     
-    max_contracts = int(equity * MAX_OPTIONS_PCT / max_loss_per) if max_loss_per > 0 else 0
+    max_contracts = int(equity * size_pct / max_loss_per) if max_loss_per > 0 else 0  # Dynamic sizing
     if max_contracts <= 0:
         max_contracts = 1
-    qty = min(max_contracts, 3)
+    qty = min(max_contracts, 5)
     
     return {
         "strategy": "bear_put_spread",
@@ -741,9 +800,10 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
             "reasoning": decision["reason"],
         }
     
-    # Step 2: Select contract
+    # Step 2: Select contract (with dynamic sizing)
     contract = select_contract(
-        trade["ticker"], decision["strategy"], trade["price"], equity
+        trade["ticker"], decision["strategy"], trade["price"], equity,
+        trade=trade, positions=positions, macro=None
     )
     
     if contract.get("error"):
