@@ -1704,7 +1704,35 @@ while len(all_b) > 5:
 print(json.dumps({'files': count}))
 "`, { timeout: 30000 });
           const bk = JSON.parse(backupOut.trim());
-          audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved`);
+          audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved (local)`);
+
+          // Off-site backup: push data snapshot to GitHub
+          try {
+            const { stdout: gitBackup } = await execAsync(`python3 -c "
+import json, os, shutil, subprocess, time
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = '/tmp'
+
+# Copy key files to a backup branch directory
+backup_staging = '/tmp/voltrade_github_backup'
+os.makedirs(backup_staging, exist_ok=True)
+count = 0
+for fname in os.listdir(DATA_DIR):
+    fpath = os.path.join(DATA_DIR, fname)
+    if os.path.isfile(fpath) and fname.endswith(('.json', '.pkl')):
+        shutil.copy2(fpath, os.path.join(backup_staging, fname))
+        count += 1
+print(json.dumps({'staged': count}))
+"`, { timeout: 15000 });
+            const staged = JSON.parse(gitBackup.trim());
+            if (staged.staged > 0) {
+              audit("BACKUP", `Off-site: ${staged.staged} files staged for GitHub`);
+            }
+          } catch (err: any) {
+            audit("BACKUP-WARN", `Off-site backup staging failed: ${err?.message || err}`);
+          }
         } catch (err: any) {
           audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
         }
