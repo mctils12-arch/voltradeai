@@ -80,8 +80,8 @@ POLYGON_KEY_DEFAULT = "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP"
 # A.  ML SCORING MODEL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _model_is_fresh(max_age_days: int = 7) -> bool:
-    """Return True if saved model exists and is younger than max_age_days."""
+def _model_is_fresh(max_age_days: int = 1) -> bool:
+    """Return True if saved model exists and is younger than max_age_days (default: 1 day for daily retrain)."""
     if not os.path.exists(MODEL_PATH):
         return False
     age_secs = time.time() - os.path.getmtime(MODEL_PATH)
@@ -518,7 +518,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
          "features": 21, "samples": int, "timestamp": str}
     """
     # If model exists and is fresh enough, skip retraining
-    if _model_is_fresh(max_age_days=7):
+    if _model_is_fresh(max_age_days=1):
         bundle = _load_model()
         if bundle is not None:
             return {
