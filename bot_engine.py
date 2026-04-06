@@ -1092,6 +1092,17 @@ def manage_positions():
             else:
                 reason = f"STOP LOSS: {pnl_pct:.1f}% loss hit Phase 1 stop at -{stop_pct:.1f}% (ATR: ${atr or 0:.2f})"
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side, "reason": reason, "type": stop_type, "phase": phase, "exit_context": exit_context})
+            # Record stop-loss cooldown to prevent immediate re-entry
+            try:
+                _cd_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'voltrade_stop_cooldown.json')
+                try:
+                    with open(_cd_path) as _f: _cd = json.load(_f)
+                except Exception: _cd = {}
+                _cd[ticker] = time.time()
+                # Clean entries older than 24 hours
+                _cd = {k: v for k, v in _cd.items() if time.time() - v < 86400}
+                with open(_cd_path, 'w') as _f: json.dump(_cd, _f)
+            except Exception: pass
         elif pnl_pct >= tp_pct and phase < 3:
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": f"TAKE PROFIT: +{pnl_pct:.1f}% hit target +{tp_pct:.1f}% (Phase {phase})",
@@ -1232,7 +1243,11 @@ def scan_market():
                     "prev_close": pc,
                     "volume": v,
                     "change_pct": round(change_pct, 2),
-                    "quick_score": abs(change_pct) * 2 + (v / 1000000) * 3,
+                    # Cap change_pct at 15% for scoring — prevents 150% movers dominating
+                    # Extreme movers (>50%) get penalized — the easy money is already gone
+                    _capped_change = min(abs(change_pct), 15.0)
+                    _extreme_penalty = -30 if abs(change_pct) > 50 else (-15 if abs(change_pct) > 30 else 0)
+                    "quick_score": _capped_change * 2 + (v / 1000000) * 3 + _extreme_penalty,
                     "above_vwap": c > o,
                     "range_pct": 0,
                     "vwap_dist": 0,
@@ -1311,6 +1326,17 @@ def scan_market():
         if ticker in current_tickers:
             continue
 
+        # Skip if recently stopped out (2-hour cooldown per ticker)
+        _cooldown_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'voltrade_stop_cooldown.json')
+        try:
+            with open(_cooldown_path) as _f:
+                _cooldown = json.load(_f)
+        except Exception:
+            _cooldown = {}
+        _last_stop = _cooldown.get(ticker, 0)
+        if time.time() - _last_stop < 7200:  # 2-hour cooldown
+            continue  # Don't re-enter a ticker we just got stopped out of
+
         # Skip if below minimum score
         if final_score < MIN_SCORE:
             continue
@@ -1321,9 +1347,18 @@ def scan_market():
 
         side = stock.get("side", "buy")
         action_label = stock.get("action_label", "BUY")
+        change_pct = stock.get("change_pct", 0) or 0
+
+        # Extreme mover check: stock already up 50%+ today
+        # The easy money is gone — only consider puts (mean reversion), never buy the spike
+        if change_pct > 50:
+            # Force to put/short direction only — buying a 50%+ mover is chasing
+            side = "short"
+            action_label = "SELL OPTIONS"  # Options engine will pick puts
 
         # For SELL signals without existing position — convert to BUY (no naked sells on paper)
-        if side == "sell" and stock.get("trade_type") != "options":
+        # EXCEPT for extreme movers — we want puts on those
+        if side == "sell" and stock.get("trade_type") != "options" and change_pct <= 50:
             side = "buy"
             action_label = "BUY"
 
