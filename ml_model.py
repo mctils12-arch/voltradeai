@@ -237,7 +237,7 @@ def _build_feature_matrix(api_key: str):
 
     # Fetch data day by day — dict keyed by date then ticker
     daily_data: dict[str, dict] = {}  # date -> {ticker: bar}
-    print(f"  Fetching {min(len(dates), 45)} trading days from Polygon...")
+    logger.info(f"  Fetching {min(len(dates), 45)} trading days from Polygon...")
     for date in dates[:45]:
         bars = _fetch_grouped_day(date, api_key)
         if bars:
@@ -518,22 +518,26 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
          "features": 21, "samples": int, "timestamp": str}
     """
     # If model exists and is fresh enough, skip retraining
+    # BUT force retrain if feature count changed (upgrade detection)
     if _model_is_fresh(max_age_days=1):
         bundle = _load_model()
         if bundle is not None:
-            return {
+            stored_features = len(bundle.get("feature_names", []))
+            if stored_features > 0 and stored_features != len(FEATURE_COLS):
+                logger.info(f"Feature count changed ({stored_features} -> {len(FEATURE_COLS)}), forcing retrain")
+            else:
+              return {
                 "status":    "cached",
                 "accuracy":  bundle.get("accuracy", 0),
-                "features":  21,
+                "features":  len(FEATURE_COLS),
                 "samples":   bundle.get("samples", 0),
                 "timestamp": bundle.get("timestamp", ""),
             }
 
-    print("Training ML model — fetching training data...")
+    logger.info("Training ML model — fetching training data...")
     t0 = time.time()
 
     # Primary: Alpaca historical data (free, no rate limit, better quality)
-    print(json.dumps({"status": "fetching_alpaca_data"}))
     try:
         alpaca_samples = _fetch_alpaca_training_data(days=60)
         if len(alpaca_samples) >= 500:
@@ -692,7 +696,7 @@ def train_model(polygon_key: str = POLYGON_KEY_DEFAULT) -> dict:
         joblib.dump(bundle, MODEL_PATH)
 
         elapsed = round(time.time() - t0, 1)
-        print(f"Training complete in {elapsed}s | accuracy={accuracy:.3f} | samples={n_samples}")
+        logger.info(f"Training complete in {elapsed}s | accuracy={accuracy:.3f} | samples={n_samples}")
 
         return {
             "status":    "trained",
