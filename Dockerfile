@@ -19,7 +19,7 @@ COPY package.json package-lock.json ./
 RUN npm install
 
 # Cache bust — change this value to force a full source + build layer rebuild
-ARG CACHE_BUST=20260406-2014
+ARG CACHE_BUST=20260406-2051
 # Copy source
 COPY . .
 

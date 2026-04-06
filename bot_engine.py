@@ -355,7 +355,7 @@ except Exception as e:
         end_d = datetime.now().strftime("%Y-%m-%d")
         start_d = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
         bars_url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
-                    f"?timeframe=1Day&start={start_d}&limit=30&adjustment=all")
+                    f"?timeframe=1Day&start={start_d}&limit=30&adjustment=all&feed=sip")
         bars_resp = requests.get(bars_url, headers=_alpaca_headers(), timeout=8)
         bars_data = bars_resp.json().get("bars", [])
         if len(bars_data) >= 14:
@@ -1154,7 +1154,7 @@ def _get_atr(ticker, period=14):
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
-               f"?timeframe=1Day&start={start}&limit={period + 5}&adjustment=all")
+               f"?timeframe=1Day&start={start}&limit={period + 5}&adjustment=all&feed=sip")
         resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
         data = resp.json()
         results = data.get("bars", [])
@@ -1221,7 +1221,7 @@ def scan_market():
     for i in range(0, len(ticker_symbols), 50):
         batch = ticker_symbols[i:i+50]
         try:
-            resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols={','.join(batch)}",
+            resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols={','.join(batch)}&feed=sip",
                                headers=_alpaca_headers(), timeout=15)
             snap_data = resp.json()
             for sym, snap in snap_data.items():

@@ -150,7 +150,7 @@ def fetch_bars_bulk(tickers, start, end, batch_size=50):
             "end":       end,
             "limit":     10000,
             "adjustment": "split",
-            "feed":       "iex",
+            "feed":       "sip",
         }
         data = alpaca_get("/v2/stocks/bars", params)
         if data and "bars" in data:

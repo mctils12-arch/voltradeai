@@ -39,7 +39,7 @@ def scan_for_manipulation() -> dict:
     
     snapshots = {}
     try:
-        resp = requests.get(f"{ALPACA_DATA}/v2/stocks/snapshots?symbols={','.join(tickers)}",
+        resp = requests.get(f"{ALPACA_DATA}/v2/stocks/snapshots?symbols={','.join(tickers)}&feed=sip",
                            headers=_headers(), timeout=15)
         snapshots = resp.json()
     except Exception:
@@ -160,7 +160,7 @@ def scan_for_manipulation() -> dict:
 def is_ticker_flagged(ticker: str) -> dict:
     """Quick check if a specific ticker has manipulation signals."""
     try:
-        resp = requests.get(f"{ALPACA_DATA}/v2/stocks/{ticker}/snapshot", headers=_headers(), timeout=5)
+        resp = requests.get(f"{ALPACA_DATA}/v2/stocks/{ticker}/snapshot?feed=sip", headers=_headers(), timeout=5)
         snap = resp.json()
         bar = snap.get("dailyBar", {})
         prev = snap.get("prevDailyBar", {})

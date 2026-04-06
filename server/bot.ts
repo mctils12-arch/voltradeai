@@ -901,7 +901,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
     const tf = tfMap[timeframe] || "1Day";
 
     try {
-      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=iex`;
+      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=sip`;
       const r = await fetch(url, {
         headers: {
           "APCA-API-KEY-ID": ALPACA_KEY,
@@ -1218,7 +1218,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       // ── Pre-market price check: verify price hasn't gapped more than 5% ──
       try {
         const { stdout: priceCheck } = await execAsync(
-          `python3 -c "import requests,json; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot', headers={'APCA-API-KEY-ID':'PKMDHJOVQEVIB4UHZXUYVTIDBU','APCA-API-SECRET-KEY':'9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et'}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
+          `python3 -c "import requests,json; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=sip', headers={'APCA-API-KEY-ID':'PKMDHJOVQEVIB4UHZXUYVTIDBU','APCA-API-SECRET-KEY':'9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et'}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
           { timeout: 8000 }
         );
         const currentPrice = parseFloat(priceCheck.trim());

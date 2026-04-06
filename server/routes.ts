@@ -628,7 +628,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       for (let i = 0; i < allTickers.length; i += 50) {
         const batch = allTickers.slice(i, i + 50).join(",");
         try {
-          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}`, { headers: alpacaHeaders });
+          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}&feed=sip`, { headers: alpacaHeaders });
           const snapData = await snapRes.json();
           for (const [ticker, snap] of Object.entries(snapData) as any) {
             const bar = snap.dailyBar || {};
@@ -653,7 +653,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/market/sectors", async (_req, res) => {
     try {
       const etfs = "XLK,XLF,XLE,XLV,XLI,XLC,XLY,XLP,XLU,XLRE,XLB";
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}`, { headers: alpacaHeaders });
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}&feed=sip`, { headers: alpacaHeaders });
       res.json(await snapRes.json());
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -665,7 +665,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const symbols = req.query.symbols as string || "";
       if (!symbols) return res.json({});
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${symbols}`, { headers: alpacaHeaders });
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${symbols}&feed=sip`, { headers: alpacaHeaders });
       res.json(await snapRes.json());
     } catch (e: any) {
       res.status(500).json({ error: e.message });

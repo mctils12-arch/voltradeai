@@ -1035,7 +1035,7 @@ def _check_etf_volume(etf_ticker: str) -> bool:
         ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
         resp = _req.get(
             f"https://data.alpaca.markets/v2/stocks/{etf_ticker}/bars",
-            params={"timeframe": "1Day", "limit": 1, "feed": "iex"},
+            params={"timeframe": "1Day", "limit": 1, "feed": "sip"},
             headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
             timeout=5,
         )
@@ -1107,7 +1107,7 @@ def select_instrument(trade: dict, equity: float,
         from datetime import timedelta as _td
         _vxx_start = (datetime.utcnow() - _td(days=45)).strftime("%Y-%m-%d")
         _vxx_resp = requests.get(
-            f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed=iex",
+            f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed=sip",
             headers=_alpaca_headers(), timeout=5
         )
         _vxx_bars = _vxx_resp.json().get("bars", [])

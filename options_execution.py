@@ -323,7 +323,7 @@ def _fetch_option_chain(ticker: str, current_price: float) -> list:
         resp = requests.get(
             f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
             params={
-                "feed": "indicative",  # Free tier uses indicative
+                "feed": "opra",  # Real-time OPRA feed (Algo Trader Plus)
                 "limit": 100,
                 "expiration_date_gte": min_exp,
                 "expiration_date_lte": max_exp,

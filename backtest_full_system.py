@@ -90,7 +90,7 @@ def fetch_bars_batch(symbols: list[str], start: str, end: str,
             "end":        end,
             "limit":      1000,
             "adjustment": "split",
-            "feed":       "iex",
+            "feed":       "sip",
         }
         url = f"{DATA_URL}/v2/stocks/bars"
         resp = requests.get(url, headers=HEADERS, params=params, timeout=30)

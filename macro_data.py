@@ -137,7 +137,7 @@ def get_macro_snapshot() -> dict:
     sector_momentum = {}
     try:
         etf_symbols = ",".join(SECTOR_ETFS.keys())
-        alpaca_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={etf_symbols}"
+        alpaca_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={etf_symbols}&feed=sip"
         alpaca_headers = {
             "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
             "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
