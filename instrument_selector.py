@@ -29,8 +29,17 @@ import json
 import time
 import logging
 import subprocess
+import requests
 from datetime import datetime, timezone
 from typing import Optional
+
+# Alpaca constants (used for VXX fetch and ETF volume check)
+_ALPACA_KEY = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
+_ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+ALPACA_DATA_URL = "https://data.alpaca.markets"
+
+def _alpaca_headers() -> dict:
+    return {"APCA-API-KEY-ID": _ALPACA_KEY, "APCA-API-SECRET-KEY": _ALPACA_SECRET}
 
 logger = logging.getLogger("instrument_selector")
 # Large-cap stocks safe to short (always easy to borrow, liquid)
@@ -723,7 +732,19 @@ def _score_options(trade: dict, intelligence: dict, equity: float) -> Optional[d
 
     # ── Instrument scoring from intelligence signals ───────────────────────
 
-    inst_score = 55.0  # Options start slightly above 50 when conditions met
+    # Base score reflects market-wide IV environment (VXX-driven)
+    vxx_price = trade.get("_vxx_price", 25)
+    market_ivr = trade.get("_market_ivr", 50)
+    if vxx_price >= 35:
+        inst_score = 78.0  # Very elevated IV: options have clear, meaningful edge
+    elif vxx_price >= 28:
+        inst_score = 68.0  # Elevated: options clearly better than stock
+    elif vxx_price >= 22:
+        inst_score = 58.0  # Normal: options slightly better when conditions met
+    elif vxx_price >= 18:
+        inst_score = 50.0  # Calm: options and stock roughly equal
+    else:
+        inst_score = 42.0  # Very calm: options overpriced, stock is better default
 
     # Bid-ask quality
     if baq is not None:
@@ -1071,6 +1092,43 @@ def select_instrument(trade: dict, equity: float,
 
     # ── Step 1: Gather intelligence ────────────────────────────────────────
     intelligence = get_instrument_intelligence(ticker, price, trade)
+
+    # ── Market-wide IV context from VXX (free, accurate, no options chain needed) ──
+    # VXX tracks short-term VIX futures: high VXX = expensive options market-wide
+    # VXX $34+ = elevated IV (like today with tariff fear)
+    # VXX $20-25 = normal IV
+    # VXX <$20 = cheap IV (complacency)
+    try:
+        _vxx_resp = requests.get(
+            f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols=VXX",
+            headers=_alpaca_headers(), timeout=5
+        )
+        _vxx_bar = _vxx_resp.json().get("VXX", {}).get("dailyBar", {})
+        _vxx_price = float(_vxx_bar.get("c", 25))
+    except Exception:
+        _vxx_price = 25.0  # Default: assume normal
+
+    # Override IVR in trade dict with VXX-based estimate
+    # This fixes the HV-proxy problem — VXX IS the market's implied volatility
+    if _vxx_price >= 35:
+        _market_ivr = 85   # Very elevated — straddles and condors are highly favorable
+    elif _vxx_price >= 28:
+        _market_ivr = 70   # Elevated — sell premium strategies have clear edge
+    elif _vxx_price >= 22:
+        _market_ivr = 50   # Normal
+    elif _vxx_price >= 18:
+        _market_ivr = 35   # Calm — buy premium is slightly cheaper
+    else:
+        _market_ivr = 20   # Very calm — options overpriced to buy
+
+    # Inject market IVR into trade and intelligence if not already high
+    _existing_ivr = intelligence.get("iv_rank")
+    if _existing_ivr is None or _market_ivr > _existing_ivr:
+        intelligence["iv_rank"] = _market_ivr
+        intelligence["iv_rank_source"] = f"VXX ${_vxx_price:.2f}"
+
+    # Also pass VXX to the trade dict for scoring functions
+    trade = {**trade, "_vxx_price": _vxx_price, "_market_ivr": _market_ivr}
 
     # ── Step 2: Score all instruments ─────────────────────────────────────
 
