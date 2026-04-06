@@ -36,6 +36,25 @@ const TAKE_PROFIT_PCT = 0.15; // 15% ceiling (dynamic sizing sets ATR-based targ
 // NOTE: These are SAFETY NETS, not targets. The position_sizing.py engine
 // calculates the real values (typically 1-5% position size, 1.5-6% stops).
 
+// ─── Market Hours Helper ──────────────────────────────────────────────────────
+function getOrderParams(price: number): { type: string; limit_price?: string; time_in_force: string } {
+  // Alpaca only supports market orders during regular hours (9:30am-4pm ET)
+  // Extended hours require limit orders
+  const nowUTC = new Date();
+  const etHour = ((nowUTC.getUTCHours() - 4) + 24) % 24; // Approximate ET
+  const etMin = nowUTC.getUTCMinutes();
+  const etTime = etHour + etMin / 60;
+  const isRegularHours = etTime >= 9.5 && etTime < 16.0;
+
+  if (isRegularHours) {
+    return { type: "market", time_in_force: "day" };
+  } else {
+    // Extended hours: limit order at current ask + 0.5% to ensure fill
+    const limitPrice = Math.round(price * 1.005 * 100) / 100;
+    return { type: "limit", limit_price: String(limitPrice), time_in_force: "day" };
+  }
+}
+
 const state = {
   active: true,  // Bot starts automatically — always on unless killed
   killSwitch: false,
@@ -1182,8 +1201,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
             symbol: trade.ticker,
             qty: String(Math.floor(trade.shares)),
             side: trade.side === "short" ? "sell" : (trade.side || "buy"),
-            type: "market", // Market orders at open for instant fill
-            time_in_force: "day",
+            ...getOrderParams(trade.price || 0), // Market during regular hours, limit during extended
           }),
         });
 
@@ -1520,11 +1538,12 @@ print(json.dumps(check_weekly_loss(history)))
           const etfTicker = trade.instrument_ticker;
           const etfShares = Math.max(1, Math.floor(trade.shares / 2)); // Half shares for 2x leverage
           try {
+            const etfOrderParams = getOrderParams(trade.price || 0);
             await alpaca("/v2/orders", {
               method: "POST",
               body: JSON.stringify({
                 symbol: etfTicker, qty: String(etfShares), side: trade.side || "buy",
-                type: "market", time_in_force: "day",
+                ...etfOrderParams,
               }),
             });
             audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} (2x ETF for ${trade.ticker}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
@@ -1576,10 +1595,11 @@ print(json.dumps(check_weekly_loss(history)))
         if (qty <= 0) continue;
         const side = trade.side === "short" ? "sell" : (trade.side || "buy");
 
+        const orderParams = getOrderParams(trade.price || 0);
         const orderResult = await alpaca("/v2/orders", {
           method: "POST",
           body: JSON.stringify({
-            symbol: trade.ticker, qty: String(qty), side, type: "market", time_in_force: "day",
+            symbol: trade.ticker, qty: String(qty), side, ...orderParams,
           }),
         });
         const orderId = orderResult?.id || null;
@@ -1744,7 +1764,7 @@ print(json.dumps(run_diagnostics()))
           if (upgradeQty > 0) {
             await alpaca("/v2/orders", {
               method: "POST",
-              body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: betterPick.side === "short" ? "sell" : "buy", type: "market", time_in_force: "day" }),
+              body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: betterPick.side === "short" ? "sell" : "buy", ...getOrderParams(betterPick.price || 0) }),
             });
           }
         } catch (e: any) { audit("UPGRADE-ERROR", `Failed to upgrade: ${e.message}`); }
