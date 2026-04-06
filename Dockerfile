@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-# Install Python, pip, and build tools (needed for better-sqlite3)
+# ── System deps ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -11,21 +11,25 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install Python packages
-RUN python3 -m pip install yfinance scipy numpy scikit-learn joblib lightgbm --break-system-packages --quiet
+# ── Python packages (cached layer — reruns only when this line changes) ───
+# All packages explicitly listed so nothing is missing at runtime
+RUN python3 -m pip install \
+    numpy scipy scikit-learn joblib lightgbm \
+    yfinance pandas requests pytrends \
+    --break-system-packages --quiet
 
-# Install Node packages
+# ── Node packages (cached layer — reruns only when package-lock changes) ──
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm ci --prefer-offline
 
-# Cache bust — change this value to force a full source + build layer rebuild
-ARG CACHE_BUST=20260406-2108
-# Copy source
+# ── Copy source + build ───────────────────────────────────────────────────
 COPY . .
-
-# Build the app
 RUN npm run build
+
+# ── Pre-compile Python bytecode (faster first-scan startup) ───────────────
+RUN python3 -m compileall -q . 2>/dev/null || true
 
 EXPOSE 3000
 
-CMD ["node", "dist/index.cjs"]
+# Increased Node heap for parallel Python subprocess management (Pro plan)
+CMD ["node", "--max-old-space-size=2048", "dist/index.cjs"]
