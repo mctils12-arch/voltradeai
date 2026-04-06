@@ -1235,6 +1235,10 @@ def scan_market():
                 if "." in sym or len(sym) > 5:
                     continue
                 change_pct = ((c - pc) / pc * 100) if pc > 0 else 0
+                # Cap change_pct at 15% for scoring — prevents 150% movers dominating
+                # Extreme movers (>50%) get penalized — the easy money is already gone
+                _capped_change = min(abs(change_pct), 15.0)
+                _extreme_penalty = -30 if abs(change_pct) > 50 else (-15 if abs(change_pct) > 30 else 0)
                 quick_results.append({
                     "ticker": sym,
                     "price": round(c, 2),
@@ -1243,10 +1247,6 @@ def scan_market():
                     "prev_close": pc,
                     "volume": v,
                     "change_pct": round(change_pct, 2),
-                    # Cap change_pct at 15% for scoring — prevents 150% movers dominating
-                    # Extreme movers (>50%) get penalized — the easy money is already gone
-                    _capped_change = min(abs(change_pct), 15.0)
-                    _extreme_penalty = -30 if abs(change_pct) > 50 else (-15 if abs(change_pct) > 30 else 0)
                     "quick_score": _capped_change * 2 + (v / 1000000) * 3 + _extreme_penalty,
                     "above_vwap": c > o,
                     "range_pct": 0,
