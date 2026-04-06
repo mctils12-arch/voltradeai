@@ -732,19 +732,21 @@ def _score_options(trade: dict, intelligence: dict, equity: float) -> Optional[d
 
     # ── Instrument scoring from intelligence signals ───────────────────────
 
-    # Base score reflects market-wide IV environment (VXX-driven)
-    vxx_price = trade.get("_vxx_price", 25)
+    # Base score reflects market-wide IV environment (VXX ratio-driven, self-calibrating)
+    # Uses the ratio of VXX vs its 30-day average — works regardless of where VXX drifts
+    # _vxx_ratio: >1.30 = panic, 1.10-1.30 = elevated, 0.90-1.10 = normal, <0.70 = complacency
+    vxx_ratio = trade.get("_vxx_ratio", 1.0)  # default: normal conditions
     market_ivr = trade.get("_market_ivr", 50)
-    if vxx_price >= 35:
-        inst_score = 78.0  # Very elevated IV: options have clear, meaningful edge
-    elif vxx_price >= 28:
-        inst_score = 68.0  # Elevated: options clearly better than stock
-    elif vxx_price >= 22:
-        inst_score = 58.0  # Normal: options slightly better when conditions met
-    elif vxx_price >= 18:
-        inst_score = 50.0  # Calm: options and stock roughly equal
+    if vxx_ratio >= 1.30:
+        inst_score = 78.0  # Panic: VXX 30%+ above avg — options have clear, meaningful edge
+    elif vxx_ratio >= 1.10:
+        inst_score = 68.0  # Elevated: VXX 10-30% above avg — options clearly better than stock
+    elif vxx_ratio >= 0.90:
+        inst_score = 58.0  # Normal: VXX within 10% — options slightly better when conditions met
+    elif vxx_ratio >= 0.70:
+        inst_score = 50.0  # Calm: VXX 10-30% below avg — options and stock roughly equal
     else:
-        inst_score = 42.0  # Very calm: options overpriced, stock is better default
+        inst_score = 42.0  # Complacency: VXX 30%+ below avg — options overpriced, stock is better
 
     # Bid-ask quality
     if baq is not None:
@@ -1093,42 +1095,53 @@ def select_instrument(trade: dict, equity: float,
     # ── Step 1: Gather intelligence ────────────────────────────────────────
     intelligence = get_instrument_intelligence(ticker, price, trade)
 
-    # ── Market-wide IV context from VXX (free, accurate, no options chain needed) ──
-    # VXX tracks short-term VIX futures: high VXX = expensive options market-wide
-    # VXX $34+ = elevated IV (like today with tariff fear)
-    # VXX $20-25 = normal IV
-    # VXX <$20 = cheap IV (complacency)
+    # ── Market-wide IV context from VXX ratio (self-calibrating, no fixed thresholds) ──
+    # Uses VXX price vs its own 30-day average so it's always relative.
+    # This way the signal works regardless of where VXX drifts over time.
+    #   ratio > 1.3 (+30% above avg): panic/fear, options extremely expensive
+    #   ratio > 1.1 (+10% above avg): elevated IV, sell premium has edge
+    #   ratio 0.9-1.1 (within 10%): normal conditions
+    #   ratio < 0.9 (-10% below avg): calm, options cheaper
+    #   ratio < 0.7 (-30% below avg): complacency, buying options is cheap
     try:
+        from datetime import timedelta as _td
+        _vxx_start = (datetime.utcnow() - _td(days=45)).strftime("%Y-%m-%d")
         _vxx_resp = requests.get(
-            f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols=VXX",
+            f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed=iex",
             headers=_alpaca_headers(), timeout=5
         )
-        _vxx_bar = _vxx_resp.json().get("VXX", {}).get("dailyBar", {})
-        _vxx_price = float(_vxx_bar.get("c", 25))
+        _vxx_bars = _vxx_resp.json().get("bars", [])
+        if len(_vxx_bars) >= 10:
+            _vxx_price = float(_vxx_bars[-1]["c"])  # Latest close
+            _vxx_avg30 = sum(b["c"] for b in _vxx_bars[-30:]) / len(_vxx_bars[-30:])  # 30-day avg
+            _vxx_ratio = _vxx_price / _vxx_avg30  # >1 = above normal, <1 = below normal
+        else:
+            _vxx_price = 25.0
+            _vxx_ratio = 1.0
     except Exception:
-        _vxx_price = 25.0  # Default: assume normal
+        _vxx_price = 25.0
+        _vxx_ratio = 1.0  # Default: assume normal
 
-    # Override IVR in trade dict with VXX-based estimate
-    # This fixes the HV-proxy problem — VXX IS the market's implied volatility
-    if _vxx_price >= 35:
-        _market_ivr = 85   # Very elevated — straddles and condors are highly favorable
-    elif _vxx_price >= 28:
-        _market_ivr = 70   # Elevated — sell premium strategies have clear edge
-    elif _vxx_price >= 22:
-        _market_ivr = 50   # Normal
-    elif _vxx_price >= 18:
-        _market_ivr = 35   # Calm — buy premium is slightly cheaper
+    # Map ratio to IVR — self-calibrating regardless of VXX price level
+    if _vxx_ratio >= 1.30:
+        _market_ivr = 85   # Panic: VXX 30%+ above its own average
+    elif _vxx_ratio >= 1.10:
+        _market_ivr = 70   # Elevated: VXX 10-30% above average
+    elif _vxx_ratio >= 0.90:
+        _market_ivr = 50   # Normal: VXX within 10% of average
+    elif _vxx_ratio >= 0.70:
+        _market_ivr = 35   # Calm: VXX 10-30% below average
     else:
-        _market_ivr = 20   # Very calm — options overpriced to buy
+        _market_ivr = 20   # Complacency: VXX 30%+ below average
 
     # Inject market IVR into trade and intelligence if not already high
     _existing_ivr = intelligence.get("iv_rank")
     if _existing_ivr is None or _market_ivr > _existing_ivr:
         intelligence["iv_rank"] = _market_ivr
-        intelligence["iv_rank_source"] = f"VXX ${_vxx_price:.2f}"
+        intelligence["iv_rank_source"] = f"VXX ${_vxx_price:.2f} (ratio={_vxx_ratio:.2f})"
 
-    # Also pass VXX to the trade dict for scoring functions
-    trade = {**trade, "_vxx_price": _vxx_price, "_market_ivr": _market_ivr}
+    # Pass VXX data to the trade dict for scoring functions
+    trade = {**trade, "_vxx_price": _vxx_price, "_vxx_ratio": _vxx_ratio, "_market_ivr": _market_ivr}
 
     # ── Step 2: Score all instruments ─────────────────────────────────────
 
