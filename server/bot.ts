@@ -1315,6 +1315,24 @@ print(json.dumps(result))
           audit("TIER1-EXIT", `${action.reason}`);
           notify("exit", `Closed ${action.ticker}: ${action.reason}`);
 
+          // Write stop-loss cooldown directly — prevents re-entering a stopped ticker for 2 hours
+          // This runs in bot.ts (not bot_engine) so it fires even if Python has a path issue
+          if (action.type === "stop_loss" || action.type === "trailing_stop") {
+            try {
+              await execAsync(`python3 -c "
+import json, os, time
+DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+cd_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
+try:
+    with open(cd_path) as f: cd = json.load(f)
+except: cd = {}
+cd['${action.ticker}'] = time.time()
+cd = {k: v for k, v in cd.items() if time.time() - v < 86400}
+with open(cd_path, 'w') as f: json.dump(cd, f)
+"`, { timeout: 5000 });
+            } catch (_) {} // Non-fatal — bot_engine also writes it
+          }
+
           // Smart circuit breaker — context-aware, not just counting
           if (action.type === "stop_loss" || action.type === "trailing_stop") {
             state.consecutiveStopLosses++;

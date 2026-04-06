@@ -23,6 +23,13 @@ import requests
 import numpy as np
 from datetime import datetime, timedelta
 
+# ── Persistent storage path (Railway volume or /tmp locally) ─────────────────
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = "/data/voltrade" if os.path.isdir("/data") else "/tmp"
+os.makedirs(DATA_DIR, exist_ok=True)
+
 # ── Strategy imports ─────────────────────────────────────────────────────────
 _STRATEGIES_DIR = os.path.join(os.path.dirname(__file__), "strategies")
 sys.path.insert(0, _STRATEGIES_DIR)
@@ -981,7 +988,7 @@ def manage_positions():
     upgrade_candidates = []  # Weak positions that could be replaced
 
     # Load evolving stop state (persists across cycles)
-    _stop_state_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'voltrade_stop_state.json')
+    _stop_state_path = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
     try:
         with open(_stop_state_path) as f:
             stop_state = json.load(f)
@@ -1094,7 +1101,7 @@ def manage_positions():
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side, "reason": reason, "type": stop_type, "phase": phase, "exit_context": exit_context})
             # Record stop-loss cooldown to prevent immediate re-entry
             try:
-                _cd_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'voltrade_stop_cooldown.json')
+                _cd_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
                 try:
                     with open(_cd_path) as _f: _cd = json.load(_f)
                 except Exception: _cd = {}
@@ -1239,6 +1246,12 @@ def scan_market():
                 # Extreme movers (>50%) get penalized — the easy money is already gone
                 _capped_change = min(abs(change_pct), 15.0)
                 _extreme_penalty = -30 if abs(change_pct) > 50 else (-15 if abs(change_pct) > 30 else 0)
+                # Volume weight capped — prevents low-move high-volume ETFs (TZA, BITO) from
+                # drowning out real movers. Volume is a quality check, not the primary signal.
+                _vol_score = min(v / 1000000, 5.0) * 2  # max +10 from volume (was uncapped *3)
+                # Direction bonus: big moves in either direction are opportunities
+                # Up moves = calls/longs, Down moves = puts/shorts — both are tradeable
+                _direction_bonus = 5 if abs(change_pct) > 10 else (2 if abs(change_pct) > 5 else 0)
                 quick_results.append({
                     "ticker": sym,
                     "price": round(c, 2),
@@ -1247,7 +1260,7 @@ def scan_market():
                     "prev_close": pc,
                     "volume": v,
                     "change_pct": round(change_pct, 2),
-                    "quick_score": _capped_change * 2 + (v / 1000000) * 3 + _extreme_penalty,
+                    "quick_score": _capped_change * 3 + _vol_score + _direction_bonus + _extreme_penalty,
                     "above_vwap": c > o,
                     "range_pct": 0,
                     "vwap_dist": 0,
@@ -1263,8 +1276,9 @@ def scan_market():
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
     scored = quick_results
 
-    # Step 3: Deep analyze top 10
-    top_candidates = scored[:10]
+    # Step 3: Deep analyze top 20 — more candidates means more angles found each scan
+    # Top 10 was too narrow: on slow days all 10 could fail MIN_SCORE, leaving 0 trades
+    top_candidates = scored[:20]
     deep_scored = []
     for candidate in top_candidates:
         try:
@@ -1327,7 +1341,7 @@ def scan_market():
             continue
 
         # Skip if recently stopped out (2-hour cooldown per ticker)
-        _cooldown_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'voltrade_stop_cooldown.json')
+        _cooldown_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
         try:
             with open(_cooldown_path) as _f:
                 _cooldown = json.load(_f)
@@ -1353,7 +1367,7 @@ def scan_market():
         # Don't buy OR short the spike — write to watchlist for overnight analysis
         # Tomorrow's setup (continuation or mean reversion) is a much cleaner entry
         if change_pct_val > 50:
-            _em_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'extreme_movers_today.json')
+            _em_path = os.path.join(DATA_DIR, 'extreme_movers_today.json')
             try:
                 try:
                     with open(_em_path) as _f: _em = json.load(_f)
@@ -1518,7 +1532,7 @@ if __name__ == "__main__":
     # Train ML model if needed (runs once, cached for a week)
     try:
         from ml_model import train_model
-        model_path = "/tmp/voltrade_ml_model.pkl"
+        model_path = os.path.join(DATA_DIR, "voltrade_ml_model.pkl")
         # Retrain if model doesn't exist or is older than 7 days
         if not os.path.exists(model_path) or (time.time() - os.path.getmtime(model_path)) > 7 * 86400:
             train_result = train_model()  # Silent — no print here, result goes into scan output
