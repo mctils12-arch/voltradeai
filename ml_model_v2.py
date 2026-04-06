@@ -163,9 +163,9 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
 
     closes  = [b["c"] for b in bars]
     volumes = [b.get("v", 0) for b in bars]
-    highs   = [b.get("h", closes[i]) for i in range(len(bars))]
-    lows    = [b.get("l", closes[i]) for i in range(len(bars))]
-    opens   = [b.get("o", closes[i]) for i in range(len(bars))]
+    highs   = [bars[i].get("h", closes[i]) for i in range(len(bars))]
+    lows    = [bars[i].get("l", closes[i]) for i in range(len(bars))]
+    opens   = [bars[i].get("o", closes[i]) for i in range(len(bars))]
 
     c = closes[idx]
     if c <= 0:
