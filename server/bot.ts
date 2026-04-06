@@ -435,19 +435,69 @@ export function registerBotRoutes(app: Express) {
   app.get("/api/bot/positions", requireAuth, async (_req, res) => {
     try {
       const positions = await alpaca("/v2/positions");
-      const mapped = (positions as any[]).map((p: any) => ({
-        ticker: p.symbol,
-        qty: parseFloat(p.qty),
-        side: parseFloat(p.qty) > 0 ? "long" : "short",
-        entryPrice: parseFloat(p.avg_entry_price),
-        currentPrice: parseFloat(p.current_price),
-        marketValue: parseFloat(p.market_value),
-        pnl: parseFloat(p.unrealized_pl),
-        pnlPct: parseFloat(p.unrealized_plpc) * 100,
-      }));
+      // Load evolving stop state for stop/TP levels
+      const { stdout: stopOut } = await execAsync(`python3 -c "
+import json, os
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+stop_path = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
+try:
+    with open(stop_path) as f: data = json.load(f)
+except Exception: data = {}
+print(json.dumps(data))
+"`, { timeout: 5000 }).catch(() => ({ stdout: "{}" }));
+      const stopState: any = JSON.parse(stopOut.trim() || "{}");
+
+      const mapped = (positions as any[]).map((p: any) => {
+        const ss = stopState[p.symbol] || {};
+        const entry = parseFloat(p.avg_entry_price);
+        const current = parseFloat(p.current_price);
+        const pnlPct = parseFloat(p.unrealized_plpc) * 100;
+        const atrPct = ss.current_stop_pct || 2.5;
+        const phase = ss.phase || 1;
+        // Calculate live stop and TP prices from evolving stop state
+        const stopPrice = phase >= 2
+          ? current * (1 - atrPct / 100)  // Trailing from current
+          : entry * (1 - atrPct / 100);    // Phase 1: from entry
+        const tpPrice = phase >= 3 ? null : entry * (1 + atrPct * 1.5 / 100);
+        return {
+          ticker: p.symbol,
+          qty: parseFloat(p.qty),
+          side: parseFloat(p.qty) > 0 ? "long" : "short",
+          entryPrice: entry,
+          currentPrice: current,
+          marketValue: parseFloat(p.market_value),
+          pnl: parseFloat(p.unrealized_pl),
+          pnlPct: pnlPct,
+          stopPrice: Math.round(stopPrice * 100) / 100,
+          takeProfitPrice: tpPrice ? Math.round(tpPrice * 100) / 100 : null,
+          phase: phase,
+          rMultiple: ss.r_multiple || 0,
+          highestPnl: ss.highest_pnl || 0,
+          daysHeld: ss.days_held || 0,
+        };
+      });
       res.json(mapped);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Candlestick bars for trade charts
+  app.get("/api/bot/bars/:ticker", requireAuth, async (req, res) => {
+    try {
+      const { ticker } = req.params;
+      const timeframe = (req.query.timeframe as string) || "5Min";
+      const limit = parseInt(req.query.limit as string) || 100;
+      const data = await fetch(
+        `${process.env.ALPACA_DATA_URL || "https://data.alpaca.markets"}/v2/stocks/${ticker}/bars?timeframe=${timeframe}&limit=${limit}&feed=iex&adjustment=split`,
+        { headers: { "APCA-API-KEY-ID": process.env.ALPACA_KEY || ALPACA_KEY, "APCA-API-SECRET-KEY": process.env.ALPACA_SECRET || ALPACA_SECRET } }
+      ).then(r => r.json());
+      res.json(data.bars || []);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, bars: [] });
     }
   });
 

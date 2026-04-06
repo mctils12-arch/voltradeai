@@ -5,7 +5,7 @@ import {
   ShieldAlert, Play, Square, TrendingUp, Activity, Clock,
   RefreshCw, Shield, Lock, BarChart2, Zap, Bell, ArrowUp, ArrowDown,
 } from "lucide-react";
-import ChartPage from "./chart";
+import TradeCharts from "@/components/TradeChart";
 
 // ─── Tooltip helper ──────────────────────────────────────────────────────────
 const TIPS: Record<string, string> = {
@@ -733,8 +733,8 @@ export default function BotDashboard() {
   });
   const { data: positions } = useQuery({
     queryKey: ["/api/bot/positions"],
-    queryFn: async () => { const r = await apiRequest("GET", "/api/bot/positions"); return r.json(); },
-    refetchInterval: 10000,
+    queryFn: () => apiRequest("GET", "/api/bot/positions"),
+    refetchInterval: 15000, // Refresh every 15s for live stop/TP updates
   });
   const { data: status } = useQuery({
     queryKey: ["/api/bot/status"],
@@ -987,9 +987,9 @@ export default function BotDashboard() {
         )}
       </div>
 
-      {/* ── Chart ── */}
-      <div style={{ ...card, marginBottom: "20px" }}>
-        <ChartPage />
+      {/* ── Live Trade Charts ── */}
+      <div style={{ marginBottom: "20px" }}>
+        <TradeCharts positions={positions || []} />
       </div>
 
       {/* ── Security Controls ── */}
