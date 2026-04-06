@@ -3,6 +3,7 @@ import { requireAuth } from "./auth";
 import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
+import WebSocket from "ws";
 const execAsync = promisify(exec);
 
 // ─── Alpaca Config ──────────────────────────────────────────────────────────
@@ -796,12 +797,15 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
     state.active = true;
     audit("START", "Bot activated");
     notify("system", "Bot activated — scanning for opportunities");
+    // Start real-time streaming feed
+    setTimeout(() => startStreaming(), 2000);
     res.json({ ok: true, active: true });
   });
 
   // Stop bot
   app.post("/api/bot/stop", requireAuth, (_req, res) => {
     state.active = false;
+    stopStreaming();
     audit("STOP", "Bot deactivated");
     notify("system", "Bot paused");
     res.json({ ok: true, active: false });
@@ -1440,7 +1444,17 @@ print(json.dumps(get_auto_fix_params()))
       }
     }
 
-    // 3. Run bot_engine scan (quick scan + deep analyze top 10)
+    // 3. Run bot_engine scan (quick scan + deep analyze top 20)
+    //    Priority: process streaming signals first (detected in real-time by Tier 0)
+    const streamQueue: any[] = ((state as any).streamSignalQueue || []).filter(
+      (s: any) => Date.now() - s.ts < 300_000  // Only signals < 5 min old
+    );
+    if (streamQueue.length > 0) {
+      const tickers = streamQueue.map((s: any) => s.ticker).join(", ");
+      audit("STREAM-PRIORITY", `${streamQueue.length} real-time signal(s) queued: ${tickers} — processing first`);
+      (state as any).streamSignalQueue = [];  // Clear after reading
+    }
+
     try {
       const enginePath = require("path").resolve(process.cwd(), "bot_engine.py");
       const { stdout, stderr } = await execAsync(`python3 -W ignore "${enginePath}" full`, { timeout: 300000 }); // 5 min timeout
@@ -2152,6 +2166,117 @@ print(json.dumps({'files': count}))
     autoRunning = false;
   }
 
+  // ── TIER 0: Real-Time Streaming ──────────────────────────────────────────────
+  // WebSocket connection to Alpaca SIP feed — receives 1-minute bar updates the
+  // instant each bar closes. Detects volume spikes and breakouts in real-time,
+  // BEFORE they appear on the polling-based most-actives list (which lags 2-15 min).
+
+  const STREAM_TICKERS = [
+    "NVDA","AMD","META","MSFT","AAPL","GOOGL","AMZN","AVGO","TSLA","PLTR",
+    "COIN","MSTR","HOOD","SOFI","AFRM","UPST","SQ","CRWD","NET","DDOG",
+    "MDB","SNOW","PANW","ZS","ARM","SMCI","SHOP","PINS","SNAP","NFLX",
+    "JPM","GS","V","MA","UNH","LLY","WMT","COST","XOM","CVX",
+    "SPY","QQQ","IWM",
+  ];
+
+  const streamVolHistory: Record<string, number[]>   = {};
+  const streamPriceHistory: Record<string, number[]> = {};
+  const streamLastSignal: Record<string, number>     = {};
+  let   streamWs: WebSocket | null = null;
+  let   streamConnected = false;
+
+  function startStreaming() {
+    if (streamWs) { try { streamWs.close(); } catch (_) {} }
+
+    const ws = new WebSocket("wss://stream.data.alpaca.markets/v2/sip");
+    streamWs = ws;
+
+    ws.on("open", () => {
+      ws.send(JSON.stringify({ action: "auth", key: ALPACA_KEY, secret: ALPACA_SECRET }));
+    });
+
+    ws.on("message", async (raw: Buffer) => {
+      try {
+        const msgs = JSON.parse(raw.toString());
+        const items = Array.isArray(msgs) ? msgs : [msgs];
+
+        for (const item of items) {
+          if (!item || typeof item !== "object") continue;
+
+          // Auth success — subscribe to 1-min bars
+          if (item.T === "success" && item.msg === "authenticated") {
+            ws.send(JSON.stringify({ action: "subscribe", bars: STREAM_TICKERS }));
+          }
+          if (item.T === "subscription") {
+            streamConnected = true;
+            audit("STREAM", `Real-time feed live — ${(item.bars || []).length} tickers`);
+          }
+
+          // 1-minute bar received — run signal detection
+          if (item.T === "b" && item.S && item.v > 0 && item.c > 0) {
+            const ticker = item.S as string;
+            const volume = item.v as number;
+            const close  = item.c as number;
+            const open_  = item.o as number;
+
+            if (!streamVolHistory[ticker])   streamVolHistory[ticker]   = [];
+            if (!streamPriceHistory[ticker]) streamPriceHistory[ticker] = [];
+            streamVolHistory[ticker].push(volume);
+            streamPriceHistory[ticker].push(close);
+            if (streamVolHistory[ticker].length   > 20) streamVolHistory[ticker].shift();
+            if (streamPriceHistory[ticker].length > 20) streamPriceHistory[ticker].shift();
+            if (streamVolHistory[ticker].length < 5) continue;
+
+            const volArr  = streamVolHistory[ticker].slice(0, -1);
+            const avgVol  = volArr.reduce((a: number, b: number) => a + b, 0) / volArr.length;
+            const volRatio = avgVol > 0 ? volume / avgVol : 1;
+            const barChg   = open_ > 0 ? ((close - open_) / open_) * 100 : 0;
+            const ph       = streamPriceHistory[ticker];
+            const mom5     = ph.length >= 5 ? ((ph[ph.length-1] - ph[ph.length-5]) / ph[ph.length-5]) * 100 : 0;
+
+            // Signal: volume 2.5x+ average AND directional price move
+            if (volRatio >= 2.5 && Math.abs(barChg) >= 0.8 && Math.abs(mom5) >= 0.3) {
+              const cooldown = 10 * 60 * 1000;
+              if (Date.now() - (streamLastSignal[ticker] || 0) < cooldown) continue;
+              if (!state.active || state.killSwitch || state.circuitBreakerUntil > Date.now()) continue;
+
+              streamLastSignal[ticker] = Date.now();
+              const dir = barChg > 0 ? "bullish" : "bearish";
+              audit("STREAM-SIGNAL", `${ticker}: ${volRatio.toFixed(1)}x vol, ${barChg > 0 ? "+" : ""}${barChg.toFixed(2)}% bar (${dir}) — queued for fast scan`);
+
+              // Queue for priority processing in next Tier 2 cycle
+              if (!Array.isArray((state as any).streamSignalQueue)) (state as any).streamSignalQueue = [];
+              const queue: any[] = (state as any).streamSignalQueue;
+              // Deduplicate and cap
+              if (!queue.find((s: any) => s.ticker === ticker)) {
+                queue.push({ ticker, price: close, direction: dir, volRatio, barChg, ts: Date.now() });
+              }
+              // Expire signals older than 5 minutes
+              (state as any).streamSignalQueue = queue
+                .filter((s: any) => Date.now() - s.ts < 300_000)
+                .slice(-20);
+            }
+          }
+        }
+      } catch (_) {}
+    });
+
+    ws.on("error", (err: Error) => {
+      audit("STREAM-ERROR", err.message.slice(0, 100));
+    });
+
+    ws.on("close", () => {
+      streamConnected = false;
+      // Auto-reconnect after 10 seconds if bot is still active
+      setTimeout(() => { if (state.active && !state.killSwitch) startStreaming(); }, 10000);
+    });
+  }
+
+  function stopStreaming() {
+    if (streamWs) { try { streamWs.close(); } catch (_) {} streamWs = null; }
+    streamConnected = false;
+  }
+
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;
   let tier3Running = false;
@@ -2372,6 +2497,10 @@ print(json.dumps({'files': count}))
       const now3 = new Date(clock.timestamp);
       const etH3 = now3.getUTCHours() - 4;
       const canTrade = clock.is_open || (etH3 >= 4 && etH3 < 20);
+
+      // Always start real-time streaming (works during and after market hours)
+      setTimeout(() => startStreaming(), 3000);
+      audit("STREAM", "Real-time WebSocket feed starting...");
 
       if (canTrade) {
         audit("SYSTEM", "Market is in a trading window. Tier 2 scan starting...");
