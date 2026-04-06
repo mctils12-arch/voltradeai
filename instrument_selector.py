@@ -33,6 +33,16 @@ from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger("instrument_selector")
+# Large-cap stocks safe to short (always easy to borrow, liquid)
+LARGE_CAP_SHORTABLE = {
+    "SPY", "QQQ", "IWM", "DIA", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG",
+    "META", "TSLA", "AMD", "AVGO", "COST", "NFLX", "ORCL", "CRM", "ADBE", "INTC",
+    "QCOM", "TXN", "AMAT", "LRCX", "KLAC", "MU", "JPM", "BAC", "GS", "MS", "WFC",
+    "V", "MA", "UNH", "JNJ", "LLY", "ABBV", "PFE", "MRK", "WMT", "HD", "AMGN",
+    "XOM", "CVX", "COP", "BA", "CAT", "GE", "HON", "DE", "T", "VZ", "TMUS",
+    "DIS", "CMCSA", "NFLX", "SBUX", "MCD", "NKE",
+}
+
 
 # ── Sibling module path ───────────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))

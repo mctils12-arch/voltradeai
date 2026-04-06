@@ -630,6 +630,127 @@ def _select_bear_spread(contracts: list, price: float, equity: float, ticker: st
 #  C. ORDER SUBMISSION
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+def _select_straddle(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.04) -> dict:
+    """
+    Short straddle: sell ATM call + sell ATM put.
+    Profit if stock stays within the breakeven range.
+    Max profit = total premium collected.
+    Max loss = theoretically large if stock moves far.
+    Best when: IV rank > 60, stock expected to consolidate.
+    """
+    calls = [c for c in contracts if c["option_type"] == "call" and abs(c["strike"] - price) / price < 0.03]
+    puts  = [c for c in contracts if c["option_type"] == "put"  and abs(c["strike"] - price) / price < 0.03]
+
+    if not calls or not puts:
+        return {"error": "No ATM contracts found for straddle"}
+
+    # Pick the ATM call and put (closest to current price)
+    atm_call = min(calls, key=lambda c: abs(c["strike"] - price))
+    atm_put  = min(puts,  key=lambda c: abs(c["strike"] - price))
+
+    # Use bid price (we're selling)
+    call_credit = atm_call.get("bid", 0)
+    put_credit  = atm_put.get("bid", 0)
+
+    if call_credit <= 0 or put_credit <= 0:
+        return {"error": "No valid bid prices for straddle legs"}
+
+    total_credit = round(call_credit + put_credit, 2)
+    breakeven_up   = round(atm_call["strike"] + total_credit, 2)
+    breakeven_down = round(atm_put["strike"]  - total_credit, 2)
+
+    # Size: credit received, capped by equity
+    max_risk = equity * size_pct  # Conservative — straddle can lose a lot
+    qty = min(2, max(1, int(max_risk / (atm_call["strike"] * 10))))  # Very conservative
+
+    return {
+        "strategy": "short_straddle",
+        "call_leg": atm_call["occ_symbol"],
+        "put_leg": atm_put["occ_symbol"],
+        "strike": atm_call["strike"],
+        "expiry": atm_call["expiry"],
+        "qty": qty,
+        "call_credit": call_credit,
+        "put_credit": put_credit,
+        "total_credit": round(total_credit * qty * 100, 2),
+        "limit_price": total_credit,
+        "breakeven_up": breakeven_up,
+        "breakeven_down": breakeven_down,
+        "max_profit": round(total_credit * qty * 100, 2),
+        "days_to_expiry": atm_call.get("days_to_expiry"),
+        "error": None,
+    }
+
+
+def _select_condor(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.04) -> dict:
+    """
+    Iron condor: sell OTM call spread + sell OTM put spread.
+    Profit if stock stays within a defined range.
+    Fully defined risk — max loss = spread width - credit received.
+    Best when: VIX elevated, stock range-bound (ADX < 25).
+    """
+    calls = sorted([c for c in contracts if c["option_type"] == "call"], key=lambda c: c["strike"])
+    puts  = sorted([c for c in contracts if c["option_type"] == "put"],  key=lambda c: c["strike"], reverse=True)
+
+    if len(calls) < 2 or len(puts) < 2:
+        return {"error": "Not enough contracts for iron condor"}
+
+    # Short call spread: sell call ~5% OTM, buy call ~8% OTM (cap the upside risk)
+    target_short_call = price * 1.05
+    target_long_call  = price * 1.08
+    short_call_candidates = [c for c in calls if c["strike"] > price * 1.03]
+    long_call_candidates  = [c for c in calls if c["strike"] > price * 1.06]
+    if not short_call_candidates or not long_call_candidates:
+        return {"error": "No suitable call legs for condor"}
+
+    short_call = min(short_call_candidates, key=lambda c: abs(c["strike"] - target_short_call))
+    long_call  = min(long_call_candidates,  key=lambda c: abs(c["strike"] - target_long_call))
+
+    # Short put spread: sell put ~5% OTM, buy put ~8% OTM
+    target_short_put = price * 0.95
+    target_long_put  = price * 0.92
+    short_put_candidates = [p for p in puts if p["strike"] < price * 0.97]
+    long_put_candidates  = [p for p in puts if p["strike"] < price * 0.94]
+    if not short_put_candidates or not long_put_candidates:
+        return {"error": "No suitable put legs for condor"}
+
+    short_put = min(short_put_candidates, key=lambda p: abs(p["strike"] - target_short_put))
+    long_put  = min(long_put_candidates,  key=lambda p: abs(p["strike"] - target_long_put))
+
+    # Net credit = sold premiums - bought premiums
+    call_credit = round(short_call.get("bid", 0) - long_call.get("ask", 0), 2)
+    put_credit  = round(short_put.get("bid", 0)  - long_put.get("ask", 0),  2)
+    net_credit  = round(call_credit + put_credit, 2)
+
+    if net_credit <= 0:
+        return {"error": "Condor yields no credit — spreads too tight or pricing off"}
+
+    spread_width = round(short_call["strike"] - long_call["strike"], 2)
+    max_loss_per = round((spread_width - net_credit) * 100, 2)
+    max_profit   = round(net_credit * 100, 2)
+
+    qty = min(3, max(1, int(equity * size_pct / max(max_loss_per, 1))))
+
+    return {
+        "strategy": "iron_condor",
+        "short_call": short_call["occ_symbol"],
+        "long_call":  long_call["occ_symbol"],
+        "short_put":  short_put["occ_symbol"],
+        "long_put":   long_put["occ_symbol"],
+        "short_call_strike": short_call["strike"],
+        "short_put_strike":  short_put["strike"],
+        "expiry": short_call["expiry"],
+        "qty": qty,
+        "net_credit": net_credit,
+        "total_credit": round(net_credit * qty * 100, 2),
+        "max_profit": round(max_profit * qty, 2),
+        "max_loss":   round(max_loss_per * qty, 2),
+        "profit_range": f"${short_put['strike']} to ${short_call['strike']}",
+        "days_to_expiry": short_call.get("days_to_expiry"),
+        "error": None,
+    }
+
 def submit_options_order(contract: dict) -> dict:
     """
     Submit an options order to Alpaca.
@@ -642,10 +763,13 @@ def submit_options_order(contract: dict) -> dict:
     
     strategy = contract.get("strategy", "")
     
-    # Multi-leg orders (spreads) — Alpaca doesn't support complex options orders yet
-    # We need to submit legs individually
+    # Multi-leg orders (spreads and multi-leg strategies)
     if "spread" in strategy:
         return _submit_spread_order(contract)
+    elif strategy == "short_straddle":
+        return _submit_straddle_order(contract)
+    elif strategy == "iron_condor":
+        return _submit_condor_order(contract)
     
     # Single-leg order
     occ_symbol = contract.get("occ_symbol", "")
@@ -770,6 +894,74 @@ def _submit_spread_order(contract: dict) -> dict:
             "detail": f"Long leg OK but short leg error: {str(e)[:200]}",
             "long_order_id": long_order.get("id"),
         }
+
+
+def _submit_straddle_order(contract: dict) -> dict:
+    """Submit short straddle: sell ATM call + sell ATM put."""
+    call_sym = contract.get("call_leg", "")
+    put_sym  = contract.get("put_leg", "")
+    qty      = contract.get("qty", 1)
+    call_credit = contract.get("call_credit", 0)
+    put_credit  = contract.get("put_credit", 0)
+
+    results = []
+    for sym, credit, leg_name in [(call_sym, call_credit, "call"), (put_sym, put_credit, "put")]:
+        try:
+            resp = requests.post(
+                f"{ALPACA_BASE}/v2/orders",
+                headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                json={"symbol": sym, "qty": str(qty), "side": "sell", "type": "limit",
+                      "limit_price": str(round(credit, 2)), "time_in_force": "day"},
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                results.append(f"{leg_name} sold OK")
+            else:
+                results.append(f"{leg_name} failed: {resp.text[:100]}")
+        except Exception as e:
+            results.append(f"{leg_name} error: {str(e)[:100]}")
+
+    success = all("OK" in r for r in results)
+    return {
+        "status": "submitted" if success else "partial",
+        "detail": f"Straddle {call_sym}/{put_sym} x{qty}: {', '.join(results)}",
+        "total_credit": contract.get("total_credit"),
+    }
+
+
+def _submit_condor_order(contract: dict) -> dict:
+    """Submit iron condor: sell short call/put, buy long call/put (4 legs)."""
+    legs = [
+        (contract.get("short_call"), "sell", contract.get("net_credit", 0) * 0.6),
+        (contract.get("long_call"),  "buy",  0.01),  # Buy for small debit
+        (contract.get("short_put"),  "sell", contract.get("net_credit", 0) * 0.6),
+        (contract.get("long_put"),   "buy",  0.01),
+    ]
+    qty = contract.get("qty", 1)
+    results = []
+
+    for sym, side, limit_px in legs:
+        if not sym:
+            continue
+        try:
+            resp = requests.post(
+                f"{ALPACA_BASE}/v2/orders",
+                headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                json={"symbol": sym, "qty": str(qty), "side": side, "type": "limit",
+                      "limit_price": str(max(0.01, round(limit_px, 2))), "time_in_force": "day"},
+                timeout=10,
+            )
+            results.append("OK" if resp.status_code in (200, 201) else f"FAIL({resp.status_code})")
+        except Exception as e:
+            results.append(f"ERR({str(e)[:50]})")
+
+    success_count = sum(1 for r in results if r == "OK")
+    return {
+        "status": "submitted" if success_count == 4 else f"partial_{success_count}_of_4",
+        "detail": f"Iron condor {contract.get('profit_range')} x{qty}: {', '.join(results)}",
+        "total_credit": contract.get("total_credit"),
+    }
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

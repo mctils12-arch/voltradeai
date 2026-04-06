@@ -1671,7 +1671,22 @@ print(json.dumps(check_weekly_loss(history)))
         // ── Stock execution (default or fallback from options) ──
         const qty = Math.floor(trade.shares);
         if (qty <= 0) continue;
-        const side = trade.side === "short" ? "sell" : (trade.side || "buy");
+        const isShort = trade.side === "short";
+        const side = isShort ? "sell" : (trade.side || "buy");
+
+        // Short stock: verify easy-to-borrow before submitting
+        if (isShort) {
+          try {
+            const assetInfo = await alpaca(`/v2/assets/${trade.ticker}`);
+            if (!assetInfo.easy_to_borrow) {
+              audit("SHORT-SKIP", `${trade.ticker}: not easy to borrow — routing to puts`);
+              continue; // Skip — options path should have handled this
+            }
+          } catch (borrowErr: any) {
+            audit("SHORT-SKIP", `${trade.ticker}: borrow check failed — skipping short`);
+            continue;
+          }
+        }
 
         const orderParams = getOrderParams(trade.price || 0);
         const orderResult = await alpaca("/v2/orders", {

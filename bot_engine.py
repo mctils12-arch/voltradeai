@@ -1370,10 +1370,22 @@ def scan_market():
             except Exception: pass
             continue  # Skip — will be analyzed tonight for tomorrow
 
-        # For SELL signals without existing position — convert to BUY (no naked sells on paper)
+        # Smart short logic:
+        # - Large-cap liquid stocks → allow actual short sell (instrument_selector handles borrow check)
+        # - Everything else → options path (puts) handles it, don't convert to buy
+        # - Micro-caps up 50%+ → already blocked by extreme mover filter above
+        _LARGE_CAP_SHORTABLE = {
+            "SPY", "QQQ", "IWM", "DIA", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG",
+            "META", "TSLA", "AMD", "AVGO", "COST", "NFLX", "ORCL", "CRM", "ADBE",
+            "INTC", "QCOM", "TXN", "AMAT", "LRCX", "MU", "JPM", "BAC", "GS", "MS",
+            "V", "MA", "UNH", "JNJ", "LLY", "ABBV", "PFE", "MRK", "WMT", "HD", "XOM", "CVX",
+        }
         if side == "sell" and stock.get("trade_type") != "options":
-            side = "buy"
-            action_label = "BUY"
+            if ticker in _LARGE_CAP_SHORTABLE:
+                pass  # Allow short — large-cap, borrow always available
+            else:
+                side = "buy"  # Non-large-cap: convert to buy (options path handles bearish plays)
+                action_label = "BUY"
 
         # Instrument decision: stock vs 2x ETF vs options (unified selector)
         instrument_decision = {"chosen": "stock", "strategy": "buy_stock", "reasoning": "default"}
