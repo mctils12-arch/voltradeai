@@ -733,7 +733,7 @@ export default function BotDashboard() {
   });
   const { data: positions } = useQuery({
     queryKey: ["/api/bot/positions"],
-    queryFn: () => apiRequest("GET", "/api/bot/positions"),
+    queryFn: async () => { const r = await apiRequest("GET", "/api/bot/positions"); return r.json(); },
     refetchInterval: 15000, // Refresh every 15s for live stop/TP updates
   });
   const { data: status } = useQuery({

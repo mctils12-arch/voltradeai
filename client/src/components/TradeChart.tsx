@@ -60,7 +60,8 @@ function SingleTradeChart({ position }: { position: Position }) {
     setError(null);
     try {
       const tf = TIMEFRAMES.find(t => t.value === timeframe)!;
-      const data = await apiRequest("GET", `/api/bot/bars/${position.ticker}?timeframe=${timeframe}&limit=${tf.bars}`);
+      const resp = await apiRequest("GET", `/api/bot/bars/${position.ticker}?timeframe=${timeframe}&limit=${tf.bars}`);
+      const data = await resp.json();
       // Existing bars endpoint returns { bars: [...], ticker, timeframe }
       const rawBars: Bar[] = (data && data.bars) ? data.bars : Array.isArray(data) ? data : [];
 
