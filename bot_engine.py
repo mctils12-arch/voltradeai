@@ -67,9 +67,9 @@ MAX_POSITIONS = 5          # Max stocks to hold at once
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
 STOP_LOSS_PCT = 0.02       # 2% stop loss
 TAKE_PROFIT_PCT = 0.06     # 6% take profit (3:1 reward/risk)
-MIN_SCORE = 65             # Minimum combined score to trade
-MIN_VOLUME = 500000        # Minimum avg daily volume
-MIN_PRICE = 5              # Minimum stock price
+MIN_SCORE = 60             # Minimum combined score to trade (lowered from 65 — dynamic adaptation)
+MIN_VOLUME = 200000        # Minimum volume (lowered: early market hours have low cumulative volume)
+MIN_PRICE = 2              # Minimum stock price (lowered from 5 — many legit movers are 2-5$)
 MAX_SECTOR_POSITIONS = 2   # Max 2 stocks from the same sector
 
 # ── Sector Map (for correlation / diversification check) ─────────────────────
@@ -1213,7 +1213,12 @@ def scan_market():
                 o = float(bar.get("o", c))
                 pc = float(prev.get("c", c))
                 v = int(bar.get("v", 0))
-                if c < 5 or v < 500000:
+                # Time-adaptive volume: first 30 min of market has low daily volume
+                from datetime import timezone
+                _et_hour = ((__import__('datetime').datetime.now(__import__('datetime').timezone.utc).hour - 4) + 24) % 24
+                _et_min = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).minute
+                _min_vol = 100000 if (_et_hour == 9 and _et_min < 60) else MIN_VOLUME
+                if c < MIN_PRICE or v < _min_vol:
                     continue
                 # Skip non-standard tickers
                 if "." in sym or len(sym) > 5:
