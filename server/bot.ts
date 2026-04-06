@@ -1334,11 +1334,12 @@ print(json.dumps(get_auto_fix_params()))
     // 3. Run bot_engine scan (quick scan + deep analyze top 10)
     try {
       const enginePath = require("path").resolve(process.cwd(), "bot_engine.py");
-      const { stdout } = await execAsync(`python3 -W ignore "${enginePath}" full 2>/dev/null`, { timeout: 300000 }); // 5 min timeout
-      // Robust JSON extraction: find the first '{' to skip any warning text
-      const jsonStart = stdout.indexOf('{');
-      if (jsonStart === -1) throw new Error(`No JSON in output: ${stdout.slice(0, 200)}`);
-      const result = JSON.parse(stdout.slice(jsonStart).trim());
+      const { stdout, stderr } = await execAsync(`python3 -W ignore "${enginePath}" full`, { timeout: 300000 }); // 5 min timeout
+      // Robust JSON extraction: find the first '{' to skip any warning/debug text before JSON
+      const cleanStdout = stdout.replace(/\r/g, '').trim();
+      const jsonStart = cleanStdout.indexOf('{');
+      if (jsonStart === -1) throw new Error(`No JSON in output. stdout: ${cleanStdout.slice(0, 200)} stderr: ${(stderr || '').slice(0, 200)}`);
+      const result = JSON.parse(cleanStdout.slice(jsonStart));
 
       if (!result || result.error) {
         audit("TIER2", `Scan returned error: ${result?.error || "unknown"}`);

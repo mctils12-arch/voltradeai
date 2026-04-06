@@ -1456,8 +1456,7 @@ if __name__ == "__main__":
         model_path = "/tmp/voltrade_ml_model.pkl"
         # Retrain if model doesn't exist or is older than 7 days
         if not os.path.exists(model_path) or (time.time() - os.path.getmtime(model_path)) > 7 * 86400:
-            print(json.dumps({"status": "training_ml_model"}))
-            train_result = train_model()
+            train_result = train_model()  # Silent — no print here, result goes into scan output
             # Training happens in background, don't block the scan
     except Exception:
         pass
