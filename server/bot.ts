@@ -269,6 +269,7 @@ print(json.dumps({'saved': len(feedback), 'total': len(existing)}))
   }
 }
 
+let lastWeightAdjustLog = 0; // Throttle LEARN audit log — max once per 30 min
 function adjustStrategyWeights() {
   // Simple heuristic: if recent win rate < 40%, reduce weight on low-confidence signals
   const recent = tradeResults.slice(0, 20);
@@ -276,14 +277,20 @@ function adjustStrategyWeights() {
 
   const winRate = recent.filter(t => t.pnl > 0).length / recent.length;
   if (winRate < 0.4) {
-    audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% — increasing VRP/squeeze weight`);
-    // Shift weight toward VRP (more reliable signal)
+    // Adjust weights silently every cycle, but only LOG once per 30 minutes
     strategyWeights.vrp = Math.min(0.40, strategyWeights.vrp + 0.02);
     strategyWeights.momentum = Math.max(0.15, strategyWeights.momentum - 0.01);
     strategyWeights.volume = Math.max(0.10, strategyWeights.volume - 0.01);
+    if (Date.now() - lastWeightAdjustLog > 1800000) { // 30 minutes
+      audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% — shifting weight toward VRP/squeeze (momentum: ${(strategyWeights.momentum * 100).toFixed(0)}%, VRP: ${(strategyWeights.vrp * 100).toFixed(0)}%)`);
+      lastWeightAdjustLog = Date.now();
+    }
   } else if (winRate > 0.65) {
-    // Good performance — restore balanced weights gradually
     strategyWeights.momentum = Math.min(0.30, strategyWeights.momentum + 0.01);
+    if (Date.now() - lastWeightAdjustLog > 1800000) {
+      audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% — restoring balanced weights (momentum: ${(strategyWeights.momentum * 100).toFixed(0)}%)`);
+      lastWeightAdjustLog = Date.now();
+    }
   }
 }
 
@@ -1308,14 +1315,45 @@ print(json.dumps(result))
           audit("TIER1-EXIT", `${action.reason}`);
           notify("exit", `Closed ${action.ticker}: ${action.reason}`);
 
-          // Circuit breaker tracking
+          // Smart circuit breaker — context-aware, not just counting
           if (action.type === "stop_loss" || action.type === "trailing_stop") {
             state.consecutiveStopLosses++;
+            // Track which tickers triggered stops
+            if (!Array.isArray((state as any).recentStopTickers)) (state as any).recentStopTickers = [];
+            (state as any).recentStopTickers.push(action.ticker);
+            if ((state as any).recentStopTickers.length > 5) (state as any).recentStopTickers.shift();
+
             if (state.consecutiveStopLosses >= 3) {
-              state.circuitBreakerUntil = Date.now() + 3600000;
-              sendEmailAlert("Circuit Breaker Triggered", "3 consecutive stop-losses — bot paused for 1 hour");
-              audit("CIRCUIT-BREAKER", "3 consecutive stop-losses — paused 1 hour");
-              notify("alert", "Circuit breaker: 3 stops hit. Paused 1 hour.");
+              const recentTickers: string[] = (state as any).recentStopTickers || [];
+              const uniqueTickers = new Set(recentTickers.slice(-3)).size;
+              const dailyLossHit = state.dailyPnL / (state.equityPeak || 100000) * 100 <= -5;
+
+              if (dailyLossHit) {
+                // 3 stops + already down 5%+ today → pause rest of day
+                const msUntilClose = (() => {
+                  const now = new Date();
+                  const close = new Date(now); close.setHours(20, 0, 0, 0); // 4pm ET = 8pm UTC
+                  return Math.max(close.getTime() - now.getTime(), 3600000);
+                })();
+                state.circuitBreakerUntil = Date.now() + msUntilClose;
+                sendEmailAlert("Circuit Breaker — Day Halted", `3 stops + down ${(state.dailyPnL / (state.equityPeak || 100000) * 100).toFixed(1)}% today. Trading paused for rest of day.`);
+                audit("CIRCUIT-BREAKER", `3 stops + -5%+ day loss — paused rest of day`);
+                notify("alert", "Circuit breaker: Down 5%+ with 3 stops. Paused for the day.");
+              } else if (uniqueTickers >= 2) {
+                // 3 stops across 2+ different tickers → market is broadly against us, pause 1 hour
+                state.circuitBreakerUntil = Date.now() + 3600000;
+                sendEmailAlert("Circuit Breaker Triggered", `3 stops across ${uniqueTickers} different tickers — market conditions unfavorable. Paused 1 hour.`);
+                audit("CIRCUIT-BREAKER", `3 stops on ${[...new Set(recentTickers.slice(-3))].join(", ")} — broad market issue, paused 1 hour`);
+                notify("alert", "Circuit breaker: 3 stops on different stocks. Paused 1 hour.");
+              } else {
+                // 3 stops on SAME ticker → block that ticker for the day, don't pause everything
+                const blockedTicker = recentTickers[recentTickers.length - 1];
+                if (!Array.isArray((state as any).dailyBlockedTickers)) (state as any).dailyBlockedTickers = [];
+                (state as any).dailyBlockedTickers.push(blockedTicker);
+                state.consecutiveStopLosses = 0; // Reset — not a broad market issue
+                audit("TICKER-BLOCKED", `${blockedTicker}: 3 stops on same ticker — blocked for today, trading continues`);
+                notify("alert", `${blockedTicker} blocked for today after 3 stops. Bot continues trading other stocks.`);
+              }
             }
           } else if (action.type === "take_profit") {
             state.consecutiveStopLosses = 0;
@@ -1519,6 +1557,11 @@ print(json.dumps(check_weekly_loss(history)))
       }
       if (held.includes(trade.ticker)) continue; // Already holding
       if ((trade as any)._consumed) continue;
+      // Skip tickers blocked after 3 same-ticker stops today
+      if (Array.isArray((state as any).dailyBlockedTickers) && (state as any).dailyBlockedTickers.includes(trade.ticker)) {
+        audit("SKIP", `${trade.ticker}: blocked for today after repeated stop-losses`);
+        continue;
+      }
 
       // Dynamic sizing: trust position_sizing.py output but enforce absolute ceiling
       const effectiveCeiling = MAX_POSITION_SIZE * state.positionSizeMultiplier;
@@ -1998,8 +2041,14 @@ print('cleared')
         } catch (err: any) { console.error("[bot]", err?.message || err); }
       }
 
-      // 4am ET: Daily ML retrain — fresh model before market opens
+      // 4am ET: Daily ML retrain + reset daily state
       if (etHour === 4) {
+        // Clear daily blocked tickers and stop counters for new trading day
+        (state as any).dailyBlockedTickers = [];
+        state.consecutiveStopLosses = 0;
+        (state as any).recentStopTickers = [];
+        state.morningQueueExecuted = false;
+        audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
           const { stdout: trainOut } = await execAsync(
