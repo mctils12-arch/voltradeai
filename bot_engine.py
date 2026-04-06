@@ -1347,18 +1347,31 @@ def scan_market():
 
         side = stock.get("side", "buy")
         action_label = stock.get("action_label", "BUY")
-        change_pct = stock.get("change_pct", 0) or 0
+        change_pct_val = stock.get("change_pct", 0) or 0
 
         # Extreme mover check: stock already up 50%+ today
-        # The easy money is gone — only consider puts (mean reversion), never buy the spike
-        if change_pct > 50:
-            # Force to put/short direction only — buying a 50%+ mover is chasing
-            side = "short"
-            action_label = "SELL OPTIONS"  # Options engine will pick puts
+        # Don't buy OR short the spike — write to watchlist for overnight analysis
+        # Tomorrow's setup (continuation or mean reversion) is a much cleaner entry
+        if change_pct_val > 50:
+            _em_path = os.path.join(DATA_DIR if 'DATA_DIR' in dir() else '/tmp', 'extreme_movers_today.json')
+            try:
+                try:
+                    with open(_em_path) as _f: _em = json.load(_f)
+                except Exception: _em = []
+                # Add if not already in list
+                if not any(e.get('ticker') == ticker for e in _em):
+                    _em.append({
+                        'ticker': ticker, 'price': stock.get('price', 0),
+                        'change_pct': change_pct_val, 'volume': stock.get('volume', 0),
+                        'score': final_score, 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
+                        'high': stock.get('high', 0), 'setup': 'extreme_mover',
+                    })
+                    with open(_em_path, 'w') as _f: json.dump(_em, _f)
+            except Exception: pass
+            continue  # Skip — will be analyzed tonight for tomorrow
 
         # For SELL signals without existing position — convert to BUY (no naked sells on paper)
-        # EXCEPT for extreme movers — we want puts on those
-        if side == "sell" and stock.get("trade_type") != "options" and change_pct <= 50:
+        if side == "sell" and stock.get("trade_type") != "options":
             side = "buy"
             action_label = "BUY"
 

@@ -1782,13 +1782,131 @@ print(json.dumps(run_diagnostics()))
     autoRunning = true;
 
     try {
-      // 8pm-10pm: Scan market, find tomorrow's opportunities
+      // 8pm-10pm: Scan market, find tomorrow's opportunities + analyze today's extreme movers
       if (etHour >= 20 && etHour < 22) {
         audit("RESEARCH", "Evening scan — analyzing today's movers for tomorrow's plays");
         const enginePath3 = path.resolve("bot_engine.py");
-        const { stdout } = await execAsync(`python3 "${enginePath3}" scan`, { timeout: 180000 });
-        lastScanResult = JSON.parse(stdout.trim());
-        audit("RESEARCH", `Scanned ${lastScanResult.scanned || 0} stocks — top picks identified for morning`);
+        const { stdout: scanOut3 } = await execAsync(`python3 -W ignore "${enginePath3}" full 2>/dev/null`, { timeout: 300000 });
+        const jsonStart3 = scanOut3.indexOf('{');
+        if (jsonStart3 !== -1) {
+          lastScanResult = JSON.parse(scanOut3.slice(jsonStart3));
+          audit("RESEARCH", `Scanned ${lastScanResult.scanned || 0} stocks — top picks identified for morning`);
+        }
+
+        // Process extreme movers from today — analyze for tomorrow's entry
+        try {
+          const { stdout: emOut } = await execAsync(`python3 -c "
+import json, os, time
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+
+em_path = os.path.join(DATA_DIR, 'extreme_movers_today.json')
+if not os.path.exists(em_path):
+    print(json.dumps({'movers': [], 'analyzed': 0}))
+else:
+    with open(em_path) as f: movers = json.load(f)
+    # Only process from today
+    today = time.strftime('%Y-%m-%d')
+    today_movers = [m for m in movers if m.get('timestamp', '').startswith(today)]
+    print(json.dumps({'movers': today_movers, 'analyzed': len(today_movers)}))
+"`, { timeout: 10000 });
+          const emResult = JSON.parse(emOut.trim());
+          const todayMovers = emResult.movers || [];
+
+          if (todayMovers.length > 0) {
+            audit("RESEARCH", `${todayMovers.length} extreme movers from today — running overnight deep analysis for tomorrow's setups`);
+
+            for (const mover of todayMovers.slice(0, 5)) { // Max 5 extreme movers analyzed
+              try {
+                // Deep analyze each extreme mover for tomorrow's setup
+                const { stdout: deepOut } = await execAsync(
+                  `python3 -W ignore -c "
+from analyze import quick_scan
+import json
+result = quick_scan('${mover.ticker}')
+print(json.dumps(result))
+" 2>/dev/null`, { timeout: 60000 }
+                );
+                const analysis = JSON.parse(deepOut.trim());
+
+                const vrp = analysis.vrp || 0;
+                const changeToday = mover.change_pct || 0;
+
+                // Determine tomorrow's setup
+                let tomorrowSetup = '';
+                let tomorrowDirection = '';
+                let tomorrowScore = 0;
+
+                if (vrp > 8) {
+                  // IV still elevated → sell premium (put credit spread or cash secured put)
+                  tomorrowSetup = `High VRP ${vrp.toFixed(1)}% — sell puts tomorrow if IV stays elevated`;
+                  tomorrowDirection = 'SELL OPTIONS';
+                  tomorrowScore = 72;
+                } else if (vrp < -3) {
+                  // IV crushed after spike → buy puts cheaply for mean reversion
+                  tomorrowSetup = `IV crushed — cheap puts for mean reversion play`;
+                  tomorrowDirection = 'BUY PUT';
+                  tomorrowScore = 68;
+                } else if (changeToday > 100 && (analysis.recommendation === 'BUY' || analysis.momentum_score > 70)) {
+                  // Rare continuation setup
+                  tomorrowSetup = `Momentum continuation — ran ${changeToday.toFixed(0)}%, still has strength`;
+                  tomorrowDirection = 'BUY';
+                  tomorrowScore = 65;
+                } else {
+                  // No clear setup tomorrow — skip
+                  audit("RESEARCH", `${mover.ticker}: no clear tomorrow setup (VRP ${vrp.toFixed(1)}%, change ${changeToday.toFixed(0)}%) — skipping`);
+                  continue;
+                }
+
+                audit("RESEARCH", `${mover.ticker}: ${tomorrowSetup} → queuing for tomorrow`);
+
+                // Queue for tomorrow morning
+                const tomorrowTrade = {
+                  ticker: mover.ticker,
+                  price: mover.price,
+                  score: tomorrowScore,
+                  side: tomorrowDirection === 'BUY' ? 'buy' : 'sell',
+                  action: tomorrowDirection,
+                  action_label: tomorrowDirection,
+                  shares: Math.max(1, Math.floor(5000 / (mover.price || 10))),
+                  position_value: 5000,
+                  reasons: [tomorrowSetup],
+                  setup_reason: `Extreme mover (+${changeToday.toFixed(0)}% yesterday) — ${tomorrowSetup}`,
+                  vrp: vrp,
+                  use_options: tomorrowDirection !== 'BUY',
+                  options_strategy: tomorrowDirection === 'SELL OPTIONS' ? 'sell_cash_secured_put' : 'buy_put',
+                  queuedAt: new Date().toISOString(),
+                };
+
+                if (!morningQueue.some((q: any) => q.ticker === mover.ticker)) {
+                  morningQueue.push(tomorrowTrade as any);
+                  audit("QUEUE", `${mover.ticker} queued for tomorrow: ${tomorrowSetup}`);
+                }
+
+              } catch (analyzeErr: any) {
+                console.error(`[overnight-extreme-mover] ${mover.ticker}:`, analyzeErr?.message);
+              }
+            }
+
+            // Clear extreme movers file after processing
+            await execAsync(`python3 -c "
+import os, json
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+em_path = os.path.join(DATA_DIR, 'extreme_movers_today.json')
+if os.path.exists(em_path): os.remove(em_path)
+print('cleared')
+"`, { timeout: 5000 }).catch(() => {});
+          } else {
+            audit("RESEARCH", "No extreme movers from today to analyze");
+          }
+        } catch (emErr: any) {
+          console.error("[overnight-extreme-movers]", emErr?.message);
+        }
       }
 
       // 10pm-12am: Run backtests on current strategies to validate they still work
