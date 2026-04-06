@@ -1173,7 +1173,7 @@ def scan_market():
     all_tickers = []
     try:
         # Most active by volume
-        resp = requests.get(f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=200",
+        resp = requests.get(f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
                            headers=_alpaca_headers(), timeout=15)
         active = resp.json().get("most_actives", [])
         for s in active:
