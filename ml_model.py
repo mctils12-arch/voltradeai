@@ -242,7 +242,7 @@ def _build_feature_matrix(api_key: str):
         bars = _fetch_grouped_day(date, api_key)
         if bars:
             daily_data[date] = {b["T"]: b for b in bars if "T" in b}
-        time.sleep(0.12)  # ~8 req/sec — well within free tier
+        # sleep removed — Algo Trader Plus = unlimited API calls
 
     if len(daily_data) < 10:
         return None, None, 0
@@ -396,7 +396,7 @@ def _fetch_alpaca_training_data(days=60, max_tickers=500):
                 all_bars[sym] = b
         except Exception:
             continue
-        time.sleep(0.1)
+        pass  # sleep removed 2014 unlimited API calls
 
     for ticker in tickers:
         try:
@@ -501,7 +501,7 @@ def _fetch_alpaca_training_data(days=60, max_tickers=500):
                 samples.append(sample)
             
             # Small delay to be polite to API
-            time.sleep(0.1)
+            pass  # sleep removed 2014 unlimited API calls
             
         except Exception:
             continue

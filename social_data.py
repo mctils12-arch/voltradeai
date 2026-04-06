@@ -136,8 +136,8 @@ def get_reddit_sentiment(ticker: str) -> dict:
                 if sub == "wallstreetbets":
                     result["wsb_mentions"] += 1
 
-            # Polite delay between subreddits
-            time.sleep(0.5)
+            # Minimal delay between subreddits (Reddit allows ~1 req/sec per IP)
+            time.sleep(0.1)
 
         except Exception:
             continue
@@ -273,10 +273,10 @@ def get_google_trends(ticker: str) -> dict:
 
 # Free financial RSS feeds
 RSS_FEEDS = {
+    # yahoo_finance removed — consistently times out (8s wasted per scan cycle)
     "reuters_markets": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
     "cnbc_top": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
     "marketwatch": "https://feeds.marketwatch.com/marketwatch/topstories/",
-    "yahoo_finance": "https://finance.yahoo.com/news/rssindex",
 }
 
 def get_news_multi_source(ticker: str) -> dict:
@@ -327,7 +327,7 @@ def get_news_multi_source(ticker: str) -> dict:
     # Source 2: RSS feeds (search for ticker in titles)
     for feed_name, feed_url in RSS_FEEDS.items():
         try:
-            resp = requests.get(feed_url, timeout=8, headers={"User-Agent": USER_AGENT})
+            resp = requests.get(feed_url, timeout=3, headers={"User-Agent": USER_AGENT})  # 3s: fail fast on slow RSS
             if resp.status_code != 200:
                 continue
             

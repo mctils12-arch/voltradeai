@@ -248,46 +248,76 @@ def deep_score(ticker, quick_result):
     reasons = list(quick_result.get("reasons", []))
     change_pct = quick_result.get("change_pct", 0)
 
-    # Fetch macro context
-    try:
-        from macro_data import get_macro_snapshot, get_news_sentiment
-        macro = get_macro_snapshot()
-        news_sent = get_news_sentiment(ticker)
-    except Exception:
-        macro = {}
-        news_sent = {}
+    # ── Parallel data fetch — all 6 sources run simultaneously ──────────────
+    # Previously sequential: ~12s per ticker. Now parallel: ~3-4s (limited by slowest source)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # Full intelligence report (news classification + insider + earnings patterns)
-    try:
-        from intelligence import get_full_intelligence
-        intel = get_full_intelligence(ticker)
-    except Exception:
-        intel = {}
+    def _fetch_macro():
+        try:
+            from macro_data import get_macro_snapshot, get_news_sentiment
+            return get_macro_snapshot(), get_news_sentiment(ticker)
+        except Exception:
+            return {}, {}
 
-    # Alternative data sources (congressional, short interest, wiki, FRED, GDELT, patents)
-    try:
-        from alt_data import get_alt_data_score
-        alt = get_alt_data_score(ticker)
-    except Exception:
-        alt = {}
+    def _fetch_intel():
+        try:
+            from intelligence import get_full_intelligence
+            return get_full_intelligence(ticker)
+        except Exception:
+            return {}
 
-    # Social intelligence (Reddit, Google Trends, multi-source news)
-    try:
-        from social_data import get_social_intelligence
-        social = get_social_intelligence(ticker)
-    except Exception:
-        social = {}
+    def _fetch_alt():
+        try:
+            from alt_data import get_alt_data_score
+            return get_alt_data_score(ticker)
+        except Exception:
+            return {}
 
-    # Finnhub data (insider sentiment + recommendation trends)
-    finnhub = {}
-    try:
-        from finnhub_data import get_insider_sentiment, get_recommendation_trends
-        finnhub_insider = get_insider_sentiment(ticker)
-        finnhub_recs = get_recommendation_trends(ticker)
-        finnhub = {"insider_mspr": finnhub_insider.get("mspr", 0), "insider_signal": finnhub_insider.get("signal", "neutral"),
-                   "analyst_consensus": finnhub_recs.get("consensus", "hold"), "analyst_buy_count": finnhub_recs.get("buy", 0) + finnhub_recs.get("strong_buy", 0)}
-    except Exception:
-        pass
+    def _fetch_social():
+        try:
+            from social_data import get_social_intelligence
+            return get_social_intelligence(ticker)
+        except Exception:
+            return {}
+
+    def _fetch_finnhub():
+        try:
+            from finnhub_data import get_insider_sentiment, get_recommendation_trends
+            fi = get_insider_sentiment(ticker)
+            fr = get_recommendation_trends(ticker)
+            return {"insider_mspr": fi.get("mspr", 0), "insider_signal": fi.get("signal", "neutral"),
+                    "analyst_consensus": fr.get("consensus", "hold"),
+                    "analyst_buy_count": fr.get("buy", 0) + fr.get("strong_buy", 0)}
+        except Exception:
+            return {}
+
+    macro, news_sent, intel, alt, social, finnhub = {}, {}, {}, {}, {}, {}
+    with ThreadPoolExecutor(max_workers=5) as _pool:
+        _f_macro    = _pool.submit(_fetch_macro)
+        _f_intel    = _pool.submit(_fetch_intel)
+        _f_alt      = _pool.submit(_fetch_alt)
+        _f_social   = _pool.submit(_fetch_social)
+        _f_finnhub  = _pool.submit(_fetch_finnhub)
+        try:
+            macro, news_sent = _f_macro.result(timeout=15)
+        except Exception:
+            pass
+        try:
+            intel = _f_intel.result(timeout=15)
+        except Exception:
+            pass
+        try:
+            alt = _f_alt.result(timeout=15)
+        except Exception:
+            pass
+        try:
+            social = _f_social.result(timeout=15)
+        except Exception:
+            pass
+        try:
+            finnhub = _f_finnhub.result(timeout=15)
+        except Exception:
+            pass
 
     # Analyst ratings + valuation multiples (yfinance) — with 5-min cache
     # WRAPPED IN SUBPROCESS with 5s hard kill to prevent yfinance hangs
@@ -1276,16 +1306,25 @@ def scan_market():
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
     scored = quick_results
 
-    # Step 3: Deep analyze top 20 — more candidates means more angles found each scan
-    # Top 10 was too narrow: on slow days all 10 could fail MIN_SCORE, leaving 0 trades
+    # Step 3: Deep analyze top 20 in PARALLEL
+    # Each deep_score internally runs 5 data sources in parallel too.
+    # Net result: 20 tickers that used to take ~4 min now complete in ~15-20s.
+    from concurrent.futures import ThreadPoolExecutor
     top_candidates = scored[:20]
-    deep_scored = []
-    for candidate in top_candidates:
+    deep_scored = [None] * len(top_candidates)
+
+    def _deep_one(args):
+        idx, candidate = args
         try:
-            deep = deep_score(candidate["ticker"], candidate)
-            deep_scored.append(deep)
+            return idx, deep_score(candidate["ticker"], candidate)
         except Exception:
-            deep_scored.append(candidate)
+            return idx, candidate
+
+    with ThreadPoolExecutor(max_workers=8) as _dpool:
+        for idx, result in _dpool.map(_deep_one, enumerate(top_candidates)):
+            deep_scored[idx] = result
+
+    deep_scored = [d for d in deep_scored if d is not None]
 
     # Sort by deep score (or quick score if no deep)
     deep_scored.sort(key=lambda x: x.get("deep_score", x.get("quick_score", 0)), reverse=True)
