@@ -9,6 +9,7 @@ interface Position {
   side: string;
   entryPrice: number;
   currentPrice: number;
+  marketValue: number;
   pnl: number;
   pnlPct: number;
   stopPrice: number;
@@ -20,12 +21,13 @@ interface Position {
 }
 
 interface Bar {
-  t: string;
-  o: number;
-  h: number;
-  l: number;
-  c: number;
-  v: number;
+  time?: number;   // unix timestamp (from existing endpoint)
+  t?: string;      // ISO string (fallback)
+  open?: number; o?: number;
+  high?: number; h?: number;
+  low?: number;  l?: number;
+  close?: number; c?: number;
+  volume?: number; v?: number;
 }
 
 type Timeframe = "1Min" | "5Min" | "15Min" | "1Hour" | "1Day";
@@ -59,19 +61,21 @@ function SingleTradeChart({ position }: { position: Position }) {
     try {
       const tf = TIMEFRAMES.find(t => t.value === timeframe)!;
       const data = await apiRequest("GET", `/api/bot/bars/${position.ticker}?timeframe=${timeframe}&limit=${tf.bars}`);
-      const rawBars: Bar[] = Array.isArray(data) ? data : [];
+      // Existing bars endpoint returns { bars: [...], ticker, timeframe }
+      const rawBars: Bar[] = (data && data.bars) ? data.bars : Array.isArray(data) ? data : [];
 
       if (!chartRef.current || !candleSeriesRef.current) return;
 
-      const candleData = rawBars.map(b => ({
-        time: (new Date(b.t).getTime() / 1000) as any,
-        open: b.o, high: b.h, low: b.l, close: b.c,
+      // Existing bars endpoint pre-converts t to unix timestamp as b.time
+      const candleData = rawBars.map((b: any) => ({
+        time: (b.time || Math.floor(new Date(b.t).getTime() / 1000)) as any,
+        open: b.open ?? b.o, high: b.high ?? b.h, low: b.low ?? b.l, close: b.close ?? b.c,
       })).sort((a, b) => a.time - b.time);
 
-      const volumeData = rawBars.map(b => ({
-        time: (new Date(b.t).getTime() / 1000) as any,
-        value: b.v,
-        color: b.c >= b.o ? "rgba(0, 255, 213, 0.3)" : "rgba(255, 68, 68, 0.3)",
+      const volumeData = rawBars.map((b: any) => ({
+        time: (b.time || Math.floor(new Date(b.t).getTime() / 1000)) as any,
+        value: b.volume ?? b.v,
+        color: (b.close ?? b.c) >= (b.open ?? b.o) ? "rgba(0, 255, 213, 0.3)" : "rgba(255, 68, 68, 0.3)",
       })).sort((a, b) => a.time - b.time);
 
       candleSeriesRef.current.setData(candleData);

@@ -486,21 +486,6 @@ print(json.dumps(data))
   });
 
   // Candlestick bars for trade charts
-  app.get("/api/bot/bars/:ticker", requireAuth, async (req, res) => {
-    try {
-      const { ticker } = req.params;
-      const timeframe = (req.query.timeframe as string) || "5Min";
-      const limit = parseInt(req.query.limit as string) || 100;
-      const data = await fetch(
-        `${process.env.ALPACA_DATA_URL || "https://data.alpaca.markets"}/v2/stocks/${ticker}/bars?timeframe=${timeframe}&limit=${limit}&feed=iex&adjustment=split`,
-        { headers: { "APCA-API-KEY-ID": process.env.ALPACA_KEY || ALPACA_KEY, "APCA-API-SECRET-KEY": process.env.ALPACA_SECRET || ALPACA_SECRET } }
-      ).then(r => r.json());
-      res.json(data.bars || []);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message, bars: [] });
-    }
-  });
-
   // Trade history from Alpaca
   app.get("/api/bot/history", requireAuth, async (_req, res) => {
     try {
