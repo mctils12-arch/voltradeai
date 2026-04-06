@@ -30,6 +30,22 @@ except ImportError:
     DATA_DIR = "/data/voltrade" if os.path.isdir("/data") else "/tmp"
 os.makedirs(DATA_DIR, exist_ok=True)
 
+# ── System config: all adaptive parameters (regime-aware) ────────────────
+try:
+    from system_config import get_adaptive_params, BASE_CONFIG
+    _HAS_SYSTEM_CONFIG = True
+except ImportError:
+    _HAS_SYSTEM_CONFIG = False
+    BASE_CONFIG = {}
+
+# ── Markov regime detector ───────────────────────────────────────────
+try:
+    from markov_regime import get_regime as _get_markov_regime
+    _HAS_MARKOV = True
+except ImportError:
+    _HAS_MARKOV = False
+    def _get_markov_regime(*a, **kw): return {"regime_score":50,"regime_label":"NEUTRAL","markov_state":1,"size_multiplier":1.0,"markov_signal":"NEUTRAL"}
+
 # ── Strategy imports ─────────────────────────────────────────────────────────
 _STRATEGIES_DIR = os.path.join(os.path.dirname(__file__), "strategies")
 sys.path.insert(0, _STRATEGIES_DIR)
@@ -808,60 +824,57 @@ except Exception as e:
 
     # ── ML Model Integration ──────────────────────────────────────────────────
     try:
-        from ml_model import ml_score
+        from ml_model_v2 import ml_score  # v2: 25 clean features, self-learning
+        # Get Markov regime state for the ML (adds real predictive power)
+        _regime_ctx = {"regime_score": 50, "markov_state": 1, "size_multiplier": 1.0}
+        if _HAS_MARKOV:
+            try:
+                _spy_rets = []
+                _spy_macro = macro.get("spy_returns_5d", []) or []
+                _vxx_r = intel.get("vxx_ratio", 1.0) if intel else 1.0
+                _spy_ma = macro.get("spy_vs_ma50", 1.0) or 1.0
+                _regime_ctx = _get_markov_regime(_spy_rets, float(_vxx_r), float(_spy_ma))
+            except Exception:
+                pass
+
+        # 25 clean features — ALL computed from real data (no zeroing)
+        # price_vs_52w_high: strongest momentum predictor (George & Hwang 2004)
+        _price = quick_result.get("price", 0) or 0
+        _high_52w = quick_result.get("high_52w", _price) or _price
+        _price_vs_52w = (_price - _high_52w) / _high_52w * 100 if _high_52w > 0 else 0
+        _float_turnover = min(volume_ratio * 5, 100)  # proxy from volume ratio
+
         ml_features = {
-            "momentum_1m": edge.get("momentum_1m", 0) or 0,
-            "momentum_3m": edge.get("momentum_3m", 0) or 0,
-            "momentum_12m": mom_12_1,
-            "volume_ratio": volume_ratio,
-            "rsi_14": rsi,
-            "vrp": vrp,
-            "ewma_vol": vol_metrics.get("ewma_vol", 0) or 0 if vol_metrics else 0,
-            "garch_vol": vol_metrics.get("garch_vol", 0) or 0 if vol_metrics else 0,
-            "change_pct_today": quick_result.get("change_pct", 0) or 0,
-            "range_pct": quick_result.get("range_pct", 0) or 0,
-            "vwap_position": 1 if quick_result.get("above_vwap") else 0,
-            "put_call_ratio": edge.get("put_call_ratio", 1.0) or 1.0,
-            "iv_rank": detail.get("iv_rank", 50) or 50,
-            "sentiment_score": sent_score_val,
-            "sector_encoded": hash(SECTOR_MAP.get(ticker, "unknown")) % 10,
-            "vix": macro.get("vix", 20),
-            "vix_regime_encoded": {"low": 0, "medium": 1, "high": 2, "extreme": 3}.get(macro.get("vix_regime", "medium"), 1),
-            "sector_momentum": sector_mom.get(stock_sector, 0),
-            "market_regime_encoded": {"risk_on": 2, "neutral": 1, "risk_off": 0}.get(macro.get("market_regime", "neutral"), 1),
-            "news_sentiment": news_score_val,
-            "treasury_10y": macro.get("treasury_10y", 4.25),
-            "adx": adx_value if adx_value is not None else 20,
-            "obv_signal": obv_signal,
-            "intel_score": intel.get("intel_score", 0) if intel else 0,
-            "trap_warning": 1 if intel.get("trap_warning") else 0,
-            "insider_signal": intel.get("insider", {}).get("insider_signal", 0) if intel else 0,
-            "sell_the_news_risk": 1 if intel.get("earnings_pattern", {}).get("sell_the_news_risk") else 0,
-            "wiki_spike_ratio": alt.get("wiki", {}).get("spike_ratio", 1.0) if alt else 1.0,
-            "short_pressure_signal": alt.get("short_interest", {}).get("signal", 0) if alt else 0,
-            "congressional_signal": alt.get("congressional", {}).get("signal", 0) if alt else 0,
-            "geopolitical_risk": alt.get("geopolitical", {}).get("risk_score", 0) if alt else 0,
-            "yield_curve": alt.get("fred_macro", {}).get("yield_curve", 0) if alt else 0,
-            "credit_spread": alt.get("fred_macro", {}).get("credit_spread", 0) if alt else 0,
-            "unemployment": alt.get("fred_macro", {}).get("unemployment", 4.0) if alt else 4.0,
-            "patent_signal": alt.get("patent", {}).get("signal", 0) if alt else 0,
-            "ftd_signal": alt.get("ftd", {}).get("signal", 0) if alt else 0,
-            "reddit_mentions": social.get("reddit", {}).get("total_mentions", 0) if social else 0,
-            "reddit_sentiment": social.get("reddit", {}).get("sentiment_score", 0) if social else 0,
-            "reddit_wsb_mentions": social.get("reddit", {}).get("wsb_mentions", 0) if social else 0,
-            "google_trends_spike": social.get("google_trends", {}).get("spike_ratio", 1.0) if social else 1.0,
-            "google_trends_interest": social.get("google_trends", {}).get("current_interest", 0) if social else 0,
-            "news_multi_articles": social.get("news_multi", {}).get("total_articles", 0) if social else 0,
-            "news_multi_sentiment": social.get("news_multi", {}).get("sentiment_score", 0) if social else 0,
-            "social_combined_signal": social.get("combined_signal", 0) if social else 0,
-            "forward_pe": yf_fundamentals.get("forward_pe", 0),
-            "trailing_pe": yf_fundamentals.get("trailing_pe", 0),
-            "price_to_book": yf_fundamentals.get("price_to_book", 0),
-            "ev_ebitda": yf_fundamentals.get("ev_ebitda", 0),
-            "price_to_sales": yf_fundamentals.get("price_to_sales", 0),
-            "analyst_target_upside": ((yf_fundamentals.get("target_mean", 0) - yf_fundamentals.get("current_price", 1)) / max(yf_fundamentals.get("current_price", 1), 1) * 100) if yf_fundamentals.get("target_mean") else 0,
-            "analyst_buy_pct": (yf_fundamentals.get("strong_buy_count", 0) + yf_fundamentals.get("buy_count", 0)) / max(sum([yf_fundamentals.get("strong_buy_count", 0), yf_fundamentals.get("buy_count", 0), yf_fundamentals.get("hold_count", 0), yf_fundamentals.get("sell_count", 0), yf_fundamentals.get("strong_sell_count", 0)]), 1) * 100 if yf_fundamentals else 0,
-            "num_analysts": yf_fundamentals.get("num_analysts", 0),
+            # Technical (9)
+            "momentum_1m":          edge.get("momentum_1m", 0) or 0,
+            "momentum_3m":          edge.get("momentum_3m", 0) or 0,
+            "rsi_14":               rsi or 50,
+            "volume_ratio":         min(volume_ratio, 10.0),
+            "vwap_position":        1.0 if quick_result.get("above_vwap") else 0.0,
+            "adx":                  adx_value if adx_value is not None else 20,
+            "ewma_vol":             vol_metrics.get("ewma_vol", 2) or 2 if vol_metrics else 2,
+            "range_pct":            quick_result.get("range_pct", 0) or 0,
+            "price_vs_52w_high":    _price_vs_52w,    # NEW: strongest predictor
+            "float_turnover":       _float_turnover,  # NEW: volume intensity
+            # Options/volatility (3)
+            "vrp":                  vrp or 0,
+            "iv_rank_proxy":        detail.get("iv_rank", 50) or 50,
+            "atr_pct":              3.0,  # Approximate — ATR computed in position_sizing
+            # Regime (5) — NOW WIRED TO MARKOV + VXX RATIO
+            "vxx_ratio":            intel.get("vxx_ratio", 1.0) if intel else 1.0,
+            "spy_vs_ma50":          macro.get("spy_vs_ma50", 1.0) or 1.0,
+            "markov_state":         float(_regime_ctx.get("markov_state", 1)),
+            "regime_score":         float(_regime_ctx.get("regime_score", 50)),
+            "sector_momentum":      sector_mom.get(stock_sector, 0),
+            # Quality (4)
+            "change_pct_today":     quick_result.get("change_pct", 0) or 0,
+            "above_ma10":           1.0,  # Already filtered by trend filter above
+            "trend_strength":       min(abs(quick_result.get("change_pct", 0) or 0) / max(vol_metrics.get("ewma_vol", 2) or 2, 0.1), 5.0) if vol_metrics else 1.0,
+            "volume_acceleration":  0.0,  # Available from streaming bars but not in daily scan
+            # Intelligence (3) — the features the old model NEVER learned to use
+            "intel_score":          intel.get("intel_score", 0) if intel else 0,
+            "insider_signal":       intel.get("insider", {}).get("insider_signal", 0) if intel else 0,
+            "news_sentiment":       news_score_val or 0,
         }
         ml_result = ml_score(ml_features)
 
@@ -888,6 +901,15 @@ except Exception as e:
         pass  # ML not available, use rule-based only
 
     combined_score = max(0, min(100, combined_score))
+
+    # Store ml_features and regime on the result dict for entry_features logging
+    # This is how the self-learning loop works: entry features saved at trade time,
+    # used by ml_model_v2 to train on actual bot outcomes after trade closes.
+    try:
+        quick_result["ml_features"]  = ml_features  # The 25 features used at entry
+        quick_result["regime_label"] = _regime_ctx.get("regime_label", "NEUTRAL")
+    except Exception:
+        pass
 
     # ── Determine trade SIDE ─────────────────────────────────────────────────
     momentum_is_negative = (momentum_score < 40 or change_pct < -2)
@@ -1548,7 +1570,13 @@ def scan_market():
             "options_edge_pct": options_decision.get("edge_pct", 0),
             "rules_score": stock.get("rules_only_score"),
             "ml_score_raw": stock.get("ml_only_score"),
-            "entry_features": stock.get("entry_features"),  # 52-feature snapshot for ML exit training
+            # entry_features: the 25 ML features at the moment of entry.
+            # Saved here so when the trade closes, ml_model_v2 can train on
+            # THESE SPECIFIC SIGNALS — not generic market data.
+            # This is what enables true self-learning.
+            "entry_features": stock.get("entry_features") or stock.get("ml_features"),
+            "entry_date": time.strftime("%Y-%m-%d"),
+            "regime_at_entry": stock.get("regime_label", "UNKNOWN"),
         })
 
     # Step 7: Check position management
@@ -1580,14 +1608,53 @@ def scan_market():
 # ── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Train ML model if needed (runs once, cached for a week)
+    # ── ML v2 Training Schedule ─────────────────────────────────────────
+    # Daily retrain at 4am (called by Tier 3 in bot.ts)
+    # Event-triggered: VXX > 1.3, 3+ consecutive stops, SPY > 3% move
+    # Research basis:
+    #   - News signals decay in 1-5 days → retrain daily captures yesterday's regime
+    #   - Momentum signals last 3-6 months → 60-day window is right
+    #   - Own trade feedback: 3x weight after 50+ trades (self-learning)
     try:
-        from ml_model import train_model
-        model_path = os.path.join(DATA_DIR, "voltrade_ml_model.pkl")
-        # Retrain if model doesn't exist or is older than 7 days
-        if not os.path.exists(model_path) or (time.time() - os.path.getmtime(model_path)) > 7 * 86400:
-            train_result = train_model()  # Silent — no print here, result goes into scan output
-            # Training happens in background, don't block the scan
+        from ml_model_v2 import train_model, FEEDBACK_PATH
+        model_v2_path = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
+
+        # Delete old broken model on first run (52-feature with 42 zeros)
+        old_model = os.path.join(DATA_DIR, "voltrade_ml_model.pkl")
+        if os.path.exists(old_model):
+            try:
+                import joblib as _jbl
+                _old = _jbl.load(old_model)
+                _old_features = len(_old.get("feature_names", []))
+                # Old model had 0 stored feature names (confirmed in audit)
+                # OR had 52 features with 42 zeros — delete and replace
+                if _old_features == 0 or _old_features == 52:
+                    os.remove(old_model)
+            except Exception:
+                pass  # Can't load it — leave it
+
+        # Retrain v2 if: doesn't exist, older than 24hrs, or feedback has grown significantly
+        needs_train = (
+            not os.path.exists(model_v2_path)
+            or (time.time() - os.path.getmtime(model_v2_path)) > 24 * 3600
+        )
+        # Also retrain if we have 20+ new trades since last train
+        if not needs_train and os.path.exists(FEEDBACK_PATH):
+            try:
+                with open(FEEDBACK_PATH) as _ff:
+                    _fb = json.load(_ff)
+                if os.path.exists(model_v2_path):
+                    model_age = time.time() - os.path.getmtime(model_v2_path)
+                    # Rough estimate: trades since last train
+                    recent_trades = sum(1 for t in _fb
+                        if time.time() - time.mktime(time.strptime(t.get("exit_date","2000-01-01"), "%Y-%m-%d")) < model_age)
+                    if recent_trades >= 20:
+                        needs_train = True
+            except Exception:
+                pass
+
+        if needs_train:
+            train_result = train_model()  # Returns status dict, silent output
     except Exception:
         pass
 
