@@ -899,6 +899,9 @@ except Exception as e:
         "leveraged_bear": rec.get("leveraged_bear") if rec else None,
         # Full 52-feature snapshot at entry time (for ML exit model training)
         "entry_features": ml_features if 'ml_features' in dir() else None,
+        # Score attribution (exposed at scan level via stock.get())
+        "rules_only_score": combined_score if 'combined_score' in dir() else None,
+        "ml_only_score": ml_s if 'ml_s' in dir() else None,
     }
 
 # ── Correlation / Sector Check ───────────────────────────────────────────────
@@ -1413,8 +1416,8 @@ def scan_market():
             "options_strategy": options_decision.get("strategy", "stock"),
             "options_reasoning": options_decision.get("reason", ""),
             "options_edge_pct": options_decision.get("edge_pct", 0),
-            "rules_score": rules_only_score,
-            "ml_score_raw": ml_only_score,
+            "rules_score": stock.get("rules_only_score"),
+            "ml_score_raw": stock.get("ml_only_score"),
             "entry_features": stock.get("entry_features"),  # 52-feature snapshot for ML exit training
         })
 
