@@ -106,7 +106,8 @@ BASE_CONFIG = {
     # Regime detection uses VXX ratio + SPY MA + Markov state
     "REGIME_SPY_MA_PERIOD":   50,   # 50-day MA for trend
     "REGIME_BEAR_THRESHOLD":  0.96, # SPY < 96% of 50-day MA = bearish
-    "REGIME_VXX_ELEVATED":    1.10, # VXX 10%+ above 30-day avg = elevated fear
+    "REGIME_VXX_CAUTION":     1.05, # VXX 5%+ above avg = caution zone
+    "REGIME_VXX_ELEVATED":    1.15, # VXX 15%+ above 30-day avg = elevated fear (was 1.10)
     "REGIME_VXX_PANIC":       1.30, # VXX 30%+ above avg = panic mode
     "MARKOV_STATES":          3,    # Bull / Neutral / Bear
     "MARKOV_LOOKBACK_DAYS":   3,    # Order-3 Markov (last 3 days)
@@ -161,15 +162,17 @@ def get_market_regime(vxx_ratio: float, spy_vs_ma50: float,
     markov_state: 0=bear, 1=neutral, 2=bull
     """
     if vxx_ratio >= BASE_CONFIG["REGIME_VXX_PANIC"] or spy_vs_ma50 < 0.94:
-        return "PANIC"      # Sell everything, go to cash/puts
+        return "PANIC"      # VXX >30% above avg OR SPY >6% below 50d MA
     elif vxx_ratio >= BASE_CONFIG["REGIME_VXX_ELEVATED"] or spy_vs_ma50 < BASE_CONFIG["REGIME_BEAR_THRESHOLD"]:
-        return "BEAR"       # Defensive: smaller sizes, shorts only, sell premium
+        return "BEAR"       # VXX >15% above avg OR SPY below 96% of 50d MA
+    elif vxx_ratio >= BASE_CONFIG["REGIME_VXX_CAUTION"]:
+        return "CAUTION"    # VXX 5-15% above avg — elevated but not BEAR
     elif vxx_ratio <= 0.85 and spy_vs_ma50 > 1.02 and markov_state == 2:
-        return "BULL"       # Aggressive: full size, momentum longs, buy calls
+        return "BULL"       # VXX below 85% of avg AND SPY >2% above MA AND Markov bull
     elif spy_vs_ma50 > 1.0 and markov_state >= 1:
-        return "NEUTRAL"    # Normal: standard sizing, both directions
+        return "NEUTRAL"    # Standard conditions
     else:
-        return "CAUTION"    # Reduced size, no new longs, wait for clarity
+        return "CAUTION"    # SPY below MA but VXX not elevated — wait for clarity
 
 
 def get_adaptive_params(
