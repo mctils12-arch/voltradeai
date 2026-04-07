@@ -1274,7 +1274,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
             session: "morning_queue", volume: mVol, score: trade.score,
             instrument: trade.instrument || "stock",
           });
-          execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${morningFillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
+          execAsync(`python3 -c "from ml_model_v2 import track_fill; import json; track_fill(json.loads('${morningFillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
         } catch (err: any) { console.error("[bot]", err?.message || err); }
 
         slotsUsed++;
@@ -1801,7 +1801,7 @@ print(json.dumps(check_weekly_loss(history)))
             instrument: pending.trade.instrument || "stock",
             entry_features: pending.trade.entry_features || null,
           });
-          execAsync(`python3 -c "from ml_model import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}'))"`, { timeout: 5000 }).catch(() => {});
+          execAsync(`python3 -c "from ml_model_v2 import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}'))"`, { timeout: 5000 }).catch(() => {});
         } catch (cfErr: any) {
           // Confirmation failed — record with best-guess data
           audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — recording expected values`);
@@ -1829,7 +1829,7 @@ else:
       const modelStatus = JSON.parse(modelCheck.trim());
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model needs retrain — starting background training");
-        execAsync(`python3 -c "from ml_model import train_model; import json; print(json.dumps(train_model()))"`, { timeout: 120000 })
+        execAsync(`python3 -c "from ml_model_v2 import train_model; import json; print(json.dumps(train_model()))"`, { timeout: 120000 })
           .then(({ stdout }) => { audit("TIER3", `ML retrain complete: ${stdout.trim().slice(0, 200)}`); })
           .catch((err) => { audit("TIER3-ERROR", `ML retrain failed: ${err?.message}`); });
       } else {
@@ -2106,7 +2106,7 @@ print('cleared')
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
           const { stdout: trainOut } = await execAsync(
-            `python3 -c "from ml_model import train_model; import json; print(json.dumps(train_model()))"`,
+            `python3 -c "from ml_model_v2 import train_model; import json; print(json.dumps(train_model()))"`,
             { timeout: 120000 }
           );
           const trainResult = JSON.parse(trainOut.trim());

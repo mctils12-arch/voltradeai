@@ -1391,3 +1391,49 @@ def train_options_model() -> dict:
         "spread": round(float(np.percentile(probs, 90) - np.percentile(probs, 10)), 3),
         "training_seconds": round(time.time() - t0, 1),
     }
+
+
+# ══ track_fill — called by bot.ts on every order fill ════════════════════════════
+# Saves fill data to the trade feedback file so the self-learning loop
+# can use real trade outcomes to improve future predictions.
+# Compatible drop-in for the old ml_model.track_fill() signature.
+def track_fill(order_data: dict) -> None:
+    """
+    Log an order fill for ML self-learning.
+    Called by bot.ts after every filled order.
+
+    order_data keys (same as old ml_model.track_fill):
+        ticker, side, qty, expected_price, fill_price,
+        time_placed, time_filled, session, volume, score
+    """
+    try:
+        expected   = float(order_data.get("expected_price", 0) or 0)
+        fill_price = float(order_data.get("fill_price", expected) or expected)
+        slippage   = abs(fill_price - expected) / expected * 100 if expected > 0 else 0.0
+
+        record = {
+            "ticker":         str(order_data.get("ticker", "")),
+            "side":           str(order_data.get("side", "buy")),
+            "qty":            float(order_data.get("qty", 0) or 0),
+            "expected_price": expected,
+            "fill_price":     fill_price,
+            "slippage_pct":   round(slippage, 4),
+            "volume":         float(order_data.get("volume", 0) or 0),
+            "session":        str(order_data.get("session", "regular")),
+            "time_placed":    str(order_data.get("time_placed", datetime.now().isoformat())),
+            "time_filled":    str(order_data.get("time_filled", datetime.now().isoformat())),
+            "score":          float(order_data.get("score", 0) or 0),
+            "entry_features": order_data.get("entry_features", {}),
+            "outcome":        None,   # filled in later by position close logic
+            "pnl_pct":        None,
+        }
+
+        # Load existing feedback, append, save (keep last 1000)
+        feedback = _load_trade_feedback()
+        feedback.append(record)
+        if len(feedback) > 1000:
+            feedback = feedback[-1000:]
+        with open(FEEDBACK_PATH, "w") as f:
+            json.dump(feedback, f, indent=2)
+    except Exception:
+        pass  # Never crash bot.ts for a logging call
