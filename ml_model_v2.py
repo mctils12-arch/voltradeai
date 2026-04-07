@@ -326,7 +326,16 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
         spy_21d_idx = max(0, min(idx - 21, len(spy_bars) - 1))  # bounds-safe
         spy_21d_bar = spy_bars[spy_21d_idx] if spy_bars and spy_21d_idx < len(spy_bars) else None
         spy_21d    = (spy_close - float(spy_21d_bar["c"])) / float(spy_21d_bar["c"]) * 100 if spy_21d_bar and float(spy_21d_bar["c"]) > 0 else 0
-        beta_proxy = 1.2 if volume_ratio > 2 else 0.8
+        # APPROXIMATION NOTE: beta_proxy is NOT a real beta coefficient.
+        # A real beta requires a linear regression of stock returns on SPY returns
+        # over at least 30-60 days. Using 1.2 for high-volume days and 0.8 for
+        # normal days is a rough heuristic — high-volume stocks TEND to be more
+        # volatile (higher beta) but this is not a statistically valid estimate.
+        # The idiosyncratic_ret feature computed here is directionally useful but
+        # will overstate the idiosyncratic component for low-beta stocks and
+        # understate it for true high-beta names.
+        # TODO: Replace with actual OLS beta from rolling 60-day regression.
+        beta_proxy = 1.2 if volume_ratio > 2 else 0.8  # Approximate — see note above
         idio_ret   = stock_21d - beta_proxy * spy_21d
     else:
         idio_ret = 0.0
@@ -338,6 +347,13 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
     put_call_proxy = -1.0 if vrp > 8 else (1.0 if vrp < -5 else 0.0)
 
     # ── Intelligence (zeroed in generic training, real at inference) ─
+    # KNOWN ISSUE (TODO): Training always uses zeros for these features because
+    # the generic training loop (Alpaca bars) has no access to real-time intel,
+    # insider, or news data. At inference (bot_engine.py), real values were
+    # previously passed in — but the model learned these features are always 0
+    # and ignores them. Until the model is retrained with real historical intel/
+    # news data, inference also zeroes these out for train/inference consistency.
+    # See bot_engine.py ml_features dict for the corresponding inference-side fix.
     intel_score    = 0.0
     insider_signal = 0.0
     news_sentiment = 0.0
@@ -425,7 +441,8 @@ def _triple_barrier_label(bars: list, idx: int, atr_pct: float,
 # ══════════════════════════════════════════════════════════════════
 
 def _purged_train_test_split(X: np.ndarray, y: np.ndarray,
-                               embargo_periods: int = 5) -> Tuple:
+                               embargo_periods: int = 5,
+                               n_tickers_per_date: int = 1) -> Tuple:
     """
     Proper temporal split with embargo gap.
 
@@ -436,14 +453,23 @@ def _purged_train_test_split(X: np.ndarray, y: np.ndarray,
       This is look-ahead bias — reports inflated accuracy.
 
     Fix: Use the LAST 20% of bars as the test set (pure holdout),
-    with an embargo gap of 5 bars between train and test to prevent
+    with an embargo gap scaled to trading DAYS (not rows) to prevent
     the training label window from touching test bars.
+
+    EMBARGO SCALING FIX: With multi-ticker data, rows are stacked across
+    tickers for the same dates. A 5-row embargo on 50 tickers = only 0.1
+    trading days of embargo, NOT 5 days. The embargo must be:
+        embargo_rows = embargo_periods (in days) * n_tickers_per_date
+    Pass n_tickers_per_date=len(unique_tickers) from the caller.
+    Default n_tickers_per_date=1 preserves backward compatibility for
+    single-ticker calls (options model, feedback-only training).
     """
     n = len(X)
     # Use last 20% for test
     test_start = int(n * 0.80)
-    # Embargo: skip 5 bars before test to ensure no label overlap
-    train_end = test_start - embargo_periods
+    # Scale embargo from trading days to rows: 5 days * ~n tickers per day
+    embargo_rows = embargo_periods * max(1, n_tickers_per_date)
+    train_end = test_start - embargo_rows
 
     if train_end <= 50:
         # Not enough data for proper split — use simple 70/30
@@ -724,7 +750,12 @@ def train_model() -> dict:
         return {"status": "insufficient_data", "samples": len(X_all)}
 
     # Step 5: Purged temporal split
-    X_tr, X_te, y_tr, y_te = _purged_train_test_split(X_all, y_all, embargo_periods=5)
+    # Pass n_tickers_per_date so the embargo is 5 TRADING DAYS, not 5 rows.
+    # With ~50-200 tickers, a 5-row embargo = <0.1 days of embargo (ineffective).
+    _n_tickers = max(1, len(ticker_list))  # approximate tickers per date
+    X_tr, X_te, y_tr, y_te = _purged_train_test_split(
+        X_all, y_all, embargo_periods=5, n_tickers_per_date=_n_tickers
+    )
     if len(X_tr) < 30 or len(X_te) < 10:
         return {"status": "insufficient_data", "samples": len(X_all)}
 
@@ -737,8 +768,9 @@ def train_model() -> dict:
     # idx_te must be indices into X_te (0-based), not into reg_all
     regime_models = {}
     regime_accs   = {}
+    _embargo_rows = 5 * _n_tickers  # same scaled embargo used in split
     reg_tr = reg_all[:len(X_tr)]  # regime labels for train rows
-    reg_te = reg_all[len(X_tr)+5:len(X_tr)+5+len(X_te)]  # skip embargo, then test slice
+    reg_te = reg_all[len(X_tr)+_embargo_rows:len(X_tr)+_embargo_rows+len(X_te)]  # skip embargo, then test slice
     # Pad if reg_all is shorter than expected
     while len(reg_te) < len(X_te): reg_te.append("neutral")
     reg_te = reg_te[:len(X_te)]

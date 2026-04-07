@@ -90,7 +90,10 @@ MAX_POSITIONS = 5          # Max stocks to hold at once
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
 STOP_LOSS_PCT = 0.02       # 2% stop loss
 TAKE_PROFIT_PCT = 0.06     # 6% take profit (3:1 reward/risk)
-MIN_SCORE = 65             # 3-year backtest confirmed: score 65+ has 54% WR / +EV. Score 60-64 = 39% WR / -EV.
+# MIN_SCORE is no longer hardcoded here. Use params.get("MIN_SCORE", 63) from
+# get_adaptive_params() so the threshold correctly varies by market regime:
+#   BULL: 63, CAUTION: 67, BEAR/PANIC: 75 (from system_config.get_adaptive_params).
+# The old hardcoded 65 conflicted with system_config's regime-aware 63/67/75 values.
 MIN_VOLUME = 500000        # 3-year backtest: higher volume = better liquidity and more reliable signals
 MIN_PRICE = 5              # 3-year backtest: stocks < $5 (penny/meme) have 25% WR — consistent drag
 MAX_SECTOR_POSITIONS = 2   # Max 2 stocks from the same sector
@@ -129,18 +132,9 @@ def ewma_vol(returns, lambd=0.94):
         var = lambd * var + (1 - lambd) * float(r) ** 2
     return round(float(np.sqrt(var * 252)) * 100, 2)
 
-
-def garch_vol_estimate(returns, omega=0.00001, alpha=0.05, beta=0.90):
-    """
-    Simple GARCH(1,1) annualised volatility estimate.
-    """
-    if len(returns) < 30:
-        return None
-    arr = np.array(returns, dtype=float)
-    var = float(np.var(arr))
-    for r in arr:
-        var = omega + alpha * float(r) ** 2 + beta * var
-    return round(float(np.sqrt(var * 252)) * 100, 2)
+# garch_vol_estimate() removed — dead code (never called in production).
+# EWMA (ewma_vol above) is used instead. GARCH was considered during prototyping
+# but requires 30+ observations and is not statistically superior for this use case.
 
 # ── Data Fetching ────────────────────────────────────────────────────────────
 
@@ -180,78 +174,9 @@ def get_alpaca_positions():
 
 # ── Strategy Scoring ─────────────────────────────────────────────────────────
 
-def score_stock(stock_data):
-    """
-    Quick-score a stock from Polygon snapshot data (no API calls).
-    Returns None if the stock doesn't pass basic filters.
-    """
-    ticker = stock_data.get("T", "")
-    close = stock_data.get("c", 0)
-    open_price = stock_data.get("o", 0)
-    high = stock_data.get("h", 0)
-    low = stock_data.get("l", 0)
-    volume = stock_data.get("v", 0)
-    vwap = stock_data.get("vw", 0)
-
-    # Basic filters
-    if close < MIN_PRICE or volume < MIN_VOLUME:
-        return None
-    if "." in ticker or len(ticker) > 5:  # Skip warrants, units, etc.
-        return None
-
-    # Calculate quick signals from available data
-    change_pct = ((close - open_price) / open_price * 100) if open_price > 0 else 0
-    range_pct = ((high - low) / low * 100) if low > 0 else 0
-    vwap_dist = ((close - vwap) / vwap * 100) if vwap > 0 else 0
-
-    score = 50  # Start neutral
-    reasons = []
-
-    # Price action score
-    if change_pct > 3:
-        score += 10
-        reasons.append(f"Up {change_pct:.1f}% today — momentum")
-    elif change_pct < -3:
-        score += 8  # Mean reversion candidate
-        reasons.append(f"Down {abs(change_pct):.1f}% today — bounce candidate")
-
-    # Volume score (unusual volume = institutional interest)
-    if volume > 20000000:
-        score += 15
-        reasons.append(f"Very high volume ({volume / 1e6:.0f}M)")
-    elif volume > 5000000:
-        score += 8
-    elif volume > 1000000:
-        score += 3
-
-    # VWAP position (above VWAP = buying pressure)
-    if vwap_dist > 1:
-        score += 5
-        reasons.append("Trading above VWAP — buyers in control")
-    elif vwap_dist < -1:
-        score += 3
-        reasons.append("Below VWAP — potential dip buy")
-
-    # Volatility (intraday range) — higher range = more opportunity
-    if range_pct > 5:
-        score += 10
-        reasons.append(f"Wide range ({range_pct:.1f}%) — active stock")
-    elif range_pct > 3:
-        score += 5
-
-    score = max(0, min(100, score))
-
-    return {
-        "ticker": ticker,
-        "price": round(close, 2),
-        "change_pct": round(change_pct, 2),
-        "volume": volume,
-        "range_pct": round(range_pct, 2),
-        "vwap_dist": round(vwap_dist, 2),
-        "quick_score": score,
-        "reasons": reasons,
-    }
-
+# score_stock() removed — dead code (never called from anywhere in the codebase).
+# The main scan pipeline uses quick_scan() + deep_score() instead.
+# Retained its neighbor ewma_vol() which IS used for volatility estimation.
 
 def deep_score(ticker, quick_result):
     """
@@ -890,9 +815,17 @@ except Exception as e:
             "trend_strength":       min(abs(quick_result.get("change_pct", 0) or 0) / max(vol_metrics.get("ewma_vol", 2) or 2, 0.1), 5.0) if vol_metrics else 1.0,
             "volume_acceleration":  0.0,  # available from streaming bars but not in daily scan
             # Intelligence (3)
-            "intel_score":          intel.get("intel_score", 0) if intel else 0,
-            "insider_signal":       intel.get("insider", {}).get("insider_signal", 0) if intel else 0,
-            "news_sentiment":       news_score_val or 0,
+            # TRAIN/INFERENCE CONSISTENCY FIX: The generic training data always uses
+            # zeros for intel_score, insider_signal, and news_sentiment because the
+            # training loop (Alpaca bar history) has no access to historical intel/news.
+            # The model therefore learned these features have no predictive value.
+            # Until the model is retrained with real historical intel data, we zero
+            # these out at inference to match training distribution and avoid
+            # out-of-distribution inputs that would corrupt ML predictions.
+            # TODO: Collect historical intel/news data and retrain with real values.
+            "intel_score":          0.0,  # Zeroed for train/inference consistency (see above)
+            "insider_signal":       0.0,  # Zeroed for train/inference consistency
+            "news_sentiment":       0.0,  # Zeroed for train/inference consistency
             # New 6 features (FIX 5: previously missing from feature dict)
             "cross_sec_rank":       0.5,   # neutral — requires cross-sectional data not available here
             "earnings_surprise":    intel.get("earnings_surprise", 0) if intel else 0,
@@ -1337,30 +1270,6 @@ def scan_market():
     """
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    # Step 0: Launch options scanner in PARALLEL (doesn't block stock scan)
-    # This finds setups the stock scanner CANNOT find:
-    #   - Earnings IV crush (stocks that aren't moving today but have earnings in 2-7d)
-    #   - VXX panic put sale (SPY puts when fear spikes 30%+ above average)
-    #   - High-IV premium selling (stocks with IV rank > 70 — expensive options to sell)
-    #   - Low-IV breakout buy (stocks with IV rank < 20 — cheap options to buy)
-    #   - Gamma pin (stocks getting pulled toward high-OI strike on expiry day)
-    # Results are merged into the same trade list and compete for the same slots.
-    _options_future = None
-    try:
-        from options_scanner import get_options_trades
-        import concurrent.futures as _cf_module
-        _options_executor = _cf_module.ThreadPoolExecutor(max_workers=1)
-        _options_future = _options_executor.submit(
-            lambda: get_options_trades(
-                equity=100_000,   # Updated below once account loaded
-                current_tickers=[],
-                max_new=2,
-                min_score=65.0,
-            )
-        )
-    except Exception as _oe:
-        _options_future = None
-
     # Step 1: Get full universe (cached daily)
     full_universe = _get_full_universe()
 
@@ -1581,8 +1490,20 @@ def scan_market():
         if _scan_regime in ("BEAR", "PANIC"):
             continue  # No new stock longs in bear/panic — preserve capital
 
-        # Skip if below minimum score
-        if final_score < MIN_SCORE:
+        # Skip if below minimum score — use regime-adaptive threshold from get_adaptive_params.
+        # Previously this used a hardcoded MIN_SCORE=65 which conflicted with system_config
+        # values (63 in BULL, 67 in CAUTION, 75 in BEAR/PANIC). Now uses the adaptive value.
+        try:
+            from system_config import get_adaptive_params as _gap
+            _scan_params = _gap(
+                vxx_ratio=_vxx_r_scan,
+                spy_vs_ma50=_spy_ma_scan,
+                spy_below_200_days=_spy_b200_scan,
+            )
+            _min_score_threshold = _scan_params.get("MIN_SCORE", 63)
+        except Exception:
+            _min_score_threshold = 63  # system_config BASE_CONFIG default
+        if final_score < _min_score_threshold:
             continue
 
         # Correlation / sector check — don't over-concentrate
@@ -1761,71 +1682,71 @@ def scan_market():
             "regime_at_entry": stock.get("regime_label", "UNKNOWN"),
         })
 
-    # Step 6b: Merge options scanner results (was running in parallel)
+    # Step 6b: Run options scanner synchronously with real portfolio equity.
+    # NOTE: The original code had a parallel "Step 0" that submitted options with
+    # equity=100_000 hardcoded, then discarded that result and called again here.
+    # That wasted one full scan per cycle. Now options runs once, here only.
     options_trade_count = 0
-    if _options_future is not None:
-        try:
-            # Update equity now that we have account data
-            from options_scanner import get_options_trades
-            options_trades = get_options_trades(
-                equity=portfolio_value,
-                current_tickers=current_tickers + [t["ticker"] for t in trades],
-                max_new=max(1, slots_available - len(trades)),
-                min_score=65.0,
-            )
-            for ot in options_trades:
-                if len(trades) >= slots_available:
-                    break
-                # Convert to bot_engine trade format
-                trades.append({
-                    "action":             ot.get("action_label", "OPTIONS"),
-                    "side":               ot.get("side", "buy"),
-                    "trade_type":         "options",
-                    "ticker":             ot["ticker"],
-                    "shares":             0,  # Options: shares = 0, handled by options_execution
-                    "price":              ot["price"],
-                    "score":              ot["score"],
-                    "reasons":            [ot.get("reasoning", "")],
-                    "recommendation":     None,
-                    "rec_reasoning":      ot.get("reasoning", ""),
-                    "stop_loss":          None,
-                    "take_profit":        None,
-                    "position_value":     ot.get("position_dollars", portfolio_value * 0.05),
-                    "sizing_reasoning":   f"Options scanner: {ot.get('setup','unknown')} setup",
-                    "sizing_scalars":     {},
-                    "momentum_score":     None,
-                    "mean_reversion_score": None,
-                    "vrp_score":          None,
-                    "squeeze_score":      None,
-                    "volume_score":       None,
-                    "ewma_rv":            None,
-                    "garch_rv":           None,
-                    "rsi":                None,
-                    "vrp":                None,
-                    "instrument":         "options",
-                    "instrument_strategy": ot.get("options_strategy", ""),
-                    "instrument_reasoning": ot.get("reasoning", ""),
-                    "instrument_ticker":  ot["ticker"],
-                    "instrument_scores":  {},
-                    "use_options":        True,
-                    "options_strategy":   ot.get("options_strategy", ""),
-                    "options_reasoning":  ot.get("reasoning", ""),
-                    "options_edge_pct":   0,
-                    "rules_score":        ot["score"],
-                    "ml_score_raw":       None,
-                    "entry_features":     None,
-                    "entry_date":         time.strftime("%Y-%m-%d"),
-                    "regime_at_entry":    "OPTIONS_SCANNER",
-                    # Pass through all setup-specific keys for execution
-                    **{k: v for k, v in ot.items()
-                       if k not in ("action", "action_label", "side", "trade_type",
-                                    "ticker", "price", "score", "reasoning",
-                                    "position_dollars", "position_pct", "source")},
-                })
-                options_trade_count += 1
-            _options_executor.shutdown(wait=False)
-        except Exception as _oe2:
-            pass  # Options scan failed — stock trades still execute normally
+    try:
+        from options_scanner import get_options_trades
+        options_trades = get_options_trades(
+            equity=portfolio_value,
+            current_tickers=current_tickers + [t["ticker"] for t in trades],
+            max_new=max(1, slots_available - len(trades)),
+            min_score=65.0,
+        )
+        for ot in options_trades:
+            if len(trades) >= slots_available:
+                break
+            # Convert to bot_engine trade format
+            trades.append({
+                "action":             ot.get("action_label", "OPTIONS"),
+                "side":               ot.get("side", "buy"),
+                "trade_type":         "options",
+                "ticker":             ot["ticker"],
+                "shares":             0,  # Options: shares = 0, handled by options_execution
+                "price":              ot["price"],
+                "score":              ot["score"],
+                "reasons":            [ot.get("reasoning", "")],
+                "recommendation":     None,
+                "rec_reasoning":      ot.get("reasoning", ""),
+                "stop_loss":          None,
+                "take_profit":        None,
+                "position_value":     ot.get("position_dollars", portfolio_value * 0.05),
+                "sizing_reasoning":   f"Options scanner: {ot.get('setup','unknown')} setup",
+                "sizing_scalars":     {},
+                "momentum_score":     None,
+                "mean_reversion_score": None,
+                "vrp_score":          None,
+                "squeeze_score":      None,
+                "volume_score":       None,
+                "ewma_rv":            None,
+                "garch_rv":           None,
+                "rsi":                None,
+                "vrp":                None,
+                "instrument":         "options",
+                "instrument_strategy": ot.get("options_strategy", ""),
+                "instrument_reasoning": ot.get("reasoning", ""),
+                "instrument_ticker":  ot["ticker"],
+                "instrument_scores":  {},
+                "use_options":        True,
+                "options_strategy":   ot.get("options_strategy", ""),
+                "options_reasoning":  ot.get("reasoning", ""),
+                "options_edge_pct":   0,
+                "rules_score":        ot["score"],
+                "ml_score_raw":       None,
+                "entry_features":     None,
+                "entry_date":         time.strftime("%Y-%m-%d"),
+                "regime_at_entry":    "OPTIONS_SCANNER",
+                # Pass through all setup-specific keys for execution
+                **{k: v for k, v in ot.items()
+                   if k not in ("action", "action_label", "side", "trade_type",
+                                "ticker", "price", "score", "reasoning",
+                                "position_dollars", "position_pct", "source")},
+            })
+            options_trade_count += 1
+    except Exception as _oe2:
+        pass  # Options scan failed — stock trades still execute normally
 
     # Step 7: Check position management
     mgmt = manage_positions()
@@ -1883,6 +1804,110 @@ def scan_market():
         "intraday_shorts": intraday_short_result,
         "spy_floor": spy_floor_result,
     }
+
+
+# ── ML Attribution Tracker ───────────────────────────────────────────────────
+def ml_attribution_summary() -> dict:
+    """
+    Aggregate ML attribution across all closed trades to measure whether
+    the ML model helps or hurts trade selection vs pure rules.
+
+    Reads from the trade feedback log (voltrade_trade_feedback.json) and
+    computes per-trade deltas between rules_score and ml_score_raw.
+
+    Returns a dict with:
+      - n_trades: total closed trades with both scores recorded
+      - avg_rules_score: average rules-only score at entry
+      - avg_ml_score: average ML score at entry
+      - avg_outcome_pnl: average realized P&L % across those trades
+      - ml_boosted_n: trades where ML score > rules score
+      - ml_suppressed_n: trades where ML score < rules score
+      - ml_lift_pct: estimated P&L improvement from ML adjustment
+      - verdict: 'ML_HELPS' / 'ML_HURTS' / 'NEUTRAL' / 'INSUFFICIENT_DATA'
+
+    Use this to decide whether to increase or decrease the ML blend weight.
+    """
+    try:
+        from ml_model_v2 import FEEDBACK_PATH as _fp
+    except ImportError:
+        _fp = os.path.join(DATA_DIR, "voltrade_trade_feedback.json")
+
+    try:
+        if not os.path.exists(_fp):
+            return {"verdict": "INSUFFICIENT_DATA", "reason": "No feedback file"}
+        with open(_fp) as f:
+            trades = json.load(f)
+    except Exception as e:
+        return {"verdict": "INSUFFICIENT_DATA", "reason": str(e)}
+
+    # Filter to closed trades with both scores recorded
+    scored = [
+        t for t in trades
+        if t.get("rules_score") is not None
+        and t.get("ml_score_raw") is not None
+        and t.get("pnl_pct") is not None
+    ]
+
+    if len(scored) < 10:
+        return {
+            "verdict": "INSUFFICIENT_DATA",
+            "n_trades": len(scored),
+            "reason": f"Need 10+ trades with both scores, have {len(scored)}",
+        }
+
+    rules_scores = [t["rules_score"] for t in scored]
+    ml_scores    = [t["ml_score_raw"] for t in scored]
+    pnls         = [t["pnl_pct"] for t in scored]
+
+    # Trades where ML raised the score (ML was more bullish than rules)
+    ml_boosted    = [t for t in scored if t["ml_score_raw"] > t["rules_score"] + 2]
+    # Trades where ML lowered the score (ML was more cautious)
+    ml_suppressed = [t for t in scored if t["ml_score_raw"] < t["rules_score"] - 2]
+
+    ml_boost_pnl = [t["pnl_pct"] for t in ml_boosted]
+    ml_supp_pnl  = [t["pnl_pct"] for t in ml_suppressed]
+
+    avg_boost_pnl = float(sum(ml_boost_pnl) / len(ml_boost_pnl)) if ml_boost_pnl else None
+    avg_supp_pnl  = float(sum(ml_supp_pnl) / len(ml_supp_pnl))   if ml_supp_pnl  else None
+    avg_all_pnl   = float(sum(pnls) / len(pnls))
+
+    # Compute lift: do ML-boosted trades outperform ML-suppressed ones?
+    ml_lift = None
+    if avg_boost_pnl is not None and avg_supp_pnl is not None:
+        ml_lift = round(avg_boost_pnl - avg_supp_pnl, 3)
+
+    # Verdict: ML helps if boosted trades clearly outperform suppressed ones
+    if ml_lift is None:
+        verdict = "INSUFFICIENT_DATA"
+    elif ml_lift > 0.5:   # ML-boosted trades beat ML-suppressed by >0.5%
+        verdict = "ML_HELPS"
+    elif ml_lift < -0.5:  # ML-boosted trades underperform by >0.5%
+        verdict = "ML_HURTS"
+    else:
+        verdict = "NEUTRAL"
+
+    return {
+        "verdict":               verdict,
+        "n_trades":              len(scored),
+        "avg_rules_score":       round(sum(rules_scores) / len(rules_scores), 2),
+        "avg_ml_score":          round(sum(ml_scores) / len(ml_scores), 2),
+        "avg_outcome_pnl":       round(avg_all_pnl, 3),
+        "ml_boosted_n":          len(ml_boosted),
+        "ml_boosted_avg_pnl":    round(avg_boost_pnl, 3) if avg_boost_pnl is not None else None,
+        "ml_suppressed_n":       len(ml_suppressed),
+        "ml_suppressed_avg_pnl": round(avg_supp_pnl, 3) if avg_supp_pnl is not None else None,
+        "ml_lift_pct":           ml_lift,
+        "interpretation": (
+            f"ML boosted returns by {abs(ml_lift):.2f}% on ML-influenced trades"
+            if ml_lift is not None and ml_lift > 0
+            else (
+                f"ML reduced returns by {abs(ml_lift):.2f}% on ML-influenced trades"
+                if ml_lift is not None and ml_lift < 0
+                else "Not enough ML-influenced trades to judge impact"
+            )
+        ),
+    }
+
 
 # ── Third Leg Engine (v1.0.25) ──────────────────────────────────────────────
 def _run_third_leg(macro: dict) -> dict:

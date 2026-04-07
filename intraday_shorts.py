@@ -246,9 +246,11 @@ def _stage2_score(candidates, spy_ret_10d):
             pass
         return results
 
-    # Batch into groups of 5 (Alpaca multi-symbol pagination)
+    # Batch into groups of 50 — Alpaca's /v2/stocks/bars endpoint supports many
+    # symbols per request. Using 5 was unnecessarily conservative and caused 10x
+    # more API round-trips than needed. 50 symbols per batch gives a 10x speedup.
     syms = [c["symbol"] for c in candidates]
-    batches = [syms[i:i+5] for i in range(0, len(syms), 5)]
+    batches = [syms[i:i+50] for i in range(0, len(syms), 50)]
 
     with ThreadPoolExecutor(max_workers=16) as pool:
         for batch_results in pool.map(_fetch_and_score, batches):

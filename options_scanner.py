@@ -132,6 +132,16 @@ def _build_setup_features(
         "intel_score":      0.0,
         "insider_signal":   0.0,
         "news_sentiment":   0.0,
+        # New features added to OPTIONS_FEATURE_COLS (cross_sec_rank, earnings_surprise,
+        # put_call_proxy, vol_of_vol, frac_diff_price, idiosyncratic_ret).
+        # These are stock-specific signals not available at market/IV level, so we
+        # default them to neutral values (0.0 / 0.5) to match training distribution.
+        "cross_sec_rank":   0.5,   # neutral rank — no per-stock cross-sectional data here
+        "earnings_surprise": 0.0,  # unknown at market-level scan; set by _build_setup_features callers if available
+        "put_call_proxy":   -1.0 if vrp > 8 else (1.0 if vrp < -5 else 0.0),  # derived from VRP direction
+        "vol_of_vol":       0.0,   # requires VXX history not pre-fetched here; neutral default
+        "frac_diff_price":  0.0,   # requires long price series; neutral default
+        "idiosyncratic_ret": 0.0,  # no per-stock return available at market-IV level
     }
 
 # ── Alpaca credentials ────────────────────────────────────────────────────────

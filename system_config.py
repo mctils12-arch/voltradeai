@@ -175,7 +175,11 @@ BASE_CONFIG = {
     "BLOCKED_TICKERS": [
         "DKNG", "RBLX",                      # Gaming: 25% WR
         "SQQQ", "TQQQ", "SPXU", "UPRO",     # 3x leveraged ETFs: 22% WR
-        "UVXY", "SVXY",                       # VIX products: decay kills them
+        "UVXY",                               # VIX products: decay kills them
+        # NOTE: SVXY deliberately excluded from BLOCKED_TICKERS.
+        # SVXY is used by the VRP harvest leg (Leg 3B) as the primary
+        # instrument for selling volatility premium. Blocking it would
+        # prevent the third leg from executing its core strategy.
         "ABNB", "DASH",                       # Travel: 20% WR
         "LYFT",                               # Ride-share: structural drag
     ],
