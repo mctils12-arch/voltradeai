@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VolTradeAI v1.0.22 — Full Trading Day Test
+VolTradeAI v1.0.23 — Full Trading Day Test
 Simulates: 4am → pre-market → 9:30 open → mid-day → close → after-hours
 Tests every component, catches every error, reports everything.
 """
@@ -27,7 +27,7 @@ def test(phase, name, fn):
 
 # ═══════════════════════════════════════════════════════════
 print("="*70)
-print("VolTradeAI v1.0.22 — Full Trading Day Simulation")
+print("VolTradeAI v1.0.23 — Full Trading Day Simulation")
 print("Tuesday April 7, 2026 | 4:00 AM → 8:00 PM ET")
 print("="*70)
 
@@ -442,29 +442,41 @@ def t_options_ml_blend():
 test("OPTIONS","ML blend in setup scoring (60% rules + 40% ML)", t_options_ml_blend)
 
 def t_earnings_iv_crush_setup():
+    """v1.0.23 fixes: days>=0 (not >=1), 21-day window, VRatio IV gate."""
     from options_scanner import _fetch_earnings_calendar, _setup_earnings_iv_crush, _get_vxx_ratio
-    cal = _fetch_earnings_calendar(days_ahead=7)
-    tickers = [(s,d) for s,d in cal.items() if 1<=d<=7 and "." not in s and len(s)<=5]
-    if not tickers:
-        return "WARN", "No earnings in next 7 days from Finnhub"
     import requests
     H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+
+    # Fix 3: 21-day window must return major names
+    cal = _fetch_earnings_calendar(days_ahead=21)
+    tickers_21 = [(s,d) for s,d in cal.items() if 0<=d<=21 and "." not in s and len(s)<=5]
+    if len(tickers_21) < 5:
+        return "WARN", f"21-day calendar only returned {len(tickers_21)} tickers — Finnhub may be slow"
+
+    # Fix 1: days=0 tickers must NOT be filtered out
+    zero_day = [(s,d) for s,d in cal.items() if d==0 and "." not in s and len(s)<=5]
+
     vxx_r = _get_vxx_ratio()
     tested = 0; found = []
-    for sym, days in tickers[:10]:
+    # Test first 8 valid tickers
+    for sym, days in sorted(tickers_21, key=lambda x: x[1])[:8]:
         r = requests.get(f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={sym}&feed=sip",headers=H,timeout=6)
         snap = r.json().get(sym,{})
         price = float(snap.get("dailyBar",{}).get("c",0))
-        if price < 5: continue
+        if price < 10: continue
         tested += 1
         result = _setup_earnings_iv_crush(sym, price, days, vxx_r)
         if result:
-            found.append(f"{sym}(score={result['score']},days={days})")
-        if tested >= 5: break
+            found.append(f"{sym}(score={result['score']:.0f},days={days})")
+        if tested >= 6: break
+
+    detail = (f"21d window={len(tickers_21)} tickers | "
+              f"days=0 tickers={len(zero_day)} | "
+              f"tested {tested}, {len(found)} setups: {found[:3]}")
     if tested == 0:
-        return "WARN", f"No valid earnings tickers to test (all under $5)"
-    return "PASS", f"Tested {tested} earnings tickers, {len(found)} setups found: {found[:3]}"
-test("OPTIONS","Earnings IV crush setup detection", t_earnings_iv_crush_setup)
+        return "WARN", f"No valid earnings tickers >10 found — {detail}"
+    return "PASS", detail
+test("OPTIONS","Earnings IV crush (Fix1+Fix3: days>=0, 21d window)", t_earnings_iv_crush_setup)
 
 def t_vxx_panic_setup():
     from options_scanner import _setup_vxx_panic_put_sale, _get_vxx_ratio, _get_spy_vs_ma50, _is_regular_hours

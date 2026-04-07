@@ -518,10 +518,13 @@ def _setup_earnings_iv_crush(
         return None
     if vxx_ratio >= 1.30:
         return None  # Panic mode: don't add risk, market IV already elevated
-    if not (1 <= days_to_earnings <= 7):
+    # Fix 1 (v1.0.23): accept days=0 (earnings tomorrow morning)
+    if not (0 <= days_to_earnings <= 7):
         return None
 
-    contracts = _fetch_options_chain(ticker, price, min_days=days_to_earnings, max_days=days_to_earnings + 14)
+    # For days=0 (report tomorrow bmo), fetch contracts expiring within 2 weeks
+    chain_min = max(days_to_earnings, 1)
+    contracts = _fetch_options_chain(ticker, price, min_days=chain_min, max_days=days_to_earnings + 14)
     if not contracts:
         return None
 
@@ -740,8 +743,21 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
         return None  # Market-wide panic — individual stock IV is noise
 
     iv_rank = _fetch_iv_rank(ticker)
-    if iv_rank is None or iv_rank < 70:
+    if iv_rank is None:
         return None
+
+    # Fix 2 (v1.0.23): VRatio-based IV gate
+    # After a volatility spike (like Apr 2026 tariff crash), the 52-week IV rank
+    # drops to ~16% because the crash becomes the new 52w high.
+    # BUT: VXX ratio > 1.05 means current IV is STILL elevated vs its own 30d avg.
+    # That window — high VXX ratio + declining absolute IV — is actually the
+    # BEST time to sell premium: vol is coming off a spike, mean-reversion favors sellers.
+    # Condition: either IV rank > 70 (normal) OR VXX ratio in 1.05-1.25 range (transitional)
+    vxx_elevated = 1.05 <= vxx_ratio <= 1.25  # Vol elevated but not panic
+    if iv_rank < 70 and not vxx_elevated:
+        return None  # Neither condition met — skip
+    # When using VRatio gate, lower the profit target slightly (less premium available)
+    _vratio_mode = vxx_elevated and iv_rank < 70
 
     contracts = _fetch_options_chain(ticker, price, min_days=14, max_days=45)
     if not contracts:
@@ -1280,16 +1296,24 @@ def scan_options() -> dict:
 
     # ── SETUP 1: Earnings IV Crush ────────────────────────────────────────
     # Fetch earnings calendar once, then check each earnings ticker
-    earnings_cal = _fetch_earnings_calendar(days_ahead=8)
+    # Fix 3 (v1.0.23): 21-day window catches full earnings cycle (was 8).
+    # Finnhub returns all majors (JPM, GS, NFLX, etc.) when window is wide enough.
+    # Self-updating — no hardcoded dates needed.
+    earnings_cal = _fetch_earnings_calendar(days_ahead=21)
     earnings_tickers = [t for t in earnings_cal.keys()
                         if t and "." not in t and len(t) <= 5]
 
     def _check_earnings(tkr: str) -> Optional[dict]:
         days = earnings_cal.get(tkr, 99)
-        if not (1 <= days <= 7):
+        # Fix 1 (v1.0.23): days >= 0 not >= 1.
+        # days=0 means earnings tomorrow morning (report date is calendar
+        # day ahead but datetime.now() is same calendar day).
+        # e.g. DAL reports Apr 8 bmo; at 11am Apr 7 days=0 but setup is valid.
+        if not (0 <= days <= 7):
             return None
         price = _fetch_price(tkr)
-        if not price or price < 5:
+        # Fix: raise minimum price to $10 — earnings crush needs liquid options
+        if not price or price < 10:
             return None
         return _setup_earnings_iv_crush(tkr, price, days, vxx_ratio)
 

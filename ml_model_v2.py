@@ -322,9 +322,11 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
     # beyond just following the market up or down
     # Research: Ang et al 2006 — idiosyncratic vol predicts returns
     if idx >= 21 and len(spy_hist50) >= 21:
-        stock_21d = mom_1m
-        spy_21d   = (spy_close - float(spy_bars[max(0,idx-21)]["c"])) / float(spy_bars[max(0,idx-21)]["c"]) * 100 if spy_bars[max(0,idx-21)] else 0
-        beta_proxy = 1.2 if volume_ratio > 2 else 0.8  # high-vol stocks have higher beta
+        stock_21d  = mom_1m
+        spy_21d_idx = max(0, min(idx - 21, len(spy_bars) - 1))  # bounds-safe
+        spy_21d_bar = spy_bars[spy_21d_idx] if spy_bars and spy_21d_idx < len(spy_bars) else None
+        spy_21d    = (spy_close - float(spy_21d_bar["c"])) / float(spy_21d_bar["c"]) * 100 if spy_21d_bar and float(spy_21d_bar["c"]) > 0 else 0
+        beta_proxy = 1.2 if volume_ratio > 2 else 0.8
         idio_ret   = stock_21d - beta_proxy * spy_21d
     else:
         idio_ret = 0.0
