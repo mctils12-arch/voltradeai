@@ -1518,26 +1518,33 @@ def scan_market():
         except Exception:
             _cooldown = {}
         _last_stop = _cooldown.get(ticker, 0)
-        # Determine cooldown seconds from current regime
-        _vxx_r_scan = float(_macro.get("vxx_ratio", 1.0) or 1.0)
-        _spy_ma_scan = float(_macro.get("spy_vs_ma50", 1.0) or 1.0)
-        if _vxx_r_scan >= 1.30 or _spy_ma_scan < 0.94:    # PANIC
-            _cooldown_secs = 14400   # 4 hours
-            _cooldown_label = "PANIC (4h)"
-        elif _vxx_r_scan >= 1.15:                           # BEAR
-            _cooldown_secs = 10800   # 3 hours
-            _cooldown_label = "BEAR (3h)"
-        elif _vxx_r_scan >= 1.05:                           # CAUTION
-            _cooldown_secs = 9000    # 2.5 hours
-            _cooldown_label = "CAUTION (2.5h)"
-        elif _vxx_r_scan <= 0.90:                           # BULL — fast mean revert
-            _cooldown_secs = 5400    # 1.5 hours
-            _cooldown_label = "BULL (1.5h)"
-        else:                                               # NEUTRAL
-            _cooldown_secs = 7200    # 2 hours (baseline)
-            _cooldown_label = "NEUTRAL (2h)"
+        # Determine cooldown seconds from current regime (Fix B: include 200d MA)
+        _vxx_r_scan    = float(_macro.get("vxx_ratio", 1.0) or 1.0)
+        _spy_ma_scan   = float(_macro.get("spy_vs_ma50", 1.0) or 1.0)
+        _spy_b200_scan = int(_macro.get("spy_below_200_days", 0) or 0)
+        # Use the same regime function so 200MA block is consistent everywhere
+        try:
+            from system_config import get_market_regime as _gmr
+            _scan_regime = _gmr(_vxx_r_scan, _spy_ma_scan,
+                                spy_below_200_days=_spy_b200_scan)
+        except Exception:
+            # Fallback inline
+            if _vxx_r_scan >= 1.30 or _spy_ma_scan < 0.94 or _spy_b200_scan >= 10:
+                _scan_regime = "PANIC" if _vxx_r_scan >= 1.30 else "BEAR"
+            elif _vxx_r_scan >= 1.15: _scan_regime = "BEAR"
+            elif _vxx_r_scan >= 1.05: _scan_regime = "CAUTION"
+            elif _vxx_r_scan <= 0.90: _scan_regime = "BULL"
+            else:                     _scan_regime = "NEUTRAL"
+        _cooldown_map = {"PANIC": 14400, "BEAR": 10800, "CAUTION": 9000,
+                         "BULL": 5400, "NEUTRAL": 7200}
+        _cooldown_secs  = _cooldown_map.get(_scan_regime, 7200)
+        _cooldown_label = f"{_scan_regime} ({_cooldown_secs//3600:.1f}h)"
         if time.time() - _last_stop < _cooldown_secs:
             continue  # Ticker in cooldown — skip. Re-entry blocked ({_cooldown_label})
+
+        # Fix B: block ALL new stock longs in BEAR/PANIC (200MA slow-bear included)
+        if _scan_regime in ("BEAR", "PANIC"):
+            continue  # No new stock longs in bear/panic — preserve capital
 
         # Skip if below minimum score
         if final_score < MIN_SCORE:
@@ -1550,6 +1557,19 @@ def scan_market():
         side = stock.get("side", "buy")
         action_label = stock.get("action_label", "BUY")
         change_pct_val = stock.get("change_pct", 0) or 0
+
+        # ── Dollar volume filter (Fix D) ────────────────────────────────
+        # Minimum $50M daily dollar volume = price × shares traded.
+        # WHY: FCUV ($7, $370M vol) and PFSA ($2, $450M vol) passed all other
+        # filters but are micro-caps with manipulated momentum spikes.
+        # A $50M floor blocks them while keeping NVDA at $13 (post-split, $2B+/day).
+        # Does NOT use a price floor (that hurt backtest by blocking split-adj stocks).
+        _stock_price  = float(stock.get("price", 0) or 0)
+        _stock_volume = float(stock.get("volume", 0) or 0)
+        _dollar_vol   = _stock_price * _stock_volume
+        _MIN_DOLLAR_VOL = 50_000_000  # $50M minimum daily dollar volume
+        if _dollar_vol < _MIN_DOLLAR_VOL:
+            continue  # Skip micro-cap / low-liquidity stock
 
         # Sector quality filter — 3-year backtest confirmed these destroy returns
         # Gaming (DKNG, RBLX): 25% WR over 3 years  | Leveraged ETFs: 22% WR

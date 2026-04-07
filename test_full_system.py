@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VolTradeAI v1.0.21 — Full Trading Day Test
+VolTradeAI v1.0.22 — Full Trading Day Test
 Simulates: 4am → pre-market → 9:30 open → mid-day → close → after-hours
 Tests every component, catches every error, reports everything.
 """
@@ -27,7 +27,7 @@ def test(phase, name, fn):
 
 # ═══════════════════════════════════════════════════════════
 print("="*70)
-print("VolTradeAI v1.0.21 — Full Trading Day Simulation")
+print("VolTradeAI v1.0.22 — Full Trading Day Simulation")
 print("Tuesday April 7, 2026 | 4:00 AM → 8:00 PM ET")
 print("="*70)
 
@@ -116,29 +116,31 @@ test("4AM","Markov regime detection", t_markov_regime)
 
 def t_system_config_all_regimes():
     from system_config import get_market_regime, get_adaptive_params
+    # Standard VXX-based cases + Fix B 200d MA cases
     cases = [
-        (1.40, 0.96, 1, "PANIC"),
-        (1.20, 1.00, 1, "BEAR"),
-        (1.07, 1.01, 1, "CAUTION"),
-        (1.00, 1.01, 1, "NEUTRAL"),
-        (0.83, 1.04, 2, "BULL"),
+        (1.40, 0.96, 1, 0,  "PANIC"),
+        (1.20, 1.00, 1, 0,  "BEAR"),
+        (1.07, 1.01, 1, 0,  "CAUTION"),
+        (1.00, 1.01, 1, 0,  "NEUTRAL"),
+        (0.83, 1.04, 2, 0,  "BULL"),
+        (1.00, 0.99, 1, 10, "BEAR"),    # Fix B: 10 days below 200d MA forces BEAR
+        (1.00, 0.99, 1, 9,  "CAUTION"), # Fix B: only 9 days = not triggered
+        (1.35, 0.99, 1, 15, "PANIC"),   # Fix B: VXX panic overrides to PANIC
     ]
     errors = []
-    for vxx, spy, ms, expected in cases:
-        got = get_market_regime(vxx, spy, ms)
+    for vxx, spy, ms, b200, expected in cases:
+        got = get_market_regime(vxx, spy, ms, spy_below_200_days=b200)
         if got != expected:
-            errors.append(f"{expected}→got {got}")
+            errors.append(f"b200={b200} vxx={vxx} expected={expected} got={got}")
     if errors:
-        return "FAIL", "Regime mismatch: " + ", ".join(errors)
-    # Also verify cooldown seconds for each
-    cd = {"PANIC":14400,"BEAR":10800,"CAUTION":9000,"NEUTRAL":7200,"BULL":5400}
-    for regime, expected_secs in cd.items():
-        p = get_adaptive_params(
+        return "FAIL", "Regime mismatch: " + "; ".join(errors)
+    for regime in ["PANIC","BEAR","CAUTION","NEUTRAL","BULL"]:
+        get_adaptive_params(
             vxx_ratio={"PANIC":1.40,"BEAR":1.20,"CAUTION":1.07,"NEUTRAL":1.00,"BULL":0.83}[regime],
             spy_vs_ma50={"PANIC":0.96,"BEAR":1.00,"CAUTION":1.01,"NEUTRAL":1.01,"BULL":1.04}[regime],
-            markov_state=2 if regime=="BULL" else 1)
-    return "PASS", "All 5 regimes correct: PANIC/BEAR/CAUTION/NEUTRAL/BULL"
-test("4AM","System config all 5 regimes", t_system_config_all_regimes)
+            markov_state=2 if regime=="BULL" else 1, spy_below_200_days=0)
+    return "PASS", "All 5 regimes + Fix B 200MA slow-bear (8 cases) correct"
+test("4AM","System config all 5 regimes + Fix B 200MA", t_system_config_all_regimes)
 
 def t_adaptive_params_regime_gates():
     """Position limits and score thresholds must tighten in fear, loosen in bull."""
@@ -225,6 +227,28 @@ def t_spy_vs_ma50():
     trend = "above 50d MA (healthy)" if v > 1.0 else "below 50d MA (bearish)"
     return "PASS", f"SPY/MA50={v:.4f} — {trend}"
 test("PREMARKET","SPY vs 50-day MA", t_spy_vs_ma50)
+
+def t_spy_200ma_slow_bear():
+    """Fix B: macro_data must return spy_below_200_days and it must be a valid int."""
+    from macro_data import get_macro_snapshot
+    import os
+    # Clear cache so we get a fresh computation
+    cache_path = "/tmp/voltrade_macro_cache.json"
+    if os.path.exists(cache_path):
+        os.remove(cache_path)
+    macro = get_macro_snapshot()
+    b200  = macro.get("spy_below_200_days", None)
+    ma200 = macro.get("spy_vs_ma200", None)
+    if b200 is None:
+        return "FAIL", "spy_below_200_days missing from macro snapshot"
+    if not isinstance(b200, int):
+        return "FAIL", f"spy_below_200_days is {type(b200).__name__}, expected int"
+    if ma200 is None:
+        return "WARN", f"spy_below_200_days={b200} but spy_vs_ma200 missing"
+    status = f"SPY has been below 200d MA for {b200} consecutive days" if b200 > 0 else "SPY above 200d MA"
+    regime_effect = " → BEAR regime active (Fix B)" if b200 >= 10 else (f" → {10-b200} more days until Fix B triggers" if b200 > 0 else "")
+    return "PASS", f"{status}{regime_effect} | SPY/MA200={ma200:.4f}"
+test("PREMARKET","SPY 200d MA slow-bear detector (Fix B)", t_spy_200ma_slow_bear)
 
 # ═══════════════════════════════════════════════════════════
 print("\n── 9:30 AM ─ Market Open: Stock Scan ──")

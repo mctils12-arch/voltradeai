@@ -6,6 +6,7 @@ import json
 import os
 import time
 import requests
+from datetime import datetime, timedelta
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
 CACHE_PATH = "/tmp/voltrade_macro_cache.json"
@@ -176,6 +177,41 @@ def get_macro_snapshot() -> dict:
         result["market_regime"] = "risk_off"
     else:
         result["market_regime"] = "neutral"
+
+    # ── Fix B: SPY 200-day MA slow-bear detector (v1.0.22) ──────────────────
+    # Count consecutive trading days SPY has closed below its 200-day MA.
+    # Passed to get_market_regime() as spy_below_200_days.
+    # When >= 10, forces BEAR regime regardless of VXX level.
+    # This catches the 2022-style slow grinding bear that VXX ratio missed.
+    try:
+        import requests as _req
+        _alpaca_key    = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
+        _alpaca_secret = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+        _h = {"APCA-API-KEY-ID": _alpaca_key, "APCA-API-SECRET-KEY": _alpaca_secret}
+        _r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
+            params={"symbols": "SPY", "timeframe": "1Day",
+                    "start": (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d"),
+                    "limit": 220, "feed": "sip"},
+            headers=_h, timeout=8)
+        _spy_bars = _r.json().get("bars", {}).get("SPY", [])
+        if len(_spy_bars) >= 200:
+            _closes  = [float(b["c"]) for b in _spy_bars]
+            _ma200   = sum(_closes[-200:]) / 200
+            # Count consecutive days below 200d MA (from most recent backwards)
+            _streak  = 0
+            for _c in reversed(_closes):
+                if _c < _ma200:
+                    _streak += 1
+                else:
+                    break
+            result["spy_below_200_days"] = _streak
+            result["spy_vs_ma200"]       = round(_closes[-1] / _ma200, 4)
+        else:
+            result["spy_below_200_days"] = 0
+            result["spy_vs_ma200"]       = 1.0
+    except Exception:
+        result["spy_below_200_days"] = 0
+        result["spy_vs_ma200"]       = 1.0
 
     _save_cache(result)
     return result

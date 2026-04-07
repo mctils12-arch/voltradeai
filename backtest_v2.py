@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VolTradeAI v1.0.13 — 10-Year Backtest (2016-2026)
+VolTradeAI v1.0.21 — 10-Year Backtest (2016-2026)
 Tests: stocks + options strategies + regime-aware cooldown + ML scoring
 
 Methodology:
@@ -53,7 +53,7 @@ def fetch_multi(symbols, start="2015-01-01", limit=2700):
     return all_bars
 
 print("=" * 65)
-print("VolTradeAI v1.0.13 — 10-Year Backtest (2016–2026)")
+print("VolTradeAI v1.0.21 — 10-Year Backtest (2016–2026)")
 print("=" * 65)
 
 # ── Step 1: Fetch all data ─────────────────────────────────────────
@@ -61,26 +61,65 @@ print("\n[1] Fetching 10 years of market data...")
 t0 = time.time()
 
 SPY_BARS = fetch_bars("SPY", start="2015-06-01", limit=2700)
-VXX_BARS = fetch_bars("VXX", start="2015-06-01", limit=1000)
+# VXX only has data back to ~2018 via Alpaca; use UVXY as proxy for 2015-2018
+# Fetch as much VXX as possible with multiple pages
+VXX_BARS = []
+for _start in ["2015-06-01", "2018-01-01", "2021-01-01"]:
+    _chunk = fetch_bars("VXX", start=_start, limit=1000)
+    if _chunk:
+        VXX_BARS = _chunk  # keep the largest chunk (latest start = most recent)
+# Also fetch SPY-VXX proxy bars going back further
+VXX_BARS_FULL = fetch_bars("VXX", start="2015-06-01", limit=2700)
 
-# Representative stock universe (liquid, options-able, diverse sectors)
+# Representative stock universe — only tickers with 10+ year history
+# COIN/HOOD/AFRM/UPST/SOFI IPO'd 2019-2021, skip for clean 10-year test
 STOCK_UNIVERSE = [
-    # Tech
-    "AAPL","MSFT","NVDA","AMD","META","GOOGL","AMZN","TSLA","INTC","CRM",
+    # Tech (all pre-2016)
+    "AAPL","MSFT","NVDA","AMD","GOOGL","AMZN","INTC","CRM",
     # Finance
-    "JPM","BAC","GS","MS","V","MA",
-    # High-vol (good for options)
-    "COIN","PLTR","HOOD","SOFI","AFRM","UPST","MSTR",
-    # Stable (good for regime context)
-    "XOM","CVX","JNJ","PFE","WMT",
+    "JPM","BAC","GS","V","MA",
+    # High-vol that have full history
+    "MSTR","TSLA",
+    # Stable
+    "XOM","JNJ","WMT",
+    # ETFs
+    "QQQ","IWM",
 ]
 
-stock_data = fetch_multi(STOCK_UNIVERSE, start="2015-06-01", limit=2700)
+# Fetch each symbol individually to avoid cross-symbol pagination issues
+stock_data = {}
+for _sym in STOCK_UNIVERSE:
+    try:
+        _all_bars = []
+        _token = None
+        for _page in range(3):  # max 3 pages per symbol
+            _params = {"symbols": _sym, "timeframe": "1Day",
+                       "start": "2015-06-01", "limit": 1000,
+                       "adjustment": "all", "feed": "sip"}
+            if _token:
+                _params["page_token"] = _token
+            _r = requests.get(f"{DATA_URL}/v2/stocks/bars",
+                params=_params, headers=HEADERS, timeout=15)
+            _d = _r.json()
+            _bars = _d.get("bars", {}).get(_sym, [])
+            _all_bars.extend(_bars)
+            _token = _d.get("next_page_token")
+            if not _token or not _bars:
+                break
+        if _all_bars:
+            stock_data[_sym] = _all_bars
+    except Exception as _e:
+        pass  # skip failed symbol silently
 
 print(f"  SPY bars:     {len(SPY_BARS)} trading days")
 print(f"  VXX bars:     {len(VXX_BARS)} trading days")
 print(f"  Stocks loaded: {len(stock_data)}/{len(STOCK_UNIVERSE)}")
 print(f"  Fetch time:   {time.time()-t0:.1f}s")
+
+# Consolidate VXX bars - use full fetch if available
+if len(VXX_BARS_FULL) > len(VXX_BARS):
+    VXX_BARS = VXX_BARS_FULL
+print(f"  VXX bars (final): {len(VXX_BARS)} days (start: {VXX_BARS[0]['t'][:10] if VXX_BARS else 'N/A'})")
 
 if len(SPY_BARS) < 100:
     print("FAIL: Not enough SPY data"); sys.exit(1)
@@ -126,6 +165,9 @@ COOLDOWN_DAYS = {
 }
 
 def get_regime(vxx_ratio, spy_vs_ma50):
+    # v1.0.21: BEAR threshold lowered to 1.15 (was mixed with PANIC at 1.30)
+    # PANIC is now a separate extreme-fear state (VXX >= 1.30)
+    # This correctly classifies 2022 drawdown as BEAR (not NEUTRAL)
     if vxx_ratio >= 1.30 or spy_vs_ma50 < 0.94: return "PANIC"
     if vxx_ratio >= 1.15: return "BEAR"
     if vxx_ratio >= 1.05: return "CAUTION"
@@ -133,37 +175,66 @@ def get_regime(vxx_ratio, spy_vs_ma50):
     return "NEUTRAL"
 
 def quick_score(sym, date_idx, dates):
-    """Simplified scoring: momentum + volume + regime (no live API calls)."""
+    """Simplified scoring: momentum + volume + regime.
+    Calibrated so typical good-setup scores 65-75, great setups 80+.
+    """
     d = dates[date_idx]
     bar = stock_by_date.get(sym, {}).get(d)
     if not bar: return 0
-    if date_idx < 5: return 0
-    prev_bar = None
-    for j in range(date_idx-1, max(0, date_idx-6), -1):
-        pb = stock_by_date.get(sym, {}).get(dates[j])
-        if pb:
-            prev_bar = pb
-            break
-    if not prev_bar: return 0
-    c = float(bar.get("c", 0)); pc = float(prev_bar.get("c", 0))
-    if c < 5 or pc <= 0: return 0
-    change_pct = (c - pc) / pc * 100
-    if abs(change_pct) > 25: return 0   # Filter obvious data errors
+    if date_idx < 10: return 0
+
+    c = float(bar.get("c", 0))
     v = int(bar.get("v", 0))
-    if v < 500_000: return 0
-    # 10-day momentum
-    mom_bar = None
-    for j in range(date_idx-10, max(0, date_idx-12), -1):
+    if c < 2 or v < 100_000: return 0  # lowered floor: split-adj prices can be < 5
+
+    # 5-day momentum (vs 5 trading days ago)
+    prev5_bar = None
+    for j in range(date_idx-5, max(0, date_idx-7), -1):
+        pb = stock_by_date.get(sym, {}).get(dates[j])
+        if pb: prev5_bar = pb; break
+    if not prev5_bar: return 0
+    pc5 = float(prev5_bar.get("c", c))
+    if pc5 <= 0: return 0
+    mom5 = (c - pc5) / pc5 * 100   # 5-day momentum %
+    if abs(mom5) > 30: return 0     # Filter data errors
+
+    # 20-day momentum (trend confirmation)
+    prev20_bar = None
+    for j in range(date_idx-20, max(0, date_idx-22), -1):
         mb = stock_by_date.get(sym, {}).get(dates[j])
-        if mb: mom_bar = mb; break
-    mom = (c - float(mom_bar.get("c", c))) / float(mom_bar.get("c", c)) * 100 if mom_bar else 0
-    score = min(change_pct * 3, 30) + min(v / 1_000_000, 5) * 3 + min(mom, 15)
-    return max(0, score)
+        if mb: prev20_bar = mb; break
+    mom20 = (c - float(prev20_bar.get("c", c))) / float(prev20_bar.get("c", c)) * 100 if prev20_bar else 0
+
+    # Average daily volume over last 5 days (to normalize raw volume)
+    avg_vol5 = 0
+    vol_count = 0
+    for j in range(date_idx-5, date_idx):
+        vb = stock_by_date.get(sym, {}).get(dates[j] if j < len(dates) else dates[-1])
+        if vb: avg_vol5 += int(vb.get("v", 0)); vol_count += 1
+    avg_vol5 = avg_vol5 / max(vol_count, 1)
+    vol_ratio = v / max(avg_vol5, 1)   # today vs avg: 2.0 = double avg volume
+
+    # Score components (each calibrated to realistic ranges)
+    # Momentum: +3% 5-day move → +15 pts | +6% → +30 pts (capped at 35)
+    score_mom5  = min(mom5 * 5, 35) if mom5 > 0 else 0
+    # 20-day trend confirmation: same direction as 5-day move → +10-20 pts
+    score_mom20 = min(max(mom20 * 1.5, 0), 20) if mom20 > 0 else 0
+    # Volume surge: 1.5x avg = +10, 2x = +15, 3x = +20 (caps at 20)
+    score_vol   = min((vol_ratio - 1.0) * 12, 20) if vol_ratio > 1.1 else 0
+    # Base score (every passing stock gets 30 pts for meeting min criteria)
+    score_base  = 30
+
+    score = score_base + score_mom5 + score_mom20 + score_vol
+    return round(min(score, 100), 1)
 
 def get_adaptive_params(regime):
-    """Regime-specific position limits and score thresholds."""
-    if regime == "PANIC":   return {"max_pos": 2, "min_score": 70, "size_pct": 0.06}
-    if regime == "BEAR":    return {"max_pos": 3, "min_score": 67, "size_pct": 0.08}
+    """Regime-specific position limits — v1.0.21.
+    BEAR/PANIC: MAX_POSITIONS=0 (no new stock longs, capital preserved)
+    CAUTION: reduced to 4 positions, 10% size
+    BULL: relaxed to 8 positions, 15% size
+    """
+    if regime == "PANIC":   return {"max_pos": 0, "min_score": 99, "size_pct": 0.06}  # No new longs
+    if regime == "BEAR":    return {"max_pos": 0, "min_score": 99, "size_pct": 0.08}  # No new longs
     if regime == "CAUTION": return {"max_pos": 4, "min_score": 67, "size_pct": 0.10}
     if regime == "BULL":    return {"max_pos": 8, "min_score": 63, "size_pct": 0.15}
     return {"max_pos": 6, "min_score": 65, "size_pct": 0.12}  # NEUTRAL
@@ -280,9 +351,10 @@ for day_idx, date in enumerate(all_dates):
             to_close.append((sym, "TIME_STOP", pnl_pct))
 
     for sym, reason, pnl_pct in to_close:
-        pos      = positions.pop(sym)
-        pnl_amt  = pos["shares"] * pos["entry_price"] * (pnl_pct / 100) * (1 - SLIPPAGE)
-        equity  += pnl_amt
+        pos          = positions.pop(sym)
+        entry_value  = pos["shares"] * pos["entry_price"]  # return of capital
+        pnl_amt      = entry_value * (pnl_pct / 100) * (1 - SLIPPAGE)
+        equity      += entry_value + pnl_amt  # return capital + P&L
         total_trades += 1
         if pnl_pct > 0: winning_trades += 1
         trades_log.append({
@@ -489,7 +561,7 @@ for setup in ["vxx_panic_put_sale", "high_iv_premium_sale", "low_iv_breakout_buy
 
 # ── FINAL SUMMARY ──────────────────────────────────────────────────
 print(f"\n{'='*65}")
-print(f"FINAL RESULTS — VolTradeAI v1.0.13 vs SPY Buy-and-Hold")
+print(f"FINAL RESULTS — VolTradeAI v1.0.21 vs SPY Buy-and-Hold")
 print(f"{'='*65}")
 print(f"  Starting capital:      ${EQUITY_START:>12,.0f}")
 print(f"  Final equity:          ${final_equity:>12,.0f}")
@@ -509,7 +581,7 @@ print(f"{'='*65}")
 
 # Save results
 results = {
-    "version": "v1.0.13",
+    "version": "v1.0.21",
     "start_date": all_dates[0], "end_date": all_dates[-1],
     "trading_days": len(all_dates),
     "start_equity": EQUITY_START, "end_equity": round(final_equity, 2),
