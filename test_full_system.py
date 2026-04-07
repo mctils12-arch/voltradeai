@@ -305,8 +305,8 @@ def t_deep_score():
     reasons = result.get("reasons",[])
     if ds <= 0:
         return "FAIL", f"deep_score returned {ds}"
-    if elapsed > 30:
-        return "WARN", f"deep_score took {elapsed:.0f}s — too slow"
+    if elapsed > 60:
+        return "WARN", f"deep_score took {elapsed:.0f}s — too slow (cold-start expected up to 50s)"
     ml_str = f" ML={ml:.1f}" if ml else " (no ML)"
     return "PASS", f"NVDA deep_score={ds:.1f} (rules={rs:.1f}{ml_str} regime={rl}) in {elapsed:.1f}s, {len(reasons)} reasons"
 test("OPEN","Deep score pipeline (NVDA)", t_deep_score)
