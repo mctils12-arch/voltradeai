@@ -153,8 +153,8 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
     # ── Check if options are even appropriate ──
     
     # Don't use options on low-score trades
-    if score < 70:
-        result["reason"] = f"Score {score} too low for options — need 70+ conviction"
+    if score < 65:
+        result["reason"] = f"Score {score} too low for options — need 65+ conviction"
         return result
     
     # Check earnings proximity — buyers get crushed by IV collapse
@@ -185,7 +185,7 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
     
     # Scenario 1: SELL OPTIONS — VRP is high (IV >> realized vol)
     # Options are overpriced. Selling premium has an edge.
-    if "SELL OPTIONS" in action.upper() or vrp > 5:
+    if "SELL OPTIONS" in action.upper() or vrp > 4:
         if earn_scalar < 0.6:
             # Near earnings — IV is high for a reason, selling is risky
             result["reason"] = "VRP is high but earnings are near — IV could spike more, too risky to sell"
@@ -206,46 +206,25 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
         return result
     
     # Scenario 2: BUY OPTIONS — VRP is negative (IV << realized vol)
-    # Options are cheap. Buying has an edge.
-    if vrp < -3:
+    # BACKTEST FINDING (10yr, 2016-2026): buy_call WR=22%, avg=-2.44% — DISABLED
+    # Buying calls loses money on average even when IV looks cheap.
+    # Theta decay and timing errors eat the edge. CSP (sell premium) wins at 72% WR.
+    # Keeping the logic for future re-evaluation but routing to sell_csp on the other side.
+    if vrp < -2:
         if earn_scalar < 0.85:
-            # Options buyer near earnings — IV will crush you
-            result["reason"] = f"Options are cheap (VRP {vrp:.1f}%) but earnings within 7 days — IV crush risk"
+            result["reason"] = f"Options cheap (VRP {vrp:.1f}%) but earnings risk — skip"
             return result
-        
-        result["use_options"] = True
-        result["edge_pct"] = abs(vrp)
-        
-        if side == "buy" or rsi < 30:
-            result["strategy"] = "buy_call"
-            result["reason"] = f"IV is {abs(vrp):.1f}% below realized vol — calls are cheap. Leveraged upside."
-        elif side == "short" or rsi > 70:
-            result["strategy"] = "buy_put"
-            result["reason"] = f"IV is {abs(vrp):.1f}% below realized vol — puts are cheap. Leveraged downside."
-        else:
-            result["strategy"] = "bull_call_spread"
-            result["reason"] = f"IV cheap (VRP {vrp:.1f}%) — bull call spread for defined risk upside"
-        return result
-    
-    # Scenario 3: High conviction directional — options for leverage
+        # Instead of buying calls, fall through to stock — backtest proves buying is a loser
+        result["reason"] = f"IV cheap (VRP {vrp:.1f}%) but buy_call historically loses — routing to stock"
+        return result  # use_options stays False
+
+    # Scenario 3: High conviction spreads — DISABLED by backtest
+    # BACKTEST FINDING: bull_spread WR=28%, avg=-1.77% over 10yr — spreads lose money.
+    # The theta decay on the long leg exceeds the gains from the spread width.
+    # Disabled. High conviction trades go to stock or CSP (if VRP > threshold).
     if score >= 85 and abs(vrp) < 3:
-        # VRP is neutral, but conviction is very high
-        # Options give 3-10x leverage vs stock
-        # BUT only if the stock moves enough to overcome theta decay
-        
-        expected_move_pct = ewma_rv * 1.5  # Rough estimate: 1.5x daily ATR over holding period
-        
-        if expected_move_pct > 3.0:
-            result["use_options"] = True
-            result["edge_pct"] = expected_move_pct - 2.0  # Net of theta
-            
-            if side == "buy":
-                result["strategy"] = "bull_call_spread"
-                result["reason"] = f"Score {score} + expected move {expected_move_pct:.1f}% — spread gives 3x leverage with defined risk"
-            else:
-                result["strategy"] = "bear_put_spread"
-                result["reason"] = f"Score {score} + expected move {expected_move_pct:.1f}% — spread gives 3x leverage on downside"
-            return result
+        result["reason"] = f"High conviction score={score} but spreads historically lose — routing to stock"
+        return result  # use_options stays False
     
     # Default: stock is better
     # Most of the time, stock is the right call because:

@@ -1643,6 +1643,13 @@ print(json.dumps(check_weekly_loss(history)))
       }
 
       try {
+        // ── INSTRUMENT SCORE DEBUG LOG ──
+        const iScores = (trade as any).instrument_scores || {};
+        const sScore  = iScores.stock?.score   ?? "N/A";
+        const eScore  = iScores.etf?.score     ?? "N/A";
+        const oScore  = iScores.options?.score ?? "N/A";
+        audit("INSTRUMENT", `${trade.ticker} → ${(trade.instrument || 'stock').toUpperCase()} chosen | scores: stock=${sScore} etf=${eScore} options=${oScore} | ${(trade.instrument_reasoning || '').slice(0, 120)}`);
+
         // ── ETF execution (instrument selector chose 2x leveraged ETF) ──
         if (trade.instrument === "etf" && trade.instrument_ticker && trade.instrument_ticker !== trade.ticker) {
           const etfTicker = trade.instrument_ticker;
