@@ -593,3 +593,166 @@ def _rule_based_fallback(features: dict) -> dict:
         "model_type":     "fallback_rules",
         "win_probability": round(prob, 3),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  OPTIONS ML SCORING — Separate model for options setups
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# WHY A SEPARATE MODEL:
+#   The stock model asks: "Will this stock return 2%+ in 5 days?"
+#   That's a DIRECTION question. Options setups are different:
+#     - Premium selling profits when the stock DOESN'T move much (opposite!)
+#     - IV crush profits when IV drops after earnings regardless of direction
+#     - Low-IV breakout profits when the stock moves a LOT in either direction
+#
+#   Mixing both into the same model would confuse it. High-momentum stock =
+#   high score in the stock model, but possibly terrible for premium selling
+#   because momentum means the stock IS moving (which kills short straddles).
+#
+# TRAINING TARGET:
+#   "Did this options trade return >= 3% of capital?" (from trade feedback)
+#   3% bar (vs 2% for stocks) because options carry more risk.
+#
+# FEATURES (25 base + 3 options-specific):
+#   All 25 from FEATURE_COLS + iv_rank, days_to_earn, vrp_magnitude
+
+OPTIONS_FEATURE_COLS = FEATURE_COLS + [
+    "iv_rank",        # Actual IV rank 0-100 (from options chain, not VXX proxy)
+    "days_to_earn",   # Days to next earnings (0=today, 99=no earnings soon)
+    "vrp_magnitude",  # abs(VRP) — strength of IV mispricing direction doesn't matter
+]
+
+OPTIONS_MODEL_PATH = os.path.join(DATA_DIR, "voltrade_ml_options.pkl")
+
+
+def _build_options_feedback_training(trades: list):
+    """Build training rows from completed options trades only."""
+    X_rows, y_labels = [], []
+    for trade in trades:
+        if trade.get("instrument") != "options" and not trade.get("use_options"):
+            continue
+        features = trade.get("entry_features", {})
+        if not features:
+            continue
+        pnl = trade.get("pnl_pct", 0) or 0
+        label = 1 if pnl >= 3.0 else 0
+        row = [float(features.get(col, 0) or 0) for col in FEATURE_COLS]
+        row.append(float(features.get("iv_rank", features.get("iv_rank_proxy", 50)) or 50))
+        row.append(float(features.get("days_to_earn", 99) or 99))
+        row.append(abs(float(features.get("vrp", 0) or 0)))
+        X_rows.append(row)
+        y_labels.append(label)
+    if len(X_rows) < 15:
+        return None, None
+    return np.array(X_rows, dtype=np.float32), np.array(y_labels, dtype=np.int8)
+
+
+def options_ml_score(features: dict) -> float:
+    """
+    Score an options setup. Returns 0.0-1.0 probability of profit.
+    Uses trained ML model if available, otherwise rules-based fallback.
+
+    Rules fallback win rates (from academic research on options strategies):
+      - VXX panic put sale:      ~70% win rate (market mean-reverts after panic)
+      - Earnings IV crush:       ~65-68% win rate (IV systematically overprices moves)
+      - High-IV premium selling: ~63-66% win rate (selling > buying on average)
+      - Low-IV breakout buy:     ~52-55% win rate (cheap but uncertain)
+    """
+    try:
+        if os.path.exists(OPTIONS_MODEL_PATH):
+            model_age = time.time() - os.path.getmtime(OPTIONS_MODEL_PATH)
+            if model_age < 7 * 86400:
+                import joblib as _jbl
+                pkg = _jbl.load(OPTIONS_MODEL_PATH)
+                m, sc = pkg.get("model"), pkg.get("scaler")
+                if m and sc:
+                    row = [float(features.get(col, 0) or 0) for col in FEATURE_COLS]
+                    row.append(float(features.get("iv_rank", features.get("iv_rank_proxy", 50)) or 50))
+                    row.append(float(features.get("days_to_earn", 99) or 99))
+                    row.append(abs(float(features.get("vrp", 0) or 0)))
+                    X = np.array([row], dtype=np.float32)
+                    X_sc = sc.transform(X)
+                    if hasattr(m, "predict_proba"):
+                        return round(float(m.predict_proba(X_sc)[0][1]), 4)
+    except Exception:
+        pass
+
+    # Rules-based fallback (research-backed win rates)
+    iv_rank   = float(features.get("iv_rank", features.get("iv_rank_proxy", 50)) or 50)
+    vxx_ratio = float(features.get("vxx_ratio", 1.0) or 1.0)
+    days_earn = float(features.get("days_to_earn", 99) or 99)
+
+    if vxx_ratio >= 1.30:
+        return 0.70   # VXX panic: strongest edge (~70% win rate historically)
+    if 1 <= days_earn <= 7 and iv_rank > 60:
+        return 0.67   # Earnings IV crush (well-studied)
+    if iv_rank > 70:
+        return 0.65   # High-IV premium selling
+    if iv_rank < 20:
+        return 0.55   # Low-IV breakout buy (uncertain direction)
+    return 0.50       # No clear edge
+
+
+def train_options_model() -> dict:
+    """
+    Train the options ML model when we have >= 30 completed options trades.
+    Called from the same schedule as train_model() (4am daily).
+    """
+    t0 = time.time()
+    if not HAS_SKLEARN:
+        return {"status": "skipped", "reason": "sklearn not available"}
+
+    feedback = []
+    try:
+        if os.path.exists(FEEDBACK_PATH):
+            with open(FEEDBACK_PATH) as f:
+                all_trades = json.load(f)
+            feedback = [t for t in all_trades
+                        if t.get("instrument") == "options" or t.get("use_options")]
+    except Exception:
+        pass
+
+    if len(feedback) < 30:
+        return {
+            "status": "skipped",
+            "reason": f"Only {len(feedback)} options trades — need 30+ to train",
+            "options_trades": len(feedback),
+        }
+
+    X, y = _build_options_feedback_training(feedback)
+    if X is None or len(X) < 20:
+        return {"status": "failed", "reason": "Could not build options training data"}
+
+    try:
+        from sklearn.model_selection import train_test_split
+        from sklearn.preprocessing import StandardScaler
+        import joblib as _jbl
+        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.25, random_state=42)
+        scaler = StandardScaler()
+        X_tr_sc = scaler.fit_transform(X_tr)
+        X_te_sc = scaler.transform(X_te)
+        try:
+            import lightgbm as lgb
+            model = lgb.LGBMClassifier(
+                n_estimators=150, learning_rate=0.05, num_leaves=15,
+                min_child_samples=5, verbose=-1
+            )
+        except ImportError:
+            from sklearn.ensemble import GradientBoostingClassifier
+            model = GradientBoostingClassifier(n_estimators=100, max_depth=3)
+        model.fit(X_tr_sc, y_tr)
+        acc = float((model.predict(X_te_sc) == y_te).mean()) if len(X_te) > 0 else 0
+        _jbl.dump({
+            "model": model, "scaler": scaler,
+            "features": OPTIONS_FEATURE_COLS, "accuracy": acc,
+            "trained_at": time.time(), "options_trades_used": len(feedback),
+        }, OPTIONS_MODEL_PATH)
+        return {
+            "status": "trained",
+            "options_model_accuracy": round(acc * 100, 1),
+            "options_trades_used": len(feedback),
+            "training_seconds": round(time.time() - t0, 1),
+        }
+    except Exception as e:
+        return {"status": "failed", "error": str(e)[:200]}

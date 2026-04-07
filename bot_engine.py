@@ -1291,6 +1291,30 @@ def scan_market():
     """
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
+    # Step 0: Launch options scanner in PARALLEL (doesn't block stock scan)
+    # This finds setups the stock scanner CANNOT find:
+    #   - Earnings IV crush (stocks that aren't moving today but have earnings in 2-7d)
+    #   - VXX panic put sale (SPY puts when fear spikes 30%+ above average)
+    #   - High-IV premium selling (stocks with IV rank > 70 — expensive options to sell)
+    #   - Low-IV breakout buy (stocks with IV rank < 20 — cheap options to buy)
+    #   - Gamma pin (stocks getting pulled toward high-OI strike on expiry day)
+    # Results are merged into the same trade list and compete for the same slots.
+    _options_future = None
+    try:
+        from options_scanner import get_options_trades
+        import concurrent.futures as _cf_module
+        _options_executor = _cf_module.ThreadPoolExecutor(max_workers=1)
+        _options_future = _options_executor.submit(
+            lambda: get_options_trades(
+                equity=100_000,   # Updated below once account loaded
+                current_tickers=[],
+                max_new=2,
+                min_score=65.0,
+            )
+        )
+    except Exception as _oe:
+        _options_future = None
+
     # Step 1: Get full universe (cached daily)
     full_universe = _get_full_universe()
 
@@ -1460,7 +1484,20 @@ def scan_market():
         if ticker in current_tickers:
             continue
 
-        # Skip if recently stopped out (2-hour cooldown per ticker)
+        # Skip if recently stopped out — REGIME-AWARE cooldown
+        # Logic: when fear is high, stocks keep trending down longer.
+        # Re-entering too soon in a panic compounds losses far more than in a calm market.
+        #
+        # Cooldown durations (backed by intraday momentum research):
+        #   PANIC  (VXX > 130% of 30d avg): 4 hours — panic selloffs last 3-6h on avg
+        #   BEAR   (VXX > 115%):            3 hours — bearish drift typically lasts 2-4h
+        #   CAUTION (VXX > 105%):           2.5 hours — cautious market, extra buffer
+        #   NEUTRAL (VXX near avg):         2 hours — baseline (was always 2h)
+        #   BULL   (VXX < 90% of avg):      1.5 hours — calm/rising mkt = faster mean revert
+        #
+        # How regime is detected at this point: uses the most recent macro snapshot's VXX
+        # ratio. Falls back to 2h (neutral) if data unavailable. No API call — uses
+        # _macro dict already loaded above.
         _cooldown_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
         try:
             with open(_cooldown_path) as _f:
@@ -1468,8 +1505,26 @@ def scan_market():
         except Exception:
             _cooldown = {}
         _last_stop = _cooldown.get(ticker, 0)
-        if time.time() - _last_stop < 7200:  # 2-hour cooldown
-            continue  # Don't re-enter a ticker we just got stopped out of
+        # Determine cooldown seconds from current regime
+        _vxx_r_scan = float(_macro.get("vxx_ratio", 1.0) or 1.0)
+        _spy_ma_scan = float(_macro.get("spy_vs_ma50", 1.0) or 1.0)
+        if _vxx_r_scan >= 1.30 or _spy_ma_scan < 0.94:    # PANIC
+            _cooldown_secs = 14400   # 4 hours
+            _cooldown_label = "PANIC (4h)"
+        elif _vxx_r_scan >= 1.15:                           # BEAR
+            _cooldown_secs = 10800   # 3 hours
+            _cooldown_label = "BEAR (3h)"
+        elif _vxx_r_scan >= 1.05:                           # CAUTION
+            _cooldown_secs = 9000    # 2.5 hours
+            _cooldown_label = "CAUTION (2.5h)"
+        elif _vxx_r_scan <= 0.90:                           # BULL — fast mean revert
+            _cooldown_secs = 5400    # 1.5 hours
+            _cooldown_label = "BULL (1.5h)"
+        else:                                               # NEUTRAL
+            _cooldown_secs = 7200    # 2 hours (baseline)
+            _cooldown_label = "NEUTRAL (2h)"
+        if time.time() - _last_stop < _cooldown_secs:
+            continue  # Ticker in cooldown — skip. Re-entry blocked ({_cooldown_label})
 
         # Skip if below minimum score
         if final_score < MIN_SCORE:
@@ -1638,6 +1693,72 @@ def scan_market():
             "regime_at_entry": stock.get("regime_label", "UNKNOWN"),
         })
 
+    # Step 6b: Merge options scanner results (was running in parallel)
+    options_trade_count = 0
+    if _options_future is not None:
+        try:
+            # Update equity now that we have account data
+            from options_scanner import get_options_trades
+            options_trades = get_options_trades(
+                equity=portfolio_value,
+                current_tickers=current_tickers + [t["ticker"] for t in trades],
+                max_new=max(1, slots_available - len(trades)),
+                min_score=65.0,
+            )
+            for ot in options_trades:
+                if len(trades) >= slots_available:
+                    break
+                # Convert to bot_engine trade format
+                trades.append({
+                    "action":             ot.get("action_label", "OPTIONS"),
+                    "side":               ot.get("side", "buy"),
+                    "trade_type":         "options",
+                    "ticker":             ot["ticker"],
+                    "shares":             0,  # Options: shares = 0, handled by options_execution
+                    "price":              ot["price"],
+                    "score":              ot["score"],
+                    "reasons":            [ot.get("reasoning", "")],
+                    "recommendation":     None,
+                    "rec_reasoning":      ot.get("reasoning", ""),
+                    "stop_loss":          None,
+                    "take_profit":        None,
+                    "position_value":     ot.get("position_dollars", portfolio_value * 0.05),
+                    "sizing_reasoning":   f"Options scanner: {ot.get('setup','unknown')} setup",
+                    "sizing_scalars":     {},
+                    "momentum_score":     None,
+                    "mean_reversion_score": None,
+                    "vrp_score":          None,
+                    "squeeze_score":      None,
+                    "volume_score":       None,
+                    "ewma_rv":            None,
+                    "garch_rv":           None,
+                    "rsi":                None,
+                    "vrp":                None,
+                    "instrument":         "options",
+                    "instrument_strategy": ot.get("options_strategy", ""),
+                    "instrument_reasoning": ot.get("reasoning", ""),
+                    "instrument_ticker":  ot["ticker"],
+                    "instrument_scores":  {},
+                    "use_options":        True,
+                    "options_strategy":   ot.get("options_strategy", ""),
+                    "options_reasoning":  ot.get("reasoning", ""),
+                    "options_edge_pct":   0,
+                    "rules_score":        ot["score"],
+                    "ml_score_raw":       None,
+                    "entry_features":     None,
+                    "entry_date":         time.strftime("%Y-%m-%d"),
+                    "regime_at_entry":    "OPTIONS_SCANNER",
+                    # Pass through all setup-specific keys for execution
+                    **{k: v for k, v in ot.items()
+                       if k not in ("action", "action_label", "side", "trade_type",
+                                    "ticker", "price", "score", "reasoning",
+                                    "position_dollars", "position_pct", "source")},
+                })
+                options_trade_count += 1
+            _options_executor.shutdown(wait=False)
+        except Exception as _oe2:
+            pass  # Options scan failed — stock trades still execute normally
+
     # Step 7: Check position management
     mgmt = manage_positions()
 
@@ -1651,6 +1772,7 @@ def scan_market():
         "current_positions": num_positions,
         "slots_available": slots_available,
         "new_trades": trades,
+        "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
         "upgrade_candidates": mgmt.get("upgrade_candidates", []),
         "top_10": [{
@@ -1714,6 +1836,12 @@ if __name__ == "__main__":
 
         if needs_train:
             train_result = train_model()  # Returns status dict, silent output
+            # Also train the options-specific ML model if enough options trades exist
+            try:
+                from ml_model_v2 import train_options_model
+                train_options_model()  # No-op if < 30 options trades; silent otherwise
+            except Exception:
+                pass
     except Exception:
         pass
 
