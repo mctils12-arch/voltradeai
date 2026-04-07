@@ -1086,7 +1086,7 @@ def manage_positions():
         stop_state = {}
 
     # Tickers managed by other components — do NOT apply stop/TP logic to these
-    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "XOM", "LMT", "SPY"}
+    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "XOM", "LMT", "SPY", "GLD"}
 
     for pos in positions:
         ticker = pos.get("symbol", "")
@@ -1906,7 +1906,7 @@ def _run_third_leg(macro: dict) -> dict:
         import requests as _req
 
         LEG3_VRP_PCT    = float(BASE_CONFIG.get("LEG3_VRP_PCT",    0.15))
-        LEG3_SECTOR_PCT = float(BASE_CONFIG.get("LEG3_SECTOR_PCT", 0.12))
+        # LEG3_SECTOR_PCT removed — replaced by regime-adaptive LEG3_CRASH_ASSETS / LEG3_RECOVERY_ASSETS
         LEG3_TLT_PCT    = float(BASE_CONFIG.get("LEG3_TLT_PCT",    0.00))
 
         vxx_ratio       = float(macro.get("vxx_ratio",    1.0) or 1.0)
@@ -1978,50 +1978,56 @@ def _run_third_leg(macro: dict) -> dict:
                         except Exception as e:
                             _log.debug(f"[LEG3-VRP] Order failed: {e}")
 
-        # ── Leg 3C: Sector Rotation ────────────────────────────────────
-        # BEAR/CAUTION: buy XOM + LMT equally (defensive sector rotation)
-        # XOM: -0.04 corr to SPY (+45% last 6mo), LMT: +0.12 corr
-        # Exit when regime normalizes to NEUTRAL/BULL
-        if LEG3_SECTOR_PCT > 0 and regime in ("BEAR", "PANIC", "CAUTION"):
-            sector_syms = ["XOM", "LMT"]
-            alloc_each  = equity * LEG3_SECTOR_PCT / len(sector_syms)
-            for ssym in sector_syms:
-                if ssym not in position_syms and alloc_each > 100:
-                    snap_r = _req.get("https://data.alpaca.markets/v2/stocks/snapshots",
-                        params={"symbols": ssym, "feed": "sip"}, headers=headers, timeout=8)
-                    price = float(snap_r.json().get(ssym,{}).get("latestTrade",{}).get("p", 0) or 0)
-                    if price > 0:
-                        shares = int(alloc_each / price)
-                        if shares > 0:
-                            order = {
-                                "symbol":       ssym,
-                                "qty":          str(shares),
-                                "side":         "buy",
-                                "type":         "limit",
-                                "limit_price":  str(round(price * 1.001, 2)),
-                                "time_in_force": "day",
-                            }
-                            try:
-                                o = _req.post(f"{base_url}/v2/orders",
-                                              json=order, headers=headers, timeout=10)
-                                actions.append({
-                                    "type": "sector_rotation",
-                                    "symbol": ssym,
-                                    "shares": shares,
-                                    "price": price,
-                                    "reason": f"BEAR/CAUTION regime — defensive sector rotation",
-                                    "regime": regime,
-                                    "order_id": o.json().get("id", "?"),
-                                })
-                                _log.info(f"[LEG3-SECTOR] Bought {shares} {ssym} @ {price:.2f} (sector rotation, regime={regime})")
-                            except Exception as e:
-                                _log.debug(f"[LEG3-SECTOR] Order failed for {ssym}: {e}")
+        # ── Leg 3C: Regime-Adaptive Sector Rotation (v1.0.30) ─────────
+        # CRASH (PANIC/BEAR): GLD (gold) — +0.122%/day in bear, near-zero SPY corr
+        # RECOVERY (CAUTION): XOM+LMT — strong cyclical bounce-back
+        # Backtest: 19.8% CAGR (beats SPY by +7.5%), up from 18.4% with fixed XOM+LMT
+        if regime in ("BEAR", "PANIC", "CAUTION"):
+            if regime in ("PANIC", "BEAR"):
+                # Crash hedge: GLD goes UP when SPY crashes
+                sector_assets = BASE_CONFIG.get("LEG3_CRASH_ASSETS", [("GLD", 0.15)])
+            else:
+                # Recovery bounce: XOM+LMT rebound hard after fear normalizes
+                sector_assets = BASE_CONFIG.get("LEG3_RECOVERY_ASSETS", [("XOM", 0.10), ("LMT", 0.10)])
+            for ssym, alloc_pct in sector_assets:
+                alloc_each = equity * alloc_pct
+                if alloc_each <= 100: continue
+                if ssym in position_syms: continue
+                snap_r = _req.get("https://data.alpaca.markets/v2/stocks/snapshots",
+                    params={"symbols": ssym, "feed": "sip"}, headers=headers, timeout=8)
+                price = float(snap_r.json().get(ssym,{}).get("latestTrade",{}).get("p", 0) or 0)
+                if price > 0:
+                    shares = int(alloc_each / price)
+                    if shares > 0:
+                        order = {
+                            "symbol":       ssym,
+                            "qty":          str(shares),
+                            "side":         "buy",
+                            "type":         "limit",
+                            "limit_price":  str(round(price * 1.001, 2)),
+                            "time_in_force": "day",
+                        }
+                        try:
+                            o = _req.post(f"{base_url}/v2/orders",
+                                          json=order, headers=headers, timeout=10)
+                            actions.append({
+                                "type": "sector_rotation",
+                                "symbol": ssym,
+                                "shares": shares,
+                                "price": price,
+                                "reason": f"{regime} — {'crash hedge (GLD)' if regime in ('PANIC','BEAR') else 'recovery rotation'}",
+                                "regime": regime,
+                                "order_id": o.json().get("id", "?"),
+                            })
+                            _log.info(f"[LEG3-SECTOR] Bought {shares} {ssym} @ {price:.2f} ({regime} rotation)")
+                        except Exception as e:
+                            _log.debug(f"[LEG3-SECTOR] Order failed for {ssym}: {e}")
 
         # ── Exit sector positions when regime recovers ─────────────────
         if regime in ("NEUTRAL", "BULL"):
             for pos in positions_raw:
                 sym = pos.get("symbol", "")
-                if sym in ("XOM", "LMT", "SVXY"):
+                if sym in ("XOM", "LMT", "SVXY", "GLD"):
                     qty = pos.get("qty", "0")
                     try:
                         o = _req.post(f"{base_url}/v2/orders",

@@ -115,12 +115,17 @@ BASE_CONFIG = {
     # Leg 3B: VRP Harvest -- 15% is the sweet spot
     #   Sell volatility when VXX ratio 1.05-1.25 (elevated but declining)
     #   Earns when fear bleeds out -- exactly the post-crash recovery window
-    "LEG3_VRP_PCT":        0.30,  # % of equity for VRP harvest (sweep optimal: 30%, was 15%)
+    "LEG3_VRP_PCT":        0.40,  # % of equity for VRP harvest (regime-adaptive sweep: 40%)
     #
     # Leg 3C: Sector Rotation -- 12% into XOM+LMT in BEAR/CAUTION
     #   XOM: -0.04 corr to SPY, +45% last 6mo, earns in geopolitical stress
     #   LMT: +0.12 corr, defense spending immune to tariff/rate cycles
-    "LEG3_SECTOR_PCT":     0.25,  # % of equity into XOM+LMT in BEAR/CAUTION (sweep optimal: 25%, was 12%)
+    # Leg 3C: Regime-adaptive sector rotation (v1.0.30)
+    #   During CRASHES (PANIC/BEAR): hold GLD (gold) — +0.122%/day in bear, near-zero SPY corr
+    #   During RECOVERY (CAUTION): hold XOM+LMT — strong cyclical bounce-back
+    #   Backtest: 19.8% CAGR, beats SPY by +7.5% (vs 18.4% with fixed XOM+LMT)
+    "LEG3_CRASH_ASSETS":   [("GLD", 0.15)],             # Gold 15% during PANIC/BEAR
+    "LEG3_RECOVERY_ASSETS": [("XOM", 0.10), ("LMT", 0.10)],  # XOM+LMT 20% during CAUTION
 
     # ── STOP LOSS & TAKE PROFIT ────────────────────────────────────────────────
     # v1.0.23 optimized values (324-combo backtest, best risk-adjusted vs SPY):
