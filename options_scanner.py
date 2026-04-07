@@ -916,26 +916,127 @@ def _setup_gamma_pin(ticker: str, price: float) -> Optional[dict]:
 #  SECTION 3: CANDIDATE UNIVERSE FOR OPTIONS SCAN
 # ══════════════════════════════════════════════════════════════════════════════
 
-# These are the tickers we check for pure options setups (high-IV premium sale
-# and gamma pin). We don't scan all 11,635 here — options chains are expensive
-# to fetch. Instead we focus on:
-#   (a) High-IV stocks that regularly have good premium-selling setups
-#   (b) Stocks with liquid options chains (high OI, tight spreads)
-OPTIONS_UNIVERSE = [
-    # Mega-cap tech (always liquid options)
+# ── Anchor tickers: always included regardless of today's market activity ──────
+# These are the most reliably options-liquid names that show up every day.
+# They anchor the scan even on slow news days.
+_OPTIONS_ANCHOR = [
+    # Index ETFs (highest OI of any options market)
+    "SPY", "QQQ", "IWM", "VXX", "UVXY",
+    # Mega-cap tech (always top-5 options volume)
     "AAPL", "MSFT", "NVDA", "META", "GOOGL", "AMZN", "TSLA", "AMD",
-    # High-vol / high-premium stocks
-    "COIN", "MSTR", "PLTR", "CRWD", "HOOD", "SOFI", "AFRM", "UPST",
-    "RIVN", "LCID", "GME", "AMC", "BBBY",
-    # Biotech (frequent high-IV events)
-    "MRNA", "BNTX", "NVAX",
-    # Index ETFs (always liquid, VXX panic setup)
-    "SPY", "QQQ", "IWM",
-    # Sector ETFs (good for condors)
-    "XLE", "XLF", "XLK", "XBI",
-    # VXX / volatility instruments
-    "VXX", "UVXY",
+    # Sector ETFs (good for iron condors)
+    "XLE", "XLF", "XLK", "XBI", "GLD",
+    # High-vol regulars (frequently appear in options flow)
+    "COIN", "MSTR", "PLTR", "CRWD", "HOOD",
 ]
+
+# Cache: avoid re-fetching the dynamic universe on every scan within the same minute
+_dynamic_universe_cache: List[str] = []
+_dynamic_universe_time: float = 0.0
+_UNIVERSE_CACHE_TTL = 300  # Refresh every 5 minutes
+
+
+def _get_options_universe() -> List[str]:
+    """
+    Build a dynamic options-eligible universe every 5 minutes.
+
+    WHY DYNAMIC vs FIXED LIST:
+      A fixed list of 33 tickers misses the entire market. The best options
+      setups happen on whatever stocks are ACTIVE TODAY — a stock with IV rank 92
+      and earnings in 3 days that isn't in the fixed list gets completely skipped.
+
+    HOW IT WORKS:
+      1. Alpaca most-actives (top 50 by volume) — guaranteed to have liquid options
+      2. Today's top movers (gainers + losers) — high IV stocks move, so they appear here
+      3. Anchor tickers — always included for stability
+      4. Filter: price > $5 AND volume > 500K AND no warrants/ETNs (no letters after ticker)
+      5. Cap at 120 tickers to keep scan time under 20 seconds
+
+    RESULT:
+      ~80-120 tickers per scan, refreshed every 5 minutes.
+      Covers the whole market's active options names, not just 33 forever.
+      Includes today's high-IV movers that the fixed list would never see.
+    """
+    global _dynamic_universe_cache, _dynamic_universe_time
+    now = time.time()
+    if _dynamic_universe_cache and (now - _dynamic_universe_time) < _UNIVERSE_CACHE_TTL:
+        return _dynamic_universe_cache
+
+    tickers: List[str] = []
+
+    # Source 1: Most-active stocks by volume (top 50)
+    # These stocks trade millions of shares/day — their options chains are liquid
+    try:
+        r = requests.get(
+            f"{ALPACA_DATA}/v1beta1/screener/stocks/most-actives?by=volume&top=50",
+            headers=_headers(), timeout=6)
+        actives = r.json().get("most_actives", [])
+        for item in actives:
+            sym = item.get("symbol", "")
+            if sym and "." not in sym and len(sym) <= 5:
+                tickers.append(sym)
+    except Exception:
+        pass
+
+    # Source 2: Today's top movers (gainers + losers)
+    # Stocks making big moves today have elevated IV — exactly what we want
+    try:
+        r2 = requests.get(
+            f"{ALPACA_DATA}/v1beta1/screener/stocks/movers?top=30",
+            headers=_headers(), timeout=6)
+        mv = r2.json()
+        for item in mv.get("gainers", []) + mv.get("losers", []):
+            sym = item.get("symbol", "")
+            if sym and "." not in sym and len(sym) <= 5:
+                tickers.append(sym)
+    except Exception:
+        pass
+
+    # Source 3: Always include anchor tickers
+    tickers.extend(_OPTIONS_ANCHOR)
+
+    # Deduplicate while preserving order
+    seen = set(); unique = []
+    for t in tickers:
+        if t not in seen: seen.add(t); unique.append(t)
+
+    # Filter: fetch snapshots to verify price > $5 and vol > 500K
+    # Batch fetch prices (Alpaca returns 1 per request for bars, but snapshots work)
+    eligible: List[str] = []
+    batch_size = 20
+    for i in range(0, len(unique), batch_size):
+        batch = unique[i:i+batch_size]
+        try:
+            r3 = requests.get(
+                f"{ALPACA_DATA}/v2/stocks/snapshots",
+                params={"symbols": ",".join(batch), "feed": "sip"},
+                headers=_headers(), timeout=8)
+            snaps = r3.json()
+            for sym in batch:
+                snap = snaps.get(sym, {})
+                bar  = snap.get("dailyBar", snap.get("minuteBar", {}))
+                c    = float(bar.get("c", 0) or 0)
+                v    = int(bar.get("v", 0) or 0)
+                # Price > $5 (cheap stocks have illiquid options, wide spreads)
+                # Volume > 500K (minimum for options liquidity)
+                # No leveraged ETF suffixes that cause issues (TQQQ, SQQQ already filtered by anchor)
+                if c >= 5.0 and v >= 500_000:
+                    eligible.append(sym)
+        except Exception:
+            # If filter fails, just include the anchor tickers
+            eligible.extend([t for t in batch if t in _OPTIONS_ANCHOR])
+
+    # Anchor tickers always make it in even if price check failed
+    for t in _OPTIONS_ANCHOR:
+        if t not in eligible:
+            eligible.append(t)
+
+    # Cap at 120 — each needs an options chain API call, don't go over ~2min
+    result = eligible[:120]
+    _dynamic_universe_cache = result
+    _dynamic_universe_time  = now
+    logger.info(f"Options universe: {len(result)} tickers (anchors + today's actives/movers)")
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1015,19 +1116,28 @@ def scan_options() -> dict:
                 opportunities.append(result)
 
     # ── SETUPS 3, 4, 5: Per-ticker scans ─────────────────────────────────
-    # Fetch prices for the whole universe in one batch call
-    batch_url = (f"{ALPACA_DATA}/v2/stocks/snapshots"
-                 f"?symbols={','.join(OPTIONS_UNIVERSE)}&feed=sip")
-    try:
-        r = requests.get(batch_url, headers=_headers(), timeout=10)
-        price_map = {}
-        for sym, snap in r.json().items():
-            bar = snap.get("latestTrade", snap.get("minuteBar", {}))
-            p   = float(bar.get("p", bar.get("c", 0)) or 0)
-            if p > 0:
-                price_map[sym] = p
-    except Exception:
-        price_map = {}
+    # Build the dynamic universe: most-actives + movers + anchors, filtered for
+    # price > $5 and volume > 500K. Covers ~80-120 tickers refreshed every 5 min.
+    # This replaces the old fixed 33-ticker list — now scans the whole active market.
+    universe = _get_options_universe()
+
+    # Prices already fetched during _get_options_universe() filter step,
+    # but we fetch again here to get fresh snapshots for the actual scan.
+    price_map = {}
+    for i in range(0, len(universe), 20):
+        batch = universe[i:i+20]
+        try:
+            r = requests.get(
+                f"{ALPACA_DATA}/v2/stocks/snapshots",
+                params={"symbols": ",".join(batch), "feed": "sip"},
+                headers=_headers(), timeout=8)
+            for sym, snap in r.json().items():
+                bar = snap.get("dailyBar", snap.get("minuteBar", {}))
+                p   = float(bar.get("c", bar.get("p", 0)) or 0)
+                if p > 0:
+                    price_map[sym] = p
+        except Exception:
+            pass
 
     def _check_ticker(tkr: str) -> List[dict]:
         price = price_map.get(tkr)
@@ -1050,7 +1160,7 @@ def scan_options() -> dict:
 
     # Run per-ticker scans in parallel (8 workers — each makes 2-3 API calls)
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for results in pool.map(_check_ticker, OPTIONS_UNIVERSE):
+        for results in pool.map(_check_ticker, universe):
             opportunities.extend(results)
 
     # ── Sort by score, deduplicate by ticker+setup ────────────────────────
@@ -1076,7 +1186,7 @@ def scan_options() -> dict:
         "vxx_ratio":      vxx_ratio,
         "spy_vs_ma50":    spy_vs_ma50,
         "regime":         regime,
-        "scanned":        len(OPTIONS_UNIVERSE) + len(earnings_tickers[:30]),
+        "scanned":        len(universe) + len(earnings_tickers[:30]),
         "duration_secs":  duration,
         "best_score":     unique_opps[0]["score"] if unique_opps else 0,
     }
