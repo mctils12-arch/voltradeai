@@ -1019,7 +1019,7 @@ def manage_positions():
         stop_state = {}
 
     # Tickers managed by other components — do NOT apply stop/TP logic to these
-    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "XOM", "LMT", "SPY", "GLD"}
+    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "ITA", "SPY", "GLD"}  # ETFs only — no single-stock risk
 
     for pos in positions:
         ticker = pos.get("symbol", "")
@@ -2052,7 +2052,7 @@ def _run_third_leg(macro: dict) -> dict:
         if regime in ("NEUTRAL", "BULL"):
             for pos in positions_raw:
                 sym = pos.get("symbol", "")
-                if sym in ("XOM", "LMT", "SVXY", "GLD"):
+                if sym in ("ITA", "SVXY", "GLD"):  # Exit third-leg ETFs when regime normalizes
                     qty = pos.get("qty", "0")
                     try:
                         o = _req.post(f"{base_url}/v2/orders",

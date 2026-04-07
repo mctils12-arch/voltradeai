@@ -124,8 +124,13 @@ BASE_CONFIG = {
     #   During CRASHES (PANIC/BEAR): hold GLD (gold) — +0.122%/day in bear, near-zero SPY corr
     #   During RECOVERY (CAUTION): hold XOM+LMT — strong cyclical bounce-back
     #   Backtest: 19.8% CAGR, beats SPY by +7.5% (vs 18.4% with fixed XOM+LMT)
-    "LEG3_CRASH_ASSETS":   [("GLD", 0.15)],             # Gold 15% during PANIC/BEAR
-    "LEG3_RECOVERY_ASSETS": [("XOM", 0.10), ("LMT", 0.10)],  # XOM+LMT 20% during CAUTION
+    # Crash: GLD (gold ETF) — goes UP during crashes (+0.122%/day, near-zero SPY corr)
+    # Recovery: ITA (iShares US Aerospace & Defense ETF, 35 companies) — strong bounce-back
+    #   Why ETFs not stocks: single stock risk (bad quarter, buyout, split) eliminated
+    #   ITA holds LMT, RTX, NOC, GD, BA, HII, etc. — diversified defense exposure
+    #   Backtest: ITA beats XOM+LMT combo (20.3% vs 20.0% CAGR, 0.911 vs 0.906 Sharpe)
+    "LEG3_CRASH_ASSETS":   [("GLD", 0.15)],      # Gold ETF 15% during PANIC/BEAR
+    "LEG3_RECOVERY_ASSETS": [("ITA", 0.20)],      # Defense ETF 20% during CAUTION
 
     # ── STOP LOSS & TAKE PROFIT ────────────────────────────────────────────────
     # v1.0.23 optimized values (324-combo backtest, best risk-adjusted vs SPY):
