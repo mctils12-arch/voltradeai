@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createChart, ColorType, LineStyle, CrosshairMode, IChartApi, ISeriesApi } from "lightweight-charts";
+import { createChart, ColorType, LineStyle, CrosshairMode, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries } from "lightweight-charts";
 import { apiRequest } from "@/lib/queryClient";
 import { RefreshCw, TrendingUp, TrendingDown, Clock, Target, Shield } from "lucide-react";
 
@@ -169,7 +169,8 @@ function SingleTradeChart({ position }: { position: Position }) {
       handleScale: true,
     });
 
-    const candleSeries = chart.addCandlestickSeries({
+    // v5 API: addSeries(SeriesType, options) replaces addCandlestickSeries/addHistogramSeries
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#00ffd5",
       downColor: "#ff4444",
       borderUpColor: "#00ffd5",
@@ -178,7 +179,7 @@ function SingleTradeChart({ position }: { position: Position }) {
       wickDownColor: "#ff4444",
     });
 
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
       scaleMargins: { top: 0.8, bottom: 0 },
