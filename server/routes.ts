@@ -698,6 +698,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Intraday Shorts Dashboard API (v1.0.27) ─────────────────────────────
+  app.get("/api/shorts/dashboard", async (_req, res) => {
+    try {
+      const { stdout } = await execAsync(
+        `python3 -c "import sys; sys.path.insert(0,'.'); from intraday_shorts import get_dashboard_data; import json; print(json.dumps(get_dashboard_data()))"`,
+        { timeout: 10000 }
+      );
+      const jsonStart = stdout.indexOf("{");
+      if (jsonStart === -1) throw new Error("No JSON");
+      res.json(JSON.parse(stdout.slice(jsonStart)));
+    } catch (e: any) {
+      res.json({
+        enabled: true, total_trades: 0, open_trades: 0, win_rate: 0,
+        avg_pnl_pct: 0, total_pnl_pct: 0, total_pnl_dollar: 0,
+        recent_trades: [], strategy_status: "waiting_for_signals",
+        error: e.message,
+      });
+    }
+  });
+
   // Pre-warm: run a quick scan of top 10 tickers on startup so scanner has data
   setTimeout(() => {
     console.log("[scanner] Pre-warming with top 10 tickers...");

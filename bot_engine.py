@@ -1795,7 +1795,16 @@ def scan_market():
     # Step 7: Check position management
     mgmt = manage_positions()
 
-    # Step 8: Third Leg (v1.0.25) ─────────────────────────────────────────────
+    # Step 8: Intraday Shorts (v1.0.27) ───────────────────────────────────
+    # Adaptive intraday short selling. Enter at open, cover by close.
+    # Auto-disables if first 20 trades average negative (kill switch).
+    try:
+        from intraday_shorts import run_intraday_shorts
+        intraday_short_result = run_intraday_shorts(_macro)
+    except Exception:
+        intraday_short_result = {"actions": [], "status": "error"}
+
+    # Step 9: Third Leg (v1.0.25) ─────────────────────────────────────────────
     # Runs alongside stock scan in every cycle.
     # Backtest: ALL 64 combinations beat SPY. Winner: VRP=15% + Sector=12%.
     # Result: CAGR +14.8%/yr vs 2-leg +13.8% vs SPY +12.3%
@@ -1827,6 +1836,7 @@ def scan_market():
             "reasons": s.get("reasons", [])[:2],
         } for s in deep_scored[:10]],
         "third_leg": third_leg_result,
+        "intraday_shorts": intraday_short_result,
     }
 
 # ── Third Leg Engine (v1.0.25) ──────────────────────────────────────────────
