@@ -216,60 +216,199 @@ def _fetch_options_chain(ticker: str, price: float,
                           min_days: int = 7, max_days: int = 60) -> list:
     """
     Fetch live options chain from Alpaca OPRA feed.
-    Returns list of contract dicts, sorted by expiry and strike.
+    Returns ALL contracts in the expiry/strike window, paginated.
+
+    STRIKE RANGE: ±30% of current price.
+      Why ±30% not ±15%: Iron condor long wings (protection legs) sit at
+      ~15% OTM. A ±15% band would clip them. ±30% gives full coverage while
+      avoiding deep DITM/DOTM contracts that have no liquidity.
+
+    PAGINATION: Alpaca caps at 1000 per page. SPY has ~3,700 contracts in a
+      30-day window. We paginate up to 5 pages to get the full chain.
+
+    DELTA: OPRA provides delta for ~70% of contracts. For the other 30%,
+      we compute a moneyness-based proxy:
+        - At-the-money (strike ≈ price):      delta ≈ 0.50
+        - 5% OTM call or put:                 delta ≈ 0.30
+        - 10% OTM:                            delta ≈ 0.20 (iron condor short wing)
+        - 15% OTM:                            delta ≈ 0.12
+        - 20% OTM:                            delta ≈ 0.07 (iron condor long wing)
+      These are conservative approximations — real delta varies with IV and DTE.
     """
     try:
         now     = datetime.now()
         min_exp = (now + timedelta(days=min_days)).strftime("%Y-%m-%d")
         max_exp = (now + timedelta(days=max_days)).strftime("%Y-%m-%d")
-        min_k   = price * 0.85
-        max_k   = price * 1.15
-        r = requests.get(
-            f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
-            params={"feed": "opra", "limit": 200,
-                    "expiration_date_gte": min_exp,
-                    "expiration_date_lte": max_exp,
-                    "strike_price_gte": str(min_k),
-                    "strike_price_lte": str(max_k)},
-            headers=_headers(), timeout=10
-        )
-        if r.status_code != 200:
+        # ±30% strike band — covers all meaningful strikes including condor wings
+        min_k = price * 0.70
+        max_k = price * 1.30
+
+        all_snapshots: dict = {}
+        next_token: Optional[str] = None
+        pages = 0
+
+        while pages < 5:  # Max 5 pages = 5,000 contracts (more than enough for any single name)
+            params: dict = {
+                "feed": "opra", "limit": 1000,
+                "expiration_date_gte": min_exp,
+                "expiration_date_lte": max_exp,
+                "strike_price_gte":   str(min_k),
+                "strike_price_lte":   str(max_k),
+            }
+            if next_token:
+                params["page_token"] = next_token
+
+            r = requests.get(
+                f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
+                params=params, headers=_headers(), timeout=12
+            )
+            if r.status_code != 200:
+                break
+            data = r.json()
+            all_snapshots.update(data.get("snapshots", {}))
+            pages += 1
+            next_token = data.get("next_page_token")
+            if not next_token:
+                break  # No more pages
+
+        if not all_snapshots:
             return []
-        snapshots = r.json().get("snapshots", {})
+
         contracts = []
-        for occ, snap in snapshots.items():
-            quote   = snap.get("latestQuote", {})
-            greeks  = snap.get("greeks", {})
-            body    = occ[len(ticker):]
+        for occ, snap in all_snapshots.items():
+            quote  = snap.get("latestQuote", {})
+            greeks = snap.get("greeks", {})
+            body   = occ[len(ticker):]
             if len(body) < 15:
                 continue
+
             exp_raw  = "20" + body[:6]
             exp_date = f"{exp_raw[:4]}-{exp_raw[4:6]}-{exp_raw[6:8]}"
             opt_type = "call" if body[6] == "C" else "put"
             strike   = int(body[7:]) / 1000
-            bid      = float(quote.get("bp", 0) or 0)
-            ask      = float(quote.get("ap", 0) or 0)
-            mid      = (bid + ask) / 2 if (bid + ask) > 0 else 0
-            iv       = float(greeks.get("iv", 0) or 0)
-            delta    = float(greeks.get("delta", 0) or 0)
-            oi       = int(snap.get("openInterest", 0) or 0)
-            volume   = int(snap.get("volume", 0) or 0)
-            if mid <= 0 or iv <= 0:
+
+            bid = float(quote.get("bp", 0) or 0)
+            ask = float(quote.get("ap", 0) or 0)
+            mid = (bid + ask) / 2 if (bid + ask) > 0 else 0
+
+            # Skip contracts with no market (no bid/ask = no liquidity)
+            if mid <= 0:
                 continue
-            days_out = (datetime.strptime(exp_date, "%Y-%m-%d") - datetime.now()).days
+
+            # Delta: use OPRA value if present, otherwise moneyness proxy
+            raw_delta = greeks.get("delta")
+            if raw_delta is not None and raw_delta != "N/A":
+                try:
+                    delta = float(raw_delta)
+                except (ValueError, TypeError):
+                    delta = 0.0
+            else:
+                delta = 0.0
+
+            # Moneyness-based delta proxy when OPRA delta unavailable
+            # Formula: approximate Black-Scholes delta from moneyness
+            # Call delta increases as strike decreases (ITM). Put delta: mirror.
+            if delta == 0.0 and price > 0:
+                moneyness = strike / price  # < 1 = OTM call / ITM put, > 1 = ITM call / OTM put
+                if opt_type == "call":
+                    if moneyness <= 0.85:   delta =  0.90  # Deep ITM
+                    elif moneyness <= 0.90: delta =  0.75
+                    elif moneyness <= 0.95: delta =  0.55
+                    elif moneyness <= 1.00: delta =  0.50  # ATM
+                    elif moneyness <= 1.05: delta =  0.35
+                    elif moneyness <= 1.10: delta =  0.22
+                    elif moneyness <= 1.15: delta =  0.14
+                    elif moneyness <= 1.20: delta =  0.08
+                    else:                   delta =  0.04  # Deep OTM
+                else:  # put (mirror of call)
+                    if moneyness >= 1.15:   delta = -0.90
+                    elif moneyness >= 1.10: delta = -0.75
+                    elif moneyness >= 1.05: delta = -0.55
+                    elif moneyness >= 1.00: delta = -0.50
+                    elif moneyness >= 0.95: delta = -0.35
+                    elif moneyness >= 0.90: delta = -0.22
+                    elif moneyness >= 0.85: delta = -0.14
+                    elif moneyness >= 0.80: delta = -0.08
+                    else:                   delta = -0.04
+
+            iv     = float(greeks.get("iv", 0) or 0)
+            oi     = int(snap.get("openInterest", 0) or 0)
+            volume = int(snap.get("volume", 0) or 0)
+
+            try:
+                days_out = (datetime.strptime(exp_date, "%Y-%m-%d") - datetime.now()).days
+            except ValueError:
+                continue
+
             contracts.append({
-                "occ_symbol": occ, "ticker": ticker,
-                "exp_date": exp_date, "opt_type": opt_type,
-                "strike": strike, "bid": bid, "ask": ask, "mid": mid,
-                "iv": iv, "delta": delta, "oi": oi, "volume": volume,
-                "days_out": days_out,
-                "spread_pct": (ask - bid) / ask if ask > 0 else 1.0,
+                "occ_symbol":  occ,
+                "ticker":      ticker,
+                "exp_date":    exp_date,
+                "opt_type":    opt_type,
+                "strike":      strike,
+                "bid":         bid,
+                "ask":         ask,
+                "mid":         mid,
+                "iv":          iv,
+                "delta":       delta,
+                "delta_real":  (raw_delta is not None and raw_delta != "N/A"),  # True if from OPRA
+                "oi":          oi,
+                "volume":      volume,
+                "days_out":    days_out,
+                "moneyness":   round(strike / price, 4) if price > 0 else 1.0,
+                "spread_pct":  (ask - bid) / ask if ask > 0 else 1.0,
             })
+
         contracts.sort(key=lambda x: (x["exp_date"], x["strike"]))
         return contracts
+
     except Exception as e:
         logger.debug(f"[{ticker}] Options chain fetch failed: {e}")
         return []
+
+
+def _find_by_delta(contracts: list, opt_type: str, target_delta: float,
+                   tolerance: float = 0.08) -> Optional[dict]:
+    """
+    Find the best contract closest to a target delta.
+
+    Used by all setup selectors instead of "closest to ATM".
+    Delta-based selection is the industry standard because:
+      - 50-delta = ATM (straddle center)
+      - 20-delta = standard iron condor short wing (~1 SD OTM)
+      - 10-delta = standard condor long wing (protection leg)
+      - 30-delta = tighter condor or covered call placement
+
+    Falls back to moneyness proxy when OPRA delta is unavailable.
+
+    Args:
+        contracts: List of contract dicts from _fetch_options_chain()
+        opt_type:  "call" or "put"
+        target_delta: Absolute value (e.g. 0.20 for 20-delta)
+        tolerance: How far from target we'll accept (default ±0.08)
+
+    Returns:
+        Best matching contract or None
+    """
+    filtered = [
+        c for c in contracts
+        if c["opt_type"] == opt_type
+        and abs(abs(c["delta"]) - target_delta) <= tolerance
+        and c["bid"] > 0          # Must have a real bid (liquidity)
+        and c["spread_pct"] < 0.15  # Max 15% bid/ask spread
+    ]
+    if not filtered:
+        # Widen tolerance as fallback
+        filtered = [
+            c for c in contracts
+            if c["opt_type"] == opt_type
+            and abs(abs(c["delta"]) - target_delta) <= tolerance * 2
+            and c["bid"] > 0
+        ]
+    if not filtered:
+        return None
+    # Among candidates, prefer: highest OI (liquidity) then tightest spread
+    return max(filtered, key=lambda c: (c["oi"], -c["spread_pct"]))
 
 
 def _fetch_iv_rank(ticker: str) -> Optional[float]:
@@ -386,17 +525,16 @@ def _setup_earnings_iv_crush(
     if not contracts:
         return None
 
-    # Find ATM contracts
-    atm_calls = sorted([c for c in contracts if c["opt_type"] == "call"],
-                       key=lambda c: abs(c["strike"] - price))[:3]
-    atm_puts  = sorted([c for c in contracts if c["opt_type"] == "put"],
-                       key=lambda c: abs(c["strike"] - price))[:3]
+    # Select ATM contracts using 50-delta (the industry standard for straddles)
+    # 50-delta = at-the-money = maximum premium, maximum IV capture
+    # We use _find_by_delta() instead of "closest to price" because:
+    #   - A stock at $150.50 has $150 and $151 strikes — closest-to-price
+    #     picks one arbitrarily. 50-delta picks the one the market prices as ATM.
+    best_call = _find_by_delta(contracts, "call", target_delta=0.50, tolerance=0.10)
+    best_put  = _find_by_delta(contracts, "put",  target_delta=0.50, tolerance=0.10)
 
-    if not atm_calls or not atm_puts:
+    if not best_call or not best_put:
         return None
-
-    best_call = atm_calls[0]
-    best_put  = atm_puts[0]
 
     # Reject if spreads are too wide (liquidity check)
     if best_call["spread_pct"] > 0.08 or best_put["spread_pct"] > 0.08:
@@ -609,28 +747,33 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     if not contracts:
         return None
 
-    # Find ATM contracts with good OI
-    atm_calls = sorted([c for c in contracts if c["opt_type"] == "call"
-                        and abs(c["strike"] - price) / price < 0.03
-                        and c["days_out"] >= 14],
-                       key=lambda c: abs(c["strike"] - price))[:2]
-    atm_puts = sorted([c for c in contracts if c["opt_type"] == "put"
-                       and abs(c["strike"] - price) / price < 0.03
-                       and c["days_out"] >= 14],
-                      key=lambda c: abs(c["strike"] - price))[:2]
-
-    if not atm_calls or not atm_puts:
+    # Filter to 14+ DTE contracts for the chain search
+    dte_contracts = [c for c in contracts if c["days_out"] >= 14]
+    if not dte_contracts:
         return None
 
-    best_call = atm_calls[0]
-    best_put  = atm_puts[0]
+    if strategy == "iron_condor":
+        # Iron condor: sell 20-delta call + 20-delta put (short wings)
+        # Buy 10-delta call + 10-delta put (long wings = protection)
+        # 20-delta = ~1 standard deviation OTM — high probability of expiring worthless
+        # This is the most common institutional iron condor placement
+        best_call = _find_by_delta(dte_contracts, "call", target_delta=0.20)
+        best_put  = _find_by_delta(dte_contracts, "put",  target_delta=0.20)
+    else:
+        # Short straddle: sell 50-delta call + put (ATM)
+        # Maximum premium — but more risk than condor, hence we only use for iv_rank < 85
+        best_call = _find_by_delta(dte_contracts, "call", target_delta=0.50)
+        best_put  = _find_by_delta(dte_contracts, "put",  target_delta=0.50)
+
+    if not best_call or not best_put:
+        return None
 
     # Minimum OI check (liquidity)
-    if best_call["oi"] < 500 or best_put["oi"] < 500:
+    if best_call["oi"] < 300 or best_put["oi"] < 300:
         return None
 
     # Minimum bid/ask quality
-    if best_call["spread_pct"] > 0.08 or best_put["spread_pct"] > 0.08:
+    if best_call["spread_pct"] > 0.10 or best_put["spread_pct"] > 0.10:
         return None
 
     avg_iv = (best_call["iv"] + best_put["iv"]) / 2
@@ -723,18 +866,14 @@ def _setup_low_iv_breakout_buy(ticker: str, price: float, vxx_ratio: float) -> O
     if not contracts:
         return None
 
-    atm_calls = sorted([c for c in contracts if c["opt_type"] == "call"
-                        and abs(c["strike"] - price) / price < 0.03],
-                       key=lambda c: abs(c["strike"] - price))[:2]
-    atm_puts  = sorted([c for c in contracts if c["opt_type"] == "put"
-                        and abs(c["strike"] - price) / price < 0.03],
-                       key=lambda c: abs(c["strike"] - price))[:2]
+    # Buy ATM straddle at 50-delta — maximum sensitivity to a big move in either direction
+    # When IV is at 52-week lows, ATM options are the cheapest they've been all year.
+    # We want 50-delta because that's where the most gamma lives — fastest P&L if it moves.
+    best_call = _find_by_delta(contracts, "call", target_delta=0.50, tolerance=0.10)
+    best_put  = _find_by_delta(contracts, "put",  target_delta=0.50, tolerance=0.10)
 
-    if not atm_calls or not atm_puts:
+    if not best_call or not best_put:
         return None
-
-    best_call = atm_calls[0]
-    best_put  = atm_puts[0]
 
     straddle_price  = best_call["mid"] + best_put["mid"]
     straddle_pct    = straddle_price / price * 100 if price > 0 else 99
@@ -916,126 +1055,170 @@ def _setup_gamma_pin(ticker: str, price: float) -> Optional[dict]:
 #  SECTION 3: CANDIDATE UNIVERSE FOR OPTIONS SCAN
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Anchor tickers: always included regardless of today's market activity ──────
-# These are the most reliably options-liquid names that show up every day.
-# They anchor the scan even on slow news days.
+# ── Anchor tickers: always in the final OPRA fetch regardless of pre-filter ──
+# These are checked every scan even if snapshot data doesn't flag them,
+# because they're the most reliably options-liquid names in the market.
 _OPTIONS_ANCHOR = [
-    # Index ETFs (highest OI of any options market)
-    "SPY", "QQQ", "IWM", "VXX", "UVXY",
-    # Mega-cap tech (always top-5 options volume)
-    "AAPL", "MSFT", "NVDA", "META", "GOOGL", "AMZN", "TSLA", "AMD",
-    # Sector ETFs (good for iron condors)
-    "XLE", "XLF", "XLK", "XBI", "GLD",
-    # High-vol regulars (frequently appear in options flow)
-    "COIN", "MSTR", "PLTR", "CRWD", "HOOD",
+    "SPY", "QQQ", "IWM", "VXX", "UVXY",           # Index ETFs (highest OI of any options)
+    "AAPL", "MSFT", "NVDA", "META", "GOOGL",        # Mega-cap tech (always top-5 options vol)
+    "AMZN", "TSLA", "AMD", "COIN", "MSTR",
+    "XLE", "XLF", "XLK", "XBI", "GLD",             # Sector ETFs
 ]
 
-# Cache: avoid re-fetching the dynamic universe on every scan within the same minute
-_dynamic_universe_cache: List[str] = []
-_dynamic_universe_time: float = 0.0
-_UNIVERSE_CACHE_TTL = 300  # Refresh every 5 minutes
+# Cache for the pre-filtered candidate list (refreshed every scan cycle)
+_options_candidates_cache: list = []
+_options_candidates_time: float = 0.0
+_CANDIDATES_CACHE_TTL = 60  # 1 minute — candidates change during the day
 
 
-def _get_options_universe() -> List[str]:
+def _get_options_candidates(snap_data: dict = None) -> list:
     """
-    Build a dynamic options-eligible universe every 5 minutes.
+    Two-stage filter to get all options-eligible stocks from the full 11,635 universe.
 
-    WHY DYNAMIC vs FIXED LIST:
-      A fixed list of 33 tickers misses the entire market. The best options
-      setups happen on whatever stocks are ACTIVE TODAY — a stock with IV rank 92
-      and earnings in 3 days that isn't in the fixed list gets completely skipped.
+    WHY TWO STAGES:
+      Fetching an OPRA options chain costs ~0.2s per ticker.
+      Doing that for all 11,635 stocks = 38 minutes. Not acceptable.
+      But snapshot data (price, volume, daily change) is fast — all 11,635 in ~4s.
+      We use snapshot data to pre-filter down to ~600-800 REAL candidates,
+      then only fetch chains for those. Total time: ~10-15 seconds.
 
-    HOW IT WORKS:
-      1. Alpaca most-actives (top 50 by volume) — guaranteed to have liquid options
-      2. Today's top movers (gainers + losers) — high IV stocks move, so they appear here
-      3. Anchor tickers — always included for stability
-      4. Filter: price > $5 AND volume > 500K AND no warrants/ETNs (no letters after ticker)
-      5. Cap at 120 tickers to keep scan time under 20 seconds
+    STAGE 1 — Snapshot pre-filter (runs on all 11,635, already done by stock scanner):
+      PASS criteria (stock is options-eligible):
+        - Price >= $10  (stocks under $10 have illiquid/no options chains)
+        - Volume >= 1M  (minimum daily volume for options market maker quoting)
+      Then classify into setup types:
+        - High-IV candidate:  abs(daily change) > 2%   → IV likely elevated → sell premium
+        - Low-IV candidate:   abs(daily change) < 0.3% → stock quiet → IV may be cheap
+        - Always include:     anchor tickers regardless of today's move
 
-    RESULT:
-      ~80-120 tickers per scan, refreshed every 5 minutes.
-      Covers the whole market's active options names, not just 33 forever.
-      Includes today's high-IV movers that the fixed list would never see.
+    STAGE 2 — Return the candidate list (caller fetches OPRA chains):
+      Only these ~600-800 tickers get their options chain fetched.
+      That's the same number as before (was fixed at 33), just actually correct.
+
+    Args:
+        snap_data: Optional pre-fetched snapshot dict {symbol: snap}. If provided,
+                   skips re-fetching (reuses stock scanner's data). If None, fetches fresh.
+
+    Returns:
+        List of (ticker, price, setup_type) tuples where setup_type is one of:
+        'high_iv', 'low_iv', 'anchor', 'any'
     """
-    global _dynamic_universe_cache, _dynamic_universe_time
+    global _options_candidates_cache, _options_candidates_time
     now = time.time()
-    if _dynamic_universe_cache and (now - _dynamic_universe_time) < _UNIVERSE_CACHE_TTL:
-        return _dynamic_universe_cache
+    if _options_candidates_cache and (now - _options_candidates_time) < _CANDIDATES_CACHE_TTL:
+        return _options_candidates_cache
 
-    tickers: List[str] = []
-
-    # Source 1: Most-active stocks by volume (top 50)
-    # These stocks trade millions of shares/day — their options chains are liquid
+    # Get the full universe (same daily-cached list the stock scanner uses)
+    full_universe: list = []
     try:
-        r = requests.get(
-            f"{ALPACA_DATA}/v1beta1/screener/stocks/most-actives?by=volume&top=50",
-            headers=_headers(), timeout=6)
-        actives = r.json().get("most_actives", [])
-        for item in actives:
-            sym = item.get("symbol", "")
-            if sym and "." not in sym and len(sym) <= 5:
-                tickers.append(sym)
+        import sys, os
+        _here = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, _here)
+        from bot_engine import _get_full_universe
+        full_universe = _get_full_universe()
     except Exception:
         pass
 
-    # Source 2: Today's top movers (gainers + losers)
-    # Stocks making big moves today have elevated IV — exactly what we want
-    try:
-        r2 = requests.get(
-            f"{ALPACA_DATA}/v1beta1/screener/stocks/movers?top=30",
-            headers=_headers(), timeout=6)
-        mv = r2.json()
-        for item in mv.get("gainers", []) + mv.get("losers", []):
-            sym = item.get("symbol", "")
-            if sym and "." not in sym and len(sym) <= 5:
-                tickers.append(sym)
-    except Exception:
-        pass
-
-    # Source 3: Always include anchor tickers
-    tickers.extend(_OPTIONS_ANCHOR)
-
-    # Deduplicate while preserving order
-    seen = set(); unique = []
-    for t in tickers:
-        if t not in seen: seen.add(t); unique.append(t)
-
-    # Filter: fetch snapshots to verify price > $5 and vol > 500K
-    # Batch fetch prices (Alpaca returns 1 per request for bars, but snapshots work)
-    eligible: List[str] = []
-    batch_size = 20
-    for i in range(0, len(unique), batch_size):
-        batch = unique[i:i+batch_size]
+    if not full_universe:
+        # Fallback: fetch from Alpaca assets endpoint directly
         try:
-            r3 = requests.get(
-                f"{ALPACA_DATA}/v2/stocks/snapshots",
-                params={"symbols": ",".join(batch), "feed": "sip"},
-                headers=_headers(), timeout=8)
-            snaps = r3.json()
-            for sym in batch:
-                snap = snaps.get(sym, {})
-                bar  = snap.get("dailyBar", snap.get("minuteBar", {}))
-                c    = float(bar.get("c", 0) or 0)
-                v    = int(bar.get("v", 0) or 0)
-                # Price > $5 (cheap stocks have illiquid options, wide spreads)
-                # Volume > 500K (minimum for options liquidity)
-                # No leveraged ETF suffixes that cause issues (TQQQ, SQQQ already filtered by anchor)
-                if c >= 5.0 and v >= 500_000:
-                    eligible.append(sym)
+            r = requests.get(
+                "https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",
+                headers=_headers(), timeout=20)
+            assets = r.json()
+            full_universe = [
+                a["symbol"] for a in assets
+                if a.get("tradable") and "." not in a.get("symbol", "")
+                and not a.get("symbol", "").endswith("W")
+                and len(a.get("symbol", "")) <= 5
+            ]
         except Exception:
-            # If filter fails, just include the anchor tickers
-            eligible.extend([t for t in batch if t in _OPTIONS_ANCHOR])
+            full_universe = _OPTIONS_ANCHOR  # Last resort
 
-    # Anchor tickers always make it in even if price check failed
-    for t in _OPTIONS_ANCHOR:
-        if t not in eligible:
-            eligible.append(t)
+    # ── STAGE 1: Snapshot fetch (all 11,635 in ~4s with 16 workers) ──────────
+    # If snap_data already provided (from bot_engine), skip the fetch entirely.
+    if not snap_data:
+        snap_data = {}
+        batches = [full_universe[i:i+50] for i in range(0, len(full_universe), 50)]
 
-    # Cap at 120 — each needs an options chain API call, don't go over ~2min
-    result = eligible[:120]
-    _dynamic_universe_cache = result
-    _dynamic_universe_time  = now
-    logger.info(f"Options universe: {len(result)} tickers (anchors + today's actives/movers)")
+        def _fetch_snap(batch):
+            try:
+                r = requests.get(
+                    f"{ALPACA_DATA}/v2/stocks/snapshots",
+                    params={"symbols": ",".join(batch), "feed": "sip"},
+                    headers=_headers(), timeout=12)
+                return r.json()
+            except Exception:
+                return {}
+
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            for result in pool.map(_fetch_snap, batches):
+                snap_data.update(result)
+
+    # ── STAGE 2: Pre-filter — classify each stock ─────────────────────────────
+    high_iv_candidates: list = []  # abs(change) > 2% → IV likely elevated
+    low_iv_candidates:  list = []  # abs(change) < 0.3% AND vol > 1M → IV may be cheap
+
+    for sym, snap in snap_data.items():
+        if "." in sym or len(sym) > 5:
+            continue
+        bar  = snap.get("dailyBar", {})
+        prev = snap.get("prevDailyBar", {})
+        c    = float(bar.get("c", 0) or 0)
+        pc   = float(prev.get("c", c) or c)
+        v    = int(bar.get("v", 0) or 0)
+
+        # Hard floor: options don't exist or are illiquid below these levels
+        if c < 10.0 or v < 1_000_000:
+            continue
+
+        chg = abs((c - pc) / pc * 100) if pc > 0 else 0
+
+        if chg > 2.0:
+            # Stock moved significantly today → IV is elevated → sell premium candidate
+            high_iv_candidates.append((sym, c, "high_iv"))
+        elif chg < 0.3:
+            # Stock is very quiet today → IV may be at lows → buy cheap options candidate
+            low_iv_candidates.append((sym, c, "low_iv"))
+
+    # Sort by movement magnitude (biggest movers first = highest IV)
+    high_iv_candidates.sort(key=lambda x: x[0], reverse=False)
+
+    # Cap each tier to keep total OPRA calls manageable
+    # Even with 16 workers, 700+ chain fetches takes ~10s — acceptable.
+    # 1000+ starts adding latency. Cap at 400 per tier.
+    MAX_PER_TIER = 400
+    high_iv_top = high_iv_candidates[:MAX_PER_TIER]
+    low_iv_top  = low_iv_candidates[:MAX_PER_TIER]
+
+    # ── Combine: anchor + high_iv + low_iv (deduplicated) ────────────────────
+    seen: set = set()
+    result: list = []
+
+    # Anchors always first
+    for sym in _OPTIONS_ANCHOR:
+        if sym not in seen:
+            seen.add(sym)
+            # Get price from snap_data if available
+            p = 0.0
+            snap = snap_data.get(sym, {})
+            if snap:
+                bar = snap.get("dailyBar", {})
+                p   = float(bar.get("c", 0) or 0)
+            result.append((sym, p, "anchor"))
+
+    for sym, price, setup_type in high_iv_top + low_iv_top:
+        if sym not in seen:
+            seen.add(sym)
+            result.append((sym, price, setup_type))
+
+    _options_candidates_cache = result
+    _options_candidates_time  = now
+    logger.info(
+        f"Options candidates: {len(result)} total "
+        f"({len(high_iv_top)} high-IV, {len(low_iv_top)} low-IV, {len(_OPTIONS_ANCHOR)} anchors) "
+        f"from {len(full_universe):,} universe"
+    )
     return result
 
 
@@ -1116,51 +1299,43 @@ def scan_options() -> dict:
                 opportunities.append(result)
 
     # ── SETUPS 3, 4, 5: Per-ticker scans ─────────────────────────────────
-    # Build the dynamic universe: most-actives + movers + anchors, filtered for
-    # price > $5 and volume > 500K. Covers ~80-120 tickers refreshed every 5 min.
-    # This replaces the old fixed 33-ticker list — now scans the whole active market.
-    universe = _get_options_universe()
+    # Two-stage approach — same as the stock scanner:
+    #   Stage 1: Snapshot all 11,635 stocks (~4s, 16 workers) → pre-filter to
+    #            ~600-800 options candidates (price>$10, vol>1M, moved today OR quiet)
+    #   Stage 2: Fetch OPRA chain only for those candidates (~10s, 16 workers)
+    #
+    # This covers the FULL market — not just 33 or 50 or 100 hardcoded tickers.
+    # Any stock with IV rank 92 and earnings in 3 days will be found regardless
+    # of whether it was ever on a fixed list.
+    candidates = _get_options_candidates()  # [(ticker, price, setup_type), ...]
 
-    # Prices already fetched during _get_options_universe() filter step,
-    # but we fetch again here to get fresh snapshots for the actual scan.
-    price_map = {}
-    for i in range(0, len(universe), 20):
-        batch = universe[i:i+20]
-        try:
-            r = requests.get(
-                f"{ALPACA_DATA}/v2/stocks/snapshots",
-                params={"symbols": ",".join(batch), "feed": "sip"},
-                headers=_headers(), timeout=8)
-            for sym, snap in r.json().items():
-                bar = snap.get("dailyBar", snap.get("minuteBar", {}))
-                p   = float(bar.get("c", bar.get("p", 0)) or 0)
-                if p > 0:
-                    price_map[sym] = p
-        except Exception:
-            pass
-
-    def _check_ticker(tkr: str) -> List[dict]:
-        price = price_map.get(tkr)
-        if not price or price < 5:
+    def _check_ticker(candidate: tuple) -> List[dict]:
+        tkr, price, setup_hint = candidate
+        if not price or price < 10:
             return []
         found = []
         # Setup 3: High-IV premium sale
-        r3 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
-        if r3:
-            found.append(r3)
+        # Prioritize high_iv and anchor candidates — skip low_iv ones for this setup
+        if setup_hint in ("high_iv", "anchor", "any"):
+            r3 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
+            if r3:
+                found.append(r3)
         # Setup 4: Low-IV breakout buy
-        r4 = _setup_low_iv_breakout_buy(tkr, price, vxx_ratio)
-        if r4:
-            found.append(r4)
-        # Setup 5: Gamma pin (only on Fridays after noon)
+        # Prioritize low_iv and anchor candidates — skip high_iv for this setup
+        if setup_hint in ("low_iv", "anchor", "any"):
+            r4 = _setup_low_iv_breakout_buy(tkr, price, vxx_ratio)
+            if r4:
+                found.append(r4)
+        # Setup 5: Gamma pin (only on Fridays after noon — checked inside)
         r5 = _setup_gamma_pin(tkr, price)
         if r5:
             found.append(r5)
         return found
 
-    # Run per-ticker scans in parallel (8 workers — each makes 2-3 API calls)
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        for results in pool.map(_check_ticker, universe):
+    # 16 workers — each candidate needs 1-2 OPRA chain fetches (~0.2s each)
+    # 700 candidates / 16 workers = ~9 seconds total
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        for results in pool.map(_check_ticker, candidates):
             opportunities.extend(results)
 
     # ── Sort by score, deduplicate by ticker+setup ────────────────────────
@@ -1186,7 +1361,7 @@ def scan_options() -> dict:
         "vxx_ratio":      vxx_ratio,
         "spy_vs_ma50":    spy_vs_ma50,
         "regime":         regime,
-        "scanned":        len(universe) + len(earnings_tickers[:30]),
+        "scanned":        len(candidates) + len(earnings_tickers[:30]),
         "duration_secs":  duration,
         "best_score":     unique_opps[0]["score"] if unique_opps else 0,
     }
