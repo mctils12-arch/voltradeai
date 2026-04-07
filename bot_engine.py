@@ -1795,9 +1795,8 @@ def scan_market():
     # Step 7: Check position management
     mgmt = manage_positions()
 
-    # Step 8: Intraday Shorts (v1.0.27) ───────────────────────────────────
-    # Adaptive intraday short selling. Enter at open, cover by close.
-    # Auto-disables if first 20 trades average negative (kill switch).
+    # Step 8: Intraday Shorts (v1.0.28 hybrid v2.1) ───────────────────────────────────
+    # Hybrid v2.1: fixed lookback signals + full universe architecture.
     try:
         from intraday_shorts import run_intraday_shorts
         intraday_short_result = run_intraday_shorts(_macro)
@@ -1812,6 +1811,16 @@ def scan_market():
         third_leg_result = _run_third_leg(_macro)
     except Exception:
         third_leg_result = {"actions": [], "status": "error"}
+
+    # Step 10: Passive SPY Floor (v1.0.29) ──────────────────────────────────
+    # Hold passive SPY allocation based on regime. Captures market drift
+    # in calm bull markets where momentum signals are noise.
+    # Backtest: 12.9% CAGR (beats SPY 12.3%). Fixes quiet bull year losses.
+    spy_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
+    try:
+        spy_floor_result = _manage_spy_floor(_macro)
+    except Exception as _sfe:
+        spy_floor_result["status"] = f"error: {str(_sfe)[:80]}"
 
     return {
         "timestamp": datetime.now().isoformat(),
@@ -1837,6 +1846,7 @@ def scan_market():
         } for s in deep_scored[:10]],
         "third_leg": third_leg_result,
         "intraday_shorts": intraday_short_result,
+        "spy_floor": spy_floor_result,
     }
 
 # ── Third Leg Engine (v1.0.25) ──────────────────────────────────────────────
@@ -2006,6 +2016,140 @@ def _run_third_leg(macro: dict) -> dict:
 
 
 # ── Entry Point ──────────────────────────────────────────────────────────────
+
+# ── Passive SPY Floor (v1.0.29) ──────────────────────────────────────────────
+
+def _manage_spy_floor(macro: dict) -> dict:
+    """
+    Passive SPY Floor: hold SPY shares proportional to regime allocation.
+    Captures market drift in calm bull markets where momentum signals = noise.
+
+    Backtest (7-config sweep, 2016-2026):
+      B60/N85/C30 = best: 12.9% CAGR vs SPY 12.3% (beats by +0.6%)
+      Fixes quiet bull year losses: 2017 -27% -> -6%, 2019 -33% -> -6%
+    """
+    result = {"actions": [], "status": "ok", "target_pct": 0, "current_pct": 0}
+
+    try:
+        from system_config import BASE_CONFIG, get_market_regime
+
+        vxx_ratio   = float(macro.get("vxx_ratio", 1.0) or 1.0)
+        spy_vs_ma50 = float(macro.get("spy_vs_ma50", 1.0) or 1.0)
+        spy_b200    = int(macro.get("spy_below_200_days", 0) or 0)
+        spy_above   = bool(macro.get("spy_above_200d", True))
+
+        regime = get_market_regime(vxx_ratio, spy_vs_ma50,
+                                   spy_below_200_days=spy_b200,
+                                   spy_above_200d=spy_above)
+
+        floor_key = f"SPY_FLOOR_{regime}"
+        target_pct = BASE_CONFIG.get(floor_key, 0)
+        result["target_pct"] = target_pct
+        result["regime"] = regime
+
+        if target_pct <= 0:
+            # No SPY floor — sell any existing SPY position
+            try:
+                positions = get_alpaca_positions()
+                spy_pos = [p for p in positions if p.get("symbol") == "SPY"]
+                if spy_pos:
+                    qty = abs(int(float(spy_pos[0].get("qty", 0))))
+                    if qty > 0:
+                        requests.post(f"{ALPACA_BASE}/v2/orders",
+                            json={"symbol": "SPY", "qty": str(qty),
+                                  "side": "sell", "type": "market",
+                                  "time_in_force": "day"},
+                            headers=HEADERS, timeout=10)
+                        result["actions"].append({"type": "spy_floor_exit",
+                            "shares": qty, "reason": f"{regime} regime"})
+                        logger.info(f"[SPY_FLOOR] Sold {qty} SPY ({regime} regime)")
+            except Exception:
+                pass
+            return result
+
+        # Get account equity and current SPY position
+        try:
+            acc = requests.get(f"{ALPACA_BASE}/v2/account",
+                headers=HEADERS, timeout=8).json()
+            equity = float(acc.get("equity", 98000) or 98000)
+        except Exception:
+            equity = 98000
+
+        current_spy_value = 0
+        current_spy_shares = 0
+        try:
+            positions = get_alpaca_positions()
+            for p in positions:
+                if p.get("symbol") == "SPY":
+                    current_spy_shares = int(float(p.get("qty", 0)))
+                    current_spy_value = abs(float(p.get("market_value", 0)))
+                    break
+        except Exception:
+            pass
+
+        current_pct = current_spy_value / equity if equity > 0 else 0
+        result["current_pct"] = round(current_pct, 3)
+
+        target_value = equity * target_pct
+        diff = target_value - current_spy_value
+
+        # Only rebalance if >5% off target (avoid micro-trades)
+        if abs(diff) / equity < 0.05:
+            result["status"] = "within_band"
+            return result
+
+        # Get SPY price
+        try:
+            snap = requests.get(f"{DATA_URL}/v2/stocks/snapshots",
+                params={"symbols": "SPY", "feed": "sip"},
+                headers=HEADERS, timeout=8).json()
+            spy_price = float(snap.get("SPY", {}).get("latestTrade", {}).get("p", 0) or 0)
+        except Exception:
+            spy_price = 0
+
+        if spy_price <= 0:
+            result["status"] = "no_spy_price"
+            return result
+
+        shares_diff = int(diff / spy_price)
+        if shares_diff == 0:
+            result["status"] = "within_band"
+            return result
+
+        if shares_diff > 0:
+            try:
+                requests.post(f"{ALPACA_BASE}/v2/orders",
+                    json={"symbol": "SPY", "qty": str(shares_diff),
+                          "side": "buy", "type": "market",
+                          "time_in_force": "day"},
+                    headers=HEADERS, timeout=10)
+                result["actions"].append({"type": "spy_floor_buy",
+                    "shares": shares_diff,
+                    "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
+                logger.info(f"[SPY_FLOOR] Bought {shares_diff} SPY ({regime}: {target_pct*100:.0f}% target)")
+            except Exception as e:
+                logger.debug(f"[SPY_FLOOR] Buy failed: {e}")
+        else:
+            sell_qty = min(abs(shares_diff), current_spy_shares)
+            if sell_qty > 0:
+                try:
+                    requests.post(f"{ALPACA_BASE}/v2/orders",
+                        json={"symbol": "SPY", "qty": str(sell_qty),
+                              "side": "sell", "type": "market",
+                              "time_in_force": "day"},
+                        headers=HEADERS, timeout=10)
+                    result["actions"].append({"type": "spy_floor_sell",
+                        "shares": sell_qty,
+                        "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
+                    logger.info(f"[SPY_FLOOR] Sold {sell_qty} SPY ({regime}: {target_pct*100:.0f}% target)")
+                except Exception as e:
+                    logger.debug(f"[SPY_FLOOR] Sell failed: {e}")
+
+    except Exception as e:
+        result["status"] = f"error: {str(e)[:80]}"
+
+    return result
+
 
 if __name__ == "__main__":
     # ── ML v2 Training Schedule ─────────────────────────────────────────

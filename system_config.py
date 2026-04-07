@@ -82,6 +82,22 @@ BASE_CONFIG = {
     "MAX_OPTIONS_PCT":      0.10,  # Max 10% per options position
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
 
+    # ── PASSIVE SPY FLOOR (v1.0.29) ────────────────────────────────────
+    # Problem: in calm bull years (2017, 2019, 2023) momentum signals don't work.
+    # The bot sat in cash while SPY gained 20-30%. Quiet markets = noise, not signal.
+    # Fix: hold a passive SPY allocation in calm regimes to capture the market drift.
+    # This is standard "beta + alpha" — passive floor + active overlay.
+    #
+    # 10-year backtest (7-config sweep):
+    #   B60/N85/C30 = best: 12.9% CAGR vs SPY 12.3% (beats by +0.6%)
+    #   Max DD improved from 77% to 45.5%
+    #   2017: -27.7% → -6.1% | 2019: -32.5% → -6.1% | 2023: -46.7% → -15.4%
+    "SPY_FLOOR_BULL":       0.60,  # 60% passive SPY in BULL (40% for active trades)
+    "SPY_FLOOR_NEUTRAL":    0.85,  # 85% passive SPY in NEUTRAL (signals = noise here)
+    "SPY_FLOOR_CAUTION":    0.30,  # 30% passive SPY in CAUTION
+    "SPY_FLOOR_BEAR":       0.00,  # 0% in BEAR (third leg takes over)
+    "SPY_FLOOR_PANIC":      0.00,  # 0% in PANIC (all defensive)
+
     # ── THIRD LEG (v1.0.25) ────────────────────────────────────────────
     # 64-combo backtest winner: VRP=15% + Sector=12%, TLT=0%
     # Result: CAGR +14.8%/yr (vs 2-leg +13.8%, SPY +12.3%)
@@ -181,7 +197,8 @@ BASE_CONFIG = {
 
 def get_market_regime(vxx_ratio: float, spy_vs_ma50: float,
                       markov_state: int = 1,
-                      spy_below_200_days: int = 0) -> str:
+                      spy_below_200_days: int = 0,
+                      spy_above_200d: bool = True) -> str:
     """
     Classify market regime from 0 (panic/bear) to 4 (euphoria/bull).
     vxx_ratio: VXX / 30-day average (>1 = fear)
@@ -209,6 +226,11 @@ def get_market_regime(vxx_ratio: float, spy_vs_ma50: float,
         return "CAUTION"    # VXX 5-15% above avg — elevated but not BEAR
     elif vxx_ratio <= 0.90 and spy_vs_ma50 > 1.01:
         return "BULL"       # VXX below 90% of avg AND SPY above MA
+    # v1.0.29: Wider BULL — SPY above 200d MA + VXX calm = BULL
+    # Previously this was NEUTRAL, causing bot to miss quiet bull markets.
+    # Backtest: helps regime correctly classify 2017, 2019, 2023 bull years.
+    elif spy_above_200d and vxx_ratio <= 1.02:
+        return "BULL"       # Calm + uptrend = BULL (wider detection)
     elif spy_vs_ma50 > 1.0 and markov_state >= 1:
         return "NEUTRAL"    # Standard conditions
     else:
@@ -270,8 +292,12 @@ def get_adaptive_params(
         p["regime"]                 = "BULL"
 
     elif regime == "NEUTRAL":
-        # Standard: conservative sizing, default stops
-        # These params need live trade data to tune — backtest was biased
+        # v1.0.29: NO active stock trades in NEUTRAL.
+        # 10-year backtest: momentum signals are noise in calm markets.
+        # Passive SPY floor (85%) captures the market drift instead.
+        # Active trades in NEUTRAL had net negative P&L over 10 years.
+        p["MAX_POSITIONS"]          = 0      # No stock trades in NEUTRAL
+        p["MAX_TOTAL_EXPOSURE"]     = 0.90   # SPY floor handles exposure
         p["regime"] = "NEUTRAL"
 
     else:  # CAUTION

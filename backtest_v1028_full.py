@@ -385,11 +385,13 @@ def run_backtest(include_shorts=False, include_third_leg=True, label=""):
 
         for sym, reason, pnl_pct in to_close:
             pos = positions.pop(sym)
+            actual_cost = pos.get("actual_cost", pos["shares"] * pos["entry_price"])
             entry_value = pos["shares"] * pos["entry_price"]
-            pnl_amt = entry_value * (pnl_pct / 100) * (1 - SLIPPAGE)
-            equity += entry_value + pnl_amt
+            exit_value = entry_value * (1 + pnl_pct / 100) * (1 - SLIPPAGE)
+            equity += exit_value
             total_trades += 1
             if pnl_pct > 0: winning_trades += 1
+            pnl_amt = exit_value - actual_cost
             trades_log.append({"date": date, "sym": sym, "pnl_pct": round(pnl_pct, 2),
                                 "pnl_amt": round(pnl_amt, 2), "regime": regime})
 
@@ -503,12 +505,14 @@ def run_backtest(include_shorts=False, include_third_leg=True, label=""):
                 if not sym_bar: continue
                 price = float(sym_bar.get("c", 0))
                 if price < 5: continue
-                position_value = equity * params["size_pct"] * (1 - SLIPPAGE)
-                shares = int(position_value / price)
+                target_value = equity * params["size_pct"]
+                shares = int(target_value / price)
                 if shares <= 0: continue
+                actual_cost = shares * price * (1 + SLIPPAGE)  # What we actually pay
                 positions[sym] = {"entry_price": price, "shares": shares,
-                                   "entry_day": day_idx, "score": sc, "regime": regime}
-                equity -= position_value
+                                   "entry_day": day_idx, "score": sc, "regime": regime,
+                                   "actual_cost": actual_cost}
+                equity -= actual_cost
 
         # ── Track equity ──────────────────────────────────────────
         unrealized = 0
