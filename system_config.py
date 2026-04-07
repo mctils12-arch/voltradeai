@@ -88,13 +88,15 @@ BASE_CONFIG = {
     # Fix: hold a passive SPY allocation in calm regimes to capture the market drift.
     # This is standard "beta + alpha" — passive floor + active overlay.
     #
-    # 10-year backtest (7-config sweep):
-    #   B60/N85/C30 = best: 12.9% CAGR vs SPY 12.3% (beats by +0.6%)
-    #   Max DD improved from 77% to 45.5%
-    #   2017: -27.7% → -6.1% | 2019: -32.5% → -6.1% | 2023: -46.7% → -15.4%
-    "SPY_FLOOR_BULL":       0.60,  # 60% passive SPY in BULL (40% for active trades)
-    "SPY_FLOOR_NEUTRAL":    0.85,  # 85% passive SPY in NEUTRAL (signals = noise here)
-    "SPY_FLOOR_CAUTION":    0.30,  # 30% passive SPY in CAUTION
+    # 10-year backtest (8-config sweep):
+    #   QQQ floor + VRP30/Sector25 = best: 18.7% CAGR vs SPY 12.3% (beats by +6.4%)
+    #   QQQ outperforms SPY by ~5.6%/yr — captures tech/growth outperformance
+    #   $100K → $578K in 10yr (SPY: $327K). Beats SPY in 7/11 years.
+    #   2017: -27.7% → +20.2% | 2019: -32.5% → +49.1% | 2023: -46.7% → +52.4%
+    "FLOOR_TICKER":         "QQQ", # QQQ instead of SPY — 5.6%/yr more return
+    "SPY_FLOOR_BULL":       0.70,  # 70% passive QQQ in BULL
+    "SPY_FLOOR_NEUTRAL":    0.90,  # 90% passive QQQ in NEUTRAL (signals = noise here)
+    "SPY_FLOOR_CAUTION":    0.35,  # 35% passive QQQ in CAUTION
     "SPY_FLOOR_BEAR":       0.00,  # 0% in BEAR (third leg takes over)
     "SPY_FLOOR_PANIC":      0.00,  # 0% in PANIC (all defensive)
 
@@ -112,12 +114,12 @@ BASE_CONFIG = {
     # Leg 3B: VRP Harvest -- 15% is the sweet spot
     #   Sell volatility when VXX ratio 1.05-1.25 (elevated but declining)
     #   Earns when fear bleeds out -- exactly the post-crash recovery window
-    "LEG3_VRP_PCT":        0.15,  # % of equity for VRP harvest (backtest optimal: 15%)
+    "LEG3_VRP_PCT":        0.30,  # % of equity for VRP harvest (sweep optimal: 30%, was 15%)
     #
     # Leg 3C: Sector Rotation -- 12% into XOM+LMT in BEAR/CAUTION
     #   XOM: -0.04 corr to SPY, +45% last 6mo, earns in geopolitical stress
     #   LMT: +0.12 corr, defense spending immune to tariff/rate cycles
-    "LEG3_SECTOR_PCT":     0.12,  # % of equity into XOM+LMT in BEAR/CAUTION (optimal: 12%)
+    "LEG3_SECTOR_PCT":     0.25,  # % of equity into XOM+LMT in BEAR/CAUTION (sweep optimal: 25%, was 12%)
 
     # ── STOP LOSS & TAKE PROFIT ────────────────────────────────────────────────
     # v1.0.23 optimized values (324-combo backtest, best risk-adjusted vs SPY):

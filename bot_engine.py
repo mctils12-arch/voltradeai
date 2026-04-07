@@ -2042,27 +2042,30 @@ def _manage_spy_floor(macro: dict) -> dict:
                                    spy_below_200_days=spy_b200,
                                    spy_above_200d=spy_above)
 
+        # Use configurable floor ticker (QQQ by default — 5.6%/yr more than SPY)
+        floor_ticker = BASE_CONFIG.get("FLOOR_TICKER", "QQQ")
         floor_key = f"SPY_FLOOR_{regime}"
         target_pct = BASE_CONFIG.get(floor_key, 0)
         result["target_pct"] = target_pct
         result["regime"] = regime
+        result["floor_ticker"] = floor_ticker
 
         if target_pct <= 0:
-            # No SPY floor — sell any existing SPY position
+            # No floor — sell any existing position
             try:
                 positions = get_alpaca_positions()
-                spy_pos = [p for p in positions if p.get("symbol") == "SPY"]
-                if spy_pos:
-                    qty = abs(int(float(spy_pos[0].get("qty", 0))))
+                floor_pos = [p for p in positions if p.get("symbol") == floor_ticker]
+                if floor_pos:
+                    qty = abs(int(float(floor_pos[0].get("qty", 0))))
                     if qty > 0:
                         requests.post(f"{ALPACA_BASE}/v2/orders",
-                            json={"symbol": "SPY", "qty": str(qty),
+                            json={"symbol": floor_ticker, "qty": str(qty),
                                   "side": "sell", "type": "market",
                                   "time_in_force": "day"},
                             headers=HEADERS, timeout=10)
-                        result["actions"].append({"type": "spy_floor_exit",
+                        result["actions"].append({"type": "floor_exit",
                             "shares": qty, "reason": f"{regime} regime"})
-                        logger.info(f"[SPY_FLOOR] Sold {qty} SPY ({regime} regime)")
+                        logger.info(f"[FLOOR] Sold {qty} {floor_ticker} ({regime} regime)")
             except Exception:
                 pass
             return result
@@ -2080,7 +2083,7 @@ def _manage_spy_floor(macro: dict) -> dict:
         try:
             positions = get_alpaca_positions()
             for p in positions:
-                if p.get("symbol") == "SPY":
+                if p.get("symbol") == floor_ticker:
                     current_spy_shares = int(float(p.get("qty", 0)))
                     current_spy_value = abs(float(p.get("market_value", 0)))
                     break
@@ -2101,9 +2104,9 @@ def _manage_spy_floor(macro: dict) -> dict:
         # Get SPY price
         try:
             snap = requests.get(f"{DATA_URL}/v2/stocks/snapshots",
-                params={"symbols": "SPY", "feed": "sip"},
+                params={"symbols": floor_ticker, "feed": "sip"},
                 headers=HEADERS, timeout=8).json()
-            spy_price = float(snap.get("SPY", {}).get("latestTrade", {}).get("p", 0) or 0)
+            spy_price = float(snap.get(floor_ticker, {}).get("latestTrade", {}).get("p", 0) or 0)
         except Exception:
             spy_price = 0
 
@@ -2119,14 +2122,14 @@ def _manage_spy_floor(macro: dict) -> dict:
         if shares_diff > 0:
             try:
                 requests.post(f"{ALPACA_BASE}/v2/orders",
-                    json={"symbol": "SPY", "qty": str(shares_diff),
+                    json={"symbol": floor_ticker, "qty": str(shares_diff),
                           "side": "buy", "type": "market",
                           "time_in_force": "day"},
                     headers=HEADERS, timeout=10)
-                result["actions"].append({"type": "spy_floor_buy",
-                    "shares": shares_diff,
+                result["actions"].append({"type": "floor_buy",
+                    "shares": shares_diff, "ticker": floor_ticker,
                     "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
-                logger.info(f"[SPY_FLOOR] Bought {shares_diff} SPY ({regime}: {target_pct*100:.0f}% target)")
+                logger.info(f"[FLOOR] Bought {shares_diff} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
             except Exception as e:
                 logger.debug(f"[SPY_FLOOR] Buy failed: {e}")
         else:
@@ -2134,14 +2137,14 @@ def _manage_spy_floor(macro: dict) -> dict:
             if sell_qty > 0:
                 try:
                     requests.post(f"{ALPACA_BASE}/v2/orders",
-                        json={"symbol": "SPY", "qty": str(sell_qty),
+                        json={"symbol": floor_ticker, "qty": str(sell_qty),
                               "side": "sell", "type": "market",
                               "time_in_force": "day"},
                         headers=HEADERS, timeout=10)
-                    result["actions"].append({"type": "spy_floor_sell",
-                        "shares": sell_qty,
+                    result["actions"].append({"type": "floor_sell",
+                        "shares": sell_qty, "ticker": floor_ticker,
                         "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
-                    logger.info(f"[SPY_FLOOR] Sold {sell_qty} SPY ({regime}: {target_pct*100:.0f}% target)")
+                    logger.info(f"[FLOOR] Sold {sell_qty} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
                 except Exception as e:
                     logger.debug(f"[SPY_FLOOR] Sell failed: {e}")
 
