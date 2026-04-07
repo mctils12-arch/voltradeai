@@ -879,6 +879,8 @@ except Exception as e:
         ml_result = ml_score(ml_features)
 
         # Blend: dynamic ratio loaded from tracker, default 60/40
+        # IMPORTANT: ML only adjusts score when it has CONVICTION (not near 50).
+        # Near-50 ML = uncertain. Uncertain ML should NOT drag down a good rules setup.
         if ml_result.get("model_type") != "fallback":
             ml_s = ml_result.get("ml_score", combined_score)
             ml_only_score = round(ml_s, 1)  # Capture ML score for attribution
@@ -894,9 +896,20 @@ except Exception as e:
                     rule_weight, ml_weight = 0.6, 0.4
             except Exception:
                 rule_weight, ml_weight = 0.6, 0.4
-            combined_score = combined_score * rule_weight + ml_s * ml_weight
+
+            # Conviction-gating: when ML is uncertain (42-58 range), treat as neutral 50.
+            # This prevents a mediocre ML score from dragging down strong rule setups.
+            # At 50, the blend becomes: rules*0.6 + 50*0.4 = rules contribution only matters.
+            ml_conviction = abs(ml_s - 50)
+            if ml_conviction < 8:  # Score within 42-58 = ML is uncertain
+                ml_s_blended = 50.0  # Treat as neutral — no drag, no boost
+                reasons.append(f"ML: uncertain ({ml_s:.0f}), using rules-only")
+            else:
+                ml_s_blended = ml_s
+                reasons.append(f"ML model: {ml_result.get('ml_signal', 'HOLD')} ({ml_result.get('ml_confidence', 0):.0%} confidence)")
+
+            combined_score = combined_score * rule_weight + ml_s_blended * ml_weight
             reasons.append(f"Blend: {rule_weight:.0%} rules + {ml_weight:.0%} ML")
-            reasons.append(f"ML model: {ml_result.get('ml_signal', 'HOLD')} ({ml_result.get('ml_confidence', 0):.0%} confidence)")
     except Exception:
         pass  # ML not available, use rule-based only
 

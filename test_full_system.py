@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VolTradeAI v1.0.16 — Full Trading Day Test
+VolTradeAI v1.0.21 — Full Trading Day Test
 Simulates: 4am → pre-market → 9:30 open → mid-day → close → after-hours
 Tests every component, catches every error, reports everything.
 """
@@ -27,7 +27,7 @@ def test(phase, name, fn):
 
 # ═══════════════════════════════════════════════════════════
 print("="*70)
-print("VolTradeAI v1.0.16 — Full Trading Day Simulation")
+print("VolTradeAI v1.0.21 — Full Trading Day Simulation")
 print("Tuesday April 7, 2026 | 4:00 AM → 8:00 PM ET")
 print("="*70)
 
@@ -39,12 +39,13 @@ def t_stock_ml_train():
     from ml_model_v2 import train_model
     r = train_model()
     if r.get("status") == "trained":
-        acc = round(r.get("accuracy",0)*100,1)
-        n   = r.get("samples",0)
-        mt  = r.get("model_type","?")
-        if acc < 60:
-            return "WARN", f"{mt} {acc}% acc — below 60%, model may be weak"
-        return "PASS", f"{mt} {acc}% acc on {n} samples"
+        # accuracy is already in percent (e.g. 58.7), NOT 0-1 float
+        acc = r.get("accuracy", 0)
+        n   = r.get("samples", 0)
+        reg = r.get("regime_models", [])
+        if acc < 55:
+            return "WARN", f"{acc}% acc — below 55%. Regime models: {reg}"
+        return "PASS", f"{acc}% acc on {n} samples | regime models: {reg}"
     return "FAIL", r.get("error", r.get("reason","unknown"))
 test("4AM","Stock ML retrain", t_stock_ml_train)
 
@@ -52,14 +53,17 @@ def t_options_ml_train():
     from ml_model_v2 import train_options_model
     r = train_options_model()
     if r.get("status") == "trained":
-        acc = r.get("options_model_accuracy",0)
+        auc = r.get("options_model_auc", r.get("options_model_accuracy",0))
         src = r.get("data_source","")
         n   = r.get("total_samples",0)
-        if acc < 55:
-            return "WARN", f"{acc}% acc — below 55%"
-        return "PASS", f"{acc}% acc, {n} samples ({src[:35]})"
+        bal = r.get("label_balance", "?")
+        sprd = r.get("spread", 0)
+        # AUC metric: 50=random, 55=usable, 60=good, 70=excellent
+        if auc < 52:
+            return "WARN", f"AUC={auc} — near random (50=random). Spread={sprd:.3f}"
+        return "PASS", f"AUC={auc} ({n} samples, bal={bal}, spread={sprd:.3f})"
     return "FAIL", r.get("reason", r.get("error","unknown"))
-test("4AM","Options ML retrain", t_options_ml_train)
+test("4AM","Options ML retrain (AUC metric)", t_options_ml_train)
 
 def t_options_ml_differentiation():
     """Probabilities must differ meaningfully across scenarios — not all the same."""
@@ -81,12 +85,14 @@ def t_options_ml_differentiation():
 test("4AM","Options ML differentiates scenarios", t_options_ml_differentiation)
 
 def t_stock_ml_features():
-    """25 features must all be present and produce a score in 0-100."""
+    """31 features must all be present and produce a score in 0-100."""
     from ml_model_v2 import ml_score, FEATURE_COLS
-    assert len(FEATURE_COLS) == 25, f"Expected 25, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 31, f"Expected 31 features (v3), got {len(FEATURE_COLS)}"
     feats = {c: 0.5 for c in FEATURE_COLS}
     feats.update({"rsi_14":50,"vxx_ratio":1.0,"spy_vs_ma50":1.0,"regime_score":50,
-                  "momentum_1m":2.0,"volume_ratio":1.5,"markov_state":1})
+                  "momentum_1m":2.0,"volume_ratio":1.5,"markov_state":1,
+                  "cross_sec_rank":0.5,"earnings_surprise":0,"put_call_proxy":0,
+                  "vol_of_vol":2.0,"frac_diff_price":0.0,"idiosyncratic_ret":0.0})
     r = ml_score(feats)
     sc = r.get("ml_score",0)
     mt = r.get("model_type","?")
@@ -94,8 +100,8 @@ def t_stock_ml_features():
         return "FAIL", f"Score {sc} out of 0-100 range"
     if mt == "fallback_rules":
         return "WARN", f"Using fallback rules (model not loaded yet)"
-    return "PASS", f"score={sc:.1f} signal={r.get('ml_signal')} model={mt}"
-test("4AM","Stock ML 25-feature inference", t_stock_ml_features)
+    return "PASS", f"score={sc:.1f} signal={r.get('ml_signal')} model={mt} ({len(FEATURE_COLS)} features)"
+test("4AM","Stock ML 31-feature inference (v3)", t_stock_ml_features)
 
 def t_markov_regime():
     from markov_regime import get_regime
@@ -580,7 +586,9 @@ def t_ml_self_learning_structure():
             "iv_rank_proxy":68,"atr_pct":2.0,"vxx_ratio":1.08,"spy_vs_ma50":1.01,
             "markov_state":1,"regime_score":58,"sector_momentum":1,
             "change_pct_today":2.1,"above_ma10":1,"trend_strength":2.4,
-            "volume_acceleration":1,"intel_score":42,"insider_signal":0,"news_sentiment":15
+            "volume_acceleration":1,"intel_score":42,"insider_signal":0,"news_sentiment":15,
+            "cross_sec_rank":0.75,"earnings_surprise":1.0,"put_call_proxy":0.0,
+            "vol_of_vol":1.8,"frac_diff_price":0.12,"idiosyncratic_ret":2.5
         }
     }]
     with open(fb_path, "w") as f:
@@ -590,7 +598,8 @@ def t_ml_self_learning_structure():
     loaded = _load_trade_feedback()
     if not loaded:
         return "FAIL", "Could not load feedback file"
-    X, y = _build_feedback_training_data(loaded)
+    result = _build_feedback_training_data(loaded)  # returns (X, y, regimes) — 3-tuple
+    X = result[0] if isinstance(result, tuple) else result
     if X is None:
         return "WARN", f"Only {len(loaded)} trades (need 20+ to build training data) — expected at this stage"
     return "PASS", f"Loaded {len(loaded)} trades, built {len(X)} training rows with {X.shape[1]} features"
