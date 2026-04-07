@@ -19,7 +19,7 @@ try:
                                  CACHE_DIR as ALT_CACHE_DIR)
 except ImportError:
     DATA_DIR = "/tmp"
-    ML_MODEL_PATH = "/tmp/voltrade_ml_model.pkl"
+    ML_MODEL_PATH = "/tmp/voltrade_ml_v2.pkl"  # v1.0.26: updated to ml_model_v2 path
     TRADE_FEEDBACK_PATH = "/tmp/voltrade_trade_feedback.json"
     HEALTH_LOG_PATH = "/tmp/voltrade_health_log.json"
     INSIDER_CACHE_PATH = "/tmp/voltrade_insider_cache.json"

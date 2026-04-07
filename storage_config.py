@@ -19,7 +19,7 @@ CACHE_DIR = "/tmp/voltrade_alt_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Persistent file paths (survive deploys)
-ML_MODEL_PATH = os.path.join(DATA_DIR, "voltrade_ml_model.pkl")
+ML_MODEL_PATH = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")   # v1.0.26: points to ml_model_v2 (was voltrade_ml_model.pkl)
 TRADE_FEEDBACK_PATH = os.path.join(DATA_DIR, "voltrade_trade_feedback.json")
 EVENT_MEMORY_PATH = os.path.join(DATA_DIR, "voltrade_event_memory.json")
 EARNINGS_MEMORY_PATH = os.path.join(DATA_DIR, "voltrade_earnings_memory.json")
