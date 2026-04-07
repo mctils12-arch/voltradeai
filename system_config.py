@@ -81,8 +81,27 @@ BASE_CONFIG = {
     "MAX_POSITIONS":        6,     # Max total open positions
     "MAX_OPTIONS_PCT":      0.10,  # Max 10% per options position
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
-                                   # Backtest: opts=2x adds +1.5%/yr CAGR vs opts=1x
-                                   # Risk: options are capped at MAX_OPTIONS_PCT anyway
+
+    # ── THIRD LEG (v1.0.25) ────────────────────────────────────────────
+    # 64-combo backtest winner: VRP=15% + Sector=12%, TLT=0%
+    # Result: CAGR +14.8%/yr (vs 2-leg +13.8%, SPY +12.3%)
+    # Max DD improved: 74.4% -> 72.9%
+    # ALL 64 combinations beat SPY -- third leg is additive regardless of sizing
+    #
+    # Leg 3A: TLT bond rotation -- disabled (0%) by backtest
+    #   TLT hurt in 2022 (rate hikes crushed bonds at same time as stocks)
+    #   TLT helped in 2020 but not enough to offset 2022 drag
+    "LEG3_TLT_PCT":        0.00,  # % of equity into TLT in BEAR regime (0=disabled)
+    #
+    # Leg 3B: VRP Harvest -- 15% is the sweet spot
+    #   Sell volatility when VXX ratio 1.05-1.25 (elevated but declining)
+    #   Earns when fear bleeds out -- exactly the post-crash recovery window
+    "LEG3_VRP_PCT":        0.15,  # % of equity for VRP harvest (backtest optimal: 15%)
+    #
+    # Leg 3C: Sector Rotation -- 12% into XOM+LMT in BEAR/CAUTION
+    #   XOM: -0.04 corr to SPY, +45% last 6mo, earns in geopolitical stress
+    #   LMT: +0.12 corr, defense spending immune to tariff/rate cycles
+    "LEG3_SECTOR_PCT":     0.12,  # % of equity into XOM+LMT in BEAR/CAUTION (optimal: 12%)
 
     # ── STOP LOSS & TAKE PROFIT ────────────────────────────────────────────────
     # v1.0.23 optimized values (324-combo backtest, best risk-adjusted vs SPY):

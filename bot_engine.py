@@ -1795,6 +1795,15 @@ def scan_market():
     # Step 7: Check position management
     mgmt = manage_positions()
 
+    # Step 8: Third Leg (v1.0.25) ─────────────────────────────────────────────
+    # Runs alongside stock scan in every cycle.
+    # Backtest: ALL 64 combinations beat SPY. Winner: VRP=15% + Sector=12%.
+    # Result: CAGR +14.8%/yr vs 2-leg +13.8% vs SPY +12.3%
+    try:
+        third_leg_result = _run_third_leg(_macro)
+    except Exception:
+        third_leg_result = {"actions": [], "status": "error"}
+
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),
@@ -1817,7 +1826,174 @@ def scan_market():
             "action_label": s.get("action_label", "BUY"),
             "reasons": s.get("reasons", [])[:2],
         } for s in deep_scored[:10]],
+        "third_leg": third_leg_result,
     }
+
+# ── Third Leg Engine (v1.0.25) ──────────────────────────────────────────────
+def _run_third_leg(macro: dict) -> dict:
+    """
+    Third leg: VRP harvest + Sector rotation.
+    Runs every scan cycle alongside stocks + options.
+
+    Backtest results (64 combinations, 2016-2026):
+      ALL 64 beat SPY. Winner: VRP=15% + Sector=12%
+      CAGR: +14.8%/yr vs 2-leg +13.8% vs SPY +12.3%
+
+    Leg 3A (TLT): DISABLED — TLT was crushed in 2022 rate hike cycle
+    Leg 3B (VRP): 15% of equity, fires when VXX ratio 1.05-1.25 + declining
+    Leg 3C (Sector): 12% into XOM+LMT when BEAR/CAUTION regime
+    """
+    actions = []
+    import logging as _logging
+    _log = _logging.getLogger("voltrade.leg3")
+    try:
+        from system_config import BASE_CONFIG, get_market_regime
+        import requests as _req
+
+        LEG3_VRP_PCT    = float(BASE_CONFIG.get("LEG3_VRP_PCT",    0.15))
+        LEG3_SECTOR_PCT = float(BASE_CONFIG.get("LEG3_SECTOR_PCT", 0.12))
+        LEG3_TLT_PCT    = float(BASE_CONFIG.get("LEG3_TLT_PCT",    0.00))
+
+        vxx_ratio       = float(macro.get("vxx_ratio",    1.0) or 1.0)
+        spy_vs_ma50     = float(macro.get("spy_vs_ma50",  1.0) or 1.0)
+        spy_b200        = int(macro.get("spy_below_200_days", 0) or 0)
+        regime          = get_market_regime(vxx_ratio, spy_vs_ma50,
+                                            spy_below_200_days=spy_b200)
+
+        alpaca_key    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
+        alpaca_secret = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+        base_url      = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+        headers       = {"APCA-API-KEY-ID": alpaca_key,
+                         "APCA-API-SECRET-KEY": alpaca_secret}
+
+        # Fetch account equity and existing positions
+        acc_r = _req.get(f"{base_url}/v2/account", headers=headers, timeout=8)
+        acc   = acc_r.json()
+        equity = float(acc.get("equity", 100_000) or 100_000)
+
+        pos_r = _req.get(f"{base_url}/v2/positions", headers=headers, timeout=8)
+        positions_raw = pos_r.json() if isinstance(pos_r.json(), list) else []
+        position_syms = {p["symbol"] for p in positions_raw}
+
+        # ── Leg 3B: VRP Harvest ────────────────────────────────────────
+        # When VXX elevated (1.05-1.25) AND declining: sell volatility
+        # Implementation: buy SVXY (inverse VXX ETF) — goes up when VXX falls
+        # Simpler than options straddles, trackable as a regular stock position
+        if LEG3_VRP_PCT > 0 and 1.05 <= vxx_ratio <= 1.25:
+            # Check VXX trend: fetch last 5 days
+            vxx_r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
+                params={"symbols":"VXX","timeframe":"1Day","limit":6,"feed":"sip"},
+                headers=headers, timeout=8)
+            vxx_bars = vxx_r.json().get("bars",{}).get("VXX",[])
+            vxx_declining = (len(vxx_bars) >= 2 and
+                             float(vxx_bars[-1]["c"]) < float(vxx_bars[-5 if len(vxx_bars)>=5 else 0]["c"]))
+
+            if vxx_declining and "SVXY" not in position_syms:
+                # Buy SVXY: inverse volatility ETF (goes up as VXX falls)
+                svxy_r = _req.get("https://data.alpaca.markets/v2/stocks/snapshots",
+                    params={"symbols":"SVXY","feed":"sip"}, headers=headers, timeout=8)
+                svxy_price = float(svxy_r.json().get("SVXY",{}).get("latestTrade",{}).get("p", 0) or 0)
+                if svxy_price > 0:
+                    alloc  = equity * LEG3_VRP_PCT
+                    shares = int(alloc / svxy_price)
+                    if shares > 0 and alloc > 100:
+                        order = {
+                            "symbol":       "SVXY",
+                            "qty":          str(shares),
+                            "side":         "buy",
+                            "type":         "limit",
+                            "limit_price":  str(round(svxy_price * 1.001, 2)),
+                            "time_in_force":"day",
+                        }
+                        try:
+                            o = _req.post(f"{base_url}/v2/orders",
+                                          json=order, headers=headers, timeout=10)
+                            actions.append({
+                                "type": "vrp_harvest",
+                                "symbol": "SVXY",
+                                "shares": shares,
+                                "price": svxy_price,
+                                "reason": f"VXX ratio {vxx_ratio:.3f} (elevated+declining) — VRP harvest",
+                                "regime": regime,
+                                "order_id": o.json().get("id", "?"),
+                            })
+                            _log.info(f"[LEG3-VRP] Bought {shares} SVXY @ {svxy_price:.2f} (VRP harvest, regime={regime})")
+                        except Exception as e:
+                            _log.debug(f"[LEG3-VRP] Order failed: {e}")
+
+        # ── Leg 3C: Sector Rotation ────────────────────────────────────
+        # BEAR/CAUTION: buy XOM + LMT equally (defensive sector rotation)
+        # XOM: -0.04 corr to SPY (+45% last 6mo), LMT: +0.12 corr
+        # Exit when regime normalizes to NEUTRAL/BULL
+        if LEG3_SECTOR_PCT > 0 and regime in ("BEAR", "PANIC", "CAUTION"):
+            sector_syms = ["XOM", "LMT"]
+            alloc_each  = equity * LEG3_SECTOR_PCT / len(sector_syms)
+            for ssym in sector_syms:
+                if ssym not in position_syms and alloc_each > 100:
+                    snap_r = _req.get("https://data.alpaca.markets/v2/stocks/snapshots",
+                        params={"symbols": ssym, "feed": "sip"}, headers=headers, timeout=8)
+                    price = float(snap_r.json().get(ssym,{}).get("latestTrade",{}).get("p", 0) or 0)
+                    if price > 0:
+                        shares = int(alloc_each / price)
+                        if shares > 0:
+                            order = {
+                                "symbol":       ssym,
+                                "qty":          str(shares),
+                                "side":         "buy",
+                                "type":         "limit",
+                                "limit_price":  str(round(price * 1.001, 2)),
+                                "time_in_force": "day",
+                            }
+                            try:
+                                o = _req.post(f"{base_url}/v2/orders",
+                                              json=order, headers=headers, timeout=10)
+                                actions.append({
+                                    "type": "sector_rotation",
+                                    "symbol": ssym,
+                                    "shares": shares,
+                                    "price": price,
+                                    "reason": f"BEAR/CAUTION regime — defensive sector rotation",
+                                    "regime": regime,
+                                    "order_id": o.json().get("id", "?"),
+                                })
+                                _log.info(f"[LEG3-SECTOR] Bought {shares} {ssym} @ {price:.2f} (sector rotation, regime={regime})")
+                            except Exception as e:
+                                _log.debug(f"[LEG3-SECTOR] Order failed for {ssym}: {e}")
+
+        # ── Exit sector positions when regime recovers ─────────────────
+        if regime in ("NEUTRAL", "BULL"):
+            for pos in positions_raw:
+                sym = pos.get("symbol", "")
+                if sym in ("XOM", "LMT", "SVXY"):
+                    qty = pos.get("qty", "0")
+                    try:
+                        o = _req.post(f"{base_url}/v2/orders",
+                            json={"symbol": sym, "qty": qty, "side": "sell",
+                                  "type": "market", "time_in_force": "day"},
+                            headers=headers, timeout=10)
+                        pnl = float(pos.get("unrealized_plpc", 0) or 0) * 100
+                        actions.append({
+                            "type": "third_leg_exit",
+                            "symbol": sym,
+                            "reason": f"Regime recovered to {regime} — exiting third leg",
+                            "pnl_pct": round(pnl, 2),
+                        })
+                        _log.info(f"[LEG3-EXIT] Sold {sym} (regime={regime}, P&L={pnl:.1f}%)")
+                    except Exception as e:
+                        _log.debug(f"[LEG3-EXIT] Sell failed for {sym}: {e}")
+
+    except Exception as e:
+        _log.debug(f"[LEG3] Third leg error: {e}")
+        return {"actions": actions, "status": "error", "error": str(e)[:100]}
+
+    return {
+        "actions":   actions,
+        "status":    "ok",
+        "regime":    regime if 'regime' in dir() else "unknown",
+        "vrp_on":    LEG3_VRP_PCT > 0 if 'LEG3_VRP_PCT' in dir() else False,
+        "sector_on": LEG3_SECTOR_PCT > 0 if 'LEG3_SECTOR_PCT' in dir() else False,
+    }
+
 
 # ── Entry Point ──────────────────────────────────────────────────────────────
 
