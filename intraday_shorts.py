@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """
-VolTradeAI — Intraday Short Engine v2 (v1.0.28)
-Fully adaptive. No hardcoded thresholds. Full 11,600 universe.
+VolTradeAI — Intraday Short Engine v2.1 (v1.0.28)
+Hybrid: v1.0.27 fixed signals + v1.0.28 full-universe architecture.
 
-Changes from v1:
-  - Scans ALL 11,600 stocks (was 80 most-active)
-  - Two-stage: snapshot pre-filter (0.01s) → history fetch (~3s)
-  - Dollar volume filter replaces price+share volume floors
-  - Lookback windows adapt per stock (ATR-period-relative)
-  - Signal weights learn from rolling accuracy (updated every 63 bars)
-  - No fixed cutoffs — uses percentile rank of today's scores
+Architecture from v1.0.28:
+  - Scans full universe via 2-stage pipeline
+  - Stage 1: snapshot pre-filter (0.01s) — down stocks + volume spikes
+  - Stage 2: history fetch + 6-indicator scoring
+  - Sector diversification (max 1 per sector)
+  - No kill switch — user monitors manually
+
+Signal engine from v1.0.27 (validated as superior):
+  - Fixed 5-day momentum, 10/20 MA, 10-bar volume windows
+  - Equal signal weights (no learned weights — not enough data)
+  - ATR-relative thresholds (adaptive to each stock's volatility)
+  - Dollar volume $50M floor (same as long scanner)
+
+Why: Element-by-element testing showed adaptive lookbacks (v1.0.28)
+degraded WR from 47.4% → 43.1% and avg P&L from +0.181% → +0.000%.
+Fixed windows give cleaner, more consistent signals.
 """
 import os, json, time, logging, requests
 import numpy as np
@@ -20,7 +29,6 @@ logger = logging.getLogger("voltrade.intraday_shorts")
 
 DATA_DIR = os.environ.get("DATA_DIR", "/tmp")
 SHORTS_LOG_PATH    = os.path.join(DATA_DIR, "voltrade_intraday_shorts.json")
-WEIGHT_LEARN_PATH  = os.path.join(DATA_DIR, "voltrade_short_weights.json")
 ALPACA_KEY    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
 ALPACA_BASE   = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
@@ -34,6 +42,20 @@ MIN_DOLLAR_VOL = 50_000_000
 SIGNAL_NAMES = ["momentum", "failed_breakout", "distribution",
                 "rel_weakness", "trend_break", "gap_down"]
 
+# Fixed equal weights — validated as best via element testing
+# (learned weights were neutral; not enough closed trades to learn from)
+FIXED_WEIGHTS = {n: round(1.0 / len(SIGNAL_NAMES), 4) for n in SIGNAL_NAMES}
+
+# Fixed lookback windows — validated as superior to adaptive
+# (adaptive lookbacks degraded WR by 4.3% and avg P&L by 0.181%)
+FIXED_LOOKBACKS = {
+    "mom": 5,         # 5-day momentum
+    "ma_short": 10,   # 10-day short MA
+    "ma_long": 20,    # 20-day long MA
+    "vol": 10,        # 10-day volume average
+}
+
+
 # ── Persistent storage ────────────────────────────────────────────
 def _load_log():
     try:
@@ -46,80 +68,8 @@ def _save_log(data):
         with open(SHORTS_LOG_PATH, "w") as f: json.dump(data, f, indent=2)
     except Exception: pass
 
-def _load_weights():
-    """Load learned signal weights. Falls back to equal weights."""
-    try:
-        with open(WEIGHT_LEARN_PATH) as f:
-            w = json.load(f)
-            if len(w) == len(SIGNAL_NAMES):
-                return w
-    except Exception: pass
-    # Equal weights as starting point — will be learned from data
-    return {n: round(1.0 / len(SIGNAL_NAMES), 4) for n in SIGNAL_NAMES}
 
-def _save_weights(w):
-    try:
-        with open(WEIGHT_LEARN_PATH, "w") as f: json.dump(w, f, indent=2)
-    except Exception: pass
-
-def _update_weights_from_results():
-    """
-    Learn signal weights from actual trade outcomes.
-    Runs every 63 days (quarterly) or after every 10 new closed trades.
-    Each signal gets a weight proportional to its accuracy at predicting drops.
-    """
-    log = _load_log()
-    closed = [t for t in log.get("trades", []) if t.get("pnl_pct") is not None and t.get("signals")]
-    if len(closed) < 5:
-        return _load_weights()  # Not enough data yet
-
-    # For each signal: compute correlation with trade outcome
-    signal_scores = {n: [] for n in SIGNAL_NAMES}
-    outcomes = []
-    for t in closed[-100:]:  # Use last 100 trades
-        sigs = t.get("signals", {})
-        pnl = t.get("pnl_pct", 0)
-        outcomes.append(pnl)
-        for n in SIGNAL_NAMES:
-            signal_scores[n].append(float(sigs.get(n, 0)))
-
-    # Weight = correlation of signal with positive P&L (signal fired → stock fell)
-    new_weights = {}
-    for n in SIGNAL_NAMES:
-        if len(signal_scores[n]) >= 5:
-            corr = np.corrcoef(signal_scores[n], outcomes)[0, 1]
-            # Positive correlation = signal predicted profitable short
-            new_weights[n] = max(0.05, float(corr)) if not np.isnan(corr) else 0.167
-        else:
-            new_weights[n] = 0.167  # equal weight fallback
-
-    # Normalize to sum = 1.0
-    total = sum(new_weights.values())
-    if total > 0:
-        new_weights = {k: round(v / total, 4) for k, v in new_weights.items()}
-
-    _save_weights(new_weights)
-    return new_weights
-
-
-# ── Adaptive parameters per stock ─────────────────────────────────
-def _adaptive_lookback(atr_pct):
-    """
-    Faster-moving stocks (higher ATR%) get shorter lookback windows.
-    Slow stocks: 10-day momentum, 20-day MAs
-    Fast stocks: 3-day momentum, 8-day MAs
-    """
-    # ATR% < 2 = slow (large cap), > 6 = fast (biotech/meme)
-    speed = min(1.0, max(0.0, (atr_pct - 1.5) / 5.0))  # 0=slow, 1=fast
-    mom_days   = int(round(10 - speed * 7))    # 10 → 3
-    ma_short   = int(round(15 - speed * 7))    # 15 → 8
-    ma_long    = int(round(25 - speed * 10))   # 25 → 15
-    vol_window = int(round(20 - speed * 10))   # 20 → 10
-    return {"mom": max(3, mom_days), "ma_short": max(5, ma_short),
-            "ma_long": max(10, ma_long), "vol": max(5, vol_window)}
-
-
-# ── Signal scoring ────────────────────────────────────────────────
+# ── Signal scoring (fixed windows, ATR-relative thresholds) ──────
 def _compute_atr(bars, period=14):
     if len(bars) < period + 1: return None
     trs = []
@@ -131,12 +81,14 @@ def _compute_atr(bars, period=14):
     return float(np.mean(trs[-period:])) if len(trs) >= period else None
 
 
-def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
+def score_for_short(ticker, bars, spy_ret_10d=0):
     """
-    Fully adaptive short signal. Everything derived from the stock's own data.
-    Returns {score, signals, active, atr, atr_pct, lookbacks} or None.
+    Fixed-window short signal scoring — validated v1.0.27 approach.
+    Uses ATR-relative thresholds (adaptive to each stock's volatility)
+    but FIXED lookback windows (5d momentum, 10/20 MAs, 10d volume).
+    Returns {score, signals, active, atr, atr_pct} or None.
     """
-    if len(bars) < 15: return None
+    if len(bars) < 25: return None  # Need 20+ bars for 20-day MA
 
     closes = [float(b.get("c", 0)) for b in bars]
     highs  = [float(b.get("h", b.get("c", 0))) for b in bars]
@@ -144,7 +96,7 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
     vols   = [int(b.get("v", 0)) for b in bars]
     c = closes[-1]
 
-    # Dollar volume filter (adaptive — no fixed price or share volume)
+    # Dollar volume filter
     dollar_vol = c * vols[-1]
     if dollar_vol < MIN_DOLLAR_VOL: return None
     if c <= 0: return None
@@ -153,14 +105,10 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
     if not atr or atr <= 0: return None
     atr_pct = atr / c * 100
 
-    # Adaptive lookback windows based on stock's speed
-    lb = _adaptive_lookback(atr_pct)
-    if weights is None:
-        weights = _load_weights()
-
+    lb = FIXED_LOOKBACKS
     signals = {}
 
-    # 1. Momentum collapse (adaptive lookback)
+    # 1. Momentum collapse (5-day)
     md = lb["mom"]
     if len(closes) > md and closes[-md] > 0:
         mom = (c - closes[-md]) / closes[-md] * 100
@@ -168,7 +116,7 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
     else:
         signals["momentum"] = 0.0
 
-    # 2. Failed breakout (rolling high, adaptive window)
+    # 2. Failed breakout (20-day rolling high)
     hw = lb["ma_long"]
     if len(highs) >= hw:
         h_roll = max(highs[-hw:])
@@ -179,7 +127,7 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
     else:
         signals["failed_breakout"] = 0.0
 
-    # 3. Volume distribution (adaptive window)
+    # 3. Volume distribution (10-day average)
     vw = lb["vol"]
     if len(vols) >= vw:
         avg_v = np.mean(vols[-vw:])
@@ -190,7 +138,7 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
     else:
         signals["distribution"] = 0.0
 
-    # 4. Relative weakness vs SPY (adaptive window)
+    # 4. Relative weakness vs SPY (10-day)
     rw = lb["ma_short"]
     if len(closes) >= rw and closes[-rw] > 0:
         stock_ret = (c - closes[-rw]) / closes[-rw] * 100
@@ -199,7 +147,7 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
     else:
         signals["rel_weakness"] = 0.0
 
-    # 5. Trend breakdown (adaptive MA periods)
+    # 5. Trend breakdown (10/20 MAs)
     ms, ml = lb["ma_short"], lb["ma_long"]
     if len(closes) >= ml:
         ma_s = np.mean(closes[-ms:])
@@ -210,20 +158,20 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
     else:
         signals["trend_break"] = 0.0
 
-    # 6. Gap down (ATR-relative threshold, not fixed -0.5%)
+    # 6. Gap down (ATR-relative threshold)
     if len(bars) >= 2:
         prev_c = float(bars[-2].get("c", c))
         today_o = float(bars[-1].get("o", c))
         gap = (today_o - prev_c) / prev_c * 100 if prev_c > 0 else 0
-        gap_threshold = -(atr_pct * 0.2)  # Adaptive: gap must be 20% of ATR
+        gap_threshold = -(atr_pct * 0.2)  # 20% of ATR
         signals["gap_down"] = float(max(0, min(1, -gap / atr_pct))) if gap < gap_threshold else 0.0
     else:
         signals["gap_down"] = 0.0
 
-    # Weighted composite (weights from learning or equal)
-    raw_score = sum(signals.get(k, 0) * weights.get(k, 0.167) for k in SIGNAL_NAMES)
-    # Count active signals (above each stock's own noise floor: atr_pct-relative)
-    noise_floor = min(0.4, atr_pct / 15)  # Noisier stocks need stronger signals
+    # Equal-weighted composite
+    raw_score = sum(signals.get(k, 0) * FIXED_WEIGHTS.get(k, 0.167) for k in SIGNAL_NAMES)
+    # Count active signals (noise floor based on stock's own volatility)
+    noise_floor = min(0.4, atr_pct / 15)
     active_count = sum(1 for v in signals.values() if v > noise_floor)
 
     return {
@@ -232,8 +180,6 @@ def score_for_short(ticker, bars, spy_ret_10d=0, weights=None):
         "signals": {k: float(round(v, 3)) for k, v in signals.items()},
         "atr": float(round(atr, 4)),
         "atr_pct": float(round(atr_pct, 2)),
-        "lookbacks": lb,
-        "weights_used": {k: round(v, 3) for k, v in weights.items()},
     }
 
 
@@ -274,7 +220,7 @@ def _stage1_prefilter(snapshot_data):
     return candidates[:500]  # Cap at 500 to keep history fetch fast
 
 
-def _stage2_score(candidates, spy_ret_10d, weights):
+def _stage2_score(candidates, spy_ret_10d):
     """
     Stage 2: Fetch 20-day history and score with full 6-indicator signal.
     Uses parallel workers for speed.
@@ -291,8 +237,8 @@ def _stage2_score(candidates, spy_ret_10d, weights):
                 headers=HEADERS, timeout=12)
             bars_map = r.json().get("bars", {})
             for sym, bars in bars_map.items():
-                if len(bars) < 15: continue
-                sig = score_for_short(sym, bars, spy_ret_10d, weights)
+                if len(bars) < 25: continue
+                sig = score_for_short(sym, bars, spy_ret_10d)
                 if sig and sig["active_signals"] >= 2 and sig["score"] > 15:
                     price = float(bars[-1].get("c", 0))
                     results.append({"sym": sym, "sig": sig, "price": price})
@@ -313,8 +259,6 @@ def _stage2_score(candidates, spy_ret_10d, weights):
 
 
 # ── Sector diversification ────────────────────────────────────────
-# Light sector mapping — can't know every stock's sector without Finnhub call
-# Use exchange + price as a rough proxy, or known symbols
 KNOWN_SECTORS = {
     'AAPL':'Tech','MSFT':'Tech','NVDA':'Tech','AMD':'Tech','GOOGL':'Tech',
     'AMZN':'Cons','TSLA':'Auto','JPM':'Fin','BAC':'Fin','GS':'Fin',
@@ -323,7 +267,6 @@ KNOWN_SECTORS = {
 
 def _get_sector(sym):
     if sym in KNOWN_SECTORS: return KNOWN_SECTORS[sym]
-    # Rough heuristic: first letter grouping for unknowns
     return f"group_{sym[0]}"
 
 
@@ -357,12 +300,6 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
         result["status"] = f"regime_{regime}_no_shorts"
         return result
 
-    # Update learned weights periodically
-    weights = _load_weights()
-    closed_count = len([t for t in trades if t.get("pnl_pct") is not None])
-    if closed_count > 0 and closed_count % 10 == 0:
-        weights = _update_weights_from_results()
-
     try:
         # SPY 10d return for relative weakness
         spy_r = requests.get(f"{DATA_URL}/v2/stocks/bars",
@@ -381,7 +318,6 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
             snap_r = requests.get(f"{DATA_URL}/v1beta1/screener/stocks/most-actives",
                 params={"top": 100}, headers=HEADERS, timeout=8)
             actives = snap_r.json().get("most_actives", [])
-            # Convert to snapshot-like format for pre-filter
             candidates = []
             for a in actives:
                 sym = a.get("symbol", "")
@@ -398,7 +334,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
             return result
 
         # Stage 2: Full scoring with history
-        scored = _stage2_score(candidates, spy_ret_10d, weights)
+        scored = _stage2_score(candidates, spy_ret_10d)
         result["stage2_scored"] = len(scored)
 
         if not scored:
@@ -421,7 +357,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
             sig = pick["sig"]
             price = pick["price"]
 
-            # Adaptive position size: signal_strength × inverse_volatility
+            # Position size: 3% base, scaled by signal strength and inverse volatility
             base = 0.03
             strength = sig["score"] / 50
             vol_adj = min(1.5, 3.0 / max(sig["atr_pct"], 1))
@@ -450,8 +386,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
                     "entry_price": price, "atr": sig["atr"],
                     "atr_pct": sig["atr_pct"], "signal_score": sig["score"],
                     "active_signals": sig["active_signals"],
-                    "signals": sig["signals"], "lookbacks": sig["lookbacks"],
-                    "weights": sig["weights_used"],
+                    "signals": sig["signals"],
                     "pos_pct": round(pos_pct * 100, 2),
                     "order_id": order.get("id", "?"), "regime": regime,
                     "status": "open", "exit_price": None,
@@ -482,7 +417,6 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
         "avg_pnl": round(float(np.mean(pnls)), 2) if pnls else 0,
         "total_pnl_pct": round(sum(pnls), 2) if pnls else 0,
         "total_pnl_dollar": round(sum(t.get("pnl_dollar", 0) or 0 for t in closed_trades), 2),
-        "weights": weights,
         "strategy_status": "running",
     }
 
@@ -499,7 +433,6 @@ def get_dashboard_data():
     closed = [t for t in trades if t.get("pnl_pct") is not None]
     open_t = [t for t in trades if t.get("status") == "open"]
     pnls = [t["pnl_pct"] for t in closed]
-    weights = _load_weights()
 
     return {
         "enabled": enabled,
@@ -516,7 +449,6 @@ def get_dashboard_data():
         "best_trade": round(max(pnls), 2) if pnls else 0,
         "worst_trade": round(min(pnls), 2) if pnls else 0,
         "strategy_status": "running" if enabled else "manually_disabled",
-        "signal_weights": weights,
         "recent_trades": [{"symbol": t["symbol"], "entry_price": t.get("entry_price", 0),
                            "exit_price": t.get("exit_price", 0),
                            "pnl_pct": t.get("pnl_pct", 0), "pnl_dollar": t.get("pnl_dollar", 0),

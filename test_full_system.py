@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VolTradeAI v1.0.25 — Full Trading Day Test
+VolTradeAI v1.0.28 — Full Trading Day Test
 Simulates: 4am → pre-market → 9:30 open → mid-day → close → after-hours
 Tests every component, catches every error, reports everything.
 """
@@ -27,7 +27,7 @@ def test(phase, name, fn):
 
 # ═══════════════════════════════════════════════════════════
 print("="*70)
-print("VolTradeAI v1.0.25 — Full Trading Day Simulation")
+print("VolTradeAI v1.0.28 — Full Trading Day Simulation")
 print("Tuesday April 7, 2026 | 4:00 AM → 8:00 PM ET")
 print("="*70)
 
@@ -781,6 +781,118 @@ def t_bot_engine_import_clean():
         return "FAIL", f"Missing: {missing}"
     return "PASS", f"All {len(required)} required functions present"
 test("AFTERHOURS","bot_engine.py imports clean", t_bot_engine_import_clean)
+
+# ═══════════════════════════════════════════════════════════
+print("\n── Intraday Shorts Module (v2.1 Hybrid) ──")
+# ═══════════════════════════════════════════════════════════
+
+def t_shorts_import():
+    from intraday_shorts import score_for_short, run_intraday_shorts, get_dashboard_data, close_open_shorts
+    from intraday_shorts import FIXED_WEIGHTS, FIXED_LOOKBACKS, SIGNAL_NAMES
+    return "PASS", f"{len(SIGNAL_NAMES)} signals, fixed lookbacks"
+test("SHORTS","intraday_shorts.py imports clean", t_shorts_import)
+
+def t_shorts_fixed_lookbacks():
+    from intraday_shorts import FIXED_LOOKBACKS
+    expected = {"mom": 5, "ma_short": 10, "ma_long": 20, "vol": 10}
+    if FIXED_LOOKBACKS != expected:
+        return "FAIL", f"Expected {expected}, got {FIXED_LOOKBACKS}"
+    return "PASS", f"mom=5, ma_short=10, ma_long=20, vol=10"
+test("SHORTS","Fixed lookback windows (validated v1.0.27)", t_shorts_fixed_lookbacks)
+
+def t_shorts_equal_weights():
+    from intraday_shorts import FIXED_WEIGHTS, SIGNAL_NAMES
+    expected_w = round(1.0 / len(SIGNAL_NAMES), 4)
+    for name, w in FIXED_WEIGHTS.items():
+        if abs(w - expected_w) > 0.001:
+            return "FAIL", f"{name} weight={w}, expected={expected_w}"
+    return "PASS", f"All {len(SIGNAL_NAMES)} weights equal ({expected_w})"
+test("SHORTS","Equal signal weights (no learned weights)", t_shorts_equal_weights)
+
+def t_shorts_no_adaptive_lookback():
+    """Verify the adaptive lookback function was removed."""
+    import inspect
+    import intraday_shorts
+    source = inspect.getsource(intraday_shorts)
+    if "_adaptive_lookback" in source:
+        return "FAIL", "_adaptive_lookback function still present — should be removed"
+    if "WEIGHT_LEARN_PATH" in source:
+        return "FAIL", "WEIGHT_LEARN_PATH still present — learned weights should be removed"
+    return "PASS", "No adaptive lookbacks, no learned weights"
+test("SHORTS","Adaptive lookback removed (degraded WR)", t_shorts_no_adaptive_lookback)
+
+def t_shorts_scoring_synthetic():
+    """Score a synthetic downtrending stock — should get a positive signal."""
+    from intraday_shorts import score_for_short
+    import numpy as np
+    bars = []
+    for i in range(30):
+        c = 100 - i * 0.5  # steady downtrend
+        bars.append({"t": f"2026-01-{i+1:02d}", "o": c + 0.3, "h": c + 1,
+                     "l": c - 0.5, "c": c, "v": 5_000_000})
+    result = score_for_short("TEST", bars, spy_ret_10d=-2.0)
+    if result is None:
+        return "FAIL", "Got None for downtrending stock"
+    if result["score"] <= 0:
+        return "FAIL", f"Score={result['score']}, expected > 0"
+    if result["active_signals"] < 1:
+        return "FAIL", f"Active signals={result['active_signals']}, expected >= 1"
+    return "PASS", f"Score={result['score']}, {result['active_signals']} active signals"
+test("SHORTS","Scoring: synthetic downtrend → positive signal", t_shorts_scoring_synthetic)
+
+def t_shorts_scoring_uptrend_reject():
+    """Score a synthetic uptrending stock — should get low/no signal."""
+    from intraday_shorts import score_for_short
+    bars = []
+    for i in range(30):
+        c = 50 + i * 1.0  # strong uptrend
+        bars.append({"t": f"2026-01-{i+1:02d}", "o": c - 0.2, "h": c + 0.5,
+                     "l": c - 0.3, "c": c, "v": 3_000_000})
+    result = score_for_short("TEST", bars, spy_ret_10d=5.0)
+    if result is None:
+        return "PASS", "Correctly rejected (None) — not a short candidate"
+    if result["score"] < 20:
+        return "PASS", f"Low score={result['score']} — weak/no short signal"
+    return "WARN", f"Score={result['score']} on uptrending stock (expected low)"
+test("SHORTS","Scoring: synthetic uptrend → rejected/low", t_shorts_scoring_uptrend_reject)
+
+def t_shorts_dollar_vol_filter():
+    """Stocks below $50M dollar volume should be filtered out."""
+    from intraday_shorts import score_for_short, MIN_DOLLAR_VOL
+    bars = []
+    for i in range(30):
+        c = 5.0  # low price
+        bars.append({"t": f"2026-01-{i+1:02d}", "o": c, "h": c+0.5,
+                     "l": c-0.3, "c": c, "v": 100_000})  # $500K dollar vol (way below $50M)
+    result = score_for_short("LOWVOL", bars, spy_ret_10d=-2.0)
+    if result is not None:
+        return "FAIL", f"Should filter low dollar vol, got score={result['score']}"
+    if MIN_DOLLAR_VOL != 50_000_000:
+        return "FAIL", f"MIN_DOLLAR_VOL={MIN_DOLLAR_VOL}, expected 50M"
+    return "PASS", f"Correctly filtered (MIN_DOLLAR_VOL=${MIN_DOLLAR_VOL/1e6:.0f}M)"
+test("SHORTS","Dollar volume filter ($50M minimum)", t_shorts_dollar_vol_filter)
+
+def t_shorts_dashboard_data():
+    """get_dashboard_data should return valid structure."""
+    from intraday_shorts import get_dashboard_data
+    data = get_dashboard_data()
+    required_keys = ["enabled", "total_trades", "open_trades", "win_rate",
+                     "avg_pnl_pct", "strategy_status", "recent_trades"]
+    missing = [k for k in required_keys if k not in data]
+    if missing:
+        return "FAIL", f"Missing keys: {missing}"
+    return "PASS", f"All {len(required_keys)} dashboard fields present"
+test("SHORTS","Dashboard data structure", t_shorts_dashboard_data)
+
+def t_shorts_regime_gate():
+    """run_intraday_shorts should refuse trades in BULL/NEUTRAL."""
+    os.environ['DATA_DIR'] = '/tmp/vt_test_data'
+    from intraday_shorts import run_intraday_shorts
+    result = run_intraday_shorts(macro={"vxx_ratio": 0.85, "spy_vs_ma50": 1.05, "spy_below_200_days": 0})
+    if "no_shorts" not in result.get("status", ""):
+        return "WARN", f"Status={result.get('status')} — expected regime gate"
+    return "PASS", f"Blocked in non-bear: status={result['status']}"
+test("SHORTS","Regime gate (no shorts in BULL/NEUTRAL)", t_shorts_regime_gate)
 
 def t_version_check():
     import json
