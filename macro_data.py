@@ -204,14 +204,19 @@ def get_macro_snapshot() -> dict:
                     _streak += 1
                 else:
                     break
+            spy_close = _closes[-1]
+            spy_ma200 = _ma200
             result["spy_below_200_days"] = _streak
-            result["spy_vs_ma200"]       = round(_closes[-1] / _ma200, 4)
+            result["spy_vs_ma200"]       = round(spy_close / spy_ma200, 4)
+            result["spy_above_200d"]     = spy_close > spy_ma200
         else:
             result["spy_below_200_days"] = 0
             result["spy_vs_ma200"]       = 1.0
+            result["spy_above_200d"]     = True
     except Exception:
         result["spy_below_200_days"] = 0
         result["spy_vs_ma200"]       = 1.0
+        result["spy_above_200d"]     = True
 
     _save_cache(result)
     return result

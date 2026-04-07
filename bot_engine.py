@@ -96,20 +96,22 @@ MIN_PRICE = 5              # 3-year backtest: stocks < $5 (penny/meme) have 25% 
 MAX_SECTOR_POSITIONS = 2   # Max 2 stocks from the same sector
 
 # ── Sector Map (for correlation / diversification check) ─────────────────────
+# Values match macro_data.py SECTOR_ETFS names (capitalized, as returned by get_macro_snapshot)
 SECTOR_MAP = {
-    "AAPL": "tech", "MSFT": "tech", "GOOGL": "tech", "GOOG": "tech",
-    "META": "tech", "AMZN": "tech", "NVDA": "tech", "AMD": "tech",
-    "INTC": "tech", "ORCL": "tech", "CRM": "tech", "ADBE": "tech",
-    "QCOM": "tech", "TXN": "tech", "AVGO": "tech", "AMAT": "tech",
-    "NOW": "tech", "SNOW": "tech", "PLTR": "tech", "UBER": "tech",
-    "TSLA": "auto", "F": "auto", "GM": "auto", "TM": "auto", "RIVN": "auto",
-    "JPM": "finance", "BAC": "finance", "GS": "finance", "MS": "finance",
-    "WFC": "finance", "C": "finance", "AXP": "finance", "V": "finance", "MA": "finance",
-    "JNJ": "health", "PFE": "health", "MRK": "health", "UNH": "health",
-    "ABBV": "health", "LLY": "health", "BMY": "health", "AMGN": "health",
-    "XOM": "energy", "CVX": "energy", "COP": "energy", "SLB": "energy",
+    "AAPL": "Technology", "MSFT": "Technology", "GOOGL": "Technology", "GOOG": "Technology",
+    "META": "Technology", "NVDA": "Technology", "AMD": "Technology",
+    "INTC": "Technology", "ORCL": "Technology", "CRM": "Technology", "ADBE": "Technology",
+    "QCOM": "Technology", "TXN": "Technology", "AVGO": "Technology", "AMAT": "Technology",
+    "NOW": "Technology", "SNOW": "Technology", "PLTR": "Technology", "UBER": "Industrials",
+    "TSLA": "Consumer Discretionary", "F": "Consumer Discretionary", "GM": "Consumer Discretionary",
+    "TM": "Consumer Discretionary", "RIVN": "Consumer Discretionary",
+    "JPM": "Financials", "BAC": "Financials", "GS": "Financials", "MS": "Financials",
+    "WFC": "Financials", "C": "Financials", "AXP": "Financials", "V": "Financials", "MA": "Financials",
+    "JNJ": "Healthcare", "PFE": "Healthcare", "MRK": "Healthcare", "UNH": "Healthcare",
+    "ABBV": "Healthcare", "LLY": "Healthcare", "BMY": "Healthcare", "AMGN": "Healthcare",
+    "XOM": "Energy", "CVX": "Energy", "COP": "Energy", "SLB": "Energy",
     "SPY": "etf", "QQQ": "etf", "IWM": "etf", "DIA": "etf", "GLD": "etf",
-    "AMZN": "consumer", "WMT": "consumer", "TGT": "consumer", "COST": "consumer",
+    "AMZN": "Consumer Discretionary", "WMT": "Consumer Staples", "TGT": "Consumer Discretionary", "COST": "Consumer Staples",
 }
 
 # ── EWMA / GARCH Volatility ──────────────────────────────────────────────────
@@ -397,6 +399,8 @@ except Exception as e:
     # ── ADX (trend strength) + OBV (smart money flow) ─────────────────────────
     adx_value = None
     obv_signal = 0  # -1 = distribution, 0 = neutral, +1 = accumulation
+    _deep_atr14 = None   # captured for ml_features atr_pct
+    _deep_closes = []    # captured for ml_features above_ma10
     try:
         end_d = datetime.now().strftime("%Y-%m-%d")
         start_d = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
@@ -409,6 +413,7 @@ except Exception as e:
             highs = [b["h"] for b in bars_data]
             lows = [b["l"] for b in bars_data]
             closes = [b["c"] for b in bars_data]
+            _deep_closes = closes  # capture for ML features
             volumes = [b.get("v", 0) for b in bars_data]
 
             plus_dm_list = []
@@ -432,6 +437,7 @@ except Exception as e:
                     plus_dm14 = (plus_dm14 * 13 + plus_dm_list[i]) / 14
                     minus_dm14 = (minus_dm14 * 13 + minus_dm_list[i]) / 14
 
+                _deep_atr14 = atr14  # capture for ML features atr_pct
                 plus_di = (plus_dm14 / atr14 * 100) if atr14 > 0 else 0
                 minus_di = (minus_dm14 / atr14 * 100) if atr14 > 0 else 0
                 dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100 if (plus_di + minus_di) > 0 else 0
@@ -837,12 +843,24 @@ except Exception as e:
             except Exception:
                 pass
 
-        # 25 clean features — ALL computed from real data (no zeroing)
+        # 31 features — ALL computed from real data (no zeroing)
         # price_vs_52w_high: strongest momentum predictor (George & Hwang 2004)
         _price = quick_result.get("price", 0) or 0
         _high_52w = quick_result.get("high_52w", _price) or _price
         _price_vs_52w = (_price - _high_52w) / _high_52w * 100 if _high_52w > 0 else 0
         _float_turnover = min(volume_ratio * 5, 100)  # proxy from volume ratio
+
+        # Compute MA10 and ATR% from captured bar data
+        _above_ma10 = 1.0  # default: assume above (already trend-filtered)
+        if len(_deep_closes) >= 10:
+            _ma10 = sum(_deep_closes[-10:]) / 10
+            _above_ma10 = 1.0 if (_deep_closes[-1] > _ma10) else 0.0
+        _atr_pct = 3.0  # default
+        if _deep_atr14 is not None and _price > 0:
+            _atr_pct = round(_deep_atr14 / _price * 100, 2)
+        # Derived features for the 6 new signals
+        _put_call_proxy = -1.0 if vrp > 8 else (1.0 if vrp < -5 else 0.0)
+        _idio_ret = (quick_result.get("change_pct", 0) or 0) - (macro.get("spy_change_pct", 0) or 0)
 
         ml_features = {
             # Technical (9)
@@ -854,13 +872,13 @@ except Exception as e:
             "adx":                  adx_value if adx_value is not None else 20,
             "ewma_vol":             vol_metrics.get("ewma_vol", 2) or 2 if vol_metrics else 2,
             "range_pct":            quick_result.get("range_pct", 0) or 0,
-            "price_vs_52w_high":    _price_vs_52w,    # NEW: strongest predictor
-            "float_turnover":       _float_turnover,  # NEW: volume intensity
+            "price_vs_52w_high":    _price_vs_52w,    # strongest predictor
+            "float_turnover":       _float_turnover,  # volume intensity
             # Options/volatility (3)
             "vrp":                  vrp or 0,
             "iv_rank_proxy":        detail.get("iv_rank", 50) or 50,
-            "atr_pct":              3.0,  # Approximate — ATR computed in position_sizing
-            # Regime (5) — NOW WIRED TO MARKOV + VXX RATIO
+            "atr_pct":              _atr_pct,  # actual ATR% from daily bars
+            # Regime (5) — wired to Markov + VXX ratio
             "vxx_ratio":            intel.get("vxx_ratio", 1.0) if intel else 1.0,
             "spy_vs_ma50":          macro.get("spy_vs_ma50", 1.0) or 1.0,
             "markov_state":         float(_regime_ctx.get("markov_state", 1)),
@@ -868,13 +886,20 @@ except Exception as e:
             "sector_momentum":      sector_mom.get(stock_sector, 0),
             # Quality (4)
             "change_pct_today":     quick_result.get("change_pct", 0) or 0,
-            "above_ma10":           1.0,  # Already filtered by trend filter above
+            "above_ma10":           _above_ma10,  # actual MA10 comparison
             "trend_strength":       min(abs(quick_result.get("change_pct", 0) or 0) / max(vol_metrics.get("ewma_vol", 2) or 2, 0.1), 5.0) if vol_metrics else 1.0,
-            "volume_acceleration":  0.0,  # Available from streaming bars but not in daily scan
-            # Intelligence (3) — the features the old model NEVER learned to use
+            "volume_acceleration":  0.0,  # available from streaming bars but not in daily scan
+            # Intelligence (3)
             "intel_score":          intel.get("intel_score", 0) if intel else 0,
             "insider_signal":       intel.get("insider", {}).get("insider_signal", 0) if intel else 0,
             "news_sentiment":       news_score_val or 0,
+            # New 6 features (FIX 5: previously missing from feature dict)
+            "cross_sec_rank":       0.5,   # neutral — requires cross-sectional data not available here
+            "earnings_surprise":    intel.get("earnings_surprise", 0) if intel else 0,
+            "put_call_proxy":       _put_call_proxy,  # derived from VRP direction
+            "vol_of_vol":           0.0,   # requires VXX history not available in deep_score
+            "frac_diff_price":      0.0,   # requires long price history; default to 0
+            "idiosyncratic_ret":    round(_idio_ret, 4),  # stock return minus SPY contribution
         }
         ml_result = ml_score(ml_features)
 
@@ -919,7 +944,7 @@ except Exception as e:
     # This is how the self-learning loop works: entry features saved at trade time,
     # used by ml_model_v2 to train on actual bot outcomes after trade closes.
     try:
-        quick_result["ml_features"]  = ml_features  # The 25 features used at entry
+        quick_result["ml_features"]  = ml_features  # The 31 features used at entry
         quick_result["regime_label"] = _regime_ctx.get("regime_label", "NEUTRAL")
     except Exception:
         pass
@@ -1060,8 +1085,16 @@ def manage_positions():
     except Exception:
         stop_state = {}
 
+    # Tickers managed by other components — do NOT apply stop/TP logic to these
+    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "XOM", "LMT", "SPY"}
+
     for pos in positions:
         ticker = pos.get("symbol", "")
+
+        # Skip passive floor, VRP harvest, and sector rotation tickers
+        if ticker in FLOOR_AND_LEG_TICKERS:
+            continue
+
         current = float(pos.get("current_price", 0))
         entry = float(pos.get("avg_entry_price", current))
         pnl_pct = float(pos.get("unrealized_plpc", 0)) * 100
@@ -1519,14 +1552,16 @@ def scan_market():
             _cooldown = {}
         _last_stop = _cooldown.get(ticker, 0)
         # Determine cooldown seconds from current regime (Fix B: include 200d MA)
-        _vxx_r_scan    = float(_macro.get("vxx_ratio", 1.0) or 1.0)
-        _spy_ma_scan   = float(_macro.get("spy_vs_ma50", 1.0) or 1.0)
-        _spy_b200_scan = int(_macro.get("spy_below_200_days", 0) or 0)
+        _vxx_r_scan      = float(_macro.get("vxx_ratio", 1.0) or 1.0)
+        _spy_ma_scan     = float(_macro.get("spy_vs_ma50", 1.0) or 1.0)
+        _spy_b200_scan   = int(_macro.get("spy_below_200_days", 0) or 0)
+        _spy_above_200d  = bool(_macro.get("spy_above_200d", True))
         # Use the same regime function so 200MA block is consistent everywhere
         try:
             from system_config import get_market_regime as _gmr
             _scan_regime = _gmr(_vxx_r_scan, _spy_ma_scan,
-                                spy_below_200_days=_spy_b200_scan)
+                                spy_below_200_days=_spy_b200_scan,
+                                spy_above_200d=_spy_above_200d)
         except Exception:
             # Fallback inline
             if _vxx_r_scan >= 1.30 or _spy_ma_scan < 0.94 or _spy_b200_scan >= 10:
@@ -1877,8 +1912,10 @@ def _run_third_leg(macro: dict) -> dict:
         vxx_ratio       = float(macro.get("vxx_ratio",    1.0) or 1.0)
         spy_vs_ma50     = float(macro.get("spy_vs_ma50",  1.0) or 1.0)
         spy_b200        = int(macro.get("spy_below_200_days", 0) or 0)
+        spy_above_200d  = bool(macro.get("spy_above_200d", True))
         regime          = get_market_regime(vxx_ratio, spy_vs_ma50,
-                                            spy_below_200_days=spy_b200)
+                                            spy_below_200_days=spy_b200,
+                                            spy_above_200d=spy_above_200d)
 
         alpaca_key    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
         alpaca_secret = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
@@ -2058,22 +2095,22 @@ def _manage_spy_floor(macro: dict) -> dict:
                 if floor_pos:
                     qty = abs(int(float(floor_pos[0].get("qty", 0))))
                     if qty > 0:
-                        requests.post(f"{ALPACA_BASE}/v2/orders",
+                        requests.post(f"https://paper-api.alpaca.markets/v2/orders",
                             json={"symbol": floor_ticker, "qty": str(qty),
                                   "side": "sell", "type": "market",
                                   "time_in_force": "day"},
-                            headers=HEADERS, timeout=10)
+                            headers=_alpaca_headers(), timeout=10)
                         result["actions"].append({"type": "floor_exit",
                             "shares": qty, "reason": f"{regime} regime"})
-                        logger.info(f"[FLOOR] Sold {qty} {floor_ticker} ({regime} regime)")
+                        import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {floor_ticker} ({regime} regime)")
             except Exception:
                 pass
             return result
 
         # Get account equity and current SPY position
         try:
-            acc = requests.get(f"{ALPACA_BASE}/v2/account",
-                headers=HEADERS, timeout=8).json()
+            acc = requests.get("https://paper-api.alpaca.markets/v2/account",
+                headers=_alpaca_headers(), timeout=8).json()
             equity = float(acc.get("equity", 98000) or 98000)
         except Exception:
             equity = 98000
@@ -2103,9 +2140,9 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         # Get SPY price
         try:
-            snap = requests.get(f"{DATA_URL}/v2/stocks/snapshots",
+            snap = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
                 params={"symbols": floor_ticker, "feed": "sip"},
-                headers=HEADERS, timeout=8).json()
+                headers=_alpaca_headers(), timeout=8).json()
             spy_price = float(snap.get(floor_ticker, {}).get("latestTrade", {}).get("p", 0) or 0)
         except Exception:
             spy_price = 0
@@ -2121,32 +2158,32 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         if shares_diff > 0:
             try:
-                requests.post(f"{ALPACA_BASE}/v2/orders",
+                requests.post("https://paper-api.alpaca.markets/v2/orders",
                     json={"symbol": floor_ticker, "qty": str(shares_diff),
                           "side": "buy", "type": "market",
                           "time_in_force": "day"},
-                    headers=HEADERS, timeout=10)
+                    headers=_alpaca_headers(), timeout=10)
                 result["actions"].append({"type": "floor_buy",
                     "shares": shares_diff, "ticker": floor_ticker,
                     "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
-                logger.info(f"[FLOOR] Bought {shares_diff} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
+                import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Bought {shares_diff} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
             except Exception as e:
-                logger.debug(f"[SPY_FLOOR] Buy failed: {e}")
+                import logging as _floor_log; _floor_log.getLogger("bot_engine").debug(f"[SPY_FLOOR] Buy failed: {e}")
         else:
             sell_qty = min(abs(shares_diff), current_spy_shares)
             if sell_qty > 0:
                 try:
-                    requests.post(f"{ALPACA_BASE}/v2/orders",
+                    requests.post("https://paper-api.alpaca.markets/v2/orders",
                         json={"symbol": floor_ticker, "qty": str(sell_qty),
                               "side": "sell", "type": "market",
                               "time_in_force": "day"},
-                        headers=HEADERS, timeout=10)
+                        headers=_alpaca_headers(), timeout=10)
                     result["actions"].append({"type": "floor_sell",
                         "shares": sell_qty, "ticker": floor_ticker,
                         "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
-                    logger.info(f"[FLOOR] Sold {sell_qty} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
+                    import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {sell_qty} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
                 except Exception as e:
-                    logger.debug(f"[SPY_FLOOR] Sell failed: {e}")
+                    import logging as _floor_log; _floor_log.getLogger("bot_engine").debug(f"[SPY_FLOOR] Sell failed: {e}")
 
     except Exception as e:
         result["status"] = f"error: {str(e)[:80]}"

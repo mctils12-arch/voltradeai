@@ -77,6 +77,7 @@ BASE_CONFIG = {
     "MAX_POSITION_PCT":     0.15,  # Never more than 15% in one position
     "MIN_POSITION_PCT":     0.04,  # Never less than 4% (not worth friction)
     "MAX_TOTAL_EXPOSURE":   0.80,  # Never more than 80% of portfolio invested
+    "MAX_TOTAL_CAPITAL_PCT": 1.00,  # Never deploy more than 100% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open positions
     "MAX_OPTIONS_PCT":      0.10,  # Max 10% per options position
@@ -135,8 +136,9 @@ BASE_CONFIG = {
     "TIME_STOP_DAYS":       10,    # Optimized: 10-day hold (was 7) — more time to work
 
     # ── ML MODEL ──────────────────────────────────────────────────────────────
-    # 25 clean features (backtest confirmed these are the signal-bearing ones)
-    "ML_FEATURE_COUNT":     25,
+    # 31 features: 25 original + 6 new (cross_sec_rank, earnings_surprise,
+    # put_call_proxy, vol_of_vol, frac_diff_price, idiosyncratic_ret)
+    "ML_FEATURE_COUNT":     31,
     "ML_RETRAIN_TRADES":    20,    # Retrain after every 20 real trades
     "ML_MIN_SAMPLES":       300,   # Minimum samples to train (don't train on < 300)
     "ML_LOOKBACK_DAYS":     60,    # Training window: 60 days of history

@@ -84,7 +84,7 @@ print(f"  Load time:    {time.time()-t0:.1f}s")
 # ── Regime detection (with Fix B: 200d MA) ────────────────────────
 def get_regime(vxx_ratio, spy_vs_ma50, spy_below_200_days=0):
     """v1.0.22+: Fix B adds slow-bear detection via 200d MA."""
-    if spy_below_200_days >= 14:
+    if spy_below_200_days >= 10:
         if vxx_ratio >= 1.30 or spy_vs_ma50 < 0.94: return "PANIC"
         return "BEAR"  # Fix B: persistent weakness = BEAR
     if vxx_ratio >= 1.30 or spy_vs_ma50 < 0.94: return "PANIC"
