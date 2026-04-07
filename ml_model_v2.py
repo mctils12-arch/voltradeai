@@ -46,7 +46,7 @@ try:
     from system_config import BASE_CONFIG, DATA_DIR
 except ImportError:
     BASE_CONFIG = {"ML_FEATURE_COUNT": 25, "ML_MIN_SAMPLES": 300, "ML_TARGET_RETURN": 2.0}
-    DATA_DIR = "/tmp"
+    DATA_DIR = os.environ.get("VOLTRADE_DATA_DIR", "/data/voltrade")
 
 try:
     import lightgbm as lgb
