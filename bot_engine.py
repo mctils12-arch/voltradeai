@@ -1966,6 +1966,17 @@ def _run_third_leg(macro: dict) -> dict:
         positions_raw = pos_r.json() if isinstance(pos_r.json(), list) else []
         position_syms = {p["symbol"] for p in positions_raw}
 
+        # Also check pending/open orders to prevent duplicate buys
+        # (fixes GLD flooding: bot bought 13x before position registered)
+        try:
+            open_orders = _req.get(f"{base_url}/v2/orders",
+                params={"status": "open", "limit": 50}, headers=headers, timeout=8).json()
+            if isinstance(open_orders, list):
+                for oo in open_orders:
+                    position_syms.add(oo.get("symbol", ""))
+        except Exception:
+            pass
+
         # ── Leg 3B: VRP Harvest ────────────────────────────────────────
         # When VXX elevated (1.05-1.25) AND declining: sell volatility
         # Implementation: buy SVXY (inverse VXX ETF) — goes up when VXX falls
