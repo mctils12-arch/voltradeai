@@ -731,4 +731,114 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }, 3000);
 
   return httpServer;
+
+// ── ML Model Status & Toggle ──────────────────────────────────────────────
+  app.get("/api/ml/status", async (_req, res) => {
+    try {
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+      const { stdout } = await execAsync(
+        `python3 -c "
+import json, os, time
+model_path = os.environ.get('ML_MODEL_PATH', 'voltrade_ml_v2.pkl')
+data_dir = os.environ.get('DATA_DIR', '/tmp')
+status_path = os.path.join(data_dir, 'ml_status.json')
+toggle_path = os.path.join(data_dir, 'ml_toggle.json')
+
+# Check model file
+model_exists = os.path.exists(model_path) or os.path.exists(os.path.join(data_dir, model_path))
+model_age_hours = None
+for p in [model_path, os.path.join(data_dir, model_path), os.path.join(data_dir, 'voltrade_ml_v2.pkl')]:
+    if os.path.exists(p):
+        model_age_hours = round((time.time() - os.path.getmtime(p)) / 3600, 1)
+        model_exists = True
+        break
+
+# Check toggle state
+enabled = False
+try:
+    with open(toggle_path) as f:
+        enabled = json.load(f).get('enabled', False)
+except: pass
+
+# Check last training result
+last_train = {}
+try:
+    with open(status_path) as f:
+        last_train = json.load(f)
+except: pass
+
+print(json.dumps({
+    'model_exists': model_exists,
+    'model_age_hours': model_age_hours,
+    'enabled': enabled,
+    'last_accuracy': last_train.get('accuracy'),
+    'last_samples': last_train.get('samples'),
+    'last_features': last_train.get('feature_count'),
+    'last_status': last_train.get('status', 'unknown'),
+    'last_train_time': last_train.get('timestamp'),
+    'contributes_to_cagr': False,
+    'note': 'ML is disabled by default. The 20.3% CAGR runs without ML. Enable to test if ML adds edge.'
+}))
+"`,
+        { timeout: 10000 }
+      );
+      res.json(JSON.parse(stdout.trim()));
+    } catch (err: any) {
+      res.json({
+        model_exists: false,
+        enabled: false,
+        error: err?.message?.slice(0, 200),
+        contributes_to_cagr: false,
+        note: "ML status check failed"
+      });
+    }
+  });
+
+  app.post("/api/ml/toggle", async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+      await execAsync(
+        `python3 -c "
+import json, os
+data_dir = os.environ.get('DATA_DIR', '/tmp')
+toggle_path = os.path.join(data_dir, 'ml_toggle.json')
+with open(toggle_path, 'w') as f:
+    json.dump({'enabled': ${enabled ? 'True' : 'False'}}, f)
+print(json.dumps({'enabled': ${enabled ? 'true' : 'false'}, 'status': 'ok'}))
+"`,
+        { timeout: 5000 }
+      );
+      res.json({ enabled: !!enabled, status: "ok" });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message?.slice(0, 200) });
+    }
+  });
+
+  app.post("/api/ml/retrain", async (_req, res) => {
+    try {
+      res.json({ status: "started", message: "ML retrain started in background" });
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+      const { stdout } = await execAsync("python3 ml_retrain_safe.py", { timeout: 300000 });
+      // Save result
+      const result = JSON.parse(stdout.trim());
+      await execAsync(
+        `python3 -c "import json; f=open('/tmp/ml_status.json','w'); json.dump(${JSON.stringify(JSON.stringify(result))}, f)"`,
+        { timeout: 5000 }
+      );
+    } catch (err: any) {
+      // Background — no response to send
+    }
+  });
+
+  
+
+
 }
+

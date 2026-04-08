@@ -717,13 +717,92 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
               </div>
             )}
           </div>
-        </>
+              <MLModelPanel />
+      </>
       )}
     </div>
   );
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
+
+// ─── ML Model Panel ──────────────────────────────────────────────────────────
+function MLModelPanel() {
+  const { data: mlStatus, isLoading } = useQuery({
+    queryKey: ["/api/ml/status"],
+    refetchInterval: 30000,
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("POST", "/api/ml/toggle", { enabled });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ml/status"] }),
+  });
+
+  const s = mlStatus as any;
+  const enabled = s?.enabled ?? false;
+  const accuracy = s?.last_accuracy;
+  const samples = s?.last_samples;
+  const ageHours = s?.model_age_hours;
+  const modelExists = s?.model_exists ?? false;
+
+  return (
+    <div style={{ background: "rgba(0, 20, 40, 0.5)", border: "1px solid rgba(0, 229, 255, 0.1)", borderRadius: "6px", padding: "20px", backdropFilter: "blur(20px)", marginTop: "1.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <Zap size={18} color="#00e5ff" />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5", letterSpacing: "0.5px" }}>ML MODEL</span>
+          <span style={{
+            fontSize: "10px", padding: "2px 8px", borderRadius: "3px",
+            background: enabled ? "rgba(48, 209, 88, 0.15)" : "rgba(255, 69, 58, 0.15)",
+            color: enabled ? "#30d158" : "#ff453a", fontWeight: 600,
+          }}>
+            {enabled ? "ON" : "OFF"}
+          </span>
+        </div>
+        <button onClick={() => toggleMutation.mutate(!enabled)} disabled={toggleMutation.isPending}
+          style={{
+            padding: "6px 16px", borderRadius: "4px", fontSize: "12px", fontWeight: 600, cursor: "pointer",
+            border: `1px solid ${enabled ? "rgba(255, 69, 58, 0.3)" : "rgba(48, 209, 88, 0.3)"}`,
+            background: enabled ? "rgba(255, 69, 58, 0.1)" : "rgba(48, 209, 88, 0.1)",
+            color: enabled ? "#ff453a" : "#30d158",
+          }}>
+          {toggleMutation.isPending ? "..." : enabled ? "Disable ML" : "Enable ML"}
+        </button>
+      </div>
+
+      <p style={{ fontSize: "11px", color: "#4a5c70", marginBottom: "16px", lineHeight: 1.6 }}>
+        The ML model learns from market data to score trades. It does NOT affect the core system (QQQ floor, VRP harvest, sector rotation). Enable to test if it adds edge.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px" }}>
+        <div>
+          <div style={{ fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Status</div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: modelExists ? "#30d158" : "#ff453a" }}>
+            {isLoading ? "..." : modelExists ? "Trained" : "No Model"}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Accuracy</div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>{accuracy ? `${accuracy}%` : "\u2014"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Samples</div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>{samples ? Number(samples).toLocaleString() : "\u2014"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Model Age</div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: ageHours && ageHours > 48 ? "#d4a017" : "#c8d6e5" }}>
+            {ageHours ? `${ageHours}h` : "\u2014"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BotDashboard() {
   // ── Queries ───────────────────────────────────────────────────────────────
   const { data: acct } = useQuery({
