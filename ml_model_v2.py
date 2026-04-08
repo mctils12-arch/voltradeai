@@ -738,14 +738,6 @@ def train_model(fast_mode: bool = False) -> dict:
         X_all = np.vstack([X_gen, X_fb, X_fb, X_fb])
         y_all = np.concatenate([y_gen, y_fb, y_fb, y_fb])
 
-    # Fast mode: subsample to reduce memory on Railway
-    if fast_mode and len(X_all) > 10000:
-        import logging
-        logging.getLogger("voltrade.ml").info(f"[ML] Fast mode: subsampling {len(X_all)} -> 10000")
-        rng = np.random.RandomState(42)
-        idx_sample = rng.choice(len(X_all), 10000, replace=False)
-        X_all = X_all[idx_sample]
-        y_all = y_all[idx_sample]
         reg_all = reg_gen + reg_fb * 3
         data_source = f"generic({len(X_gen)})+feedback_3x({len(X_fb)})"
     elif X_gen is not None:
@@ -756,6 +748,14 @@ def train_model(fast_mode: bool = False) -> dict:
         data_source = f"feedback_only({len(X_fb)})"
     else:
         return {"status": "failed", "reason": "No training data"}
+
+    # Fast mode: subsample to reduce memory on Railway
+    if fast_mode and len(X_all) > 10000:
+        rng = np.random.RandomState(42)
+        idx_sub = rng.choice(len(X_all), 10000, replace=False)
+        X_all = X_all[idx_sub]
+        y_all = y_all[idx_sub]
+        reg_all = [reg_all[i] for i in idx_sub]
 
     if len(X_all) < 50:
         return {"status": "insufficient_data", "samples": len(X_all)}
