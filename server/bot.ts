@@ -1827,14 +1827,9 @@ else:
     print(json.dumps({'needs_retrain': False, 'age_hours': round(age_h, 1)}))
 "`, { timeout: 5000 });
       const modelStatus = JSON.parse(modelCheck.trim());
-      if (modelStatus.needs_retrain) {
-        audit("TIER3", "ML model needs retrain — starting background training");
-        execAsync(`python3 ml_retrain_safe.py`, { timeout: 180000 })
-          .then(({ stdout }) => { audit("TIER3", `ML retrain complete: ${stdout.trim().slice(0, 200)}`); })
-          .catch((err) => { audit("TIER3-ERROR", `ML retrain failed: ${err?.stderr?.slice(-300) || err?.message}`); });
-      } else {
-        audit("TIER3", `ML model OK (${modelStatus.age_hours}h old)`);
-      }
+      // ML auto-retrain disabled (v1.0.30) — ML doesn't contribute to CAGR yet.
+      // Re-enable when training pipeline is optimized for Railway's constraints.
+      audit("TIER3", "ML retrain: skipped (disabled until pipeline optimized)");
     } catch (err: any) { console.error("[tier3-ml]", err?.message || err); }
 
     // 2. Manipulation detection scan
@@ -2105,12 +2100,17 @@ print('cleared')
         audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
+          // ML retrain disabled (v1.0.30) — doesn't affect the 20.3% CAGR.
+          // The system runs on regime detection + QQQ floor + VRP + sector rotation.
+          audit("RETRAIN", "ML retrain: skipped (disabled until pipeline optimized)");
+          if (false) { // Disabled
           const { stdout: trainOut } = await execAsync(
             `python3 ml_retrain_safe.py`,
             { timeout: 120000 }
           );
           const trainResult = JSON.parse(trainOut.trim());
           audit("RETRAIN", `Daily retrain complete — accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.sample_count || 'N/A'}`);
+          } // end disabled
         } catch (err: any) {
           audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
         }

@@ -1,53 +1,52 @@
 #!/usr/bin/env python3
 """
-Safe ML retrain wrapper. Never crashes — always prints valid JSON.
-Memory-light mode for Railway's constrained environment.
+Safe ML retrain wrapper — ultra lightweight.
+Step 1: Just prove Python can run this file on Railway.
+Step 2: Try importing.
+Step 3: Try training (with minimal data).
 """
-import json, sys, os, traceback
+import json, sys, os
 
 def safe_retrain():
-    result = {"status": "starting"}
+    steps = []
     try:
-        # Step 1: Check available memory
-        try:
-            import resource
-            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-            result["mem_limit"] = f"soft={soft}, hard={hard}"
-        except:
-            pass
-
-        # Step 2: Try importing — if this fails, it's a missing dependency
-        result["status"] = "importing"
+        steps.append("python_started")
+        
+        # Step 1: Can we even import numpy?
+        import numpy as np
+        steps.append("numpy_ok")
+        
+        # Step 2: Can we import lightgbm?
+        import lightgbm as lgb
+        steps.append("lightgbm_ok")
+        
+        # Step 3: Can we import our module?
         from ml_model_v2 import train_model
-        result["status"] = "imported"
-
-        # Step 3: Train with fast_mode and memory limits
-        # Set environment to reduce memory usage
-        os.environ["OMP_NUM_THREADS"] = "1"  # LightGBM single thread
+        steps.append("import_ok")
+        
+        # Step 4: Set memory limits
+        os.environ["OMP_NUM_THREADS"] = "1"
         os.environ["OPENBLAS_NUM_THREADS"] = "1"
         
-        result["status"] = "training"
-        train_result = train_model(fast_mode=True)
-        result = train_result
+        # Step 5: Actually train
+        steps.append("training_start")
+        result = train_model(fast_mode=True)
+        steps.append("training_done")
+        result["steps"] = steps
         return result
-
-    except MemoryError:
-        result["status"] = "error"
-        result["error"] = "OUT OF MEMORY — Railway killed the process"
-        result["fix"] = "Need to reduce training data size"
-        return result
+        
     except Exception as e:
-        result["status"] = "error"
-        result["error"] = str(e)[:500]
-        result["traceback"] = traceback.format_exc()[-800:]
-        result["python"] = sys.version
-        result["cwd"] = os.getcwd()
-        result["files"] = [f for f in os.listdir('.') if f.endswith('.py')][:10]
-        return result
+        import traceback
+        return {
+            "status": "error",
+            "steps_completed": steps,
+            "error": str(e)[:400],
+            "traceback": traceback.format_exc()[-600:],
+        }
 
 if __name__ == "__main__":
     try:
-        print(json.dumps(safe_retrain()))
-    except Exception as e:
-        # Last resort — even json.dumps failed
-        print(json.dumps({"status": "fatal", "error": str(e)[:200]}))
+        r = safe_retrain()
+        print(json.dumps(r))
+    except:
+        print('{"status":"fatal","error":"json.dumps failed"}')
