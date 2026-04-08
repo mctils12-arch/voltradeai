@@ -8,6 +8,17 @@ Real-time options + fundamental data via Yahoo Finance.
 import sys
 import json
 import math
+
+def _clean_nan(obj):
+    """Replace NaN/Inf with None for valid JSON output."""
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: _clean_nan(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_clean_nan(v) for v in obj]
+    return obj
+import math
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -2421,14 +2432,14 @@ if __name__ == "__main__":
         try:
             top_n = int(sys.argv[2]) if len(sys.argv) > 2 else 10
             result = scan_market(top_n=top_n)
-            print(json.dumps(result))
+            print(json.dumps(_clean_nan(result)))
         except Exception as e:
             print(json.dumps({"error": str(e)}))
             sys.exit(1)
     else:
         try:
             result = analyze_ticker(cmd)
-            print(json.dumps(result))
+            print(json.dumps(_clean_nan(result)))
         except Exception as e:
             print(json.dumps({"error": str(e)}))
             sys.exit(1)
