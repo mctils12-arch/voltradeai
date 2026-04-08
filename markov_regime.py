@@ -17,6 +17,10 @@ Usage:
     state, probs, signal = regime.get_current_state(spy_returns_last_10_days)
 """
 
+import os as _os
+for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
+           "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    _os.environ.setdefault(_v, "2")
 import numpy as np
 import json
 import os

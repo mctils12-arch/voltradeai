@@ -4,7 +4,18 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import WebSocket from "ws";
-const execAsync = promisify(exec);
+const _execRaw = promisify(exec);
+// Force-cap OpenBLAS/MKL threads for ALL child Python processes
+// (Railway's container can't handle 32 threads per numpy import)
+const _pyEnv = {
+  ...process.env,
+  OPENBLAS_NUM_THREADS: "2",
+  MKL_NUM_THREADS: "2",
+  OMP_NUM_THREADS: "2",
+  NUMEXPR_MAX_THREADS: "2",
+  VECLIB_MAXIMUM_THREADS: "2",
+};
+const execAsync = (cmd: string, opts?: any) => _execRaw(cmd, { env: _pyEnv, ...opts });
 
 // ─── Alpaca Config ──────────────────────────────────────────────────────────
 const ALPACA_BASE = "https://paper-api.alpaca.markets";
@@ -2522,14 +2533,17 @@ print(json.dumps({'files': count}))
     });
   }, 5000);
 
-  // Route: Force immediate scan
+  // Route: Force immediate scan (respects the concurrency lock)
   app.post("/api/bot/run-now", requireAuth, async (_req, res) => {
     if (tier2Running) return res.json({ message: "Tier 2 scan already running..." });
+    tier2Running = true;  // Lock BEFORE responding to prevent double-triggers
     res.json({ message: "Tier 2 intelligence scan starting..." });
-    alpaca("/v2/clock").then((clock: any) => {
+    alpaca("/v2/clock").then(async (clock: any) => {
       const etH = new Date(clock.timestamp).getUTCHours() - 4;
-      tier2Intelligence(clock.is_open, etH).catch(() => {});
-    }).catch(() => { tier2Intelligence(false, new Date().getUTCHours() - 4).catch(() => {}); });
+      try { await tier2Intelligence(clock.is_open, etH); } finally { tier2Running = false; }
+    }).catch(async () => {
+      try { await tier2Intelligence(false, new Date().getUTCHours() - 4); } finally { tier2Running = false; }
+    });
   });
 
   // ── Self-Diagnostic Status ───────────────────────────────────────

@@ -30,6 +30,10 @@ TRAINING TARGETS:
 """
 
 import os, json, time, logging, warnings
+# Cap OpenBLAS/MKL threads — Railway container has limited PIDs
+for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
+           "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_v, "2")
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict

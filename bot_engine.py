@@ -14,6 +14,14 @@ Usage:
   python3 bot_engine.py full          # Full cycle: scan + decide + recommend
 """
 
+# ── Constrain thread-hungry libraries BEFORE any imports ──────────────────────
+# OpenBLAS (numpy) defaults to 32 threads — kills Railway's container.
+# 2 threads is plenty for the math we do (scoring, position sizing).
+import os as _os
+for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
+           "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    _os.environ.setdefault(_v, "2")
+
 import sys
 import json
 import os
@@ -1313,7 +1321,8 @@ def scan_market():
         except Exception:
             return {}
 
-    with _TPE(max_workers=16) as pool:
+    # 6 workers balances speed vs Railway thread limits (was 16 — caused EAGAIN)
+    with _TPE(max_workers=6) as pool:
         for snap_data in pool.map(_fetch_snap, batches):
             snap_all.update(snap_data)
 
@@ -1380,7 +1389,7 @@ def scan_market():
         except Exception:
             return idx, candidate
 
-    with ThreadPoolExecutor(max_workers=8) as _dpool:
+    with ThreadPoolExecutor(max_workers=4) as _dpool:
         for idx, result in _dpool.map(_deep_one, enumerate(top_candidates)):
             deep_scored[idx] = result
 

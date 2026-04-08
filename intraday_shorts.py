@@ -20,6 +20,10 @@ Why: Element-by-element testing showed adaptive lookbacks (v1.0.28)
 degraded WR from 47.4% → 43.1% and avg P&L from +0.181% → +0.000%.
 Fixed windows give cleaner, more consistent signals.
 """
+import os as _os
+for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
+           "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    _os.environ.setdefault(_v, "2")
 import os, json, time, logging, requests
 import numpy as np
 from datetime import datetime, timedelta
