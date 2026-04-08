@@ -1829,9 +1829,9 @@ else:
       const modelStatus = JSON.parse(modelCheck.trim());
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model needs retrain — starting background training");
-        execAsync(`python3 -c "from ml_model_v2 import train_model; import json; print(json.dumps(train_model()))"`, { timeout: 120000 })
+        execAsync(`python3 -c "from ml_model_v2 import train_model; import json; print(json.dumps(train_model()))"`, { timeout: 180000 })
           .then(({ stdout }) => { audit("TIER3", `ML retrain complete: ${stdout.trim().slice(0, 200)}`); })
-          .catch((err) => { audit("TIER3-ERROR", `ML retrain failed: ${err?.message}`); });
+          .catch((err) => { audit("TIER3-ERROR", `ML retrain failed: ${err?.stderr?.slice(-300) || err?.message}`); });
       } else {
         audit("TIER3", `ML model OK (${modelStatus.age_hours}h old)`);
       }

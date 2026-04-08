@@ -468,7 +468,9 @@ def _purged_train_test_split(X: np.ndarray, y: np.ndarray,
     # Use last 20% for test
     test_start = int(n * 0.80)
     # Scale embargo from trading days to rows: 5 days * ~n tickers per day
-    embargo_rows = embargo_periods * max(1, n_tickers_per_date)
+    # Cap embargo at 20% of data to prevent empty test sets on small datasets
+    raw_embargo = embargo_periods * max(1, n_tickers_per_date)
+    embargo_rows = min(raw_embargo, len(X) // 5)  # Never more than 20% of data
     train_end = test_start - embargo_rows
 
     if train_end <= 50:
