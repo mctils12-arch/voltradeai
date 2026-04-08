@@ -693,7 +693,7 @@ def _train_single_lgbm(X_tr, X_te, y_tr, y_te, label=""):
     return gb, scaler, acc
 
 
-def train_model() -> dict:
+def train_model(fast_mode: bool = False) -> dict:
     """
     Train the regime-conditional ensemble.
 
