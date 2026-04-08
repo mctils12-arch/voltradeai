@@ -1829,7 +1829,7 @@ else:
       const modelStatus = JSON.parse(modelCheck.trim());
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model needs retrain — starting background training");
-        execAsync(`python3 -c "from ml_model_v2 import train_model; import json; print(json.dumps(train_model(fast_mode=True)))"`, { timeout: 180000 })
+        execAsync(`python3 ml_retrain_safe.py`, { timeout: 180000 })
           .then(({ stdout }) => { audit("TIER3", `ML retrain complete: ${stdout.trim().slice(0, 200)}`); })
           .catch((err) => { audit("TIER3-ERROR", `ML retrain failed: ${err?.stderr?.slice(-300) || err?.message}`); });
       } else {
@@ -2106,7 +2106,7 @@ print('cleared')
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
           const { stdout: trainOut } = await execAsync(
-            `python3 -c "from ml_model_v2 import train_model; import json; print(json.dumps(train_model(fast_mode=True)))"`,
+            `python3 ml_retrain_safe.py`,
             { timeout: 120000 }
           );
           const trainResult = JSON.parse(trainOut.trim());
