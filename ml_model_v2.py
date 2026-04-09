@@ -598,11 +598,27 @@ def _build_training_data(all_bars: dict,
 # SELF-LEARNING FROM REAL TRADES
 # ══════════════════════════════════════════════════════════════════
 
+# Minimum code version for feedback to be considered valid.
+# All trades from earlier versions ran on broken code (pre-27-bug-fix,
+# pre-scale-out, pre-WebSocket monitoring, pre-HEAT-CAP fix) and would
+# poison the model with outcomes caused by bugs, not bad signals.
+MIN_FEEDBACK_VERSION = "1.0.33"
+
 def _load_trade_feedback() -> List[dict]:
     try:
         if os.path.exists(FEEDBACK_PATH):
             with open(FEEDBACK_PATH) as f:
-                return json.load(f)
+                raw = json.load(f)
+            # Filter: only train on trades from code >= MIN_FEEDBACK_VERSION
+            # Trades without code_version are from pre-fix code — skip them
+            valid = [t for t in raw if t.get("code_version", "") >= MIN_FEEDBACK_VERSION]
+            skipped = len(raw) - len(valid)
+            if skipped > 0:
+                import logging
+                logging.getLogger("voltrade.ml").info(
+                    f"[FEEDBACK] Skipped {skipped} pre-{MIN_FEEDBACK_VERSION} trades "
+                    f"(kept {len(valid)} valid)")
+            return valid
     except Exception: pass
     return []
 

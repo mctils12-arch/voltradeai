@@ -314,6 +314,7 @@ async function trackClosedTrades() {
           entry_features: t.entryFeatures || null,   // 52-feature snapshot at entry
           exit_context: t.exitContext || null,        // Stop phase, R-multiple, ATR at exit
           timestamp: t.timestamp,
+          code_version: "1.0.33",                    // Tag for feedback filtering — never train on pre-fix data
         }));
         const fbTmpPath = `/tmp/fb_${Date.now()}.json`;
         fs.writeFileSync(fbTmpPath, JSON.stringify(feedbackData));
@@ -345,10 +346,18 @@ print(json.dumps({'saved': len(feedback), 'total': len(existing)}))
 }
 
 let lastWeightAdjustLog = 0; // Throttle LEARN audit log — max once per 30 min
+// Deployment timestamp — only trades AFTER this should influence weight adjustments.
+// All pre-deploy trades ran on broken code (pre-27-bug-fix, pre-scale-out,
+// pre-HEAT-CAP fix) and their outcomes reflect bugs, not strategy quality.
+const DEPLOY_TIMESTAMP = new Date().toISOString();
+
 function adjustStrategyWeights() {
-  // Simple heuristic: if recent win rate < 40%, reduce weight on low-confidence signals
-  const recent = tradeResults.slice(0, 20);
-  if (recent.length < 5) return;
+  // Only learn from trades that closed AFTER this deployment (clean code)
+  // Pre-deploy trades ran on broken code — their win/loss reflects bugs, not signals
+  const recent = tradeResults
+    .filter(t => t.timestamp && t.timestamp >= DEPLOY_TIMESTAMP)
+    .slice(0, 20);
+  if (recent.length < 5) return; // Need 5+ post-deploy trades before adjusting
 
   const winRate = recent.filter(t => t.pnl > 0).length / recent.length;
   if (winRate < 0.4) {
@@ -357,13 +366,13 @@ function adjustStrategyWeights() {
     strategyWeights.momentum = Math.max(0.15, strategyWeights.momentum - 0.01);
     strategyWeights.volume = Math.max(0.10, strategyWeights.volume - 0.01);
     if (Date.now() - lastWeightAdjustLog > 1800000) { // 30 minutes
-      audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% — shifting weight toward VRP/squeeze (momentum: ${(strategyWeights.momentum * 100).toFixed(0)}%, VRP: ${(strategyWeights.vrp * 100).toFixed(0)}%)`);
+      audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% (${recent.length} post-deploy trades) — shifting weight toward VRP/squeeze (momentum: ${(strategyWeights.momentum * 100).toFixed(0)}%, VRP: ${(strategyWeights.vrp * 100).toFixed(0)}%)`);
       lastWeightAdjustLog = Date.now();
     }
   } else if (winRate > 0.65) {
     strategyWeights.momentum = Math.min(0.30, strategyWeights.momentum + 0.01);
     if (Date.now() - lastWeightAdjustLog > 1800000) {
-      audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% — restoring balanced weights (momentum: ${(strategyWeights.momentum * 100).toFixed(0)}%)`);
+      audit("LEARN", `Win rate ${(winRate * 100).toFixed(0)}% (${recent.length} post-deploy trades) — restoring balanced weights (momentum: ${(strategyWeights.momentum * 100).toFixed(0)}%)`);
       lastWeightAdjustLog = Date.now();
     }
   }
@@ -3178,6 +3187,36 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
 
   // Auto-start: log all rules and begin
   setTimeout(() => {
+    // ── FEEDBACK CLEANUP: Wipe pre-fix trade data on boot ─────────────────
+    // All trades before v1.0.33 ran on broken code (27+ bugs, no scale-out,
+    // no WebSocket stops, HEAT-CAP blocking all trades, GLD flooding, etc.).
+    // Their outcomes reflect code bugs, not strategy quality.
+    // The ML filter in ml_model_v2.py also skips them, but cleaning the file
+    // prevents accumulating dead weight and speeds up future loads.
+    try {
+      execAsync(`python3 -c "
+import json, os
+try:
+    from storage_config import TRADE_FEEDBACK_PATH
+except ImportError:
+    DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+    TRADE_FEEDBACK_PATH = os.path.join(DATA_DIR, 'voltrade_trade_feedback.json')
+if os.path.exists(TRADE_FEEDBACK_PATH):
+    with open(TRADE_FEEDBACK_PATH) as f:
+        raw = json.load(f)
+    valid = [t for t in raw if t.get('code_version', '') >= '1.0.33']
+    removed = len(raw) - len(valid)
+    if removed > 0:
+        with open(TRADE_FEEDBACK_PATH, 'w') as f:
+            json.dump(valid, f)
+        print(f'FEEDBACK CLEANUP: removed {removed} pre-v1.0.33 trades, kept {len(valid)}')
+    else:
+        print(f'FEEDBACK: {len(raw)} trades, all clean')
+"`, { timeout: 5000 }).then((r: any) => {
+        if (r.stdout?.trim()) audit("SYSTEM", r.stdout.trim());
+      }).catch(() => {});
+    } catch (_) {}
+
     audit("SYSTEM", "=== VolTradeAI Bot v2.0 Initialized ===");
     audit("SYSTEM", `Mode: PAPER TRADING (Alpaca)`);
     audit("RULES", `Scan interval: 45 seconds during trading hours`);
