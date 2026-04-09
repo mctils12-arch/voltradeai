@@ -55,8 +55,12 @@ ALPACA_DATA = "https://data.alpaca.markets"
 # Absolute ceilings (safety nets — dynamic sizing targets lower values)
 MAX_OPTIONS_PCT_CEILING = 0.10   # Absolute max 10% per options trade
 MAX_TOTAL_OPTIONS_PCT = 0.20     # Absolute max 20% total options exposure
-MIN_OPTION_VOLUME = 100          # Minimum daily volume on the contract
-MIN_OPEN_INTEREST = 500          # Minimum open interest
+# v1.0.33: Lowered from vol>100/OI>500 to match scanner thresholds.
+# Mid-cap stocks (KMI, DIS, WMB) have 10-80 daily volume on ATM options
+# but 300+ OI — perfectly tradeable with limit orders.
+# OI is the real liquidity signal; daily volume fluctuates intraday.
+MIN_OPTION_VOLUME = 10           # Minimum daily volume on the contract
+MIN_OPEN_INTEREST = 200          # Minimum open interest
 MAX_SPREAD_PCT = 0.15            # Max bid-ask spread as % of mid price
 
 
@@ -303,10 +307,15 @@ def _fetch_option_chain(ticker: str, current_price: float) -> list:
     """Fetch options chain from Alpaca data API."""
     contracts = []
     try:
-        # Get contracts expiring 14-45 days out (sweet spot for most strategies)
+        # Get contracts expiring 7-50 days out
+        # v1.0.33: widened from 14-45 to 7-50 to cover all scanner setups:
+        #   - low_iv_breakout_buy fetches 10-25 DTE
+        #   - high_iv_premium_sale fetches 14-45 DTE
+        #   - csp_normal_market fetches 25-50 DTE
+        #   - gamma_pin fetches 0-2 DTE (handled separately)
         now = datetime.now()
-        min_exp = (now + timedelta(days=14)).strftime("%Y-%m-%d")
-        max_exp = (now + timedelta(days=45)).strftime("%Y-%m-%d")
+        min_exp = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+        max_exp = (now + timedelta(days=50)).strftime("%Y-%m-%d")
         
         # Strike range: within 10% of current price
         min_strike = current_price * 0.90
