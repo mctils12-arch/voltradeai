@@ -924,8 +924,8 @@ function EnhancedPositions({
               >
                 {/* Row 1: ticker / side / shares / price / AH badge / asset badge / close button */}
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "6px" }}>
-                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: "15px", color: "#c8d6e5" }}>
-                    {p.ticker}
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: "15px", color: isOption ? "#bf5af2" : "#c8d6e5" }}>
+                    {isOption && p.optionMeta?.underlyingTicker ? p.optionMeta.underlyingTicker : p.ticker}
                   </span>
                   <span style={{
                     fontSize: "11px", fontWeight: 600, padding: "2px 7px", borderRadius: "3px",
@@ -948,24 +948,54 @@ function EnhancedPositions({
                       STOCK SHORT
                     </span>
                   )}
-                  {/* Option badge (future-proof) */}
+                  {/* Option badge with type */}
                   {isOption && (
                     <span style={{
                       fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
+                      color: p.optionMeta?.optionType === "CALL" ? "#30d158" : "#ff453a",
+                      background: p.optionMeta?.optionType === "CALL" ? "rgba(48,209,88,0.12)" : "rgba(255,69,58,0.12)",
+                      border: `1px solid ${p.optionMeta?.optionType === "CALL" ? "rgba(48,209,88,0.3)" : "rgba(255,69,58,0.3)"}`,
+                      letterSpacing: "0.4px",
+                    }}>
+                      {p.optionMeta?.optionType || "OPTION"}
+                    </span>
+                  )}
+                  {/* Options strategy badge */}
+                  {isOption && p.optionMeta?.setup && (
+                    <span style={{
+                      fontSize: "9px", fontWeight: 700, padding: "2px 5px", borderRadius: "3px",
                       color: "#bf5af2",
                       background: "rgba(191,90,242,0.12)",
                       border: "1px solid rgba(191,90,242,0.3)",
-                      letterSpacing: "0.4px",
+                      letterSpacing: "0.3px",
+                      textTransform: "uppercase" as const,
                     }}>
-                      OPTION
+                      {(p.optionMeta.setup || "").replace(/_/g, " ")}
                     </span>
                   )}
                   <span style={{ fontSize: "12px", color: "#a1a1a6", fontFamily: "monospace" }}>
-                    {qty} shares
+                    {isOption ? `${qty} contracts` : `${qty} shares`}
                   </span>
                   <span style={{ fontSize: "13px", fontFamily: "monospace", color: "#c8d6e5", marginLeft: "4px" }}>
                     @ ${(current ?? 0).toFixed(2)}
                   </span>
+                  {/* Options: show underlying, strike, expiry */}
+                  {isOption && p.optionMeta && (
+                    <>
+                      <span style={{ fontSize: "12px", fontFamily: "monospace", color: "#64d2ff" }}>
+                        {p.optionMeta.underlyingTicker} ${p.optionMeta.strike}
+                      </span>
+                      <span style={{
+                        fontSize: "10px", fontWeight: 600, padding: "2px 5px", borderRadius: "3px",
+                        color: (p.optionMeta.daysToExpiry ?? 99) <= 7 ? "#ff453a" : "#ffd60a",
+                        background: (p.optionMeta.daysToExpiry ?? 99) <= 7 ? "rgba(255,69,58,0.12)" : "rgba(255,214,10,0.10)",
+                        border: `1px solid ${(p.optionMeta.daysToExpiry ?? 99) <= 7 ? "rgba(255,69,58,0.3)" : "rgba(255,214,10,0.25)"}`,
+                        fontFamily: "monospace",
+                      }}>
+                        {p.optionMeta.daysToExpiry}d → {p.optionMeta.expiry}
+                      </span>
+                    </>
+                  )}
                   {showAH && (
                     <span
                       data-testid={`ah-badge-${p.ticker}`}

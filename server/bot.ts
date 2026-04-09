@@ -581,6 +581,24 @@ print(json.dumps(data))
 "`, { timeout: 5000 }).catch(() => ({ stdout: "{}" }));
       const stopState: any = JSON.parse(stopOut.trim() || "{}");
 
+      // Load options state (tracks which setup/strategy each options position came from)
+      let optionsState: any = {};
+      try {
+        const { stdout: optOut } = await execAsync(`python3 -c "
+import json, os
+try:
+    from storage_config import DATA_DIR
+except ImportError:
+    DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+path = os.path.join(DATA_DIR, 'voltrade_options_state.json')
+try:
+    with open(path) as f: data = json.load(f)
+except Exception: data = {}
+print(json.dumps(data))
+"`, { timeout: 5000 }).catch(() => ({ stdout: "{}" }));
+        optionsState = JSON.parse(optOut.trim() || "{}");
+      } catch (_) {}
+
       const mapped = (positions as any[]).map((p: any) => {
         const ss = stopState[p.symbol] || {};
         const entry = parseFloat(p.avg_entry_price);
@@ -593,6 +611,33 @@ print(json.dumps(data))
           ? current * (1 - atrPct / 100)  // Trailing from current
           : entry * (1 - atrPct / 100);    // Phase 1: from entry
         const tpPrice = phase >= 3 ? null : entry * (1 + atrPct * 1.5 / 100);
+
+        // v1.0.33: Parse OCC symbol for options positions
+        const isOption = (p.asset_class || "").toLowerCase().includes("option") || (p.symbol || "").length > 12;
+        let optionMeta: any = null;
+        if (isOption) {
+          const sym = p.symbol || "";
+          // OCC format: AAPL260418C00250000 = ticker + YYMMDD + C/P + 8-digit strike*1000
+          const match = sym.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/);
+          if (match) {
+            const [, oTicker, dateStr, cp, strikeRaw] = match;
+            const expiry = `20${dateStr.slice(0,2)}-${dateStr.slice(2,4)}-${dateStr.slice(4,6)}`;
+            const strike = parseInt(strikeRaw, 10) / 1000;
+            const optType = cp === "C" ? "CALL" : "PUT";
+            // Look up strategy/setup from options state
+            const os = optionsState[sym] || optionsState[oTicker] || {};
+            optionMeta = {
+              underlyingTicker: oTicker,
+              expiry,
+              strike,
+              optionType: optType,
+              strategy: os.strategy || os.options_strategy || null,
+              setup: os.setup || null,
+              daysToExpiry: Math.ceil((new Date(expiry).getTime() - Date.now()) / 86400000),
+            };
+          }
+        }
+
         return {
           ticker: p.symbol,
           qty: parseFloat(p.qty),
@@ -608,6 +653,9 @@ print(json.dumps(data))
           rMultiple: ss.r_multiple || 0,
           highestPnl: ss.highest_pnl || 0,
           daysHeld: ss.days_held || 0,
+          asset_class: p.asset_class || "us_equity",
+          isOption,
+          optionMeta,
         };
       });
       res.json(mapped);
@@ -1796,6 +1844,23 @@ else:
         try:
             from options_manager import register_options_entry
             register_options_entry(contract.get('occ_symbol',''), contract.get('limit_price',0), contract.get('side','buy'), contract.get('delta',0), contract.get('qty',1))
+        except: pass
+        # v1.0.33: Save options state for dashboard display (setup, strategy, expiry)
+        try:
+            import os
+            try:
+                from storage_config import DATA_DIR
+            except ImportError:
+                DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+            state_path = os.path.join(DATA_DIR, 'voltrade_options_state.json')
+            try:
+                with open(state_path) as _f: ostate = json.load(_f)
+            except: ostate = {}
+            for key in [contract.get('occ_symbol',''), contract.get('call_leg',''), contract.get('put_leg','')]:
+                if key:
+                    ostate[key] = {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'ticker': data.get('ticker','')}
+            ostate[data.get('ticker','')] = {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'options_strategy': data.get('strategy','')}
+            with open(state_path, 'w') as _f: json.dump(ostate, _f)
         except: pass
     print(json.dumps({'instrument':'options','strategy':data['strategy'],'contract':contract,'order':order,'reasoning':'Scanner direct execution'}))
 "`,

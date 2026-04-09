@@ -724,9 +724,33 @@ def _select_buy_straddle(contracts: list, price: float, equity: float, ticker: s
     if not calls or not puts:
         return {"error": "No ATM contracts found for buy straddle"}
 
-    # Pick ATM call and put (closest to current price)
-    atm_call = min(calls, key=lambda c: abs(c["strike"] - price))
-    atm_put  = min(puts,  key=lambda c: abs(c["strike"] - price))
+    # v1.0.33 FIX: Both legs MUST share the same expiration.
+    # Group by expiry and find the best expiry that has both a call and put.
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(lambda: {"calls": [], "puts": []})
+    for c in calls:
+        by_expiry[c["expiry"]]["calls"].append(c)
+    for p in puts:
+        by_expiry[p["expiry"]]["puts"].append(p)
+
+    # Filter to expiries that have both calls and puts
+    valid_expiries = [
+        (exp, grp) for exp, grp in by_expiry.items()
+        if grp["calls"] and grp["puts"]
+    ]
+    if not valid_expiries:
+        return {"error": "No expiry has both ATM call and put"}
+
+    # Prefer expiry closest to 21 DTE (sweet spot for straddles)
+    target_dte = 21
+    valid_expiries.sort(key=lambda x: abs(
+        x[1]["calls"][0].get("days_to_expiry", 21) - target_dte
+    ))
+    best_exp, best_grp = valid_expiries[0]
+
+    # Pick ATM call and put FROM THE SAME EXPIRY
+    atm_call = min(best_grp["calls"], key=lambda c: abs(c["strike"] - price))
+    atm_put  = min(best_grp["puts"],  key=lambda c: abs(c["strike"] - price))
 
     # Use optimized limit prices (we're buying)
     call_debit = _optimized_limit_price(atm_call, "buy")
@@ -775,6 +799,21 @@ def _select_straddle(contracts: list, price: float, equity: float, ticker: str, 
 
     if not calls or not puts:
         return {"error": "No ATM contracts found for straddle"}
+
+    # v1.0.33 FIX: Both legs must share the same expiration (same fix as buy_straddle)
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(lambda: {"calls": [], "puts": []})
+    for c in calls:
+        by_expiry[c["expiry"]]["calls"].append(c)
+    for p in puts:
+        by_expiry[p["expiry"]]["puts"].append(p)
+    valid = [(e, g) for e, g in by_expiry.items() if g["calls"] and g["puts"]]
+    if not valid:
+        return {"error": "No expiry has both ATM call and put for straddle"}
+    valid.sort(key=lambda x: abs(x[1]["calls"][0].get("days_to_expiry", 30) - 30))
+    _, best = valid[0]
+    calls = best["calls"]
+    puts = best["puts"]
 
     # Pick the ATM call and put (closest to current price)
     atm_call = min(calls, key=lambda c: abs(c["strike"] - price))
