@@ -346,7 +346,7 @@ async function checkTradeAllowed(portfolioValue: number, tradeValue: number): Pr
   return { allowed: true };
 }
 
-// ─── Options order (log + audit, full execution requires Alpaca options setup) ─
+// ─── Options order — LIVE execution via Alpaca (Level 3 approved) ────────────
 async function placeOptionsOrder(
   ticker: string,
   optionType: "call" | "put",
@@ -361,10 +361,56 @@ async function placeOptionsOrder(
   const typeChar = optionType === "call" ? "C" : "P";
   const occSymbol = `${ticker.toUpperCase()}${dateStr}${typeChar}${strikeStr}`;
 
-  audit("OPTIONS", `${side.toUpperCase()} ${qty}x ${ticker} ${strike} ${optionType} exp:${expiry} [OCC: ${occSymbol}]`);
-  notify("options", `${side.toUpperCase()} ${qty}x ${ticker} $${strike} ${optionType.toUpperCase()} (${expiry}) — queued`);
-  // TODO: Implement full execution when Alpaca options API keys are configured
-  return { status: "logged", occ_symbol: occSymbol, message: "Options execution requires Alpaca options-enabled account" };
+  audit("OPTIONS", `${side.toUpperCase()} ${qty}x ${ticker} $${strike} ${optionType} exp:${expiry} [OCC: ${occSymbol}]`);
+
+  try {
+    const orderPayload = {
+      symbol: occSymbol,
+      qty: String(qty),
+      side: side,
+      type: "limit" as const,
+      time_in_force: "day" as const,
+      limit_price: "0",  // Will be set by Python execution path
+    };
+
+    // Use Python options_execution for smart pricing and submission
+    const tradeData = JSON.stringify({
+      occ_symbol: occSymbol,
+      ticker: ticker,
+      option_type: optionType,
+      strike: strike,
+      expiry: expiry,
+      side: side,
+      qty: qty,
+    });
+
+    const { stdout, stderr } = await execAsync(
+      `python3 -c "
+import json, sys
+sys.path.insert(0, '.')
+from options_execution import submit_options_order
+trade = json.loads('${tradeData.replace(/'/g, "\'")}')
+result = submit_options_order(trade)
+print(json.dumps(result))
+"`,
+      { timeout: 15000 }
+    );
+
+    const result = JSON.parse(stdout.trim());
+    
+    if (result.status === "submitted" || result.status === "filled") {
+      audit("OPTIONS-EXEC", `FILLED: ${side.toUpperCase()} ${qty}x ${occSymbol} | order=${result.order_id || "?"}`);
+      notify("trade", `OPTIONS: ${side.toUpperCase()} ${qty}x ${ticker} $${strike} ${optionType.toUpperCase()} (${expiry})`);
+      return { status: result.status, occ_symbol: occSymbol, order_id: result.order_id, detail: result.detail };
+    } else {
+      audit("OPTIONS-ERROR", `Order rejected: ${result.detail || result.error || "unknown"}`);
+      return { status: "error", occ_symbol: occSymbol, message: result.detail || "Order rejected" };
+    }
+  } catch (err: any) {
+    const errMsg = err?.stderr?.slice(-200) || err?.message || "Unknown error";
+    audit("OPTIONS-ERROR", `Execution failed: ${errMsg}`);
+    return { status: "error", occ_symbol: occSymbol, message: errMsg };
+  }
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
