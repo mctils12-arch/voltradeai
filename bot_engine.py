@@ -1025,11 +1025,15 @@ def check_sector_correlation(ticker, existing_tickers):
 
 def manage_positions():
     """
-    Smart position management with ATR-based trailing stops and upgrade logic.
-    - Trailing stop: tracks highest price since entry, stop set at entry + (highest - ATR*2)
-    - ATR-based: volatile stocks get wider stops, calm stocks get tighter
-    - Take profit is also dynamic: ATR * 3 from entry
-    - Returns upgrade candidates: positions that could be sold for better picks
+    Smart position management with ATR-based trailing stops, scale-out in thirds,
+    breakeven stops, regime-aware exit targets, and upgrade logic.
+
+    Exit architecture:
+      - Scale-out 1/3 at 1R, 1/3 at 2-3R (regime-dependent), trail last 1/3
+      - Breakeven stop activates after first scale-out (can't lose money)
+      - Phase 4 trails at 2-3× ATR below highest price (regime-adaptive)
+      - BULL: wider trails (3× ATR), scale at 1R and 3R
+      - BEAR/PANIC: tighter trails (1.5× ATR), scale at 1R and 1.5R
     """
     try:
         positions = get_alpaca_positions()
@@ -1040,7 +1044,7 @@ def manage_positions():
         return {"actions": [], "positions": 0, "upgrade_candidates": []}
 
     actions = []
-    upgrade_candidates = []  # Weak positions that could be replaced
+    upgrade_candidates = []
 
     # Load evolving stop state (persists across cycles)
     _stop_state_path = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
@@ -1050,8 +1054,29 @@ def manage_positions():
     except Exception:
         stop_state = {}
 
+    # ── Get current market regime ─────────────────────────────────────────────
+    regime = "NEUTRAL"
+    try:
+        from macro_data import get_macro_snapshot
+        _macro = get_macro_snapshot()
+        _vxx_r = float(_macro.get("vxx_ratio", 1.0) or 1.0)
+        _spy_ma = float(_macro.get("spy_vs_ma50", 1.0) or 1.0)
+        _spy_b200 = int(_macro.get("spy_below_200_days", 0) or 0)
+        _spy_above = bool(_macro.get("spy_above_200d", True))
+        from system_config import get_market_regime as _gmr
+        regime = _gmr(_vxx_r, _spy_ma, spy_below_200_days=_spy_b200, spy_above_200d=_spy_above)
+    except Exception:
+        pass
+
+    is_bullish = regime in ("BULL", "NEUTRAL_BULL")
+    is_bearish = regime in ("BEAR", "PANIC", "CAUTION")
+    # Regime-adaptive trailing ATR multiplier
+    trail_atr_mult = 3.0 if is_bullish else (1.5 if is_bearish else 2.0)
+    # Regime-adaptive scale-out thresholds
+    scale_out_2r = 3.0 if is_bullish else (1.5 if is_bearish else 2.0)
+
     # Tickers managed by other components — do NOT apply stop/TP logic to these
-    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "ITA", "SPY", "GLD", "XOM", "LMT"}  # Floor + third leg + legacy
+    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "ITA", "SPY", "GLD", "XOM", "LMT"}
 
     for pos in positions:
         ticker = pos.get("symbol", "")
@@ -1075,51 +1100,93 @@ def manage_positions():
         # Stops evolve through 4 phases as the trade profits:
         #   Phase 1 (entry):     2.0x ATR stop, 3.0x ATR target
         #   Phase 2 (at 1R):     Tighten to 1.5x ATR trailing from high
-        #   Phase 3 (at 2R):     Tighten to 1.0x ATR trailing from high  
-        #   Phase 4 (at 3R+):    Lock in at least 50% of max gain
-        # Options have different rules: time-based + delta-based decay
-        # ETFs use underlying's ATR * 2 (because 2x leverage)
-        
+        #   Phase 3 (at 2R):     Tighten to 1.0x ATR trailing from high
+        #   Phase 4 (at 3R+):    ATR-based trailing from highest price (regime-aware)
+
         # Initialize or load stop state for this position
         ps = stop_state.get(ticker, {})
-        initial_risk_pct = ps.get("initial_risk_pct", atr_pct * 2.0)  # 1R = 2x ATR from entry
-        highest_pnl = max(ps.get("highest_pnl", 0), pnl_pct)  # Track peak P&L
-        r_multiple = pnl_pct / initial_risk_pct if initial_risk_pct > 0 else 0  # How many R's we're up
+        initial_risk_pct = ps.get("initial_risk_pct", atr_pct * 2.0)
+        highest_pnl = max(ps.get("highest_pnl", 0), pnl_pct)
+        highest_price = max(ps.get("highest_price", current), current)
+        r_multiple = pnl_pct / initial_risk_pct if initial_risk_pct > 0 else 0
         peak_r = highest_pnl / initial_risk_pct if initial_risk_pct > 0 else 0
-        
+
+        # Scale-out state
+        original_qty = ps.get("original_qty", qty)
+        remaining_qty = ps.get("remaining_qty", qty)
+        scales_completed = ps.get("scales_completed", 0)
+        breakeven_active = ps.get("breakeven_active", False)
+
+        # ── SCALE-OUT CHECK ─────────────────────────────────────────────────
+        # Scale out 1/3 at each threshold. Only recommend if not already done.
+        third_qty = max(1, original_qty // 3)
+
+        if scales_completed < 2 and remaining_qty > 1:
+            if scales_completed == 0 and r_multiple >= 1.0 and third_qty >= 1:
+                # First scale-out: sell 1/3 at 1R
+                scale_qty = third_qty
+                scales_completed = 1
+                remaining_qty -= scale_qty
+                breakeven_active = True  # Activate breakeven after first scale-out
+                actions.append({
+                    "action": "SCALE_OUT", "ticker": ticker, "side": side,
+                    "qty": scale_qty, "remaining_qty": remaining_qty,
+                    "reason": f"SCALE-OUT 1/3 at +{pnl_pct:.1f}% ({r_multiple:.1f}R) — {scale_qty}/{original_qty} shares, breakeven stop activated",
+                    "type": "scale_out", "phase": 2,
+                    "exit_context": {"scale": 1, "r_at_scale": round(r_multiple, 2), "pnl_pct": round(pnl_pct, 2)},
+                })
+            elif scales_completed == 1 and r_multiple >= scale_out_2r and third_qty >= 1:
+                # Second scale-out at regime-dependent threshold
+                scale_qty = third_qty
+                scales_completed = 2
+                remaining_qty -= scale_qty
+                actions.append({
+                    "action": "SCALE_OUT", "ticker": ticker, "side": side,
+                    "qty": scale_qty, "remaining_qty": remaining_qty,
+                    "reason": f"SCALE-OUT 2/3 at +{pnl_pct:.1f}% ({r_multiple:.1f}R, regime={regime}) — {scale_qty}/{original_qty} shares",
+                    "type": "scale_out", "phase": 3,
+                    "exit_context": {"scale": 2, "r_at_scale": round(r_multiple, 2), "pnl_pct": round(pnl_pct, 2)},
+                })
+
         # Determine current phase and stop level
         if peak_r >= 3.0:
-            # Phase 4: Lock in at least 50% of peak gain
-            stop_pct = -(highest_pnl * 0.50)  # Negative means loss threshold
+            # Phase 4: ATR-based trailing from highest PRICE (not 50% of peak P&L)
+            stop_pct = atr_pct * trail_atr_mult
             phase = 4
-            stop_reason = f"Phase 4: protecting 50% of {highest_pnl:.1f}% peak gain"
+            stop_reason = f"Phase 4: {trail_atr_mult:.0f}×ATR trailing from high ${highest_price:.2f} (regime={regime})"
         elif peak_r >= 2.0:
-            # Phase 3: 1.0x ATR trailing from high water mark
             stop_pct = max(1.0, atr_pct * 1.0)
             phase = 3
             stop_reason = f"Phase 3 (2R+): 1.0x ATR trailing"
         elif peak_r >= 1.0:
-            # Phase 2: 1.5x ATR trailing from high water mark
             stop_pct = max(1.5, atr_pct * 1.5)
             phase = 2
             stop_reason = f"Phase 2 (1R+): 1.5x ATR trailing"
         else:
-            # Phase 1: Initial stop at 2.0x ATR
             stop_pct = max(1.5, min(atr_pct * 2.0, 8.0))
             phase = 1
             stop_reason = f"Phase 1: 2.0x ATR initial stop"
 
         # For phases 2-4, stop is relative to the HIGH WATER MARK, not entry
-        if phase >= 2:
-            # Stop triggers if current P&L drops more than stop_pct from the peak
+        should_stop = False
+        if phase >= 4:
+            # Phase 4: trail from highest PRICE using ATR
+            drawdown_from_high_price = ((highest_price - current) / highest_price * 100) if highest_price > 0 else 0
+            should_stop = drawdown_from_high_price >= stop_pct
+        elif phase >= 2:
             drawdown_from_peak = highest_pnl - pnl_pct
             should_stop = drawdown_from_peak >= stop_pct
         else:
-            # Phase 1: stop triggers on absolute loss from entry
             should_stop = pnl_pct <= -stop_pct
 
-        # Dynamic take profit: ATR * 3 from entry (but don't cap at phase 3+)
-        tp_pct = max(4.0, min(atr_pct * 3.0, 15.0)) if phase < 3 else 999  # No TP ceiling after 2R
+        # Breakeven enforcement: after first scale-out, P&L can't go negative
+        breakeven_triggered = False
+        if not should_stop and breakeven_active and pnl_pct < 0 and phase >= 2:
+            should_stop = True
+            breakeven_triggered = True
+
+        # Dynamic take profit: only for final third after both scale-outs done
+        tp_pct = max(4.0, min(atr_pct * 3.0, 15.0)) if phase < 3 else 999
 
         # Time stop: 7 days with no progress (prevents capital lockup)
         entry_date = ps.get("entry_date", time.strftime("%Y-%m-%d"))
@@ -1127,17 +1194,25 @@ def manage_positions():
             days_held = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
         except Exception:
             days_held = 0
-        time_stop = days_held >= 7 and abs(pnl_pct) < 2.0  # Flat for a week
+        time_stop = days_held >= 7 and abs(pnl_pct) < 2.0
 
-        # Save updated stop state
+        # Save updated stop state (including scale-out tracking and regime)
         stop_state[ticker] = {
             "initial_risk_pct": round(initial_risk_pct, 2),
             "highest_pnl": round(highest_pnl, 2),
+            "highest_price": round(highest_price, 2),
             "phase": phase,
-            "current_stop_pct": round(stop_pct, 2),
+            "current_stop_pct": round(atr_pct, 2),  # Store raw ATR% — bot.ts computes final stop
             "r_multiple": round(r_multiple, 2),
             "entry_date": entry_date if entry_date != time.strftime("%Y-%m-%d") else ps.get("entry_date", time.strftime("%Y-%m-%d")),
             "days_held": days_held,
+            # Scale-out tracking
+            "original_qty": original_qty,
+            "remaining_qty": remaining_qty,
+            "scales_completed": scales_completed,
+            "breakeven_active": breakeven_active,
+            # Regime for bot.ts to read
+            "regime": regime,
         }
 
         # Exit context: full state at exit time (for ML exit model training)
@@ -1147,21 +1222,36 @@ def manage_positions():
             "r_multiple": round(r_multiple, 2),
             "peak_r": round(peak_r, 2),
             "highest_pnl": round(highest_pnl, 2),
+            "highest_price": round(highest_price, 2),
             "stop_pct": round(stop_pct, 2),
             "pnl_pct": round(pnl_pct, 2),
             "days_held": days_held,
             "current_price": current,
             "entry_price": entry,
+            "regime": regime,
+            "scales_completed": scales_completed,
+            "breakeven_active": breakeven_active,
         }
 
-        # Execute stops
+        # Execute stops (for remaining shares)
         if should_stop:
-            stop_type = "trailing_stop" if phase >= 2 else "stop_loss"
-            if phase >= 2:
-                reason = f"EVOLVING STOP Phase {phase}: P&L {pnl_pct:+.1f}% dropped {highest_pnl - pnl_pct:.1f}% from peak {highest_pnl:+.1f}% ({stop_reason})"
+            if breakeven_triggered:
+                stop_type = "trailing_stop"
+                reason = f"BREAKEVEN STOP: P&L {pnl_pct:+.1f}% dropped below entry after scale-out (breakeven active, {remaining_qty}/{original_qty} shares)"
+            elif phase >= 2:
+                stop_type = "trailing_stop"
+                if phase >= 4:
+                    reason = f"EVOLVING STOP Phase 4: price ${current:.2f} dropped {((highest_price - current) / highest_price * 100):.1f}% from high ${highest_price:.2f} ({stop_reason})"
+                else:
+                    reason = f"EVOLVING STOP Phase {phase}: P&L {pnl_pct:+.1f}% dropped {highest_pnl - pnl_pct:.1f}% from peak {highest_pnl:+.1f}% ({stop_reason})"
             else:
+                stop_type = "stop_loss"
                 reason = f"STOP LOSS: {pnl_pct:.1f}% loss hit Phase 1 stop at -{stop_pct:.1f}% (ATR: ${atr or 0:.2f})"
-            actions.append({"action": "CLOSE", "ticker": ticker, "side": side, "reason": reason, "type": stop_type, "phase": phase, "exit_context": exit_context})
+
+            scale_note = f" (final {remaining_qty}/{original_qty} shares, {scales_completed} prior scale-outs)" if scales_completed > 0 else ""
+            actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
+                "reason": reason + scale_note, "type": stop_type, "phase": phase,
+                "qty": remaining_qty, "exit_context": exit_context})
             # Record stop-loss cooldown to prevent immediate re-entry
             try:
                 _cd_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
@@ -1169,18 +1259,21 @@ def manage_positions():
                     with open(_cd_path) as _f: _cd = json.load(_f)
                 except Exception: _cd = {}
                 _cd[ticker] = time.time()
-                # Clean entries older than 24 hours
                 _cd = {k: v for k, v in _cd.items() if time.time() - v < 86400}
                 with open(_cd_path, 'w') as _f: json.dump(_cd, _f)
             except Exception: pass
-        elif pnl_pct >= tp_pct and phase < 3:
+        elif pnl_pct >= tp_pct and phase < 3 and scales_completed >= 2:
+            scale_note = f" (final {remaining_qty}/{original_qty} shares)" if scales_completed > 0 else ""
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
-                "reason": f"TAKE PROFIT: +{pnl_pct:.1f}% hit target +{tp_pct:.1f}% (Phase {phase})",
-                "type": "take_profit", "phase": phase, "exit_context": exit_context})
+                "reason": f"TAKE PROFIT: +{pnl_pct:.1f}% hit target +{tp_pct:.1f}% (Phase {phase}){scale_note}",
+                "type": "take_profit", "phase": phase,
+                "qty": remaining_qty, "exit_context": exit_context})
         elif time_stop:
+            scale_note = f" ({remaining_qty}/{original_qty} shares)" if scales_completed > 0 else ""
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
-                "reason": f"TIME STOP: {days_held} days held, P&L only {pnl_pct:+.1f}% — capital locked up",
-                "type": "time_stop", "phase": phase, "exit_context": exit_context})
+                "reason": f"TIME STOP: {days_held} days held, P&L only {pnl_pct:+.1f}% — capital locked up{scale_note}",
+                "type": "time_stop", "phase": phase,
+                "qty": remaining_qty, "exit_context": exit_context})
 
         # Upgrade candidate: position is flat or slightly negative in Phase 1
         if phase == 1 and -stop_pct < pnl_pct < 1.0:
@@ -1207,7 +1300,7 @@ def manage_positions():
     except Exception:
         pass
 
-    return {"actions": actions, "positions": len(positions), "upgrade_candidates": upgrade_candidates}
+    return {"actions": actions, "positions": len(positions), "upgrade_candidates": upgrade_candidates, "regime": regime}
 
 
 def _get_atr(ticker, period=14):

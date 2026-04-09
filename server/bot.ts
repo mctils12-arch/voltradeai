@@ -2349,6 +2349,16 @@ print(json.dumps({'files': count}))
     tpPct: number;
     entryDate: string;
     lastCheckedPrice: number;
+    // Scale-out tracking
+    originalQty: number;       // Original position size at entry
+    remainingQty: number;      // Shares still held (decreases with each scale-out)
+    scalesCompleted: number;   // 0, 1, or 2 (of 3 thirds)
+    breakevenActive: boolean;  // True after first scale-out — stop can't go below entry
+    // Regime-aware exits
+    regime: string;            // Current market regime (BULL, NEUTRAL, CAUTION, BEAR, PANIC)
+    // ATR-based trailing (Phase 4 fix)
+    atrPct: number;            // Current ATR as % of price
+    highestPrice: number;      // Highest price reached (for ATR trailing from price, not P&L)
   }
 
   const monitoredPositions: Record<string, MonitoredPosition> = {};
@@ -2401,20 +2411,35 @@ except: print('{}')
         const peakR = initialRiskPct > 0 ? highestPnl / initialRiskPct : 0;
         const phase = ps.phase || (peakR >= 3 ? 4 : peakR >= 2 ? 3 : peakR >= 1 ? 2 : 1);
 
-        // Compute stop and TP levels
+        // Compute stop and TP levels (regime-aware, ATR-based Phase 4)
+        const posRegime = ps.regime || "NEUTRAL";
+        const posIsBullish = posRegime === "BULL" || posRegime === "NEUTRAL_BULL";
+        const posIsBearish = posRegime === "BEAR" || posRegime === "PANIC" || posRegime === "CAUTION";
+        const posTrailMult = posIsBullish ? 3.0 : (posIsBearish ? 1.5 : 2.0);
+
         let stopPct: number;
-        if (peakR >= 3) stopPct = highestPnl * 0.50;
+        if (peakR >= 3) stopPct = atrPct * posTrailMult;  // Phase 4: ATR-based, not 50%-of-peak
         else if (peakR >= 2) stopPct = Math.max(1.0, atrPct * 1.0);
         else if (peakR >= 1) stopPct = Math.max(1.5, atrPct * 1.5);
         else stopPct = Math.max(1.5, Math.min(atrPct * 2.0, 8.0));
 
         const tpPct = phase < 3 ? Math.max(4.0, Math.min(atrPct * 3.0, 15.0)) : 999;
 
+        // Scale-out state from stop_state.json (persisted across restarts)
+        const originalQty = ps.original_qty || qty;
+        const remainingQty = ps.remaining_qty || qty;
+        const scalesCompleted = ps.scales_completed || 0;
+        const breakevenActive = ps.breakeven_active || false;
+        const regime = ps.regime || "NEUTRAL";
+        const highestPrice = Math.max(ps.highest_price || current, current);
+
         monitoredPositions[ticker] = {
           ticker, side, entryPrice: entry, qty, phase,
           initialRiskPct, highestPnl, currentStopPct: stopPct, tpPct,
           entryDate: ps.entry_date || new Date().toISOString().split("T")[0],
           lastCheckedPrice: current,
+          originalQty, remainingQty, scalesCompleted, breakevenActive,
+          regime, atrPct: atrPct, highestPrice,
         };
       }
 
@@ -2471,6 +2496,13 @@ except: print('{}')
       tpPct: Math.max(4.0, defaultRiskPct * 1.5),
       entryDate: new Date().toISOString().split("T")[0],
       lastCheckedPrice: entryPrice,
+      originalQty: qty,
+      remainingQty: qty,
+      scalesCompleted: 0,
+      breakevenActive: false,
+      regime: "NEUTRAL",  // Refined on next sync from bot_engine
+      atrPct: defaultRiskPct / 2.0,
+      highestPrice: entryPrice,
     };
     // Subscribe to WebSocket if not already streaming
     const streamSet = new Set(STREAM_TICKERS);
@@ -2503,7 +2535,11 @@ except: print('{}')
 
   /**
    * Core position check — called from WebSocket on every price tick for an owned stock.
-   * Extremely lightweight: just compares price to stored levels.
+   * Implements:
+   *   - Scale-out in thirds (1/3 at 1R, 1/3 at 2-3R depending on regime, trail last 1/3)
+   *   - Breakeven stop after first scale-out
+   *   - Regime-aware exit targets (wider in BULL, tighter in BEAR/PANIC)
+   *   - ATR-based Phase 4 trailing (replaces broken 50%-of-peak)
    */
   async function checkPositionOnTick(ticker: string, currentPrice: number) {
     const pos = monitoredPositions[ticker];
@@ -2518,11 +2554,12 @@ except: print('{}')
       ? ((currentPrice - entry) / entry) * 100
       : ((entry - currentPrice) / entry) * 100;
 
-    // Update high water mark
+    // Update high water marks
     pos.highestPnl = Math.max(pos.highestPnl, pnlPct);
+    pos.highestPrice = Math.max(pos.highestPrice || currentPrice, currentPrice);
     pos.lastCheckedPrice = currentPrice;
 
-    // Recalculate phase based on updated P&L
+    // Recalculate R-multiple and phase
     const rMultiple = pos.initialRiskPct > 0 ? pnlPct / pos.initialRiskPct : 0;
     const peakR = pos.initialRiskPct > 0 ? pos.highestPnl / pos.initialRiskPct : 0;
 
@@ -2530,24 +2567,145 @@ except: print('{}')
     else if (peakR >= 2 && pos.phase < 3) pos.phase = 3;
     else if (peakR >= 1 && pos.phase < 2) pos.phase = 2;
 
-    // Recalculate stop level for current phase
-    let stopPct: number;
-    if (pos.phase >= 4) stopPct = pos.highestPnl * 0.50;
-    else if (pos.phase >= 3) stopPct = Math.max(1.0, pos.currentStopPct);
-    else if (pos.phase >= 2) stopPct = Math.max(1.5, pos.currentStopPct);
-    else stopPct = pos.currentStopPct;
+    // ── Regime-aware thresholds ──────────────────────────────────────────────
+    const regime = pos.regime || "NEUTRAL";
+    const isBullish = regime === "BULL" || regime === "NEUTRAL_BULL";
+    const isBearish = regime === "BEAR" || regime === "PANIC" || regime === "CAUTION";
 
-    // Determine if stop is triggered
+    // Scale-out R thresholds adapt to regime
+    const scaleOut1R = 1.0;  // Always scale first third at 1R
+    const scaleOut2R = isBullish ? 3.0 : (isBearish ? 1.5 : 2.0);
+
+    // Trailing stop ATR multiplier adapts to regime
+    const trailAtrMult = isBullish ? 3.0 : (isBearish ? 1.5 : 2.0);
+
+    const atr = pos.atrPct || 2.0;
+
+    // ── SCALE-OUT CHECK (before stop/TP logic) ──────────────────────────────
+    // Scale out 1/3 at each threshold. Only if we haven't already scaled at this level.
+    let shouldScaleOut = false;
+    let scaleOutLabel = '';
+    let scaleOutQty = 0;
+
+    if (pos.scalesCompleted < 2 && pos.remainingQty > 1) {
+      const thirdQty = Math.floor(pos.originalQty / 3);
+
+      if (pos.scalesCompleted === 0 && rMultiple >= scaleOut1R && thirdQty >= 1) {
+        // First scale-out: sell 1/3 at 1R
+        shouldScaleOut = true;
+        scaleOutQty = thirdQty;
+        scaleOutLabel = `SCALE-OUT 1/3 at +${pnlPct.toFixed(1)}% (${rMultiple.toFixed(1)}R)`;
+      } else if (pos.scalesCompleted === 1 && rMultiple >= scaleOut2R && thirdQty >= 1) {
+        // Second scale-out: sell another 1/3 at 2-3R (regime-dependent)
+        scaleOutQty = thirdQty;
+        shouldScaleOut = true;
+        scaleOutLabel = `SCALE-OUT 2/3 at +${pnlPct.toFixed(1)}% (${rMultiple.toFixed(1)}R)`;
+      }
+    }
+
+    if (shouldScaleOut) {
+      exitingTickers.add(ticker);
+      try {
+        const exitSide = pos.side === 'long' ? 'sell' : 'buy';
+        const orderParams = getOrderParams(currentPrice, 'take_profit');
+
+        await alpaca("/v2/orders", {
+          method: "POST",
+          body: JSON.stringify({
+            symbol: ticker,
+            qty: String(scaleOutQty),
+            side: exitSide,
+            ...orderParams,
+          }),
+        });
+
+        pos.scalesCompleted++;
+        pos.remainingQty -= scaleOutQty;
+        pos.qty = pos.remainingQty;
+
+        // After first scale-out: activate breakeven stop
+        if (pos.scalesCompleted === 1) {
+          pos.breakevenActive = true;
+        }
+
+        audit("WS-SCALE-OUT", `${scaleOutLabel} | ${orderParams.type.toUpperCase()} ${exitSide} ${scaleOutQty} of ${pos.originalQty} ${ticker} @ $${currentPrice.toFixed(2)} (${pos.remainingQty} remaining)`);
+        notify("exit", `Scale-out ${ticker}: ${scaleOutLabel}`);
+
+        // Persist scale-out state to stop_state.json
+        try {
+          await execAsync(`python3 -c "
+import json, os
+DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+p = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
+try:
+    with open(p) as f: ss = json.load(f)
+except: ss = {}
+if '${ticker}' in ss:
+    ss['${ticker}']['scales_completed'] = ${pos.scalesCompleted}
+    ss['${ticker}']['remaining_qty'] = ${pos.remainingQty}
+    ss['${ticker}']['original_qty'] = ${pos.originalQty}
+    ss['${ticker}']['breakeven_active'] = ${pos.breakevenActive ? 'True' : 'False'}
+    with open(p, 'w') as f: json.dump(ss, f)
+"`, { timeout: 5000 });
+        } catch (_) {}
+
+      } catch (err: any) {
+        audit("WS-SCALE-OUT-ERROR", `${ticker}: ${err?.message?.slice(0, 150)}`);
+      } finally {
+        exitingTickers.delete(ticker);
+      }
+      return; // Don't evaluate full exit on the same tick as a scale-out
+    }
+
+    // ── STOP LEVEL CALCULATION ──────────────────────────────────────────────
+    // Phase 4 fix: ATR-based trailing from highest PRICE, not 50% of peak P&L
+    let stopPct: number;
+    if (pos.phase >= 4) {
+      // Trail at 2-3× ATR below the highest price reached (regime-aware)
+      const trailFromHigh = atr * trailAtrMult;
+      stopPct = trailFromHigh;
+    } else if (pos.phase >= 3) {
+      stopPct = Math.max(1.0, atr * 1.0);
+    } else if (pos.phase >= 2) {
+      stopPct = Math.max(1.5, atr * 1.5);
+    } else {
+      stopPct = pos.currentStopPct;
+    }
+
+    // Breakeven override: after first scale-out, stop can't be below entry
+    // For phases 2+, this means drawdown from peak can't exceed the peak P&L itself
+    // (i.e., P&L can't go negative)
+    const breakevenFloor = pos.breakevenActive;
+
+    // ── STOP TRIGGER CHECK ──────────────────────────────────────────────────
     let shouldStop = false;
     let stopType: 'stop_loss' | 'trailing_stop' = 'stop_loss';
     let stopReason = '';
 
     if (pos.phase >= 2) {
-      const drawdownFromPeak = pos.highestPnl - pnlPct;
-      if (drawdownFromPeak >= stopPct) {
+      if (pos.phase >= 4) {
+        // Phase 4: ATR-based trailing from highest PRICE
+        const drawdownFromHighPrice = ((pos.highestPrice - currentPrice) / pos.highestPrice) * 100;
+        if (drawdownFromHighPrice >= stopPct) {
+          shouldStop = true;
+          stopType = 'trailing_stop';
+          stopReason = `WS TRAILING STOP Phase 4: price $${currentPrice.toFixed(2)} dropped ${drawdownFromHighPrice.toFixed(1)}% from high $${pos.highestPrice.toFixed(2)} (${trailAtrMult.toFixed(0)}×ATR trail, regime=${regime})`;
+        }
+      } else {
+        // Phase 2-3: trailing from peak P&L
+        const drawdownFromPeak = pos.highestPnl - pnlPct;
+        if (drawdownFromPeak >= stopPct) {
+          shouldStop = true;
+          stopType = 'trailing_stop';
+          stopReason = `WS TRAILING STOP Phase ${pos.phase}: P&L ${pnlPct.toFixed(1)}% dropped ${drawdownFromPeak.toFixed(1)}% from peak ${pos.highestPnl.toFixed(1)}%`;
+        }
+      }
+
+      // Breakeven enforcement: if active, stop triggers if P&L goes below 0
+      if (!shouldStop && breakevenFloor && pnlPct < 0) {
         shouldStop = true;
         stopType = 'trailing_stop';
-        stopReason = `WS TRAILING STOP Phase ${pos.phase}: P&L ${pnlPct.toFixed(1)}% dropped ${drawdownFromPeak.toFixed(1)}% from peak ${pos.highestPnl.toFixed(1)}%`;
+        stopReason = `WS BREAKEVEN STOP: P&L ${pnlPct.toFixed(1)}% dropped below entry after scale-out (breakeven active)`;
       }
     } else {
       if (pnlPct <= -stopPct) {
@@ -2557,9 +2715,10 @@ except: print('{}')
       }
     }
 
-    // Check take-profit
+    // Check take-profit (only for remaining position, only in early phases before all scale-outs done)
     let shouldTP = false;
-    if (!shouldStop && pnlPct >= pos.tpPct && pos.phase < 3) {
+    if (!shouldStop && pnlPct >= pos.tpPct && pos.phase < 3 && pos.scalesCompleted >= 2) {
+      // TP only fires for the last third after both scale-outs are done
       shouldTP = true;
     }
 
@@ -2576,31 +2735,33 @@ except: print('{}')
 
     if (!shouldStop && !shouldTP && !shouldTimeStop) return;
 
-    // ── FIRE EXIT ORDER IMMEDIATELY ──
+    // ── FIRE EXIT ORDER (remaining position) ─────────────────────────────────
     exitingTickers.add(ticker);
 
     try {
       const exitSide = pos.side === 'long' ? 'sell' : 'buy';
+      const exitQty = pos.remainingQty;
       const exitType = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'time_stop');
       const exitContext: OrderContext = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'stop_loss');
       const orderParams = getOrderParams(currentPrice, exitContext);
 
-      // Submit sell/cover order with context-aware order type
+      // Submit sell/cover order for remaining shares
       const orderResult = await alpaca("/v2/orders", {
         method: "POST",
         body: JSON.stringify({
           symbol: ticker,
-          qty: String(pos.qty),
+          qty: String(exitQty),
           side: exitSide,
           ...orderParams,
         }),
       });
 
-      const reason = shouldStop ? stopReason
-        : shouldTP ? `WS TAKE PROFIT: +${pnlPct.toFixed(1)}% hit target +${pos.tpPct.toFixed(1)}% (Phase ${pos.phase})`
-        : `WS TIME STOP: held since ${pos.entryDate}, P&L only ${pnlPct.toFixed(1)}%`;
+      const scaleNote = pos.scalesCompleted > 0 ? ` (final ${exitQty}/${pos.originalQty} shares, ${pos.scalesCompleted} prior scale-outs)` : '';
+      const reason = shouldStop ? stopReason + scaleNote
+        : shouldTP ? `WS TAKE PROFIT: +${pnlPct.toFixed(1)}% hit target +${pos.tpPct.toFixed(1)}% (Phase ${pos.phase})${scaleNote}`
+        : `WS TIME STOP: held since ${pos.entryDate}, P&L only ${pnlPct.toFixed(1)}%${scaleNote}`;
 
-      audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${pos.qty} ${ticker} @ $${currentPrice.toFixed(2)}`);
+      audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${exitQty} ${ticker} @ $${currentPrice.toFixed(2)}`);
       notify("exit", `WS exit ${ticker}: ${reason}`);
 
       // Write stop-loss cooldown
@@ -2619,7 +2780,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
 "`, { timeout: 5000 });
         } catch (_) {}
 
-        // Circuit breaker logic (same as old Tier 1)
+        // Circuit breaker logic
         state.consecutiveStopLosses++;
         if (!Array.isArray((state as any).recentStopTickers)) (state as any).recentStopTickers = [];
         (state as any).recentStopTickers.push(ticker);
@@ -2655,7 +2816,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
         state.consecutiveStopLosses = 0;
       }
 
-      // Remove from monitoring (position is closed)
+      // Remove from monitoring (position fully closed)
       removePositionFromMonitor(ticker);
 
     } catch (err: any) {
