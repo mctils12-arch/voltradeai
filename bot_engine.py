@@ -1888,7 +1888,10 @@ def scan_market():
         pass  # Options scan failed — stock trades still execute normally
 
     # Step 7: Check position management
-    mgmt = manage_positions()
+    try:
+        mgmt = manage_positions()
+    except Exception:
+        mgmt = {"actions": [], "error": "manage_positions crashed", "upgrade_candidates": []}
 
     # Step 8: Intraday Shorts (v1.0.28 hybrid v2.1) ───────────────────────────────────
     # Hybrid v2.1: fixed lookback signals + full universe architecture.
@@ -2454,13 +2457,24 @@ if __name__ == "__main__":
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "full"
 
-    if mode == "scan":
-        result = scan_market()
-    elif mode == "manage":
-        result = manage_positions()
-    elif mode == "full":
-        result = scan_market()
-    else:
-        result = {"error": f"Unknown mode: {mode}"}
+    try:
+        if mode == "scan":
+            result = scan_market()
+        elif mode == "manage":
+            result = manage_positions()
+        elif mode == "full":
+            result = scan_market()
+        else:
+            result = {"error": f"Unknown mode: {mode}"}
+    except Exception as _fatal:
+        import traceback
+        _tb = traceback.format_exc()
+        print(json.dumps({
+            "error": f"{type(_fatal).__name__}: {_fatal}",
+            "traceback": _tb,
+            "trades": [],
+            "new_trades": [],
+        }), flush=True)
+        sys.exit(0)  # Exit 0 so bot.ts can parse the JSON error
 
     print(json.dumps(result))

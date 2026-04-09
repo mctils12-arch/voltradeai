@@ -1672,7 +1672,10 @@ print(json.dumps(check_weekly_loss(history)))
 
     } catch (err: any) {
       console.error("[tier2-scan]", err?.message || err);
-      audit("TIER2-ERROR", `Scan failed: ${String(err?.message || err).slice(0, 200)}`);
+      const errStr = String(err?.stderr || err?.message || err);
+      // Capture the TAIL of the traceback — Python puts the exception at the END
+      const errTail = errStr.length > 500 ? '…' + errStr.slice(-500) : errStr;
+      audit("TIER2-ERROR", `Scan failed: ${errTail}`);
     }
 
     // Overnight/pre-market research: runs during 8pm-4am ET window
