@@ -603,39 +603,67 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
 
 def _select_bull_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Bull call spread: buy lower strike call, sell higher strike call. Defined risk."""
-    calls = sorted(
-        [c for c in contracts if c["option_type"] == "call"],
-        key=lambda c: c["strike"]
-    )
+    calls = [c for c in contracts if c["option_type"] == "call"]
     if len(calls) < 2:
         return {"error": "Not enough call contracts for a spread"}
-    
-    # Find ATM call (closest to current price) and OTM call ~3-5% above
-    atm_candidates = sorted(calls, key=lambda c: abs(c["strike"] - price))
-    long_leg = atm_candidates[0]
-    
-    # Short leg: 3-5% above current price
-    target_short_strike = price * 1.04
-    short_candidates = [c for c in calls if c["strike"] > long_leg["strike"] and c["strike"] <= price * 1.08]
-    if not short_candidates:
+
+    # Same-expiry enforcement: group calls by expiry
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(list)
+    for c in calls:
+        by_expiry[c["expiry"]].append(c)
+
+    # Filter to expiries with at least 2 calls
+    valid_expiries = [(exp, grp) for exp, grp in by_expiry.items() if len(grp) >= 2]
+    if not valid_expiries:
+        return {"error": "No single expiry has enough calls for a spread"}
+
+    # Prefer expiry closest to 30 DTE
+    valid_expiries.sort(key=lambda x: abs(x[1][0].get("days_to_expiry", 30) - 30))
+
+    best_result = None
+    for _, exp_calls in valid_expiries:
+        exp_calls = sorted(exp_calls, key=lambda c: c["strike"])
+
+        # Find ATM call (closest to current price) and OTM call ~3-5% above
+        atm_candidates = sorted(exp_calls, key=lambda c: abs(c["strike"] - price))
+        long_leg = atm_candidates[0]
+
+        # Short leg: 3-5% above current price
+        target_short_strike = price * 1.04
+        short_candidates = [c for c in exp_calls if c["strike"] > long_leg["strike"] and c["strike"] <= price * 1.08]
+        if not short_candidates:
+            continue
+
+        short_leg = min(short_candidates, key=lambda c: abs(c["strike"] - target_short_strike))
+
+        net_debit = round(long_leg["ask"] - short_leg["bid"], 2)
+        if net_debit <= 0:
+            continue
+
+        best_result = (long_leg, short_leg, net_debit)
+        break
+
+    if best_result is None:
         return {"error": "No suitable short leg for bull call spread"}
-    
-    short_leg = min(short_candidates, key=lambda c: abs(c["strike"] - target_short_strike))
-    
-    net_debit = round(long_leg["ask"] - short_leg["bid"], 2)
-    if net_debit <= 0:
-        return {"error": "Spread has no cost — likely bad pricing data"}
-    
+
+    long_leg, short_leg, net_debit = best_result
+
     spread_width = short_leg["strike"] - long_leg["strike"]
     max_profit = round((spread_width - net_debit) * 100, 2)
     max_loss_per = round(net_debit * 100, 2)
-    
+
     max_contracts = int(equity * size_pct / max_loss_per) if max_loss_per > 0 else 0  # Dynamic sizing
     if max_contracts <= 0:
         max_contracts = 1
     qty = min(max_contracts, 5)  # Dynamic sizing may allow more
-    
-    return {
+
+    # Breakeven calculation
+    breakeven = round(long_leg["strike"] + net_debit, 2)
+
+    # EV calculation using delta as probability proxy
+    long_delta = abs(long_leg.get("delta", 0))
+    result = {
         "strategy": "bull_call_spread",
         "long_leg": long_leg["occ_symbol"],
         "short_leg": short_leg["occ_symbol"],
@@ -648,45 +676,85 @@ def _select_bull_spread(contracts: list, price: float, equity: float, ticker: st
         "max_cost": round(net_debit * 100 * qty, 2),
         "max_profit": round(max_profit * qty, 2),
         "max_loss": round(max_loss_per * qty, 2),
+        "breakeven": breakeven,
         "risk_reward": round(max_profit / max_loss_per, 2) if max_loss_per > 0 else 0,
         "days_to_expiry": long_leg.get("days_to_expiry"),
         "error": None,
     }
 
+    if long_delta > 0:
+        p_win = long_delta
+        p_loss = 1 - p_win
+        ev = p_win * max_profit - p_loss * max_loss_per
+        result["ev"] = round(ev, 2)
+        result["win_probability"] = round(p_win * 100, 1)
+        if ev < 0:
+            result["ev_warning"] = "Negative expected value"
+
+    return result
+
 
 def _select_bear_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Bear put spread: buy higher strike put, sell lower strike put. Defined risk."""
-    puts = sorted(
-        [c for c in contracts if c["option_type"] == "put"],
-        key=lambda c: c["strike"], reverse=True
-    )
+    puts = [c for c in contracts if c["option_type"] == "put"]
     if len(puts) < 2:
         return {"error": "Not enough put contracts for a spread"}
-    
-    atm_candidates = sorted(puts, key=lambda c: abs(c["strike"] - price))
-    long_leg = atm_candidates[0]
-    
-    target_short_strike = price * 0.96
-    short_candidates = [c for c in puts if c["strike"] < long_leg["strike"] and c["strike"] >= price * 0.92]
-    if not short_candidates:
+
+    # Same-expiry enforcement: group puts by expiry
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(list)
+    for p in puts:
+        by_expiry[p["expiry"]].append(p)
+
+    # Filter to expiries with at least 2 puts
+    valid_expiries = [(exp, grp) for exp, grp in by_expiry.items() if len(grp) >= 2]
+    if not valid_expiries:
+        return {"error": "No single expiry has enough puts for a spread"}
+
+    # Prefer expiry closest to 30 DTE
+    valid_expiries.sort(key=lambda x: abs(x[1][0].get("days_to_expiry", 30) - 30))
+
+    best_result = None
+    for _, exp_puts in valid_expiries:
+        exp_puts = sorted(exp_puts, key=lambda c: c["strike"], reverse=True)
+
+        atm_candidates = sorted(exp_puts, key=lambda c: abs(c["strike"] - price))
+        long_leg = atm_candidates[0]
+
+        target_short_strike = price * 0.96
+        short_candidates = [c for c in exp_puts if c["strike"] < long_leg["strike"] and c["strike"] >= price * 0.92]
+        if not short_candidates:
+            continue
+
+        short_leg = min(short_candidates, key=lambda c: abs(c["strike"] - target_short_strike))
+
+        net_debit = round(long_leg["ask"] - short_leg["bid"], 2)
+        if net_debit <= 0:
+            continue
+
+        best_result = (long_leg, short_leg, net_debit)
+        break
+
+    if best_result is None:
         return {"error": "No suitable short leg for bear put spread"}
-    
-    short_leg = min(short_candidates, key=lambda c: abs(c["strike"] - target_short_strike))
-    
-    net_debit = round(long_leg["ask"] - short_leg["bid"], 2)
-    if net_debit <= 0:
-        return {"error": "Spread has no cost — likely bad pricing data"}
-    
+
+    long_leg, short_leg, net_debit = best_result
+
     spread_width = long_leg["strike"] - short_leg["strike"]
     max_profit = round((spread_width - net_debit) * 100, 2)
     max_loss_per = round(net_debit * 100, 2)
-    
+
     max_contracts = int(equity * size_pct / max_loss_per) if max_loss_per > 0 else 0  # Dynamic sizing
     if max_contracts <= 0:
         max_contracts = 1
     qty = min(max_contracts, 5)
-    
-    return {
+
+    # Breakeven calculation
+    breakeven = round(long_leg["strike"] - net_debit, 2)
+
+    # EV calculation using delta as probability proxy
+    long_delta = abs(long_leg.get("delta", 0))
+    result = {
         "strategy": "bear_put_spread",
         "long_leg": long_leg["occ_symbol"],
         "short_leg": short_leg["occ_symbol"],
@@ -699,10 +767,22 @@ def _select_bear_spread(contracts: list, price: float, equity: float, ticker: st
         "max_cost": round(net_debit * 100 * qty, 2),
         "max_profit": round(max_profit * qty, 2),
         "max_loss": round(max_loss_per * qty, 2),
+        "breakeven": breakeven,
         "risk_reward": round(max_profit / max_loss_per, 2) if max_loss_per > 0 else 0,
         "days_to_expiry": long_leg.get("days_to_expiry"),
         "error": None,
     }
+
+    if long_delta > 0:
+        p_win = long_delta
+        p_loss = 1 - p_win
+        ev = p_win * max_profit - p_loss * max_loss_per
+        result["ev"] = round(ev, 2)
+        result["win_probability"] = round(p_win * 100, 1)
+        if ev < 0:
+            result["ev_warning"] = "Negative expected value"
+
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -767,7 +847,10 @@ def _select_buy_straddle(contracts: list, price: float, equity: float, ticker: s
     max_cost = equity * size_pct
     qty = max(1, int(max_cost / (total_debit * 100)))
 
-    return {
+    max_loss_val = round(total_debit * qty * 100, 2)
+    # For a straddle, max profit is theoretically unlimited; use a reasonable proxy
+    # based on breakeven distance for EV calc
+    result = {
         "strategy": "buy_straddle",
         "call_leg": atm_call["occ_symbol"],
         "put_leg": atm_put["occ_symbol"],
@@ -780,10 +863,28 @@ def _select_buy_straddle(contracts: list, price: float, equity: float, ticker: s
         "limit_price": total_debit,
         "breakeven_up": breakeven_up,
         "breakeven_down": breakeven_down,
-        "max_loss": round(total_debit * qty * 100, 2),
+        "max_loss": max_loss_val,
         "days_to_expiry": atm_call.get("days_to_expiry"),
         "error": None,
     }
+
+    # EV calculation: P(win) ≈ abs(long_delta), max_profit proxy = max_loss (1:1 move target)
+    call_delta = abs(atm_call.get("delta", 0))
+    put_delta = abs(atm_put.get("delta", 0))
+    avg_delta = (call_delta + put_delta) / 2 if (call_delta > 0 and put_delta > 0) else max(call_delta, put_delta)
+    max_loss_per = round(total_debit * 100, 2)
+    if avg_delta > 0:
+        p_win = avg_delta
+        p_loss = 1 - p_win
+        # Use max_loss as proxy for max_profit (target 1:1 on straddle)
+        ev = p_win * max_loss_per - p_loss * max_loss_per
+        result["ev"] = round(ev, 2)
+        result["win_probability"] = round(p_win * 100, 1)
+        result["risk_reward"] = 1.0  # Unlimited upside, but 1:1 is the proxy target
+        if ev < 0:
+            result["ev_warning"] = "Negative expected value"
+
+    return result
 
 
 def _select_straddle(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.04) -> dict:
@@ -834,7 +935,12 @@ def _select_straddle(contracts: list, price: float, equity: float, ticker: str, 
     max_risk = equity * size_pct  # Conservative — straddle can lose a lot
     qty = min(2, max(1, int(max_risk / (atm_call["strike"] * 10))))  # Very conservative
 
-    return {
+    max_profit_val = round(total_credit * qty * 100, 2)
+    max_profit_per = round(total_credit * 100, 2)
+    # For short straddle, max loss is theoretically unlimited; use 2x credit as proxy
+    max_loss_proxy = round(total_credit * 2 * 100, 2)
+
+    result = {
         "strategy": "short_straddle",
         "call_leg": atm_call["occ_symbol"],
         "put_leg": atm_put["occ_symbol"],
@@ -847,62 +953,130 @@ def _select_straddle(contracts: list, price: float, equity: float, ticker: str, 
         "limit_price": total_credit,
         "breakeven_up": breakeven_up,
         "breakeven_down": breakeven_down,
-        "max_profit": round(total_credit * qty * 100, 2),
+        "max_profit": max_profit_val,
         "days_to_expiry": atm_call.get("days_to_expiry"),
         "error": None,
     }
+
+    # EV calculation: P(win) ≈ 1 - avg(abs(short_deltas))
+    call_delta = abs(atm_call.get("delta", 0))
+    put_delta = abs(atm_put.get("delta", 0))
+    avg_delta = (call_delta + put_delta) / 2 if (call_delta > 0 and put_delta > 0) else max(call_delta, put_delta)
+    if avg_delta > 0:
+        p_win = 1 - avg_delta
+        p_loss = 1 - p_win
+        ev = p_win * max_profit_per - p_loss * max_loss_proxy
+        result["ev"] = round(ev, 2)
+        result["win_probability"] = round(p_win * 100, 1)
+        result["risk_reward"] = round(max_profit_per / max_loss_proxy, 2) if max_loss_proxy > 0 else 0
+        if ev < 0:
+            result["ev_warning"] = "Negative expected value"
+
+    return result
 
 
 def _select_condor(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.04) -> dict:
     """
     Iron condor: sell OTM call spread + sell OTM put spread.
     Profit if stock stays within a defined range.
-    Fully defined risk — max loss = spread width - credit received.
+    Fully defined risk — max loss = max(call_spread_width, put_spread_width) - credit received.
     Best when: VIX elevated, stock range-bound (ADX < 25).
     """
-    calls = sorted([c for c in contracts if c["option_type"] == "call"], key=lambda c: c["strike"])
-    puts  = sorted([c for c in contracts if c["option_type"] == "put"],  key=lambda c: c["strike"], reverse=True)
+    all_calls = [c for c in contracts if c["option_type"] == "call"]
+    all_puts  = [c for c in contracts if c["option_type"] == "put"]
 
-    if len(calls) < 2 or len(puts) < 2:
+    if len(all_calls) < 2 or len(all_puts) < 2:
         return {"error": "Not enough contracts for iron condor"}
 
-    # Short call spread: sell call ~5% OTM, buy call ~8% OTM (cap the upside risk)
-    target_short_call = price * 1.05
-    target_long_call  = price * 1.08
-    short_call_candidates = [c for c in calls if c["strike"] > price * 1.03]
-    long_call_candidates  = [c for c in calls if c["strike"] > price * 1.06]
-    if not short_call_candidates or not long_call_candidates:
-        return {"error": "No suitable call legs for condor"}
+    # Same-expiry enforcement: group by expiry and require all 4 legs from one expiry
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(lambda: {"calls": [], "puts": []})
+    for c in all_calls:
+        by_expiry[c["expiry"]]["calls"].append(c)
+    for p in all_puts:
+        by_expiry[p["expiry"]]["puts"].append(p)
 
-    short_call = min(short_call_candidates, key=lambda c: abs(c["strike"] - target_short_call))
-    long_call  = min(long_call_candidates,  key=lambda c: abs(c["strike"] - target_long_call))
+    valid_expiries = [
+        (exp, grp) for exp, grp in by_expiry.items()
+        if len(grp["calls"]) >= 2 and len(grp["puts"]) >= 2
+    ]
+    if not valid_expiries:
+        return {"error": "No single expiry has enough calls and puts for condor"}
 
-    # Short put spread: sell put ~5% OTM, buy put ~8% OTM
-    target_short_put = price * 0.95
-    target_long_put  = price * 0.92
-    short_put_candidates = [p for p in puts if p["strike"] < price * 0.97]
-    long_put_candidates  = [p for p in puts if p["strike"] < price * 0.94]
-    if not short_put_candidates or not long_put_candidates:
-        return {"error": "No suitable put legs for condor"}
+    # Prefer expiry closest to 30 DTE
+    valid_expiries.sort(key=lambda x: abs(
+        x[1]["calls"][0].get("days_to_expiry", 30) - 30
+    ))
 
-    short_put = min(short_put_candidates, key=lambda p: abs(p["strike"] - target_short_put))
-    long_put  = min(long_put_candidates,  key=lambda p: abs(p["strike"] - target_long_put))
+    best_result = None
+    for _, grp in valid_expiries:
+        calls = sorted(grp["calls"], key=lambda c: c["strike"])
+        puts  = sorted(grp["puts"],  key=lambda c: c["strike"], reverse=True)
 
-    # Net credit = sold premiums - bought premiums
-    call_credit = round(short_call.get("bid", 0) - long_call.get("ask", 0), 2)
-    put_credit  = round(short_put.get("bid", 0)  - long_put.get("ask", 0),  2)
-    net_credit  = round(call_credit + put_credit, 2)
+        # Short call: ~5% OTM
+        target_short_call = price * 1.05
+        short_call_candidates = [c for c in calls if c["strike"] > price * 1.03]
+        if not short_call_candidates:
+            continue
+        short_call = min(short_call_candidates, key=lambda c: abs(c["strike"] - target_short_call))
 
-    if net_credit <= 0:
-        return {"error": "Condor yields no credit — spreads too tight or pricing off"}
+        # Short put: ~5% OTM
+        target_short_put = price * 0.95
+        short_put_candidates = [p for p in puts if p["strike"] < price * 0.97]
+        if not short_put_candidates:
+            continue
+        short_put = min(short_put_candidates, key=lambda p: abs(p["strike"] - target_short_put))
 
-    spread_width = round(short_call["strike"] - long_call["strike"], 2)
-    max_loss_per = round((spread_width - net_credit) * 100, 2)
+        # Equal wing width: determine target wing width from call side, then match put side
+        # Target long call ~3% above short call
+        target_call_width = price * 0.03
+        long_call_candidates = [c for c in calls if c["strike"] > short_call["strike"]]
+        if not long_call_candidates:
+            continue
+        long_call = min(long_call_candidates, key=lambda c: abs((c["strike"] - short_call["strike"]) - target_call_width))
+        call_wing_width = long_call["strike"] - short_call["strike"]
+
+        # Match put wing width to call wing width for equal wings
+        target_long_put_strike = short_put["strike"] - call_wing_width
+        long_put_candidates = [p for p in puts if p["strike"] < short_put["strike"]]
+        if not long_put_candidates:
+            continue
+        long_put = min(long_put_candidates, key=lambda p: abs(p["strike"] - target_long_put_strike))
+
+        # Calculate credits
+        call_credit = round(short_call.get("bid", 0) - long_call.get("ask", 0), 2)
+        put_credit  = round(short_put.get("bid", 0)  - long_put.get("ask", 0),  2)
+        net_credit  = round(call_credit + put_credit, 2)
+
+        if net_credit <= 0:
+            continue
+
+        best_result = (short_call, long_call, short_put, long_put, net_credit)
+        break
+
+    if best_result is None:
+        return {"error": "No suitable legs for iron condor"}
+
+    short_call, long_call, short_put, long_put, net_credit = best_result
+
+    # Max loss = max(call_spread_width, put_spread_width) - net_credit
+    call_spread_width = round(long_call["strike"] - short_call["strike"], 2)
+    put_spread_width  = round(short_put["strike"] - long_put["strike"], 2)
+    wider_wing = max(call_spread_width, put_spread_width)
+    max_loss_per = round((wider_wing - net_credit) * 100, 2)
     max_profit   = round(net_credit * 100, 2)
 
     qty = min(3, max(1, int(equity * size_pct / max(max_loss_per, 1))))
 
-    return {
+    # Breakeven calculations
+    upper_be = round(short_call["strike"] + net_credit, 2)
+    lower_be = round(short_put["strike"] - net_credit, 2)
+
+    # EV calculation using short deltas as probability proxy
+    sc_delta = abs(short_call.get("delta", 0))
+    sp_delta = abs(short_put.get("delta", 0))
+
+    result = {
         "strategy": "iron_condor",
         "short_call": short_call["occ_symbol"],
         "long_call":  long_call["occ_symbol"],
@@ -910,16 +1084,35 @@ def _select_condor(contracts: list, price: float, equity: float, ticker: str, si
         "long_put":   long_put["occ_symbol"],
         "short_call_strike": short_call["strike"],
         "short_put_strike":  short_put["strike"],
+        "long_call_strike":  long_call["strike"],
+        "long_put_strike":   long_put["strike"],
         "expiry": short_call["expiry"],
         "qty": qty,
         "net_credit": net_credit,
         "total_credit": round(net_credit * qty * 100, 2),
         "max_profit": round(max_profit * qty, 2),
         "max_loss":   round(max_loss_per * qty, 2),
-        "profit_range": f"${short_put['strike']} to ${short_call['strike']}",
+        "upper_breakeven": upper_be,
+        "lower_breakeven": lower_be,
+        "profit_range": f"${lower_be:.2f} to ${upper_be:.2f} (short strikes ${short_put['strike']}-${short_call['strike']})",
+        "call_spread_width": call_spread_width,
+        "put_spread_width": put_spread_width,
+        "risk_reward": round(max_profit / max_loss_per, 2) if max_loss_per > 0 else 0,
         "days_to_expiry": short_call.get("days_to_expiry"),
         "error": None,
     }
+
+    if sc_delta > 0 or sp_delta > 0:
+        avg_short_delta = (sc_delta + sp_delta) / 2 if (sc_delta > 0 and sp_delta > 0) else max(sc_delta, sp_delta)
+        p_win = 1 - avg_short_delta
+        p_loss = 1 - p_win
+        ev = p_win * max_profit - p_loss * max_loss_per
+        result["ev"] = round(ev, 2)
+        result["win_probability"] = round(p_win * 100, 1)
+        if ev < 0:
+            result["ev_warning"] = "Negative expected value"
+
+    return result
 
 def submit_options_order(contract: dict) -> dict:
     """
