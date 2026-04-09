@@ -354,6 +354,263 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  MULTI-LEG STRATEGY MANAGEMENT (v1.0.33)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _close_strategy_mleg(legs: list, ticker: str) -> dict:
+    """
+    Close a multi-leg strategy using a single mleg order.
+    Each leg is reversed: bought legs are sold_to_close, sold legs are bought_to_close.
+    Falls back to individual leg closes if mleg fails.
+    """
+    mleg_legs = []
+    qty = 0
+
+    for pos in legs:
+        occ = pos.get("symbol", "")
+        pos_qty = abs(int(float(pos.get("qty", 0))))
+        side = pos.get("side", "long")
+
+        if pos_qty > qty:
+            qty = pos_qty
+
+        # Reverse the position
+        close_side = "sell" if side == "long" else "buy"
+        intent = "sell_to_close" if side == "long" else "buy_to_close"
+
+        mleg_legs.append({
+            "symbol": occ,
+            "side": close_side,
+            "ratio_qty": "1",
+            "position_intent": intent,
+        })
+
+    if not mleg_legs:
+        return {"status": "error", "detail": "No legs to close"}
+
+    # Try mleg close first
+    try:
+        payload = {
+            "order_class": "mleg",
+            "qty": str(max(qty, 1)),
+            "type": "market",  # Use market for closing to ensure execution
+            "time_in_force": "day",
+            "legs": mleg_legs,
+        }
+
+        resp = requests.post(
+            f"{ALPACA_BASE}/v2/orders",
+            headers={**_alpaca_headers(), "Content-Type": "application/json"},
+            json=payload,
+            timeout=15,
+        )
+
+        if resp.status_code in (200, 201):
+            order = resp.json()
+            return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg", "detail": f"mleg close: {len(mleg_legs)} legs"}
+    except Exception:
+        pass
+
+    # Fallback: close legs individually
+    results = []
+    for pos in legs:
+        occ = pos.get("symbol", "")
+        pos_qty = abs(int(float(pos.get("qty", 0))))
+        side = pos.get("side", "long")
+        close_side = "sell" if side == "long" else "buy"
+        current = abs(float(pos.get("current_price", 0)))
+
+        result = _submit_close_order(occ, pos_qty, close_side, current)
+        results.append(result)
+
+    return {"status": "submitted", "method": "individual_legs", "detail": f"Closed {len(results)} legs individually (mleg failed)", "leg_results": results}
+
+
+def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
+    """
+    Manage a multi-leg strategy as ONE unit.
+
+    Calculates combined P&L across all legs, then applies exit rules
+    to the WHOLE strategy, not individual legs.
+
+    Returns: list of actions taken
+    """
+    actions = []
+    legs = group["legs"]
+    strategy = group["strategy"]
+    ticker = group["ticker"]
+
+    if not legs:
+        return actions
+
+    # Calculate COMBINED P&L across all legs
+    total_entry_cost = 0
+    total_current_value = 0
+    total_unrealized_pnl = 0
+    min_dte = 999
+    all_occ_symbols = []
+
+    for pos in legs:
+        occ = pos.get("symbol", "")
+        all_occ_symbols.append(occ)
+        qty = abs(int(float(pos.get("qty", 0))))
+        side = pos.get("side", "long")
+        entry = abs(float(pos.get("avg_entry_price", 0)))
+        current = abs(float(pos.get("current_price", 0)))
+        pnl = float(pos.get("unrealized_pl", 0))
+
+        total_entry_cost += entry * qty * 100
+        total_current_value += current * qty * 100
+        total_unrealized_pnl += pnl
+
+        # Parse DTE from OCC symbol
+        parsed = _parse_occ_symbol(occ)
+        if parsed:
+            dte = _days_to_expiry(parsed["expiry_date"])
+            min_dte = min(min_dte, dte)
+
+    # Combined P&L percentage
+    if total_entry_cost > 0:
+        combined_pnl_pct = total_unrealized_pnl / total_entry_cost
+    else:
+        combined_pnl_pct = 0
+
+    # ── Exit Rule 1: CRITICAL DTE — Close entire strategy ─────────
+    if min_dte <= DTE_CRITICAL:
+        result = _close_strategy_mleg(legs, ticker)
+        actions.append({
+            "action": "CLOSE_STRATEGY",
+            "ticker": ticker,
+            "strategy": strategy,
+            "legs": all_occ_symbols,
+            "reason": f"CRITICAL DTE: {min_dte} days — closing entire {strategy}",
+            "type": "strategy_dte_critical",
+            "combined_pnl": round(total_unrealized_pnl, 2),
+            "order": result,
+        })
+        # Clean state
+        for occ in all_occ_symbols:
+            state.pop(occ, None)
+        return actions
+
+    # ── Exit Rule 2: PROFIT TARGET (50% for credit strategies) ────
+    is_credit_strategy = strategy in ("short_straddle", "iron_condor", "csp_normal_market")
+    is_debit_strategy = strategy in ("buy_straddle", "bull_call_spread", "bear_put_spread")
+
+    if is_credit_strategy and total_entry_cost > 0:
+        # For credit strategies: profit = credit received - cost to close
+        profit_pct = -combined_pnl_pct  # Flip sign for credit strategies
+        if profit_pct >= PROFIT_TARGET_PCT:
+            result = _close_strategy_mleg(legs, ticker)
+            actions.append({
+                "action": "CLOSE_STRATEGY",
+                "ticker": ticker,
+                "strategy": strategy,
+                "legs": all_occ_symbols,
+                "reason": f"PROFIT TARGET: {profit_pct:.0%} of max profit — closing {strategy}",
+                "type": "strategy_profit_target",
+                "combined_pnl": round(total_unrealized_pnl, 2),
+                "order": result,
+            })
+            for occ in all_occ_symbols:
+                state.pop(occ, None)
+            return actions
+
+    # ── Exit Rule 3: LOSS LIMIT ───────────────────────────────────
+    if is_credit_strategy and total_entry_cost > 0:
+        if combined_pnl_pct <= -LOSS_LIMIT_MULTIPLIER:  # Lost 2x credit
+            result = _close_strategy_mleg(legs, ticker)
+            actions.append({
+                "action": "CLOSE_STRATEGY",
+                "ticker": ticker,
+                "strategy": strategy,
+                "legs": all_occ_symbols,
+                "reason": f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting",
+                "type": "strategy_loss_limit",
+                "combined_pnl": round(total_unrealized_pnl, 2),
+                "order": result,
+            })
+            for occ in all_occ_symbols:
+                state.pop(occ, None)
+            return actions
+
+    if is_debit_strategy and total_entry_cost > 0:
+        if combined_pnl_pct <= -0.50:  # Lost 50% of debit
+            result = _close_strategy_mleg(legs, ticker)
+            actions.append({
+                "action": "CLOSE_STRATEGY",
+                "ticker": ticker,
+                "strategy": strategy,
+                "legs": all_occ_symbols,
+                "reason": f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting debit position",
+                "type": "strategy_loss_limit",
+                "combined_pnl": round(total_unrealized_pnl, 2),
+                "order": result,
+            })
+            for occ in all_occ_symbols:
+                state.pop(occ, None)
+            return actions
+
+    # ── Exit Rule 4: 21 DTE Management ────────────────────────────
+    if min_dte <= DTE_EXIT_THRESHOLD:
+        result = _close_strategy_mleg(legs, ticker)
+        actions.append({
+            "action": "CLOSE_STRATEGY",
+            "ticker": ticker,
+            "strategy": strategy,
+            "legs": all_occ_symbols,
+            "reason": f"21 DTE MANAGEMENT: {min_dte} DTE — closing {strategy}",
+            "type": "strategy_dte_exit",
+            "combined_pnl": round(total_unrealized_pnl, 2),
+            "order": result,
+        })
+        for occ in all_occ_symbols:
+            state.pop(occ, None)
+        return actions
+
+    # ── Exit Rule 5: SABR Edge Evaporation ────────────────────────
+    try:
+        from vol_surface import get_surface_score
+        surface = get_surface_score(ticker)
+        vrp = surface.get("vrp", {}).get("vrp_20d", 0)
+
+        # If we're selling premium but VRP flipped negative (options now cheap)
+        if is_credit_strategy and vrp < -0.03:
+            result = _close_strategy_mleg(legs, ticker)
+            actions.append({
+                "action": "CLOSE_STRATEGY",
+                "ticker": ticker,
+                "strategy": strategy,
+                "legs": all_occ_symbols,
+                "reason": f"EDGE EVAPORATED: VRP flipped to {vrp*100:.1f}% — premium selling edge gone",
+                "type": "sabr_edge_exit",
+                "combined_pnl": round(total_unrealized_pnl, 2),
+                "vrp": round(vrp * 100, 1),
+                "order": result,
+            })
+            for occ in all_occ_symbols:
+                state.pop(occ, None)
+            return actions
+
+        # If we're buying premium but VRP flipped positive (options now expensive)
+        if is_debit_strategy and vrp > 0.05:
+            # Don't auto-close, but flag the edge deterioration
+            actions.append({
+                "action": "WARNING",
+                "ticker": ticker,
+                "strategy": strategy,
+                "reason": f"EDGE WARNING: VRP at +{vrp*100:.1f}% — options expensive, debit position edge weakening",
+                "type": "sabr_edge_warning",
+                "vrp": round(vrp * 100, 1),
+            })
+    except Exception:
+        pass  # SABR is advisory
+
+    return actions
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN: manage_options_positions()
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -406,8 +663,55 @@ def manage_options_positions(equity: float = 100000) -> dict:
 
     positions_checked = 0
 
+    # ── Group multi-leg positions by strategy ─────────────────────────
+    # Read options state to identify which legs belong together
+    options_meta = {}
+    try:
+        meta_path = os.path.join(DATA_DIR, 'voltrade_options_state.json')
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                options_meta = json.load(f)
+    except Exception:
+        pass
+
+    # Group positions by underlying ticker + strategy
+    # All legs of the same strategy on the same ticker are managed as ONE unit
+    strategy_groups = {}  # {"KMI_buy_straddle": [pos1, pos2], ...}
+    standalone_positions = []  # Positions without a multi-leg group
+
+    for pos in options_positions:
+        occ = pos.get("symbol", "")
+        meta = options_meta.get(occ, {})
+        strategy = meta.get("strategy", "")
+        ticker = meta.get("ticker", "")
+
+        if strategy in ("buy_straddle", "short_straddle", "iron_condor",
+                         "bull_call_spread", "bear_put_spread"):
+            key = f"{ticker}_{strategy}"
+            if key not in strategy_groups:
+                strategy_groups[key] = {"legs": [], "strategy": strategy, "ticker": ticker, "setup": meta.get("setup", "")}
+            strategy_groups[key]["legs"].append(pos)
+        else:
+            standalone_positions.append(pos)
+
+    # ── Phase 1: Manage multi-leg strategy groups ─────────────────────
+    for group_key, group in strategy_groups.items():
+        group_actions = _manage_strategy_group(group, equity, state)
+        actions.extend(group_actions)
+        positions_checked += len(group["legs"])
+
+    # Remove grouped positions from consideration in Phase 2
+    grouped_symbols = set()
+    for group in strategy_groups.values():
+        for leg in group["legs"]:
+            grouped_symbols.add(leg.get("symbol", ""))
+
+    # ── Phase 2: Manage standalone positions ──────────────────────────
     for pos in options_positions:
         occ_symbol = pos.get("symbol", "")
+        if occ_symbol in grouped_symbols:
+            continue  # Already managed as part of a strategy group
+
         qty = abs(int(float(pos.get("qty", 0))))
         side = pos.get("side", "long")  # "long" = we bought, "short" = we sold
         entry_price = abs(float(pos.get("avg_entry_price", 0)))
