@@ -2195,7 +2195,16 @@ def _manage_spy_floor(macro: dict) -> dict:
         diff = target_value - current_spy_value
 
         # Only rebalance if >5% off target (avoid micro-trades)
-        if abs(diff) / equity < 0.05:
+        # Dynamic rebalance band:
+        # Regular hours (9:30-4:00): 5% band — avoid micro-trades during normal drift
+        # Extended hours (4am-9:30am, 4pm-8pm): 2% band — respond faster to overnight regime changes
+        # This means if the regime flips overnight (e.g., BEAR→BULL on tariff news),
+        # the bot starts buying QQQ in pre-market instead of waiting for market open
+        import datetime as _dt
+        _now = _dt.datetime.now(_dt.timezone.utc)
+        _et = ((_now.hour - 4) % 24) + _now.minute / 60.0
+        _band = 0.02 if (_et < 9.5 or _et >= 16.0) else 0.05
+        if abs(diff) / equity < _band:
             result["status"] = "within_band"
             return result
 

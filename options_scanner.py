@@ -160,13 +160,25 @@ def _headers() -> dict:
     return {"APCA-API-KEY-ID": _ALPACA_KEY, "APCA-API-SECRET-KEY": _ALPACA_SECRET}
 
 def _is_regular_hours() -> bool:
-    """True if within 9:30am–4:00pm ET."""
+    """True if within 9:30am-4:00pm ET."""
     try:
         now_utc = datetime.now(timezone.utc)
         et_hour = (now_utc.hour - 4) % 24
         et_min  = now_utc.minute
         et_time = et_hour + et_min / 60.0
         return 9.5 <= et_time < 16.0
+    except Exception:
+
+def _is_extended_hours() -> bool:
+    """True if within extended trading hours (4:00am-9:30am OR 4:00pm-8:00pm ET).
+    These windows allow limit-order options trading for setups that benefit
+    from pre/post-market positioning (earnings, panic, high IV)."""
+    try:
+        now_utc = datetime.now(timezone.utc)
+        et_hour = (now_utc.hour - 4) % 24
+        et_min  = now_utc.minute
+        et_time = et_hour + et_min / 60.0
+        return (4.0 <= et_time < 9.5) or (16.0 <= et_time < 20.0)
     except Exception:
         return False
 
@@ -524,7 +536,9 @@ def _setup_earnings_iv_crush(
         is theoretically unlimited on one side. We use iron condors (capped loss) for
         anything with a history of big moves.
     """
-    if not _is_regular_hours():
+    # Earnings IV crush works in extended hours — positioning before open
+    # captures the highest premium before the crowd arrives at 9:30
+    if not _is_regular_hours() and not _is_extended_hours():
         return None
     if vxx_ratio >= 1.30:
         return None  # Panic mode: don't add risk, market IV already elevated
@@ -641,7 +655,9 @@ def _setup_vxx_panic_put_sale(vxx_ratio: float, spy_vs_ma50: float) -> Optional[
       - If the market keeps crashing below our strike, we take a loss.
       - That's why we only do this when SPY is still above the MA (not a full bear).
     """
-    if not _is_regular_hours():
+    # VXX panic put sale works in extended hours — fear spikes often
+    # happen overnight, pre-market is the best time to sell overpriced puts
+    if not _is_regular_hours() and not _is_extended_hours():
         return None
     if vxx_ratio < 1.30:
         return None  # Not panicky enough
@@ -747,7 +763,9 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
       - Liquid options (OI > 1000 ATM)
       - NOT in a general panic (we don't want to add risk when everything is falling)
     """
-    if not _is_regular_hours():
+    # High IV premium selling works in extended hours — IV is often
+    # highest pre-market after overnight news/earnings
+    if not _is_regular_hours() and not _is_extended_hours():
         return None
     if vxx_ratio >= 1.25:
         return None  # Market-wide panic — individual stock IV is noise
