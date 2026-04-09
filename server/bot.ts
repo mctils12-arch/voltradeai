@@ -24,16 +24,23 @@ const ALPACA_KEY = process.env.ALPACA_KEY || "PKMDHJOVQEVIB4UHZXUYVTIDBU";
 const ALPACA_SECRET = process.env.ALPACA_SECRET || "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
 
 async function alpaca(path: string, opts: any = {}) {
-  const r = await fetch(`${ALPACA_BASE}${path}`, {
-    ...opts,
-    headers: {
-      "APCA-API-KEY-ID": ALPACA_KEY,
-      "APCA-API-SECRET-KEY": ALPACA_SECRET,
-      "Content-Type": "application/json",
-      ...opts.headers,
-    },
-  });
-  return r.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+  try {
+    const r = await fetch(`${ALPACA_BASE}${path}`, {
+      ...opts,
+      signal: controller.signal,
+      headers: {
+        "APCA-API-KEY-ID": ALPACA_KEY,
+        "APCA-API-SECRET-KEY": ALPACA_SECRET,
+        "Content-Type": "application/json",
+        ...opts.headers,
+      },
+    });
+    return r.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ─── Bot State ──────────────────────────────────────────────────────────────
@@ -56,14 +63,19 @@ const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_confi
 // The QQQ floor deploys 70-90% of equity — these safety nets MUST
 // be above that or they block the core strategy.
 
+// ─── ET Hour Helper (DST-aware) ───────────────────────────────────────────────
+function getETHour(): number {
+  // Proper ET that handles DST automatically (EST = UTC-5, EDT = UTC-4)
+  const now = new Date();
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  return et.getHours() + et.getMinutes() / 60;
+}
+
 // ─── Market Hours Helper ──────────────────────────────────────────────────────
 function getOrderParams(price: number): { type: string; limit_price?: string; time_in_force: string } {
   // Alpaca only supports market orders during regular hours (9:30am-4pm ET)
   // Extended hours require limit orders
-  const nowUTC = new Date();
-  const etHour = ((nowUTC.getUTCHours() - 4) + 24) % 24; // Approximate ET
-  const etMin = nowUTC.getUTCMinutes();
-  const etTime = etHour + etMin / 60;
+  const etTime = getETHour();
   const isRegularHours = etTime >= 9.5 && etTime < 16.0;
 
   if (isRegularHours) {
@@ -1591,8 +1603,7 @@ print(json.dumps(check_weekly_loss(history)))
 
       // 5. Execute trades or queue for morning
       // Cover intraday shorts at 3:50 PM (before 4 PM close)
-      const nowForShorts = new Date();
-      const etForShorts = ((nowForShorts.getUTCHours() - 4) + 24) % 24 + nowForShorts.getUTCMinutes() / 60;
+      const etForShorts = getETHour();
       if (isMarketOpen && etForShorts >= 15.83) { // 3:50 PM ET
         try {
           const { stdout: shortsOut } = await execAsync(
@@ -1623,6 +1634,16 @@ print(json.dumps(check_weekly_loss(history)))
     } catch (err: any) {
       console.error("[tier2-scan]", err?.message || err);
       audit("TIER2-ERROR", `Scan failed: ${String(err?.message || err).slice(0, 200)}`);
+    }
+
+    // Overnight/pre-market research: runs during 8pm-4am ET window
+    const _etHourNow = getETHour();
+    if (!isMarketOpen && (_etHourNow >= 20 || _etHourNow < 4)) {
+      try {
+        await runOvernightResearch(_etHourNow);
+      } catch (researchErr: any) {
+        audit("RESEARCH-ERROR", `Overnight research failed: ${String(researchErr?.message || researchErr).slice(0, 200)}`);
+      }
     }
   }
 
@@ -2158,7 +2179,7 @@ print('cleared')
       }
 
       // 4am ET: Daily ML retrain + reset daily state
-      if (etHour === 4) {
+      if (Math.floor(etHour) === 4) {
         // Clear daily blocked tickers and stop counters for new trading day
         (state as any).dailyBlockedTickers = [];
         state.consecutiveStopLosses = 0;
@@ -2371,23 +2392,20 @@ print(json.dumps({'files': count}))
 
   // TIER 2: Intelligence (adaptive interval based on market time)
   function getTier2Interval(): number {
-    const now = new Date();
-    const etHour = now.getUTCHours() - 4;
-    const etMin = now.getUTCMinutes();
-    const etTime = etHour + etMin / 60;
+    const etTime = getETHour();
 
-    // Market open rush (9:30-10:30 ET): scan every 2 minutes
-    if (etTime >= 9.5 && etTime < 10.5) return 120000;
-    // Mid-morning (10:30-12 ET): every 4 minutes
-    if (etTime >= 10.5 && etTime < 12) return 240000;
-    // Quiet midday (12-2pm ET): every 7 minutes — deeper analysis window
+    // Market open rush (9:30-10:30 ET): scan every 1 minute (matches system_config TIER2_OPEN_MS)
+    if (etTime >= 9.5 && etTime < 10.5) return 60000;
+    // Mid-morning (10:30-12 ET): every 3 minutes (matches system_config TIER2_MIDMORNING_MS)
+    if (etTime >= 10.5 && etTime < 12) return 180000;
+    // Quiet midday (12-2pm ET): every 7 minutes — deeper analysis window (matches system_config TIER2_MIDDAY_MS)
     if (etTime >= 12 && etTime < 14) return 420000;
-    // Power hour (2-4pm ET): every 3 minutes
-    if (etTime >= 14 && etTime < 16) return 180000;
+    // Power hour (2-4pm ET): every 2 minutes (matches system_config TIER2_POWER_HOUR_MS)
+    if (etTime >= 14 && etTime < 16) return 120000;
     // After hours (4-8pm ET): every 15 minutes — research only
     if (etTime >= 16 && etTime < 20) return 900000;
-    // Pre-market (4-9:30am ET): every 10 minutes
-    if (etTime >= 4 && etTime < 9.5) return 600000;
+    // Pre-market (4-9:30am ET): every 5 minutes (matches system_config TIER2_PREMARKET_MS)
+    if (etTime >= 4 && etTime < 9.5) return 300000;
     // Overnight: every 30 minutes
     return 1800000;
   }
@@ -2404,8 +2422,7 @@ print(json.dumps({'files': count}))
 
     try {
       const clock = await alpaca("/v2/clock");
-      const now = new Date(clock.timestamp);
-      const etH = now.getUTCHours() - 4;
+      const etH = getETHour();
       const isAnyWindow = clock.is_open || (etH >= 4 && etH < 20);
       if (!isAnyWindow) {
         setTimeout(scheduleTier2, getTier2Interval());
@@ -2568,8 +2585,7 @@ print(json.dumps({'files': count}))
     audit("SCHEDULE", `2am-4am ET: Pre-market report — compile morning trade list`);
 
     alpaca("/v2/clock").then((clock: any) => {
-      const now3 = new Date(clock.timestamp);
-      const etH3 = now3.getUTCHours() - 4;
+      const etH3 = getETHour();
       const canTrade = clock.is_open || (etH3 >= 4 && etH3 < 20);
 
       // Always start real-time streaming (works during and after market hours)
@@ -2595,10 +2611,10 @@ print(json.dumps({'files': count}))
     tier2Running = true;  // Lock BEFORE responding to prevent double-triggers
     res.json({ message: "Tier 2 intelligence scan starting..." });
     alpaca("/v2/clock").then(async (clock: any) => {
-      const etH = new Date(clock.timestamp).getUTCHours() - 4;
+      const etH = getETHour();
       try { await tier2Intelligence(clock.is_open, etH); } finally { tier2Running = false; }
     }).catch(async () => {
-      try { await tier2Intelligence(false, new Date().getUTCHours() - 4); } finally { tier2Running = false; }
+      try { await tier2Intelligence(false, getETHour()); } finally { tier2Running = false; }
     });
   });
 

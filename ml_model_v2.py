@@ -753,6 +753,10 @@ def train_model(fast_mode: bool = False) -> dict:
     else:
         return {"status": "failed", "reason": "No training data"}
 
+    # Normalize regime labels to lowercase to match training split expectations
+    # (bot_engine stores labels as UPPERCASE e.g. "NEUTRAL", training expects "neutral")
+    reg_all = [r.lower() for r in reg_all]
+
     # Fast mode: subsample to reduce memory on Railway
     if fast_mode and len(X_all) > 10000:
         rng = np.random.RandomState(42)

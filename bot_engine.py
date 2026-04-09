@@ -46,6 +46,12 @@ import subprocess
 import requests
 import numpy as np
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+def _et_now_hour() -> float:
+    """Return current ET hour (fractional), DST-aware."""
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    return now_et.hour + now_et.minute / 60.0
 
 # ── Persistent storage path (Railway volume or /tmp locally) ─────────────────
 try:
@@ -953,10 +959,10 @@ except Exception as e:
         "leveraged_bull": rec.get("leveraged_bull") if rec else None,
         "leveraged_bear": rec.get("leveraged_bear") if rec else None,
         # Full 52-feature snapshot at entry time (for ML exit model training)
-        "entry_features": ml_features if 'ml_features' in dir() else None,
+        "entry_features": ml_features if 'ml_features' in locals() else None,
         # Score attribution (exposed at scan level via stock.get())
-        "rules_only_score": combined_score if 'combined_score' in dir() else None,
-        "ml_only_score": ml_s if 'ml_s' in dir() else None,
+        "rules_only_score": combined_score,  # Always defined by line 776 before this return
+        "ml_only_score": ml_s if 'ml_s' in locals() else None,
     }
 
 # ── Correlation / Sector Check ───────────────────────────────────────────────
@@ -1344,8 +1350,9 @@ def scan_market():
             snap_all.update(snap_data)
 
     quick_results = []
-    _et_hour = (datetime.now(__import__("datetime").timezone.utc).hour - 4 + 24) % 24
-    _et_min  = datetime.now(__import__("datetime").timezone.utc).minute
+    _et_now = datetime.now(ZoneInfo("America/New_York"))
+    _et_hour = _et_now.hour
+    _et_min  = _et_now.minute
     _min_vol = 100_000 if (_et_hour == 9 and _et_min < 60) else MIN_VOLUME
 
     all_tickers = list(snap_all.keys())  # For scanned count
@@ -1556,11 +1563,10 @@ def scan_market():
         # Sector quality filter — 3-year backtest confirmed these destroy returns
         # Gaming (DKNG, RBLX): 25% WR over 3 years  | Leveraged ETFs: 22% WR
         # Travel (ABNB, DASH): 20% WR               | These are structural drags
-        _BLOCKED_TICKERS = {
-            "DKNG", "RBLX",            # Gaming — 25% win rate over 3 years
-            "SQQQ", "TQQQ", "SPXU", "UPRO", "UVXY",  # Leveraged ETFs — 22% WR
-            "ABNB", "DASH",            # Travel — 20% WR
-            "LYFT", "UBER",            # Ride-share — consistent underperformers
+        # Consolidated from system_config.BASE_CONFIG["BLOCKED_TICKERS"] — single source of truth
+        _cfg_blocked = set(BASE_CONFIG.get("BLOCKED_TICKERS", []))
+        _BLOCKED_TICKERS = _cfg_blocked | {
+            "UBER",  # Ride-share — consistent underperformer (not in system_config by design)
         }
         if ticker in _BLOCKED_TICKERS:
             continue  # Skip — 3-year backtest shows these hurt more than they help
@@ -2008,7 +2014,12 @@ def _run_third_leg(macro: dict) -> dict:
         # When VXX elevated (1.05-1.25) AND declining: sell volatility
         # Implementation: buy SVXY (inverse VXX ETF) — goes up when VXX falls
         # Simpler than options straddles, trackable as a regular stock position
-        if LEG3_VRP_PCT > 0 and 1.05 <= vxx_ratio <= 1.25:
+        # Capital budget check: ensure we don't exceed 100% total deployment
+        total_deployed = sum(float(p.get("market_value", 0)) for p in positions_raw) / equity if equity > 0 else 0.0
+        remaining_capacity = max(0.0, 1.0 - total_deployed)
+        # Scale VRP allocation by remaining capacity (cap at 60% of remaining)
+        vrp_pct = min(LEG3_VRP_PCT, remaining_capacity * 0.6)
+        if vrp_pct > 0 and 1.05 <= vxx_ratio <= 1.25:
             # Check VXX trend: fetch last 5 days
             vxx_r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
                 params={"symbols":"VXX","timeframe":"1Day","limit":6,"feed":"sip"},
@@ -2023,7 +2034,7 @@ def _run_third_leg(macro: dict) -> dict:
                     params={"symbols":"SVXY","feed":"sip"}, headers=headers, timeout=8)
                 svxy_price = float(svxy_r.json().get("SVXY",{}).get("latestTrade",{}).get("p", 0) or 0)
                 if svxy_price > 0:
-                    alloc  = equity * LEG3_VRP_PCT
+                    alloc  = equity * vrp_pct
                     shares = int(alloc / svxy_price)
                     if shares > 0 and alloc > 100:
                         order = {
@@ -2124,9 +2135,9 @@ def _run_third_leg(macro: dict) -> dict:
     return {
         "actions":   actions,
         "status":    "ok",
-        "regime":    regime if 'regime' in dir() else "unknown",
-        "vrp_on":    LEG3_VRP_PCT > 0 if 'LEG3_VRP_PCT' in dir() else False,
-        "sector_on": LEG3_SECTOR_PCT > 0 if 'LEG3_SECTOR_PCT' in dir() else False,
+        "regime":    regime if 'regime' in locals() else "unknown",
+        "vrp_on":    vrp_pct > 0 if 'vrp_pct' in locals() else False,
+        "sector_on": bool(sector_assets) if 'sector_assets' in locals() else False,
     }
 
 
@@ -2217,9 +2228,7 @@ def _manage_spy_floor(macro: dict) -> dict:
         # Extended hours (4am-9:30am, 4pm-8pm): 2% band — respond faster to overnight regime changes
         # This means if the regime flips overnight (e.g., BEAR→BULL on tariff news),
         # the bot starts buying QQQ in pre-market instead of waiting for market open
-        import datetime as _dt
-        _now = _dt.datetime.now(_dt.timezone.utc)
-        _et = ((_now.hour - 4) % 24) + _now.minute / 60.0
+        _et = _et_now_hour()
         _band = 0.02 if (_et < 9.5 or _et >= 16.0) else 0.05
         if abs(diff) / equity < _band:
             result["status"] = "within_band"

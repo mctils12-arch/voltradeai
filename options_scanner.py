@@ -53,6 +53,7 @@ import time
 import logging
 import requests
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, List, Dict, Any
 
@@ -148,7 +149,7 @@ def _build_setup_features(
 _ALPACA_KEY    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
 _ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
 ALPACA_DATA    = "https://data.alpaca.markets"
-ALPACA_TRADE   = "https://api.alpaca.markets"
+ALPACA_TRADE   = "https://paper-api.alpaca.markets"  # Use paper endpoint — never live
 
 # ── Finnhub for earnings calendar ─────────────────────────────────────────────
 FINNHUB_KEY = os.environ.get("FINNHUB_KEY", "d78tj7hr01qp0fl6fo2gd78tj7hr01qp0fl6fo30")
@@ -159,27 +160,16 @@ DATA_DIR = os.environ.get("VOLTRADE_DATA_DIR", "/data/voltrade")
 def _headers() -> dict:
     return {"APCA-API-KEY-ID": _ALPACA_KEY, "APCA-API-SECRET-KEY": _ALPACA_SECRET}
 
+def _et_now_hour() -> float:
+    """Return current ET hour (with fractional minutes), DST-aware."""
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    return now_et.hour + now_et.minute / 60.0
+
 def _is_regular_hours() -> bool:
     """True if within 9:30am-4:00pm ET."""
     try:
-        now_utc = datetime.now(timezone.utc)
-        et_hour = (now_utc.hour - 4) % 24
-        et_min  = now_utc.minute
-        et_time = et_hour + et_min / 60.0
+        et_time = _et_now_hour()
         return 9.5 <= et_time < 16.0
-    except Exception:
-        return False
-
-def _is_extended_hours() -> bool:
-    """True if within extended trading hours (4:00am-9:30am OR 4:00pm-8:00pm ET).
-    These windows allow limit-order options trading for setups that benefit
-    from pre/post-market positioning (earnings, panic, high IV)."""
-    try:
-        now_utc = datetime.now(timezone.utc)
-        et_hour = (now_utc.hour - 4) % 24
-        et_min  = now_utc.minute
-        et_time = et_hour + et_min / 60.0
-        return (4.0 <= et_time < 9.5) or (16.0 <= et_time < 20.0)
     except Exception:
         return False
 
