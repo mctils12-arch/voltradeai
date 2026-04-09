@@ -14,6 +14,22 @@ Usage:
   python3 bot_engine.py full          # Full cycle: scan + decide + recommend
 """
 
+def _compute_stock_iv_rank(ticker: str, closes: list) -> float:
+    """Per-stock IV rank from its own 30-day HV vs 52-week range.
+    Uses price data already fetched by deep_score — no extra API call."""
+    try:
+        import numpy as _np
+        if len(closes) < 50: return 50.0
+        rets = [_np.log(closes[i]/closes[i-1]) for i in range(1,len(closes)) if closes[i-1]>0]
+        if len(rets) < 30: return 50.0
+        hvs = [_np.std(rets[max(0,i-30):i])*_np.sqrt(252)*100 for i in range(30,len(rets))]
+        if not hvs: return 50.0
+        cur=hvs[-1]; lo=min(hvs); hi=max(hvs)
+        return round((cur-lo)/(hi-lo)*100, 1) if hi>lo else 50.0
+    except Exception:
+        return 50.0
+
+
 # ── Constrain thread-hungry libraries BEFORE any imports ──────────────────────
 # OpenBLAS (numpy) defaults to 32 threads — kills Railway's container.
 # 2 threads is plenty for the math we do (scoring, position sizing).
@@ -809,7 +825,8 @@ except Exception as e:
             "float_turnover":       _float_turnover,  # volume intensity
             # Options/volatility (3)
             "vrp":                  vrp or 0,
-            "iv_rank_proxy":        detail.get("iv_rank", 50) or 50,
+            # Per-stock IV rank from own HV history (not VXX proxy)
+            "iv_rank_proxy":        _compute_stock_iv_rank(ticker, closes_30d) if closes_30d else 50,
             "atr_pct":              _atr_pct,  # actual ATR% from daily bars
             # Regime (5) — wired to Markov + VXX ratio
             "vxx_ratio":            intel.get("vxx_ratio", 1.0) if intel else 1.0,

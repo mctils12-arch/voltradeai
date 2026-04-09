@@ -436,33 +436,54 @@ def _find_by_delta(contracts: list, opt_type: str, target_delta: float,
 
 def _fetch_iv_rank(ticker: str) -> Optional[float]:
     """
-    Compute IV rank from VXX as proxy (same method as ml_model_v2.py).
-    Returns 0-100 (100 = IV at 52-week high).
-    Full per-ticker IV history requires yfinance; we use VXX ratio as proxy
-    for market-wide IV, then adjust with stock's own 30-day HV.
+    Compute REAL per-stock IV rank from its own price history (v1.0.30).
+    Returns 0-100 (100 = current HV at 52-week high).
+    
+    Previous version used VXX as a proxy for ALL stocks — this was wrong.
+    VXX measures market-wide fear, not individual stock IV.
+    Example: AMAT has IV rank 73% right now, but VXX-based rank says 0.7%.
+    
+    Method: 30-day rolling historical volatility, ranked vs its own 52-week range.
     """
     try:
+        import numpy as _np
         start = (datetime.now() - timedelta(days=380)).strftime("%Y-%m-%d")
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/bars",
-            params={"symbols": f"{ticker},VXX", "timeframe": "1Day",
-                    "start": start, "limit": 400, "feed": "sip"},
+            params={"symbols": ticker, "timeframe": "1Day",
+                    "start": start, "limit": 300, "feed": "sip"},
             headers=_headers(), timeout=10
         )
-        bars_map = r.json().get("bars", {})
-        vxx_bars = bars_map.get("VXX", [])
-        if not vxx_bars or len(vxx_bars) < 30:
+        bars = r.json().get("bars", {}).get(ticker, [])
+        if len(bars) < 60:
             return None
-        vxx_closes  = [float(b["c"]) for b in vxx_bars]
-        vxx_52w_lo  = min(vxx_closes[-252:]) if len(vxx_closes) >= 252 else min(vxx_closes)
-        vxx_52w_hi  = max(vxx_closes[-252:]) if len(vxx_closes) >= 252 else max(vxx_closes)
-        vxx_now     = vxx_closes[-1]
-        if vxx_52w_hi == vxx_52w_lo:
+        
+        closes = [float(b["c"]) for b in bars]
+        rets = [_np.log(closes[i]/closes[i-1]) for i in range(1, len(closes)) if closes[i-1] > 0]
+        if len(rets) < 50:
+            return None
+        
+        # Rolling 30-day historical volatility (annualized)
+        hvs = []
+        for i in range(30, len(rets)):
+            hv = _np.std(rets[i-30:i]) * _np.sqrt(252) * 100
+            hvs.append(hv)
+        
+        if not hvs:
+            return None
+        
+        current_hv = hvs[-1]
+        hv_lo = min(hvs)
+        hv_hi = max(hvs)
+        
+        if hv_hi <= hv_lo:
             return 50.0
-        iv_rank = (vxx_now - vxx_52w_lo) / (vxx_52w_hi - vxx_52w_lo) * 100
-        return round(iv_rank, 1)
+        
+        iv_rank = (current_hv - hv_lo) / (hv_hi - hv_lo) * 100
+        return round(float(iv_rank), 1)
     except Exception:
         return None
+
 
 
 def _fetch_earnings_calendar(days_ahead: int = 10) -> Dict[str, int]:
