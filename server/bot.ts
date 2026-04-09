@@ -72,18 +72,59 @@ function getETHour(): number {
 }
 
 // ─── Market Hours Helper ──────────────────────────────────────────────────────
-function getOrderParams(price: number): { type: string; limit_price?: string; time_in_force: string } {
-  // Alpaca only supports market orders during regular hours (9:30am-4pm ET)
-  // Extended hours require limit orders
+type OrderContext = 'stop_loss' | 'trailing_stop' | 'take_profit' | 'new_entry' | 'options_entry' | 'options_exit';
+
+function getOrderParams(
+  price: number,
+  context: OrderContext = 'new_entry'
+): { type: string; limit_price?: string; time_in_force: string } {
   const etTime = getETHour();
   const isRegularHours = etTime >= 9.5 && etTime < 16.0;
 
-  if (isRegularHours) {
-    return { type: "market", time_in_force: "day" };
-  } else {
-    // Extended hours: limit order at current ask + 0.5% to ensure fill
-    const limitPrice = Math.round(price * 1.005 * 100) / 100;
+  // Options: ALWAYS limit, no exceptions (wide bid-ask spreads)
+  if (context === 'options_entry' || context === 'options_exit') {
+    const limitPrice = Math.round(price * 100) / 100;
     return { type: "limit", limit_price: String(limitPrice), time_in_force: "day" };
+  }
+
+  if (isRegularHours) {
+    switch (context) {
+      case 'stop_loss':
+      case 'trailing_stop':
+        // Speed matters — get out NOW. A limit that doesn't fill while price drops is catastrophic.
+        return { type: "market", time_in_force: "day" };
+      case 'take_profit': {
+        // Not in a rush — want the exact target price
+        const tpPrice = Math.round(price * 100) / 100;
+        return { type: "limit", limit_price: String(tpPrice), time_in_force: "day" };
+      }
+      case 'new_entry':
+      default: {
+        // Limit at ask + 0.1% — fill priority while capping worst case
+        const entryPrice = Math.round(price * 1.001 * 100) / 100;
+        return { type: "limit", limit_price: String(entryPrice), time_in_force: "day" };
+      }
+    }
+  } else {
+    // Extended hours (4am-9:30am, 4pm-8pm ET): Alpaca requires limit orders
+    switch (context) {
+      case 'stop_loss':
+      case 'trailing_stop': {
+        // Bid - 0.5% to ensure fill in thin liquidity
+        const stopPrice = Math.round(price * 0.995 * 100) / 100;
+        return { type: "limit", limit_price: String(stopPrice), time_in_force: "day" };
+      }
+      case 'take_profit': {
+        const tpPrice = Math.round(price * 100) / 100;
+        return { type: "limit", limit_price: String(tpPrice), time_in_force: "day" };
+      }
+      case 'new_entry':
+      default: {
+        // Ask + 0.5% — wider buffer for thinner extended hours liquidity
+        const entryPrice = Math.round(price * 1.005 * 100) / 100;
+        return { type: "limit", limit_price: String(entryPrice), time_in_force: "day" };
+      }
+    }
   }
 }
 
@@ -931,6 +972,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
     if (!ticker) return res.status(400).json({ error: "ticker required" });
     try {
       await alpaca(`/v2/positions/${String(ticker).toUpperCase()}`, { method: "DELETE" });
+      removePositionFromMonitor(String(ticker).toUpperCase());
       audit("CLOSE", `Closed position in ${ticker}`);
       notify("trade", `Position closed: ${ticker}`);
       res.json({ ok: true });
@@ -1328,6 +1370,8 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
         } catch (err: any) { console.error("[bot]", err?.message || err); }
 
         slotsUsed++;
+        // Auto-subscribe for real-time exit monitoring
+        addPositionToMonitor(trade.ticker, trade.side === "short" ? "short" : "long", trade.price || 0, Math.floor(trade.shares));
       } catch (e: any) {
         audit("MORNING-ERROR", `Failed: ${trade.ticker} — ${e.message}`);
       }
@@ -1345,95 +1389,42 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
   let autoRunning = false; // used by runOvernightResearch
   let lastScanResult: any = null;
 
-  // ── Tier 1: Reflex — positions, stops, order execution (45s) ──────────────
+  // ── Tier 1: Reflex — order management, morning queue (45s) ─────────────────
+  // NOTE: Position monitoring (stops, trailing stops, take-profits) has been
+  // moved to the WebSocket handler for real-time, event-driven exits.
+  // Tier 1 only handles: stale orders, morning queue, trade tracking, and
+  // syncing the position monitor's stop state.
 
   async function tier1Reflex() {
     try {
       // 1. Sweep stale orders
       await sweepStaleOrders();
 
-      // 2. Check positions — apply stop-losses via bot_engine
-      const { stdout } = await execAsync(`python3 -c "
+      // 2. Sync position monitor stop state from bot_engine (refreshes ATR/phases)
+      //    This keeps the WS monitor's levels accurate without blocking exits.
+      try {
+        const { stdout } = await execAsync(`python3 -c "
 from bot_engine import manage_positions
 import json
 result = manage_positions()
 print(json.dumps(result))
 "`, { timeout: 15000 });
-
-      const mgmt = JSON.parse(stdout.trim());
-
-      // 3. Execute position actions (close on stop-loss/take-profit)
-      for (const action of (mgmt.actions || [])) {
-        try {
-          await alpaca(`/v2/positions/${action.ticker}`, { method: "DELETE" });
-          audit("TIER1-EXIT", `${action.reason}`);
-          notify("exit", `Closed ${action.ticker}: ${action.reason}`);
-
-          // Write stop-loss cooldown directly — prevents re-entering a stopped ticker for 2 hours
-          // This runs in bot.ts (not bot_engine) so it fires even if Python has a path issue
-          if (action.type === "stop_loss" || action.type === "trailing_stop") {
-            try {
-              await execAsync(`python3 -c "
-import json, os, time
-DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
-cd_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
-try:
-    with open(cd_path) as f: cd = json.load(f)
-except: cd = {}
-cd['${action.ticker}'] = time.time()
-cd = {k: v for k, v in cd.items() if time.time() - v < 86400}
-with open(cd_path, 'w') as f: json.dump(cd, f)
-"`, { timeout: 5000 });
-            } catch (_) {} // Non-fatal — bot_engine also writes it
+        const mgmt = JSON.parse(stdout.trim());
+        // Bot_engine may still compute actions — but we do NOT execute them here.
+        // The WS handler fires exits in real-time. We only use this to refresh
+        // the on-disk stop_state.json which syncMonitoredPositions() reads.
+        // Log if bot_engine found something the WS monitor should have caught
+        for (const action of (mgmt.actions || [])) {
+          if (monitoredPositions[action.ticker]) {
+            audit("POS-MONITOR-SYNC", `bot_engine flagged ${action.ticker} (${action.type}) — WS monitor should handle`);
           }
-
-          // Smart circuit breaker — context-aware, not just counting
-          if (action.type === "stop_loss" || action.type === "trailing_stop") {
-            state.consecutiveStopLosses++;
-            // Track which tickers triggered stops
-            if (!Array.isArray((state as any).recentStopTickers)) (state as any).recentStopTickers = [];
-            (state as any).recentStopTickers.push(action.ticker);
-            if ((state as any).recentStopTickers.length > 5) (state as any).recentStopTickers.shift();
-
-            if (state.consecutiveStopLosses >= 3) {
-              const recentTickers: string[] = (state as any).recentStopTickers || [];
-              const uniqueTickers = new Set(recentTickers.slice(-3)).size;
-              const dailyLossHit = state.dailyPnL / (state.equityPeak || 100000) * 100 <= -5;
-
-              if (dailyLossHit) {
-                // 3 stops + already down 5%+ today → pause rest of day
-                const msUntilClose = (() => {
-                  const now = new Date();
-                  const close = new Date(now); close.setHours(20, 0, 0, 0); // 4pm ET = 8pm UTC
-                  return Math.max(close.getTime() - now.getTime(), 3600000);
-                })();
-                state.circuitBreakerUntil = Date.now() + msUntilClose;
-                sendEmailAlert("Circuit Breaker — Day Halted", `3 stops + down ${(state.dailyPnL / (state.equityPeak || 100000) * 100).toFixed(1)}% today. Trading paused for rest of day.`);
-                audit("CIRCUIT-BREAKER", `3 stops + -5%+ day loss — paused rest of day`);
-                notify("alert", "Circuit breaker: Down 5%+ with 3 stops. Paused for the day.");
-              } else if (uniqueTickers >= 2) {
-                // 3 stops across 2+ different tickers → market is broadly against us, pause 1 hour
-                state.circuitBreakerUntil = Date.now() + 3600000;
-                sendEmailAlert("Circuit Breaker Triggered", `3 stops across ${uniqueTickers} different tickers — market conditions unfavorable. Paused 1 hour.`);
-                audit("CIRCUIT-BREAKER", `3 stops on ${[...new Set(recentTickers.slice(-3))].join(", ")} — broad market issue, paused 1 hour`);
-                notify("alert", "Circuit breaker: 3 stops on different stocks. Paused 1 hour.");
-              } else {
-                // 3 stops on SAME ticker → block that ticker for the day, don't pause everything
-                const blockedTicker = recentTickers[recentTickers.length - 1];
-                if (!Array.isArray((state as any).dailyBlockedTickers)) (state as any).dailyBlockedTickers = [];
-                (state as any).dailyBlockedTickers.push(blockedTicker);
-                state.consecutiveStopLosses = 0; // Reset — not a broad market issue
-                audit("TICKER-BLOCKED", `${blockedTicker}: 3 stops on same ticker — blocked for today, trading continues`);
-                notify("alert", `${blockedTicker} blocked for today after 3 stops. Bot continues trading other stocks.`);
-              }
-            }
-          } else if (action.type === "take_profit") {
-            state.consecutiveStopLosses = 0;
-          }
-        } catch (err: any) {
-          console.error("[tier1-exit]", err?.message || err);
         }
+      } catch (err: any) {
+        console.error("[tier1-sync]", err?.message || err);
       }
+
+      // 3. Refresh monitored positions from Alpaca + stop state
+      await syncMonitoredPositions();
 
       // 4. Execute morning queue on first market-open cycle
       const clockT1 = await alpaca("/v2/clock");
@@ -1750,6 +1741,7 @@ print(json.dumps(check_weekly_loss(history)))
             notify("trade", `ETF: ${etfShares} ${etfTicker} (2x ${trade.ticker})`);
             slotsUsed++;
             totalDeployed += etfShares * trade.price; // Approximate
+            addPositionToMonitor(etfTicker, trade.side === "short" ? "short" : "long", trade.price || 0, etfShares);
             continue;
           } catch (etfErr: any) {
             audit("ETF-FALLBACK", `${etfTicker} order failed: ${etfErr?.message?.slice(0, 100)} — falling back to stock`);
@@ -1779,6 +1771,8 @@ print(json.dumps(check_weekly_loss(history)))
               notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${trade.options_edge_pct?.toFixed(1)}%)`);
               slotsUsed++;
               totalDeployed += optExec.contract?.max_cost || trade.position_value;
+              // Options positions use the OCC symbol but monitor via underlying ticker
+              addPositionToMonitor(trade.ticker, trade.side === "short" ? "short" : "long", trade.price || 0, trade.shares || 1);
               continue; // Skip stock execution
             } else if (optExec.instrument === "options" && optExec.order?.status === "error") {
               audit("OPTIONS-FALLBACK", `${trade.ticker}: ${optExec.order.detail?.slice(0, 150)} — falling back to stock`);
@@ -1824,10 +1818,11 @@ print(json.dumps(check_weekly_loss(history)))
         // Log with sizing details
         const sizingInfo = trade.sizing_reasoning ? ` | Sizing: ${trade.sizing_reasoning.slice(0, 150)}` : "";
         const scoreAttrib = trade.rules_score != null ? ` | Rules: ${trade.rules_score} ML: ${trade.ml_score_raw ?? 'N/A'} Blend: ${trade.score}` : "";
-        audit("TRADE", `MARKET ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score}${scoreAttrib} | $${trade.position_value} (${((trade.position_value / equity) * 100).toFixed(1)}%)${sizingInfo}`);
+        audit("TRADE", `${orderParams.type.toUpperCase()} ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score}${scoreAttrib} | $${trade.position_value} (${((trade.position_value / equity) * 100).toFixed(1)}%)${sizingInfo}`);
         notify("trade", `${side.toUpperCase()} ${qty} ${trade.ticker} @ $${trade.price} (${((trade.position_value / equity) * 100).toFixed(1)}% of portfolio)`);
         slotsUsed++;
         totalDeployed += trade.position_value;
+        addPositionToMonitor(trade.ticker, isShort ? "short" : "long", trade.price || 0, qty);
 
         // Collect order for batch confirmation
         if (orderId) {
@@ -1970,6 +1965,7 @@ print(json.dumps(run_diagnostics()))
       if (betterPick) {
         try {
           await alpaca(`/v2/positions/${candidate.ticker}`, { method: "DELETE" });
+          removePositionFromMonitor(candidate.ticker);
           audit("UPGRADE", `Sold ${candidate.ticker} → upgrading to ${betterPick.ticker} (score ${betterPick.score})`);
           notify("upgrade", `Upgraded: sold ${candidate.ticker} → buying ${betterPick.ticker}`);
           betterPick._consumed = true;
@@ -1980,6 +1976,7 @@ print(json.dumps(run_diagnostics()))
               method: "POST",
               body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: betterPick.side === "short" ? "sell" : "buy", ...getOrderParams(betterPick.price || 0) }),
             });
+            addPositionToMonitor(betterPick.ticker, betterPick.side === "short" ? "short" : "long", betterPick.price || 0, upgradeQty);
           }
         } catch (e: any) { audit("UPGRADE-ERROR", `Failed to upgrade: ${e.message}`); }
       }
@@ -2279,6 +2276,344 @@ print(json.dumps({'files': count}))
   let   streamWs: WebSocket | null = null;
   let   streamConnected = false;
 
+  // ── WebSocket-Driven Position Monitor ──────────────────────────────────────
+  // Tracks open positions with their stop/target levels. When a price tick
+  // arrives for an owned stock, immediately evaluate exits — no waiting for
+  // the scanner cycle.
+  interface MonitoredPosition {
+    ticker: string;
+    side: 'long' | 'short';
+    entryPrice: number;
+    qty: number;
+    phase: number;
+    initialRiskPct: number;
+    highestPnl: number;
+    currentStopPct: number;
+    tpPct: number;
+    entryDate: string;
+    lastCheckedPrice: number;
+  }
+
+  const monitoredPositions: Record<string, MonitoredPosition> = {};
+  let positionMonitorInitialized = false;
+  // Tracks tickers we've subscribed to for position monitoring (not in STREAM_TICKERS)
+  const positionSubscribedTickers: Set<string> = new Set();
+
+  /**
+   * Load positions + stop state from Alpaca + disk, build the monitoredPositions map.
+   * Called on startup and periodically to stay in sync.
+   */
+  async function syncMonitoredPositions() {
+    try {
+      const positions = await alpaca("/v2/positions");
+      if (!Array.isArray(positions)) return;
+
+      // Load stop state from disk (same file bot_engine writes)
+      let stopState: Record<string, any> = {};
+      try {
+        const { stdout } = await execAsync(`python3 -c "
+import json, os
+DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+p = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
+try:
+    with open(p) as f: print(json.dumps(json.load(f)))
+except: print('{}')
+"`, { timeout: 5000 });
+        stopState = JSON.parse(stdout.trim());
+      } catch (_) {}
+
+      const MANAGED_TICKERS = new Set(["QQQ", "SVXY", "ITA", "SPY", "GLD", "XOM", "LMT"]);
+      const activeTickers = new Set<string>();
+
+      for (const pos of positions) {
+        const ticker = pos.symbol || "";
+        if (MANAGED_TICKERS.has(ticker)) continue;
+
+        activeTickers.add(ticker);
+        const current = parseFloat(pos.current_price || "0");
+        const entry = parseFloat(pos.avg_entry_price || String(current));
+        const pnlPct = parseFloat(pos.unrealized_plpc || "0") * 100;
+        const qty = Math.abs(parseInt(pos.qty || "0"));
+        const side = pos.side === "short" ? "short" as const : "long" as const;
+
+        // Read stop state for this ticker
+        const ps = stopState[ticker] || {};
+        const atrPct = ps.current_stop_pct ? ps.current_stop_pct : 2.0;
+        const initialRiskPct = ps.initial_risk_pct || atrPct * 2.0;
+        const highestPnl = Math.max(ps.highest_pnl || 0, pnlPct);
+        const peakR = initialRiskPct > 0 ? highestPnl / initialRiskPct : 0;
+        const phase = ps.phase || (peakR >= 3 ? 4 : peakR >= 2 ? 3 : peakR >= 1 ? 2 : 1);
+
+        // Compute stop and TP levels
+        let stopPct: number;
+        if (peakR >= 3) stopPct = highestPnl * 0.50;
+        else if (peakR >= 2) stopPct = Math.max(1.0, atrPct * 1.0);
+        else if (peakR >= 1) stopPct = Math.max(1.5, atrPct * 1.5);
+        else stopPct = Math.max(1.5, Math.min(atrPct * 2.0, 8.0));
+
+        const tpPct = phase < 3 ? Math.max(4.0, Math.min(atrPct * 3.0, 15.0)) : 999;
+
+        monitoredPositions[ticker] = {
+          ticker, side, entryPrice: entry, qty, phase,
+          initialRiskPct, highestPnl, currentStopPct: stopPct, tpPct,
+          entryDate: ps.entry_date || new Date().toISOString().split("T")[0],
+          lastCheckedPrice: current,
+        };
+      }
+
+      // Remove positions that are no longer held
+      for (const ticker of Object.keys(monitoredPositions)) {
+        if (!activeTickers.has(ticker)) {
+          delete monitoredPositions[ticker];
+          // Unsubscribe if we added it for monitoring
+          if (positionSubscribedTickers.has(ticker)) {
+            positionSubscribedTickers.delete(ticker);
+            if (streamWs && streamConnected) {
+              try { streamWs.send(JSON.stringify({ action: "unsubscribe", bars: [ticker] })); } catch (_) {}
+            }
+          }
+        }
+      }
+
+      // Auto-subscribe to position tickers not already in STREAM_TICKERS
+      const streamSet = new Set(STREAM_TICKERS);
+      const toSubscribe: string[] = [];
+      Array.from(activeTickers).forEach((ticker) => {
+        if (!streamSet.has(ticker) && !positionSubscribedTickers.has(ticker)) {
+          toSubscribe.push(ticker);
+          positionSubscribedTickers.add(ticker);
+        }
+      });
+      if (toSubscribe.length > 0 && streamWs && streamConnected) {
+        try {
+          streamWs.send(JSON.stringify({ action: "subscribe", bars: toSubscribe }));
+          audit("POS-MONITOR", `Subscribed to ${toSubscribe.join(", ")} for real-time exit monitoring`);
+        } catch (_) {}
+      }
+
+      if (!positionMonitorInitialized) {
+        const count = Object.keys(monitoredPositions).length;
+        if (count > 0) audit("POS-MONITOR", `Initialized — tracking ${count} positions via WebSocket`);
+        positionMonitorInitialized = true;
+      }
+    } catch (err: any) {
+      console.error("[pos-monitor-sync]", err?.message || err);
+    }
+  }
+
+  /**
+   * Called when a new position is opened. Adds it to monitoring and subscribes to its ticker.
+   */
+  function addPositionToMonitor(ticker: string, side: 'long' | 'short', entryPrice: number, qty: number) {
+    const defaultRiskPct = 4.0; // 2x ATR estimate — will be refined on next sync
+    monitoredPositions[ticker] = {
+      ticker, side, entryPrice, qty, phase: 1,
+      initialRiskPct: defaultRiskPct,
+      highestPnl: 0,
+      currentStopPct: defaultRiskPct,
+      tpPct: Math.max(4.0, defaultRiskPct * 1.5),
+      entryDate: new Date().toISOString().split("T")[0],
+      lastCheckedPrice: entryPrice,
+    };
+    // Subscribe to WebSocket if not already streaming
+    const streamSet = new Set(STREAM_TICKERS);
+    if (!streamSet.has(ticker) && !positionSubscribedTickers.has(ticker)) {
+      positionSubscribedTickers.add(ticker);
+      if (streamWs && streamConnected) {
+        try {
+          streamWs.send(JSON.stringify({ action: "subscribe", bars: [ticker] }));
+          audit("POS-MONITOR", `Auto-subscribed ${ticker} for exit monitoring`);
+        } catch (_) {}
+      }
+    }
+  }
+
+  /**
+   * Called when a position is closed. Removes from monitoring and unsubscribes.
+   */
+  function removePositionFromMonitor(ticker: string) {
+    delete monitoredPositions[ticker];
+    if (positionSubscribedTickers.has(ticker)) {
+      positionSubscribedTickers.delete(ticker);
+      if (streamWs && streamConnected) {
+        try { streamWs.send(JSON.stringify({ action: "unsubscribe", bars: [ticker] })); } catch (_) {}
+      }
+    }
+  }
+
+  // Track tickers currently being exited to prevent duplicate exit attempts
+  const exitingTickers: Set<string> = new Set();
+
+  /**
+   * Core position check — called from WebSocket on every price tick for an owned stock.
+   * Extremely lightweight: just compares price to stored levels.
+   */
+  async function checkPositionOnTick(ticker: string, currentPrice: number) {
+    const pos = monitoredPositions[ticker];
+    if (!pos || exitingTickers.has(ticker)) return;
+    if (!state.active || state.killSwitch) return;
+
+    const entry = pos.entryPrice;
+    if (entry <= 0 || currentPrice <= 0) return;
+
+    // Calculate current P&L %
+    const pnlPct = pos.side === 'long'
+      ? ((currentPrice - entry) / entry) * 100
+      : ((entry - currentPrice) / entry) * 100;
+
+    // Update high water mark
+    pos.highestPnl = Math.max(pos.highestPnl, pnlPct);
+    pos.lastCheckedPrice = currentPrice;
+
+    // Recalculate phase based on updated P&L
+    const rMultiple = pos.initialRiskPct > 0 ? pnlPct / pos.initialRiskPct : 0;
+    const peakR = pos.initialRiskPct > 0 ? pos.highestPnl / pos.initialRiskPct : 0;
+
+    if (peakR >= 3 && pos.phase < 4) pos.phase = 4;
+    else if (peakR >= 2 && pos.phase < 3) pos.phase = 3;
+    else if (peakR >= 1 && pos.phase < 2) pos.phase = 2;
+
+    // Recalculate stop level for current phase
+    let stopPct: number;
+    if (pos.phase >= 4) stopPct = pos.highestPnl * 0.50;
+    else if (pos.phase >= 3) stopPct = Math.max(1.0, pos.currentStopPct);
+    else if (pos.phase >= 2) stopPct = Math.max(1.5, pos.currentStopPct);
+    else stopPct = pos.currentStopPct;
+
+    // Determine if stop is triggered
+    let shouldStop = false;
+    let stopType: 'stop_loss' | 'trailing_stop' = 'stop_loss';
+    let stopReason = '';
+
+    if (pos.phase >= 2) {
+      const drawdownFromPeak = pos.highestPnl - pnlPct;
+      if (drawdownFromPeak >= stopPct) {
+        shouldStop = true;
+        stopType = 'trailing_stop';
+        stopReason = `WS TRAILING STOP Phase ${pos.phase}: P&L ${pnlPct.toFixed(1)}% dropped ${drawdownFromPeak.toFixed(1)}% from peak ${pos.highestPnl.toFixed(1)}%`;
+      }
+    } else {
+      if (pnlPct <= -stopPct) {
+        shouldStop = true;
+        stopType = 'stop_loss';
+        stopReason = `WS STOP LOSS: ${pnlPct.toFixed(1)}% loss hit Phase 1 stop at -${stopPct.toFixed(1)}%`;
+      }
+    }
+
+    // Check take-profit
+    let shouldTP = false;
+    if (!shouldStop && pnlPct >= pos.tpPct && pos.phase < 3) {
+      shouldTP = true;
+    }
+
+    // Time stop check (only if no other exit triggered)
+    let shouldTimeStop = false;
+    if (!shouldStop && !shouldTP) {
+      try {
+        const daysHeld = Math.floor((Date.now() - new Date(pos.entryDate).getTime()) / 86400000);
+        if (daysHeld >= 7 && Math.abs(pnlPct) < 2.0) {
+          shouldTimeStop = true;
+        }
+      } catch (_) {}
+    }
+
+    if (!shouldStop && !shouldTP && !shouldTimeStop) return;
+
+    // ── FIRE EXIT ORDER IMMEDIATELY ──
+    exitingTickers.add(ticker);
+
+    try {
+      const exitSide = pos.side === 'long' ? 'sell' : 'buy';
+      const exitType = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'time_stop');
+      const exitContext: OrderContext = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'stop_loss');
+      const orderParams = getOrderParams(currentPrice, exitContext);
+
+      // Submit sell/cover order with context-aware order type
+      const orderResult = await alpaca("/v2/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          symbol: ticker,
+          qty: String(pos.qty),
+          side: exitSide,
+          ...orderParams,
+        }),
+      });
+
+      const reason = shouldStop ? stopReason
+        : shouldTP ? `WS TAKE PROFIT: +${pnlPct.toFixed(1)}% hit target +${pos.tpPct.toFixed(1)}% (Phase ${pos.phase})`
+        : `WS TIME STOP: held since ${pos.entryDate}, P&L only ${pnlPct.toFixed(1)}%`;
+
+      audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${pos.qty} ${ticker} @ $${currentPrice.toFixed(2)}`);
+      notify("exit", `WS exit ${ticker}: ${reason}`);
+
+      // Write stop-loss cooldown
+      if (exitType === 'stop_loss' || exitType === 'trailing_stop') {
+        try {
+          await execAsync(`python3 -c "
+import json, os, time
+DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
+cd_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
+try:
+    with open(cd_path) as f: cd = json.load(f)
+except: cd = {}
+cd['${ticker}'] = time.time()
+cd = {k: v for k, v in cd.items() if time.time() - v < 86400}
+with open(cd_path, 'w') as f: json.dump(cd, f)
+"`, { timeout: 5000 });
+        } catch (_) {}
+
+        // Circuit breaker logic (same as old Tier 1)
+        state.consecutiveStopLosses++;
+        if (!Array.isArray((state as any).recentStopTickers)) (state as any).recentStopTickers = [];
+        (state as any).recentStopTickers.push(ticker);
+        if ((state as any).recentStopTickers.length > 5) (state as any).recentStopTickers.shift();
+
+        if (state.consecutiveStopLosses >= 3) {
+          const recentTickers: string[] = (state as any).recentStopTickers || [];
+          const uniqueTickers = new Set(recentTickers.slice(-3)).size;
+          const dailyLossHit = state.dailyPnL / (state.equityPeak || 100000) * 100 <= -5;
+
+          if (dailyLossHit) {
+            const msUntilClose = (() => {
+              const now = new Date();
+              const close = new Date(now); close.setHours(20, 0, 0, 0);
+              return Math.max(close.getTime() - now.getTime(), 3600000);
+            })();
+            state.circuitBreakerUntil = Date.now() + msUntilClose;
+            sendEmailAlert("Circuit Breaker — Day Halted", `3 stops + down ${(state.dailyPnL / (state.equityPeak || 100000) * 100).toFixed(1)}% today. Trading paused for rest of day.`);
+            audit("CIRCUIT-BREAKER", `3 stops + -5%+ day loss — paused rest of day`);
+          } else if (uniqueTickers >= 2) {
+            state.circuitBreakerUntil = Date.now() + 3600000;
+            sendEmailAlert("Circuit Breaker Triggered", `3 stops across ${uniqueTickers} different tickers — market conditions unfavorable. Paused 1 hour.`);
+            audit("CIRCUIT-BREAKER", `3 stops on ${Array.from(new Set(recentTickers.slice(-3))).join(", ")} — broad market issue, paused 1 hour`);
+          } else {
+            const blockedTicker = recentTickers[recentTickers.length - 1];
+            if (!Array.isArray((state as any).dailyBlockedTickers)) (state as any).dailyBlockedTickers = [];
+            (state as any).dailyBlockedTickers.push(blockedTicker);
+            state.consecutiveStopLosses = 0;
+            audit("TICKER-BLOCKED", `${blockedTicker}: 3 stops on same ticker — blocked for today`);
+          }
+        }
+      } else if (exitType === 'take_profit') {
+        state.consecutiveStopLosses = 0;
+      }
+
+      // Remove from monitoring (position is closed)
+      removePositionFromMonitor(ticker);
+
+    } catch (err: any) {
+      audit("WS-EXIT-ERROR", `${ticker}: ${err?.message?.slice(0, 150)}`);
+    } finally {
+      exitingTickers.delete(ticker);
+    }
+  }
+
+  // Sync monitored positions every 60 seconds to stay aligned with Alpaca + stop state
+  setInterval(async () => {
+    if (!state.active || state.killSwitch) return;
+    try { await syncMonitoredPositions(); } catch (_) {}
+  }, 60000);
+
   function startStreaming() {
     if (streamWs) { try { streamWs.close(); } catch (_) {} }
 
@@ -2304,14 +2639,23 @@ print(json.dumps({'files': count}))
           if (item.T === "subscription") {
             streamConnected = true;
             audit("STREAM", `Real-time feed live — ${(item.bars || []).length} tickers`);
+            // Initialize position monitor — sync positions and auto-subscribe owned tickers
+            syncMonitoredPositions().catch(() => {});
           }
 
-          // 1-minute bar received — run signal detection
+          // 1-minute bar received — position check + signal detection
           if (item.T === "b" && item.S && item.v > 0 && item.c > 0) {
             const ticker = item.S as string;
             const volume = item.v as number;
             const close  = item.c as number;
             const open_  = item.o as number;
+
+            // ── Position monitor: check exits on every tick for owned stocks ──
+            if (monitoredPositions[ticker]) {
+              checkPositionOnTick(ticker, close).catch((err: any) => {
+                console.error(`[ws-pos-check] ${ticker}:`, err?.message || err);
+              });
+            }
 
             if (!streamVolHistory[ticker])   streamVolHistory[ticker]   = [];
             if (!streamPriceHistory[ticker]) streamPriceHistory[ticker] = [];
