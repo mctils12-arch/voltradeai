@@ -272,7 +272,16 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         liquid = [c for c in contracts if _is_liquid(c)]
         if not liquid:
             return {"error": f"No liquid options contracts (need vol>{MIN_OPTION_VOLUME}, OI>{MIN_OPEN_INTEREST}, spread<{MAX_SPREAD_PCT:.0%})"}
-        
+
+        # ── Vol Surface Enrichment (v1.0.33) ────────────────────────────
+        # Fetch surface data for this ticker to add fair value + edge info
+        surface_data = {}
+        try:
+            from vol_surface import get_surface_score
+            surface_data = get_surface_score(ticker)
+        except Exception:
+            pass  # Surface is advisory, don't block execution
+
         # Select based on strategy
         # Calculate dynamic size using trade context
         size_pct = _dynamic_options_size(
@@ -280,24 +289,38 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             equity, positions, macro
         )
 
+        # Select contract based on strategy
+        result = None
         if strategy == "buy_call":
-            return _select_buy_call(liquid, price, equity, ticker, size_pct)
+            result = _select_buy_call(liquid, price, equity, ticker, size_pct)
         elif strategy == "buy_put":
-            return _select_buy_put(liquid, price, equity, ticker, size_pct)
+            result = _select_buy_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "sell_cash_secured_put":
-            return _select_sell_put(liquid, price, equity, ticker, size_pct)
+            result = _select_sell_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "bull_call_spread":
-            return _select_bull_spread(liquid, price, equity, ticker, size_pct)
+            result = _select_bull_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "bear_put_spread":
-            return _select_bear_spread(liquid, price, equity, ticker, size_pct)
+            result = _select_bear_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "buy_straddle":
-            return _select_buy_straddle(liquid, price, equity, ticker, size_pct)
+            result = _select_buy_straddle(liquid, price, equity, ticker, size_pct)
         elif strategy == "short_straddle":
-            return _select_straddle(liquid, price, equity, ticker, size_pct)
+            result = _select_straddle(liquid, price, equity, ticker, size_pct)
         elif strategy == "iron_condor":
-            return _select_condor(liquid, price, equity, ticker, size_pct)
+            result = _select_condor(liquid, price, equity, ticker, size_pct)
         else:
             return {"error": f"Unknown strategy: {strategy}"}
+
+        # ── Vol Surface Enrichment (v1.0.33) ─────────────────────────
+        # Add surface-based fair value, edge, and VRP to every contract
+        if result and not result.get("error") and surface_data:
+            result["surface_score"] = surface_data.get("surface_score", 0)
+            result["vrp"] = surface_data.get("vrp", {}).get("vrp_20d", 0)
+            result["vrp_recommendation"] = surface_data.get("vrp", {}).get("recommendation", "")
+            result["skew_overpriced"] = surface_data.get("skew", {}).get("overpriced_side", "")
+            result["surface_best_strategy"] = surface_data.get("best_strategy", "")
+            result["surface_reasoning"] = surface_data.get("reasoning", "")
+
+        return result
     
     except Exception as e:
         return {"error": f"Contract selection failed: {str(e)[:200]}"}

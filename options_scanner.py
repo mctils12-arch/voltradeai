@@ -1468,6 +1468,19 @@ def scan_options() -> dict:
     else:
         regime = "NEUTRAL"
 
+    # ── Vol Surface: Market-wide VRP signal (v1.0.33) ─────────────────────
+    # Use SPY surface to determine if options are overpriced (sell) or cheap (buy)
+    market_vrp = 0.0
+    market_surface_score = 50
+    try:
+        from vol_surface import get_vrp, get_surface_score
+        spy_vrp = get_vrp("SPY")
+        market_vrp = spy_vrp.get("vrp_20d", 0)
+        spy_surface = get_surface_score("SPY")
+        market_surface_score = spy_surface.get("surface_score", 50)
+    except Exception:
+        pass  # Surface is advisory, don't block scanning
+
     # ── SETUP 2: VXX Panic Put Sale ───────────────────────────────────────
     # Run this first (market-level, doesn't need per-ticker chain fetch)
     panic_setup = _setup_vxx_panic_put_sale(vxx_ratio, spy_vs_ma50)
@@ -1607,6 +1620,33 @@ def get_options_trades(
     for opp in opps:
         if len(trades) >= max_new:
             break
+
+        # ── Vol Surface Score Adjustment (v1.0.33) ─────────────────────
+        # Boost or penalize based on market-wide VRP and surface
+        try:
+            from vol_surface import get_surface_score
+            srf = get_surface_score(opp["ticker"])
+            vrp_val = srf.get("vrp", {}).get("vrp_20d", 0)
+            side = opp.get("side", "buy")
+            # If selling premium and VRP is positive (options overpriced), boost score
+            if side == "sell" and vrp_val > 0.02:
+                opp["score"] = min(opp["score"] + 5, 95)
+                opp["reasoning"] = opp.get("reasoning", "") + f" [Surface: VRP +{vrp_val*100:.1f}%, premium selling favored]"
+            # If selling premium but VRP is negative (options cheap), penalize
+            elif side == "sell" and vrp_val < -0.02:
+                opp["score"] = max(opp["score"] - 8, 40)
+                opp["reasoning"] = opp.get("reasoning", "") + f" [Surface: VRP {vrp_val*100:.1f}%, options cheap — penalized]"
+            # If buying premium and VRP is negative (options cheap), boost
+            elif side == "buy" and vrp_val < -0.02:
+                opp["score"] = min(opp["score"] + 5, 95)
+                opp["reasoning"] = opp.get("reasoning", "") + f" [Surface: VRP {vrp_val*100:.1f}%, cheap options — boosted]"
+            # If buying premium but VRP is positive (options expensive), penalize
+            elif side == "buy" and vrp_val > 0.02:
+                opp["score"] = max(opp["score"] - 5, 40)
+                opp["reasoning"] = opp.get("reasoning", "") + f" [Surface: VRP +{vrp_val*100:.1f}%, options expensive for buyers]"
+        except Exception:
+            pass  # Surface is advisory
+
         if opp["score"] < min_score:
             continue
         if opp["ticker"] in current_tickers:
