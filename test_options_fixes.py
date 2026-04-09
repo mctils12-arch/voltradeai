@@ -758,7 +758,7 @@ class TestSpreadSafety(unittest.TestCase):
         # Should have called cancel on the long order
         mock_cancel.assert_called_once_with("long_order_123")
         self.assertEqual(result["status"], "error")
-        self.assertTrue(result.get("long_order_cancelled", False))
+        self.assertIn("aborted", result.get("detail", "").lower())
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
