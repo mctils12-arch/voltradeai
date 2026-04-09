@@ -434,14 +434,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const user = db.prepare("SELECT email FROM users WHERE id = ?").get(sessionRow.user_id) as any;
     if (!user) return res.status(401).json({ error: "Not authenticated" });
 
-    const { ticker } = req.body;
-    if (!ticker) return res.status(400).json({ error: "Ticker required" });
+    const { ticker } = req.body || {};
+    if (!ticker || typeof ticker !== "string") return res.status(400).json({ error: "Ticker required" });
+    if (!/^[A-Za-z.]{1,10}$/.test(ticker)) return res.status(400).json({ error: "Invalid ticker format" });
 
     try {
       db.prepare("INSERT OR IGNORE INTO watchlists (user_email, ticker, added_at) VALUES (?, ?, ?)").run(
         user.email, ticker.toUpperCase(), new Date().toISOString()
       );
-    } catch {}
+    } catch (e) { console.error("[watchlist-add]", e); }
 
     res.json({ ok: true });
   });
@@ -456,8 +457,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const user = db.prepare("SELECT email FROM users WHERE id = ?").get(sessionRow.user_id) as any;
     if (!user) return res.status(401).json({ error: "Not authenticated" });
 
-    const { ticker } = req.body;
-    if (ticker) {
+    const { ticker } = req.body || {};
+    if (ticker && typeof ticker === "string") {
       db.prepare("DELETE FROM watchlists WHERE user_email = ? AND ticker = ?").run(user.email, ticker.toUpperCase());
     }
 
@@ -468,7 +469,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/analyze/:ticker", async (req, res) => {
     const { ticker } = req.params;
 
-    if (!ticker || !/^[A-Za-z.^-]{1,10}$/.test(ticker)) {
+    if (!ticker || !/^[A-Za-z.]{1,10}$/.test(ticker)) {
       return res.status(400).json({ error: "Invalid ticker symbol. Please use letters only (e.g. AAPL, SPY, TSLA)." });
     }
 
@@ -554,7 +555,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Market snapshot (Polygon grouped daily) ───────────────────────────────
   app.get("/api/market-snapshot", async (req, res) => {
-    const POLYGON_KEY = process.env.POLYGON_API_KEY || "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
+    const POLYGON_KEY = process.env.POLYGON_API_KEY || "";
     try {
       const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
       const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${yesterday}?adjusted=true&apiKey=${POLYGON_KEY}`;
@@ -586,11 +587,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Polygon news ─────────────────────────────────────────────────────────────
   app.get("/api/news", async (req, res) => {
-    const POLYGON_KEY = process.env.POLYGON_API_KEY || "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP";
+    const POLYGON_KEY = process.env.POLYGON_API_KEY || "";
     const ticker = req.query.ticker as string || "";
+    // Bug 32: validate ticker param
+    if (ticker && !/^[A-Za-z.]{1,10}$/.test(ticker)) return res.status(400).json({ error: "Invalid ticker" });
     try {
       const url = ticker
-        ? `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=20&apiKey=${POLYGON_KEY}`
+        ? `https://api.polygon.io/v2/reference/news?ticker=${encodeURIComponent(ticker)}&limit=20&apiKey=${POLYGON_KEY}`
         : `https://api.polygon.io/v2/reference/news?limit=20&apiKey=${POLYGON_KEY}`;
       const response = await fetch(url);
       const data = await response.json();
@@ -602,8 +605,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Alpaca Data Proxy (keeps API keys server-side) ──────────────────────────
-  const ALPACA_KEY = process.env.ALPACA_KEY || "PKMDHJOVQEVIB4UHZXUYVTIDBU";
-  const ALPACA_SECRET = process.env.ALPACA_SECRET || "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
+  const ALPACA_KEY = process.env.ALPACA_KEY || "";
+  const ALPACA_SECRET = process.env.ALPACA_SECRET || "";
   const alpacaHeaders = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
 
   // Market scanner data
@@ -665,7 +668,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const symbols = req.query.symbols as string || "";
       if (!symbols) return res.json({});
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${symbols}&feed=sip`, { headers: alpacaHeaders });
+      // Bug 31: validate symbols — comma-separated tickers only
+      if (!/^[A-Za-z.,]{1,500}$/.test(symbols)) return res.status(400).json({ error: "Invalid symbols" });
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols)}&feed=sip`, { headers: alpacaHeaders });
       res.json(await snapRes.json());
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -814,140 +819,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ── Bot Performance (realized P&L, win rate, equity history) ───────────────
-  app.get("/api/bot/performance", async (_req, res) => {
-    try {
-      const pyScript = `
-import json, sys
-import urllib.request
-
-ALPACA_KEY    = "PKMDHJOVQEVIB4UHZXUYVTIDBU"
-ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"
-BASE          = "https://paper-api.alpaca.markets"
-
-def alpaca_get(path):
-    req = urllib.request.Request(BASE + path, headers={
-        "APCA-API-KEY-ID": ALPACA_KEY,
-        "APCA-API-SECRET-KEY": ALPACA_SECRET,
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    except Exception as e:
-        return None
-
-# 1. Fetch account activities (FILL type = actual fills)
-activities = alpaca_get("/v2/account/activities/FILL?page_size=100&direction=desc") or []
-
-# 2. Pair buys with sells per symbol to compute round-trip P&L
-buy_q = {}  # symbol -> list of {qty, price}
-trades = []
-for act in reversed(activities):  # oldest first for FIFO matching
-    sym   = act.get("symbol", "")
-    side  = act.get("side", "")
-    qty   = float(act.get("qty", 0))
-    price = float(act.get("price", 0))
-    if not qty or not price:
-        continue
-    if side == "buy":
-        buy_q.setdefault(sym, []).append({"qty": qty, "price": price})
-    elif side == "sell":
-        queue = buy_q.get(sym, [])
-        if queue:
-            entry = queue.pop(0)
-            pnl     = (price - entry["price"]) * qty
-            pnl_pct = ((price - entry["price"]) / entry["price"]) * 100 if entry["price"] else 0
-            trades.append({"symbol": sym, "pnl": pnl, "pnl_pct": pnl_pct,
-                           "date": act.get("transaction_time", "")[:10]})
-
-# 3. Aggregate metrics
-total_pnl    = sum(t["pnl"] for t in trades)
-total_trades = len(trades)
-wins         = [t for t in trades if t["pnl"] > 0]
-losses       = [t for t in trades if t["pnl"] <= 0]
-win_rate     = (len(wins) / total_trades * 100) if total_trades else 0
-
-best  = max(trades, key=lambda t: t["pnl_pct"], default=None)
-worst = min(trades, key=lambda t: t["pnl_pct"], default=None)
-
-# 4. Streak (consecutive wins/losses from most recent)
-streak = 0
-streak_type = None
-for t in reversed(trades):
-    outcome = "win" if t["pnl"] > 0 else "loss"
-    if streak_type is None:
-        streak_type = outcome
-    if outcome == streak_type:
-        streak += 1
-    else:
-        break
-current_streak = ("+" + str(streak) + " wins" if streak_type == "win" else
-                  "-" + str(streak) + " losses" if streak_type == "loss" else "0")
-
-# 5. Daily P&L aggregation
-daily = {}
-for t in trades:
-    d = t["date"]
-    daily[d] = daily.get(d, 0) + t["pnl"]
-daily_pnl = [{"date": d, "pnl": round(v, 2)} for d, v in sorted(daily.items())]
-
-# 6. Portfolio history (equity curve)
-hist = alpaca_get("/v2/account/portfolio/history?period=1M&timeframe=1D") or {}
-equity_ts   = hist.get("timestamp", [])
-equity_vals = hist.get("equity", [])
-equity_history = [
-    {"date": __import__("datetime").datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d"), "equity": round(eq, 2)}
-    for ts, eq in zip(equity_ts, equity_vals) if eq
-]
-
-# 7. Additional fields the frontend uses (camelCase variants + extras)
-avg_gain = (sum(t["pnl_pct"] for t in wins)  / len(wins))  if wins   else 0
-avg_loss = (sum(t["pnl_pct"] for t in losses) / len(losses)) if losses else 0
-profit_factor = (sum(t["pnl"] for t in wins) / abs(sum(t["pnl"] for t in losses))) if losses and sum(t["pnl"] for t in losses) != 0 else 0
-
-print(json.dumps({
-    # snake_case (as specified)
-    "total_pnl":      round(total_pnl, 2),
-    "total_trades":   total_trades,
-    "win_rate":       round(win_rate, 2),
-    "best_trade":     {"symbol": best["symbol"],  "pnl_pct": round(best["pnl_pct"], 2)}  if best  else None,
-    "worst_trade":    {"symbol": worst["symbol"], "pnl_pct": round(worst["pnl_pct"], 2)} if worst else None,
-    "equity_history": equity_history,
-    "daily_pnl":      daily_pnl,
-    "current_streak": current_streak,
-    # camelCase aliases (frontend PerformanceCard / PerformanceDashboard use these)
-    "totalPnl":       round(total_pnl, 2),
-    "totalTrades":    total_trades,
-    "winRate":        round(win_rate, 2),
-    "avgGain":        round(avg_gain, 2),
-    "avgLoss":        round(avg_loss, 2),
-    "profitFactor":   round(profit_factor, 2),
-    "bestTrade":      {"ticker": best["symbol"],  "pnlPct": round(best["pnl_pct"], 2)}  if best  else None,
-    "worstTrade":     {"ticker": worst["symbol"], "pnlPct": round(worst["pnl_pct"], 2)} if worst else None,
-    "equityCurve":    [{"date": d["date"], "value": d["equity"]} for d in equity_history],
-    "recentTrades":   [{"symbol": t["symbol"], "pnl": round(t["pnl"], 2), "pnlPct": round(t["pnl_pct"], 2), "date": t["date"]} for t in list(reversed(trades))[:10]],
-    "currentStreak":  current_streak,
-}))
-`;
-      const { stdout } = await execAsync(
-        `python3 -c ${JSON.stringify(pyScript)}`,
-        { timeout: 20000, maxBuffer: 1024 * 1024 * 2 }
-      );
-      const jsonStart = stdout.indexOf("{");
-      if (jsonStart === -1) throw new Error("No JSON from performance script");
-      res.json(JSON.parse(stdout.slice(jsonStart)));
-    } catch (e: any) {
-      res.status(500).json({
-        error: e.message,
-        total_pnl: 0, total_trades: 0, win_rate: 0,
-        totalPnl: 0, totalTrades: 0, winRate: 0,
-        avgGain: 0, avgLoss: 0, profitFactor: 0,
-        best_trade: null, worst_trade: null, bestTrade: null, worstTrade: null,
-        equity_history: [], daily_pnl: [], equityCurve: [], recentTrades: [],
-        current_streak: "0", currentStreak: "0",
-      });
-    }
-  });
+  // NOTE: /api/bot/performance is registered in bot.ts — removed duplicate here
 
   // Pre-warm: run a quick scan of top 10 tickers on startup so scanner has data
   setTimeout(() => {
@@ -961,7 +833,7 @@ print(json.dumps({
     }).catch(err => console.error("[scanner] Pre-warm failed:", err));
   }, 3000);
 
-  return httpServer;
+
 
 // ── ML Model Status & Toggle ──────────────────────────────────────────────
   app.get("/api/ml/status", async (_req, res) => {
@@ -1071,5 +943,6 @@ print(json.dumps({'enabled': ${enabled ? 'true' : 'false'}, 'status': 'ok'}))
   
 
 
+  return httpServer;
 }
 

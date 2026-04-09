@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 
 const app = express();
+app.set("trust proxy", true); // Bug 36: Railway runs behind a reverse proxy
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -13,11 +14,7 @@ declare module "http" {
 }
 
 app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }),
+  express.json({ limit: "1mb" }), // Bug 27: body size limit
 );
 
 app.use(express.urlencoded({ extended: false }));
@@ -49,7 +46,8 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        const jsonStr = JSON.stringify(capturedJsonResponse);
+        logLine += ` :: ${jsonStr.length > 500 ? jsonStr.slice(0, 500) + "..." : jsonStr}`;
       }
 
       log(logLine);

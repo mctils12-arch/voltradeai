@@ -45,6 +45,8 @@ function SingleTradeChart({ position }: { position: Position }) {
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const priceLinesRef = useRef<any[]>([]);
+  const mountedRef = useRef(true);
   const [timeframe, setTimeframe] = useState<Timeframe>("5Min");
   const [bars, setBars] = useState<number>(100);
   const [loading, setLoading] = useState(true);
@@ -56,6 +58,7 @@ function SingleTradeChart({ position }: { position: Position }) {
   const phaseColor = phaseColors[position.phase] || "#00ffd5";
 
   const loadBars = useCallback(async () => {
+    if (!mountedRef.current) return;
     setLoading(true);
     setError(null);
     try {
@@ -65,7 +68,7 @@ function SingleTradeChart({ position }: { position: Position }) {
       // Existing bars endpoint returns { bars: [...], ticker, timeframe }
       const rawBars: Bar[] = (data && data.bars) ? data.bars : Array.isArray(data) ? data : [];
 
-      if (!chartRef.current || !candleSeriesRef.current) return;
+      if (!mountedRef.current || !chartRef.current || !candleSeriesRef.current) return;
 
       // Existing bars endpoint pre-converts t to unix timestamp as b.time
       const candleData = rawBars.map((b: any) => ({
@@ -86,47 +89,53 @@ function SingleTradeChart({ position }: { position: Position }) {
         setLastPrice(candleData[candleData.length - 1].close);
       }
 
+      // Remove existing price lines (Bug 11)
+      for (const line of priceLinesRef.current) {
+        try { candleSeriesRef.current.removePriceLine(line); } catch {}
+      }
+      priceLinesRef.current = [];
+
       // Entry line
-      candleSeriesRef.current.createPriceLine({
+      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: position.entryPrice,
         color: "#60a5fa",
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
         title: `Entry $${position.entryPrice.toFixed(2)}`,
-      });
+      }));
 
       // Stop loss line (red)
-      candleSeriesRef.current.createPriceLine({
+      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: position.stopPrice,
         color: "#ff4444",
         lineWidth: 2,
         lineStyle: LineStyle.Dotted,
         axisLabelVisible: true,
         title: `Stop P${position.phase} $${position.stopPrice.toFixed(2)}`,
-      });
+      }));
 
       // Take profit line (green) — only if not in Phase 3+
       if (position.takeProfitPrice) {
-        candleSeriesRef.current.createPriceLine({
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
           price: position.takeProfitPrice,
           color: "#00ffd5",
           lineWidth: 2,
           lineStyle: LineStyle.Dotted,
           axisLabelVisible: true,
           title: `Target $${position.takeProfitPrice.toFixed(2)}`,
-        });
+        }));
       }
 
       // Current price line
-      candleSeriesRef.current.createPriceLine({
+      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: position.currentPrice,
         color: pnlPositive ? "#00ffd5" : "#ff4444",
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
         title: `Now $${position.currentPrice.toFixed(2)}`,
-      });
+      }));
 
       chartRef.current.timeScale().fitContent();
     } catch (e: any) {
@@ -200,6 +209,7 @@ function SingleTradeChart({ position }: { position: Position }) {
     resizeObserver.observe(chartContainerRef.current);
 
     return () => {
+      mountedRef.current = false;
       resizeObserver.disconnect();
       chart.remove();
       chartRef.current = null;

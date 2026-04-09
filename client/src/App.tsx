@@ -27,12 +27,13 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
   }
 }
 
-function useMobile(breakpoint = 640) {
-  const [mobile, setMobile] = useState(window.innerWidth < breakpoint);
+function useMobile(breakpoint = 768) {
+  const [mobile, setMobile] = useState(() => window.innerWidth < breakpoint);
   useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
     const handler = () => setMobile(window.innerWidth < breakpoint);
-    window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
   }, [breakpoint]);
   return mobile;
 }

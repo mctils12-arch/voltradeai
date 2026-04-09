@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 
 interface LoginProps {
   onLogin?: () => void;
@@ -105,6 +105,7 @@ function CityMatrixCanvas() {
     let time = 0;
 
     function draw() {
+      if (document.hidden) { animId = requestAnimationFrame(draw); return; }
       time++;
       ctx!.clearRect(0, 0, W, H);
 
@@ -336,9 +337,9 @@ export default function LoginPage({ onLogin }: LoginProps) {
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [resetComplete, setResetComplete] = useState(false);
 
-  // Check if URL has a reset token
+  // Check if URL has a reset token (Bug 18: move to state)
   const urlParams = new URLSearchParams(window.location.search);
-  const resetToken = urlParams.get("token");
+  const [resetToken, setResetToken] = useState<string | null>(urlParams.get("token"));
   const [mode, setMode] = useState<"login" | "reset" | "signup" | "reset-confirm">(resetToken ? "reset-confirm" : "login");
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -346,7 +347,12 @@ export default function LoginPage({ onLogin }: LoginProps) {
     setError("");
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/login", { email, password });
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        credentials: "include",
+      });
       const data = await res.json();
       if (data.ok) {
         queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
@@ -365,8 +371,18 @@ export default function LoginPage({ onLogin }: LoginProps) {
     setError("");
     setLoading(true);
     try {
-      await apiRequest("POST", "/api/auth/reset", { email });
-      setResetSent(true);
+      const res = await fetch("/api/auth/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.ok !== false) {
+        setResetSent(true);
+      } else {
+        setError(data.error || "Reset failed");
+      }
     } catch {
       setError("Reset failed");
     }
@@ -386,11 +402,21 @@ export default function LoginPage({ onLogin }: LoginProps) {
     }
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/register", { email, password });
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        credentials: "include",
+      });
       const data = await res.json();
       if (data.ok) {
         // Auto-login after registration
-        const loginRes = await apiRequest("POST", "/api/auth/login", { email, password });
+        const loginRes = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+          credentials: "include",
+        });
         const loginData = await loginRes.json();
         if (loginData.ok) {
           queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
@@ -421,12 +447,18 @@ export default function LoginPage({ onLogin }: LoginProps) {
     }
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/reset-confirm", { token: resetToken, newPassword });
+      const res = await fetch("/api/auth/reset-confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: resetToken, newPassword }),
+        credentials: "include",
+      });
       const data = await res.json();
       if (data.ok) {
         setResetComplete(true);
         // Clear the token from URL
         window.history.replaceState({}, "", window.location.pathname);
+        setResetToken(null);
       } else {
         setError(data.error || "Reset failed — link may have expired");
       }
@@ -691,7 +723,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
 
         <div style={{ textAlign: "center", marginTop: 16 }}>
           <button
-            onClick={() => { setMode(mode === "login" ? "reset" : "login"); setError(""); setResetSent(false); }}
+            onClick={() => { setMode(mode === "login" ? "reset" : "login"); setError(""); setResetSent(false); setEmail(""); setPassword(""); }}
             style={{
               background: "none", border: "none", color: "#d4a017",
               fontSize: 11, cursor: "pointer", letterSpacing: "0.1em",
@@ -704,7 +736,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
 
         <div style={{ textAlign: "center", marginTop: 12 }}>
           <button
-            onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); setConfirmPassword(""); }}
+            onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); setConfirmPassword(""); setEmail(""); setPassword(""); }}
             style={{
               background: "none", border: "none", color: "#00e5ff",
               fontSize: 11, cursor: "pointer", letterSpacing: "0.08em",

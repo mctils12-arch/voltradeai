@@ -53,11 +53,12 @@ db.prepare("UPDATE users SET role = 'owner' WHERE email = ?").run(OWNER_EMAIL);
 // If owner account doesn't exist yet, create it with the default password
 const ownerExists = db.prepare("SELECT id FROM users WHERE email = ?").get(OWNER_EMAIL);
 if (!ownerExists) {
-  const defaultHash = bcrypt.hashSync("voltrade2026", 10);
+  const defaultPw = process.env.OWNER_DEFAULT_PASSWORD || crypto.randomBytes(16).toString("hex");
+  const defaultHash = bcrypt.hashSync(defaultPw, 10);
   db.prepare("INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)").run(
     OWNER_EMAIL, defaultHash, "owner", new Date().toISOString()
   );
-  console.log(`[AUTH] Owner account created for ${OWNER_EMAIL} with default password 'voltrade2026'`);
+  console.log(`[AUTH] Owner account created for ${OWNER_EMAIL} — bootstrap key: ${defaultPw.slice(0, 8)}...`);
 }
 
 // ─── Auth middleware ─────────────────────────────────────────────────────────
@@ -116,7 +117,10 @@ setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of loginAttempts.entries()) {
     if (entry.lockedUntil > 0 && entry.lockedUntil <= now) loginAttempts.delete(ip);
+    else if (entry.count > 0 && entry.lockedUntil === 0) loginAttempts.delete(ip); // Bug 50: also clean non-locked stale entries
   }
+  // Bug 17: Purge expired sessions (24h TTL)
+  try { db.prepare("DELETE FROM sessions WHERE created_at < ?").run(Date.now() - 86400000); } catch {}
 }, 3600000);
 
 export function registerAuthRoutes(app: Express) {
@@ -161,7 +165,9 @@ export function registerAuthRoutes(app: Express) {
     try {
       const { email, password } = req.body;
       if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+      if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Invalid email format" });
       if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+      if (password.length > 72) return res.status(400).json({ error: "Password must be 72 characters or fewer" });
 
       const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email.toLowerCase());
       if (existing) return res.status(400).json({ error: "An account with this email already exists" });
@@ -174,7 +180,7 @@ export function registerAuthRoutes(app: Express) {
       );
 
       // Send welcome email (non-blocking)
-      const RESEND_KEY = process.env.RESEND_KEY || "re_CVz83ewP_JWjJUhtFnNQywduyCj2wnRrM";
+      const RESEND_KEY = process.env.RESEND_KEY || "";
       if (RESEND_KEY) {
         fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -246,7 +252,7 @@ export function registerAuthRoutes(app: Express) {
         email.toLowerCase(), token, expires
       );
 
-      const RESEND_KEY = process.env.RESEND_KEY || "re_CVz83ewP_JWjJUhtFnNQywduyCj2wnRrM";
+      const RESEND_KEY = process.env.RESEND_KEY || "";
       const resetUrl = `${req.headers.origin || "https://voltradeai.com"}/reset?token=${token}`;
 
       if (RESEND_KEY) {
@@ -296,6 +302,9 @@ export function registerAuthRoutes(app: Express) {
       const hash = await bcrypt.hash(newPassword, 10);
       db.prepare("UPDATE users SET password_hash = ? WHERE email = ?").run(hash, entry.email);
       db.prepare("DELETE FROM password_resets WHERE token = ?").run(token);
+      // Invalidate all existing sessions for this user (Bug 16)
+      const resetUser = db.prepare("SELECT id FROM users WHERE email = ?").get(entry.email) as any;
+      if (resetUser) db.prepare("DELETE FROM sessions WHERE user_id = ?").run(resetUser.id);
 
       res.json({ ok: true, message: "Password updated successfully" });
     } catch (e: any) {

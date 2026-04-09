@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AnalyzePage from "./analyze";
@@ -44,11 +44,28 @@ interface HomeProps {
   isOwner?: boolean;
 }
 
+function getInitialTab(): TabId {
+  const hash = window.location.hash.replace("#/", "");
+  if (hash && TABS.some(t => t.id === hash)) return hash as TabId;
+  return "scanner";
+}
+
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("scanner");
-  const [dark, setDark] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabId>(getInitialTab);
+  const [dark, setDark] = useState(() => localStorage.getItem("theme") !== "light");
   const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
   const [showLogin, setShowLogin] = useState(false);
+  const [pendingTab, setPendingTab] = useState<TabId | null>(null);
+
+  // Sync hash with active tab (Bug 1)
+  useEffect(() => {
+    window.location.hash = "#/" + activeTab;
+  }, [activeTab]);
+
+  // Persist dark mode (Bug 16)
+  useEffect(() => {
+    localStorage.setItem("theme", dark ? "dark" : "light");
+  }, [dark]);
 
   const handleSelectTicker = (ticker: string) => {
     setAnalyzeTarget(ticker);
@@ -58,6 +75,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   const handleTabClick = (tabId: TabId) => {
     const tab = TABS.find(t => t.id === tabId);
     if (tab?.requiresAuth && !authenticated) {
+      setPendingTab(tabId);
       setShowLogin(true);
       return;
     }
@@ -67,8 +85,8 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   const handleLoginSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     setShowLogin(false);
-    // After login, go to the tab they were trying to access
-    setActiveTab("bot");
+    setActiveTab(pendingTab || "bot");
+    setPendingTab(null);
   };
 
   const handleLogout = async () => {
@@ -87,8 +105,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "8px 16px", borderRadius: 3,
-              background: "rgba(0, 20, 40, 0.9)", border: "1px solid rgba(0, 229, 255, 0.3)",
-              color: "#00e5ff", fontSize: 12, fontWeight: 500,
+              background: dark ? "rgba(0, 20, 40, 0.9)" : "rgba(255, 255, 255, 0.9)",
+              border: dark ? "1px solid rgba(0, 229, 255, 0.3)" : "1px solid rgba(0, 80, 120, 0.3)",
+              color: dark ? "#00e5ff" : "#0a1628", fontSize: 12, fontWeight: 500,
               fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
               textTransform: "uppercase", cursor: "pointer",
               boxShadow: "0 0 12px rgba(0, 229, 255, 0.1)",
@@ -203,7 +222,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
           <NewsPage onSelectTicker={handleSelectTicker} />
         )}
         {activeTab === "watchlist" && (
-          <WatchlistPage onSelectTicker={handleSelectTicker} />
+          <WatchlistPage onSelectTicker={handleSelectTicker} authenticated={authenticated} />
         )}
         {activeTab === "bot" && (
           authenticated && isOwner ? <BotDashboard /> : (
