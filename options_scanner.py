@@ -802,6 +802,11 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     if not dte_contracts:
         return None
 
+    # Choose strategy based on IV level:
+    # IV rank 85+ = extreme → iron condor (capped risk)
+    # IV rank 70-85 = elevated → short straddle (more premium)
+    strategy = "iron_condor" if iv_rank >= 85 else "straddle"
+
     if strategy == "iron_condor":
         # Iron condor: sell 20-delta call + 20-delta put (short wings)
         # Buy 10-delta call + 10-delta put (long wings = protection)
