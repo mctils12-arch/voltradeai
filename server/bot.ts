@@ -584,39 +584,7 @@ print(json.dumps(data))
   });
 
   // ── Performance endpoint ──────────────────────────────────────────────────
-  app.get("/api/bot/performance", requireAuth, (_req, res) => {
-    const results = tradeResults;
-    const totalTrades = results.length;
-    const winners = results.filter(t => t.pnl > 0);
-    const losers = results.filter(t => t.pnl < 0);
-    const winRate = totalTrades > 0 ? (winners.length / totalTrades) * 100 : 0;
-    const totalPnl = results.reduce((sum, t) => sum + t.pnl, 0);
-    const avgGain = winners.length > 0 ? winners.reduce((s, t) => s + t.pnlPct, 0) / winners.length : 0;
-    const avgLoss = losers.length > 0 ? losers.reduce((s, t) => s + t.pnlPct, 0) / losers.length : 0;
-    const bestTrade = results.reduce((best, t) => (!best || t.pnlPct > best.pnlPct ? t : best), null as TradeResult | null);
-    const worstTrade = results.reduce((worst, t) => (!worst || t.pnlPct < worst.pnlPct ? t : worst), null as TradeResult | null);
-
-    // Strategy breakdown
-    const byStrategy: Record<string, { trades: number; wins: number; pnl: number }> = {};
-    for (const t of results) {
-      if (!byStrategy[t.strategy]) byStrategy[t.strategy] = { trades: 0, wins: 0, pnl: 0 };
-      byStrategy[t.strategy].trades++;
-      if (t.pnl > 0) byStrategy[t.strategy].wins++;
-      byStrategy[t.strategy].pnl += t.pnl;
-    }
-
-    res.json({
-      totalTrades,
-      winRate: Math.round(winRate * 10) / 10,
-      totalPnl: Math.round(totalPnl * 100) / 100,
-      avgGain: Math.round(avgGain * 100) / 100,
-      avgLoss: Math.round(avgLoss * 100) / 100,
-      bestTrade,
-      worstTrade,
-      equityCurve,
-      strategyWeights,
-      byStrategy,
-    });
+  // Removed: duplicate performance endpoint (empty handler shadowed real one)
   });
 
   // ── Notifications endpoints ───────────────────────────────────────────────
@@ -667,7 +635,7 @@ print(json.dumps(data))
     checks.checks.bot = {
       status: state.killSwitch ? "killed" : state.active ? "active" : "stopped",
       equityPeak: state.equityPeak,
-      drawdownPct: state.equityPeak > 0 ? (((state.equityPeak - state.equityPeak) / state.equityPeak) * 100).toFixed(1) : "N/A",
+      drawdownPct: state.equityPeak > 0 ? (((state.equityPeak - parseFloat(state.lastEquity || String(state.equityPeak))) / state.equityPeak) * 100).toFixed(1) : "N/A",
     };
     
     const httpCode = checks.status === "ok" ? 200 : 503;
@@ -1622,6 +1590,24 @@ print(json.dumps(check_weekly_loss(history)))
       } catch (err: any) { console.error("[tier2-weekly]", err?.message || err); }
 
       // 5. Execute trades or queue for morning
+      // Cover intraday shorts at 3:50 PM (before 4 PM close)
+      const nowForShorts = new Date();
+      const etForShorts = ((nowForShorts.getUTCHours() - 4) + 24) % 24 + nowForShorts.getUTCMinutes() / 60;
+      if (isMarketOpen && etForShorts >= 15.83) { // 3:50 PM ET
+        try {
+          const { stdout: shortsOut } = await execAsync(
+            'python3 -c "from intraday_shorts import close_open_shorts; import json; print(json.dumps(close_open_shorts()))"',
+            { timeout: 30000 }
+          );
+          const shortsResult = JSON.parse(shortsOut.trim());
+          if (shortsResult.count > 0) {
+            audit("SHORTS", `Covered ${shortsResult.count} intraday shorts at EOD`);
+          }
+        } catch (err: any) {
+          audit("SHORTS-ERROR", `EOD cover failed: ${err?.message?.slice(0, 100)}`);
+        }
+      }
+
       if (isMarketOpen) {
         await executeTrades(result.new_trades || [], equity);
       } else {

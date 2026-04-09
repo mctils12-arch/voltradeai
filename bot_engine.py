@@ -826,7 +826,7 @@ except Exception as e:
             # Options/volatility (3)
             "vrp":                  vrp or 0,
             # Per-stock IV rank from own HV history (not VXX proxy)
-            "iv_rank_proxy":        _compute_stock_iv_rank(ticker, closes_30d) if closes_30d else 50,
+            "iv_rank_proxy":        _compute_stock_iv_rank(ticker, _deep_closes) if _deep_closes else 50,
             "atr_pct":              _atr_pct,  # actual ATR% from daily bars
             # Regime (5) — wired to Markov + VXX ratio
             "vxx_ratio":            intel.get("vxx_ratio", 1.0) if intel else 1.0,
@@ -1044,7 +1044,7 @@ def manage_positions():
         stop_state = {}
 
     # Tickers managed by other components — do NOT apply stop/TP logic to these
-    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "ITA", "SPY", "GLD"}  # ETFs only — no single-stock risk
+    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "ITA", "SPY", "GLD", "XOM", "LMT"}  # Floor + third leg + legacy
 
     for pos in positions:
         ticker = pos.get("symbol", "")
@@ -2060,7 +2060,7 @@ def _run_third_leg(macro: dict) -> dict:
                 sector_assets = BASE_CONFIG.get("LEG3_CRASH_ASSETS", [("GLD", 0.15)])
             else:
                 # Recovery bounce: XOM+LMT rebound hard after fear normalizes
-                sector_assets = BASE_CONFIG.get("LEG3_RECOVERY_ASSETS", [("XOM", 0.10), ("LMT", 0.10)])
+                sector_assets = BASE_CONFIG.get("LEG3_RECOVERY_ASSETS", [("ITA", 0.20)])
             for ssym, alloc_pct in sector_assets:
                 alloc_each = equity * alloc_pct
                 if alloc_each <= 100: continue
