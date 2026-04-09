@@ -574,7 +574,9 @@ def _setup_earnings_iv_crush(
         return None
 
     # Reject if spreads are too wide (liquidity check)
-    if best_call["spread_pct"] > 0.08 or best_put["spread_pct"] > 0.08:
+    # v1.0.33: widened from 0.08 to 0.15 — earnings names often have wider spreads
+    # but still tradeable. 15% spread on a $5 straddle = $0.75 slippage worst-case.
+    if best_call["spread_pct"] > 0.15 or best_put["spread_pct"] > 0.15:
         return None
 
     # IV-implied move: straddle price / stock price = expected % move
@@ -786,12 +788,20 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     # BUT: VXX ratio > 1.05 means current IV is STILL elevated vs its own 30d avg.
     # That window — high VXX ratio + declining absolute IV — is actually the
     # BEST time to sell premium: vol is coming off a spike, mean-reversion favors sellers.
-    # Condition: either IV rank > 70 (normal) OR VXX ratio in 1.05-1.25 range (transitional)
+    #
+    # v1.0.32 FIX: Lowered from IVR 70 to IVR 50. Research:
+    #   - Tastytrade: Selling premium at IVR 40+ is consistently profitable
+    #   - Bakshi & Kapadia 2003: IV-RV gap (VRP) exists at IVR 50+
+    #   - IVR 50 = options priced in top half of annual range = above-average premium
+    #   - Old threshold of 70 only triggered ~15% of trading days
+    #   - New threshold of 50 triggers ~40% of trading days — much more active
+    #
+    # Condition: either IV rank > 50 (normal) OR VXX ratio in 1.05-1.25 range (transitional)
     vxx_elevated = 1.05 <= vxx_ratio <= 1.25  # Vol elevated but not panic
-    if iv_rank < 70 and not vxx_elevated:
+    if iv_rank < 50 and not vxx_elevated:
         return None  # Neither condition met — skip
     # When using VRatio gate, lower the profit target slightly (less premium available)
-    _vratio_mode = vxx_elevated and iv_rank < 70
+    _vratio_mode = vxx_elevated and iv_rank < 50
 
     contracts = _fetch_options_chain(ticker, price, min_days=14, max_days=45)
     if not contracts:
@@ -828,24 +838,29 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
         return None
 
     # Minimum bid/ask quality
-    if best_call["spread_pct"] > 0.10 or best_put["spread_pct"] > 0.10:
+    # v1.0.33: widened from 0.10 to 0.15 — matches earnings/low-IV tolerance
+    if best_call["spread_pct"] > 0.15 or best_put["spread_pct"] > 0.15:
         return None
 
     avg_iv = (best_call["iv"] + best_put["iv"]) / 2
     straddle_price = best_call["mid"] + best_put["mid"]
     iv_implied_pct = straddle_price / price * 100 if price > 0 else 0
 
-    if avg_iv < 0.50:
+    if avg_iv < 0.30:
         return None  # IV not high enough despite rank (small float distortion)
 
-    # Strategy: use iron condor (safer, capped loss)
-    strategy = "iron_condor" if iv_rank > 85 else "short_straddle"
+    # Strategy: use iron condor for extreme IV, straddle for moderate
+    # v1.0.32: adjusted strategy split to match new IVR 50 threshold
+    strategy = "iron_condor" if iv_rank >= 75 else "short_straddle"
     action_label = f"SELL {strategy.replace('_', ' ').upper()} (IV rank {iv_rank:.0f}/100 — premium selling)"
 
     # Research: Bakshi & Kapadia 2003 — selling options earns a premium when IV > RV.
     # The higher the IV rank, the larger the VRP (IV - RV gap) = the more you're paid.
-    # IV rank 70 → ~0.75 bonus/point; IV rank 85 → ~11 bonus = score ~73
-    iv_bonus = min(15, (iv_rank - 70) * 0.75)
+    # v1.0.32: Rescaled bonus from IVR 50 base (was 70)
+    #   IVR 50 → base score 62 + 0 = 62
+    #   IVR 65 → 62 + 7.5 = 69.5
+    #   IVR 80 → 62 + 15 = 77 (capped)
+    iv_bonus = min(15, (iv_rank - 50) * 0.50)
     rules_score = min(88, 62 + iv_bonus)
 
     # ML blend: 60% rules + 40% ML
@@ -933,12 +948,16 @@ def _setup_low_iv_breakout_buy(ticker: str, price: float, vxx_ratio: float) -> O
     straddle_price  = best_call["mid"] + best_put["mid"]
     straddle_pct    = straddle_price / price * 100 if price > 0 else 99
 
-    # Only worth buying if straddle costs < 3% of stock (otherwise need a huge move to profit)
-    if straddle_pct >= 3.0:
+    # Only worth buying if straddle costs < 5% of stock
+    # v1.0.33: raised from 3% to 5% — in calm markets most liquid straddles sit 3-5%.
+    # At 5%, a $100 stock costs $5 straddle → need ~5% move to break even.
+    # With IVR < 20, implied vol is near 52-week lows, so realized moves tend to exceed IV.
+    if straddle_pct >= 5.0:
         return None
 
     # Bid/ask quality check
-    if best_call["spread_pct"] > 0.12 or best_put["spread_pct"] > 0.12:
+    # v1.0.33: widened from 0.12 to 0.15 — consistent across all setups
+    if best_call["spread_pct"] > 0.15 or best_put["spread_pct"] > 0.15:
         return None  # Too illiquid — entry cost will eat the edge
 
     avg_iv   = (best_call["iv"] + best_put["iv"]) / 2
@@ -1103,6 +1122,128 @@ def _setup_gamma_pin(ticker: str, price: float) -> Optional[dict]:
         ),
         "source": "options_scanner",
         "side": "buy",
+    }
+
+
+def _setup_csp_normal_market(ticker: str, price: float, vxx_ratio: float) -> Optional[dict]:
+    """
+    SETUP 6: CASH-SECURED PUT IN NORMAL MARKETS (v1.0.33)
+
+    What is it:
+      When no other setup triggers — VXX is calm, IV isn't extreme, no earnings —
+      we can still sell cash-secured puts on high-quality, liquid stocks.
+      This is the "wheel" strategy entry: collect premium from selling OTM puts
+      on stocks we'd be happy owning at a lower price.
+
+    Why it works:
+      - At 30-delta, ~70% probability of expiring worthless (premium kept)
+      - Even when assigned, the effective buy price = strike minus premium received
+      - Theta decay is the primary edge — time is on the seller's side
+      - Research: CBOE PUT Index (selling ATM puts on SPX) outperformed SPX
+        from 1986-2024 with lower volatility (Figelman 2008, CBOE research).
+
+    Best conditions:
+      - IVR between 20-50 (moderate — enough premium to be worth it)
+      - VXX ratio < 1.15 (calm/neutral market, not panicking)
+      - Liquid options (OI > 300)
+      - 30-45 DTE (theta decay sweet spot)
+      - Stock price > $20 (liquid options chains)
+
+    Why 30-delta (not ATM):
+      - 30-delta = ~5-8% OTM — gives a buffer before assignment
+      - Higher POP (probability of profit) than ATM
+      - Less margin/capital required per contract
+      - Sweet spot between premium collected and probability of assignment
+    """
+    if not _is_regular_hours():
+        return None
+    if vxx_ratio >= 1.15:
+        return None  # Elevated fear — other setups handle this better
+
+    iv_rank = _fetch_iv_rank(ticker)
+    if iv_rank is None:
+        return None
+
+    # Only fire in the "normal" IVR band: 20-50
+    # Below 20 → low_iv_breakout_buy handles it (buy cheap options)
+    # Above 50 → high_iv_premium_sale handles it (sell expensive options)
+    if iv_rank < 20 or iv_rank > 50:
+        return None
+
+    # Fetch 30-45 DTE options (theta decay sweet spot for short premium)
+    contracts = _fetch_options_chain(ticker, price, min_days=25, max_days=50)
+    if not contracts:
+        return None
+
+    # Find 30-delta put: ~5-8% OTM, ~70% POP
+    best_put = _find_by_delta(contracts, "put", target_delta=0.30, tolerance=0.10)
+    if not best_put:
+        return None
+
+    # Liquidity checks
+    if best_put["oi"] < 300:
+        return None  # Not enough open interest
+    if best_put["spread_pct"] > 0.15:
+        return None  # Spread too wide
+    if best_put["mid"] < 0.30:
+        return None  # Premium too small to be worth the capital tie-up
+
+    avg_iv = best_put["iv"]
+    if avg_iv < 0.20:
+        return None  # Not enough IV to generate meaningful premium
+
+    # Calculate key metrics
+    premium = best_put["mid"]
+    strike = best_put["strike"]
+    otm_pct = round((price - strike) / price * 100, 2)  # How far OTM
+    premium_yield = round(premium / strike * 100, 2)     # Premium as % of strike
+    days_out = best_put["days_out"]
+    # Annualized yield: (premium / strike) * (365 / DTE)
+    annual_yield = round(premium_yield * (365 / max(days_out, 1)), 1)
+
+    # Score: base 58 + adjustments
+    #   IVR bonus: higher IVR within the band = more premium = higher score
+    #   Range: IVR 20 → +0, IVR 35 → +3.75, IVR 50 → +7.5
+    ivr_bonus = (iv_rank - 20) * 0.25
+    #   OTM bonus: further OTM = safer = slight bonus (max 3)
+    otm_bonus = min(3.0, otm_pct * 0.4)
+    #   Premium yield bonus: higher yield = better trade (max 4)
+    yield_bonus = min(4.0, premium_yield * 2.0)
+    rules_score = min(75, 58 + ivr_bonus + otm_bonus + yield_bonus)
+
+    # ML blend (lighter weight — CSP is a steady-income trade, less regime-sensitive)
+    spy_ma = _get_spy_vs_ma50()
+    vrp_est = max(-20.0, min(20.0, (vxx_ratio - 1.0) * 50))
+    ml_features = _build_setup_features(
+        vxx_ratio=vxx_ratio, spy_vs_ma50=spy_ma,
+        iv_rank=float(iv_rank), vrp=vrp_est, days_to_earn=99.0)
+    ml_prob = _options_ml_score(ml_features)
+    ml_score_val = ml_prob * 100
+    score = round(min(75, rules_score * 0.70 + ml_score_val * 0.30), 1)
+
+    return {
+        "ticker":           ticker,
+        "setup":            "csp_normal_market",
+        "score":            score,
+        "price":            price,
+        "action_label":     f"SELL PUT ${strike:.0f} (CSP — IV rank {iv_rank:.0f}, {otm_pct:.0f}% OTM, {days_out}d)",
+        "options_strategy": "sell_cash_secured_put",
+        "iv_rank":          iv_rank,
+        "avg_iv":           round(avg_iv * 100, 1),
+        "premium":          round(premium, 2),
+        "strike":           strike,
+        "otm_pct":          otm_pct,
+        "premium_yield":    premium_yield,
+        "annual_yield":     annual_yield,
+        "best_put_occ":     best_put["occ_symbol"],
+        "reasoning": (
+            f"Normal market CSP. IV rank {iv_rank:.0f}/100 (moderate). "
+            f"Sell ${strike:.0f} put ({otm_pct:.1f}% OTM) for ${premium:.2f} premium. "
+            f"Yield: {premium_yield:.1f}% in {days_out}d ({annual_yield:.0f}% ann). "
+            f"OI: {best_put['oi']:,}."
+        ),
+        "source": "options_scanner",
+        "side": "sell",
     }
 
 
@@ -1283,7 +1424,7 @@ def _get_options_candidates(snap_data: dict = None) -> list:
 
 def scan_options() -> dict:
     """
-    Main entry point. Runs all 5 options setup detectors in parallel.
+    Main entry point. Runs all 6 options setup detectors in parallel.
 
     Returns:
         {
@@ -1393,6 +1534,12 @@ def scan_options() -> dict:
         r5 = _setup_gamma_pin(tkr, price)
         if r5:
             found.append(r5)
+        # Setup 6: Cash-secured put in normal markets (v1.0.33)
+        # Fills the IVR 20-50 gap where no other setup triggers
+        if setup_hint in ("anchor", "any", "high_iv", "low_iv"):
+            r6 = _setup_csp_normal_market(tkr, price, vxx_ratio)
+            if r6:
+                found.append(r6)
         return found
 
     # 16 workers — each candidate needs 1-2 OPRA chain fetches (~0.2s each)
@@ -1480,6 +1627,8 @@ def get_options_trades(
             base_size = 0.08  # 8% — 56% WR, cheap entry, quarter-Kelly appropriate
         elif opp["setup"] == "earnings_iv_crush":
             base_size = 0.08  # 8% — 65-68% WR, well-studied setup
+        elif opp["setup"] == "csp_normal_market":
+            base_size = 0.06  # 6% — conservative, steady-income setup (~72% WR at 30-delta)
         position_dollars = round(equity * base_size, 2)
 
         trades.append({

@@ -286,6 +286,8 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             return _select_bull_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "bear_put_spread":
             return _select_bear_spread(liquid, price, equity, ticker, size_pct)
+        elif strategy == "buy_straddle":
+            return _select_buy_straddle(liquid, price, equity, ticker, size_pct)
         elif strategy == "short_straddle":
             return _select_straddle(liquid, price, equity, ticker, size_pct)
         elif strategy == "iron_condor":
@@ -684,6 +686,58 @@ def _select_bear_spread(contracts: list, price: float, equity: float, ticker: st
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _select_buy_straddle(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.08) -> dict:
+    """
+    Long straddle: buy ATM call + buy ATM put. (v1.0.33)
+    Profit if stock moves significantly in either direction.
+    Max loss = total debit paid.
+    Max profit = unlimited on upside, large on downside.
+    Best when: IV rank < 20, stock at 52-week low volatility, expecting a breakout.
+    """
+    calls = [c for c in contracts if c["option_type"] == "call" and abs(c["strike"] - price) / price < 0.03]
+    puts  = [c for c in contracts if c["option_type"] == "put"  and abs(c["strike"] - price) / price < 0.03]
+
+    if not calls or not puts:
+        return {"error": "No ATM contracts found for buy straddle"}
+
+    # Pick ATM call and put (closest to current price)
+    atm_call = min(calls, key=lambda c: abs(c["strike"] - price))
+    atm_put  = min(puts,  key=lambda c: abs(c["strike"] - price))
+
+    # Use optimized limit prices (we're buying)
+    call_debit = _optimized_limit_price(atm_call, "buy")
+    put_debit  = _optimized_limit_price(atm_put, "buy")
+
+    if call_debit <= 0 or put_debit <= 0:
+        return {"error": "No valid ask prices for straddle legs"}
+
+    total_debit = round(call_debit + put_debit, 2)
+    breakeven_up   = round(atm_call["strike"] + total_debit, 2)
+    breakeven_down = round(atm_put["strike"]  - total_debit, 2)
+
+    # Size: total debit per contract = total_debit * 100
+    max_cost = equity * size_pct
+    qty = max(1, int(max_cost / (total_debit * 100)))
+
+    return {
+        "strategy": "buy_straddle",
+        "call_leg": atm_call["occ_symbol"],
+        "put_leg": atm_put["occ_symbol"],
+        "strike": atm_call["strike"],
+        "expiry": atm_call["expiry"],
+        "qty": qty,
+        "call_debit": call_debit,
+        "put_debit": put_debit,
+        "total_debit": round(total_debit * qty * 100, 2),
+        "limit_price": total_debit,
+        "breakeven_up": breakeven_up,
+        "breakeven_down": breakeven_down,
+        "max_loss": round(total_debit * qty * 100, 2),
+        "days_to_expiry": atm_call.get("days_to_expiry"),
+        "error": None,
+    }
+
+
 def _select_straddle(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.04) -> dict:
     """
     Short straddle: sell ATM call + sell ATM put.
@@ -819,6 +873,8 @@ def submit_options_order(contract: dict) -> dict:
     # Multi-leg orders (spreads and multi-leg strategies)
     if "spread" in strategy:
         return _submit_spread_order(contract)
+    elif strategy == "buy_straddle":
+        return _submit_buy_straddle_order(contract)
     elif strategy == "short_straddle":
         return _submit_straddle_order(contract)
     elif strategy == "iron_condor":
@@ -953,6 +1009,48 @@ def _submit_spread_order(contract: dict) -> dict:
             "detail": f"Short leg error, cancelled long leg: {str(e)[:200]}",
             "long_order_cancelled": True,
         }
+
+
+def _submit_buy_straddle_order(contract: dict) -> dict:
+    """Submit long straddle: buy ATM call + buy ATM put. (v1.0.33)"""
+    call_sym = contract.get("call_leg", "")
+    put_sym  = contract.get("put_leg", "")
+    qty      = contract.get("qty", 1)
+    call_debit = contract.get("call_debit", 0)
+    put_debit  = contract.get("put_debit", 0)
+
+    results = []
+    order_ids = []
+    for sym, debit, leg_name in [(call_sym, call_debit, "call"), (put_sym, put_debit, "put")]:
+        try:
+            resp = requests.post(
+                f"{ALPACA_BASE}/v2/orders",
+                headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                json={"symbol": sym, "qty": str(qty), "side": "buy", "type": "limit",
+                      "limit_price": str(round(debit, 2)), "time_in_force": "day"},
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                order = resp.json()
+                order_ids.append(order.get("id", ""))
+                results.append(f"{leg_name} bought OK")
+            else:
+                results.append(f"{leg_name} failed: {resp.text[:100]}")
+        except Exception as e:
+            results.append(f"{leg_name} error: {str(e)[:100]}")
+
+    success = all("OK" in r for r in results)
+    # If one leg fails, cancel the other to avoid naked exposure
+    if not success and order_ids:
+        for oid in order_ids:
+            _cancel_order(oid)
+        results.append("(cancelled successful legs)")
+
+    return {
+        "status": "submitted" if success else "error",
+        "detail": f"Buy straddle {call_sym}/{put_sym} x{qty}: {', '.join(results)}",
+        "total_debit": contract.get("total_debit"),
+    }
 
 
 def _submit_straddle_order(contract: dict) -> dict:

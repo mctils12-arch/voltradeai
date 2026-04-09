@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import time
+import inspect
 import unittest
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
@@ -936,6 +937,113 @@ class TestOptionsSlotseparation(unittest.TestCase):
             and stock_options_trade.get("regime_at_entry") == "OPTIONS_SCANNER"
         )
         self.assertFalse(is_scanner)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  TEST: v1.0.33 Threshold Fixes + CSP Setup
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestV1033ThresholdFixes(unittest.TestCase):
+    """Verify v1.0.33 threshold changes are in the source code."""
+
+    def test_earnings_spread_widened_to_015(self):
+        """Earnings IV crush spread limit should be 0.15, not 0.08."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_earnings_iv_crush)
+        # Must contain the new 0.15 threshold
+        self.assertIn('> 0.15', src)
+        # Must NOT contain the old 0.08
+        self.assertNotIn('> 0.08', src)
+
+    def test_high_iv_spread_widened_to_015(self):
+        """High-IV premium sale spread limit should be 0.15, not 0.10."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_high_iv_premium_sale)
+        self.assertIn('> 0.15', src)
+        self.assertNotIn('> 0.10', src)
+
+    def test_high_iv_ivr_threshold_at_50(self):
+        """High-IV premium sale must use IVR 50, not 70."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_high_iv_premium_sale)
+        self.assertIn('iv_rank < 50', src)
+        self.assertNotIn('iv_rank < 70', src)
+
+    def test_low_iv_straddle_cost_at_5pct(self):
+        """Low-IV breakout buy straddle cost limit should be 5%, not 3%."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_low_iv_breakout_buy)
+        self.assertIn('straddle_pct >= 5.0', src)
+        self.assertNotIn('straddle_pct >= 3.0', src)
+
+    def test_low_iv_spread_widened_to_015(self):
+        """Low-IV breakout buy spread limit should be 0.15, not 0.12."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_low_iv_breakout_buy)
+        self.assertIn('> 0.15', src)
+        self.assertNotIn('> 0.12', src)
+
+
+class TestCSPNormalMarketSetup(unittest.TestCase):
+    """Verify the new CSP normal-market setup exists and is correctly integrated."""
+
+    def test_csp_function_exists(self):
+        """_setup_csp_normal_market function must exist."""
+        import options_scanner as os_mod
+        self.assertTrue(hasattr(os_mod, '_setup_csp_normal_market'))
+        self.assertTrue(callable(os_mod._setup_csp_normal_market))
+
+    def test_csp_integrated_in_scan_options(self):
+        """scan_options docstring should mention 6 setups, not 5."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod.scan_options)
+        self.assertIn('6 options setup', src)
+
+    def test_csp_integrated_in_check_ticker(self):
+        """_check_ticker inner function should call _setup_csp_normal_market."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod.scan_options)
+        self.assertIn('_setup_csp_normal_market', src)
+
+    def test_csp_sizing_in_get_options_trades(self):
+        """get_options_trades must have a sizing rule for csp_normal_market."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod.get_options_trades)
+        self.assertIn('csp_normal_market', src)
+        self.assertIn('0.06', src)  # 6% sizing
+
+    def test_csp_returns_correct_strategy(self):
+        """CSP setup must output sell_cash_secured_put as the strategy."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_csp_normal_market)
+        self.assertIn('"sell_cash_secured_put"', src)
+        self.assertIn('"csp_normal_market"', src)
+        self.assertIn('"sell"', src)  # side must be sell
+
+    def test_csp_ivr_band_20_to_50(self):
+        """CSP should only fire for IVR 20-50 (moderate IV)."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_csp_normal_market)
+        self.assertIn('iv_rank < 20', src)
+        self.assertIn('iv_rank > 50', src)
+
+    def test_csp_uses_30_delta_put(self):
+        """CSP should target 30-delta put."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_csp_normal_market)
+        self.assertIn('target_delta=0.30', src)
+
+    def test_csp_score_capped_at_75(self):
+        """CSP max score should be capped at 75 (below high-conviction setups)."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_csp_normal_market)
+        self.assertIn('min(75', src)
+
+    def test_csp_rejects_high_vxx(self):
+        """CSP should not fire when VXX ratio >= 1.15."""
+        import options_scanner as os_mod
+        src = inspect.getsource(os_mod._setup_csp_normal_market)
+        self.assertIn('vxx_ratio >= 1.15', src)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
