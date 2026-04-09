@@ -1,8 +1,9 @@
 import { Express } from "express";
 import { requireAuth } from "./auth";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
+import fs from "fs";
 import WebSocket from "ws";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -260,14 +261,16 @@ async function trackClosedTrades() {
           exit_context: t.exitContext || null,        // Stop phase, R-multiple, ATR at exit
           timestamp: t.timestamp,
         }));
-        const feedbackJson = JSON.stringify(feedbackData).replace(/'/g, "\\'");
+        const fbTmpPath = `/tmp/fb_${Date.now()}.json`;
+        fs.writeFileSync(fbTmpPath, JSON.stringify(feedbackData));
         execAsync(`python3 -c "
 import json, os
 try:
     from storage_config import TRADE_FEEDBACK_PATH
 except ImportError:
     TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-feedback = json.loads('${feedbackJson}')
+feedback = json.load(open('${fbTmpPath}'))
+os.remove('${fbTmpPath}')
 existing = []
 if os.path.exists(TRADE_FEEDBACK_PATH):
     try:
@@ -275,7 +278,6 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
             existing = json.load(f)
     except: pass
 existing.extend(feedback)
-# Keep last 500 trades
 existing = existing[-500:]
 with open(TRADE_FEEDBACK_PATH, 'w') as f:
     json.dump(existing, f)
@@ -381,7 +383,7 @@ async function placeOptionsOrder(
     };
 
     // Use Python options_execution for smart pricing and submission
-    const tradeData = JSON.stringify({
+    const tradeData = {
       occ_symbol: occSymbol,
       ticker: ticker,
       option_type: optionType,
@@ -389,14 +391,17 @@ async function placeOptionsOrder(
       expiry: expiry,
       side: side,
       qty: qty,
-    });
+    };
+    const optTmpPath = `/tmp/opt_order_${ticker}_${Date.now()}.json`;
+    fs.writeFileSync(optTmpPath, JSON.stringify(tradeData));
 
     const { stdout, stderr } = await execAsync(
       `python3 -c "
-import json, sys
+import json, sys, os
 sys.path.insert(0, '.')
 from options_execution import submit_options_order
-trade = json.loads('${tradeData.replace(/'/g, "\'")}')
+trade = json.load(open('${optTmpPath}'))
+os.remove('${optTmpPath}')
 result = submit_options_order(trade)
 print(json.dumps(result))
 "`,
@@ -1329,7 +1334,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
           const mDir = mSide === "buy" ? 1 : -1;
           const mFillPrice = Math.round((trade.price * (1 + mDir * mSlip / 100)) * 100) / 100;
 
-          const morningFillData = JSON.stringify({
+          const morningFillPayload = {
             ticker: trade.ticker, order_type: "market", side: mSide,
             qty: Math.floor(trade.shares),
             expected_price: trade.price, fill_price: mFillPrice,
@@ -1337,8 +1342,10 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
             time_placed: trade.queuedAt || new Date().toISOString(),
             session: "morning_queue", volume: mVol, score: trade.score,
             instrument: trade.instrument || "stock",
-          });
-          execAsync(`python3 -c "from ml_model_v2 import track_fill; import json; track_fill(json.loads('${morningFillData.replace(/'/g, "\\'")}')")`, { timeout: 5000 }).catch(() => {});
+          };
+          const mfTmp = `/tmp/fill_m_${trade.ticker}_${Date.now()}.json`;
+          fs.writeFileSync(mfTmp, JSON.stringify(morningFillPayload));
+          execAsync(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${mfTmp}')); os.remove('${mfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
         } catch (err: any) { console.error("[bot]", err?.message || err); }
 
         slotsUsed++;
@@ -1748,15 +1755,17 @@ print(json.dumps(check_weekly_loss(history)))
         if (trade.use_options && trade.options_strategy !== "stock") {
           // Execute via options engine
           try {
-            const optionsData = JSON.stringify({
-              mode: "evaluate",
+            const optionsPayload = {
               trade: { ticker: trade.ticker, price: trade.price, deep_score: trade.score, vrp: trade.vrp || 0, side: trade.side || "buy", action_label: trade.action || "BUY", rsi: trade.rsi || 50, ewma_rv: trade.ewma_rv || 2, garch_rv: trade.garch_rv || 2 },
               equity, positions: Array.isArray(positions) ? positions : [],
-            }).replace(/'/g, "\\'");
+            };
+            const tmpPath = `/tmp/opt_${trade.ticker}_${Date.now()}.json`;
+            fs.writeFileSync(tmpPath, JSON.stringify(optionsPayload));
             const { stdout: optResult } = await execAsync(
-              `python3 -c "from options_execution import evaluate_and_execute; import json; print(json.dumps(evaluate_and_execute(json.loads('${optionsData}')['trade'], json.loads('${optionsData}')['equity'], json.loads('${optionsData}')['positions'])))"`,
+              `python3 -c "import json; from options_execution import evaluate_and_execute; d=json.load(open('${tmpPath}')); print(json.dumps(evaluate_and_execute(d['trade'], d['equity'], d['positions'])))"`,
               { timeout: 30000 }
             );
+            try { fs.unlinkSync(tmpPath); } catch (_) {}
             const optExec = JSON.parse(optResult.trim());
 
             if (optExec.instrument === "options" && optExec.order?.status === "submitted") {
@@ -1856,7 +1865,7 @@ print(json.dumps(check_weekly_loss(history)))
           const slippageDirection = (pending.side === "buy") ? 1 : -1;
           const realisticFillPrice = Math.round((filledAvgPrice * (1 + slippageDirection * slippagePct / 100)) * 100) / 100;
 
-          const fillData = JSON.stringify({
+          const fillPayload = {
             ticker: pending.trade.ticker, order_type: "market", side: pending.side,
             qty_requested: requestedQty,
             qty_filled: filledQty || requestedQty,
@@ -1870,8 +1879,10 @@ print(json.dumps(check_weekly_loss(history)))
             session: "regular", volume: vol, score: pending.trade.score,
             instrument: pending.trade.instrument || "stock",
             entry_features: pending.trade.entry_features || null,
-          });
-          execAsync(`python3 -c "from ml_model_v2 import track_fill; import json; track_fill(json.loads('${fillData.replace(/'/g, "\\'")}'))"`, { timeout: 5000 }).catch(() => {});
+          };
+          const rfTmp = `/tmp/fill_r_${pending.trade.ticker}_${Date.now()}.json`;
+          fs.writeFileSync(rfTmp, JSON.stringify(fillPayload));
+          execAsync(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${rfTmp}')); os.remove('${rfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
         } catch (cfErr: any) {
           // Confirmation failed — record with best-guess data
           audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — recording expected values`);
