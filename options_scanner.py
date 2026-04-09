@@ -168,6 +168,7 @@ def _is_regular_hours() -> bool:
         et_time = et_hour + et_min / 60.0
         return 9.5 <= et_time < 16.0
     except Exception:
+        return False
 
 def _is_extended_hours() -> bool:
     """True if within extended trading hours (4:00am-9:30am OR 4:00pm-8:00pm ET).
