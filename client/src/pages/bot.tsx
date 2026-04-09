@@ -867,6 +867,7 @@ function EnhancedPositions({
             const qty = Number(p.qty ?? 0);
             const entry = Number(p.entryPrice ?? p.avg_entry_price ?? 0);
             const current = Number(p.currentPrice ?? p.current_price ?? 0);
+            const prevClose = Number(p.lastday_price ?? 0);
             const pnl = Number(p.pnl ?? p.unrealized_pl ?? 0);
             const rawPnlPct = Number(p.pnlPct ?? p.unrealized_plpc ?? 0);
             const pnlPct = p.unrealized_plpc !== undefined ? rawPnlPct * 100 : rawPnlPct;
@@ -874,11 +875,16 @@ function EnhancedPositions({
             const marketValue = qty * current;
             const changeTodayRatio = Number(p.change_today ?? 0);
             const changeTodayPct = changeTodayRatio * 100;
+            const changeTodayFromClose = prevClose > 0 ? current - prevClose : null;
             const changeTodayDollar = marketValue * changeTodayRatio;
             const pnlColor = pnl >= 0 ? "#30d158" : "#ff453a";
             const todayColor = changeTodayPct >= 0 ? "#30d158" : "#ff453a";
             const showDollar = dollarView[p.ticker] ?? false;
             const showAH = !marketOpen;
+            // Asset type detection
+            const assetClass: string = p.asset_class ?? "us_equity";
+            const isStockShort = p.side === "short" && assetClass === "us_equity";
+            const isOption = assetClass.toLowerCase().includes("option");
 
             return (
               <div
@@ -891,7 +897,7 @@ function EnhancedPositions({
                   padding: "12px 14px",
                 }}
               >
-                {/* Row 1: ticker / side / shares / price / AH badge / close button */}
+                {/* Row 1: ticker / side / shares / price / AH badge / asset badge / close button */}
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "6px" }}>
                   <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: "15px", color: "#c8d6e5" }}>
                     {p.ticker}
@@ -905,6 +911,30 @@ function EnhancedPositions({
                   }}>
                     {p.side}
                   </span>
+                  {/* FIX 3: STOCK SHORT badge for equity shorts */}
+                  {isStockShort && (
+                    <span style={{
+                      fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
+                      color: "#d4a017",
+                      background: "rgba(212,160,23,0.12)",
+                      border: "1px solid rgba(212,160,23,0.3)",
+                      letterSpacing: "0.4px",
+                    }}>
+                      STOCK SHORT
+                    </span>
+                  )}
+                  {/* Option badge (future-proof) */}
+                  {isOption && (
+                    <span style={{
+                      fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
+                      color: "#bf5af2",
+                      background: "rgba(191,90,242,0.12)",
+                      border: "1px solid rgba(191,90,242,0.3)",
+                      letterSpacing: "0.4px",
+                    }}>
+                      OPTION
+                    </span>
+                  )}
                   <span style={{ fontSize: "12px", color: "#a1a1a6", fontFamily: "monospace" }}>
                     {qty} shares
                   </span>
@@ -934,6 +964,34 @@ function EnhancedPositions({
                   >
                     Close
                   </button>
+                </div>
+
+                {/* FIX 2: Price reference row — Entry | Prev Close | Now */}
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "12px", marginBottom: "6px" }}>
+                  <span style={{ color: "#4a5c70" }}>
+                    Entry:{" "}
+                    <span style={{ color: "#a1a1a6", fontFamily: "monospace" }}>
+                      ${entry.toFixed(2)}
+                    </span>
+                  </span>
+                  {prevClose > 0 && (
+                    <>
+                      <span style={{ color: "#2a3a4c" }}>|</span>
+                      <span style={{ color: "#4a5c70" }}>
+                        Prev Close:{" "}
+                        <span style={{ color: "#a1a1a6", fontFamily: "monospace" }}>
+                          ${prevClose.toFixed(2)}
+                        </span>
+                      </span>
+                    </>
+                  )}
+                  <span style={{ color: "#2a3a4c" }}>|</span>
+                  <span style={{ color: "#4a5c70" }}>
+                    Now:{" "}
+                    <span style={{ color: "#c8d6e5", fontFamily: "monospace" }}>
+                      ${current.toFixed(2)}
+                    </span>
+                  </span>
                 </div>
 
                 {/* Row 2: Cost Basis | Market Value | P&L */}
@@ -975,6 +1033,12 @@ function EnhancedPositions({
                       ? `${changeTodayDollar >= 0 ? "+" : ""}$${changeTodayDollar.toFixed(2)}`
                       : `${changeTodayPct >= 0 ? "+" : ""}${changeTodayPct.toFixed(2)}%`}
                   </button>
+                  {prevClose > 0 && changeTodayFromClose !== null && (
+                    <span style={{ color: "#4a5c70", fontFamily: "monospace", fontSize: "11px" }}>
+                      [{changeTodayFromClose >= 0 ? "+" : ""}
+                      ${changeTodayFromClose.toFixed(2)}/sh from close]
+                    </span>
+                  )}
                   <span style={{ color: "#2a3a4c", fontSize: "10px" }}>(tap to toggle)</span>
                   {showAH && changeTodayPct !== 0 && (
                     <span style={{ color: "#d4a017", fontSize: "10px", marginLeft: "4px" }}>
