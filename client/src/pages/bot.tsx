@@ -335,7 +335,7 @@ function PerformanceCard({ perf }: { perf: any }) {
                   {bestTrade.ticker}
                 </span>
                 <span style={{ fontSize: "12px", color: "#30d158", marginLeft: "auto", fontWeight: 600 }}>
-                  +{bestTrade.(pnlPct ?? 0).toFixed(2)}%
+                  +{(bestTrade?.pnlPct ?? 0).toFixed(2)}%
                 </span>
               </div>
             </div>
@@ -351,7 +351,7 @@ function PerformanceCard({ perf }: { perf: any }) {
                   {worstTrade.ticker}
                 </span>
                 <span style={{ fontSize: "12px", color: "#ff453a", marginLeft: "auto", fontWeight: 600 }}>
-                  {worstTrade.(pnlPct ?? 0).toFixed(2)}%
+                  {(worstTrade?.pnlPct ?? 0).toFixed(2)}%
                 </span>
               </div>
             </div>
