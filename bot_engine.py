@@ -1768,6 +1768,15 @@ def scan_market():
     except Exception:
         intraday_short_result = {"actions": [], "status": "error"}
 
+    # Step 8b: Options Position Manager (pro-grade exit management) ─────────
+    # Runs every cycle: DTE exits, 50% profit targets, Greeks monitoring, rolling
+    options_mgmt_result = {"actions": [], "positions_checked": 0}
+    try:
+        from options_manager import manage_options_positions
+        options_mgmt_result = manage_options_positions(equity=portfolio_value)
+    except Exception as _ome:
+        options_mgmt_result["error"] = str(_ome)[:200]
+
     # Step 9: Third Leg (v1.0.25) ─────────────────────────────────────────────
     # Runs alongside stock scan in every cycle.
     # Backtest: ALL 64 combinations beat SPY. Winner: VRP=15% + Sector=12%.
@@ -1811,6 +1820,7 @@ def scan_market():
         } for s in deep_scored[:10]],
         "third_leg": third_leg_result,
         "intraday_shorts": intraday_short_result,
+        "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
     }
 

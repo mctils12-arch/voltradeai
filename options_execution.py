@@ -240,7 +240,8 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
 #  B. CONTRACT SELECTION — Pick the right strike + expiry
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def select_contract(ticker: str, strategy: str, price: float, equity: float) -> dict:
+def select_contract(ticker: str, strategy: str, price: float, equity: float,
+                    trade: dict = None, positions: list = None, macro: dict = None) -> dict:
     """
     Select the best options contract for the given strategy.
     
@@ -269,16 +270,26 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float) -> 
             return {"error": f"No liquid options contracts (need vol>{MIN_OPTION_VOLUME}, OI>{MIN_OPEN_INTEREST}, spread<{MAX_SPREAD_PCT:.0%})"}
         
         # Select based on strategy
+        # Calculate dynamic size using trade context
+        size_pct = _dynamic_options_size(
+            trade or {"ticker": ticker, "price": price, "score": 70},
+            equity, positions, macro
+        )
+
         if strategy == "buy_call":
-            return _select_buy_call(liquid, price, equity, ticker)
+            return _select_buy_call(liquid, price, equity, ticker, size_pct)
         elif strategy == "buy_put":
-            return _select_buy_put(liquid, price, equity, ticker)
+            return _select_buy_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "sell_cash_secured_put":
-            return _select_sell_put(liquid, price, equity, ticker)
+            return _select_sell_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "bull_call_spread":
-            return _select_bull_spread(liquid, price, equity, ticker)
+            return _select_bull_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "bear_put_spread":
-            return _select_bear_spread(liquid, price, equity, ticker)
+            return _select_bear_spread(liquid, price, equity, ticker, size_pct)
+        elif strategy == "short_straddle":
+            return _select_straddle(liquid, price, equity, ticker, size_pct)
+        elif strategy == "iron_condor":
+            return _select_condor(liquid, price, equity, ticker, size_pct)
         else:
             return {"error": f"Unknown strategy: {strategy}"}
     
@@ -387,7 +398,60 @@ def _is_liquid(contract: dict) -> bool:
     return True
 
 
-def _select_buy_call(contracts: list, price: float, equity: float, ticker: str) -> dict:
+def _optimized_limit_price(contract: dict, direction: str) -> float:
+    """
+    Professional limit price optimization.
+    Instead of paying full ask (buying) or accepting full bid (selling),
+    start at the midpoint and walk 30% toward the natural side.
+    
+    This saves money on every trade — pros never pay the full spread.
+    
+    Args:
+        contract: dict with 'bid', 'ask', 'mid' keys
+        direction: 'buy' or 'sell'
+    Returns:
+        Optimized limit price (float)
+    """
+    bid = contract.get("bid", 0)
+    ask = contract.get("ask", 0)
+    mid = contract.get("mid", 0)
+    
+    if bid <= 0 or ask <= 0:
+        return mid if mid > 0 else ask if direction == "buy" else bid
+    
+    if mid <= 0:
+        mid = (bid + ask) / 2
+    
+    # Walk 30% from mid toward the natural side
+    # For buying: mid + 30% of (ask - mid) = lean slightly toward ask
+    # For selling: mid - 30% of (mid - bid) = lean slightly toward bid
+    WALK_PCT = 0.30
+    
+    if direction == "buy":
+        optimized = mid + WALK_PCT * (ask - mid)
+    else:
+        optimized = mid - WALK_PCT * (mid - bid)
+    
+    # Safety: never exceed the spread boundaries
+    optimized = max(bid, min(optimized, ask))
+    
+    return round(optimized, 2)
+
+
+def _cancel_order(order_id: str) -> bool:
+    """Cancel an open order by ID."""
+    try:
+        resp = requests.delete(
+            f"{ALPACA_BASE}/v2/orders/{order_id}",
+            headers=_alpaca_headers(),
+            timeout=10,
+        )
+        return resp.status_code in (200, 204)
+    except Exception:
+        return False
+
+
+def _select_buy_call(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Select a call to buy — slightly OTM, 20-35 days to expiry, delta ~0.40."""
     calls = [c for c in contracts if c["option_type"] == "call" and c["strike"] >= price]
     if not calls:
@@ -398,12 +462,14 @@ def _select_buy_call(contracts: list, price: float, equity: float, ticker: str) 
     calls.sort(key=lambda c: abs(abs(c.get("delta", 0)) - target_delta))
     
     best = calls[0]
+    # Limit price optimization: start at mid, not full ask
+    limit_price = _optimized_limit_price(best, "buy")
     max_cost = equity * size_pct  # Dynamic sizing
-    qty = int(max_cost / (best["ask"] * 100))  # Each contract = 100 shares
+    qty = int(max_cost / (limit_price * 100))  # Each contract = 100 shares
     if qty <= 0:
         qty = 1  # Minimum 1 contract
     
-    actual_cost = qty * best["ask"] * 100
+    actual_cost = qty * limit_price * 100
     
     return {
         "occ_symbol": best["occ_symbol"],
@@ -412,10 +478,12 @@ def _select_buy_call(contracts: list, price: float, equity: float, ticker: str) 
         "option_type": "call",
         "side": "buy",
         "qty": qty,
-        "limit_price": round(best["ask"], 2),  # Limit at ask (could try mid for savings)
+        "limit_price": round(limit_price, 2),
         "max_cost": round(actual_cost, 2),
         "max_loss": round(actual_cost, 2),  # Max loss = premium paid
         "delta": best.get("delta"),
+        "gamma": best.get("gamma"),
+        "theta": best.get("theta"),
         "iv": best.get("iv"),
         "days_to_expiry": best.get("days_to_expiry"),
         "bid_ask_spread": round(best["ask"] - best["bid"], 2),
@@ -423,7 +491,7 @@ def _select_buy_call(contracts: list, price: float, equity: float, ticker: str) 
     }
 
 
-def _select_buy_put(contracts: list, price: float, equity: float, ticker: str) -> dict:
+def _select_buy_put(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Select a put to buy — slightly OTM, delta ~-0.40."""
     puts = [c for c in contracts if c["option_type"] == "put" and c["strike"] <= price]
     if not puts:
@@ -433,12 +501,13 @@ def _select_buy_put(contracts: list, price: float, equity: float, ticker: str) -
     puts.sort(key=lambda c: abs(c.get("delta", 0) - target_delta))
     
     best = puts[0]
+    limit_price = _optimized_limit_price(best, "buy")
     max_cost = equity * size_pct  # Dynamic sizing
-    qty = int(max_cost / (best["ask"] * 100))
+    qty = int(max_cost / (limit_price * 100))
     if qty <= 0:
         qty = 1
     
-    actual_cost = qty * best["ask"] * 100
+    actual_cost = qty * limit_price * 100
     
     return {
         "occ_symbol": best["occ_symbol"],
@@ -447,17 +516,19 @@ def _select_buy_put(contracts: list, price: float, equity: float, ticker: str) -
         "option_type": "put",
         "side": "buy",
         "qty": qty,
-        "limit_price": round(best["ask"], 2),
+        "limit_price": round(limit_price, 2),
         "max_cost": round(actual_cost, 2),
         "max_loss": round(actual_cost, 2),
         "delta": best.get("delta"),
+        "gamma": best.get("gamma"),
+        "theta": best.get("theta"),
         "iv": best.get("iv"),
         "days_to_expiry": best.get("days_to_expiry"),
         "error": None,
     }
 
 
-def _select_sell_put(contracts: list, price: float, equity: float, ticker: str) -> dict:
+def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """
     Select a put to sell (cash-secured).
     Slightly OTM, delta ~-0.30 (70% probability of expiring worthless = profit).
@@ -472,6 +543,7 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str) 
     puts.sort(key=lambda c: abs(c.get("delta", 0) - target_delta))
     
     best = puts[0]
+    limit_price = _optimized_limit_price(best, "sell")
     
     # Cash required to secure: strike * 100 per contract
     cash_per_contract = best["strike"] * 100
@@ -480,7 +552,7 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str) 
         return {"error": f"Not enough capital to sell cash-secured put at ${best['strike']} (need ${cash_per_contract:,.0f} per contract)"}
     
     qty = min(max_contracts, 2)  # Conservative: max 2 contracts
-    premium_received = qty * best["bid"] * 100
+    premium_received = qty * limit_price * 100
     
     return {
         "occ_symbol": best["occ_symbol"],
@@ -489,19 +561,21 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str) 
         "option_type": "put",
         "side": "sell",
         "qty": qty,
-        "limit_price": round(best["bid"], 2),  # Limit at bid (getting paid)
+        "limit_price": round(limit_price, 2),
         "max_cost": 0,  # We receive premium
         "premium_received": round(premium_received, 2),
         "max_loss": round(best["strike"] * qty * 100 - premium_received, 2),
         "cash_required": round(cash_per_contract * qty, 2),
         "delta": best.get("delta"),
+        "gamma": best.get("gamma"),
+        "theta": best.get("theta"),
         "iv": best.get("iv"),
         "days_to_expiry": best.get("days_to_expiry"),
         "error": None,
     }
 
 
-def _select_bull_spread(contracts: list, price: float, equity: float, ticker: str) -> dict:
+def _select_bull_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Bull call spread: buy lower strike call, sell higher strike call. Defined risk."""
     calls = sorted(
         [c for c in contracts if c["option_type"] == "call"],
@@ -850,12 +924,14 @@ def _submit_spread_order(contract: dict) -> dict:
         )
         
         if resp2.status_code not in (200, 201):
-            # Short leg failed — we have naked long exposure now
-            # This is OK (just becomes a regular long call/put), but log it
+            # Short leg failed — CANCEL the long leg to avoid naked exposure
+            long_order_id = long_order.get("id", "")
+            if long_order_id:
+                _cancel_order(long_order_id)
             return {
-                "status": "partial",
-                "detail": f"Long leg submitted but short leg rejected — position is a single long {long_symbol}",
-                "long_order_id": long_order.get("id"),
+                "status": "error",
+                "detail": f"Short leg rejected — cancelled long leg {long_symbol} to avoid naked exposure",
+                "long_order_cancelled": True,
             }
         
         short_order = resp2.json()
@@ -868,10 +944,14 @@ def _submit_spread_order(contract: dict) -> dict:
         }
     
     except Exception as e:
+        # Short leg error — cancel long leg for safety
+        long_order_id = long_order.get("id", "")
+        if long_order_id:
+            _cancel_order(long_order_id)
         return {
-            "status": "partial",
-            "detail": f"Long leg OK but short leg error: {str(e)[:200]}",
-            "long_order_id": long_order.get("id"),
+            "status": "error",
+            "detail": f"Short leg error, cancelled long leg: {str(e)[:200]}",
+            "long_order_cancelled": True,
         }
 
 
@@ -988,6 +1068,22 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
     
     # Step 3: Submit order
     order = submit_options_order(contract)
+    
+    # Step 4: Register entry state for options manager
+    if order.get("status") in ("submitted", "filled"):
+        try:
+            from options_manager import register_options_entry
+            occ = contract.get("occ_symbol", "")
+            entry_px = contract.get("limit_price", 0)
+            entry_side = contract.get("side", "buy")
+            entry_delta = contract.get("delta", 0)
+            entry_qty = contract.get("qty", 1)
+            register_options_entry(
+                occ, entry_px, entry_side, decision["strategy"],
+                delta=entry_delta, qty=entry_qty,
+            )
+        except Exception:
+            pass  # Manager registration failed — non-critical
     
     return {
         "instrument": "options",
