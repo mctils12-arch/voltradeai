@@ -20,8 +20,9 @@ const execAsync = (cmd: string, opts?: any) => _execRaw(cmd, { env: _pyEnv, ...o
 
 // ─── Alpaca Config ──────────────────────────────────────────────────────────
 const ALPACA_BASE = "https://paper-api.alpaca.markets";
-const ALPACA_KEY = process.env.ALPACA_KEY || "PKMDHJOVQEVIB4UHZXUYVTIDBU";
-const ALPACA_SECRET = process.env.ALPACA_SECRET || "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et";
+const ALPACA_KEY = process.env.ALPACA_KEY || "";
+const ALPACA_SECRET = process.env.ALPACA_SECRET || "";
+if (!ALPACA_KEY || !ALPACA_SECRET) console.warn("[WARN] ALPACA_KEY/ALPACA_SECRET not set — trading disabled");
 
 async function alpaca(path: string, opts: any = {}) {
   const controller = new AbortController();
@@ -164,7 +165,7 @@ const tradeResults: TradeResult[] = [];
 const equityCurve: Array<{ date: string; value: number; pnl: number }> = [];
 
 // ─── Email Alerts (Resend) ────────────────────────────────────────────────────
-const RESEND_KEY = process.env.RESEND_KEY || "re_CVz83ewP_JWjJUhtFnNQywduyCj2wnRrM";
+const RESEND_KEY = process.env.RESEND_KEY || "";
 const ALERT_EMAIL = process.env.ALERT_EMAIL || "mctils12@gmail.com";
 
 async function sendEmailAlert(subject: string, body: string) {
@@ -1270,7 +1271,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       // ── Pre-market price check: verify price hasn't gapped more than 5% ──
       try {
         const { stdout: priceCheck } = await execAsync(
-          `python3 -c "import requests,json; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=sip', headers={'APCA-API-KEY-ID':'PKMDHJOVQEVIB4UHZXUYVTIDBU','APCA-API-SECRET-KEY':'9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et'}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
+          `python3 -c "import requests,json,os; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=sip', headers={'APCA-API-KEY-ID':os.environ.get('ALPACA_KEY',''),'APCA-API-SECRET-KEY':os.environ.get('ALPACA_SECRET','')}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
           { timeout: 8000 }
         );
         const currentPrice = parseFloat(priceCheck.trim());
