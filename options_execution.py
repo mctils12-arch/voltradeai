@@ -356,6 +356,21 @@ def _fetch_option_chain(ticker: str, current_price: float) -> list:
                     ask = float(quote.get("ap", 0) or 0)
                     mid = (bid + ask) / 2 if (bid + ask) > 0 else float(trade.get("p", 0) or 0)
                     
+                    # v1.0.33: Fix data extraction from Alpaca OPRA snapshot.
+                    # Volume lives in dailyBar.v, NOT trade.s (that's last trade size).
+                    # OI is not returned by the snapshot endpoint at all — use
+                    # quote size (bp/ap size) as a proxy for market maker commitment.
+                    daily_bar = snap.get("dailyBar", {})
+                    daily_vol = int(daily_bar.get("v", 0) or 0)
+                    # OI: try openInterest, then fall back to bid size as liquidity proxy
+                    # Quote size (bs/as) = contracts being offered = real-time liquidity
+                    oi_raw = int(snap.get("openInterest", 0) or 0)
+                    bid_size = int(quote.get("bs", 0) or 0)
+                    ask_size = int(quote.get("as", 0) or 0)
+                    # If OI not available, use max quote size * 10 as proxy
+                    # (if MM is quoting 150 contracts, OI is likely 1000+)
+                    oi_est = oi_raw if oi_raw > 0 else max(bid_size, ask_size) * 10
+                    
                     contracts.append({
                         "occ_symbol": occ_symbol,
                         "ticker": ticker,
@@ -365,9 +380,9 @@ def _fetch_option_chain(ticker: str, current_price: float) -> list:
                         "bid": bid,
                         "ask": ask,
                         "mid": round(mid, 2),
-                        "volume": int(trade.get("s", 0) or snap.get("volume", 0) or 0),
-                        "open_interest": int(snap.get("openInterest", 0) or 0),
-                        "iv": float(greeks.get("iv", 0) or 0),
+                        "volume": daily_vol,
+                        "open_interest": oi_est,
+                        "iv": float(snap.get("impliedVolatility", 0) or greeks.get("iv", 0) or 0),
                         "delta": float(greeks.get("delta", 0) or 0),
                         "theta": float(greeks.get("theta", 0) or 0),
                         "gamma": float(greeks.get("gamma", 0) or 0),
