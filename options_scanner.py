@@ -536,10 +536,8 @@ def _setup_earnings_iv_crush(
         is theoretically unlimited on one side. We use iron condors (capped loss) for
         anything with a history of big moves.
     """
-    # Earnings IV crush works in extended hours — positioning before open
-    # captures the highest premium before the crowd arrives at 9:30
-    if not _is_regular_hours() and not _is_extended_hours():
-        return None
+    if not _is_regular_hours():
+        return None  # Options only trade regular hours (exchange rule)
     if vxx_ratio >= 1.30:
         return None  # Panic mode: don't add risk, market IV already elevated
     # Fix 1 (v1.0.23): accept days=0 (earnings tomorrow morning)
@@ -655,10 +653,8 @@ def _setup_vxx_panic_put_sale(vxx_ratio: float, spy_vs_ma50: float) -> Optional[
       - If the market keeps crashing below our strike, we take a loss.
       - That's why we only do this when SPY is still above the MA (not a full bear).
     """
-    # VXX panic put sale works in extended hours — fear spikes often
-    # happen overnight, pre-market is the best time to sell overpriced puts
-    if not _is_regular_hours() and not _is_extended_hours():
-        return None
+    if not _is_regular_hours():
+        return None  # Options only trade regular hours (exchange rule)
     if vxx_ratio < 1.30:
         return None  # Not panicky enough
     if spy_vs_ma50 < 0.94:
@@ -763,10 +759,8 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
       - Liquid options (OI > 1000 ATM)
       - NOT in a general panic (we don't want to add risk when everything is falling)
     """
-    # High IV premium selling works in extended hours — IV is often
-    # highest pre-market after overnight news/earnings
-    if not _is_regular_hours() and not _is_extended_hours():
-        return None
+    if not _is_regular_hours():
+        return None  # Options only trade regular hours (exchange rule)
     if vxx_ratio >= 1.25:
         return None  # Market-wide panic — individual stock IV is noise
 
