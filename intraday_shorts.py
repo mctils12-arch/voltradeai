@@ -71,7 +71,6 @@ def _save_log(data):
     try:
         with open(SHORTS_LOG_PATH, "w") as f: json.dump(data, f, indent=2)
     except Exception: pass
-        pass
 
 
 # ── Signal scoring (fixed windows, ATR-relative thresholds) ──────
