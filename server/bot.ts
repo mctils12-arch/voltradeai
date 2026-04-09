@@ -1643,10 +1643,18 @@ print(json.dumps(check_weekly_loss(history)))
   async function executeTrades(trades: any[], equity: number) {
     const positions = await alpaca("/v2/positions").catch(() => []);
     const held = Array.isArray(positions) ? positions.map((p: any) => p.symbol) : [];
-    let slotsUsed = held.length;
+    // Count stock and options positions separately
     // Exclude floor + third-leg positions from active trading heat check.
-    // QQQ floor (70-90%) and GLD/ITA/SVXY are managed by separate systems.
     const MANAGED_TICKERS = new Set(["QQQ", "GLD", "ITA", "SVXY", "SPY", "XOM", "LMT"]);
+    const stockPositions = Array.isArray(positions)
+      ? positions.filter((p: any) => (p.asset_class || "us_equity") === "us_equity").length
+      : held.length;
+    const optionsPositions = Array.isArray(positions)
+      ? positions.filter((p: any) => p.asset_class === "us_option").length
+      : 0;
+    const MAX_OPTIONS_POSITIONS = 3;  // Separate slots for options
+    let slotsUsed = stockPositions;  // Only count stocks against MAX_POSITIONS
+    let optionsSlotsUsed = optionsPositions;
     let totalDeployed = Array.isArray(positions)
       ? positions.reduce((sum: number, p: any) => {
           if (MANAGED_TICKERS.has(p.symbol)) return sum; // Don't count floor/leg positions
@@ -1657,7 +1665,16 @@ print(json.dumps(check_weekly_loss(history)))
 
     for (const trade of trades) {
       if (state.killSwitch) break;
-      if (slotsUsed >= MAX_POSITIONS) break;
+      const isOptionsTrade = trade.trade_type === "options" || (trade.use_options && trade.options_strategy !== "stock");
+      // Options have separate slot limit from stocks
+      if (isOptionsTrade) {
+        if (optionsSlotsUsed >= MAX_OPTIONS_POSITIONS) {
+          audit("OPTIONS-SLOT-FULL", `${trade.ticker}: options slots full (${optionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
+          continue;  // Skip this options trade, but continue checking remaining trades
+        }
+      } else {
+        if (slotsUsed >= MAX_POSITIONS) break;  // Stock slots full
+      }
       if (trade.score < state.minScoreThreshold) {
         audit("SKIP", `${trade.ticker}: score ${trade.score} < threshold ${state.minScoreThreshold}`);
         continue;
@@ -1752,38 +1769,77 @@ print(json.dumps(check_weekly_loss(history)))
 
         // ── Options vs Stock execution ──
         if (trade.use_options && trade.options_strategy !== "stock") {
-          // Execute via options engine
           try {
-            const optionsPayload = {
-              trade: { ticker: trade.ticker, price: trade.price, deep_score: trade.score, vrp: trade.vrp || 0, side: trade.side || "buy", action_label: trade.action || "BUY", rsi: trade.rsi || 50, ewma_rv: trade.ewma_rv || 2, garch_rv: trade.garch_rv || 2 },
-              equity, positions: Array.isArray(positions) ? positions : [],
-            };
-            const tmpPath = `/tmp/opt_${trade.ticker}_${Date.now()}.json`;
-            fs.writeFileSync(tmpPath, JSON.stringify(optionsPayload));
-            const { stdout: optResult } = await execAsync(
-              `python3 -c "import json; from options_execution import evaluate_and_execute; d=json.load(open('${tmpPath}')); print(json.dumps(evaluate_and_execute(d['trade'], d['equity'], d['positions'])))"`,
-              { timeout: 30000 }
-            );
-            try { fs.unlinkSync(tmpPath); } catch (_) {}
-            const optExec = JSON.parse(optResult.trim());
+            let optExec: any;
+
+            if (trade.trade_type === "options" && trade.regime_at_entry === "OPTIONS_SCANNER") {
+              // ── SCANNER PATH: Direct to select_contract + submit ──
+              // Scanner already found the setup. Bypass should_use_options() which would
+              // re-evaluate with incomplete data (no vrp/rsi) and potentially reject.
+              const scannerPayload = {
+                ticker: trade.ticker, strategy: trade.options_strategy || trade.instrument_strategy,
+                price: trade.price, equity, setup: trade.setup || "",
+              };
+              const scanTmpPath = `/tmp/opt_scan_${trade.ticker}_${Date.now()}.json`;
+              fs.writeFileSync(scanTmpPath, JSON.stringify(scannerPayload));
+              const { stdout: scanResult } = await execAsync(
+                `python3 -c "
+import json, sys; sys.path.insert(0, '.')
+from options_execution import select_contract, submit_options_order
+data = json.load(open('${scanTmpPath}'))
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+if contract.get('error'):
+    print(json.dumps({'instrument':'stock','order':None,'contract':None,'reasoning':contract['error']}))
+else:
+    order = submit_options_order(contract)
+    if order.get('status') in ('submitted','filled'):
+        try:
+            from options_manager import register_options_entry
+            register_options_entry(contract.get('occ_symbol',''), contract.get('limit_price',0), contract.get('side','buy'), contract.get('delta',0), contract.get('qty',1))
+        except: pass
+    print(json.dumps({'instrument':'options','strategy':data['strategy'],'contract':contract,'order':order,'reasoning':'Scanner direct execution'}))
+"`,
+                { timeout: 30000 }
+              );
+              try { fs.unlinkSync(scanTmpPath); } catch (_) {}
+              optExec = JSON.parse(scanResult.trim());
+              audit("OPTIONS-SCANNER-EXEC", `${trade.ticker} | strategy=${trade.options_strategy} | setup=${trade.setup || '?'} | result=${optExec.order?.status || 'no_order'}`);
+
+            } else {
+              // ── STOCK→OPTIONS PATH: Full evaluate_and_execute pipeline ──
+              const optionsPayload = {
+                trade: { ticker: trade.ticker, price: trade.price, deep_score: trade.score, vrp: trade.vrp || 0, side: trade.side || "buy", action_label: trade.action || "BUY", rsi: trade.rsi || 50, ewma_rv: trade.ewma_rv || 2, garch_rv: trade.garch_rv || 2 },
+                equity, positions: Array.isArray(positions) ? positions : [],
+              };
+              const tmpPath = `/tmp/opt_${trade.ticker}_${Date.now()}.json`;
+              fs.writeFileSync(tmpPath, JSON.stringify(optionsPayload));
+              const { stdout: optResult } = await execAsync(
+                `python3 -c "import json; from options_execution import evaluate_and_execute; d=json.load(open('${tmpPath}')); print(json.dumps(evaluate_and_execute(d['trade'], d['equity'], d['positions'])))"`,
+                { timeout: 30000 }
+              );
+              try { fs.unlinkSync(tmpPath); } catch (_) {}
+              optExec = JSON.parse(optResult.trim());
+            }
 
             if (optExec.instrument === "options" && optExec.order?.status === "submitted") {
-              audit("OPTIONS-TRADE", `${trade.options_strategy.toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${optExec.reasoning?.slice(0, 120)}`);
-              notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${trade.options_edge_pct?.toFixed(1)}%)`);
-              slotsUsed++;
+              audit("OPTIONS-TRADE", `${(trade.options_strategy || '').toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${(optExec.reasoning || '').slice(0, 120)}`);
+              notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${(trade.options_edge_pct || 0).toFixed?.(1) || '?'}%)`);
+              optionsSlotsUsed++;
               totalDeployed += optExec.contract?.max_cost || trade.position_value;
               // Options positions use the OCC symbol but monitor via underlying ticker
               addPositionToMonitor(trade.ticker, trade.side === "short" ? "short" : "long", trade.price || 0, trade.shares || 1);
               continue; // Skip stock execution
             } else if (optExec.instrument === "options" && optExec.order?.status === "error") {
-              audit("OPTIONS-FALLBACK", `${trade.ticker}: ${optExec.order.detail?.slice(0, 150)} — falling back to stock`);
+              audit("OPTIONS-FALLBACK", `${trade.ticker}: ${(optExec.order.detail || '').slice(0, 150)} — falling back to stock`);
               // Fall through to stock execution
             } else {
-              // Options engine said stock is better
-              audit("OPTIONS-SKIP", `${trade.ticker}: ${optExec.reasoning?.slice(0, 100)}`);
+              // Options engine said stock is better or scanner contract selection failed
+              audit("OPTIONS-SKIP", `${trade.ticker}: ${(optExec.reasoning || '').slice(0, 100)}`);
+              if (trade.trade_type === "options") continue; // Pure options trade — no stock fallback
             }
           } catch (optErr: any) {
-            audit("OPTIONS-ERROR", `${trade.ticker}: ${optErr?.message?.slice(0, 100)} — falling back to stock`);
+            audit("OPTIONS-ERROR", `${trade.ticker}: ${(optErr?.message || '').slice(0, 100)} — falling back to stock`);
+            if (trade.trade_type === "options") continue; // Pure options trade — no stock fallback
           }
         }
 

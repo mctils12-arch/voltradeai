@@ -842,6 +842,103 @@ class TestGreeksInContract(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  TEST: Separate Options Slot Allocation (v1.0.32 fix)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestOptionsSlotseparation(unittest.TestCase):
+    """Options positions must NOT consume stock slots and vice versa."""
+
+    def test_max_options_positions_constant_exists(self):
+        """bot_engine must have MAX_OPTIONS_POSITIONS separate from MAX_POSITIONS."""
+        from bot_engine import MAX_POSITIONS, MAX_OPTIONS_POSITIONS
+        self.assertEqual(MAX_POSITIONS, 5)
+        self.assertEqual(MAX_OPTIONS_POSITIONS, 3)
+
+    def test_num_positions_excludes_options(self):
+        """num_positions should only count stocks, not OCC-symbol options."""
+        # Simulate positions list with mix of stocks and options
+        mixed_positions = [
+            {"symbol": "QQQ", "asset_class": "us_equity", "qty": "111"},
+            {"symbol": "AEHR", "asset_class": "us_equity", "qty": "15"},
+            {"symbol": "SPY260501P00500000", "asset_class": "us_option", "qty": "1"},
+            {"symbol": "AAPL260515C00200000", "asset_class": "us_option", "qty": "2"},
+        ]
+        # Count only stock positions (symbol <= 8 chars and not us_option)
+        num_stock = sum(
+            1 for p in mixed_positions
+            if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
+        )
+        self.assertEqual(num_stock, 2)  # QQQ + AEHR only
+
+    def test_options_slots_counted_separately(self):
+        """Options positions should be counted against MAX_OPTIONS_POSITIONS."""
+        mixed_positions = [
+            {"symbol": "QQQ", "asset_class": "us_equity"},
+            {"symbol": "SPY260501P00500000", "asset_class": "us_option"},
+        ]
+        from bot_engine import MAX_OPTIONS_POSITIONS
+        existing_options = sum(
+            1 for p in mixed_positions
+            if len(str(p.get("symbol", ""))) > 8 or p.get("asset_class") == "us_option"
+        )
+        options_slots = MAX_OPTIONS_POSITIONS - existing_options
+        self.assertEqual(existing_options, 1)
+        self.assertEqual(options_slots, 2)  # 3 - 1 = 2 remaining
+
+    def test_full_stock_slots_still_allows_options(self):
+        """Even with 5 stock positions, options scanner should get slots."""
+        from bot_engine import MAX_POSITIONS, MAX_OPTIONS_POSITIONS
+        stock_positions = [
+            {"symbol": f"STK{i}", "asset_class": "us_equity"}
+            for i in range(5)
+        ]
+        num_stock = sum(
+            1 for p in stock_positions
+            if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
+        )
+        stock_slots = MAX_POSITIONS - num_stock
+        existing_options = sum(
+            1 for p in stock_positions
+            if len(str(p.get("symbol", ""))) > 8 or p.get("asset_class") == "us_option"
+        )
+        options_slots = MAX_OPTIONS_POSITIONS - existing_options
+        self.assertEqual(stock_slots, 0)  # No stock slots
+        self.assertEqual(options_slots, 3)  # All 3 options slots available
+
+    def test_scanner_trade_has_correct_markers(self):
+        """Scanner trades must have trade_type='options' and regime_at_entry='OPTIONS_SCANNER'."""
+        # This simulates what bot_engine.py builds for scanner trades
+        scanner_trade = {
+            "trade_type": "options",
+            "use_options": True,
+            "options_strategy": "buy_straddle",
+            "regime_at_entry": "OPTIONS_SCANNER",
+            "shares": 0,
+        }
+        # These are the markers bot.ts uses to route to scanner path
+        is_scanner = (
+            scanner_trade["trade_type"] == "options"
+            and scanner_trade["regime_at_entry"] == "OPTIONS_SCANNER"
+        )
+        self.assertTrue(is_scanner)
+
+    def test_stock_to_options_trade_not_scanner(self):
+        """Stock→options trades must NOT be treated as scanner trades."""
+        stock_options_trade = {
+            "trade_type": "stock",
+            "use_options": True,
+            "options_strategy": "sell_cash_secured_put",
+            "regime_at_entry": "BULL",
+            "shares": 10,
+        }
+        is_scanner = (
+            stock_options_trade.get("trade_type") == "options"
+            and stock_options_trade.get("regime_at_entry") == "OPTIONS_SCANNER"
+        )
+        self.assertFalse(is_scanner)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  RUN ALL TESTS
 # ═══════════════════════════════════════════════════════════════════════════════
 

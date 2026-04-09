@@ -117,6 +117,7 @@ def _alpaca_headers():
     return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
 MAX_POSITIONS = 5          # Max stocks to hold at once
+MAX_OPTIONS_POSITIONS = 3  # Max options positions — separate from stock slots
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
 STOP_LOSS_PCT = 0.02       # 2% stop loss
 TAKE_PROFIT_PCT = 0.06     # 6% take profit (3:1 reward/risk)
@@ -1438,7 +1439,11 @@ def scan_market():
             [p.get("symbol") for p in current_positions]
             if isinstance(current_positions, list) else []
         )
-        num_positions = len(current_tickers)
+        # Count only stock positions for stock slot limit (options have separate slots)
+        num_positions = sum(
+            1 for p in (current_positions if isinstance(current_positions, list) else [])
+            if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
+        )
     except Exception:
         current_tickers = []
         num_positions = 0
@@ -1715,20 +1720,29 @@ def scan_market():
         })
 
     # Step 6b: Run options scanner synchronously with real portfolio equity.
-    # NOTE: The original code had a parallel "Step 0" that submitted options with
-    # equity=100_000 hardcoded, then discarded that result and called again here.
-    # That wasted one full scan per cycle. Now options runs once, here only.
+    # Options have their OWN slot allocation (MAX_OPTIONS_POSITIONS), separate
+    # from stock slots. This lets options trade even when stock positions are full.
+    # Count existing options positions to determine available options slots.
     options_trade_count = 0
+    try:
+        # Count current options positions (OCC symbols are > 8 chars)
+        existing_options_count = sum(
+            1 for p in (current_positions if isinstance(current_positions, list) else [])
+            if len(str(p.get("symbol", ""))) > 8 or p.get("asset_class") == "us_option"
+        )
+        options_slots = MAX_OPTIONS_POSITIONS - existing_options_count
+    except Exception:
+        options_slots = MAX_OPTIONS_POSITIONS
     try:
         from options_scanner import get_options_trades
         options_trades = get_options_trades(
             equity=portfolio_value,
             current_tickers=current_tickers + [t["ticker"] for t in trades],
-            max_new=max(1, slots_available - len(trades)),
+            max_new=max(1, options_slots),
             min_score=65.0,
         )
         for ot in options_trades:
-            if len(trades) >= slots_available:
+            if options_trade_count >= options_slots:
                 break
             # Convert to bot_engine trade format
             trades.append({
@@ -1828,6 +1842,7 @@ def scan_market():
         "cash": cash,
         "current_positions": num_positions,
         "slots_available": slots_available,
+        "options_slots_available": options_slots if 'options_slots' in dir() else MAX_OPTIONS_POSITIONS,
         "new_trades": trades,
         "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
