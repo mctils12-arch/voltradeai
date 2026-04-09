@@ -2072,7 +2072,7 @@ def _run_third_leg(macro: dict) -> dict:
         if regime in ("NEUTRAL", "BULL"):
             for pos in positions_raw:
                 sym = pos.get("symbol", "")
-                if sym in ("ITA", "SVXY", "GLD"):  # Exit third-leg ETFs when regime normalizes
+                if sym in ("ITA", "SVXY", "GLD", "XOM", "LMT"):  # Exit third-leg + legacy positions when regime normalizes
                     qty = pos.get("qty", "0")
                     try:
                         o = _req.post(f"{base_url}/v2/orders",
