@@ -40,13 +40,20 @@ interface AuditEntry { time: string; action: string; detail: string; }
 
 // Phase 6: Security guardrails (absolute ceilings — dynamic sizing handles the real math)
 const DAILY_LOSS_LIMIT = -3; // percent — hard circuit breaker
-const MAX_POSITION_SIZE = 0.10; // 10% absolute ceiling (dynamic sizing targets 1-7%)
-const MAX_TOTAL_EXPOSURE = 0.50; // 50% max portfolio deployed
+const MAX_POSITION_SIZE = 0.20; // Safety ceiling — real sizing from system_config.py (3-15%)
+const MAX_TOTAL_EXPOSURE = 0.30; // 30% of equity for ACTIVE trades (excludes QQQ floor + third leg)
 const MAX_POSITIONS = 8; // absolute ceiling (dynamic sizing uses portfolio heat)
-const STOP_LOSS_PCT = 0.08; // 8% emergency backstop (dynamic sizing sets tighter ATR-based stops)
-const TAKE_PROFIT_PCT = 0.15; // 15% ceiling (dynamic sizing sets ATR-based targets)
-// NOTE: These are SAFETY NETS, not targets. The position_sizing.py engine
-// calculates the real values (typically 1-5% position size, 1.5-6% stops).
+const STOP_LOSS_PCT = 0.15; // Emergency backstop only — real stops from system_config.py (6% ATR-based)
+const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_config.py (12% ATR-based)
+// NOTE: These are EMERGENCY SAFETY NETS only. The real limits come from
+// system_config.py's get_adaptive_params() which adapts by regime:
+//   BULL: 90% max exposure, 15% position size, 12% TP, 6% SL
+//   NEUTRAL: 90% (QQQ floor handles it), no active stock trades
+//   CAUTION: 60% exposure, 10% position size
+//   BEAR: 50% exposure (third leg only)
+//   PANIC: 30% exposure
+// The QQQ floor deploys 70-90% of equity — these safety nets MUST
+// be above that or they block the core strategy.
 
 // ─── Market Hours Helper ──────────────────────────────────────────────────────
 function getOrderParams(price: number): { type: string; limit_price?: string; time_in_force: string } {
@@ -1632,8 +1639,14 @@ print(json.dumps(check_weekly_loss(history)))
     const positions = await alpaca("/v2/positions").catch(() => []);
     const held = Array.isArray(positions) ? positions.map((p: any) => p.symbol) : [];
     let slotsUsed = held.length;
+    // Exclude floor + third-leg positions from active trading heat check.
+    // QQQ floor (70-90%) and GLD/ITA/SVXY are managed by separate systems.
+    const MANAGED_TICKERS = new Set(["QQQ", "GLD", "ITA", "SVXY", "SPY", "XOM", "LMT"]);
     let totalDeployed = Array.isArray(positions)
-      ? positions.reduce((sum: number, p: any) => sum + Math.abs(parseFloat(p.market_value || "0")), 0)
+      ? positions.reduce((sum: number, p: any) => {
+          if (MANAGED_TICKERS.has(p.symbol)) return sum; // Don't count floor/leg positions
+          return sum + Math.abs(parseFloat(p.market_value || "0"));
+        }, 0)
       : 0;
     const pendingOrderIds: Array<{orderId: string; trade: any; side: string; qty: number}> = [];
 
