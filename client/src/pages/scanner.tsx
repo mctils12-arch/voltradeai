@@ -39,9 +39,9 @@ function fmtVol(n: number) {
   return String(n);
 }
 
-function fmtPct(n: number) {
-  const sign = n >= 0 ? "+" : "";
-  return `${sign}${Number(n ?? 0).toFixed(2)}%`;
+function fmtPct(n: number | undefined | null) {
+  if (n == null) return "N/A";
+  return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 }
 
 function getHeatColor(change: number): string {
@@ -317,12 +317,36 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
             <div style={{ padding: "2rem", textAlign: "center", color: "#4a5c70", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
               LOADING MARKET DATA...
             </div>
+          ) : isError ? (
+            <div style={{ padding: "2rem", textAlign: "center" }}>
+              <p style={{ color: "#ff453a", fontSize: "0.88rem", marginBottom: "0.75rem", fontFamily: "'JetBrains Mono', monospace" }}>
+                FAILED TO LOAD MARKET DATA
+              </p>
+              <button
+                onClick={() => refetch()}
+                style={{
+                  padding: "0.4rem 1rem",
+                  background: "rgba(0, 8, 20, 0.8)",
+                  border: "1px solid rgba(0, 229, 255, 0.2)",
+                  borderRadius: "6px",
+                  color: "#00e5ff",
+                  fontSize: "0.82rem",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  cursor: "pointer",
+                }}
+              >
+                TRY AGAIN
+              </button>
+            </div>
           ) : (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
               {sorted.slice(0, 200).map(stock => (
                 <div
                   key={stock.ticker}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelectTicker(stock.ticker)}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTicker(stock.ticker); } }}
                   style={{
                     flex: "0 0 calc(5% - 2px)",
                     minWidth: "64px",

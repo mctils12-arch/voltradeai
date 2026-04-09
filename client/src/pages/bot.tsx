@@ -39,14 +39,27 @@ const TIPS: Record<string, string> = {
 
 function Tip({ id, children }: { id: string; children: React.ReactNode }) {
   const [show, setShow] = useState(false);
+  const tipRef = useRef<HTMLSpanElement>(null);
+  const [above, setAbove] = useState(true);
   const tip = TIPS[id];
   if (!tip) return <>{children}</>;
   return (
-    <span style={{ position: "relative", cursor: "help", borderBottom: "1px dotted rgba(0, 229, 255, 0.3)" }}
-      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+    <span ref={tipRef} style={{ position: "relative", cursor: "help", borderBottom: "1px dotted rgba(0, 229, 255, 0.3)" }}
+      onMouseEnter={() => {
+        if (tipRef.current) {
+          const rect = tipRef.current.getBoundingClientRect();
+          setAbove(rect.top > 80);
+        }
+        setShow(true);
+      }} onMouseLeave={() => setShow(false)}>
       {children}
       {show && (
-        <span style={{ position: "absolute", bottom: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+        <span style={{
+          position: "absolute",
+          ...(above
+            ? { bottom: "calc(100% + 8px)" }
+            : { top: "calc(100% + 8px)" }),
+          left: "50%", transform: "translateX(-50%)",
           background: "rgba(3, 8, 15, 0.95)", border: "1px solid rgba(0, 229, 255, 0.15)", borderRadius: "4px",
           padding: "10px 14px", fontSize: "12px", color: "#c8d6e5", lineHeight: 1.5, width: "260px", zIndex: 100,
           backdropFilter: "blur(12px)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
@@ -121,7 +134,18 @@ function NotificationBell({ notifications, onMarkRead }: {
   onMarkRead: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const bellRef = useRef<HTMLDivElement>(null);
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Bug 22: click-outside dismiss
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
 
   const typeColor = (type: string) => {
     if (type === "alert" || type === "stop_loss") return "#ff453a";
@@ -140,7 +164,7 @@ function NotificationBell({ notifications, onMarkRead }: {
   };
 
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={bellRef} style={{ position: "relative" }}>
       <button
         onClick={() => {
           setOpen(o => !o);
@@ -443,7 +467,8 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
     const minV = Math.min(...values);
     const maxV = Math.max(...values);
     const peak = Math.max(...values);
-    const range = maxV - minV || 1;
+    const rawRange = maxV - minV;
+    const range = rawRange || 1;
 
     // Grid lines
     const gridLines = 4;
@@ -474,7 +499,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
 
     // Build path
     const toX = (i: number) => PAD_LEFT + (i / (values.length - 1)) * chartW;
-    const toY = (v: number) => PAD_TOP + ((maxV - v) / range) * chartH;
+    const toY = (v: number) => rawRange === 0 ? PAD_TOP + chartH / 2 : PAD_TOP + ((maxV - v) / range) * chartH;
 
     // Area fill
     ctx.beginPath();
@@ -1334,14 +1359,6 @@ export default function BotDashboard() {
           <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>
             {Array.isArray(signals) ? signals.length : 0} active signals
           </span>
-          <button
-            style={{
-              display: "flex", alignItems: "center", gap: "6px",
-              padding: "6px 14px", borderRadius: "4px", border: "1px solid rgba(212,160,23,0.3)",
-              background: "rgba(212,160,23,0.1)", color: "#d4a017", fontSize: "12px", fontWeight: 600,
-            }}
-          >
-          </button>
         </div>
 
         {Array.isArray(signals) && signals.length > 0 ? (

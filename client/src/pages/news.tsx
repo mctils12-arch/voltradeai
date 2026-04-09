@@ -88,7 +88,7 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
     queryKey: ["/api/market/news", debouncedTicker],
     queryFn: async () => {
       const url = debouncedTicker
-        ? `/api/market/news?ticker=${debouncedTicker}`
+        ? `/api/market/news?ticker=${encodeURIComponent(debouncedTicker)}`
         : `/api/market/news`;
       const res = await apiRequest("GET", url);
       return res.json();

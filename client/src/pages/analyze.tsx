@@ -2037,7 +2037,7 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
       setInput(initialTicker);
       setTicker(initialTicker);
     }
-  }, [initialTicker]);
+  }, [initialTicker, ticker]);
 
   // Scroll to results when loaded
   useEffect(() => {
@@ -2049,7 +2049,8 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const t = input.trim().toUpperCase();
-    if (t) setTicker(t);
+    if (!t || !/^[A-Z.]{1,10}$/.test(t)) return;
+    setTicker(t);
   };
 
   const selectTicker = (t: string) => {

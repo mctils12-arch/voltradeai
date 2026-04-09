@@ -44,28 +44,35 @@ function getTextColor(change: number): string {
 export default function SectorHeatmap() {
   const [sectors, setSectors] = useState<SectorData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSectors = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await apiRequest("GET", "/api/market/sectors");
+      const data = await res.json();
+      const results: SectorData[] = [];
+      for (const s of SECTOR_ETFS) {
+        const snap = data[s.etf];
+        if (snap) {
+          const bar = snap.dailyBar || {};
+          const prev = snap.prevDailyBar || {};
+          const c = bar.c || 0;
+          const pc = prev.c || c;
+          const change = pc > 0 ? ((c - pc) / pc) * 100 : 0;
+          results.push({ name: s.name, etf: s.etf, change: Math.round(change * 100) / 100, marketCap: s.weight });
+        }
+      }
+      setSectors(results);
+    } catch (e) {
+      console.error("[SectorHeatmap] Fetch error:", e);
+      setError("Failed to load sector data");
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    async function fetchSectors() {
-      try {
-        const res = await apiRequest("GET", "/api/market/sectors");
-        const data = await res.json();
-        const results: SectorData[] = [];
-        for (const s of SECTOR_ETFS) {
-          const snap = data[s.etf];
-          if (snap) {
-            const bar = snap.dailyBar || {};
-            const prev = snap.prevDailyBar || {};
-            const c = bar.c || 0;
-            const pc = prev.c || c;
-            const change = pc > 0 ? ((c - pc) / pc) * 100 : 0;
-            results.push({ name: s.name, etf: s.etf, change: Math.round(change * 100) / 100, marketCap: s.weight });
-          }
-        }
-        setSectors(results);
-      } catch {}
-      setLoading(false);
-    }
     fetchSectors();
   }, []);
 
@@ -73,6 +80,31 @@ export default function SectorHeatmap() {
     return (
       <div style={{ padding: "2rem", textAlign: "center", color: "#4a5c70", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
         LOADING SECTOR DATA...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: "2rem", textAlign: "center" }}>
+        <p style={{ color: "#ff453a", fontSize: "0.88rem", marginBottom: "0.75rem", fontFamily: "'JetBrains Mono', monospace" }}>
+          {error}
+        </p>
+        <button
+          onClick={fetchSectors}
+          style={{
+            padding: "0.4rem 1rem",
+            background: "rgba(0, 8, 20, 0.8)",
+            border: "1px solid rgba(0, 229, 255, 0.2)",
+            borderRadius: "6px",
+            color: "#00e5ff",
+            fontSize: "0.82rem",
+            fontFamily: "'JetBrains Mono', monospace",
+            cursor: "pointer",
+          }}
+        >
+          Retry
+        </button>
       </div>
     );
   }

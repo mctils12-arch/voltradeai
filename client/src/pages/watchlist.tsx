@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Plus, Trash2, TrendingUp, TrendingDown, Search, RefreshCw } from "lucide-react";
 
@@ -124,58 +125,52 @@ function WatchlistRow({
 
 // ── Watchlist Page ────────────────────────────────────────────────────────────
 
-export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
+export default function WatchlistPage({ onSelectTicker, authenticated }: { onSelectTicker: (ticker: string) => void; authenticated?: boolean }) {
   const [tickers, setTickers] = useState<string[]>([]);
   const [input, setInput] = useState("");
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [prices, setPrices] = useState<Record<string, { price: number; change: number }>>({});
-  const [pricesLoading, setPricesLoading] = useState(false);
+  const isLoggedIn = !!authenticated;
 
-  // Fetch prices from Alpaca whenever tickers change
-  useEffect(() => {
-    if (tickers.length === 0) return;
-    setPricesLoading(true);
-    const symbols = tickers.join(",");
-    apiRequest("GET", `/api/market/snapshots?symbols=${symbols}`)
-      .then(r => r.json())
-      .then(data => {
-        const newPrices: Record<string, { price: number; change: number }> = {};
-        for (const [ticker, snap] of Object.entries(data) as any) {
-          const bar = snap.dailyBar || {};
-          const prev = snap.prevDailyBar || {};
-          const c = bar.c || 0;
-          const pc = prev.c || c;
-          newPrices[ticker] = { price: c, change: pc > 0 ? ((c - pc) / pc) * 100 : 0 };
-        }
-        setPrices(newPrices);
-      })
-      .catch(() => {})
-      .finally(() => setPricesLoading(false));
-  }, [tickers]);
+  // Load watchlist from API (Bug 7: use parent auth, Bug 9: use useQuery)
+  const { data: watchlistData, isLoading: watchlistLoading } = useQuery<{ tickers: string[] }>({
+    queryKey: ["/api/watchlist"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/watchlist");
+      return r.json();
+    },
+    enabled: isLoggedIn,
+    staleTime: 60_000,
+    retry: 1,
+  });
 
-  // Load watchlist from API on mount
   useEffect(() => {
-    apiRequest("GET", "/api/auth/me")
-      .then(r => r.json())
-      .then(data => {
-        if (data.authenticated) {
-          setIsLoggedIn(true);
-          // Fetch watchlist
-          return apiRequest("GET", "/api/watchlist").then(r => r.json());
-        }
-        return null;
-      })
-      .then(data => {
-        if (data && data.tickers && Array.isArray(data.tickers)) {
-          setTickers(data.tickers);
-        }
-        setAuthChecked(true);
-      })
-      .catch(() => {
-        setAuthChecked(true);
-      });
-  }, []);
+    if (watchlistData?.tickers && Array.isArray(watchlistData.tickers)) {
+      setTickers(watchlistData.tickers);
+    }
+  }, [watchlistData]);
+
+  // Fetch prices using useQuery (Bug 8: error handling, Bug 9: use useQuery)
+  const symbolsKey = tickers.join(",");
+  const { data: priceData, isLoading: pricesLoading, isError: priceError } = useQuery<Record<string, { price: number; change: number }>>({
+    queryKey: ["/api/market/snapshots", symbolsKey],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/market/snapshots?symbols=${symbolsKey}`);
+      const data = await res.json();
+      const newPrices: Record<string, { price: number; change: number }> = {};
+      for (const [ticker, snap] of Object.entries(data) as any) {
+        const bar = snap.dailyBar || {};
+        const prev = snap.prevDailyBar || {};
+        const c = bar.c || 0;
+        const pc = prev.c || c;
+        newPrices[ticker] = { price: c, change: pc > 0 ? ((c - pc) / pc) * 100 : 0 };
+      }
+      return newPrices;
+    },
+    enabled: tickers.length > 0,
+    staleTime: 30_000,
+    retry: 2,
+  });
+
+  const prices = priceData ?? {};
 
   const addTicker = async () => {
     const t = input.trim().toUpperCase();
@@ -222,8 +217,8 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
         </p>
       </div>
 
-      {/* Sign up reminder — only shows after auth check confirms not logged in */}
-      {authChecked && !isLoggedIn && (
+      {/* Sign up reminder */}
+      {!isLoggedIn && (
         <div style={{
           padding: '12px 16px',
           marginBottom: '1rem',
@@ -239,6 +234,21 @@ export default function WatchlistPage({ onSelectTicker }: { onSelectTicker: (tic
           <span style={{ fontSize: 12, color: '#7a8ba0', fontFamily: "'JetBrains Mono', monospace" }}>
             🔒 Create a free account to save your watchlist across sessions
           </span>
+        </div>
+      )}
+
+      {/* Price error display (Bug 8) */}
+      {priceError && (
+        <div style={{
+          padding: '10px 14px',
+          marginBottom: '1rem',
+          background: 'rgba(255, 69, 58, 0.07)',
+          border: '1px solid rgba(255, 69, 58, 0.2)',
+          borderRadius: 6,
+          fontSize: '0.82rem',
+          color: '#ff453a',
+        }}>
+          Failed to load prices. Data will retry automatically.
         </div>
       )}
 
