@@ -272,7 +272,7 @@ function PerformanceCard({ perf }: { perf: any }) {
     );
   }
 
-  const { totalTrades, winRate, totalPnl, avgGain, avgLoss, bestTrade, worstTrade, equityCurve } = perf;
+  const { totalTrades = 0, winRate = 0, totalPnl = 0, avgGain = 0, avgLoss = 0, bestTrade, worstTrade, equityCurve } = perf || {};
   const winRateColor = winRate >= 60 ? "#30d158" : winRate >= 45 ? "#d4a017" : "#ff453a";
   const pnlColor = totalPnl >= 0 ? "#30d158" : "#ff453a";
 
@@ -298,25 +298,25 @@ function PerformanceCard({ perf }: { perf: any }) {
         <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Total P&L</div>
           <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: pnlColor }}>
-            {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
+            {totalPnl >= 0 ? "+" : ""}${(totalPnl ?? 0).toFixed(2)}
           </div>
         </div>
         <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}><Tip id="winrate">Win Rate</Tip></div>
           <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: winRateColor }}>
-            {winRate.toFixed(1)}%
+            {(winRate ?? 0).toFixed(1)}%
           </div>
         </div>
         <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Avg Gain</div>
           <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#30d158" }}>
-            +{avgGain.toFixed(2)}%
+            +{(avgGain ?? 0).toFixed(2)}%
           </div>
         </div>
         <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
           <div style={label}>Avg Loss</div>
           <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#ff453a" }}>
-            {avgLoss.toFixed(2)}%
+            {(avgLoss ?? 0).toFixed(2)}%
           </div>
         </div>
       </div>
@@ -335,7 +335,7 @@ function PerformanceCard({ perf }: { perf: any }) {
                   {bestTrade.ticker}
                 </span>
                 <span style={{ fontSize: "12px", color: "#30d158", marginLeft: "auto", fontWeight: 600 }}>
-                  +{bestTrade.pnlPct.toFixed(2)}%
+                  +{bestTrade.(pnlPct ?? 0).toFixed(2)}%
                 </span>
               </div>
             </div>
@@ -351,7 +351,7 @@ function PerformanceCard({ perf }: { perf: any }) {
                   {worstTrade.ticker}
                 </span>
                 <span style={{ fontSize: "12px", color: "#ff453a", marginLeft: "auto", fontWeight: 600 }}>
-                  {worstTrade.pnlPct.toFixed(2)}%
+                  {worstTrade.(pnlPct ?? 0).toFixed(2)}%
                 </span>
               </div>
             </div>
@@ -593,7 +593,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             <div style={{ ...metricBox, borderColor: `${winRateColor}22` }}>
               <div style={label}><Tip id="winrate">Win Rate</Tip></div>
               <div style={{ ...bigNum, color: winRateColor }}>
-                {winRate.toFixed(1)}%
+                {(winRate ?? 0).toFixed(1)}%
               </div>
               <div style={{ marginTop: "6px", height: "3px", background: "rgba(0,229,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${Math.min(winRate, 100)}%`, background: winRateColor, borderRadius: "2px", transition: "width 0.5s ease" }} />
@@ -604,7 +604,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             <div style={{ ...metricBox, borderColor: `${pfColor}22` }}>
               <div style={label}>Profit Factor</div>
               <div style={{ ...bigNum, color: pfColor }}>
-                {profitFactor > 0 ? profitFactor.toFixed(2) : "—"}
+                {profitFactor > 0 ? (profitFactor ?? 0).toFixed(2) : "—"}
               </div>
               <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "4px" }}>
                 {profitFactor >= 1.5 ? "Excellent" : profitFactor >= 1.0 ? "Acceptable" : profitFactor > 0 ? "Below 1.0" : "No data"}
@@ -615,7 +615,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             <div style={metricBox}>
               <div style={label}>Avg Win</div>
               <div style={{ ...bigNum, color: "#30d158" }}>
-                {avgGain > 0 ? `+${avgGain.toFixed(2)}%` : "—"}
+                {avgGain > 0 ? `+${(avgGain ?? 0).toFixed(2)}%` : "—"}
               </div>
             </div>
 
@@ -631,7 +631,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             <div style={{ ...metricBox, borderColor: drawdown < -5 ? "rgba(255,68,68,0.2)" : "rgba(0,229,255,0.08)" }}>
               <div style={label}><Tip id="drawdown">Drawdown</Tip></div>
               <div style={{ ...bigNum, color: ddColor }}>
-                {drawdown !== 0 ? `${drawdown.toFixed(2)}%` : "0.00%"}
+                {drawdown !== 0 ? `${(drawdown ?? 0).toFixed(2)}%` : "0.00%"}
               </div>
               <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "4px" }}>From peak</div>
             </div>
@@ -939,7 +939,7 @@ function EnhancedPositions({
                     {qty} shares
                   </span>
                   <span style={{ fontSize: "13px", fontFamily: "monospace", color: "#c8d6e5", marginLeft: "4px" }}>
-                    @ ${current.toFixed(2)}
+                    @ ${(current ?? 0).toFixed(2)}
                   </span>
                   {showAH && (
                     <span
@@ -971,7 +971,7 @@ function EnhancedPositions({
                   <span style={{ color: "#4a5c70" }}>
                     Entry:{" "}
                     <span style={{ color: "#a1a1a6", fontFamily: "monospace" }}>
-                      ${entry.toFixed(2)}
+                      ${(entry ?? 0).toFixed(2)}
                     </span>
                   </span>
                   {prevClose > 0 && (
@@ -980,7 +980,7 @@ function EnhancedPositions({
                       <span style={{ color: "#4a5c70" }}>
                         Prev Close:{" "}
                         <span style={{ color: "#a1a1a6", fontFamily: "monospace" }}>
-                          ${prevClose.toFixed(2)}
+                          ${(prevClose ?? 0).toFixed(2)}
                         </span>
                       </span>
                     </>
@@ -989,7 +989,7 @@ function EnhancedPositions({
                   <span style={{ color: "#4a5c70" }}>
                     Now:{" "}
                     <span style={{ color: "#c8d6e5", fontFamily: "monospace" }}>
-                      ${current.toFixed(2)}
+                      ${(current ?? 0).toFixed(2)}
                     </span>
                   </span>
                 </div>
@@ -1011,7 +1011,7 @@ function EnhancedPositions({
                   <span style={{ color: "#4a5c70" }}>
                     P&L:{" "}
                     <span style={{ color: pnlColor, fontFamily: "monospace", fontWeight: 600 }}>
-                      {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
+                      {pnl >= 0 ? "+" : ""}${(pnl ?? 0).toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{(pnlPct ?? 0).toFixed(2)}%)
                     </span>
                   </span>
                 </div>
@@ -1030,8 +1030,8 @@ function EnhancedPositions({
                     }}
                   >
                     {showDollar
-                      ? `${changeTodayDollar >= 0 ? "+" : ""}$${changeTodayDollar.toFixed(2)}`
-                      : `${changeTodayPct >= 0 ? "+" : ""}${changeTodayPct.toFixed(2)}%`}
+                      ? `${changeTodayDollar >= 0 ? "+" : ""}$${(changeTodayDollar ?? 0).toFixed(2)}`
+                      : `${changeTodayPct >= 0 ? "+" : ""}${(changeTodayPct ?? 0).toFixed(2)}%`}
                   </button>
                   {prevClose > 0 && changeTodayFromClose !== null && (
                     <span style={{ color: "#4a5c70", fontFamily: "monospace", fontSize: "11px" }}>
@@ -1144,10 +1144,10 @@ function TradeHistoryPanel() {
                       ${Number(t.exitPrice).toFixed(2)}
                     </td>
                     <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: pnlColor }}>
-                      {isPos ? "+" : ""}{pnl.toFixed(2)}
+                      {isPos ? "+" : ""}{(pnl ?? 0).toFixed(2)}
                     </td>
                     <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: pnlColor }}>
-                      {isPos ? "+" : ""}{pnlPct.toFixed(2)}%
+                      {isPos ? "+" : ""}{(pnlPct ?? 0).toFixed(2)}%
                     </td>
                     <td style={{ padding: "7px 6px", color: "#4a5c70", fontFamily: "monospace", fontSize: "11px", whiteSpace: "nowrap" }}>
                       {t.filledAt ? new Date(t.filledAt).toLocaleString() : "—"}
