@@ -597,7 +597,6 @@ print(json.dumps(data))
 
   // ── Performance endpoint ──────────────────────────────────────────────────
   // Removed: duplicate performance endpoint (empty handler shadowed real one)
-  });
 
   // ── Notifications endpoints ───────────────────────────────────────────────
   app.get("/api/bot/notifications", requireAuth, (_req, res) => {
