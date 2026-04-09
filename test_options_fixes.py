@@ -719,46 +719,70 @@ class TestRegisterOptionsEntry(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  TEST 13: Spread Execution Safety — Cancel Long if Short Fails
+#  TEST 13: Native Mleg Order Submission
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestSpreadSafety(unittest.TestCase):
-    """Test that failed short leg cancels the long leg."""
+class TestNativeMlegOrders(unittest.TestCase):
+    """Test that all multi-leg strategies use Alpaca native mleg API."""
 
-    @patch("options_execution._cancel_order")
+    def test_mleg_function_exists(self):
+        """_submit_mleg_order must exist."""
+        from options_execution import _submit_mleg_order
+        self.assertTrue(callable(_submit_mleg_order))
+
+    def test_all_multi_leg_use_mleg(self):
+        """All multi-leg submit functions must call _submit_mleg_order."""
+        import options_execution as oe
+        for fn_name in ['_submit_spread_order', '_submit_buy_straddle_order',
+                        '_submit_straddle_order', '_submit_condor_order']:
+            src = inspect.getsource(getattr(oe, fn_name))
+            self.assertIn('_submit_mleg_order', src, f'{fn_name} must use _submit_mleg_order')
+
+    def test_no_old_polling_code(self):
+        """Old polling/unwinding code must be fully removed."""
+        import options_execution as oe
+        full_src = inspect.getsource(oe)
+        self.assertNotIn('_verify_multi_leg_fills', full_src)
+        self.assertNotIn('_submit_multi_leg', full_src)
+
     @patch("options_execution.requests.post")
-    def test_short_leg_failure_cancels_long(self, mock_post, mock_cancel):
-        from options_execution import _submit_spread_order
-
-        # Long leg succeeds
-        long_resp = MagicMock(
+    def test_mleg_sends_correct_payload(self, mock_post):
+        """mleg order must use order_class=mleg with legs array."""
+        from options_execution import _submit_mleg_order
+        mock_post.return_value = MagicMock(
             status_code=200,
-            headers={"content-type": "application/json"},
-            json=lambda: {"id": "long_order_123", "status": "accepted"}
+            json=lambda: {"id": "test_123", "status": "pending_new"}
         )
-        # Short leg fails
-        short_resp = MagicMock(
-            status_code=403,
-            headers={"content-type": "application/json"},
-            json=lambda: {"message": "insufficient buying power"},
-            text="insufficient buying power"
+        result = _submit_mleg_order(
+            legs=[{"symbol": "SPY260424C00500000", "side": "buy", "ratio_qty": 1},
+                  {"symbol": "SPY260424P00500000", "side": "buy", "ratio_qty": 1}],
+            qty=1, limit_price=5.0, label="Test straddle"
         )
-        mock_post.side_effect = [long_resp, short_resp]
-        mock_cancel.return_value = True
+        # Verify the POST payload
+        call_args = mock_post.call_args
+        payload = call_args.kwargs.get('json') or call_args[1].get('json')
+        self.assertEqual(payload['order_class'], 'mleg')
+        self.assertEqual(payload['qty'], '1')
+        self.assertEqual(len(payload['legs']), 2)
+        self.assertEqual(payload['legs'][0]['position_intent'], 'buy_to_open')
+        self.assertIn('pending_new', result.get('status', '') or result.get('detail', ''))
 
-        contract = {
+    @patch("options_execution.requests.post")
+    def test_spread_rejection_returns_error(self, mock_post):
+        """If Alpaca rejects the mleg order, return error status."""
+        from options_execution import _submit_spread_order
+        mock_post.return_value = MagicMock(
+            status_code=403,
+            json=lambda: {"message": "insufficient buying power"},
+            text="insufficient buying power",
+            headers={"content-type": "application/json"}
+        )
+        result = _submit_spread_order({
             "long_leg": "AAPL260418C00185000",
             "short_leg": "AAPL260418C00195000",
-            "qty": 1,
-            "net_debit": 2.50,
-            "strategy": "bull_call_spread",
-        }
-
-        result = _submit_spread_order(contract)
-        # Should have called cancel on the long order
-        mock_cancel.assert_called_once_with("long_order_123")
+            "qty": 1, "net_debit": 2.50,
+        })
         self.assertEqual(result["status"], "error")
-        self.assertIn("aborted", result.get("detail", "").lower())
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

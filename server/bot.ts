@@ -1840,7 +1840,7 @@ if contract.get('error'):
     print(json.dumps({'instrument':'stock','order':None,'contract':None,'reasoning':contract['error']}))
 else:
     order = submit_options_order(contract)
-    if order.get('status') in ('submitted','filled'):
+    if order.get('status') in ('submitted','filled','pending_new','accepted'):
         try:
             from options_manager import register_options_entry
             register_options_entry(contract.get('occ_symbol',''), contract.get('limit_price',0), contract.get('side','buy'), contract.get('delta',0), contract.get('qty',1))
@@ -1886,7 +1886,7 @@ else:
               optExec = JSON.parse(optResult.trim());
             }
 
-            if (optExec.instrument === "options" && optExec.order?.status === "submitted") {
+            if (optExec.instrument === "options" && ["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status)) {
               audit("OPTIONS-TRADE", `${(trade.options_strategy || '').toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${(optExec.reasoning || '').slice(0, 120)}`);
               notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${(trade.options_edge_pct || 0).toFixed?.(1) || '?'}%)`);
               optionsSlotsUsed++;

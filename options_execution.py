@@ -986,237 +986,146 @@ def submit_options_order(contract: dict) -> dict:
         return {"status": "error", "detail": str(e)[:200]}
 
 
-def _verify_multi_leg_fills(orders: dict, max_wait: int = 90, poll_interval: int = 10) -> dict:
+def _submit_mleg_order(legs: list, qty: int, limit_price: float, label: str) -> dict:
     """
-    Universal fill verification for ALL multi-leg options strategies.
-    (v1.0.33: applied to spreads, straddles, and condors)
+    Submit a multi-leg options order using Alpaca's native mleg API.
+    (v1.0.33: replaces all manual leg-by-leg submission + polling)
 
-    ATOMICITY RULE: Multi-leg options are ONE trade. If any leg doesn't fill,
-    the entire trade is unwound — unfilled legs are cancelled, filled legs
-    are closed at market. This prevents naked/unhedged exposure.
+    The exchange handles atomicity — all legs fill together at one net price,
+    or nothing fills. No polling, no unwinding, no partial fills, no naked legs.
+
+    This is how pros do it: one order, one net price, atomic execution.
 
     Args:
-        orders: dict of {"leg_name": {"id": order_id, "symbol": sym, "side": "buy"/"sell", ...}}
-        max_wait: seconds to poll before timeout
-        poll_interval: seconds between polls
+        legs:  [{"symbol": OCC, "side": "buy"/"sell", "ratio_qty": "1"}]
+        qty:   Number of strategy units
+        limit_price: Net limit price for the whole structure
+                     (positive = net debit you'll pay, negative = net credit you'll receive)
+        label: Human-readable description for logging
 
     Returns:
-        {"status": "filled"/"error", "detail": str, "filled_legs": list, "unwound_legs": list}
+        {"status": "submitted"/"filled"/"error", "order_id": str, "detail": str}
     """
-    import time as _time
-    elapsed = 0
+    # Build position_intent from side: buy → buy_to_open, sell → sell_to_open
+    mleg_legs = []
+    for leg in legs:
+        intent = "buy_to_open" if leg["side"] == "buy" else "sell_to_open"
+        mleg_legs.append({
+            "symbol": leg["symbol"],
+            "side": leg["side"],
+            "ratio_qty": str(leg.get("ratio_qty", 1)),
+            "position_intent": intent,
+        })
 
-    while elapsed < max_wait:
-        _time.sleep(poll_interval)
-        elapsed += poll_interval
-
-        # Poll all legs
-        fill_status = {}
-        for leg_name, info in orders.items():
-            try:
-                r = requests.get(
-                    f"{ALPACA_BASE}/v2/orders/{info['id']}",
-                    headers=_alpaca_headers(), timeout=10)
-                fill_status[leg_name] = r.json().get("status", "unknown") if r.status_code == 200 else "unknown"
-            except Exception:
-                fill_status[leg_name] = "unknown"
-
-        filled = [l for l, s in fill_status.items() if s == "filled"]
-        pending = [l for l, s in fill_status.items() if s in ("new", "partially_filled", "accepted")]
-        dead = [l for l, s in fill_status.items() if s not in ("filled", "new", "partially_filled", "accepted")]
-
-        # All filled → success
-        if len(filled) == len(orders):
-            return {
-                "status": "filled",
-                "detail": f"All {len(orders)} legs filled ({elapsed}s)",
-                "filled_legs": filled,
-                "unwound_legs": [],
-            }
-
-        # Some filled, some dead → unwind
-        if filled and dead:
-            # Cancel any still-pending
-            for l in pending:
-                _cancel_order(orders[l]["id"])
-            # Close filled legs
-            unwound = []
-            for l in filled:
-                info = orders[l]
-                close_side = "sell" if info.get("side") == "buy" else "buy"
-                try:
-                    requests.post(
-                        f"{ALPACA_BASE}/v2/orders",
-                        headers={**_alpaca_headers(), "Content-Type": "application/json"},
-                        json={"symbol": info["symbol"], "qty": str(info.get("qty", 1)),
-                              "side": close_side, "type": "market", "time_in_force": "day"},
-                        timeout=10)
-                    unwound.append(l)
-                except Exception:
-                    unwound.append(f"{l}(close failed)")
-
-            return {
-                "status": "error",
-                "detail": f"Unwound: {', '.join(filled)} filled but {', '.join(dead)} didn't — closed filled legs",
-                "filled_legs": filled,
-                "unwound_legs": unwound,
-            }
-
-        # All still pending → keep waiting
-        if not filled and not dead:
-            continue
-
-    # Timeout: unwind any partial fills
-    final_filled = []
-    for leg_name, info in orders.items():
-        try:
-            r = requests.get(f"{ALPACA_BASE}/v2/orders/{info['id']}", headers=_alpaca_headers(), timeout=10)
-            st = r.json().get("status") if r.status_code == 200 else "unknown"
-        except Exception:
-            st = "unknown"
-
-        if st == "filled":
-            final_filled.append(leg_name)
-        else:
-            _cancel_order(info["id"])
-
-    if len(final_filled) == len(orders):
-        return {"status": "filled", "detail": f"All legs filled at timeout", "filled_legs": final_filled, "unwound_legs": []}
-
-    # Close any filled legs since not all filled
-    unwound = []
-    for l in final_filled:
-        info = orders[l]
-        close_side = "sell" if info.get("side") == "buy" else "buy"
-        try:
-            requests.post(
-                f"{ALPACA_BASE}/v2/orders",
-                headers={**_alpaca_headers(), "Content-Type": "application/json"},
-                json={"symbol": info["symbol"], "qty": str(info.get("qty", 1)),
-                      "side": close_side, "type": "market", "time_in_force": "day"},
-                timeout=10)
-            unwound.append(l)
-        except Exception:
-            unwound.append(f"{l}(close failed)")
-
-    not_filled = [l for l in orders if l not in final_filled]
-    return {
-        "status": "error",
-        "detail": f"Timeout ({max_wait}s): {', '.join(not_filled)} didn't fill — unwound {', '.join(final_filled) or 'nothing'}",
-        "filled_legs": final_filled,
-        "unwound_legs": unwound,
+    payload = {
+        "order_class": "mleg",
+        "qty": str(qty),
+        "type": "limit",
+        "limit_price": str(round(abs(limit_price), 2)),
+        "time_in_force": "day",
+        "legs": mleg_legs,
     }
 
+    try:
+        resp = requests.post(
+            f"{ALPACA_BASE}/v2/orders",
+            headers={**_alpaca_headers(), "Content-Type": "application/json"},
+            json=payload,
+            timeout=15,
+        )
 
-def _submit_multi_leg(legs: list, label: str) -> dict:
-    """
-    Submit multiple option legs and verify all fill atomically.
+        if resp.status_code in (200, 201):
+            order = resp.json()
+            leg_syms = ", ".join(l["symbol"] for l in legs)
+            return {
+                "status": order.get("status", "submitted"),
+                "order_id": order.get("id", ""),
+                "detail": f"{label}: mleg order submitted (${limit_price:.2f} net, {len(legs)} legs: {leg_syms})",
+                "occ_symbol": legs[0]["symbol"] if legs else "",
+            }
+        else:
+            error_body = {}
+            try:
+                error_body = resp.json()
+            except Exception:
+                pass
+            msg = error_body.get("message", resp.text[:200])
+            return {"status": "error", "detail": f"{label}: Alpaca rejected mleg order — {msg}"}
 
-    Args:
-        legs: list of {"symbol": occ, "qty": int, "side": "buy"/"sell", "limit_price": float, "name": str}
-        label: human-readable name (e.g. "Bull call spread AAPL")
-
-    Returns:
-        {"status": "filled"/"submitted"/"error", "detail": str}
-    """
-    orders = {}  # {name: {id, symbol, side, qty}}
-
-    for leg in legs:
-        try:
-            resp = requests.post(
-                f"{ALPACA_BASE}/v2/orders",
-                headers={**_alpaca_headers(), "Content-Type": "application/json"},
-                json={"symbol": leg["symbol"], "qty": str(leg["qty"]),
-                      "side": leg["side"], "type": "limit",
-                      "limit_price": str(round(leg["limit_price"], 2)),
-                      "time_in_force": "day"},
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                order = resp.json()
-                orders[leg["name"]] = {
-                    "id": order.get("id", ""),
-                    "symbol": leg["symbol"],
-                    "side": leg["side"],
-                    "qty": leg["qty"],
-                }
-            else:
-                # This leg failed — cancel all previously submitted legs
-                for prev_name, prev_info in orders.items():
-                    _cancel_order(prev_info["id"])
-                return {"status": "error", "detail": f"{label} aborted: {leg['name']} rejected ({resp.text[:80]}), cancelled other legs"}
-        except Exception as e:
-            for prev_name, prev_info in orders.items():
-                _cancel_order(prev_info["id"])
-            return {"status": "error", "detail": f"{label} aborted: {leg['name']} error ({str(e)[:80]})"}
-
-    # All submitted — verify fills
-    result = _verify_multi_leg_fills(orders)
-    result["detail"] = f"{label}: {result['detail']}"
-    return result
+    except Exception as e:
+        return {"status": "error", "detail": f"{label}: mleg submission error — {str(e)[:200]}"}
 
 
 def _submit_spread_order(contract: dict) -> dict:
-    """
-    Submit a spread (two legs) with atomicity verification.
-    Both legs must fill or neither stays. (v1.0.33)
-    """
+    """Submit spread via Alpaca native mleg order."""
     long_symbol = contract.get("long_leg", "")
     short_symbol = contract.get("short_leg", "")
     qty = contract.get("qty", 1)
-    net_debit = contract.get("net_debit", 0)
-
+    net_debit = contract.get("net_debit", 0) or contract.get("limit_price", 0)
     if not long_symbol or not short_symbol:
         return {"status": "error", "detail": "Missing spread leg symbols"}
-
-    long_price = net_debit * 1.05  # Pay slightly more to ensure fill
-    short_price = round(net_debit * 0.05, 2)  # Low limit for credit leg
-
-    return _submit_multi_leg([
-        {"name": "long", "symbol": long_symbol, "qty": qty, "side": "buy", "limit_price": long_price},
-        {"name": "short", "symbol": short_symbol, "qty": qty, "side": "sell", "limit_price": short_price},
-    ], label=f"Spread {long_symbol}/{short_symbol} x{qty}")
+    return _submit_mleg_order(
+        legs=[
+            {"symbol": long_symbol, "side": "buy", "ratio_qty": 1},
+            {"symbol": short_symbol, "side": "sell", "ratio_qty": 1},
+        ],
+        qty=qty, limit_price=net_debit,
+        label=f"Spread {long_symbol}/{short_symbol} x{qty}",
+    )
 
 
 def _submit_buy_straddle_order(contract: dict) -> dict:
-    """Submit long straddle with atomicity: both legs fill or neither stays."""
+    """Submit long straddle via Alpaca native mleg order."""
     call_sym = contract.get("call_leg", "")
     put_sym  = contract.get("put_leg", "")
     qty      = contract.get("qty", 1)
-    return _submit_multi_leg([
-        {"name": "call", "symbol": call_sym, "qty": qty, "side": "buy", "limit_price": contract.get("call_debit", 0)},
-        {"name": "put",  "symbol": put_sym,  "qty": qty, "side": "buy", "limit_price": contract.get("put_debit", 0)},
-    ], label=f"Buy straddle {call_sym}/{put_sym} x{qty}")
+    net_debit = contract.get("limit_price", 0) or (contract.get("call_debit", 0) + contract.get("put_debit", 0))
+    return _submit_mleg_order(
+        legs=[
+            {"symbol": call_sym, "side": "buy", "ratio_qty": 1},
+            {"symbol": put_sym,  "side": "buy", "ratio_qty": 1},
+        ],
+        qty=qty, limit_price=net_debit,
+        label=f"Buy straddle {call_sym}/{put_sym} x{qty}",
+    )
 
 
 def _submit_straddle_order(contract: dict) -> dict:
-    """Submit short straddle with atomicity: both legs fill or neither stays."""
+    """Submit short straddle via Alpaca native mleg order."""
     call_sym = contract.get("call_leg", "")
     put_sym  = contract.get("put_leg", "")
     qty      = contract.get("qty", 1)
-    return _submit_multi_leg([
-        {"name": "call", "symbol": call_sym, "qty": qty, "side": "sell", "limit_price": contract.get("call_credit", 0)},
-        {"name": "put",  "symbol": put_sym,  "qty": qty, "side": "sell", "limit_price": contract.get("put_credit", 0)},
-    ], label=f"Short straddle {call_sym}/{put_sym} x{qty}")
+    net_credit = contract.get("limit_price", 0) or (contract.get("call_credit", 0) + contract.get("put_credit", 0))
+    return _submit_mleg_order(
+        legs=[
+            {"symbol": call_sym, "side": "sell", "ratio_qty": 1},
+            {"symbol": put_sym,  "side": "sell", "ratio_qty": 1},
+        ],
+        qty=qty, limit_price=net_credit,
+        label=f"Short straddle {call_sym}/{put_sym} x{qty}",
+    )
 
 
 def _submit_condor_order(contract: dict) -> dict:
-    """Submit iron condor (4 legs) with atomicity: all fill or all unwound."""
+    """Submit iron condor via Alpaca native mleg order (4 legs, one order)."""
     qty = contract.get("qty", 1)
-    net_credit = contract.get("net_credit", 0)
-    leg_defs = [
-        ("short_call", contract.get("short_call"), "sell", max(0.01, net_credit * 0.6)),
-        ("long_call",  contract.get("long_call"),  "buy",  0.01),
-        ("short_put",  contract.get("short_put"),  "sell", max(0.01, net_credit * 0.6)),
-        ("long_put",   contract.get("long_put"),   "buy",  0.01),
-    ]
-    legs = [
-        {"name": name, "symbol": sym, "qty": qty, "side": side, "limit_price": px}
-        for name, sym, side, px in leg_defs if sym
-    ]
-    if len(legs) < 4:
+    net_credit = contract.get("net_credit", 0) or contract.get("limit_price", 0)
+    sc = contract.get("short_call", "")
+    lc = contract.get("long_call", "")
+    sp = contract.get("short_put", "")
+    lp = contract.get("long_put", "")
+    if not all([sc, lc, sp, lp]):
         return {"status": "error", "detail": "Iron condor missing leg symbols"}
-    return _submit_multi_leg(legs, label=f"Iron condor x{qty}")
+    return _submit_mleg_order(
+        legs=[
+            {"symbol": sc, "side": "sell", "ratio_qty": 1},
+            {"symbol": lc, "side": "buy",  "ratio_qty": 1},
+            {"symbol": sp, "side": "sell", "ratio_qty": 1},
+            {"symbol": lp, "side": "buy",  "ratio_qty": 1},
+        ],
+        qty=qty, limit_price=net_credit,
+        label=f"Iron condor x{qty}",
+    )
 
 
 
@@ -1267,7 +1176,7 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
     order = submit_options_order(contract)
     
     # Step 4: Register entry state for options manager
-    if order.get("status") in ("submitted", "filled"):
+    if order.get("status") in ("submitted", "filled", "pending_new", "accepted"):
         try:
             from options_manager import register_options_entry
             occ = contract.get("occ_symbol", "")
