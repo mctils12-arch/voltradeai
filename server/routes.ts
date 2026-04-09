@@ -718,6 +718,102 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Trade History (filled orders from Alpaca) ──────────────────────────
+  app.get("/api/trades/history", async (_req, res) => {
+    try {
+      const response = await fetch(
+        "https://paper-api.alpaca.markets/v2/orders?status=filled&limit=50&direction=desc",
+        { headers: alpacaHeaders }
+      );
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: errText, trades: [] });
+      }
+      const orders: any[] = await response.json();
+
+      // Also fetch market clock to know if we're in extended hours
+      let marketOpen = false;
+      try {
+        const clockRes = await fetch("https://paper-api.alpaca.markets/v2/clock", { headers: alpacaHeaders });
+        const clock = await clockRes.json();
+        marketOpen = clock.is_open === true;
+      } catch { /* ignore */ }
+
+      // Group fills by symbol to pair buys with sells for round-trip P&L
+      // Each order: symbol, side (buy/sell), filled_qty, filled_avg_price, filled_at
+      interface TradeRecord {
+        symbol: string;
+        side: string;
+        shares: number;
+        entryPrice: number;
+        exitPrice: number | null;
+        pnl: number | null;
+        pnlPct: number | null;
+        filledAt: string;
+      }
+
+      const trades: TradeRecord[] = [];
+
+      // Separate buys and sells per symbol
+      const buyQueue: Map<string, Array<{ qty: number; price: number; filledAt: string }>> = new Map();
+
+      // Process orders oldest first to match buys to sells
+      const sorted = [...orders].reverse(); // oldest first
+      for (const o of sorted) {
+        const sym = o.symbol;
+        const qty = parseFloat(o.filled_qty ?? "0");
+        const price = parseFloat(o.filled_avg_price ?? "0");
+        const filledAt = o.filled_at ?? o.updated_at ?? "";
+        if (!qty || !price) continue;
+
+        if (o.side === "buy") {
+          if (!buyQueue.has(sym)) buyQueue.set(sym, []);
+          buyQueue.get(sym)!.push({ qty, price, filledAt });
+        } else if (o.side === "sell") {
+          // Match against oldest buy
+          const buys = buyQueue.get(sym) || [];
+          const matchBuy = buys.shift();
+          if (matchBuy) {
+            const pnl = (price - matchBuy.price) * qty;
+            const pnlPct = matchBuy.price > 0 ? ((price - matchBuy.price) / matchBuy.price) * 100 : 0;
+            trades.push({
+              symbol: sym,
+              side: "SELL",
+              shares: qty,
+              entryPrice: matchBuy.price,
+              exitPrice: price,
+              pnl,
+              pnlPct,
+              filledAt,
+            });
+          } else {
+            // No matching buy — record as standalone sell
+            trades.push({
+              symbol: sym,
+              side: "SELL",
+              shares: qty,
+              entryPrice: price,
+              exitPrice: price,
+              pnl: 0,
+              pnlPct: 0,
+              filledAt,
+            });
+          }
+        }
+      }
+
+      // Also include unmatched buys (still open or partial)
+      // — skip those, they're open positions
+
+      // Sort most-recent first
+      trades.sort((a, b) => new Date(b.filledAt).getTime() - new Date(a.filledAt).getTime());
+
+      res.json({ trades, marketOpen });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, trades: [] });
+    }
+  });
+
   // Pre-warm: run a quick scan of top 10 tickers on startup so scanner has data
   setTimeout(() => {
     console.log("[scanner] Pre-warming with top 10 tickers...");

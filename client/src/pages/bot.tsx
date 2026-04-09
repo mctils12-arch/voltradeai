@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ShieldAlert, Play, Square, TrendingUp, Activity, Clock,
   RefreshCw, Shield, Lock, BarChart2, Zap, Bell, ArrowUp, ArrowDown,
+  DollarSign, History, Sunrise,
 } from "lucide-react";
 import TradeCharts from "@/components/TradeChart";
 
@@ -803,6 +804,301 @@ function MLModelPanel() {
   );
 }
 
+// ─── Enhanced Positions Component ────────────────────────────────────────────────────
+function useMarketClock() {
+  const { data } = useQuery({
+    queryKey: ["/api/bot/clock"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/bot/clock");
+      return r.json();
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+  const clock = data as any;
+  return {
+    isOpen: clock?.is_open ?? false,
+    nextOpen: clock?.next_open ?? "",
+    nextClose: clock?.next_close ?? "",
+  };
+}
+
+function EnhancedPositions({
+  positions,
+  closePos,
+}: {
+  positions: any[] | undefined;
+  closePos: (ticker: string) => void;
+}) {
+  const [dollarView, setDollarView] = useState<Record<string, boolean>>({});
+  const { isOpen: marketOpen } = useMarketClock();
+
+  const toggleDollarView = (ticker: string) => {
+    setDollarView(prev => ({ ...prev, [ticker]: !prev[ticker] }));
+  };
+
+  return (
+    <div style={{ ...card, marginBottom: "20px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+        <Activity size={14} style={{ color: "#00e5ff" }} />
+        <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
+          <Tip id="position">Open Positions</Tip>
+        </span>
+        {!marketOpen && (
+          <span
+            style={{
+              fontSize: "10px", padding: "2px 7px", borderRadius: "3px",
+              background: "rgba(212,160,23,0.12)", color: "#d4a017",
+              border: "1px solid rgba(212,160,23,0.25)", fontWeight: 600,
+              letterSpacing: "0.3px",
+            }}
+          >
+            AFTER HOURS
+          </span>
+        )}
+        <span style={{ marginLeft: "auto", fontSize: "12px", color: "#4a5c70" }}>
+          {Array.isArray(positions) ? positions.length : 0} positions
+        </span>
+      </div>
+
+      {Array.isArray(positions) && positions.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {positions.map((p: any) => {
+            const qty = Number(p.qty ?? 0);
+            const entry = Number(p.entryPrice ?? p.avg_entry_price ?? 0);
+            const current = Number(p.currentPrice ?? p.current_price ?? 0);
+            const pnl = Number(p.pnl ?? p.unrealized_pl ?? 0);
+            const rawPnlPct = Number(p.pnlPct ?? p.unrealized_plpc ?? 0);
+            const pnlPct = p.unrealized_plpc !== undefined ? rawPnlPct * 100 : rawPnlPct;
+            const costBasis = qty * entry;
+            const marketValue = qty * current;
+            const changeTodayRatio = Number(p.change_today ?? 0);
+            const changeTodayPct = changeTodayRatio * 100;
+            const changeTodayDollar = marketValue * changeTodayRatio;
+            const pnlColor = pnl >= 0 ? "#30d158" : "#ff453a";
+            const todayColor = changeTodayPct >= 0 ? "#30d158" : "#ff453a";
+            const showDollar = dollarView[p.ticker] ?? false;
+            const showAH = !marketOpen;
+
+            return (
+              <div
+                key={p.ticker}
+                data-testid={`position-row-${p.ticker}`}
+                style={{
+                  background: "rgba(0, 15, 30, 0.4)",
+                  border: "1px solid rgba(0, 229, 255, 0.08)",
+                  borderRadius: "4px",
+                  padding: "12px 14px",
+                }}
+              >
+                {/* Row 1: ticker / side / shares / price / AH badge / close button */}
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "6px" }}>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: "15px", color: "#c8d6e5" }}>
+                    {p.ticker}
+                  </span>
+                  <span style={{
+                    fontSize: "11px", fontWeight: 600, padding: "2px 7px", borderRadius: "3px",
+                    color: p.side === "long" ? "#30d158" : "#ff453a",
+                    background: p.side === "long" ? "rgba(48,209,88,0.12)" : "rgba(255,68,68,0.12)",
+                    border: `1px solid ${p.side === "long" ? "rgba(48,209,88,0.25)" : "rgba(255,68,68,0.25)"}`,
+                    textTransform: "uppercase" as const,
+                  }}>
+                    {p.side}
+                  </span>
+                  <span style={{ fontSize: "12px", color: "#a1a1a6", fontFamily: "monospace" }}>
+                    {qty} shares
+                  </span>
+                  <span style={{ fontSize: "13px", fontFamily: "monospace", color: "#c8d6e5", marginLeft: "4px" }}>
+                    @ ${current.toFixed(2)}
+                  </span>
+                  {showAH && (
+                    <span
+                      data-testid={`ah-badge-${p.ticker}`}
+                      style={{
+                        fontSize: "9px", padding: "1px 5px", borderRadius: "2px",
+                        background: "rgba(212,160,23,0.15)", color: "#d4a017",
+                        border: "1px solid rgba(212,160,23,0.3)", fontWeight: 700, letterSpacing: "0.5px",
+                      }}
+                    >
+                      AH
+                    </span>
+                  )}
+                  <button
+                    data-testid={`close-pos-${p.ticker}`}
+                    onClick={() => closePos(p.ticker)}
+                    style={{
+                      marginLeft: "auto", padding: "4px 10px", borderRadius: "4px",
+                      border: "1px solid rgba(255,51,51,0.3)", background: "transparent",
+                      color: "#ff453a", fontSize: "11px", cursor: "pointer",
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {/* Row 2: Cost Basis | Market Value | P&L */}
+                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", fontSize: "12px", marginBottom: "4px" }}>
+                  <span style={{ color: "#4a5c70" }}>
+                    Cost:{" "}
+                    <span style={{ color: "#a1a1a6", fontFamily: "monospace" }}>
+                      ${costBasis.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </span>
+                  <span style={{ color: "#4a5c70" }}>
+                    Value:{" "}
+                    <span style={{ color: "#c8d6e5", fontFamily: "monospace" }}>
+                      ${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </span>
+                  <span style={{ color: "#4a5c70" }}>
+                    P&L:{" "}
+                    <span style={{ color: pnlColor, fontFamily: "monospace", fontWeight: 600 }}>
+                      {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
+                    </span>
+                  </span>
+                </div>
+
+                {/* Row 3: Today change (toggle) */}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+                  <span style={{ color: "#4a5c70" }}>Today:</span>
+                  <button
+                    data-testid={`today-toggle-${p.ticker}`}
+                    onClick={() => toggleDollarView(p.ticker)}
+                    title="Tap to toggle between % and $ view"
+                    style={{
+                      background: "none", border: "none", cursor: "pointer", padding: 0,
+                      color: todayColor, fontFamily: "monospace", fontWeight: 600, fontSize: "12px",
+                      textDecoration: "underline dotted",
+                    }}
+                  >
+                    {showDollar
+                      ? `${changeTodayDollar >= 0 ? "+" : ""}$${changeTodayDollar.toFixed(2)}`
+                      : `${changeTodayPct >= 0 ? "+" : ""}${changeTodayPct.toFixed(2)}%`}
+                  </button>
+                  <span style={{ color: "#2a3a4c", fontSize: "10px" }}>(tap to toggle)</span>
+                  {showAH && changeTodayPct !== 0 && (
+                    <span style={{ color: "#d4a017", fontSize: "10px", marginLeft: "4px" }}>
+                      \u00b7 AH price reflects extended hours
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>
+          No open positions. The bot will generate signals and trade when activated.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Trade History Panel ──────────────────────────────────────────────────────
+function TradeHistoryPanel() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["/api/trades/history"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/trades/history");
+      return r.json();
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const trades: any[] = (data as any)?.trades ?? [];
+
+  return (
+    <div style={{ ...card, marginBottom: "20px" }} data-testid="trade-history-panel">
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+        <History size={14} style={{ color: "#00e5ff" }} />
+        <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
+          TRADE HISTORY
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: "12px", color: "#4a5c70" }}>
+          {isLoading ? "loading…" : `${trades.length} closed trades`}
+        </span>
+      </div>
+
+      {isError && (
+        <div style={{ color: "#ff453a", fontSize: "12px", textAlign: "center", padding: "12px 0" }}>
+          Failed to load trade history.
+        </div>
+      )}
+
+      {!isLoading && !isError && trades.length === 0 && (
+        <div style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>
+          No closed trades yet
+        </div>
+      )}
+
+      {trades.length > 0 && (
+        <div style={{ maxHeight: "300px", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", minWidth: "560px" }}>
+            <thead style={{ position: "sticky", top: 0, background: "rgba(0, 10, 20, 0.95)", zIndex: 1 }}>
+              <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                <th style={{ padding: "7px 10px", fontWeight: 500 }}>Symbol</th>
+                <th style={{ padding: "7px 6px", fontWeight: 500 }}>Side</th>
+                <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>Shares</th>
+                <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>Entry</th>
+                <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>Exit</th>
+                <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>P&L $</th>
+                <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>P&L %</th>
+                <th style={{ padding: "7px 6px", fontWeight: 500 }}>Date/Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trades.map((t: any, i: number) => {
+                const pnl = t.pnl ?? 0;
+                const pnlPct = t.pnlPct ?? 0;
+                const isPos = pnl >= 0;
+                const pnlColor = isPos ? "#30d158" : "#ff453a";
+                const sideColor = t.side === "BUY" ? "#30d158" : "#ff453a";
+                return (
+                  <tr
+                    key={i}
+                    data-testid="trade-history-row"
+                    style={{
+                      borderBottom: "1px solid rgba(0, 15, 30, 0.4)",
+                      background: isPos ? "rgba(48,209,88,0.03)" : "rgba(255,68,68,0.03)",
+                    }}
+                  >
+                    <td style={{ padding: "7px 10px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: "#c8d6e5" }}>
+                      {t.symbol}
+                    </td>
+                    <td style={{ padding: "7px 6px", color: sideColor, fontFamily: "monospace", fontSize: "11px", fontWeight: 600 }}>
+                      {t.side}
+                    </td>
+                    <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "monospace", color: "#a1a1a6" }}>
+                      {Number(t.shares).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "monospace", color: "#a1a1a6" }}>
+                      ${Number(t.entryPrice).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "monospace", color: "#c8d6e5" }}>
+                      ${Number(t.exitPrice).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: pnlColor }}>
+                      {isPos ? "+" : ""}{pnl.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: pnlColor }}>
+                      {isPos ? "+" : ""}{pnlPct.toFixed(2)}%
+                    </td>
+                    <td style={{ padding: "7px 6px", color: "#4a5c70", fontFamily: "monospace", fontSize: "11px", whiteSpace: "nowrap" }}>
+                      {t.filledAt ? new Date(t.filledAt).toLocaleString() : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BotDashboard() {
   // ── Queries ───────────────────────────────────────────────────────────────
   const { data: acct } = useQuery({
@@ -958,50 +1254,11 @@ export default function BotDashboard() {
       {/* ── Performance Card ── */}
       <PerformanceCard perf={perfData} />
 
-      {/* ── Open Positions ── */}
-      <div style={{ ...card, marginBottom: "20px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-          <Activity size={14} style={{ color: "#00e5ff" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}><Tip id="position">Open Positions</Tip></span>
-          <span style={{ marginLeft: "auto", fontSize: "12px", color: "#4a5c70" }}>{Array.isArray(positions) ? positions.length : 0} positions</span>
-        </div>
-        {Array.isArray(positions) && positions.length > 0 ? (
-          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "480px" }}>
-              <thead>
-                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
-                  <th style={{ padding: "8px 12px" }}>Ticker</th>
-                  <th style={{ padding: "8px 6px" }}>Side</th>
-                  <th style={{ padding: "8px 6px", textAlign: "right" }}>Qty</th>
-                  <th style={{ padding: "8px 6px", textAlign: "right" }}>Entry</th>
-                  <th style={{ padding: "8px 6px", textAlign: "right" }}>Current</th>
-                  <th style={{ padding: "8px 6px", textAlign: "right" }}><Tip id="pnl">P&L</Tip></th>
-                  <th style={{ padding: "8px 6px" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((p: any) => (
-                  <tr key={p.ticker} style={{ borderBottom: "1px solid rgba(0, 15, 30, 0.4)" }}>
-                    <td style={{ padding: "8px 12px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>{p.ticker}</td>
-                    <td style={{ padding: "8px 6px", color: p.side === "long" ? "#30d158" : "#ff453a" }}>{p.side}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace" }}>{p.qty}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", color: "#a1a1a6" }}>${Number(p.entryPrice ?? 0).toFixed(2)}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace" }}>${Number(p.currentPrice ?? 0).toFixed(2)}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: (p.pnl ?? 0) >= 0 ? "#30d158" : "#ff453a" }}>
-                      {(p.pnl ?? 0) >= 0 ? "+" : ""}${Number(p.pnl ?? 0).toFixed(2)} ({(p.pnlPct ?? 0) >= 0 ? "+" : ""}{Number(p.pnlPct ?? 0).toFixed(2)}%)
-                    </td>
-                    <td style={{ padding: "8px 6px" }}>
-                      <button onClick={() => closePos.mutate(p.ticker)} style={{ padding: "4px 10px", borderRadius: "4px", border: "1px solid rgba(255,51,51,0.3)", background: "transparent", color: "#ff453a", fontSize: "11px", cursor: "pointer" }}>Close</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "20px 0" }}>No open positions. The bot will generate signals and trade when activated.</p>
-        )}
-      </div>
+      {/* ── Open Positions (enhanced) ── */}
+      <EnhancedPositions positions={positions} closePos={(t: string) => closePos.mutate(t)} />
+
+      {/* ── Trade History Panel ── */}
+      <TradeHistoryPanel />
 
       {/* ── AI Signals Panel ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
