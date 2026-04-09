@@ -1075,16 +1075,26 @@ def _submit_spread_order(contract: dict) -> dict:
 
 
 def _submit_buy_straddle_order(contract: dict) -> dict:
-    """Submit long straddle: buy ATM call + buy ATM put. (v1.0.33)"""
+    """
+    Submit long straddle: buy ATM call + buy ATM put. (v1.0.33)
+
+    ATOMICITY RULE: A straddle is ONE trade with TWO legs.
+    - If one leg fails to submit → cancel the other immediately.
+    - After both submit, poll for up to 90 seconds:
+      - Both fill → success
+      - One fills, other doesn't → cancel unfilled, close filled (sell it back)
+      - Neither fills after timeout → cancel both
+    This prevents holding a naked call or put when the intent was a straddle.
+    """
     call_sym = contract.get("call_leg", "")
     put_sym  = contract.get("put_leg", "")
     qty      = contract.get("qty", 1)
     call_debit = contract.get("call_debit", 0)
     put_debit  = contract.get("put_debit", 0)
 
-    results = []
-    order_ids = []
-    for sym, debit, leg_name in [(call_sym, call_debit, "call"), (put_sym, put_debit, "put")]:
+    # Step 1: Submit both legs
+    orders = {}  # {"call": order_dict, "put": order_dict}
+    for leg_name, sym, debit in [("call", call_sym, call_debit), ("put", put_sym, put_debit)]:
         try:
             resp = requests.post(
                 f"{ALPACA_BASE}/v2/orders",
@@ -1094,38 +1104,152 @@ def _submit_buy_straddle_order(contract: dict) -> dict:
                 timeout=10,
             )
             if resp.status_code in (200, 201):
-                order = resp.json()
-                order_ids.append(order.get("id", ""))
-                results.append(f"{leg_name} bought OK")
+                orders[leg_name] = resp.json()
             else:
-                results.append(f"{leg_name} failed: {resp.text[:100]}")
+                # This leg failed to submit — cancel any previously submitted leg
+                for prev_leg, prev_order in orders.items():
+                    _cancel_order(prev_order.get("id", ""))
+                return {
+                    "status": "error",
+                    "detail": f"Straddle aborted: {leg_name} rejected ({resp.text[:100]}), cancelled other leg",
+                }
         except Exception as e:
-            results.append(f"{leg_name} error: {str(e)[:100]}")
+            for prev_leg, prev_order in orders.items():
+                _cancel_order(prev_order.get("id", ""))
+            return {
+                "status": "error",
+                "detail": f"Straddle aborted: {leg_name} error ({str(e)[:100]}), cancelled other leg",
+            }
 
-    success = all("OK" in r for r in results)
-    # If one leg fails, cancel the other to avoid naked exposure
-    if not success and order_ids:
-        for oid in order_ids:
-            _cancel_order(oid)
-        results.append("(cancelled successful legs)")
+    # Step 2: Both submitted. Poll for fills (up to 90 seconds, check every 10s).
+    import time as _time
+    MAX_WAIT = 90
+    POLL_INTERVAL = 10
+    elapsed = 0
+
+    while elapsed < MAX_WAIT:
+        _time.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+
+        fill_status = {}  # {"call": "filled"/"new"/"cancelled", "put": ...}
+        for leg_name, order in orders.items():
+            try:
+                r = requests.get(
+                    f"{ALPACA_BASE}/v2/orders/{order['id']}",
+                    headers=_alpaca_headers(), timeout=10,
+                )
+                if r.status_code == 200:
+                    fill_status[leg_name] = r.json().get("status", "unknown")
+                else:
+                    fill_status[leg_name] = "unknown"
+            except Exception:
+                fill_status[leg_name] = "unknown"
+
+        call_filled = fill_status.get("call") == "filled"
+        put_filled = fill_status.get("put") == "filled"
+
+        if call_filled and put_filled:
+            # Both filled — straddle is complete
+            return {
+                "status": "filled",
+                "detail": f"Straddle filled: {call_sym} + {put_sym} x{qty} (waited {elapsed}s)",
+                "total_debit": contract.get("total_debit"),
+                "call_order_id": orders["call"].get("id"),
+                "put_order_id": orders["put"].get("id"),
+            }
+
+        # If both are still open (new/partially_filled), keep waiting
+        both_open = all(s in ("new", "partially_filled", "accepted") for s in fill_status.values())
+        if both_open:
+            continue
+
+        # One filled, other cancelled/rejected — unwind the filled leg
+        if (call_filled and not put_filled) or (put_filled and not call_filled):
+            filled_leg = "call" if call_filled else "put"
+            unfilled_leg = "put" if call_filled else "call"
+            unfilled_sym = put_sym if call_filled else call_sym
+            filled_sym = call_sym if call_filled else put_sym
+
+            # Cancel the unfilled leg
+            _cancel_order(orders[unfilled_leg].get("id", ""))
+
+            # Close the filled leg by selling it back at market
+            try:
+                requests.post(
+                    f"{ALPACA_BASE}/v2/orders",
+                    headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                    json={"symbol": filled_sym, "qty": str(qty), "side": "sell",
+                          "type": "market", "time_in_force": "day"},
+                    timeout=10,
+                )
+            except Exception:
+                pass  # Best effort — position monitor will catch it
+
+            return {
+                "status": "error",
+                "detail": (
+                    f"Straddle unwound: {filled_leg} filled but {unfilled_leg} didn't — "
+                    f"cancelled {unfilled_sym}, sold back {filled_sym} to avoid naked leg"
+                ),
+            }
+
+    # Step 3: Timeout — check final status and unwind any partial fills
+    final_status = {}
+    for leg_name, order in orders.items():
+        try:
+            r = requests.get(f"{ALPACA_BASE}/v2/orders/{order['id']}", headers=_alpaca_headers(), timeout=10)
+            final_status[leg_name] = r.json().get("status", "unknown") if r.status_code == 200 else "unknown"
+        except Exception:
+            final_status[leg_name] = "unknown"
+
+    call_filled = final_status.get("call") == "filled"
+    put_filled = final_status.get("put") == "filled"
+
+    if call_filled and put_filled:
+        return {
+            "status": "filled",
+            "detail": f"Straddle filled at timeout: {call_sym} + {put_sym} x{qty}",
+            "total_debit": contract.get("total_debit"),
+        }
+
+    # Cancel any unfilled, sell back any filled
+    for leg_name, sym in [("call", call_sym), ("put", put_sym)]:
+        if final_status.get(leg_name) == "filled":
+            try:
+                requests.post(
+                    f"{ALPACA_BASE}/v2/orders",
+                    headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                    json={"symbol": sym, "qty": str(qty), "side": "sell",
+                          "type": "market", "time_in_force": "day"},
+                    timeout=10,
+                )
+            except Exception:
+                pass
+        else:
+            _cancel_order(orders[leg_name].get("id", ""))
 
     return {
-        "status": "submitted" if success else "error",
-        "detail": f"Buy straddle {call_sym}/{put_sym} x{qty}: {', '.join(results)}",
-        "total_debit": contract.get("total_debit"),
+        "status": "error",
+        "detail": f"Straddle timed out ({MAX_WAIT}s): call={final_status.get('call')}, put={final_status.get('put')} — unwound",
     }
 
 
 def _submit_straddle_order(contract: dict) -> dict:
-    """Submit short straddle: sell ATM call + sell ATM put."""
+    """
+    Submit short straddle: sell ATM call + sell ATM put.
+    Same atomicity rule as buy straddle — both legs or neither.
+    If one leg fails, cancel the other. If one fills and other doesn't,
+    buy back the filled leg to avoid naked short exposure.
+    """
     call_sym = contract.get("call_leg", "")
     put_sym  = contract.get("put_leg", "")
     qty      = contract.get("qty", 1)
     call_credit = contract.get("call_credit", 0)
     put_credit  = contract.get("put_credit", 0)
 
-    results = []
-    for sym, credit, leg_name in [(call_sym, call_credit, "call"), (put_sym, put_credit, "put")]:
+    # Submit both legs
+    orders = {}
+    for leg_name, sym, credit in [("call", call_sym, call_credit), ("put", put_sym, put_credit)]:
         try:
             resp = requests.post(
                 f"{ALPACA_BASE}/v2/orders",
@@ -1135,18 +1259,62 @@ def _submit_straddle_order(contract: dict) -> dict:
                 timeout=10,
             )
             if resp.status_code in (200, 201):
-                results.append(f"{leg_name} sold OK")
+                orders[leg_name] = resp.json()
             else:
-                results.append(f"{leg_name} failed: {resp.text[:100]}")
+                for prev_leg, prev_order in orders.items():
+                    _cancel_order(prev_order.get("id", ""))
+                return {"status": "error", "detail": f"Short straddle aborted: {leg_name} rejected, cancelled other leg"}
         except Exception as e:
-            results.append(f"{leg_name} error: {str(e)[:100]}")
+            for prev_leg, prev_order in orders.items():
+                _cancel_order(prev_order.get("id", ""))
+            return {"status": "error", "detail": f"Short straddle aborted: {leg_name} error ({str(e)[:100]})"}
 
-    success = all("OK" in r for r in results)
-    return {
-        "status": "submitted" if success else "partial",
-        "detail": f"Straddle {call_sym}/{put_sym} x{qty}: {', '.join(results)}",
-        "total_credit": contract.get("total_credit"),
-    }
+    # Poll for fills (up to 90s)
+    import time as _time
+    for _ in range(9):  # 9 * 10s = 90s
+        _time.sleep(10)
+        fs = {}
+        for leg_name, order in orders.items():
+            try:
+                r = requests.get(f"{ALPACA_BASE}/v2/orders/{order['id']}", headers=_alpaca_headers(), timeout=10)
+                fs[leg_name] = r.json().get("status", "unknown") if r.status_code == 200 else "unknown"
+            except Exception:
+                fs[leg_name] = "unknown"
+
+        if fs.get("call") == "filled" and fs.get("put") == "filled":
+            return {
+                "status": "filled",
+                "detail": f"Short straddle filled: {call_sym}/{put_sym} x{qty}",
+                "total_credit": contract.get("total_credit"),
+            }
+
+        # One filled, other dead — buy back the filled leg
+        for leg, other in [("call", "put"), ("put", "call")]:
+            if fs.get(leg) == "filled" and fs.get(other) not in ("new", "partially_filled", "accepted", "filled"):
+                _cancel_order(orders[other].get("id", ""))
+                sym = call_sym if leg == "call" else put_sym
+                try:
+                    requests.post(f"{ALPACA_BASE}/v2/orders",
+                        headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                        json={"symbol": sym, "qty": str(qty), "side": "buy", "type": "market", "time_in_force": "day"},
+                        timeout=10)
+                except Exception:
+                    pass
+                return {"status": "error", "detail": f"Short straddle unwound: {leg} filled but {other} didn't — bought back {leg}"}
+
+    # Timeout — cancel unfilled, buy back any filled
+    for leg_name, sym in [("call", call_sym), ("put", put_sym)]:
+        try:
+            r = requests.get(f"{ALPACA_BASE}/v2/orders/{orders[leg_name]['id']}", headers=_alpaca_headers(), timeout=10)
+            st = r.json().get("status") if r.status_code == 200 else "unknown"
+        except Exception:
+            st = "unknown"
+        if st == "filled":
+            pass  # Keep it if both filled (checked above)
+        elif st in ("new", "accepted", "partially_filled"):
+            _cancel_order(orders[leg_name].get("id", ""))
+
+    return {"status": "submitted", "detail": f"Short straddle submitted: {call_sym}/{put_sym} x{qty} (timeout, orders may still fill)", "total_credit": contract.get("total_credit")}
 
 
 def _submit_condor_order(contract: dict) -> dict:
