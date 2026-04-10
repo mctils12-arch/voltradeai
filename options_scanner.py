@@ -122,17 +122,12 @@ def _build_setup_features(
         "ewma_vol":         vxx_ratio * 15,  # VXX level ≈ market vol proxy
         "range_pct":        0.0,
         "price_vs_52w_high": 0.0,
-        "float_turnover":   0.0,
         "atr_pct":          0.0,
         "markov_state":     1.0,
         "sector_momentum":  0.0,
         "change_pct_today": 0.0,
         "above_ma10":       1.0 if spy_vs_ma50 > 1.0 else 0.0,
         "trend_strength":   0.0,
-        "volume_acceleration": 0.0,
-        "intel_score":      0.0,
-        "insider_signal":   0.0,
-        "news_sentiment":   0.0,
         # New features added to OPTIONS_FEATURE_COLS (cross_sec_rank, earnings_surprise,
         # put_call_proxy, vol_of_vol, frac_diff_price, idiosyncratic_ret).
         # These are stock-specific signals not available at market/IV level, so we

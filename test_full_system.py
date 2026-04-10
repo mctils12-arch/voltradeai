@@ -650,11 +650,10 @@ def t_ml_self_learning_structure():
         "entry_features":{
             "momentum_1m":4.1,"momentum_3m":12.3,"rsi_14":58,"volume_ratio":2.3,
             "vwap_position":1,"adx":31,"ewma_vol":2.1,"range_pct":2.4,
-            "price_vs_52w_high":-1.2,"float_turnover":0.18,"vrp":6.0,
+            "price_vs_52w_high":-1.2,"vrp":6.0,
             "iv_rank_proxy":68,"atr_pct":2.0,"vxx_ratio":1.08,"spy_vs_ma50":1.01,
             "markov_state":1,"regime_score":58,"sector_momentum":1,
             "change_pct_today":2.1,"above_ma10":1,"trend_strength":2.4,
-            "volume_acceleration":1,"intel_score":42,"insider_signal":0,"news_sentiment":15,
             "cross_sec_rank":0.75,"earnings_surprise":1.0,"put_call_proxy":0.0,
             "vol_of_vol":1.8,"frac_diff_price":0.12,"idiosyncratic_ret":2.5
         }

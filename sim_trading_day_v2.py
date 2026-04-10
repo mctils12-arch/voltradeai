@@ -125,11 +125,12 @@ def test_ml_inference():
     features = {
         "momentum_1m":3.2,"momentum_3m":8.1,"rsi_14":55,"volume_ratio":2.1,
         "vwap_position":1,"adx":28,"ewma_vol":1.8,"range_pct":2.1,
-        "price_vs_52w_high":-3.2,"float_turnover":0.12,"vrp":5.0,
+        "price_vs_52w_high":-3.2,"vrp":5.0,
         "iv_rank_proxy":65,"atr_pct":1.9,"vxx_ratio":1.08,"spy_vs_ma50":1.01,
         "markov_state":1,"regime_score":58,"sector_momentum":1,
+        "cross_sec_rank":0.6,"earnings_surprise":0,"put_call_proxy":0.0,
+        "vol_of_vol":1.5,"frac_diff_price":0.1,"idiosyncratic_ret":1.2,
         "change_pct_today":1.8,"above_ma10":1,"trend_strength":2.1,
-        "volume_acceleration":1,"intel_score":45,"insider_signal":0,"news_sentiment":10,
     }
     result = ml_score(features)
     sc  = result.get("ml_score", 0)
@@ -138,7 +139,7 @@ def test_ml_inference():
     if 0 <= sc <= 100:
         return "PASS", f"score={sc:.1f} signal={sig} model={mdl}"
     return "FAIL", f"Score out of range: {sc}"
-test("Stock ML inference (25 features)", test_ml_inference)
+test("Stock ML inference (26 features)", test_ml_inference)
 
 def test_options_ml_inference():
     from ml_model_v2 import options_ml_score, OPTIONS_FEATURE_COLS

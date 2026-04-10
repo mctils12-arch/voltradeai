@@ -16,7 +16,8 @@ WHAT CHANGED FROM v2:
           Blended at inference by current regime probability
 
   ❌ OLD: 25 features, redundant (4 momentum variants)
-  ✅ NEW: 31 features — added 6 genuinely new signals:
+  ✅ NEW: 26 features — removed 5 dead/collinear (intel_score, news_sentiment,
+          insider_signal, volume_acceleration, float_turnover), added 6 real signals:
           earnings_surprise, cross_sec_rank, put_call_proxy,
           vol_of_vol, frac_diff_price, idiosyncratic_return
 
@@ -46,7 +47,7 @@ logger = logging.getLogger("ml_model_v3")
 try:
     from system_config import BASE_CONFIG, DATA_DIR
 except ImportError:
-    BASE_CONFIG = {"ML_FEATURE_COUNT": 31, "ML_MIN_SAMPLES": 200, "ML_TARGET_RETURN": 2.0}
+    BASE_CONFIG = {"ML_FEATURE_COUNT": 26, "ML_MIN_SAMPLES": 200, "ML_TARGET_RETURN": 2.0}
     DATA_DIR = os.environ.get("VOLTRADE_DATA_DIR", "/data/voltrade")
 
 try:
@@ -77,19 +78,50 @@ OPTIONS_MODEL_PATH= os.path.join(DATA_DIR, "voltrade_ml_options.pkl")
 
 def _h(): return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
+
+def _classify_regime(vxx_ratio: float, spy_vs_ma50: float) -> str:
+    """Unified regime classification — used in both training and inference.
+
+    Thresholds derived from historical VXX distributions (training data).
+    Must be used everywhere regime is assigned to avoid train/inference mismatch.
+    """
+    if vxx_ratio >= 1.15 or spy_vs_ma50 < 0.94:
+        return "bear"
+    elif vxx_ratio <= 0.95 and spy_vs_ma50 >= 0.98:
+        return "bull"
+    else:
+        return "neutral"
+
+
+def _frac_diff(closes: list, d: float = 0.4) -> float:
+    """Fractionally differentiated log price (fixed-width window, d=0.4).
+
+    Preserves ~85% of price memory while achieving stationarity.
+    Research: López de Prado 2018.
+    Reusable by both training (_compute_features) and inference (bot_engine).
+    """
+    if len(closes) < 20:
+        return 0.0
+    w = [1.0]
+    for k in range(1, 20):
+        w.append(-w[-1] * (d - k + 1) / k)
+    w = np.array(w[::-1])
+    price_slice = np.array(closes[-20:])
+    val = float(np.dot(w, np.log(price_slice + 1e-8))) if len(price_slice) == 20 else 0.0
+    return max(-3.0, min(3.0, val))
+
 # ══════════════════════════════════════════════════════════════════
-# FEATURE COLUMNS — 31 features (was 25)
+# FEATURE COLUMNS — 26 features (was 31; removed 5 dead/collinear)
+# TODO: Re-add intel_score, news_sentiment, insider_signal when historical backfill pipeline is built
 # ══════════════════════════════════════════════════════════════════
 FEATURE_COLS = [
-    # Technical momentum (4) — kept but de-duplicated
+    # Technical momentum (4)
     "momentum_1m",        # 21-day return
     "momentum_3m",        # 63-day return
     "rsi_14",             # RSI
     "price_vs_52w_high",  # % from 52-week high (George & Hwang 2004 — strongest predictor)
-    # Volume (3)
+    # Volume (1) — removed float_turnover (collinear w/ volume_ratio) and volume_acceleration (always 0 at inference)
     "volume_ratio",       # today / 20d avg
-    "float_turnover",     # volume intensity proxy
-    "volume_acceleration",# growing volume flag
     # Volatility (4)
     "ewma_vol",           # EWMA realized vol
     "atr_pct",            # ATR as % of price
@@ -99,17 +131,13 @@ FEATURE_COLS = [
     "vwap_position",      # above/below VWAP
     "adx",                # trend strength
     "range_pct",          # intraday range
-    # Regime (5) — same as before, fully real
+    # Regime (5)
     "vxx_ratio",          # VXX / 30d avg
     "spy_vs_ma50",        # SPY / 50d MA
     "markov_state",       # 0=bear, 1=neutral, 2=bull
     "regime_score",       # 0-100 combined regime
     "sector_momentum",    # sector vs SPY
-    # Quality / intelligent signals (3)
-    "intel_score",        # options flow + insider (real at inference, 0 in generic training)
-    "insider_signal",     # insider buying/selling
-    "news_sentiment",     # news score
-    # NEW — 6 genuinely additive features
+    # Additive features (6)
     "cross_sec_rank",     # rank of today's move vs all stocks (top 5% = strong signal)
     "earnings_surprise",  # last EPS beat/miss direction (+1/-1/0)
     "put_call_proxy",     # put/call volume ratio from options (bearish/bullish smart money)
@@ -122,7 +150,7 @@ FEATURE_COLS = [
     "trend_strength",
 ]
 
-assert len(FEATURE_COLS) == 31, f"Expected 31 features, got {len(FEATURE_COLS)}"
+assert len(FEATURE_COLS) == 26, f"Expected 26 features, got {len(FEATURE_COLS)}"
 
 # ══════════════════════════════════════════════════════════════════
 # DATA FETCHING
@@ -178,7 +206,7 @@ def _fetch_earnings_surprises(tickers: list) -> Dict[str, float]:
     return surprises
 
 # ══════════════════════════════════════════════════════════════════
-# FEATURE COMPUTATION — 31 features
+# FEATURE COMPUTATION — 26 features
 # ══════════════════════════════════════════════════════════════════
 
 def _compute_features(bars: list, idx: int, all_bars: dict,
@@ -186,14 +214,7 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
                        earnings_surprise: float = 0.0,
                        cross_sec_rank: float = 0.5) -> Optional[dict]:
     """
-    Compute all 31 features for a bar at index idx.
-    New vs v2:
-      - cross_sec_rank: supplied externally (rank of today's move)
-      - earnings_surprise: supplied externally (Finnhub EPS beat/miss)
-      - put_call_proxy: computed from VRP direction
-      - vol_of_vol: computed from VXX recent variance
-      - frac_diff_price: fractionally differentiated log price (d=0.4)
-      - idiosyncratic_ret: residual after removing SPY contribution
+    Compute all 26 features for a bar at index idx.
     """
     if idx < 25 or idx >= len(bars) - 5:
         return None
@@ -216,8 +237,6 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
     vol_20  = [volumes[max(0,idx-j-1)] for j in range(20)]
     vol_avg = sum(v for v in vol_20 if v > 0) / max(1, sum(1 for v in vol_20 if v > 0))
     volume_ratio = volumes[idx] / vol_avg if vol_avg > 0 else 1.0
-    float_turnover = min(volume_ratio * 0.1, 1.0)
-    vol_accel = 1.0 if (idx >= 3 and volumes[idx] > volumes[idx-1] > volumes[idx-2]) else 0.0
 
     # ── Volatility ────────────────────────────────────────────────
     rets = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(max(1,idx-20), idx) if closes[i-1] > 0]
@@ -305,20 +324,7 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
     # d=0.4 preserves 85% of price memory while achieving stationarity
     # Research: López de Prado 2018 — preserves predictive information
     # that regular returns (d=1) throw away
-    if idx >= 20:
-        weights = [(-1)**k * 1 for k in range(20)]  # simplified binomial(0.4, k)
-        # Proper fractional diff weights for d=0.4
-        w = [1.0]
-        d_frac = 0.4
-        for k in range(1, 20):
-            w.append(-w[-1] * (d_frac - k + 1) / k)
-        w = np.array(w[::-1])
-        price_slice = np.array(closes[idx-20:idx])
-        frac_diff = float(np.dot(w, np.log(price_slice + 1e-8))) if len(price_slice) == 20 else 0.0
-        # Normalize to z-score range
-        frac_diff = max(-3.0, min(3.0, frac_diff))
-    else:
-        frac_diff = 0.0
+    frac_diff = _frac_diff(closes[max(0, idx-20):idx]) if idx >= 20 else 0.0
 
     # ── NEW FEATURE 3: Idiosyncratic Return ──────────────────────
     # Stock return minus what SPY/sector explains
@@ -350,26 +356,12 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
     # This is a FLOW signal: what are options traders doing?
     put_call_proxy = -1.0 if vrp > 8 else (1.0 if vrp < -5 else 0.0)
 
-    # ── Intelligence (zeroed in generic training, real at inference) ─
-    # KNOWN ISSUE (TODO): Training always uses zeros for these features because
-    # the generic training loop (Alpaca bars) has no access to real-time intel,
-    # insider, or news data. At inference (bot_engine.py), real values were
-    # previously passed in — but the model learned these features are always 0
-    # and ignores them. Until the model is retrained with real historical intel/
-    # news data, inference also zeroes these out for train/inference consistency.
-    # See bot_engine.py ml_features dict for the corresponding inference-side fix.
-    intel_score    = 0.0
-    insider_signal = 0.0
-    news_sentiment = 0.0
-
     return {
         "momentum_1m":        round(mom_1m, 3),
         "momentum_3m":        round(mom_3m, 3),
         "rsi_14":             round(rsi_14, 2),
         "price_vs_52w_high":  round(p_52h, 2),
         "volume_ratio":       round(min(volume_ratio, 10.0), 3),
-        "float_turnover":     round(float_turnover, 3),
-        "volume_acceleration":vol_accel,
         "ewma_vol":           round(ewma_vol, 3),
         "atr_pct":            round(atr_pct, 3),
         "vrp":                round(vrp, 3),
@@ -382,9 +374,6 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
         "markov_state":       markov_state,
         "regime_score":       round(regime_score, 1),
         "sector_momentum":    round(sector_momentum, 3),
-        "intel_score":        intel_score,
-        "insider_signal":     insider_signal,
-        "news_sentiment":     news_sentiment,
         "cross_sec_rank":     round(cross_sec_rank, 3),
         "earnings_surprise":  earnings_surprise,
         "put_call_proxy":     put_call_proxy,
@@ -500,7 +489,7 @@ def _build_training_data(all_bars: dict,
     Build training data with:
     1. Triple-barrier labels (volatility-adjusted)
     2. Regime labels for conditional training
-    3. All 31 features including new ones
+    3. All 26 features including new ones
 
     Returns: X, y, regimes (array of 'bull'/'bear'/'neutral' per row)
     """
@@ -563,24 +552,10 @@ def _build_training_data(all_bars: dict,
             # Convert -1/+1 to 0/1 for binary classifier
             binary_label = 1 if label == 1 else 0
 
-            # Regime at this bar — 5 zones so 2024-2026 low-vol market
-            # doesn't collapse everything into one "neutral" bucket.
-            # VXX ratio map:
-            #   panic  >= 1.30 → bear
-            #   bear   >= 1.15 → bear  (was missing before)
-            #   caution  1.05-1.15 → neutral (elevated)
-            #   normal   0.95-1.05 → neutral
-            #   low_vol  0.90-0.95 → bull (relaxed)
-            #   bull   <= 0.90 + SPY>MA → bull
+            # Regime at this bar — unified classification (see _classify_regime)
             vxx_r = feats.get("vxx_ratio", 1.0)
             spy_m = feats.get("spy_vs_ma50", 1.0)
-            if vxx_r >= 1.15 or spy_m < 0.94:
-                regime_label = "bear"
-            elif vxx_r >= 0.97:
-                regime_label = "neutral"
-            else:
-                # VXX below 97% of 30d avg = calm/bull
-                regime_label = "bull"
+            regime_label = _classify_regime(vxx_r, spy_m)
 
             X_rows.append([float(feats.get(col, 0) or 0) for col in FEATURE_COLS])
             y_labels.append(binary_label)
@@ -896,15 +871,12 @@ def ml_score(features_dict: dict) -> dict:
         if bundle is None:
             return _rule_based_fallback(features_dict)
 
-        # Detect current regime
+        # Detect current regime — unified function (matches training thresholds)
         vxx_r   = float(features_dict.get("vxx_ratio", 1.0) or 1.0)
         spy_m   = float(features_dict.get("spy_vs_ma50", 1.0) or 1.0)
-        if vxx_r >= 1.30 or spy_m < 0.94:   current_regime = "bear"
-        elif vxx_r >= 1.05:                   current_regime = "neutral"
-        elif vxx_r <= 0.90 and spy_m > 1.01: current_regime = "bull"
-        else:                                  current_regime = "neutral"
+        current_regime = _classify_regime(vxx_r, spy_m)
 
-        # Build feature row (31 features)
+        # Build feature row (26 features)
         row = [float(features_dict.get(col, 0) or 0) for col in FEATURE_COLS]
         X   = np.array([row], dtype=np.float32)
 
@@ -981,15 +953,13 @@ def _rule_based_fallback(features: dict) -> dict:
     rsi   = float(features.get("rsi_14", 50) or 50)
     vol   = float(features.get("volume_ratio", 1) or 1)
     reg   = float(features.get("regime_score", 50) or 50)
-    intel = float(features.get("intel_score", 0) or 0)
     idio  = float(features.get("idiosyncratic_ret", 0) or 0)
 
     score = 50.0
     score += min(mom * 1.5, 15)
     score += min((vol - 1) * 8, 10)
     score += (reg - 50) * 0.2
-    score += min(intel * 0.3, 10)
-    score += min(idio * 0.5, 8)  # NEW: idiosyncratic return bonus
+    score += min(idio * 0.5, 8)
     if rsi < 35:  score += 8
     elif rsi > 70: score -= 5
 

@@ -786,7 +786,7 @@ except Exception as e:
 
     # ── ML Model Integration ──────────────────────────────────────────────────
     try:
-        from ml_model_v2 import ml_score  # v2: 25 clean features, self-learning
+        from ml_model_v2 import ml_score, _frac_diff  # v2: 26 clean features, self-learning
         # Get Markov regime state for the ML (adds real predictive power)
         _regime_ctx = {"regime_score": 50, "markov_state": 1, "size_multiplier": 1.0}
         if _HAS_MARKOV:
@@ -799,12 +799,10 @@ except Exception as e:
             except Exception:
                 pass
 
-        # 31 features — ALL computed from real data (no zeroing)
-        # price_vs_52w_high: strongest momentum predictor (George & Hwang 2004)
+        # 26 features — ALL computed from real data (dead features removed)
         _price = quick_result.get("price", 0) or 0
         _high_52w = quick_result.get("high_52w", _price) or _price
         _price_vs_52w = (_price - _high_52w) / _high_52w * 100 if _high_52w > 0 else 0
-        _float_turnover = min(volume_ratio * 5, 100)  # proxy from volume ratio
 
         # Compute MA10 and ATR% from captured bar data
         _above_ma10 = 1.0  # default: assume above (already trend-filtered)
@@ -814,12 +812,52 @@ except Exception as e:
         _atr_pct = 3.0  # default
         if _deep_atr14 is not None and _price > 0:
             _atr_pct = round(_deep_atr14 / _price * 100, 2)
-        # Derived features for the 6 new signals
+        # Derived features
         _put_call_proxy = -1.0 if vrp > 8 else (1.0 if vrp < -5 else 0.0)
         _idio_ret = (quick_result.get("change_pct", 0) or 0) - (macro.get("spy_change_pct", 0) or 0)
 
+        # ── Compute vol_of_vol from VXX daily closes ─────────────────
+        # VXX ratio is already available from intel/macro — fetch VXX bars
+        # for std dev of recent 10 daily returns (matches training computation)
+        _vol_of_vol = 0.0
+        try:
+            _vxx_end = datetime.now().strftime("%Y-%m-%d")
+            _vxx_start = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
+            _vxx_resp = requests.get(
+                f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=12&feed=sip",
+                headers=_alpaca_headers(), timeout=5)
+            _vxx_bars = _vxx_resp.json().get("bars", [])
+            if len(_vxx_bars) >= 6:
+                _vxx_closes = [float(b["c"]) for b in _vxx_bars]
+                _vxx_rets = [(_vxx_closes[i] - _vxx_closes[i-1]) / _vxx_closes[i-1]
+                             for i in range(1, len(_vxx_closes)) if _vxx_closes[i-1] > 0]
+                if len(_vxx_rets) >= 5:
+                    _vol_of_vol = round(float(np.std(_vxx_rets) * 100), 3)
+        except Exception:
+            _vol_of_vol = 2.0  # safe default (matches training fallback)
+
+        # ── Compute frac_diff_price from daily closes ────────────────
+        _frac_diff_val = 0.0
+        if len(_deep_closes) >= 20:
+            _frac_diff_val = round(_frac_diff(_deep_closes), 4)
+
+        # ── Compute cross_sec_rank from scan universe ────────────────
+        # Rank this stock's daily return against all stocks in current scan batch
+        _cross_sec_rank = 0.5  # default if no universe data
+        _stock_change = quick_result.get("change_pct", 0) or 0
+        try:
+            _scan_snaps = requests.get(
+                f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
+                headers=_alpaca_headers(), timeout=5)
+            _actives = _scan_snaps.json().get("most_actives", [])
+            _all_changes = [float(s.get("change", 0) or 0) for s in _actives if s.get("change") is not None]
+            if len(_all_changes) >= 10:
+                _cross_sec_rank = round(sum(1 for x in _all_changes if x <= _stock_change) / len(_all_changes), 3)
+        except Exception:
+            pass
+
         ml_features = {
-            # Technical (9)
+            # Technical (7)
             "momentum_1m":          edge.get("momentum_1m", 0) or 0,
             "momentum_3m":          edge.get("momentum_3m", 0) or 0,
             "rsi_14":               rsi or 50,
@@ -828,43 +866,28 @@ except Exception as e:
             "adx":                  adx_value if adx_value is not None else 20,
             "ewma_vol":             vol_metrics.get("ewma_vol", 2) or 2 if vol_metrics else 2,
             "range_pct":            quick_result.get("range_pct", 0) or 0,
-            "price_vs_52w_high":    _price_vs_52w,    # strongest predictor
-            "float_turnover":       _float_turnover,  # volume intensity
-            # Options/volatility (3)
+            "price_vs_52w_high":    _price_vs_52w,
+            # Volatility (3)
             "vrp":                  vrp or 0,
-            # Per-stock IV rank from own HV history (not VXX proxy)
             "iv_rank_proxy":        _compute_stock_iv_rank(ticker, _deep_closes) if _deep_closes else 50,
-            "atr_pct":              _atr_pct,  # actual ATR% from daily bars
-            # Regime (5) — wired to Markov + VXX ratio
+            "atr_pct":              _atr_pct,
+            # Regime (5)
             "vxx_ratio":            intel.get("vxx_ratio", 1.0) if intel else 1.0,
             "spy_vs_ma50":          macro.get("spy_vs_ma50", 1.0) or 1.0,
             "markov_state":         float(_regime_ctx.get("markov_state", 1)),
             "regime_score":         float(_regime_ctx.get("regime_score", 50)),
             "sector_momentum":      sector_mom.get(stock_sector, 0),
-            # Quality (4)
-            "change_pct_today":     quick_result.get("change_pct", 0) or 0,
-            "above_ma10":           _above_ma10,  # actual MA10 comparison
-            "trend_strength":       min(abs(quick_result.get("change_pct", 0) or 0) / max(vol_metrics.get("ewma_vol", 2) or 2, 0.1), 5.0) if vol_metrics else 1.0,
-            "volume_acceleration":  0.0,  # available from streaming bars but not in daily scan
-            # Intelligence (3)
-            # TRAIN/INFERENCE CONSISTENCY FIX: The generic training data always uses
-            # zeros for intel_score, insider_signal, and news_sentiment because the
-            # training loop (Alpaca bar history) has no access to historical intel/news.
-            # The model therefore learned these features have no predictive value.
-            # Until the model is retrained with real historical intel data, we zero
-            # these out at inference to match training distribution and avoid
-            # out-of-distribution inputs that would corrupt ML predictions.
-            # TODO: Collect historical intel/news data and retrain with real values.
-            "intel_score":          0.0,  # Zeroed for train/inference consistency (see above)
-            "insider_signal":       0.0,  # Zeroed for train/inference consistency
-            "news_sentiment":       0.0,  # Zeroed for train/inference consistency
-            # New 6 features (FIX 5: previously missing from feature dict)
-            "cross_sec_rank":       0.5,   # neutral — requires cross-sectional data not available here
+            # Additive 6 features — now computed from real data
+            "cross_sec_rank":       _cross_sec_rank,
             "earnings_surprise":    intel.get("earnings_surprise", 0) if intel else 0,
-            "put_call_proxy":       _put_call_proxy,  # derived from VRP direction
-            "vol_of_vol":           0.0,   # requires VXX history not available in deep_score
-            "frac_diff_price":      0.0,   # requires long price history; default to 0
-            "idiosyncratic_ret":    round(_idio_ret, 4),  # stock return minus SPY contribution
+            "put_call_proxy":       _put_call_proxy,
+            "vol_of_vol":           _vol_of_vol,
+            "frac_diff_price":      _frac_diff_val,
+            "idiosyncratic_ret":    round(_idio_ret, 4),
+            # Entry timing (3)
+            "change_pct_today":     quick_result.get("change_pct", 0) or 0,
+            "above_ma10":           _above_ma10,
+            "trend_strength":       min(abs(quick_result.get("change_pct", 0) or 0) / max(vol_metrics.get("ewma_vol", 2) or 2, 0.1), 5.0) if vol_metrics else 1.0,
         }
         ml_result = ml_score(ml_features)
 
@@ -909,7 +932,7 @@ except Exception as e:
     # This is how the self-learning loop works: entry features saved at trade time,
     # used by ml_model_v2 to train on actual bot outcomes after trade closes.
     try:
-        quick_result["ml_features"]  = ml_features  # The 31 features used at entry
+        quick_result["ml_features"]  = ml_features  # The 26 features used at entry
         quick_result["regime_label"] = _regime_ctx.get("regime_label", "NEUTRAL")
     except Exception:
         pass
