@@ -47,6 +47,7 @@ GAMMA_THRESHOLD = 0.08           # Exit if per-contract gamma exceeds this
 DELTA_DRIFT_THRESHOLD = 0.25     # Alert/act if delta shifted >0.25 from entry
 ASSIGNMENT_DELTA_THRESHOLD = 0.80  # ITM risk when |delta| > 0.80
 ROLL_MIN_CREDIT = 0.05           # Minimum net credit for a roll to be worthwhile
+MIN_HOLD_MINUTES = 60            # Minimum hold time before ANY exit (except DTE critical)
 
 # Persistent state file for options positions
 OPTIONS_STATE_PATH = os.path.join(DATA_DIR, "voltrade_options_state.json")
@@ -479,7 +480,25 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
     else:
         combined_pnl_pct = 0
 
-    # ── Exit Rule 1: CRITICAL DTE — Close entire strategy ─────────
+    # ── Exit Rule 0: MINIMUM HOLD TIME (except DTE critical) ──────
+    # Don't close positions within the first hour — the trade thesis
+    # needs time to play out. Every straddle in Apr 3-10 was closed
+    # within minutes, losing to the bid-ask spread every time.
+    _min_hold_ok = True
+    for occ in all_occ_symbols:
+        _occ_state = state.get(occ, {})
+        _entry_ts = _occ_state.get("entry_timestamp")
+        if _entry_ts:
+            try:
+                _entry_dt = datetime.fromisoformat(_entry_ts)
+                _held_minutes = (datetime.now() - _entry_dt).total_seconds() / 60
+                if _held_minutes < MIN_HOLD_MINUTES:
+                    _min_hold_ok = False
+                    break
+            except Exception:
+                pass
+
+    # ── Exit Rule 1: CRITICAL DTE — Force close (ignores hold time) ────
     if min_dte <= DTE_CRITICAL:
         result = _close_strategy_mleg(legs, ticker)
         actions.append({
@@ -495,6 +514,10 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         # Clean state
         for occ in all_occ_symbols:
             state.pop(occ, None)
+        return actions
+
+    # If minimum hold time not met, skip all other exit rules
+    if not _min_hold_ok:
         return actions
 
     # ── Exit Rule 2: PROFIT TARGET (50% for credit strategies) ────
@@ -763,7 +786,17 @@ def manage_options_positions(equity: float = 100000) -> dict:
 
         state[occ_symbol] = pos_state
 
-        # ── Check 1: CRITICAL DTE — Force close ─────────────────────────
+        # ── Check 0: MINIMUM HOLD TIME ──────────────────────────────────
+        _entry_ts = pos_state.get("entry_timestamp")
+        _held_minutes = 999  # default: assume held long enough
+        if _entry_ts:
+            try:
+                _entry_dt = datetime.fromisoformat(_entry_ts)
+                _held_minutes = (datetime.now() - _entry_dt).total_seconds() / 60
+            except Exception:
+                pass
+
+        # ── Check 1: CRITICAL DTE — Force close (ignores hold time) ─────
         if dte <= DTE_CRITICAL:
             close_side = "sell" if side == "long" else "buy"
             # Use mid price for closing
@@ -783,6 +816,11 @@ def manage_options_positions(equity: float = 100000) -> dict:
             })
             # Remove from state
             state.pop(occ_symbol, None)
+            continue
+
+        # ── MINIMUM HOLD TIME GATE ──────────────────────────────────────
+        # Skip all non-critical exit checks if position held < 1 hour
+        if _held_minutes < MIN_HOLD_MINUTES:
             continue
 
         # ── Check 2: Assignment Risk ─────────────────────────────────────
@@ -1031,6 +1069,7 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
         "entry_price": entry_price,
         "entry_delta": delta,
         "entry_date": time.strftime("%Y-%m-%d"),
+        "entry_timestamp": datetime.now().isoformat(),
         "initial_credit": entry_price if side == "sell" else 0,
         "max_profit_target": entry_price * PROFIT_TARGET_PCT if side == "sell" else 0,
         "highest_value": entry_price,

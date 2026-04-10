@@ -569,9 +569,9 @@ def _setup_earnings_iv_crush(
         return None
 
     # Reject if spreads are too wide (liquidity check)
-    # v1.0.33: widened from 0.08 to 0.15 — earnings names often have wider spreads
-    # but still tradeable. 15% spread on a $5 straddle = $0.75 slippage worst-case.
-    if best_call["spread_pct"] > 0.15 or best_put["spread_pct"] > 0.15:
+    # FIX (2026-04-10): tightened from 0.15 to 0.10 — every straddle in Apr 3-10
+    # lost money to the bid-ask spread. 10% is the max tolerable for round-trip.
+    if best_call["spread_pct"] > 0.10 or best_put["spread_pct"] > 0.10:
         return None
 
     # IV-implied move: straddle price / stock price = expected % move
@@ -580,6 +580,18 @@ def _setup_earnings_iv_crush(
 
     if iv_implied_move_pct < 2.0:
         return None  # Straddle too cheap — not worth the risk
+
+    # FIX (2026-04-10): Minimum expected profit must exceed 2x spread cost.
+    # Every straddle in Apr 3-10 was opened and closed within minutes, losing
+    # to the bid-ask spread. If the expected profit from IV crush doesn't cover
+    # 2x the round-trip spread cost, it's not worth entering.
+    _call_spread = best_call.get("ask", 0) - best_call.get("bid", 0)
+    _put_spread = best_put.get("ask", 0) - best_put.get("bid", 0)
+    _total_spread_cost = _call_spread + _put_spread  # Round-trip spread loss
+    # Expected profit from IV crush: ~30-50% of straddle price for typical earnings
+    _expected_profit = straddle_price * 0.30  # Conservative: 30% of premium
+    if _expected_profit < _total_spread_cost * 2:
+        return None  # Expected profit doesn't cover 2x spread cost
 
     # Minimum IV: must be at least 40% annualized (otherwise not enough premium)
     avg_iv = (best_call["iv"] + best_put["iv"]) / 2
@@ -833,8 +845,9 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
         return None
 
     # Minimum bid/ask quality
-    # v1.0.33: widened from 0.10 to 0.15 — matches earnings/low-IV tolerance
-    if best_call["spread_pct"] > 0.15 or best_put["spread_pct"] > 0.15:
+    # FIX (2026-04-10): tightened from 0.15 to 0.10 — straddle scalping lost money
+    # every single day in Apr 3-10 due to wide spreads eating all edge.
+    if best_call["spread_pct"] > 0.10 or best_put["spread_pct"] > 0.10:
         return None
 
     avg_iv = (best_call["iv"] + best_put["iv"]) / 2
@@ -843,6 +856,14 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
 
     if avg_iv < 0.30:
         return None  # IV not high enough despite rank (small float distortion)
+
+    # FIX (2026-04-10): Minimum expected profit must exceed 2x spread cost.
+    _hi_call_spread = best_call.get("ask", 0) - best_call.get("bid", 0)
+    _hi_put_spread = best_put.get("ask", 0) - best_put.get("bid", 0)
+    _hi_total_spread = _hi_call_spread + _hi_put_spread
+    _hi_expected_profit = straddle_price * 0.30  # Conservative: 30% premium capture
+    if _hi_expected_profit < _hi_total_spread * 2:
+        return None  # Not enough edge to cover spread
 
     # Strategy: use iron condor for extreme IV, straddle for moderate
     # v1.0.32: adjusted strategy split to match new IVR 50 threshold

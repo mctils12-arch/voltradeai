@@ -53,15 +53,18 @@ ALPACA_BASE = "https://paper-api.alpaca.markets"
 ALPACA_DATA = "https://data.alpaca.markets"
 
 # Absolute ceilings (safety nets — dynamic sizing targets lower values)
-MAX_OPTIONS_PCT_CEILING = 0.10   # Absolute max 10% per options trade
-MAX_TOTAL_OPTIONS_PCT = 0.20     # Absolute max 20% total options exposure
+# FIX (2026-04-10): Capped per-trade from 10% to 8%, total from 20% to 8%.
+# Options straddles were losing $400-500/day to spread. Reducing allocation
+# limits the damage from low-edge setups until the strategy proves itself.
+MAX_OPTIONS_PCT_CEILING = 0.08   # Absolute max 8% per options trade
+MAX_TOTAL_OPTIONS_PCT = 0.08     # Absolute max 8% total options exposure
 # v1.0.33: Lowered from vol>100/OI>500 to match scanner thresholds.
 # Mid-cap stocks (KMI, DIS, WMB) have 10-80 daily volume on ATM options
 # but 300+ OI — perfectly tradeable with limit orders.
 # OI is the real liquidity signal; daily volume fluctuates intraday.
 MIN_OPTION_VOLUME = 10           # Minimum daily volume on the contract
 MIN_OPEN_INTEREST = 200          # Minimum open interest
-MAX_SPREAD_PCT = 0.15            # Max bid-ask spread as % of mid price
+MAX_SPREAD_PCT = 0.10            # Max bid-ask spread as % of mid price (tightened from 0.15, 2026-04-10)
 
 
 def _dynamic_options_size(trade: dict, equity: float, existing_positions: list = None,

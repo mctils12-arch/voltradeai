@@ -1231,6 +1231,13 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
   }
   const openOrders: TrackedOrder[] = [];
 
+  // ── Per-Ticker Order Attempt Counter (Fix 2026-04-10) ────────────────────
+  // ELAB had 10 canceled orders because the scanner kept recommending it and
+  // stale order sweeper kept canceling unfilled limits. Max 3 attempts per
+  // ticker per day — after that, stop trying (the fill isn't happening).
+  const MAX_ORDER_ATTEMPTS_PER_TICKER = 3;
+  const orderAttemptCounts: Record<string, number> = {};
+
   // ── Stale Order Sweeper ──────────────────────────────────────────────────
   const STALE_ORDER_MINUTES = 12; // cancel unfilled limits after 12 minutes
 
@@ -1776,6 +1783,14 @@ print(json.dumps(check_weekly_loss(history)))
         audit("HALT-CHECK-WARN", `${trade.ticker}: halt check failed, proceeding`);
       }
 
+      // Max retry check — stop re-submitting orders for tickers that keep failing
+      // (Fix 2026-04-10: ELAB had 10 canceled orders from this retry loop)
+      const priorAttempts = orderAttemptCounts[trade.ticker] || 0;
+      if (priorAttempts >= MAX_ORDER_ATTEMPTS_PER_TICKER) {
+        audit("MAX-RETRY", `${trade.ticker}: skipped — already attempted ${priorAttempts} times today (max ${MAX_ORDER_ATTEMPTS_PER_TICKER})`);
+        continue;
+      }
+
       // Duplicate order check — skip if we already have a pending order for this ticker
       try {
         const openOrders = await alpaca("/v2/orders?status=open");
@@ -1793,6 +1808,9 @@ print(json.dumps(check_weekly_loss(history)))
         if (!replaced) continue;
         await new Promise(r => setTimeout(r, 1000));
       }
+
+      // Track order attempt count per ticker (Fix 2026-04-10)
+      orderAttemptCounts[trade.ticker] = (orderAttemptCounts[trade.ticker] || 0) + 1;
 
       try {
         // ── INSTRUMENT SCORE DEBUG LOG ──
