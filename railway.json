@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node --max-old-space-size=2048 dist/index.cjs",
+    "startCommand": "node --max-old-space-size=512 dist/index.cjs",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ALWAYS",

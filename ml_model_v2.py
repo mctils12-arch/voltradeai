@@ -164,6 +164,11 @@ assert len(FEATURE_COLS) == 34, f"Expected 34 features, got {len(FEATURE_COLS)}"
 
 CALIBRATOR_PATH = os.path.join(DATA_DIR, "voltrade_ml_calibrator.pkl")
 
+# ── Model cache — load once, reuse for all inference calls ──────
+# Without this, joblib.load() deserializes the full LightGBM model + scalers
+# on every ml_score() call (~20+ times per scan cycle), causing memory spikes.
+_model_cache = {"bundle": None, "mtime": 0.0, "calibrator": None, "cal_mtime": 0.0}
+
 # ══════════════════════════════════════════════════════════════════
 # DATA FETCHING
 # ══════════════════════════════════════════════════════════════════
@@ -740,6 +745,9 @@ def _build_training_data(all_bars: dict,
             y_labels.append(binary_label)
             regimes_list.append(regime_label)
 
+    # Release large intermediate structures before converting to numpy
+    del ticker_closes_map, all_changes_by_day, breadth_by_day
+
     if len(X_rows) < 50:
         return None, None, None
 
@@ -925,6 +933,10 @@ def train_model(fast_mode: bool = False) -> dict:
     # Step 2: Build generic training data with triple-barrier labels
     X_gen, y_gen, reg_gen = _build_training_data(all_bars, earnings_surprises)
 
+    # Release raw bar data — features have been extracted into X_gen
+    del all_bars, earnings_surprises
+    import gc; gc.collect()
+
     # Step 3: Load real trade feedback
     feedback    = _load_trade_feedback()
     X_fb, y_fb, reg_fb, fb_weights = None, None, None, None
@@ -1092,13 +1104,33 @@ def train_model(fast_mode: bool = False) -> dict:
     if HAS_SKLEARN:
         joblib.dump(bundle, MODEL_PATH)
 
+    # Invalidate model cache so next ml_score() picks up the fresh model
+    _model_cache["bundle"] = None
+    _model_cache["mtime"] = 0.0
+
+    # Save counts before releasing training data
+    _n_samples = len(X_all)
+    _n_feedback = len(feedback)
+
+    # Release training data from memory
+    del X_all, y_all, X_tr, X_te, y_tr, y_te
+    try:
+        del X_gen
+    except NameError:
+        pass
+    try:
+        del X_fb
+    except NameError:
+        pass
+    import gc; gc.collect()
+
     return {
         "status":         "trained",
         "accuracy":       round(wf_accuracy * 100, 1),
         "regime_accs":    wf_regime_accs or regime_accs,
         "features":       len(FEATURE_COLS),
-        "samples":        len(X_all),
-        "feedback_trades":len(feedback),
+        "samples":        _n_samples,
+        "feedback_trades":_n_feedback,
         "data_source":    data_source,
         "label_method":   "triple_barrier_timeout_relabel",
         "cv_method":      "walk_forward_5fold",
@@ -1136,7 +1168,12 @@ def ml_score(features_dict: dict) -> dict:
         if not HAS_SKLEARN:
             return _rule_based_fallback(features_dict)
 
-        bundle = joblib.load(MODEL_PATH)
+        # Use cached model — only reload if file changed on disk
+        model_mtime = os.path.getmtime(MODEL_PATH)
+        if _model_cache["bundle"] is None or _model_cache["mtime"] != model_mtime:
+            _model_cache["bundle"] = joblib.load(MODEL_PATH)
+            _model_cache["mtime"] = model_mtime
+        bundle = _model_cache["bundle"]
         if bundle is None:
             return _rule_based_fallback(features_dict)
 
@@ -1195,7 +1232,11 @@ def ml_score(features_dict: dict) -> dict:
         calibrator_path = bundle.get("calibrator_path")
         if calibrator_path and os.path.exists(calibrator_path):
             try:
-                cal = joblib.load(calibrator_path)
+                cal_mtime = os.path.getmtime(calibrator_path)
+                if _model_cache["calibrator"] is None or _model_cache["cal_mtime"] != cal_mtime:
+                    _model_cache["calibrator"] = joblib.load(calibrator_path)
+                    _model_cache["cal_mtime"] = cal_mtime
+                cal = _model_cache["calibrator"]
                 prob = float(cal.transform([prob])[0])
                 prob = max(0.10, min(0.90, prob))
             except Exception:
