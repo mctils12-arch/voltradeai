@@ -122,12 +122,9 @@ _INTEL_CACHE_TTL = 300  # 5 minutes
 def _is_regular_hours() -> bool:
     """Return True if currently within US regular trading hours (9:30–16:00 ET)."""
     try:
-        now_utc = datetime.now(timezone.utc)
-        # Approximate ET offset: UTC-4 (EDT) / UTC-5 (EST)
-        # Using fixed -4 here (same pattern as options_execution.py)
-        et_hour = (now_utc.hour - 4) % 24
-        et_min  = now_utc.minute
-        et_time = et_hour + et_min / 60.0
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        et_time = now_et.hour + now_et.minute / 60.0
         return 9.5 <= et_time < 16.0
     except Exception:
         return False

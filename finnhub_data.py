@@ -94,7 +94,7 @@ def _finnhub_get(endpoint: str, params: dict = None) -> dict | list | None:
     Make a rate-limited GET request to the Finnhub API.
     Returns parsed JSON or None on failure.
     """
-    if FINNHUB_KEY == "YOUR_FINNHUB_KEY_HERE":
+    if not FINNHUB_KEY or FINNHUB_KEY == "YOUR_FINNHUB_KEY_HERE":
         return {"error": "FINNHUB_KEY environment variable not set. "
                          "Get a free key at https://finnhub.io/register"}
 

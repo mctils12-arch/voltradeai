@@ -99,7 +99,7 @@ def get_adaptive_params(regime):
     if regime == "BEAR":    return {"max_pos": 0, "min_score": 99, "size_pct": 0.08, "tp": 12, "sl": 6, "hold": 10}
     if regime == "CAUTION": return {"max_pos": 4, "min_score": 67, "size_pct": 0.10, "tp": 12, "sl": 6, "hold": 10}
     if regime == "BULL":    return {"max_pos": 8, "min_score": 63, "size_pct": 0.15, "tp": 12, "sl": 6, "hold": 10}
-    return {"max_pos": 6, "min_score": 63, "size_pct": 0.12, "tp": 12, "sl": 6, "hold": 10}
+    return {"max_pos": 0, "min_score": 99, "size_pct": 0.12, "tp": 12, "sl": 6, "hold": 10}  # NEUTRAL — no active trades (v1.0.29: passive floor handles exposure)
 
 # ── Stock scoring (same as backtest_v2.py) ────────────────────────
 def quick_score(sym, date_idx, dates):

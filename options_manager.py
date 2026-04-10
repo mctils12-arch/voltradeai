@@ -155,10 +155,13 @@ def _parse_occ_symbol(occ_symbol: str) -> dict:
 
 
 def _days_to_expiry(expiry_date: str) -> int:
-    """Calculate days until expiry."""
+    """Calculate days until expiry (timezone-aware, uses ET market close)."""
     try:
-        exp = datetime.strptime(expiry_date, "%Y-%m-%d")
-        return (exp - datetime.now()).days
+        from zoneinfo import ZoneInfo
+        exp = datetime.strptime(expiry_date, "%Y-%m-%d").replace(
+            tzinfo=ZoneInfo("America/New_York"))
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        return (exp - now_et).days
     except Exception:
         return 999
 

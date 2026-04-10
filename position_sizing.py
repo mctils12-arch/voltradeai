@@ -448,10 +448,10 @@ def _time_scalar() -> float:
     After hours: 0.50x (wide spreads, low volume)
     """
     try:
-        from datetime import timezone
-        now_utc = datetime.now(timezone.utc)
-        et_hour = (now_utc.hour - 4) % 24  # Approximate ET
-        et_min = now_utc.minute
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        et_hour = now_et.hour
+        et_min = now_et.minute
         et_time = et_hour + et_min / 60.0
         
         if 9.5 <= et_time < 10.0:

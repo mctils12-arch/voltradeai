@@ -146,9 +146,8 @@ BASE_CONFIG = {
     "TIME_STOP_DAYS":       10,    # Optimized: 10-day hold (was 7) — more time to work
 
     # ── ML MODEL ──────────────────────────────────────────────────────────────
-    # 26 features: removed 5 dead/collinear (intel_score, news_sentiment,
-    # insider_signal, volume_acceleration, float_turnover), added 6 real signals
-    "ML_FEATURE_COUNT":     26,
+    # 34 features: 26 base + 3 intel re-added + 5 new professional features
+    "ML_FEATURE_COUNT":     34,
     "ML_RETRAIN_TRADES":    20,    # Retrain after every 20 real trades
     "ML_MIN_SAMPLES":       300,   # Minimum samples to train (don't train on < 300)
     "ML_LOOKBACK_DAYS":     60,    # Training window: 60 days of history

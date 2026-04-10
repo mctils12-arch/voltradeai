@@ -825,7 +825,7 @@ def _build_feedback_training_data(trades: List[dict]) -> Tuple:
                        if "regime_at_entry" in trade else "neutral")
 
     if len(X_rows) < 15:
-        return None, None, None
+        return None, None, None, None
 
     return (np.array(X_rows, dtype=np.float32),
             np.array(y_labels, dtype=np.int8),
@@ -837,8 +837,9 @@ def _build_feedback_training_data(trades: List[dict]) -> Tuple:
 # TRAIN MODEL — regime-conditional ensemble
 # ══════════════════════════════════════════════════════════════════
 
-def _train_single_lgbm(X_tr, X_te, y_tr, y_te, label=""):
-    """Train one LightGBM model, return (model, scaler, accuracy)."""
+def _train_single_lgbm(X_tr, X_te, y_tr, y_te, label="", sample_weight=None):
+    """Train one LightGBM model, return (model, scaler, accuracy).
+    sample_weight: optional per-row weights for feedback decay weighting."""
     if not HAS_SKLEARN:
         return None, None, 0.0
 
@@ -862,7 +863,8 @@ def _train_single_lgbm(X_tr, X_te, y_tr, y_te, label=""):
         }
         try:
             import pandas as pd
-            dtrain = lgb.Dataset(pd.DataFrame(X_tr_sc, columns=FEATURE_COLS), label=y_tr)
+            dtrain = lgb.Dataset(pd.DataFrame(X_tr_sc, columns=FEATURE_COLS), label=y_tr,
+                                 weight=sample_weight)
             dtest  = lgb.Dataset(pd.DataFrame(X_te_sc,  columns=FEATURE_COLS), label=y_te, reference=dtrain)
             model  = lgb.train(params, dtrain, num_boost_round=300,
                                 valid_sets=[dtest],
@@ -883,7 +885,7 @@ def _train_single_lgbm(X_tr, X_te, y_tr, y_te, label=""):
     gb = GradientBoostingClassifier(n_estimators=150, max_depth=4,
                                      learning_rate=0.08, subsample=0.8,
                                      min_samples_leaf=8)
-    gb.fit(X_tr_sc, y_tr)
+    gb.fit(X_tr_sc, y_tr, sample_weight=sample_weight)
     preds = gb.predict(X_te_sc)
     acc   = float(np.mean(preds == y_te))
     return gb, scaler, acc
@@ -1031,7 +1033,9 @@ def train_model(fast_mode: bool = False) -> dict:
     if len(X_tr) < 30 or len(X_te) < 10:
         return {"status": "insufficient_data", "samples": len(X_all)}
 
-    global_model, global_scaler, global_acc = _train_single_lgbm(X_tr, X_te, y_tr, y_te, "global")
+    # Pass sample_weights to honor feedback decay weighting
+    sw_tr = sample_weights[:len(X_tr)] if sample_weights is not None else None
+    global_model, global_scaler, global_acc = _train_single_lgbm(X_tr, X_te, y_tr, y_te, "global", sample_weight=sw_tr)
     if global_model is None:
         return {"status": "failed", "reason": "Model training failed"}
 
@@ -1141,7 +1145,7 @@ def ml_score(features_dict: dict) -> dict:
         spy_m   = float(features_dict.get("spy_vs_ma50", 1.0) or 1.0)
         current_regime = _classify_regime(vxx_r, spy_m)
 
-        # Build feature row (26 features)
+        # Build feature row (34 features)
         row = [float(features_dict.get(col, 0) or 0) for col in FEATURE_COLS]
         X   = np.array([row], dtype=np.float32)
 
@@ -1781,12 +1785,20 @@ def track_fill(order_data: dict) -> None:
             "pnl_pct":        None,
         }
 
-        # Load existing feedback, append, save (keep last 5000)
-        feedback = _load_trade_feedback()
-        feedback.append(record)
-        if len(feedback) > 5000:
-            feedback = feedback[-5000:]
+        # Load ALL existing feedback (unfiltered), append, save (keep last 5000)
+        # Note: use raw load here, not _load_trade_feedback() which filters by version
+        # and would permanently discard old records on every save
+        raw_feedback = []
+        try:
+            if os.path.exists(FEEDBACK_PATH):
+                with open(FEEDBACK_PATH) as _ff:
+                    raw_feedback = json.load(_ff)
+        except Exception:
+            raw_feedback = []
+        raw_feedback.append(record)
+        if len(raw_feedback) > 5000:
+            raw_feedback = raw_feedback[-5000:]
         with open(FEEDBACK_PATH, "w") as f:
-            json.dump(feedback, f, indent=2)
+            json.dump(raw_feedback, f, indent=2)
     except Exception:
         pass  # Never crash bot.ts for a logging call

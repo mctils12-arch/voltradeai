@@ -166,9 +166,11 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
     
     # Check current time — options only during regular hours
     try:
-        now = datetime.utcnow()
-        et_hour = (now.hour - 4) % 24
-        if et_hour < 9 or et_hour >= 16 or (et_hour == 9 and now.minute < 30):
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        et_hour = now_et.hour
+        et_min = now_et.minute
+        if et_hour < 9 or et_hour >= 16 or (et_hour == 9 and et_min < 30):
             result["reason"] = "Options only trade during regular hours (9:30am-4pm ET)"
             return result
     except Exception:
