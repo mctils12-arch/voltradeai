@@ -169,8 +169,8 @@ def _is_regular_hours() -> bool:
         return False
 
 def _et_now() -> datetime:
-    """Current time in ET (approximate, no pytz dependency)."""
-    return datetime.now(timezone.utc) - timedelta(hours=4)
+    """Current time in ET, DST-aware."""
+    return datetime.now(ZoneInfo("America/New_York"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SECTION 1: DATA FETCHERS

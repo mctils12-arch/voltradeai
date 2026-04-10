@@ -237,7 +237,7 @@ def get_adaptive_params(regime):
     if regime == "BEAR":    return {"max_pos": 0, "min_score": 99, "size_pct": 0.08}  # No new longs
     if regime == "CAUTION": return {"max_pos": 4, "min_score": 67, "size_pct": 0.10}
     if regime == "BULL":    return {"max_pos": 8, "min_score": 63, "size_pct": 0.15}
-    return {"max_pos": 6, "min_score": 65, "size_pct": 0.12}  # NEUTRAL
+    return {"max_pos": 0, "min_score": 99, "size_pct": 0.12}  # NEUTRAL — no active trades (v1.0.29: passive floor handles exposure)
 
 def simulate_options_setup(setup_type, vxx_ratio, spy_vs_ma50, iv_rank, future_spy, future_vxx, days_ahead=5):
     """

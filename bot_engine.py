@@ -111,6 +111,7 @@ _YF_CACHE_TTL = 300  # 5 minutes
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
+ALPACA_BASE_URL = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 ALPACA_DATA_URL = "https://data.alpaca.markets"
 
 def _alpaca_headers():
@@ -189,7 +190,7 @@ def get_stock_details(ticker):
 def get_alpaca_account():
     """Get Alpaca account info."""
     import requests
-    r = requests.get("https://paper-api.alpaca.markets/v2/account", headers={
+    r = requests.get(f"{ALPACA_BASE_URL}/v2/account", headers={
         "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET
     }, timeout=10)
     return r.json()
@@ -198,7 +199,7 @@ def get_alpaca_account():
 def get_alpaca_positions():
     """Get current Alpaca positions."""
     import requests
-    r = requests.get("https://paper-api.alpaca.markets/v2/positions", headers={
+    r = requests.get(f"{ALPACA_BASE_URL}/v2/positions", headers={
         "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET
     }, timeout=10)
     return r.json()
@@ -786,7 +787,7 @@ except Exception as e:
 
     # ── ML Model Integration ──────────────────────────────────────────────────
     try:
-        from ml_model_v2 import ml_score, _frac_diff  # v2: 26 clean features, self-learning
+        from ml_model_v2 import ml_score, _frac_diff  # v3: 34 features, regime-conditional, calibrated
         # Get Markov regime state for the ML (adds real predictive power)
         _regime_ctx = {"regime_score": 50, "markov_state": 1, "size_multiplier": 1.0}
         if _HAS_MARKOV:
@@ -799,7 +800,7 @@ except Exception as e:
             except Exception:
                 pass
 
-        # 26 features — ALL computed from real data (dead features removed)
+        # 34 features — ALL computed from real data
         _price = quick_result.get("price", 0) or 0
         _high_52w = quick_result.get("high_52w", _price) or _price
         _price_vs_52w = (_price - _high_52w) / _high_52w * 100 if _high_52w > 0 else 0
@@ -1081,10 +1082,10 @@ except Exception as e:
         "horizon": rec.get("horizon") if rec else None,
         "leveraged_bull": rec.get("leveraged_bull") if rec else None,
         "leveraged_bear": rec.get("leveraged_bear") if rec else None,
-        # Full 52-feature snapshot at entry time (for ML exit model training)
+        # Full 34-feature snapshot at entry time (for ML exit model training)
         "entry_features": ml_features if 'ml_features' in locals() else None,
         # Score attribution (exposed at scan level via stock.get())
-        "rules_only_score": combined_score,  # Always defined by line 776 before this return
+        "rules_only_score": rules_only_score,  # Pre-ML-blend score captured above
         "ml_only_score": ml_s if 'ml_s' in locals() else None,
     }
 
@@ -1476,7 +1477,7 @@ def _get_full_universe() -> list:
     # Fetch fresh universe from Alpaca assets endpoint
     try:
         resp = requests.get(
-            "https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",
+            f"{ALPACA_BASE_URL}/v2/assets?status=active&asset_class=us_equity",
             headers=_alpaca_headers(), timeout=30
         )
         assets = resp.json()
@@ -2060,7 +2061,7 @@ def scan_market():
         "cash": cash,
         "current_positions": num_positions,
         "slots_available": slots_available,
-        "options_slots_available": options_slots if 'options_slots' in dir() else MAX_OPTIONS_POSITIONS,
+        "options_slots_available": options_slots if 'options_slots' in locals() else MAX_OPTIONS_POSITIONS,
         "new_trades": trades,
         "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
@@ -2217,11 +2218,8 @@ def _run_third_leg(macro: dict) -> dict:
                                             spy_below_200_days=spy_b200,
                                             spy_above_200d=spy_above_200d)
 
-        alpaca_key    = os.environ.get("ALPACA_KEY", "")
-        alpaca_secret = os.environ.get("ALPACA_SECRET", "")
-        base_url      = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
-        headers       = {"APCA-API-KEY-ID": alpaca_key,
-                         "APCA-API-SECRET-KEY": alpaca_secret}
+        base_url = ALPACA_BASE_URL
+        headers  = _alpaca_headers()
 
         # Fetch account equity and existing positions
         acc_r = _req.get(f"{base_url}/v2/account", headers=headers, timeout=8)
@@ -2417,7 +2415,7 @@ def _manage_spy_floor(macro: dict) -> dict:
                 if floor_pos:
                     qty = abs(int(float(floor_pos[0].get("qty", 0))))
                     if qty > 0:
-                        requests.post(f"https://paper-api.alpaca.markets/v2/orders",
+                        requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                             json={"symbol": floor_ticker, "qty": str(qty),
                                   "side": "sell", "type": "market",
                                   "time_in_force": "day"},
@@ -2431,11 +2429,11 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         # Get account equity and current SPY position
         try:
-            acc = requests.get("https://paper-api.alpaca.markets/v2/account",
+            acc = requests.get(f"{ALPACA_BASE_URL}/v2/account",
                 headers=_alpaca_headers(), timeout=8).json()
-            equity = float(acc.get("equity", 98000) or 98000)
+            equity = float(acc.get("equity", 100000) or 100000)
         except Exception:
-            equity = 98000
+            equity = 100000
 
         current_spy_value = 0
         current_spy_shares = 0
@@ -2487,7 +2485,7 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         if shares_diff > 0:
             try:
-                requests.post("https://paper-api.alpaca.markets/v2/orders",
+                requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                     json={"symbol": floor_ticker, "qty": str(shares_diff),
                           "side": "buy", "type": "market",
                           "time_in_force": "day"},
@@ -2502,7 +2500,7 @@ def _manage_spy_floor(macro: dict) -> dict:
             sell_qty = min(abs(shares_diff), current_spy_shares)
             if sell_qty > 0:
                 try:
-                    requests.post("https://paper-api.alpaca.markets/v2/orders",
+                    requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                         json={"symbol": floor_ticker, "qty": str(sell_qty),
                               "side": "sell", "type": "market",
                               "time_in_force": "day"},

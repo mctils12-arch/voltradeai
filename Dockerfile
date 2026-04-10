@@ -11,11 +11,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# ── Python packages (cached layer — reruns only when this line changes) ───
-# All packages explicitly listed so nothing is missing at runtime
-RUN python3 -m pip install \
-    numpy scipy scikit-learn joblib lightgbm \
-    yfinance pandas requests pytrends \
+# ── Python packages (cached layer — reruns only when requirements.txt changes) ──
+COPY requirements.txt ./
+RUN python3 -m pip install -r requirements.txt \
     --break-system-packages --quiet
 
 # ── Node packages (cached layer — reruns only when package-lock changes) ──
