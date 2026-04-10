@@ -13,6 +13,7 @@ Outputs:
   - Detailed JSON to /home/user/workspace/voltrade/backtest_results.json
 """
 
+import os
 import json
 import time
 import sys
@@ -21,8 +22,8 @@ from collections import defaultdict
 import requests
 
 # ── Alpaca credentials ────────────────────────────────────────────────────────
-ALPACA_KEY    = "PKMDHJOVQEVIB4UHZXUYVTIDBU"
-ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"
+ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 DATA_URL      = "https://data.alpaca.markets"
 HEADERS       = {
     "APCA-API-KEY-ID":     ALPACA_KEY,

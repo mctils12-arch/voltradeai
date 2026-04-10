@@ -80,8 +80,8 @@ def test_universe_fetch():
     import requests
     r = requests.get(
         "https://data.alpaca.markets/v1beta1/screener/stocks/most-actives?by=volume&top=20",
-        headers={"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU",
-                 "APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"},
+        headers={"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),
+                 "APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")},
         timeout=10)
     tickers = r.json().get("most_actives", [])
     if len(tickers) >= 5:
@@ -95,8 +95,8 @@ def test_quick_score():
     import requests
     r = requests.get(
         "https://data.alpaca.markets/v2/stocks/snapshots?symbols=AAPL,MSFT,NVDA&feed=sip",
-        headers={"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU",
-                 "APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"},
+        headers={"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),
+                 "APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")},
         timeout=8)
     snaps = r.json()
     scored = []

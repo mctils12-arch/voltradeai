@@ -141,13 +141,13 @@ def _build_setup_features(
     }
 
 # ── Alpaca credentials ────────────────────────────────────────────────────────
-_ALPACA_KEY    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-_ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+_ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
+_ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_DATA    = "https://data.alpaca.markets"
 ALPACA_TRADE   = "https://paper-api.alpaca.markets"  # Use paper endpoint — never live
 
 # ── Finnhub for earnings calendar ─────────────────────────────────────────────
-FINNHUB_KEY = os.environ.get("FINNHUB_KEY", "d78tj7hr01qp0fl6fo2gd78tj7hr01qp0fl6fo30")
+FINNHUB_KEY = os.environ.get("FINNHUB_KEY", "")
 
 # ── Data directory ────────────────────────────────────────────────────────────
 DATA_DIR = os.environ.get("VOLTRADE_DATA_DIR", "/data/voltrade")

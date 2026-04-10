@@ -27,8 +27,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 # ── Alpaca credentials ─────────────────────────────────────────────────────────
-ALPACA_KEY    = "PKMDHJOVQEVIB4UHZXUYVTIDBU"
-ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"
+ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 HEADERS       = {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 DATA_URL      = "https://data.alpaca.markets"
 BROKER_URL    = "https://paper-api.alpaca.markets"

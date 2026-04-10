@@ -17,7 +17,7 @@ CACHE_DIR = "/tmp/voltrade_alt_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 USER_AGENT = "VolTradeAI:v2.0 (by /u/voltrade_research)"
-POLYGON_KEY = os.environ.get("POLYGON_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
+POLYGON_KEY = os.environ.get("POLYGON_KEY", "")
 
 # Sentiment word lists (financial context)
 BULLISH_WORDS = {
@@ -312,8 +312,8 @@ def get_news_multi_source(ticker: str) -> dict:
     # Source 1: Alpaca news (primary)
     try:
         alpaca_headers = {
-            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
-            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
         }
         url = f"https://data.alpaca.markets/v1beta1/news?limit=10&sort=desc&symbols={ticker}"
         resp = requests.get(url, headers=alpaca_headers, timeout=8)

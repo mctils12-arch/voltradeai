@@ -13,7 +13,7 @@ import threading
 import requests
 from datetime import datetime, timedelta
 
-FINNHUB_KEY = os.environ.get("FINNHUB_KEY", "d78tj7hr01qp0fl6fo2gd78tj7hr01qp0fl6fo30")
+FINNHUB_KEY = os.environ.get("FINNHUB_KEY", "")
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 CACHE_DIR = "/tmp/voltrade_alt_cache"

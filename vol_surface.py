@@ -7,6 +7,7 @@ built from live OPRA data via Alpaca. Computes true probabilities, skew
 analytics, fair strategy values, and the Volatility Risk Premium.
 """
 
+import os
 import logging
 import time
 import re
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-ALPACA_KEY = "PKMDHJOVQEVIB4UHZXUYVTIDBU"
-ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"
+ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 DATA_URL = "https://data.alpaca.markets"
 RISK_FREE_RATE = 0.045
 CACHE_TTL = 300  # 5 minutes

@@ -108,9 +108,9 @@ _YF_CACHE_TTL = 300  # 5 minutes
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
-ALPACA_KEY = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
+ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_DATA_URL = "https://data.alpaca.markets"
 
 def _alpaca_headers():
@@ -856,6 +856,95 @@ except Exception as e:
         except Exception:
             pass
 
+        # Compute 8 new features for ML model upgrade (34 total)
+        # Intel features: news_sentiment, insider_signal, intel_score
+        _news_sentiment = 0.0
+        _insider_signal = 0.0
+        _intel_score_feat = 0.0
+        if intel:
+            # news_sentiment: normalize from classify_news score (-100 to 100 → -1 to 1)
+            news_data = intel.get("news", {})
+            if isinstance(news_data, dict):
+                raw_news_score = float(news_data.get("score", 0) or 0)
+                _news_sentiment = max(-1.0, min(1.0, raw_news_score / 100.0))
+            # insider_signal: map direction to numeric
+            insider_data = intel.get("insider", {})
+            if isinstance(insider_data, dict):
+                direction = insider_data.get("net_direction", "neutral")
+                _insider_signal_map = {
+                    "strong_buying": 1.0, "net_buying": 0.5,
+                    "neutral": 0.0,
+                    "net_selling": -0.5, "strong_selling": -1.0,
+                }
+                _insider_signal = _insider_signal_map.get(direction, 0.0)
+            # intel_score: composite
+            _intel_score_feat = 0.4 * _news_sentiment + 0.3 * _insider_signal + 0.3 * (intel.get("earnings_surprise", 0) or 0)
+
+        # iv_rank_stock: per-stock IV rank
+        _iv_rank_stock = _compute_stock_iv_rank(ticker, _deep_closes) if _deep_closes else 50.0
+
+        # days_to_earnings: normalized 0-1
+        _days_to_earnings = 0.5
+        try:
+            from options_scanner import _get_next_earnings_date
+            import datetime as _dt
+            earn_date = _get_next_earnings_date(ticker)
+            if earn_date:
+                if isinstance(earn_date, str):
+                    earn_date = _dt.datetime.strptime(earn_date[:10], "%Y-%m-%d").date()
+                days_away = (earn_date - _dt.date.today()).days
+                _days_to_earnings = min(days_away, 60) / 60.0 if days_away >= 0 else 0.0
+        except Exception:
+            pass
+
+        # credit_spread: TLT-HYG 21d return spread
+        _credit_spread = 0.0
+        try:
+            _cs_resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/bars",
+                params={"symbols": "TLT,HYG", "timeframe": "1Day",
+                        "start": (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d"),
+                        "limit": 30, "feed": "sip"},
+                headers=_alpaca_headers(), timeout=8)
+            _cs_data = _cs_resp.json().get("bars", {})
+            _tlt_bars = _cs_data.get("TLT", [])
+            _hyg_bars = _cs_data.get("HYG", [])
+            if len(_tlt_bars) >= 21 and len(_hyg_bars) >= 21:
+                tlt_now = float(_tlt_bars[-1]["c"])
+                tlt_21 = float(_tlt_bars[-22]["c"])
+                hyg_now = float(_hyg_bars[-1]["c"])
+                hyg_21 = float(_hyg_bars[-22]["c"])
+                if tlt_21 > 0 and hyg_21 > 0:
+                    _credit_spread = round((tlt_now / tlt_21 - 1) - (hyg_now / hyg_21 - 1), 4)
+        except Exception:
+            pass
+
+        # market_breadth: % of scan universe above 50d MA
+        _market_breadth = 0.5
+        try:
+            _mb_resp = requests.get(
+                f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
+                headers=_alpaca_headers(), timeout=5)
+            _mb_actives = _mb_resp.json().get("most_actives", [])
+            if _mb_actives:
+                _above_50ma_count = 0
+                _total_checked = 0
+                for _mb_s in _mb_actives[:50]:
+                    _mb_price = float(_mb_s.get("price", 0) or 0)
+                    _mb_prev = float(_mb_s.get("prev_close", _mb_price) or _mb_price)
+                    if _mb_price > 0 and _mb_prev > 0:
+                        _total_checked += 1
+                        # Approximate: if price > prev_close, count as above MA proxy
+                        if _mb_price > _mb_prev:
+                            _above_50ma_count += 1
+                if _total_checked > 10:
+                    _market_breadth = round(_above_50ma_count / _total_checked, 3)
+        except Exception:
+            pass
+
+        # put_call_ratio: VIX proxy
+        _vxx_for_pcr = intel.get("vxx_ratio", 1.0) if intel else 1.0
+        _put_call_ratio = round(float(_vxx_for_pcr) * 15.0 / 20.0, 3) if _vxx_for_pcr else 1.0
+
         ml_features = {
             # Technical (7)
             "momentum_1m":          edge.get("momentum_1m", 0) or 0,
@@ -877,7 +966,7 @@ except Exception as e:
             "markov_state":         float(_regime_ctx.get("markov_state", 1)),
             "regime_score":         float(_regime_ctx.get("regime_score", 50)),
             "sector_momentum":      sector_mom.get(stock_sector, 0),
-            # Additive 6 features — now computed from real data
+            # Additive 6 features
             "cross_sec_rank":       _cross_sec_rank,
             "earnings_surprise":    intel.get("earnings_surprise", 0) if intel else 0,
             "put_call_proxy":       _put_call_proxy,
@@ -888,6 +977,16 @@ except Exception as e:
             "change_pct_today":     quick_result.get("change_pct", 0) or 0,
             "above_ma10":           _above_ma10,
             "trend_strength":       min(abs(quick_result.get("change_pct", 0) or 0) / max(vol_metrics.get("ewma_vol", 2) or 2, 0.1), 5.0) if vol_metrics else 1.0,
+            # Intel features (3) — re-added with real data
+            "intel_score":          round(_intel_score_feat, 3),
+            "news_sentiment":       round(_news_sentiment, 3),
+            "insider_signal":       round(_insider_signal, 3),
+            # New professional features (5)
+            "iv_rank_stock":        round(_iv_rank_stock, 2),
+            "days_to_earnings":     round(_days_to_earnings, 3),
+            "credit_spread":        round(_credit_spread, 4),
+            "market_breadth":       round(_market_breadth, 3),
+            "put_call_ratio":       round(_put_call_ratio, 3),
         }
         ml_result = ml_score(ml_features)
 
@@ -932,7 +1031,7 @@ except Exception as e:
     # This is how the self-learning loop works: entry features saved at trade time,
     # used by ml_model_v2 to train on actual bot outcomes after trade closes.
     try:
-        quick_result["ml_features"]  = ml_features  # The 26 features used at entry
+        quick_result["ml_features"]  = ml_features  # The 34 features used at entry
         quick_result["regime_label"] = _regime_ctx.get("regime_label", "NEUTRAL")
     except Exception:
         pass
@@ -2118,8 +2217,8 @@ def _run_third_leg(macro: dict) -> dict:
                                             spy_below_200_days=spy_b200,
                                             spy_above_200d=spy_above_200d)
 
-        alpaca_key    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-        alpaca_secret = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+        alpaca_key    = os.environ.get("ALPACA_KEY", "")
+        alpaca_secret = os.environ.get("ALPACA_SECRET", "")
         base_url      = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
         headers       = {"APCA-API-KEY-ID": alpaca_key,
                          "APCA-API-SECRET-KEY": alpaca_secret}

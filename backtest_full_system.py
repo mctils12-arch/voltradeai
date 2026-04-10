@@ -26,8 +26,8 @@ from bot_engine import score_stock
 from position_sizing import calculate_position
 
 # ── Alpaca credentials ────────────────────────────────────────────────────
-ALPACA_KEY    = "PKMDHJOVQEVIB4UHZXUYVTIDBU"
-ALPACA_SECRET = "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"
+ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 DATA_URL      = "https://data.alpaca.markets"
 BROKER_URL    = "https://paper-api.alpaca.markets"
 
