@@ -1225,6 +1225,20 @@ def manage_positions():
         atr = _get_atr(ticker)
         atr_pct = (atr / current * 100) if current > 0 and atr else 2.0
 
+        # ── MINIMUM HOLD TIME (1 hour) ──────────────────────────────────────
+        # Positions entered and exited within minutes consistently lose to the
+        # spread. Enforce a minimum hold time before any exit logic runs.
+        # This does NOT apply to DTE critical (options) or catastrophic stops (>10% loss).
+        _MIN_EQUITY_HOLD_MINUTES = 60
+        _ps_entry_ts = stop_state.get(ticker, {}).get("entry_timestamp")
+        _equity_held_minutes = 999  # default: assume held long enough
+        if _ps_entry_ts:
+            try:
+                _ps_entry_dt = datetime.strptime(_ps_entry_ts, "%Y-%m-%dT%H:%M:%S.%f") if "." in _ps_entry_ts else datetime.strptime(_ps_entry_ts, "%Y-%m-%dT%H:%M:%S")
+                _equity_held_minutes = (datetime.now() - _ps_entry_dt).total_seconds() / 60
+            except Exception:
+                pass
+
         # ── EVOLVING STOP SYSTEM ────────────────────────────────────────────
         # Stops evolve through 4 phases as the trade profits:
         #   Phase 1 (entry):     2.0x ATR stop, 3.0x ATR target
@@ -1334,6 +1348,7 @@ def manage_positions():
             "current_stop_pct": round(atr_pct, 2),  # Store raw ATR% — bot.ts computes final stop
             "r_multiple": round(r_multiple, 2),
             "entry_date": entry_date if entry_date != time.strftime("%Y-%m-%d") else ps.get("entry_date", time.strftime("%Y-%m-%d")),
+            "entry_timestamp": ps.get("entry_timestamp", datetime.now().isoformat()),
             "days_held": days_held,
             # Scale-out tracking
             "original_qty": original_qty,
@@ -1361,6 +1376,13 @@ def manage_positions():
             "scales_completed": scales_completed,
             "breakeven_active": breakeven_active,
         }
+
+        # ── MINIMUM HOLD TIME GATE ──────────────────────────────────────
+        # Skip exits if position held < 1 hour, UNLESS it's a catastrophic loss (>10%)
+        _is_catastrophic = pnl_pct <= -10.0
+        if _equity_held_minutes < _MIN_EQUITY_HOLD_MINUTES and not _is_catastrophic:
+            should_stop = False
+            time_stop = False
 
         # Execute stops (for remaining shares)
         if should_stop:
@@ -1839,6 +1861,24 @@ def scan_market():
             else:
                 side = "buy"  # Non-large-cap: convert to buy (options path handles bearish plays)
                 action_label = "BUY"
+
+        # ── Spread awareness check (Fix 2026-04-10) ───────────────────
+        # Reject equities with bid-ask spread > 0.5% of price.
+        # QQQ lost $698 on a single round-trip due to market order spread.
+        # This check prevents entering stocks with poor liquidity / wide spreads.
+        try:
+            _quote_r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/quotes/latest",
+                params={"feed": "sip"}, headers=_alpaca_headers(), timeout=5)
+            _quote = _quote_r.json().get("quote", {})
+            _bid = float(_quote.get("bp", 0) or 0)
+            _ask = float(_quote.get("ap", 0) or 0)
+            if _bid > 0 and _ask > 0:
+                _mid = (_bid + _ask) / 2
+                _spread_pct = (_ask - _bid) / _mid if _mid > 0 else 0
+                if _spread_pct > 0.005:  # 0.5% max spread for equities
+                    continue  # Skip — spread too wide, would lose to slippage
+        except Exception:
+            pass  # If quote fetch fails, allow the trade (don't block on API failure)
 
         # Instrument decision: stock vs 2x ETF vs options (unified selector)
         instrument_decision = {"chosen": "stock", "strategy": "buy_stock", "reasoning": "default"}
@@ -2394,6 +2434,14 @@ def _manage_spy_floor(macro: dict) -> dict:
     Backtest (7-config sweep, 2016-2026):
       B60/N85/C30 = best: 12.9% CAGR vs SPY 12.3% (beats by +0.6%)
       Fixes quiet bull year losses: 2017 -27% -> -6%, 2019 -33% -> -6%
+
+    FIX (2026-04-10): Only rebalance on REGIME CHANGES, not every cycle.
+    The old logic rebalanced whenever position drifted >2-5% from target,
+    which caused massive churn: buying 112 QQQ shares then selling 111
+    two minutes later, losing $698 to the spread. Now we:
+      1. Persist the last regime in a state file
+      2. Only rebalance when regime changes OR position is >10% off target
+      3. Use limit orders instead of market orders to reduce slippage
     """
     result = {"actions": [], "status": "ok", "target_pct": 0, "current_pct": 0}
 
@@ -2409,6 +2457,18 @@ def _manage_spy_floor(macro: dict) -> dict:
                                    spy_below_200_days=spy_b200,
                                    spy_above_200d=spy_above)
 
+        # ── Regime change detection ──────────────────────────────────────
+        # Persist last regime to avoid rebalancing every cycle
+        _floor_state_path = os.path.join(DATA_DIR, 'voltrade_floor_state.json')
+        _floor_state = {}
+        try:
+            with open(_floor_state_path) as f:
+                _floor_state = json.load(f)
+        except Exception:
+            pass
+        last_regime = _floor_state.get("last_regime")
+        regime_changed = (last_regime is not None and last_regime != regime)
+
         # Use configurable floor ticker (QQQ by default — 5.6%/yr more than SPY)
         floor_ticker = BASE_CONFIG.get("FLOOR_TICKER", "QQQ")
         floor_key = f"SPY_FLOOR_{regime}"
@@ -2418,21 +2478,32 @@ def _manage_spy_floor(macro: dict) -> dict:
         result["floor_ticker"] = floor_ticker
 
         if target_pct <= 0:
-            # No floor — sell any existing position
+            # No floor — sell any existing position (only on regime change to 0%)
+            if regime_changed or last_regime is None:
+                try:
+                    positions = get_alpaca_positions()
+                    floor_pos = [p for p in positions if p.get("symbol") == floor_ticker]
+                    if floor_pos:
+                        qty = abs(int(float(floor_pos[0].get("qty", 0))))
+                        if qty > 0:
+                            requests.post(f"{ALPACA_BASE_URL}/v2/orders",
+                                json={"symbol": floor_ticker, "qty": str(qty),
+                                      "side": "sell", "type": "market",
+                                      "time_in_force": "day"},
+                                headers=_alpaca_headers(), timeout=10)
+                            result["actions"].append({"type": "floor_exit",
+                                "shares": qty, "reason": f"{regime} regime (was {last_regime})"})
+                            import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {floor_ticker} (regime changed {last_regime}->{regime})")
+                except Exception:
+                    pass
+            else:
+                result["status"] = "no_floor_no_change"
+            # Save regime state
+            _floor_state["last_regime"] = regime
+            _floor_state["last_rebalance"] = datetime.now().isoformat()
             try:
-                positions = get_alpaca_positions()
-                floor_pos = [p for p in positions if p.get("symbol") == floor_ticker]
-                if floor_pos:
-                    qty = abs(int(float(floor_pos[0].get("qty", 0))))
-                    if qty > 0:
-                        requests.post(f"{ALPACA_BASE_URL}/v2/orders",
-                            json={"symbol": floor_ticker, "qty": str(qty),
-                                  "side": "sell", "type": "market",
-                                  "time_in_force": "day"},
-                            headers=_alpaca_headers(), timeout=10)
-                        result["actions"].append({"type": "floor_exit",
-                            "shares": qty, "reason": f"{regime} regime"})
-                        import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {floor_ticker} ({regime} regime)")
+                with open(_floor_state_path, "w") as f:
+                    json.dump(_floor_state, f)
             except Exception:
                 pass
             return result
@@ -2463,19 +2534,26 @@ def _manage_spy_floor(macro: dict) -> dict:
         target_value = equity * target_pct
         diff = target_value - current_spy_value
 
-        # Only rebalance if >5% off target (avoid micro-trades)
-        # Dynamic rebalance band:
-        # Regular hours (9:30-4:00): 5% band — avoid micro-trades during normal drift
-        # Extended hours (4am-9:30am, 4pm-8pm): 2% band — respond faster to overnight regime changes
-        # This means if the regime flips overnight (e.g., BEAR→BULL on tariff news),
-        # the bot starts buying QQQ in pre-market instead of waiting for market open
-        _et = _et_now_hour()
-        _band = 0.02 if (_et < 9.5 or _et >= 16.0) else 0.05
-        if abs(diff) / equity < _band:
+        # ── Only rebalance on regime change OR significant drift (>10%) ──
+        # The old 2-5% band caused daily churn. Now:
+        # - Regime change: rebalance immediately (the allocation target changed)
+        # - No regime change: only rebalance if >10% off target (prevents spread loss)
+        _rebalance_band = 0.10  # 10% band — much wider than old 2-5%
+        drift_pct = abs(diff) / equity if equity > 0 else 0
+        needs_rebalance = regime_changed or (last_regime is None and current_spy_shares == 0)
+
+        if not needs_rebalance and drift_pct < _rebalance_band:
             result["status"] = "within_band"
+            # Save regime state even when no rebalance
+            _floor_state["last_regime"] = regime
+            try:
+                with open(_floor_state_path, "w") as f:
+                    json.dump(_floor_state, f)
+            except Exception:
+                pass
             return result
 
-        # Get SPY price
+        # Get floor ticker price
         try:
             snap = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
                 params={"symbols": floor_ticker, "feed": "sip"},
@@ -2491,19 +2569,31 @@ def _manage_spy_floor(macro: dict) -> dict:
         shares_diff = int(diff / spy_price)
         if shares_diff == 0:
             result["status"] = "within_band"
+            # Save regime state
+            _floor_state["last_regime"] = regime
+            try:
+                with open(_floor_state_path, "w") as f:
+                    json.dump(_floor_state, f)
+            except Exception:
+                pass
             return result
+
+        # Use limit orders near last trade price to reduce spread slippage
+        _order_type = "limit"
+        _limit_price = str(round(spy_price, 2))
 
         if shares_diff > 0:
             try:
                 requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                     json={"symbol": floor_ticker, "qty": str(shares_diff),
-                          "side": "buy", "type": "market",
+                          "side": "buy", "type": _order_type,
+                          "limit_price": _limit_price,
                           "time_in_force": "day"},
                     headers=_alpaca_headers(), timeout=10)
                 result["actions"].append({"type": "floor_buy",
                     "shares": shares_diff, "ticker": floor_ticker,
-                    "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
-                import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Bought {shares_diff} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
+                    "reason": f"regime_change:{last_regime}->{regime}, target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
+                import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Bought {shares_diff} {floor_ticker} (regime {last_regime}->{regime}: {target_pct*100:.0f}% target)")
             except Exception as e:
                 import logging as _floor_log; _floor_log.getLogger("bot_engine").debug(f"[SPY_FLOOR] Buy failed: {e}")
         else:
@@ -2512,15 +2602,25 @@ def _manage_spy_floor(macro: dict) -> dict:
                 try:
                     requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                         json={"symbol": floor_ticker, "qty": str(sell_qty),
-                              "side": "sell", "type": "market",
+                              "side": "sell", "type": _order_type,
+                              "limit_price": _limit_price,
                               "time_in_force": "day"},
                         headers=_alpaca_headers(), timeout=10)
                     result["actions"].append({"type": "floor_sell",
                         "shares": sell_qty, "ticker": floor_ticker,
-                        "reason": f"{regime}: target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
-                    import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {sell_qty} {floor_ticker} ({regime}: {target_pct*100:.0f}% target)")
+                        "reason": f"regime_change:{last_regime}->{regime}, target {target_pct*100:.0f}%, current {current_pct*100:.0f}%"})
+                    import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {sell_qty} {floor_ticker} (regime {last_regime}->{regime}: {target_pct*100:.0f}% target)")
                 except Exception as e:
                     import logging as _floor_log; _floor_log.getLogger("bot_engine").debug(f"[SPY_FLOOR] Sell failed: {e}")
+
+        # Save regime state after rebalance
+        _floor_state["last_regime"] = regime
+        _floor_state["last_rebalance"] = datetime.now().isoformat()
+        try:
+            with open(_floor_state_path, "w") as f:
+                json.dump(_floor_state, f)
+        except Exception:
+            pass
 
     except Exception as e:
         result["status"] = f"error: {str(e)[:80]}"

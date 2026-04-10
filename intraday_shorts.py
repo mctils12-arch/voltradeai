@@ -282,14 +282,15 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
     Called by bot_engine.py in scan_market().
     If snapshot_data is passed (from the long scanner), uses it for Stage 1.
     Otherwise fetches most-actives as fallback.
-    """
-    log = _load_log()
-    result = {"actions": [], "status": "ok", "enabled": log.get("enabled", True)}
-    trades = log.get("trades", [])
 
-    if not log.get("enabled", True):
-        result["status"] = "disabled"
-        return result
+    DISABLED (2026-04-10): Intraday shorts had a 28.7% win rate in backtesting
+    and lost ~$2K in the past week (FCUV -$1,311, PFSA -$609, OGN -$61).
+    This function now returns immediately without executing any trades.
+    """
+    result = {"actions": [], "status": "disabled_permanently", "enabled": False}
+    result["disabled_reason"] = "Intraday shorts disabled: 28.7% win rate in backtest, -$2K realized losses Apr 3-10"
+    logger.info("[SHORT] Intraday shorts DISABLED — 28.7% win rate, strategy loses money")
+    return result
 
     if macro is None: macro = {}
     vxx_ratio = float(macro.get("vxx_ratio", 1.0) or 1.0)
