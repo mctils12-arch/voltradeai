@@ -47,8 +47,8 @@ except ImportError:
 
 logger = logging.getLogger("options_execution")
 
-ALPACA_KEY = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_BASE = "https://paper-api.alpaca.markets"
 ALPACA_DATA = "https://data.alpaca.markets"
 

@@ -184,7 +184,7 @@ test("PREMARKET","Alpaca positions", t_alpaca_positions)
 
 def t_sip_feed():
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots?symbols=SPY,AAPL,NVDA&feed=sip",headers=H,timeout=8)
     d = r.json()
     found = [s for s in ["SPY","AAPL","NVDA"] if s in d]
@@ -202,7 +202,7 @@ def t_finnhub_earnings():
     today = datetime.now().strftime("%Y-%m-%d")
     end   = (datetime.now()+timedelta(days=7)).strftime("%Y-%m-%d")
     r = requests.get("https://finnhub.io/api/v1/calendar/earnings",
-        params={"from":today,"to":end,"token":"d78tj7hr01qp0fl6fo2gd78tj7hr01qp0fl6fo30"},timeout=8)
+        params={"from":today,"to":end,"token":os.environ.get("FINNHUB_KEY", "")},timeout=8)
     cal = r.json().get("earningsCalendar",[])
     if len(cal) < 5:
         return "WARN", f"Only {len(cal)} earnings events — Finnhub may be slow"
@@ -256,7 +256,7 @@ print("\n── 9:30 AM ─ Market Open: Stock Scan ──")
 
 def t_universe_size():
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     r = requests.get("https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",headers=H,timeout=20)
     assets = r.json()
     syms = [a["symbol"] for a in assets if a.get("tradable") and "." not in a.get("symbol","") and len(a.get("symbol",""))<=5]
@@ -268,7 +268,7 @@ test("OPEN","Full universe size (11K+ stocks)", t_universe_size)
 def t_snapshot_parallel_fetch():
     import requests
     from concurrent.futures import ThreadPoolExecutor
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     # Test parallel fetch speed with 500 stocks
     r0 = requests.get("https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",headers=H,timeout=20)
     syms = [a["symbol"] for a in r0.json() if a.get("tradable") and "." not in a.get("symbol","") and len(a.get("symbol",""))<=5][:500]
@@ -293,7 +293,7 @@ test("OPEN","Parallel snapshot fetch (16 workers)", t_snapshot_parallel_fetch)
 def t_score_stock():
     from bot_engine import score_stock
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots?symbols=NVDA,TSLA,AAPL&feed=sip",headers=H,timeout=8)
     snaps = r.json()
     scored = []
@@ -317,7 +317,7 @@ test("OPEN","Quick score pipeline (score_stock)", t_score_stock)
 def t_deep_score():
     from bot_engine import deep_score
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots?symbols=NVDA&feed=sip",headers=H,timeout=8)
     snap = r.json().get("NVDA",{})
     bar  = snap.get("dailyBar",{}); prev = snap.get("prevDailyBar",{})
@@ -384,7 +384,7 @@ def t_options_chain_pagination():
     """SPY has 3700+ contracts — verify pagination works."""
     from options_scanner import _fetch_options_chain
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots?symbols=SPY&feed=sip",headers=H,timeout=8)
     price = float(r.json().get("SPY",{}).get("dailyBar",{}).get("c",550))
     t0 = time.time()
@@ -401,7 +401,7 @@ def t_delta_selection():
     """_find_by_delta must return correct delta range for each target."""
     from options_scanner import _fetch_options_chain, _find_by_delta
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots?symbols=NVDA&feed=sip",headers=H,timeout=8)
     price = float(r.json().get("NVDA",{}).get("dailyBar",{}).get("c",178))
     contracts = _fetch_options_chain("NVDA", price, min_days=7, max_days=45)
@@ -445,7 +445,7 @@ def t_earnings_iv_crush_setup():
     """v1.0.23 fixes: days>=0 (not >=1), 21-day window, VRatio IV gate."""
     from options_scanner import _fetch_earnings_calendar, _setup_earnings_iv_crush, _get_vxx_ratio
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
 
     # Fix 3: 21-day window must return major names
     cal = _fetch_earnings_calendar(days_ahead=21)
@@ -623,7 +623,7 @@ def t_blocked_tickers():
     from bot_engine import scan_market
     # Re-use cached scan result
     import requests
-    H = {"APCA-API-KEY-ID":"PKMDHJOVQEVIB4UHZXUYVTIDBU","APCA-API-SECRET-KEY":"9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"}
+    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     # Check that blocked tickers are defined
     import re
     with open("/tmp/vt_test/bot_engine.py") as f:

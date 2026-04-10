@@ -9,7 +9,7 @@ import re
 import requests
 from datetime import datetime, timedelta
 
-POLYGON_KEY = os.environ.get("POLYGON_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
+POLYGON_KEY = os.environ.get("POLYGON_KEY", "")
 CACHE_DIR = "/tmp/voltrade_alt_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -254,8 +254,8 @@ def get_short_interest(ticker: str) -> dict:
     try:
         # Get recent volume and price data
         alpaca_headers = {
-            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
-            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
         }
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -433,8 +433,8 @@ def get_ftd_signal(ticker: str) -> dict:
         # Use volume analysis as FTD proxy
         # Stocks with very high volume relative to float tend to have FTD issues
         alpaca_headers = {
-            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
-            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
         }
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
@@ -447,7 +447,7 @@ def get_ftd_signal(ticker: str) -> dict:
             avg_recent = sum(volumes) / len(volumes)
 
             # Get ticker details for shares outstanding (Polygon reference endpoint — not rate-limited)
-            detail_url = f"https://api.polygon.io/v3/reference/tickers/{ticker}?apiKey={os.environ.get('POLYGON_KEY', 'UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP')}"
+            detail_url = f"https://api.polygon.io/v3/reference/tickers/{ticker}?apiKey={os.environ.get('POLYGON_KEY', '')}"
             detail_resp = requests.get(detail_url, timeout=5)
             detail = detail_resp.json().get("results", {})
             shares_outstanding = detail.get("share_class_shares_outstanding") or detail.get("weighted_shares_outstanding") or 0

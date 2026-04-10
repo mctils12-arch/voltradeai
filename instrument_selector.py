@@ -34,8 +34,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 # Alpaca constants (used for VXX fetch and ETF volume check)
-_ALPACA_KEY = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-_ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+_ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
+_ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_DATA_URL = "https://data.alpaca.markets"
 
 def _alpaca_headers() -> dict:
@@ -1028,8 +1028,8 @@ def _check_etf_volume(etf_ticker: str) -> bool:
         return False
     try:
         import requests as _req
-        ALPACA_KEY    = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-        ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+        ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
+        ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
         resp = _req.get(
             f"https://data.alpaca.markets/v2/stocks/{etf_ticker}/bars",
             params={"timeframe": "1Day", "limit": 1, "feed": "sip"},

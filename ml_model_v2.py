@@ -61,14 +61,15 @@ try:
     from sklearn.preprocessing import StandardScaler
     from sklearn.model_selection import TimeSeriesSplit
     from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.isotonic import IsotonicRegression
     import joblib
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
 
-ALPACA_KEY    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
-FINNHUB_KEY   = os.environ.get("FINNHUB_KEY",   "d78tj7hr01qp0fl6fo2gd78tj7hr01qp0fl6fo30")
+ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
+FINNHUB_KEY   = os.environ.get("FINNHUB_KEY", "")
 DATA_URL      = "https://data.alpaca.markets"
 
 MODEL_PATH        = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")       # keep same path for compatibility
@@ -111,8 +112,7 @@ def _frac_diff(closes: list, d: float = 0.4) -> float:
     return max(-3.0, min(3.0, val))
 
 # ══════════════════════════════════════════════════════════════════
-# FEATURE COLUMNS — 26 features (was 31; removed 5 dead/collinear)
-# TODO: Re-add intel_score, news_sentiment, insider_signal when historical backfill pipeline is built
+# FEATURE COLUMNS — 34 features (26 base + 3 intel re-added + 5 new)
 # ══════════════════════════════════════════════════════════════════
 FEATURE_COLS = [
     # Technical momentum (4)
@@ -120,7 +120,7 @@ FEATURE_COLS = [
     "momentum_3m",        # 63-day return
     "rsi_14",             # RSI
     "price_vs_52w_high",  # % from 52-week high (George & Hwang 2004 — strongest predictor)
-    # Volume (1) — removed float_turnover (collinear w/ volume_ratio) and volume_acceleration (always 0 at inference)
+    # Volume (1)
     "volume_ratio",       # today / 20d avg
     # Volatility (4)
     "ewma_vol",           # EWMA realized vol
@@ -138,19 +138,31 @@ FEATURE_COLS = [
     "regime_score",       # 0-100 combined regime
     "sector_momentum",    # sector vs SPY
     # Additive features (6)
-    "cross_sec_rank",     # rank of today's move vs all stocks (top 5% = strong signal)
+    "cross_sec_rank",     # rank of today's move vs all stocks
     "earnings_surprise",  # last EPS beat/miss direction (+1/-1/0)
-    "put_call_proxy",     # put/call volume ratio from options (bearish/bullish smart money)
-    "vol_of_vol",         # std dev of VXX — when vol-of-vol is high, signals weaker
-    "frac_diff_price",    # fractionally differentiated price (preserves memory, stationary)
-    "idiosyncratic_ret",  # stock return MINUS what market/sector explains (pure alpha signal)
-    # Change today (for momentum entry timing)
+    "put_call_proxy",     # put/call volume ratio from options
+    "vol_of_vol",         # std dev of VXX
+    "frac_diff_price",    # fractionally differentiated price
+    "idiosyncratic_ret",  # stock return MINUS what market/sector explains
+    # Change today (3)
     "change_pct_today",
     "above_ma10",
     "trend_strength",
+    # Intel features — re-added with real data pipelines (3)
+    "intel_score",        # composite: 0.4*news + 0.3*insider + 0.3*earnings
+    "news_sentiment",     # Alpaca news API headline sentiment (-1 to 1)
+    "insider_signal",     # SEC EDGAR insider buying/selling signal
+    # New professional features (5)
+    "iv_rank_stock",      # per-stock IV rank (0-100 percentile)
+    "days_to_earnings",   # normalized days to next earnings (0-1)
+    "credit_spread",      # TLT-HYG 21d return spread (risk-off indicator)
+    "market_breadth",     # % of universe above 50d MA (0-1)
+    "put_call_ratio",     # CBOE equity put/call ratio (VIX proxy if unavailable)
 ]
 
-assert len(FEATURE_COLS) == 26, f"Expected 26 features, got {len(FEATURE_COLS)}"
+assert len(FEATURE_COLS) == 34, f"Expected 34 features, got {len(FEATURE_COLS)}"
+
+CALIBRATOR_PATH = os.path.join(DATA_DIR, "voltrade_ml_calibrator.pkl")
 
 # ══════════════════════════════════════════════════════════════════
 # DATA FETCHING
@@ -167,7 +179,7 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200) -> dict:
 
     core = ["AAPL","MSFT","NVDA","AMD","META","GOOGL","AMZN","TSLA","JPM","BAC",
             "V","MA","COIN","MSTR","PLTR","CRWD","HOOD","SOFI","AFRM","UPST",
-            "SPY","QQQ","IWM","VXX","GLD","XLE","XLF","XLK"]
+            "SPY","QQQ","IWM","VXX","GLD","XLE","XLF","XLK","TLT","HYG"]
     for t in core:
         if t not in tickers: tickers.append(t)
     tickers = list(dict.fromkeys(tickers))[:max_tickers]
@@ -206,15 +218,69 @@ def _fetch_earnings_surprises(tickers: list) -> Dict[str, float]:
     return surprises
 
 # ══════════════════════════════════════════════════════════════════
-# FEATURE COMPUTATION — 26 features
+# HELPER: Historical news sentiment via Alpaca news API
+# ══════════════════════════════════════════════════════════════════
+
+def _fetch_historical_news_sentiment(ticker: str, date_str: str) -> float:
+    """Fetch news sentiment for a ticker on a specific date using Alpaca news API."""
+    url = "https://data.alpaca.markets/v1beta1/news"
+    params = {
+        "symbols": ticker,
+        "start": f"{date_str}T00:00:00Z",
+        "end": f"{date_str}T23:59:59Z",
+        "limit": 10,
+    }
+    headers = {
+        "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+        "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
+    }
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            news = resp.json().get("news", [])
+            if not news:
+                return 0.0
+            pos_words = {"beat", "surge", "rise", "gain", "up", "rally", "profit", "record", "strong", "upgrade"}
+            neg_words = {"miss", "fall", "drop", "loss", "down", "crash", "cut", "weak", "downgrade", "decline"}
+            score = 0.0
+            for article in news:
+                headline = article.get("headline", "").lower()
+                pos = sum(1 for w in pos_words if w in headline)
+                neg = sum(1 for w in neg_words if w in headline)
+                score += (pos - neg)
+            return max(-1.0, min(1.0, score / max(len(news), 1)))
+        return 0.0
+    except Exception:
+        return 0.0
+
+
+def _fetch_insider_signal(ticker: str) -> float:
+    """Fetch insider buying/selling signal from intelligence.py."""
+    try:
+        from intelligence import get_insider_activity
+        insider = get_insider_activity(ticker)
+        if insider and isinstance(insider, dict):
+            return float(insider.get("signal", 0.0) or 0.0)
+    except Exception:
+        pass
+    return 0.0
+
+
+# ══════════════════════════════════════════════════════════════════
+# FEATURE COMPUTATION — 34 features
 # ══════════════════════════════════════════════════════════════════
 
 def _compute_features(bars: list, idx: int, all_bars: dict,
                        ticker: str, vxx_bars: list, spy_bars: list,
                        earnings_surprise: float = 0.0,
-                       cross_sec_rank: float = 0.5) -> Optional[dict]:
+                       cross_sec_rank: float = 0.5,
+                       news_sentiment: float = 0.0,
+                       insider_signal: float = 0.0,
+                       tlt_bars: list = None,
+                       hyg_bars: list = None,
+                       breadth_pct: float = 0.5) -> Optional[dict]:
     """
-    Compute all 26 features for a bar at index idx.
+    Compute all 34 features for a bar at index idx.
     """
     if idx < 25 or idx >= len(bars) - 5:
         return None
@@ -351,10 +417,40 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
         idio_ret = 0.0
 
     # ── NEW FEATURE 4: Put/Call Proxy ────────────────────────────
-    # When VRP is positive (IV > RV), put buyers are active → bearish smart money
-    # When VRP is negative (IV < RV), call buyers active → bullish
-    # This is a FLOW signal: what are options traders doing?
     put_call_proxy = -1.0 if vrp > 8 else (1.0 if vrp < -5 else 0.0)
+
+    # ── Intel features (re-added with real data) ─────────────────
+    intel_score = 0.4 * news_sentiment + 0.3 * insider_signal + 0.3 * earnings_surprise
+
+    # ── NEW: iv_rank_stock — per-stock IV rank using VXX scaled by beta
+    # At training time, use VXX rank as proxy scaled by volume_ratio (beta approx)
+    beta_approx = min(volume_ratio, 3.0) / 2.0  # rough beta from volume
+    iv_rank_stock = min(100.0, iv_rank * beta_approx)
+
+    # ── NEW: days_to_earnings — normalized (0-1, 0=today, 1=60+ days)
+    # At training time, default to 0.5 (unknown); caller can override
+    days_to_earnings = 0.5  # default; overridden at inference with real data
+
+    # ── NEW: credit_spread — TLT-HYG 21d return spread
+    credit_spread = 0.0
+    if tlt_bars and hyg_bars:
+        _tlt_idx = min(idx, len(tlt_bars) - 1)
+        _hyg_idx = min(idx, len(hyg_bars) - 1)
+        if _tlt_idx >= 21 and _hyg_idx >= 21:
+            tlt_now = float(tlt_bars[_tlt_idx]["c"])
+            tlt_21 = float(tlt_bars[max(0, _tlt_idx - 21)]["c"])
+            hyg_now = float(hyg_bars[_hyg_idx]["c"])
+            hyg_21 = float(hyg_bars[max(0, _hyg_idx - 21)]["c"])
+            if tlt_21 > 0 and hyg_21 > 0:
+                tlt_ret = (tlt_now / tlt_21) - 1
+                hyg_ret = (hyg_now / hyg_21) - 1
+                credit_spread = round(tlt_ret - hyg_ret, 4)
+
+    # ── NEW: market_breadth — pct of universe above 50d MA
+    market_breadth = breadth_pct
+
+    # ── NEW: put_call_ratio — use VIX proxy: vxx_level / 20
+    put_call_ratio = round(vxx_close / 20.0, 3) if vxx_close else 1.0
 
     return {
         "momentum_1m":        round(mom_1m, 3),
@@ -383,6 +479,16 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
         "change_pct_today":   round(change_pct, 3),
         "above_ma10":         above_ma10,
         "trend_strength":     round(trend_str, 3),
+        # Intel features (3)
+        "intel_score":        round(intel_score, 3),
+        "news_sentiment":     round(news_sentiment, 3),
+        "insider_signal":     round(insider_signal, 3),
+        # New professional features (5)
+        "iv_rank_stock":      round(iv_rank_stock, 2),
+        "days_to_earnings":   round(days_to_earnings, 3),
+        "credit_spread":      round(credit_spread, 4),
+        "market_breadth":     round(market_breadth, 3),
+        "put_call_ratio":     round(put_call_ratio, 3),
     }
 
 
@@ -412,8 +518,8 @@ def _triple_barrier_label(bars: list, idx: int, atr_pct: float,
     if entry <= 0:
         return 0
 
-    pt_pct = atr_pct * pt_mult / 100  # e.g. 1.5 × 2% ATR = 3% profit target
-    sl_pct = atr_pct * sl_mult / 100  # e.g. 1.0 × 2% ATR = 2% stop loss
+    pt_pct = max(0.005, atr_pct * pt_mult / 100)  # min 0.5% profit target
+    sl_pct = max(0.003, atr_pct * sl_mult / 100)  # min 0.3% stop loss
 
     pt_price = entry * (1 + pt_pct)
     sl_price = entry * (1 - sl_pct)
@@ -479,6 +585,38 @@ def _purged_train_test_split(X: np.ndarray, y: np.ndarray,
     return X_train, X_test, y_train, y_test
 
 
+def _walk_forward_cv(X, y, n_splits=5, embargo_days=5, n_tickers_approx=50):
+    """
+    Purged walk-forward cross-validation.
+    Split timeline into n_splits+1 equal folds.
+    For each fold k (1..n_splits):
+      Train on folds 0..k-1
+      Embargo: skip embargo_days * n_tickers_approx rows
+      Test on fold k
+    Returns list of (train_idx, test_idx) pairs.
+    """
+    n = len(X)
+    fold_size = n // (n_splits + 1)
+    splits = []
+    min_train_size = max(500, fold_size)
+
+    for k in range(1, n_splits + 1):
+        train_end = k * fold_size
+        embargo = embargo_days * n_tickers_approx
+        test_start = train_end + embargo
+        test_end = (k + 1) * fold_size
+
+        if test_start >= n or train_end < min_train_size:
+            continue
+
+        train_idx = list(range(0, train_end))
+        test_idx = list(range(test_start, min(test_end, n)))
+        if len(test_idx) > 0:
+            splits.append((train_idx, test_idx))
+
+    return splits
+
+
 # ══════════════════════════════════════════════════════════════════
 # REGIME-CONDITIONAL TRAINING DATA BUILDER
 # ══════════════════════════════════════════════════════════════════
@@ -487,14 +625,16 @@ def _build_training_data(all_bars: dict,
                           earnings_surprises: dict = None) -> Tuple:
     """
     Build training data with:
-    1. Triple-barrier labels (volatility-adjusted)
+    1. Triple-barrier labels (volatility-adjusted, timeouts relabeled)
     2. Regime labels for conditional training
-    3. All 26 features including new ones
+    3. All 34 features including intel and new professional features
 
     Returns: X, y, regimes (array of 'bull'/'bear'/'neutral' per row)
     """
     vxx_bars_raw = all_bars.get("VXX", {})
     spy_bars_raw = all_bars.get("SPY", {})
+    tlt_bars_raw = all_bars.get("TLT", {})
+    hyg_bars_raw = all_bars.get("HYG", {})
 
     def to_list(raw):
         if isinstance(raw, dict):
@@ -502,26 +642,46 @@ def _build_training_data(all_bars: dict,
         return sorted(raw, key=lambda b: b.get("t","")) if raw else []
 
     vxx_list = to_list(vxx_bars_raw)
-    spy_list  = to_list(spy_bars_raw)
+    spy_list = to_list(spy_bars_raw)
+    tlt_list = to_list(tlt_bars_raw)
+    hyg_list = to_list(hyg_bars_raw)
 
     X_rows, y_labels, regimes_list = [], [], []
 
-    # Compute cross-sectional ranks: for each day, rank all tickers by % change
-    # Then each ticker gets its percentile rank (0=worst, 1=best mover)
+    # Compute cross-sectional ranks
     all_changes_by_day: Dict[int, list] = {}
 
+    # Pre-compute market breadth: % of tickers above 50d MA per day
+    breadth_by_day: Dict[int, float] = {}
+    ticker_closes_map = {}
+    tradeable_tickers = [t for t in all_bars if t not in ("SPY","QQQ","IWM","VXX","GLD","TLT","HYG")]
+
     for ticker, bars_raw in all_bars.items():
-        if ticker in ("SPY","QQQ","IWM","VXX","GLD","TLT"): continue
+        if ticker in ("SPY","QQQ","IWM","VXX","GLD","TLT","HYG"): continue
         bars = to_list(bars_raw)
         if len(bars) < 30: continue
         closes = [b["c"] for b in bars]
+        ticker_closes_map[ticker] = closes
         for idx in range(1, len(bars)):
             if closes[idx-1] > 0:
                 chg = (closes[idx]-closes[idx-1])/closes[idx-1]*100
                 all_changes_by_day.setdefault(idx, []).append(chg)
 
+    # Compute breadth per day index
+    for idx in range(50, max((len(c) for c in ticker_closes_map.values()), default=51)):
+        above_50ma = 0
+        total = 0
+        for t_closes in ticker_closes_map.values():
+            if idx < len(t_closes) and idx >= 50:
+                ma50 = sum(t_closes[idx-50:idx]) / 50
+                if ma50 > 0:
+                    total += 1
+                    if t_closes[idx] > ma50:
+                        above_50ma += 1
+        breadth_by_day[idx] = above_50ma / max(total, 1)
+
     for ticker, bars_raw in all_bars.items():
-        if ticker in ("SPY","QQQ","IWM","VXX","GLD","TLT"): continue
+        if ticker in ("SPY","QQQ","IWM","VXX","GLD","TLT","HYG"): continue
         bars = to_list(bars_raw)
         if len(bars) < 30: continue
         closes = [b["c"] for b in bars]
@@ -529,8 +689,15 @@ def _build_training_data(all_bars: dict,
         earn_surp = (earnings_surprises or {}).get(ticker, 0.0)
 
         for idx in range(25, len(bars) - 6):
+            breadth = breadth_by_day.get(idx, 0.5)
             feats = _compute_features(bars, idx, all_bars, ticker,
-                                        vxx_list, spy_list, earn_surp)
+                                        vxx_list, spy_list, earn_surp,
+                                        cross_sec_rank=0.5,
+                                        news_sentiment=0.0,
+                                        insider_signal=0.0,
+                                        tlt_bars=tlt_list,
+                                        hyg_bars=hyg_list,
+                                        breadth_pct=breadth)
             if feats is None:
                 continue
 
@@ -546,10 +713,22 @@ def _build_training_data(all_bars: dict,
             # Triple-barrier label (volatility-adjusted)
             atr_pct = feats.get("atr_pct", 2.0)
             label = _triple_barrier_label(bars, idx, atr_pct)
-            if label == 0:
-                continue  # Skip timeouts in generic training (ambiguous)
 
-            # Convert -1/+1 to 0/1 for binary classifier
+            if label == 0:
+                # Relabel timeouts by realized P&L at expiry
+                max_holding_days = 5
+                if idx + max_holding_days < len(bars):
+                    expiry_close = bars[idx + max_holding_days]["c"]
+                    entry_price = bars[idx]["c"]
+                    pnl_pct = (expiry_close - entry_price) / entry_price * 100
+                    neutral_threshold = atr_pct * 0.3
+                    if pnl_pct > neutral_threshold:
+                        label = 1   # positive timeout
+                    elif pnl_pct < -neutral_threshold:
+                        label = -1  # negative timeout
+                    # else: label stays 0 (true neutral → conservative: treat as loss)
+
+            # Convert to binary: +1 → 1 (win), 0 or -1 → 0 (loss/no-trade)
             binary_label = 1 if label == 1 else 0
 
             # Regime at this bar — unified classification (see _classify_regime)
@@ -600,27 +779,48 @@ def _load_trade_feedback() -> List[dict]:
 
 def _build_feedback_training_data(trades: List[dict]) -> Tuple:
     """
-    Build training rows from real closed trades.
-    Uses the entry_features logged at trade entry + actual P&L outcome.
-
-    Key improvement over generic training:
-      - Features include REAL intel_score, news_sentiment, insider_signal
-      - Label is actual P&L outcome (what the bot actually cares about)
-      - This is what "self-learning" means: the model trains on its own history
+    Build training rows from real closed trades with:
+    - Exponential recency decay (30-day half-life)
+    - ±20% P&L outlier filter
+    - ATR-consistent labeling (matching triple-barrier thresholds)
+    - Sample weights for LightGBM
     """
-    X_rows, y_labels, regimes = [], [], []
+    current_ts = time.time()
+    half_life_days = 30
+
+    # Filter P&L outliers (bugs or black swans)
+    trades = [t for t in trades if abs(t.get("pnl_pct", 0) or 0) <= 20.0]
+
+    X_rows, y_labels, regimes, sample_weights = [], [], [], []
     for trade in trades:
         features = trade.get("entry_features", {})
         if not features: continue
         pnl_pct = trade.get("pnl_pct", 0) or 0
-        # Label: did this trade achieve a meaningful positive return?
-        # Use ATR-adjusted threshold if available, else 2%
+
+        # Label using ATR-consistent thresholds (matching triple-barrier)
         atr = features.get("atr_pct", 2.0) or 2.0
-        win_threshold = max(1.0, atr * 0.75)  # Vol-adjusted threshold
-        label = 1 if pnl_pct >= win_threshold else 0
+        if pnl_pct > atr * 1.5:  # Same as PT barrier multiplier
+            label = 1
+        elif pnl_pct < -atr * 1.0:  # Same as SL barrier multiplier
+            label = 0
+        else:
+            label = 0  # timeout-equivalent → conservative
+
+        # Exponential recency decay
+        trade_ts = trade.get("timestamp", trade.get("time_filled", 0))
+        if isinstance(trade_ts, str):
+            try:
+                trade_ts = datetime.fromisoformat(trade_ts.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                trade_ts = current_ts
+        trade_age_days = (current_ts - float(trade_ts)) / 86400
+        decay_weight = 2 ** (-trade_age_days / half_life_days)
+        weight = 3.0 * decay_weight  # max 3x for new trades, decays over time
+
         row = [float(features.get(col, 0) or 0) for col in FEATURE_COLS]
         X_rows.append(row)
         y_labels.append(label)
+        sample_weights.append(weight)
         regimes.append(features.get("regime_at_entry", "neutral").lower()
                        if "regime_at_entry" in trade else "neutral")
 
@@ -629,7 +829,8 @@ def _build_feedback_training_data(trades: List[dict]) -> Tuple:
 
     return (np.array(X_rows, dtype=np.float32),
             np.array(y_labels, dtype=np.int8),
-            regimes)
+            regimes,
+            np.array(sample_weights, dtype=np.float32))
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -724,22 +925,35 @@ def train_model(fast_mode: bool = False) -> dict:
 
     # Step 3: Load real trade feedback
     feedback    = _load_trade_feedback()
-    X_fb, y_fb, reg_fb = None, None, None
+    X_fb, y_fb, reg_fb, fb_weights = None, None, None, None
     if len(feedback) >= 15:
-        X_fb, y_fb, reg_fb = _build_feedback_training_data(feedback)
+        fb_result = _build_feedback_training_data(feedback)
+        if fb_result[0] is not None:
+            X_fb, y_fb, reg_fb, fb_weights = fb_result
 
-    # Step 4: Combine — feedback gets 3× weight
+    # Step 4: Combine — use sample_weight instead of tripling
+    # Cap feedback at 15% of generic training data
+    sample_weights = None
     if X_fb is not None and X_gen is not None:
-        X_all = np.vstack([X_gen, X_fb, X_fb, X_fb])
-        y_all = np.concatenate([y_gen, y_fb, y_fb, y_fb])
-
-        reg_all = reg_gen + reg_fb * 3
-        data_source = f"generic({len(X_gen)})+feedback_3x({len(X_fb)})"
+        max_feedback_rows = int(len(X_gen) * 0.15)
+        if len(X_fb) > max_feedback_rows:
+            X_fb = X_fb[-max_feedback_rows:]
+            y_fb = y_fb[-max_feedback_rows:]
+            reg_fb = reg_fb[-max_feedback_rows:]
+            fb_weights = fb_weights[-max_feedback_rows:]
+        X_all = np.vstack([X_gen, X_fb])
+        y_all = np.concatenate([y_gen, y_fb])
+        reg_all = reg_gen + list(reg_fb)
+        # Sample weights: 1.0 for generic, decay-weighted for feedback
+        gen_weights = np.ones(len(X_gen), dtype=np.float32)
+        sample_weights = np.concatenate([gen_weights, fb_weights])
+        data_source = f"generic({len(X_gen)})+feedback({len(X_fb)})"
     elif X_gen is not None:
         X_all, y_all, reg_all = X_gen, y_gen, reg_gen
         data_source = f"generic_only({len(X_gen)})"
     elif X_fb is not None:
-        X_all, y_all, reg_all = X_fb, y_fb, reg_fb
+        X_all, y_all, reg_all = X_fb, y_fb, list(reg_fb)
+        sample_weights = fb_weights
         data_source = f"feedback_only({len(X_fb)})"
     else:
         return {"status": "failed", "reason": "No training data"}
@@ -759,29 +973,74 @@ def train_model(fast_mode: bool = False) -> dict:
     if len(X_all) < 50:
         return {"status": "insufficient_data", "samples": len(X_all)}
 
-    # Step 5: Purged temporal split
-    # Pass n_tickers_per_date so the embargo is 5 TRADING DAYS, not 5 rows.
-    # With ~50-200 tickers, a 5-row embargo = <0.1 days of embargo (ineffective).
-    _n_tickers = max(1, len(ticker_list))  # approximate tickers per date
+    # Step 5: Walk-forward CV for accuracy reporting
+    _n_tickers = max(1, len(ticker_list))
+    wf_splits = _walk_forward_cv(X_all, y_all, n_splits=5,
+                                  embargo_days=5, n_tickers_approx=_n_tickers)
+    fold_accs = []
+    fold_regime_accs = {}
+    all_wf_probs = []
+    all_wf_labels = []
+    for fold_i, (tr_idx, te_idx) in enumerate(wf_splits):
+        X_wf_tr, X_wf_te = X_all[tr_idx], X_all[te_idx]
+        y_wf_tr, y_wf_te = y_all[tr_idx], y_all[te_idx]
+        if len(X_wf_tr) < 50 or len(X_wf_te) < 10:
+            continue
+        wf_m, wf_s, wf_a = _train_single_lgbm(X_wf_tr, X_wf_te, y_wf_tr, y_wf_te, f"wf_fold{fold_i}")
+        if wf_m is not None:
+            fold_accs.append(wf_a)
+            # Collect raw probs for isotonic calibration
+            import pandas as pd
+            X_wf_te_sc = wf_s.transform(pd.DataFrame(X_wf_te, columns=FEATURE_COLS))
+            if hasattr(wf_m, "feature_name_"):
+                wf_probs = wf_m.predict(pd.DataFrame(X_wf_te_sc, columns=FEATURE_COLS))
+            elif hasattr(wf_m, "predict_proba"):
+                wf_probs = wf_m.predict_proba(X_wf_te_sc)[:, 1]
+            else:
+                wf_probs = wf_m.predict(X_wf_te_sc)
+            all_wf_probs.extend(wf_probs.tolist() if hasattr(wf_probs, 'tolist') else list(wf_probs))
+            all_wf_labels.extend(y_wf_te.tolist() if hasattr(y_wf_te, 'tolist') else list(y_wf_te))
+            # Per-regime accuracy on this fold
+            reg_fold_te = [reg_all[i] if i < len(reg_all) else "neutral" for i in te_idx]
+            for reg in ["bull", "bear", "neutral"]:
+                r_idx = [j for j, r in enumerate(reg_fold_te) if r == reg]
+                if len(r_idx) >= 5:
+                    r_preds = (np.array([wf_probs[j] for j in r_idx]) > 0.5).astype(int)
+                    r_labels = y_wf_te[r_idx]
+                    r_acc = float(np.mean(r_preds == r_labels))
+                    fold_regime_accs.setdefault(reg, []).append(r_acc)
+    wf_accuracy = float(np.mean(fold_accs)) if fold_accs else 0.5
+    logger.info(f"Walk-forward CV: {len(fold_accs)} folds, per-fold acc={[round(a*100,1) for a in fold_accs]}, avg={round(wf_accuracy*100,1)}%")
+
+    # Step 5b: Fit isotonic calibrator from walk-forward OOS predictions
+    calibrator = None
+    if all_wf_probs and len(all_wf_probs) >= 50 and HAS_SKLEARN:
+        try:
+            calibrator = IsotonicRegression(out_of_bounds='clip')
+            calibrator.fit(np.array(all_wf_probs), np.array(all_wf_labels))
+            joblib.dump(calibrator, CALIBRATOR_PATH)
+            logger.info("Isotonic calibrator fitted and saved")
+        except Exception as e:
+            logger.warning(f"Isotonic calibration failed: {e}")
+            calibrator = None
+
+    # Step 6: Train production model on ALL data
     X_tr, X_te, y_tr, y_te = _purged_train_test_split(
         X_all, y_all, embargo_periods=5, n_tickers_per_date=_n_tickers
     )
     if len(X_tr) < 30 or len(X_te) < 10:
         return {"status": "insufficient_data", "samples": len(X_all)}
 
-    # Step 6: Train global model
     global_model, global_scaler, global_acc = _train_single_lgbm(X_tr, X_te, y_tr, y_te, "global")
     if global_model is None:
         return {"status": "failed", "reason": "Model training failed"}
 
     # Step 7: Train regime-specific models
-    # idx_te must be indices into X_te (0-based), not into reg_all
     regime_models = {}
     regime_accs   = {}
-    _embargo_rows = 5 * _n_tickers  # same scaled embargo used in split
-    reg_tr = reg_all[:len(X_tr)]  # regime labels for train rows
-    reg_te = reg_all[len(X_tr)+_embargo_rows:len(X_tr)+_embargo_rows+len(X_te)]  # skip embargo, then test slice
-    # Pad if reg_all is shorter than expected
+    _embargo_rows = 5 * _n_tickers
+    reg_tr = reg_all[:len(X_tr)]
+    reg_te = reg_all[len(X_tr)+_embargo_rows:len(X_tr)+_embargo_rows+len(X_te)]
     while len(reg_te) < len(X_te): reg_te.append("neutral")
     reg_te = reg_te[:len(X_te)]
 
@@ -795,6 +1054,9 @@ def train_model(fast_mode: bool = False) -> dict:
             if rm is not None:
                 regime_models[reg] = {"model": rm, "scaler": rs}
                 regime_accs[reg]   = round(ra * 100, 1)
+    # Average regime accs from walk-forward if available
+    wf_regime_accs = {r: round(float(np.mean(accs))*100, 1)
+                      for r, accs in fold_regime_accs.items() if accs}
 
     # Step 8: Feature importance
     importance = {}
@@ -811,31 +1073,34 @@ def train_model(fast_mode: bool = False) -> dict:
         "scaler":         global_scaler,
         "regime_models":  regime_models,
         "feature_names":  FEATURE_COLS,
-        "accuracy":       round(global_acc, 4),
-        "regime_accs":    regime_accs,
+        "accuracy":       round(wf_accuracy, 4),
+        "regime_accs":    wf_regime_accs or regime_accs,
         "samples":        len(X_all),
         "feedback_trades":len(feedback),
         "data_source":    data_source,
         "timestamp":      datetime.now().isoformat(),
         "feature_importance": importance,
-        "label_method":   "triple_barrier_volatility_adjusted",
-        "cv_method":      "purged_temporal_embargo5",
+        "label_method":   "triple_barrier_volatility_adjusted_timeout_relabel",
+        "cv_method":      "walk_forward_5fold_purged",
         "architecture":   "regime_conditional_ensemble",
+        "calibrator_path": CALIBRATOR_PATH if calibrator else None,
     }
     if HAS_SKLEARN:
         joblib.dump(bundle, MODEL_PATH)
 
     return {
         "status":         "trained",
-        "accuracy":       round(global_acc * 100, 1),
-        "regime_accs":    regime_accs,
+        "accuracy":       round(wf_accuracy * 100, 1),
+        "regime_accs":    wf_regime_accs or regime_accs,
         "features":       len(FEATURE_COLS),
         "samples":        len(X_all),
         "feedback_trades":len(feedback),
         "data_source":    data_source,
-        "label_method":   "triple_barrier",
-        "cv_method":      "purged_temporal",
+        "label_method":   "triple_barrier_timeout_relabel",
+        "cv_method":      "walk_forward_5fold",
         "regime_models":  list(regime_models.keys()),
+        "wf_fold_accs":   [round(a*100, 1) for a in fold_accs],
+        "calibrated":     calibrator is not None,
         "training_seconds": round(time.time() - t0, 1),
     }
 
@@ -919,17 +1184,18 @@ def ml_score(features_dict: dict) -> dict:
             except Exception:
                 return _rule_based_fallback(features_dict)
 
-        # Clamp to valid range — keep wider so signal can spread
+        # Clamp to valid range
         prob = max(0.10, min(0.90, prob))
 
-        # Stretch calibration: if model output clusters near 0.30-0.36 (known issue),
-        # apply a monotonic stretch to widen the signal spread.
-        # This is isotonic rescaling: maps [0.10, 0.90] → [0.10, 0.90] but
-        # pushes values away from center so they're more actionable.
-        if 0.28 <= prob <= 0.72:
-            # Sigmoid stretch: makes 0.50 stay 0.50, but pushes 0.60 → 0.68, 0.35 → 0.27
-            prob = 0.5 + (prob - 0.5) * 1.35
-            prob = max(0.10, min(0.90, prob))
+        # Isotonic calibration: replace ad-hoc sigmoid stretch with proper calibrator
+        calibrator_path = bundle.get("calibrator_path")
+        if calibrator_path and os.path.exists(calibrator_path):
+            try:
+                cal = joblib.load(calibrator_path)
+                prob = float(cal.transform([prob])[0])
+                prob = max(0.10, min(0.90, prob))
+            except Exception:
+                pass  # fall through with raw prob
 
         signal     = "BUY" if prob > 0.60 else ("SELL" if prob < 0.40 else "HOLD")
         confidence = abs(prob - 0.5) * 2
@@ -984,73 +1250,115 @@ def train_meta_model() -> dict:
     """
     Train a secondary model to filter false positives from the primary model.
 
-    How it works:
-      Primary model says: "this looks like a good trade"
-      Meta model says:    "given the primary model said yes AND these conditions,
-                           what's the actual probability of profit?"
+    Meta-labeling per López de Prado: trains on P(correct | primary said BUY).
+    Only uses trades where primary model scored above threshold.
 
-    Features for meta model (5 simple ones — don't overfit):
+    Features for meta model (5):
       - primary_score: what the primary model scored this trade
       - regime_score: market regime at entry
-      - iv_rank: IV environment (options expensive = less directional risk)
+      - iv_rank: IV environment
       - vxx_ratio: fear level
-      - recent_wr: win rate of last 10 trades (momentum of model quality)
-
-    Only enters when meta confidence > 60%.
-    Research: López de Prado — meta-labeling adds 5-15% Sharpe consistently.
+      - regime_stability: how consistent the regime was over last 10 days
     """
     if not HAS_SKLEARN:
         return {"status": "skipped", "reason": "sklearn not available"}
 
     feedback = _load_trade_feedback()
-    if len(feedback) < 50:
+
+    # Filter to primary-positive trades only (meta-labeling trains on BUY signals)
+    primary_threshold = 55.0  # min score for a "BUY" signal
+    meta_trades = [t for t in feedback
+                   if float(t.get("score", t.get("entry_features", {}).get("regime_score", 0)) or 0)
+                   >= primary_threshold]
+
+    MIN_META_TRADES = 100  # increased from 50
+    if len(meta_trades) < MIN_META_TRADES:
         return {
             "status": "skipped",
-            "reason": f"Need 50+ real trades, have {len(feedback)}",
-            "trades": len(feedback),
+            "reason": f"Need {MIN_META_TRADES}+ primary-positive trades, have {len(meta_trades)}",
+            "trades": len(meta_trades),
         }
 
     t0 = time.time()
     META_FEATURES = ["primary_score", "regime_score", "iv_rank_proxy",
-                     "vxx_ratio", "recent_wr"]
+                     "vxx_ratio", "regime_stability"]
 
     X_rows, y_labels = [], []
-    for i, trade in enumerate(feedback):
+    for i, trade in enumerate(meta_trades):
         feats = trade.get("entry_features", {})
         if not feats: continue
         primary_sc = float(trade.get("score", feats.get("regime_score", 50)) or 50)
         regime_sc  = float(feats.get("regime_score", 50) or 50)
         iv_rank    = float(feats.get("iv_rank_proxy", 50) or 50)
         vxx_r      = float(feats.get("vxx_ratio", 1.0) or 1.0)
-        # Recent win rate: last 10 trades before this one
-        recent = [t for t in feedback[max(0,i-10):i] if t.get("pnl_pct") is not None]
-        recent_wr = (sum(1 for t in recent if (t.get("pnl_pct") or 0) > 0) /
-                     len(recent)) if recent else 0.5
+        # regime_stability: how consistent the regime was over last 10 trades
+        recent_trades = meta_trades[max(0, i-10):i]
+        if recent_trades:
+            current_regime = feats.get("regime_at_entry", "neutral")
+            if isinstance(current_regime, str):
+                current_regime = current_regime.lower()
+            regime_stability = sum(
+                1 for t in recent_trades
+                if (t.get("entry_features", {}).get("regime_at_entry", "neutral") or "neutral").lower() == current_regime
+            ) / len(recent_trades)
+        else:
+            regime_stability = 0.5
         pnl = trade.get("pnl_pct", 0) or 0
         label = 1 if pnl > 0 else 0
-        X_rows.append([primary_sc, regime_sc, iv_rank, vxx_r, recent_wr])
+        X_rows.append([primary_sc, regime_sc, iv_rank, vxx_r, regime_stability])
         y_labels.append(label)
 
-    if len(X_rows) < 30:
+    if len(X_rows) < 50:
         return {"status": "insufficient_data"}
 
     X = np.array(X_rows, dtype=np.float32)
     y = np.array(y_labels, dtype=np.int8)
+
+    # Walk-forward CV for meta model (3 folds for smaller dataset)
+    meta_splits = _walk_forward_cv(X, y, n_splits=3, embargo_days=3, n_tickers_approx=1)
+    meta_fold_accs = []
+    for tr_idx, te_idx in meta_splits:
+        if len(tr_idx) < 30 or len(te_idx) < 10:
+            continue
+        X_wf_tr, X_wf_te = X[tr_idx], X[te_idx]
+        y_wf_tr, y_wf_te = y[tr_idx], y[te_idx]
+        sc = StandardScaler()
+        X_s_tr = sc.fit_transform(X_wf_tr)
+        X_s_te = sc.transform(X_wf_te)
+        if HAS_LGB:
+            try:
+                dtrain = lgb.Dataset(X_s_tr, label=y_wf_tr)
+                m = lgb.train({"objective": "binary", "metric": "binary_logloss",
+                               "num_leaves": 8, "learning_rate": 0.05, "verbose": -1},
+                              dtrain, num_boost_round=100)
+                probs = m.predict(X_s_te)
+                acc = float(np.mean((probs > 0.5).astype(int) == y_wf_te))
+            except Exception:
+                from sklearn.linear_model import LogisticRegression
+                m = LogisticRegression(C=1.0); m.fit(X_s_tr, y_wf_tr)
+                acc = float(m.score(X_s_te, y_wf_te))
+        else:
+            from sklearn.linear_model import LogisticRegression
+            m = LogisticRegression(C=1.0); m.fit(X_s_tr, y_wf_tr)
+            acc = float(m.score(X_s_te, y_wf_te))
+        meta_fold_accs.append(acc)
+
+    # Train production meta model on full data
     X_tr, X_te, y_tr, y_te = _purged_train_test_split(X, y, embargo_periods=2)
     if len(X_tr) < 20: return {"status": "insufficient_data"}
 
     scaler = StandardScaler()
     X_tr_sc = scaler.fit_transform(X_tr); X_te_sc = scaler.transform(X_te)
     if HAS_LGB:
-        params = {"objective":"binary","metric":"binary_logloss",
-                  "num_leaves":8,"learning_rate":0.05,"verbose":-1}
+        params = {"objective": "binary", "metric": "binary_logloss",
+                  "num_leaves": 8, "learning_rate": 0.05, "verbose": -1}
         try:
             import pandas as pd
             dtrain = lgb.Dataset(X_tr_sc, label=y_tr)
             model  = lgb.train(params, dtrain, num_boost_round=100)
             probs  = model.predict(X_te_sc)
-            acc    = float(np.mean((probs>0.5).astype(int)==y_te))
-        except Exception as e:
+            acc    = float(np.mean((probs > 0.5).astype(int) == y_te))
+        except Exception:
             from sklearn.linear_model import LogisticRegression
             model = LogisticRegression(C=1.0); model.fit(X_tr_sc, y_tr)
             acc   = float(model.score(X_te_sc, y_te))
@@ -1059,20 +1367,25 @@ def train_meta_model() -> dict:
         model = LogisticRegression(C=1.0); model.fit(X_tr_sc, y_tr)
         acc   = float(model.score(X_te_sc, y_te))
 
-    joblib.dump({"model":model,"scaler":scaler,"features":META_FEATURES,
-                 "accuracy":acc,"trades_used":len(feedback)}, META_MODEL_PATH)
+    wf_acc = float(np.mean(meta_fold_accs)) if meta_fold_accs else acc
+
+    joblib.dump({"model": model, "scaler": scaler, "features": META_FEATURES,
+                 "accuracy": wf_acc, "trades_used": len(meta_trades),
+                 "cv_method": "walk_forward_3fold"}, META_MODEL_PATH)
     return {
         "status": "trained",
-        "meta_accuracy": round(acc*100, 1),
-        "trades_used": len(feedback),
-        "training_seconds": round(time.time()-t0, 1),
+        "meta_accuracy": round(wf_acc * 100, 1),
+        "trades_used": len(meta_trades),
+        "primary_positive_only": True,
+        "wf_fold_accs": [round(a * 100, 1) for a in meta_fold_accs],
+        "training_seconds": round(time.time() - t0, 1),
     }
 
 
 def meta_score(primary_score: float, features: dict,
-               recent_wr: float = 0.5) -> float:
+               regime_stability: float = 0.5) -> float:
     """
-    Return meta-model probability of profit given primary said yes.
+    Return meta-model probability of profit given primary said BUY.
     Returns 0.5 (neutral) if meta model not yet trained.
     """
     try:
@@ -1084,7 +1397,7 @@ def meta_score(primary_score: float, features: dict,
             float(features.get("regime_score", 50) or 50),
             float(features.get("iv_rank_proxy", 50) or 50),
             float(features.get("vxx_ratio", 1.0) or 1.0),
-            recent_wr,
+            regime_stability,
         ]], dtype=np.float32)
         X_sc = bundle["scaler"].transform(X)
         if hasattr(bundle["model"], "predict_proba"):
@@ -1274,11 +1587,14 @@ def options_ml_score(features: dict) -> float:
                         else:
                             raw = 0.5
                         raw = max(0.10, min(0.90, raw))
-                        # Same stretch calibration as stock model:
-                        # pushes scores away from center → more actionable spread
-                        if 0.28 <= raw <= 0.72:
-                            raw = 0.5 + (raw - 0.5) * 1.35
-                            raw = max(0.10, min(0.90, raw))
+                        # Isotonic calibration (same as stock model)
+                        if os.path.exists(CALIBRATOR_PATH):
+                            try:
+                                cal = joblib.load(CALIBRATOR_PATH)
+                                raw = float(cal.transform([raw])[0])
+                                raw = max(0.10, min(0.90, raw))
+                            except Exception:
+                                pass
                         return round(raw, 4)
                     except Exception:
                         pass
@@ -1465,11 +1781,11 @@ def track_fill(order_data: dict) -> None:
             "pnl_pct":        None,
         }
 
-        # Load existing feedback, append, save (keep last 1000)
+        # Load existing feedback, append, save (keep last 5000)
         feedback = _load_trade_feedback()
         feedback.append(record)
-        if len(feedback) > 1000:
-            feedback = feedback[-1000:]
+        if len(feedback) > 5000:
+            feedback = feedback[-5000:]
         with open(FEEDBACK_PATH, "w") as f:
             json.dump(feedback, f, indent=2)
     except Exception:

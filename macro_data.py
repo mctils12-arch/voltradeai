@@ -8,7 +8,7 @@ import time
 import requests
 from datetime import datetime, timedelta
 
-POLYGON_KEY = os.environ.get("POLYGON_KEY", "UNwTHo3kvZMBckeIaHQbBLuaaURmFUQP")
+POLYGON_KEY = os.environ.get("POLYGON_KEY", "")
 CACHE_PATH = "/tmp/voltrade_macro_cache.json"
 CACHE_TTL = 300  # 5 minutes
 
@@ -140,8 +140,8 @@ def get_macro_snapshot() -> dict:
         etf_symbols = ",".join(SECTOR_ETFS.keys())
         alpaca_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={etf_symbols}&feed=sip"
         alpaca_headers = {
-            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
-            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
         }
         resp = requests.get(alpaca_url, headers=alpaca_headers, timeout=10)
         snap_data = resp.json()
@@ -185,8 +185,8 @@ def get_macro_snapshot() -> dict:
     # This catches the 2022-style slow grinding bear that VXX ratio missed.
     try:
         import requests as _req
-        _alpaca_key    = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-        _alpaca_secret = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+        _alpaca_key    = os.environ.get("ALPACA_KEY", "")
+        _alpaca_secret = os.environ.get("ALPACA_SECRET", "")
         _h = {"APCA-API-KEY-ID": _alpaca_key, "APCA-API-SECRET-KEY": _alpaca_secret}
         _r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
             params={"symbols": "SPY", "timeframe": "1Day",
@@ -236,8 +236,8 @@ def get_news_sentiment(ticker: str) -> dict:
     """
     try:
         alpaca_headers = {
-            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU"),
-            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et"),
+            "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
         }
         url = f"https://data.alpaca.markets/v1beta1/news?limit=10&sort=desc&symbols={ticker}"
         resp = requests.get(url, headers=alpaca_headers, timeout=8)

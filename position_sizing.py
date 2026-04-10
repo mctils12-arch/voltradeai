@@ -47,8 +47,8 @@ DEFAULT_COMMISSION_PER_SHARE = 0.0 # Alpaca paper = $0. Change for live.
 OPTIONS_FEE_PER_CONTRACT = 0.65    # Standard options fee
 
 # Alpaca API (same keys used everywhere)
-ALPACA_KEY = os.environ.get("ALPACA_KEY", "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_DATA_URL = "https://data.alpaca.markets"
 
 # Sizing history for learning

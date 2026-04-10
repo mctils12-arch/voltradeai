@@ -33,8 +33,8 @@ logger = logging.getLogger("voltrade.intraday_shorts")
 
 DATA_DIR = os.environ.get("DATA_DIR", "/tmp")
 SHORTS_LOG_PATH    = os.path.join(DATA_DIR, "voltrade_intraday_shorts.json")
-ALPACA_KEY    = os.environ.get("ALPACA_KEY",    "PKMDHJOVQEVIB4UHZXUYVTIDBU")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "9jnjnhts7fsNjefFZ6U3g7sUvuA5yCvcx2qJ7mZb78Et")
+ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
+ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_BASE   = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 DATA_URL      = "https://data.alpaca.markets"
 HEADERS       = {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
