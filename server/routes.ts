@@ -71,6 +71,7 @@ const TIER1_TICKERS: string[] = Array.from(new Set([...TIER1_BASE, ...EXTRA_TIER
 // State
 // ─────────────────────────────────────────────────────────────────────────────
 
+const FULL_UNIVERSE_CACHE_MAX = 500; // Cap to prevent unbounded memory growth
 let fullUniverseCache: Map<string, ScanResult> = new Map();
 let tier1Cache: ScanResult[] = [];
 let tier1LastUpdate = 0;
@@ -84,6 +85,20 @@ let fullScanProgress = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Freshness helper
 // ─────────────────────────────────────────────────────────────────────────────
+
+function upsertCache(r: ScanResult) {
+  fullUniverseCache.set(r.ticker, r);
+  // Evict oldest entries if cache exceeds limit
+  if (fullUniverseCache.size > FULL_UNIVERSE_CACHE_MAX) {
+    let oldestKey = "";
+    let oldestTime = Infinity;
+    fullUniverseCache.forEach((val, key) => {
+      const t = val.scanned_at ?? 0;
+      if (t < oldestTime) { oldestTime = t; oldestKey = key; }
+    });
+    if (oldestKey) fullUniverseCache.delete(oldestKey);
+  }
+}
 
 function getFreshness(scannedAt: number | undefined): "fresh" | "recent" | "stale" {
   if (!scannedAt) return "stale";
@@ -170,7 +185,7 @@ async function refreshTier1(): Promise<void> {
       fresh.push(...results);
       // Also update fullUniverseCache
       for (const r of results) {
-        fullUniverseCache.set(r.ticker, r);
+        upsertCache(r);
       }
     }
     tier1Cache = sortByScore(applyFreshness(fresh));
@@ -353,7 +368,7 @@ async function runBackgroundScanner(): Promise<void> {
       try {
         const results = await scanBatch(batch);
         for (const r of results) {
-          fullUniverseCache.set(r.ticker, r);
+          upsertCache(r);
         }
         fullScanProgress.current = Math.min(i + SCAN_BATCH_SIZE, universe.length);
       } catch (err) {
@@ -376,11 +391,9 @@ async function runBackgroundScanner(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 5 * 60_000)); // 5 min between full cycles
 
     // Refresh CBOE universe daily (cache handles this)
+    // Cap to TIER1 only to keep memory bounded — deep scanning happens in Python
     try {
-      universe = await fetchCBOEUniverse();
-      const us = new Set(universe);
-      for (const t of TIER1_TICKERS) us.add(t);
-      universe = Array.from(us);
+      universe = Array.from(new Set(TIER1_TICKERS));
     } catch {
       // keep existing universe
     }
@@ -478,7 +491,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { stdout } = await execAsync(
         `python3 "${scriptPath}" "${ticker.toUpperCase()}"`,
-        { timeout: 120000, maxBuffer: 1024 * 1024 * 10 }
+        { timeout: 120000, maxBuffer: 1024 * 1024 * 2 }
       );
 
       const output = stdout.trim();
@@ -516,7 +529,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (tier1Cache.length === 0) {
             tier1Cache = sortByScore(applyFreshness(seedResults));
             tier1LastUpdate = Date.now();
-            for (const r of seedResults) fullUniverseCache.set(r.ticker, r);
+            for (const r of seedResults) upsertCache(r);
           }
         } catch {
           // Seed failed — return empty with progress
@@ -576,8 +589,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           change_pct: Number(((r.c - r.o) / r.o * 100).toFixed(2)),
           vwap: r.vw,
         }))
-        .sort((a: any, b: any) => b.volume - a.volume);
-      // No slice — return all tradeable stocks
+        .sort((a: any, b: any) => b.volume - a.volume)
+        .slice(0, 500); // Cap to top 500 by volume to limit response size
       res.json({ results, date: yesterday, total: results.length });
     } catch (err) {
       console.error("[market-snapshot] Error:", err);
@@ -828,7 +841,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     scanBatch(warmBatch).then(results => {
       tier1Cache = sortByScore(applyFreshness(results));
       tier1LastUpdate = Date.now();
-      for (const r of results) fullUniverseCache.set(r.ticker, r);
+      for (const r of results) upsertCache(r);
       console.log(`[scanner] Pre-warm complete — ${results.length} tickers cached`);
     }).catch(err => console.error("[scanner] Pre-warm failed:", err));
   }, 3000);

@@ -158,7 +158,7 @@ function broadcastSSE(data: any) {
 function audit(action: string, detail: string) {
   const entry = { time: new Date().toISOString(), type: action, action, detail, message: detail };
   state.auditLog.unshift(entry);
-  if (state.auditLog.length > 500) state.auditLog.length = 500;
+  if (state.auditLog.length > 200) state.auditLog.length = 200;
   console.log(`[BOT] ${action}: ${detail}`);
   broadcastSSE(entry);
   // Persist to database (survives deploys)

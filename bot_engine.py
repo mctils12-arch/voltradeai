@@ -105,6 +105,7 @@ STRATEGIES_LOADED = all([
 _yf_cache: dict = {}
 _yf_cache_time: dict = {}
 _YF_CACHE_TTL = 300  # 5 minutes
+_YF_CACHE_MAX = 50   # Cap cache size to prevent unbounded memory growth
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -338,6 +339,11 @@ except Exception as e:
             )
             if _yf_proc.stdout.strip():
                 yf_fundamentals = json.loads(_yf_proc.stdout.strip())
+                # Evict oldest entries if cache is full
+                if len(_yf_cache) >= _YF_CACHE_MAX:
+                    oldest_key = min(_yf_cache_time, key=_yf_cache_time.get)
+                    _yf_cache.pop(oldest_key, None)
+                    _yf_cache_time.pop(oldest_key, None)
                 _yf_cache[_yf_cache_key] = yf_fundamentals
                 _yf_cache_time[_yf_cache_key] = time.time()
         except (subprocess.TimeoutExpired, Exception):
@@ -1611,6 +1617,10 @@ def scan_market():
 
     if not quick_results:
         return {"error": "Could not fetch market data from Alpaca", "trades": []}
+
+    # Release raw snapshot data — quick_results now has everything we need
+    del snap_all
+    import gc; gc.collect()
 
     # Sort by quick score
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
-    "start": "node --max-old-space-size=2048 dist/index.cjs",
+    "start": "node --max-old-space-size=512 dist/index.cjs",
     "check": "tsc"
   },
   "dependencies": {
