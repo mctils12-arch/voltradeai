@@ -392,7 +392,8 @@ def build_investable_universe(data, date_idx, dates, listings_info=None):
 # ═══════════════════════════════════════════════════════════════════════════════
 def get_regime(vxx_ratio, spy_vs_ma50, spy_below_200_days=0):
     """
-    Market regime detection — mirrors production get_market_regime().
+    Market regime detection — mirrors production get_market_regime()
+    from system_config.py (thresholds matched to BASE_CONFIG).
     vxx_ratio: VXX / 30-day avg (>1 = fear)
     spy_vs_ma50: SPY / 50-day MA
     spy_below_200_days: consecutive days SPY < 200d MA
@@ -403,23 +404,23 @@ def get_regime(vxx_ratio, spy_vs_ma50, spy_below_200_days=0):
         return "BEAR"
     if vxx_ratio >= 1.30 or spy_vs_ma50 < 0.94:
         return "PANIC"
-    if vxx_ratio >= 1.15:
+    if vxx_ratio >= 1.15 or spy_vs_ma50 < 0.96:
         return "BEAR"
     if vxx_ratio >= 1.05:
         return "CAUTION"
-    if vxx_ratio <= 0.90:
+    if vxx_ratio <= 0.90 and spy_vs_ma50 > 1.01:
         return "BULL"
     return "NEUTRAL"
 
 
 def get_adaptive_params(regime):
-    """Regime-adaptive position parameters for stock picking."""
+    """Regime-adaptive position parameters — matched to production system_config.py."""
     params = {
-        "PANIC":   {"max_pos": 0, "min_score": 99, "size_pct": 0.06, "tp": 0.12, "sl": 0.06, "hold": 10},
-        "BEAR":    {"max_pos": 0, "min_score": 99, "size_pct": 0.08, "tp": 0.12, "sl": 0.06, "hold": 10},
+        "PANIC":   {"max_pos": 0, "min_score": 75, "size_pct": 0.06, "tp": 0.12, "sl": 0.05, "hold": 3},
+        "BEAR":    {"max_pos": 0, "min_score": 75, "size_pct": 0.08, "tp": 0.12, "sl": 0.05, "hold": 5},
         "CAUTION": {"max_pos": 4, "min_score": 67, "size_pct": 0.10, "tp": 0.12, "sl": 0.06, "hold": 10},
         "BULL":    {"max_pos": 8, "min_score": 63, "size_pct": 0.15, "tp": 0.12, "sl": 0.06, "hold": 10},
-        "NEUTRAL": {"max_pos": 0, "min_score": 99, "size_pct": 0.12, "tp": 0.12, "sl": 0.06, "hold": 10},
+        "NEUTRAL": {"max_pos": 0, "min_score": 75, "size_pct": 0.12, "tp": 0.12, "sl": 0.06, "hold": 10},
     }
     return params.get(regime, params["NEUTRAL"])
 
