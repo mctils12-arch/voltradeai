@@ -10,6 +10,7 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%233b82f6'/><path d='M8 22L14 10L20 18L24 12' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>" />
   <link href="./base.css" rel="stylesheet" />
   <link href="./style.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
   <a href="#main" class="sr-only">Skip to content</a>
@@ -176,6 +177,24 @@
           <div class="comparison-side">
             <span class="comparison-side__label">SPY Buy &amp; Hold</span>
             <span class="comparison-side__value" style="color:var(--color-text-muted);">$378K</span>
+          </div>
+        </div>
+
+        <!-- Equity Curve Chart -->
+        <div class="equity-chart-wrap">
+          <div class="equity-chart-header">
+            <h3 class="equity-chart-title">Growth of $100K</h3>
+            <div class="equity-chart-legend">
+              <span class="equity-chart-legend__item equity-chart-legend__item--vol">
+                <span class="equity-chart-legend__dot"></span> VolTradeAI
+              </span>
+              <span class="equity-chart-legend__item equity-chart-legend__item--spy">
+                <span class="equity-chart-legend__dot"></span> SPY
+              </span>
+            </div>
+          </div>
+          <div class="equity-chart-container">
+            <canvas id="equityCurve"></canvas>
           </div>
         </div>
 

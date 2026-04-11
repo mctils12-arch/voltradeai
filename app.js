@@ -108,6 +108,169 @@
     });
   }
 
+  // --- Equity Curve Chart ---
+  function initEquityChart() {
+    const canvas = document.getElementById('equityCurve');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    const labels = ['2013','2014','2015','2016','2017','2018','2019','2020','2021','2022','2023','2024'];
+    const volData = [100000,139349,173893,247743,407059,382635,692361,1151996,2000626,1872435,2998651,4677519];
+    const spyData = [100000,113460,114856,128638,156566,149411,196057,231994,298645,244352,308323,385065];
+
+    const style = getComputedStyle(document.documentElement);
+    const primary = style.getPropertyValue('--color-primary').trim();
+    const muted = style.getPropertyValue('--color-text-faint').trim();
+    const textColor = style.getPropertyValue('--color-text-muted').trim();
+    const gridColor = style.getPropertyValue('--color-divider').trim();
+
+    const ctx = canvas.getContext('2d');
+
+    // Gradient fill for VolTradeAI
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.parentElement.clientHeight);
+    gradient.addColorStop(0, primary.startsWith('#')
+      ? primary + '20'
+      : 'rgba(59, 130, 246, 0.12)');
+    gradient.addColorStop(1, 'transparent');
+
+    window.__equityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'VolTradeAI',
+            data: volData,
+            borderColor: primary,
+            backgroundColor: gradient,
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointBackgroundColor: primary,
+            pointBorderColor: 'transparent',
+            pointHoverBorderColor: primary,
+            pointHoverBorderWidth: 2,
+          },
+          {
+            label: 'SPY',
+            data: spyData,
+            borderColor: muted,
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            borderDash: [6, 3],
+            fill: false,
+            tension: 0.35,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: muted,
+            pointBorderColor: 'transparent',
+            pointHoverBorderColor: muted,
+            pointHoverBorderWidth: 2,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: style.getPropertyValue('--color-surface-2').trim() || '#171b20',
+            titleColor: style.getPropertyValue('--color-text').trim() || '#e0e4e8',
+            bodyColor: style.getPropertyValue('--color-text-muted').trim() || '#8b929a',
+            borderColor: style.getPropertyValue('--color-border').trim() || '#2d333b',
+            borderWidth: 1,
+            padding: 12,
+            cornerRadius: 8,
+            titleFont: { family: 'General Sans, sans-serif', weight: '600', size: 13 },
+            bodyFont: { family: 'General Sans, sans-serif', size: 12 },
+            callbacks: {
+              title: function(items) {
+                return items[0].label === '2013' ? 'Start (End of 2013)' : 'End of ' + items[0].label;
+              },
+              label: function(context) {
+                const val = context.parsed.y;
+                if (val >= 1000000) {
+                  return ' ' + context.dataset.label + ': $' + (val / 1000000).toFixed(2) + 'M';
+                }
+                return ' ' + context.dataset.label + ': $' + val.toLocaleString();
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: gridColor, drawBorder: false },
+            ticks: {
+              color: textColor,
+              font: { family: 'General Sans, sans-serif', size: 11 },
+              callback: function(value, index) {
+                return labels[index] === '2013' ? 'Start' : labels[index];
+              }
+            },
+            border: { display: false },
+          },
+          y: {
+            type: 'logarithmic',
+            grid: { color: gridColor, drawBorder: false },
+            ticks: {
+              color: textColor,
+              font: { family: 'General Sans, sans-serif', size: 11 },
+              callback: function(value) {
+                if (value >= 1000000) return '$' + (value / 1000000).toFixed(0) + 'M';
+                if (value >= 1000) return '$' + (value / 1000).toFixed(0) + 'K';
+                return '$' + value;
+              },
+              maxTicksLimit: 6,
+            },
+            border: { display: false },
+          }
+        }
+      }
+    });
+  }
+
+  // Initialize chart when visible
+  const chartWrap = document.querySelector('.equity-chart-wrap');
+  if (chartWrap) {
+    const chartObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          // Small delay for Chart.js to be loaded
+          if (typeof Chart !== 'undefined') {
+            initEquityChart();
+          } else {
+            // Poll for Chart.js
+            const poll = setInterval(() => {
+              if (typeof Chart !== 'undefined') {
+                clearInterval(poll);
+                initEquityChart();
+              }
+            }, 100);
+          }
+          chartObserver.disconnect();
+        }
+      });
+    }, { threshold: 0.1 });
+    chartObserver.observe(chartWrap);
+  }
+
+  // Re-init chart on theme change to update colors
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      if (window.__equityChart) {
+        window.__equityChart.destroy();
+        window.__equityChart = null;
+        setTimeout(initEquityChart, 50);
+      }
+    });
+  }
+
   // --- Fallback fade-in for browsers without animation-timeline ---
   if (!CSS.supports('animation-timeline', 'scroll()')) {
     const fadeEls = document.querySelectorAll('.fade-in');
