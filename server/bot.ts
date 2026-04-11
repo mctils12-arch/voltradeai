@@ -773,7 +773,7 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
     with open(TRADE_FEEDBACK_PATH) as f: feedback = json.load(f)
 
 # Filter out corrupt records: require non-empty ticker
-feedback = [t for t in feedback if t.get('ticker', '').strip()]
+feedback = [t for t in feedback if t.get('ticker', '').strip() and not (t.get('pnl_pct', 0) == 0 and t.get('outcome') is None)]
 # Win rate
 wins = [t for t in feedback if t.get('pnl_pct', 0) > 0]
 losses = [t for t in feedback if t.get('pnl_pct', 0) <= 0]

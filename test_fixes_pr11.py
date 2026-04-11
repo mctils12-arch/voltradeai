@@ -287,11 +287,11 @@ class TestBotSourceContainsFilters(unittest.TestCase):
             cls.source = f.read()
 
     def test_performance_endpoint_has_ticker_filter(self):
-        """Performance endpoint should filter feedback by non-empty ticker."""
+        """Performance endpoint should filter feedback by non-empty ticker and entry records."""
         self.assertIn(
-            "feedback = [t for t in feedback if t.get('ticker', '').strip()]",
+            "feedback = [t for t in feedback if t.get('ticker', '').strip() and not (t.get('pnl_pct', 0) == 0 and t.get('outcome') is None)]",
             self.source,
-            "Performance endpoint missing ticker filter"
+            "Performance endpoint missing ticker + entry record filter"
         )
 
     def test_startup_cleanup_has_ticker_filter(self):
