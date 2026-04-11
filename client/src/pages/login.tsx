@@ -31,12 +31,17 @@ function CityMatrixCanvas() {
     };
     window.addEventListener("resize", handleResize);
 
+    // ── Types ──
+    interface Setback { fromTop: number; insetLeft: number; insetRight: number }
+    interface RoofDetail { type: "water-tower" | "mech-penthouse" | "helipad" | "spire" | "art-deco" | "angular-crown" | "stepped-crown"; xOff: number; params: Record<string, number> }
+    interface Window { wx: number; wy: number; ww: number; wh: number; lit: boolean; warmth: number; flicker: number }
     interface Building {
-      x: number; w: number; h: number;
-      windows: { wx: number; wy: number; lit: boolean; color: string; flicker: number; size: number }[];
+      x: number; w: number; h: number; layer: number;
+      setbacks: Setback[];
+      roofDetails: RoofDetail[];
       antennaHeight: number;
-      hasCrown: boolean;
-      crownType: number;
+      windows: Window[];
+      reflectionX: number; reflectionW: number;
     }
     interface Stream {
       x: number; y: number; speed: number; length: number; chars: string[];
@@ -44,48 +49,145 @@ function CityMatrixCanvas() {
     }
 
     const CHARS = "01".split("");
-    let buildings: Building[] = [];
+    let layers: Building[][] = [[], [], []]; // back, mid, fore
     let streams: Stream[] = [];
 
+    // ── Building shape generator ──
+    function makeBuilding(x: number, baseW: number, baseH: number, layer: number, groundY: number): Building {
+      const setbacks: Setback[] = [];
+      const roofDetails: RoofDetail[] = [];
+      let w = baseW;
+      let h = baseH;
+
+      // Taller buildings get setbacks (stepped profile)
+      if (h > H * 0.3 && Math.random() < 0.6) {
+        const numSetbacks = 1 + Math.floor(Math.random() * 2);
+        for (let s = 0; s < numSetbacks; s++) {
+          const fromTop = h * (0.15 + s * 0.2 + Math.random() * 0.1);
+          const inset = w * (0.08 + Math.random() * 0.1);
+          setbacks.push({ fromTop, insetLeft: inset, insetRight: inset + (Math.random() - 0.5) * w * 0.04 });
+        }
+      }
+
+      // Roof details
+      const bTop = groundY - h;
+      if (h > H * 0.45 && Math.random() < 0.35) {
+        // Spire/antenna tower
+        roofDetails.push({ type: "spire", xOff: w * 0.5, params: { height: 20 + Math.random() * 40, tipW: 1 + Math.random() * 2 } });
+      }
+      if (h > H * 0.35 && Math.random() < 0.3) {
+        roofDetails.push({ type: "art-deco", xOff: 0, params: { tiers: 2 + Math.floor(Math.random() * 3) } });
+      } else if (h > H * 0.3 && Math.random() < 0.25) {
+        roofDetails.push({ type: "angular-crown", xOff: 0, params: { angle: Math.random() < 0.5 ? 0 : 1 } });
+      } else if (h > H * 0.25 && Math.random() < 0.2) {
+        roofDetails.push({ type: "stepped-crown", xOff: 0, params: { steps: 2 + Math.floor(Math.random() * 3) } });
+      }
+      if (Math.random() < 0.3) {
+        roofDetails.push({ type: "water-tower", xOff: w * (0.2 + Math.random() * 0.5), params: { size: 3 + Math.random() * 4 } });
+      }
+      if (Math.random() < 0.25) {
+        roofDetails.push({ type: "mech-penthouse", xOff: w * (0.1 + Math.random() * 0.3), params: { pw: w * (0.2 + Math.random() * 0.2), ph: 5 + Math.random() * 8 } });
+      }
+      if (h > H * 0.5 && Math.random() < 0.15) {
+        roofDetails.push({ type: "helipad", xOff: w * 0.5, params: { radius: Math.min(w * 0.3, 12) } });
+      }
+
+      const antennaHeight = Math.random() < 0.2 ? 15 + Math.random() * 35 : 0;
+
+      // Windows — uniform grid pattern (realistic)
+      const windows: Window[] = [];
+      const floorH = layer === 0 ? 7 : layer === 1 ? 9 : 11;
+      const winW = layer === 0 ? 3 : layer === 1 ? 4 : 5;
+      const winH = floorH * 0.55;
+      const winGapX = layer === 0 ? 1.5 : layer === 1 ? 2 : 2.5;
+      const winGapY = floorH - winH;
+      const margin = 3;
+
+      const cols = Math.floor((w - margin * 2) / (winW + winGapX));
+      const rows = Math.floor((h - margin * 2) / floorH);
+
+      // Determine lit pattern — some floors are mostly dark, some mostly lit (realistic office building at night)
+      const floorLitBias: number[] = [];
+      for (let r = 0; r < rows; r++) {
+        floorLitBias.push(Math.random()); // per-floor bias
+      }
+
+      for (let r = 0; r < rows; r++) {
+        // Apply setback narrowing
+        let leftInset = 0, rightInset = 0;
+        for (const sb of setbacks) {
+          if (r * floorH < sb.fromTop) {
+            leftInset = Math.max(leftInset, sb.insetLeft);
+            rightInset = Math.max(rightInset, sb.insetRight);
+          }
+        }
+        const rowStartX = x + margin + leftInset;
+        const rowEndX = x + w - margin - rightInset;
+        const rowCols = Math.floor((rowEndX - rowStartX) / (winW + winGapX));
+
+        for (let c = 0; c < rowCols; c++) {
+          const wx = rowStartX + c * (winW + winGapX);
+          const wy = bTop + margin + r * floorH + winGapY * 0.5;
+
+          // Realistic nighttime office building: ~30% lit overall, clustered by floor
+          const floorBias = floorLitBias[r];
+          const litChance = floorBias < 0.3 ? 0.05 : floorBias < 0.6 ? 0.25 : floorBias < 0.85 ? 0.45 : 0.7;
+          const lit = Math.random() < litChance;
+          // Warmth: 0 = cool white, 1 = warm yellow
+          const warmth = Math.random() < 0.7 ? 0.6 + Math.random() * 0.4 : Math.random() * 0.3;
+
+          windows.push({ wx, wy, ww: winW, wh: winH, lit, warmth, flicker: Math.random() * 6000 });
+        }
+      }
+
+      // Glass reflection streak position
+      const reflectionX = x + Math.random() * w * 0.3;
+      const reflectionW = w * (0.15 + Math.random() * 0.25);
+
+      return { x, w, h, layer, setbacks, roofDetails, antennaHeight, windows, reflectionX, reflectionW };
+    }
+
     function generateCity() {
-      buildings = [];
+      layers = [[], [], []];
       streams = [];
       const groundY = H * 0.92;
-      let x = -5;
 
+      // Layer 0: far background — smaller, dimmer buildings
+      let x = -10;
+      while (x < W + 30) {
+        const w = 15 + Math.random() * 35;
+        const h = H * 0.12 + Math.random() * H * 0.32;
+        layers[0].push(makeBuilding(x, w, h, 0, groundY));
+        x += w + Math.random() * 4;
+      }
+
+      // Layer 1: midground
+      x = -8;
+      while (x < W + 25) {
+        const roll = Math.random();
+        let w: number, h: number;
+        if (roll < 0.08) { w = 35 + Math.random() * 25; h = H * 0.55 + Math.random() * H * 0.2; }
+        else if (roll < 0.25) { w = 25 + Math.random() * 40; h = H * 0.35 + Math.random() * H * 0.22; }
+        else if (roll < 0.55) { w = 20 + Math.random() * 45; h = H * 0.2 + Math.random() * H * 0.2; }
+        else { w = 18 + Math.random() * 35; h = H * 0.1 + Math.random() * H * 0.15; }
+        layers[1].push(makeBuilding(x, w, h, 1, groundY));
+        x += w + Math.random() * 3;
+      }
+
+      // Layer 2: foreground — largest, most detailed
+      x = -5;
       while (x < W + 20) {
         const roll = Math.random();
         let w: number, h: number;
-        if (roll < 0.04) { w = 28 + Math.random() * 18; h = H * 0.72 + Math.random() * (H * 0.18); }
-        else if (roll < 0.12) { w = 22 + Math.random() * 30; h = H * 0.52 + Math.random() * (H * 0.22); }
-        else if (roll < 0.3) { w = 28 + Math.random() * 45; h = H * 0.32 + Math.random() * (H * 0.22); }
-        else if (roll < 0.6) { w = 22 + Math.random() * 55; h = H * 0.18 + Math.random() * (H * 0.22); }
-        else { w = 18 + Math.random() * 40; h = H * 0.08 + Math.random() * (H * 0.14); }
+        if (roll < 0.05) { w = 45 + Math.random() * 30; h = H * 0.65 + Math.random() * H * 0.2; }
+        else if (roll < 0.15) { w = 35 + Math.random() * 40; h = H * 0.5 + Math.random() * H * 0.2; }
+        else if (roll < 0.35) { w = 30 + Math.random() * 50; h = H * 0.3 + Math.random() * H * 0.22; }
+        else if (roll < 0.65) { w = 25 + Math.random() * 55; h = H * 0.18 + Math.random() * H * 0.18; }
+        else { w = 20 + Math.random() * 40; h = H * 0.08 + Math.random() * H * 0.14; }
+        layers[2].push(makeBuilding(x, w, h, 2, groundY));
 
         const bTop = groundY - h;
-        const cols = Math.floor((w - 6) / 9);
-        const rows = Math.floor((h - 12) / 10);
-        const winArr: Building["windows"][number][] = [];
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            winArr.push({
-              wx: x + 3 + c * 9,
-              wy: bTop + 6 + r * 10,
-              lit: Math.random() < 0.35,
-              color: Math.random() < 0.6 ? "cyan" : "gold",
-              flicker: Math.random() * 2000,
-              size: 4 + Math.random() * 2,
-            });
-          }
-        }
-        const antennaHeight = Math.random() < 0.25 ? 12 + Math.random() * 30 : 0;
-        const hasCrown = h > H * 0.4 && Math.random() < 0.4;
-        const crownType = Math.floor(Math.random() * 3);
-
-        buildings.push({ x, w, h, windows: winArr, antennaHeight, hasCrown, crownType });
-
-        // Binary streams from this building
-        const streamCount = Math.max(1, Math.floor(w / 20));
+        const streamCount = Math.max(1, Math.floor(w / 22));
         for (let s = 0; s < streamCount; s++) {
           streams.push({
             x: x + 4 + Math.random() * (w - 8),
@@ -104,182 +206,357 @@ function CityMatrixCanvas() {
     generateCity();
     let time = 0;
 
-    function draw() {
-      if (document.hidden) { animId = requestAnimationFrame(draw); return; }
-      time++;
-      ctx!.clearRect(0, 0, W, H);
+    // ── Render a single building ──
+    function drawBuilding(c: CanvasRenderingContext2D, b: Building, groundY: number, layerAlpha: number) {
+      const bTop = groundY - b.h;
 
-      // Sky gradient
-      const grad = ctx!.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, "#010306");
-      grad.addColorStop(0.4, "#030810");
-      grad.addColorStop(0.7, "#04091a");
-      grad.addColorStop(1, "#050c1e");
-      ctx!.fillStyle = grad;
-      ctx!.fillRect(0, 0, W, H);
+      // Build the building silhouette path with setbacks
+      c.save();
+      c.beginPath();
+      // Start bottom-left, go up
+      let curX = b.x;
+      let curY = groundY;
+      c.moveTo(curX, curY);
 
-      const groundY = H * 0.92;
+      // Left side going up with setbacks
+      const sortedSetbacks = [...b.setbacks].sort((a, bb) => bb.fromTop - a.fromTop);
+      let prevLeft = b.x;
+      for (const sb of sortedSetbacks) {
+        const sbY = bTop + sb.fromTop;
+        c.lineTo(prevLeft, sbY);
+        c.lineTo(b.x + sb.insetLeft, sbY);
+        prevLeft = b.x + sb.insetLeft;
+      }
+      c.lineTo(prevLeft, bTop);
+      // Top
+      let prevRight = b.x + b.w;
+      for (const sb of sortedSetbacks) {
+        prevRight = b.x + b.w - sb.insetRight;
+      }
+      c.lineTo(prevRight, bTop);
+      // Right side going down with setbacks
+      const reversedSetbacks = [...b.setbacks].sort((a, bb) => a.fromTop - bb.fromTop);
+      for (const sb of reversedSetbacks) {
+        const sbY = bTop + sb.fromTop;
+        c.lineTo(b.x + b.w - sb.insetRight, sbY);
+        c.lineTo(b.x + b.w, sbY);
+      }
+      c.lineTo(b.x + b.w, groundY);
+      c.closePath();
 
-      // Buildings — glass tower rendering
-      for (const b of buildings) {
-        const bTop = groundY - b.h;
+      // Main building fill — dark glass facade
+      const bGrad = c.createLinearGradient(b.x, bTop, b.x + b.w, groundY);
+      bGrad.addColorStop(0, `rgba(10, 20, 38, ${0.88 * layerAlpha})`);
+      bGrad.addColorStop(0.3, `rgba(8, 16, 32, ${0.82 * layerAlpha})`);
+      bGrad.addColorStop(0.7, `rgba(5, 12, 25, ${0.85 * layerAlpha})`);
+      bGrad.addColorStop(1, `rgba(4, 9, 18, ${0.92 * layerAlpha})`);
+      c.fillStyle = bGrad;
+      c.fill();
 
-        // Glass facade body — semi-transparent with visible structure
-        const bGrad = ctx!.createLinearGradient(b.x, bTop, b.x + b.w, groundY);
-        bGrad.addColorStop(0, "rgba(8, 18, 35, 0.85)");
-        bGrad.addColorStop(0.3, "rgba(6, 14, 28, 0.75)");
-        bGrad.addColorStop(0.7, "rgba(4, 10, 22, 0.8)");
-        bGrad.addColorStop(1, "rgba(3, 8, 16, 0.9)");
-        ctx!.fillStyle = bGrad;
-        ctx!.fillRect(b.x, bTop, b.w, b.h);
+      // Glass reflection streak — vertical lighter band
+      const reflGrad = c.createLinearGradient(b.reflectionX, bTop, b.reflectionX + b.reflectionW, bTop);
+      reflGrad.addColorStop(0, "transparent");
+      reflGrad.addColorStop(0.3, `rgba(80, 140, 180, ${0.04 * layerAlpha})`);
+      reflGrad.addColorStop(0.5, `rgba(100, 170, 210, ${0.06 * layerAlpha})`);
+      reflGrad.addColorStop(0.7, `rgba(80, 140, 180, ${0.04 * layerAlpha})`);
+      reflGrad.addColorStop(1, "transparent");
+      c.fillStyle = reflGrad;
+      c.fill();
 
-        // Glass reflection streak (diagonal light on facade)
-        const reflGrad = ctx!.createLinearGradient(b.x, bTop, b.x + b.w * 0.6, bTop + b.h * 0.4);
-        reflGrad.addColorStop(0, "rgba(0, 229, 255, 0.04)");
-        reflGrad.addColorStop(0.3, "rgba(0, 229, 255, 0.02)");
-        reflGrad.addColorStop(1, "transparent");
-        ctx!.fillStyle = reflGrad;
-        ctx!.fillRect(b.x, bTop, b.w * 0.6, b.h * 0.5);
+      // Horizontal floor bands
+      const floorH = b.layer === 0 ? 7 : b.layer === 1 ? 9 : 11;
+      c.strokeStyle = `rgba(60, 90, 120, ${0.08 * layerAlpha})`;
+      c.lineWidth = 0.4;
+      for (let fy = bTop + floorH; fy < groundY; fy += floorH) {
+        c.beginPath();
+        c.moveTo(b.x, fy);
+        c.lineTo(b.x + b.w, fy);
+        c.stroke();
+      }
 
-        // Horizontal floor plate lines (see-through glass structure)
-        const floorHeight = 10;
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.06)";
-        ctx!.lineWidth = 0.5;
-        for (let fy = bTop + floorHeight; fy < groundY; fy += floorHeight) {
-          ctx!.beginPath();
-          ctx!.moveTo(b.x, fy);
-          ctx!.lineTo(b.x + b.w, fy);
-          ctx!.stroke();
-        }
+      // Vertical mullion lines (structural)
+      const panelW = Math.max(8, b.w / Math.max(1, Math.floor(b.w / 12)));
+      c.strokeStyle = `rgba(50, 80, 110, ${0.05 * layerAlpha})`;
+      c.lineWidth = 0.3;
+      for (let fx = b.x + panelW; fx < b.x + b.w; fx += panelW) {
+        c.beginPath();
+        c.moveTo(fx, bTop);
+        c.lineTo(fx, groundY);
+        c.stroke();
+      }
 
-        // Vertical mullion lines (glass panel divisions)
-        const panelWidth = Math.max(8, b.w / Math.floor(b.w / 10));
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.04)";
-        ctx!.lineWidth = 0.5;
-        for (let fx = b.x + panelWidth; fx < b.x + b.w; fx += panelWidth) {
-          ctx!.beginPath();
-          ctx!.moveTo(fx, bTop);
-          ctx!.lineTo(fx, groundY);
-          ctx!.stroke();
-        }
+      // 3D depth — right face shadow
+      const edgeW = Math.min(14, b.w * 0.12);
+      const edgeGrad = c.createLinearGradient(b.x + b.w - edgeW, bTop, b.x + b.w, bTop);
+      edgeGrad.addColorStop(0, "transparent");
+      edgeGrad.addColorStop(1, `rgba(0, 0, 0, ${0.45 * layerAlpha})`);
+      c.fillStyle = edgeGrad;
+      c.fillRect(b.x + b.w - edgeW, bTop, edgeW, b.h);
 
-        // Right edge — darker glass face (3D depth)
-        const edgeW = Math.min(12, b.w * 0.15);
-        const edgeGrad = ctx!.createLinearGradient(b.x + b.w - edgeW, bTop, b.x + b.w, bTop);
-        edgeGrad.addColorStop(0, "transparent");
-        edgeGrad.addColorStop(1, "rgba(0, 0, 0, 0.5)");
-        ctx!.fillStyle = edgeGrad;
-        ctx!.fillRect(b.x + b.w - edgeW, bTop, edgeW, b.h);
+      // Left edge highlight
+      c.fillStyle = `rgba(100, 160, 200, ${0.06 * layerAlpha})`;
+      c.fillRect(b.x, bTop, 1.2, b.h);
 
-        // Left edge — cyan glass highlight
-        ctx!.fillStyle = "rgba(0, 229, 255, 0.05)";
-        ctx!.fillRect(b.x, bTop, 1.5, b.h);
+      // Roof line glow
+      c.strokeStyle = `rgba(0, 229, 255, ${0.14 * layerAlpha})`;
+      c.lineWidth = 1.2;
+      c.beginPath();
+      c.moveTo(b.x, bTop);
+      c.lineTo(b.x + b.w, bTop);
+      c.stroke();
 
-        // Roof line glow
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.18)";
-        ctx!.lineWidth = 1.5;
-        ctx!.beginPath();
-        ctx!.moveTo(b.x, bTop);
-        ctx!.lineTo(b.x + b.w, bTop);
-        ctx!.stroke();
+      // Building outline
+      c.strokeStyle = `rgba(40, 70, 100, ${0.1 * layerAlpha})`;
+      c.lineWidth = 0.6;
+      c.strokeRect(b.x, bTop, b.w, b.h);
 
-        // Building outline — subtle glass edge
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.07)";
-        ctx!.lineWidth = 0.8;
-        ctx!.strokeRect(b.x, bTop, b.w, b.h);
-
-        // Crown (for tall buildings)
-        if (b.hasCrown) {
-          ctx!.fillStyle = "rgba(0, 229, 255, 0.08)";
-          if (b.crownType === 0) {
-            ctx!.beginPath();
-            ctx!.moveTo(b.x + b.w / 2 - 5, bTop);
-            ctx!.lineTo(b.x + b.w / 2, bTop - 20);
-            ctx!.lineTo(b.x + b.w / 2 + 5, bTop);
-            ctx!.fill();
-            // Spire glow
-            ctx!.fillStyle = "rgba(0, 229, 255, 0.15)";
-            ctx!.beginPath();
-            ctx!.arc(b.x + b.w / 2, bTop - 20, 2, 0, Math.PI * 2);
-            ctx!.fill();
-          } else if (b.crownType === 1) {
-            ctx!.fillRect(b.x + b.w * 0.15, bTop - 10, b.w * 0.7, 10);
-            ctx!.fillRect(b.x + b.w * 0.3, bTop - 18, b.w * 0.4, 8);
+      // ── Roof details ──
+      for (const rd of b.roofDetails) {
+        if (rd.type === "spire") {
+          const sx = b.x + rd.xOff;
+          const spH = rd.params.height;
+          const tipW = rd.params.tipW;
+          // Spire shaft
+          c.strokeStyle = `rgba(80, 110, 140, ${0.3 * layerAlpha})`;
+          c.lineWidth = tipW;
+          c.beginPath();
+          c.moveTo(sx, bTop);
+          c.lineTo(sx, bTop - spH);
+          c.stroke();
+          // Spire tip light
+          const blink = Math.sin(time * 0.04 + b.x * 0.1);
+          if (blink > 0) {
+            c.fillStyle = `rgba(255, 40, 40, ${blink * 0.85 * layerAlpha})`;
+            c.beginPath();
+            c.arc(sx, bTop - spH, 2, 0, Math.PI * 2);
+            c.fill();
+            c.fillStyle = `rgba(255, 40, 40, ${blink * 0.2 * layerAlpha})`;
+            c.beginPath();
+            c.arc(sx, bTop - spH, 7, 0, Math.PI * 2);
+            c.fill();
+          }
+        } else if (rd.type === "art-deco") {
+          // Tiered art-deco crown
+          const tiers = rd.params.tiers;
+          for (let t = 0; t < tiers; t++) {
+            const tierW = b.w * (0.8 - t * 0.15);
+            const tierH = 6 + t * 3;
+            const tx = b.x + (b.w - tierW) / 2;
+            const ty = bTop - (t + 1) * tierH;
+            c.fillStyle = `rgba(12, 24, 42, ${0.9 * layerAlpha})`;
+            c.fillRect(tx, ty, tierW, tierH);
+            c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
+            c.lineWidth = 0.5;
+            c.strokeRect(tx, ty, tierW, tierH);
+          }
+        } else if (rd.type === "angular-crown") {
+          // Angled/sloped top
+          const crownH = 15 + Math.random() * 10;
+          c.fillStyle = `rgba(10, 22, 40, ${0.9 * layerAlpha})`;
+          c.beginPath();
+          if (rd.params.angle === 0) {
+            // Peaked
+            c.moveTo(b.x, bTop);
+            c.lineTo(b.x + b.w * 0.5, bTop - crownH);
+            c.lineTo(b.x + b.w, bTop);
           } else {
-            // Angled crown
-            ctx!.beginPath();
-            ctx!.moveTo(b.x, bTop);
-            ctx!.lineTo(b.x + b.w * 0.5, bTop - 12);
-            ctx!.lineTo(b.x + b.w, bTop);
-            ctx!.fill();
+            // Slanted
+            c.moveTo(b.x, bTop);
+            c.lineTo(b.x + b.w * 0.3, bTop - crownH);
+            c.lineTo(b.x + b.w, bTop - crownH * 0.4);
+            c.lineTo(b.x + b.w, bTop);
           }
-        }
-
-        // Antenna with blinking red light
-        if (b.antennaHeight > 0) {
-          const ax = b.x + b.w / 2;
-          ctx!.strokeStyle = "rgba(100, 120, 140, 0.3)";
-          ctx!.lineWidth = 1;
-          ctx!.beginPath();
-          ctx!.moveTo(ax, bTop);
-          ctx!.lineTo(ax, bTop - b.antennaHeight);
-          ctx!.stroke();
-          const blinkPhase = Math.sin(time * 0.04 + b.x * 0.1);
-          if (blinkPhase > 0) {
-            const alpha = blinkPhase * 0.9;
-            ctx!.fillStyle = `rgba(255, 40, 40, ${alpha})`;
-            ctx!.beginPath();
-            ctx!.arc(ax, bTop - b.antennaHeight, 2.5, 0, Math.PI * 2);
-            ctx!.fill();
-            ctx!.fillStyle = `rgba(255, 40, 40, ${alpha * 0.25})`;
-            ctx!.beginPath();
-            ctx!.arc(ax, bTop - b.antennaHeight, 8, 0, Math.PI * 2);
-            ctx!.fill();
+          c.closePath();
+          c.fill();
+          c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
+          c.lineWidth = 0.5;
+          c.stroke();
+        } else if (rd.type === "stepped-crown") {
+          const steps = rd.params.steps;
+          const stepH = 5;
+          for (let s = 0; s < steps; s++) {
+            const sw = b.w * (1 - (s + 1) * 0.2);
+            const sx = b.x + (b.w - sw) / 2;
+            const sy = bTop - (s + 1) * stepH;
+            c.fillStyle = `rgba(10, 20, 38, ${0.9 * layerAlpha})`;
+            c.fillRect(sx, sy, sw, stepH);
+            c.strokeStyle = `rgba(50, 80, 110, ${0.08 * layerAlpha})`;
+            c.lineWidth = 0.4;
+            c.strokeRect(sx, sy, sw, stepH);
           }
-        }
-
-        // Windows — glass panel glow (see-through feel)
-        for (const win of b.windows) {
-          if (!win.lit) {
-            // Unlit windows still show faint glass reflection
-            ctx!.fillStyle = "rgba(0, 229, 255, 0.008)";
-            ctx!.fillRect(win.wx, win.wy, win.size, win.size * 0.6);
-            if (Math.random() < 0.0004) win.lit = true;
-            continue;
-          }
-          if (Math.random() < 0.0004) { win.lit = false; continue; }
-          const flick = Math.sin(time * 0.012 + win.flicker) * 0.5 + 0.5;
-          const alpha = 0.08 + flick * 0.25;
-          // Inner glow (warm light from inside office)
-          ctx!.fillStyle = win.color === "cyan"
-            ? `rgba(0, 200, 235, ${alpha})`
-            : `rgba(240, 200, 80, ${alpha})`;
-          ctx!.fillRect(win.wx, win.wy, win.size, win.size * 0.6);
-          // Outer glow halo (light bleeding through glass)
-          ctx!.fillStyle = win.color === "cyan"
-            ? `rgba(0, 229, 255, ${alpha * 0.15})`
-            : `rgba(240, 200, 80, ${alpha * 0.12})`;
-          ctx!.fillRect(win.wx - 1, win.wy - 0.5, win.size + 2, win.size * 0.6 + 1);
+        } else if (rd.type === "water-tower") {
+          const wtX = b.x + rd.xOff;
+          const sz = rd.params.size;
+          // Legs
+          c.strokeStyle = `rgba(70, 90, 110, ${0.2 * layerAlpha})`;
+          c.lineWidth = 0.8;
+          c.beginPath();
+          c.moveTo(wtX - sz * 0.5, bTop);
+          c.lineTo(wtX - sz * 0.3, bTop - sz * 2);
+          c.moveTo(wtX + sz * 0.5, bTop);
+          c.lineTo(wtX + sz * 0.3, bTop - sz * 2);
+          c.stroke();
+          // Tank
+          c.fillStyle = `rgba(15, 28, 45, ${0.8 * layerAlpha})`;
+          c.fillRect(wtX - sz * 0.5, bTop - sz * 3, sz, sz);
+          c.strokeStyle = `rgba(50, 80, 110, ${0.15 * layerAlpha})`;
+          c.lineWidth = 0.4;
+          c.strokeRect(wtX - sz * 0.5, bTop - sz * 3, sz, sz);
+        } else if (rd.type === "mech-penthouse") {
+          const mpX = b.x + rd.xOff;
+          const pw = rd.params.pw;
+          const ph = rd.params.ph;
+          c.fillStyle = `rgba(12, 22, 38, ${0.85 * layerAlpha})`;
+          c.fillRect(mpX, bTop - ph, pw, ph);
+          c.strokeStyle = `rgba(50, 80, 110, ${0.1 * layerAlpha})`;
+          c.lineWidth = 0.4;
+          c.strokeRect(mpX, bTop - ph, pw, ph);
+        } else if (rd.type === "helipad") {
+          const hx = b.x + rd.xOff;
+          const hr = rd.params.radius;
+          c.strokeStyle = `rgba(0, 229, 255, ${0.12 * layerAlpha})`;
+          c.lineWidth = 0.8;
+          c.beginPath();
+          c.arc(hx, bTop - 2, hr, 0, Math.PI * 2);
+          c.stroke();
+          // H marking
+          c.strokeStyle = `rgba(0, 229, 255, ${0.08 * layerAlpha})`;
+          c.lineWidth = 1;
+          c.beginPath();
+          c.moveTo(hx - hr * 0.3, bTop - 2 - hr * 0.35);
+          c.lineTo(hx - hr * 0.3, bTop - 2 + hr * 0.35);
+          c.moveTo(hx + hr * 0.3, bTop - 2 - hr * 0.35);
+          c.lineTo(hx + hr * 0.3, bTop - 2 + hr * 0.35);
+          c.moveTo(hx - hr * 0.3, bTop - 2);
+          c.lineTo(hx + hr * 0.3, bTop - 2);
+          c.stroke();
         }
       }
 
-      // Ground line + glow
-      ctx!.strokeStyle = "rgba(0, 229, 255, 0.08)";
-      ctx!.lineWidth = 1;
-      ctx!.beginPath();
-      ctx!.moveTo(0, groundY);
-      ctx!.lineTo(W, groundY);
-      ctx!.stroke();
+      // Antenna with blinking red light
+      if (b.antennaHeight > 0) {
+        const ax = b.x + b.w * 0.5;
+        c.strokeStyle = `rgba(80, 100, 130, ${0.25 * layerAlpha})`;
+        c.lineWidth = 0.8;
+        c.beginPath();
+        c.moveTo(ax, bTop);
+        c.lineTo(ax, bTop - b.antennaHeight);
+        c.stroke();
+        const blinkPhase = Math.sin(time * 0.04 + b.x * 0.1);
+        if (blinkPhase > 0) {
+          const alpha = blinkPhase * 0.85 * layerAlpha;
+          c.fillStyle = `rgba(255, 40, 40, ${alpha})`;
+          c.beginPath();
+          c.arc(ax, bTop - b.antennaHeight, 2, 0, Math.PI * 2);
+          c.fill();
+          c.fillStyle = `rgba(255, 40, 40, ${alpha * 0.25})`;
+          c.beginPath();
+          c.arc(ax, bTop - b.antennaHeight, 7, 0, Math.PI * 2);
+          c.fill();
+        }
+      }
+
+      // ── Windows — realistic nighttime office ──
+      for (const win of b.windows) {
+        if (!win.lit) {
+          // Dark window — faint glass reflection
+          c.fillStyle = `rgba(20, 35, 55, ${0.15 * layerAlpha})`;
+          c.fillRect(win.wx, win.wy, win.ww, win.wh);
+          // Tiny chance to flicker on
+          if (Math.random() < 0.0003) win.lit = true;
+          continue;
+        }
+        if (Math.random() < 0.0003) { win.lit = false; continue; }
+
+        const flick = Math.sin(time * 0.008 + win.flicker) * 0.5 + 0.5;
+        const baseAlpha = (0.15 + flick * 0.35) * layerAlpha;
+
+        // Window color based on warmth (warm yellow to cool white)
+        const r = Math.floor(200 + win.warmth * 55);
+        const g = Math.floor(170 + win.warmth * 50);
+        const bVal = Math.floor(80 + (1 - win.warmth) * 120);
+
+        // Inner glow
+        c.fillStyle = `rgba(${r}, ${g}, ${bVal}, ${baseAlpha})`;
+        c.fillRect(win.wx, win.wy, win.ww, win.wh);
+
+        // Outer bleed glow
+        c.fillStyle = `rgba(${r}, ${g}, ${bVal}, ${baseAlpha * 0.12})`;
+        c.fillRect(win.wx - 0.8, win.wy - 0.5, win.ww + 1.6, win.wh + 1);
+      }
+
+      c.restore();
+    }
+
+    function draw() {
+      if (document.hidden) { animId = requestAnimationFrame(draw); return; }
+      time++;
+      const c = ctx!;
+      c.clearRect(0, 0, W, H);
+
+      // Sky gradient
+      const grad = c.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "#010306");
+      grad.addColorStop(0.3, "#020610");
+      grad.addColorStop(0.6, "#040a1a");
+      grad.addColorStop(1, "#050c1e");
+      c.fillStyle = grad;
+      c.fillRect(0, 0, W, H);
+
+      const groundY = H * 0.92;
+
+      // ── Layer 0 (background) — faint, atmospheric ──
+      for (const b of layers[0]) drawBuilding(c, b, groundY, 0.35);
+
+      // Fog between back and mid layer
+      const fog0 = c.createLinearGradient(0, groundY - H * 0.45, 0, groundY);
+      fog0.addColorStop(0, "transparent");
+      fog0.addColorStop(0.4, "rgba(8, 18, 35, 0.3)");
+      fog0.addColorStop(0.8, "rgba(6, 14, 28, 0.2)");
+      fog0.addColorStop(1, "transparent");
+      c.fillStyle = fog0;
+      c.fillRect(0, groundY - H * 0.45, W, H * 0.45);
+
+      // ── Layer 1 (midground) ──
+      for (const b of layers[1]) drawBuilding(c, b, groundY, 0.6);
+
+      // Fog between mid and foreground
+      const fog1 = c.createLinearGradient(0, groundY - H * 0.3, 0, groundY);
+      fog1.addColorStop(0, "transparent");
+      fog1.addColorStop(0.5, "rgba(6, 15, 30, 0.2)");
+      fog1.addColorStop(1, "transparent");
+      c.fillStyle = fog1;
+      c.fillRect(0, groundY - H * 0.3, W, H * 0.3);
+
+      // ── Layer 2 (foreground) — full detail ──
+      for (const b of layers[2]) drawBuilding(c, b, groundY, 1.0);
+
+      // ── Ambient glow at skyline base ──
+      const ambientGlow = c.createRadialGradient(W * 0.5, groundY, 0, W * 0.5, groundY, W * 0.6);
+      ambientGlow.addColorStop(0, "rgba(0, 180, 220, 0.025)");
+      ambientGlow.addColorStop(0.5, "rgba(0, 140, 180, 0.012)");
+      ambientGlow.addColorStop(1, "transparent");
+      c.fillStyle = ambientGlow;
+      c.fillRect(0, groundY - H * 0.4, W, H * 0.42);
+
+      // Ground line
+      c.strokeStyle = "rgba(0, 229, 255, 0.08)";
+      c.lineWidth = 1;
+      c.beginPath();
+      c.moveTo(0, groundY);
+      c.lineTo(W, groundY);
+      c.stroke();
+
       // Ground fog
-      const fogGrad = ctx!.createLinearGradient(0, groundY - 30, 0, groundY + 10);
+      const fogGrad = c.createLinearGradient(0, groundY - 30, 0, groundY + 10);
       fogGrad.addColorStop(0, "transparent");
       fogGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.015)");
       fogGrad.addColorStop(1, "rgba(0, 229, 255, 0.008)");
-      ctx!.fillStyle = fogGrad;
-      ctx!.fillRect(0, groundY - 30, W, 40);
+      c.fillStyle = fogGrad;
+      c.fillRect(0, groundY - 30, W, 40);
 
-      // Binary streams
-      ctx!.font = "9px 'JetBrains Mono', 'Courier New', monospace";
+      // ── Binary streams (unchanged) ──
+      c.font = "9px 'JetBrains Mono', 'Courier New', monospace";
       for (const s of streams) {
         s.y += s.speed;
         if (s.y > s.buildingTop + 15) {
@@ -293,22 +570,22 @@ function CityMatrixCanvas() {
           if (cy < 0 || cy > s.buildingTop + 8) continue;
           const fade = 1 - (i / s.length);
           const alpha = s.opacity * fade;
-          ctx!.fillStyle = i === 0
+          c.fillStyle = i === 0
             ? `rgba(180, 255, 255, ${Math.min(alpha * 1.8, 0.6)})`
             : `rgba(0, 229, 255, ${alpha})`;
-          ctx!.fillText(s.chars[i % s.chars.length], s.x, cy);
+          c.fillText(s.chars[i % s.chars.length], s.x, cy);
           if (Math.random() < 0.04) s.chars[i % s.chars.length] = CHARS[Math.floor(Math.random() * 2)];
         }
       }
 
       // Scan line
       const scanY = (time * 1.2) % (H * 2) - H * 0.3;
-      const scanGrad = ctx!.createLinearGradient(0, scanY - 15, 0, scanY + 15);
+      const scanGrad = c.createLinearGradient(0, scanY - 15, 0, scanY + 15);
       scanGrad.addColorStop(0, "transparent");
       scanGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.025)");
       scanGrad.addColorStop(1, "transparent");
-      ctx!.fillStyle = scanGrad;
-      ctx!.fillRect(0, scanY - 15, W, 30);
+      c.fillStyle = scanGrad;
+      c.fillRect(0, scanY - 15, W, 30);
 
       animId = requestAnimationFrame(draw);
     }
