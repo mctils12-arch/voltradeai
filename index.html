@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VolTradeAI — Quantitative Trading System</title>
+  <meta name="description" content="Quantitative multi-strategy trading system. Regime-adaptive allocation, ML signal generation, and systematic risk management." />
+  <meta property="og:title" content="VolTradeAI — Quantitative Trading System" />
+  <meta property="og:description" content="Multi-strategy quantitative system with regime detection, ML-driven execution, and institutional risk controls." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2300e5ff'/><path d='M8 22L14 10L20 18L24 12' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>" />
+  <link href="./base.css" rel="stylesheet" />
+  <link href="./style.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" defer></script>
+</head>
+<body>
+  <a href="#main" class="sr-only">Skip to content</a>
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="container header__inner">
+      <a href="#" class="logo" aria-label="VolTradeAI home">
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="6" fill="var(--color-primary)"/>
+          <path d="M8 22L14 10L20 18L24 12" stroke="var(--color-text-inverse)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="logo__text">Vol<span>Trade</span>AI</span>
+      </a>
+      <nav class="header__nav" aria-label="Main navigation">
+        <a href="#how-it-works">How It Works</a>
+        <a href="#strategy">Strategy</a>
+        <a href="#performance">Performance</a>
+        <a href="#risk-controls">Risk Controls</a>
+      </nav>
+      <button class="theme-toggle" data-theme-toggle aria-label="Switch to light mode">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ===== HERO ===== -->
+    <section class="hero">
+      <div class="hero__grid-bg" aria-hidden="true"></div>
+      <div class="hero__glow" aria-hidden="true"></div>
+      <div class="container hero__content">
+        <div class="hero__badge">Quantitative &bull; Multi-Strategy &bull; Systematic</div>
+        <h1 class="hero__title">Quantitative Alpha,<br/>Engineered Precision</h1>
+        <p class="hero__subtitle">Multi-strategy quantitative system. Regime-adaptive allocation, ML-driven signal generation, and systematic risk management across equity and volatility.</p>
+        <div class="hero__metrics">
+          <div class="hero-metric">
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="45.7" data-suffix="%">0%</div>
+            <div class="hero-metric__label">CAGR</div>
+          </div>
+          <div class="hero-metric">
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="2.18" data-suffix="">0</div>
+            <div class="hero-metric__label">Sharpe Ratio</div>
+          </div>
+          <div class="hero-metric">
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="3.02" data-suffix="">0</div>
+            <div class="hero-metric__label">Sortino Ratio</div>
+          </div>
+          <div class="hero-metric">
+            <div class="hero-metric__value hero-metric__value--amber counter" data-target="23.7" data-suffix="%">0%</div>
+            <div class="hero-metric__label">Max Drawdown</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== HOW IT WORKS ===== -->
+    <section id="how-it-works" class="fade-in">
+      <div class="container">
+        <div class="section-header section-header--center">
+          <div class="section-eyebrow">Architecture</div>
+          <h2 class="section-title">Three Layers of Edge</h2>
+          <p class="section-desc">Layered architecture combining systematic market exposure, ML-driven selection, and volatility harvesting — every parameter is regime-conditional.</p>
+        </div>
+        <div class="how-grid">
+          <div class="how-card">
+            <div class="how-card__number">1</div>
+            <h3 class="how-card__title">Regime Detection</h3>
+            <p class="how-card__desc">Markov regime classification across four states — Bull, Neutral, Caution, Panic — driven by volatility surface, credit spreads, and momentum factors. All downstream parameters shift accordingly.</p>
+          </div>
+          <div class="how-card">
+            <div class="how-card__number">2</div>
+            <h3 class="how-card__title">ML Signal Generation</h3>
+            <p class="how-card__desc">Walk-forward validated models score the full equity universe daily. Calibrated confidence thresholds and regime-conditional entry gates filter for high-conviction setups only.</p>
+          </div>
+          <div class="how-card">
+            <div class="how-card__number">3</div>
+            <h3 class="how-card__title">Kelly-Optimal Sizing</h3>
+            <p class="how-card__desc">Position sizing follows fractional Kelly, scaled by regime confidence factor. Full Kelly in favorable regimes, quarter-Kelly in adverse. Hard-capped per position to bound concentration risk.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== STRATEGY COMPONENTS ===== -->
+    <section id="strategy" class="fade-in">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-eyebrow">Strategy Decomposition</div>
+          <h2 class="section-title">Return Attribution</h2>
+          <p class="section-desc">Four orthogonal strategies. Each component is isolated, measured, and attribution-tracked independently.</p>
+        </div>
+        <div class="components-grid">
+          <div class="comp-card">
+            <div class="comp-card__header">
+              <h3 class="comp-card__name">QQQ Floor</h3>
+              <span class="comp-card__pnl comp-card__pnl--positive">58% of P&L</span>
+            </div>
+            <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:58%"></div></div>
+            <p class="comp-card__desc">Regime-leveraged index exposure. Systematic beta capture with adaptive sizing — full allocation in favorable regimes, minimal in adverse. The structural floor, not the alpha source.</p>
+            <div class="comp-card__stats">
+              <span class="comp-stat">Strategy: <strong>Passive + Regime</strong></span>
+              <span class="comp-stat">Standalone CAGR: <strong>21.9%</strong></span>
+            </div>
+          </div>
+          <div class="comp-card">
+            <div class="comp-card__header">
+              <h3 class="comp-card__name">Stock Picking</h3>
+              <span class="comp-card__pnl comp-card__pnl--positive">34% of P&L</span>
+            </div>
+            <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:34%"></div></div>
+            <p class="comp-card__desc">ML-scored long positions across the full US equity universe. Walk-forward validated with calibrated confidence thresholds and regime-conditional entry gates. Primary alpha generator.</p>
+            <div class="comp-card__stats">
+              <span class="comp-stat">Trades: <strong>1,226</strong></span>
+              <span class="comp-stat">Win Rate: <strong>52.8%</strong></span>
+              <span class="comp-stat">CAGR: <strong>11.4%</strong></span>
+            </div>
+          </div>
+          <div class="comp-card">
+            <div class="comp-card__header">
+              <h3 class="comp-card__name">VRP / SVXY</h3>
+              <span class="comp-card__pnl comp-card__pnl--positive">6% of P&L</span>
+            </div>
+            <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:6%"></div></div>
+            <p class="comp-card__desc">Systematic Volatility Risk Premium harvesting. Entry requires elevated but contained vol surface conditions. Circuit breaker auto-exits on VIX breach — surgical and regime-gated.</p>
+            <div class="comp-card__stats">
+              <span class="comp-stat">Win Rate: <strong>80%</strong></span>
+              <span class="comp-stat">Surgical</span>
+            </div>
+          </div>
+          <div class="comp-card">
+            <div class="comp-card__header">
+              <h3 class="comp-card__name">Options (Multi-Leg)</h3>
+              <span class="comp-card__pnl comp-card__pnl--positive">2% of P&L</span>
+            </div>
+            <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:2%"></div></div>
+            <p class="comp-card__desc">Multi-leg structures engineered for asymmetric payoff profiles. Hard-capped at 8% allocation. Consistent positive expectancy with defined risk parameters.</p>
+            <div class="comp-card__stats">
+              <span class="comp-stat">Win Rate: <strong>74%</strong></span>
+              <span class="comp-stat">Allocation: <strong>8% max</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PERFORMANCE ===== -->
+    <section id="performance" class="perf-section fade-in">
+      <div class="container">
+        <div class="section-header section-header--center">
+          <div class="section-eyebrow">Performance</div>
+          <h2 class="section-title">Backtest Results (2015–2025)</h2>
+          <p class="section-desc">Full-system PRO configuration vs. SPY benchmark. Out-of-sample validated across multiple market regimes.</p>
+        </div>
+
+        <!-- Comparison Banner -->
+        <div class="comparison-banner">
+          <div class="comparison-side" style="text-align:right;">
+            <span class="comparison-side__label">SPY Buy &amp; Hold</span>
+            <span class="comparison-side__value" style="color:var(--color-text-muted);">$400K</span>
+          </div>
+          <span class="comparison-divider">vs</span>
+          <div class="comparison-side">
+            <span class="comparison-side__label">VolTradeAI</span>
+            <span class="comparison-side__value" style="color:var(--color-primary);">$4.68M</span>
+          </div>
+        </div>
+
+        <!-- Equity Curve Chart -->
+        <div class="equity-chart-wrap">
+          <div class="equity-chart-header">
+            <h3 class="equity-chart-title">Growth of $100K</h3>
+            <div class="equity-chart-legend">
+              <span class="equity-chart-legend__item equity-chart-legend__item--spy">
+                <span class="equity-chart-legend__dot"></span> SPY
+              </span>
+              <span class="equity-chart-legend__item equity-chart-legend__item--vol">
+                <span class="equity-chart-legend__dot"></span> VolTradeAI
+              </span>
+            </div>
+          </div>
+          <div class="equity-chart-container">
+            <canvas id="equityCurve"></canvas>
+          </div>
+        </div>
+
+        <!-- VS Table -->
+        <div class="vs-table-wrap" style="margin-top:var(--space-6);">
+          <table class="vs-table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>SPY (Benchmark)</th>
+                <th>VolTradeAI PRO</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>CAGR</td>
+                <td class="spy-val">13.9%</td>
+                <td class="vol-val">45.7%</td>
+              </tr>
+              <tr>
+                <td>Sharpe Ratio</td>
+                <td class="spy-val">~0.9</td>
+                <td class="vol-val">2.18</td>
+              </tr>
+              <tr>
+                <td>Sortino Ratio</td>
+                <td class="spy-val">~1.05</td>
+                <td class="vol-val">3.02</td>
+              </tr>
+              <tr>
+                <td>Max Drawdown</td>
+                <td class="spy-val">~24.5%</td>
+                <td class="vol-val">23.7%</td>
+              </tr>
+              <tr>
+                <td>$100K Becomes</td>
+                <td class="spy-val">$399,522</td>
+                <td class="vol-val">$4,677,519</td>
+              </tr>
+              <tr>
+                <td>Alpha vs SPY</td>
+                <td class="spy-val">Benchmark</td>
+                <td class="vol-val">+31.8%</td>
+              </tr>
+              <tr>
+                <td>Positive Years</td>
+                <td class="spy-val">9 of 11</td>
+                <td class="vol-val">10 of 11</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PRO FEATURES ===== -->
+    <section id="risk-controls" class="fade-in">
+      <div class="container">
+        <div class="section-header section-header--center">
+          <div class="section-eyebrow">Risk Architecture</div>
+          <h2 class="section-title">Systematic Risk Controls</h2>
+          <p class="section-desc">Institutional-grade risk management built into every layer. Automated, regime-aware, and mathematically rigorous.</p>
+        </div>
+        <div class="pro-grid">
+          <div class="pro-card">
+            <div class="pro-card__icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <h3 class="pro-card__title">Kelly Criterion Sizing</h3>
+            <p class="pro-card__desc">Mathematically optimal position sizing, regime-scaled. Full Kelly (~16.8%) in Bull, quarter-Kelly in Panic. Hard-capped at 8% per position to bound concentration.</p>
+          </div>
+          <div class="pro-card">
+            <div class="pro-card__icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3 class="pro-card__title">Convexity Overlay</h3>
+            <p class="pro-card__desc">Permanent SQQQ tail hedge — 1.5% allocation in normal regimes, 3.5% in stress. Annualized cost ~1.4% for bounded crash exposure and max drawdown under 24%.</p>
+          </div>
+          <div class="pro-card">
+            <div class="pro-card__icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <h3 class="pro-card__title">VRP Circuit Breaker</h3>
+            <p class="pro-card__desc">Automatic exit on VIX breach above 40. Prevents vol-selling exposure during extreme dislocations where short-volatility strategies face catastrophic risk.</p>
+          </div>
+          <div class="pro-card">
+            <div class="pro-card__icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <h3 class="pro-card__title">Trend-Following Exits</h3>
+            <p class="pro-card__desc">Death cross signal caps QQQ allocation to 20%. Early warning reduces to 50%. Net effect: QQQ floor max drawdown compressed from 30.9% to 17.7%.</p>
+          </div>
+          <div class="pro-card">
+            <div class="pro-card__icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            </div>
+            <h3 class="pro-card__title">Regime-Aware Everything</h3>
+            <p class="pro-card__desc">Every parameter is regime-conditional. Allocation, sizing, entry thresholds, stop distances, and hedge budgets all shift across Bull/Neutral/Caution/Panic states.</p>
+          </div>
+          <div class="pro-card">
+            <div class="pro-card__icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            </div>
+            <h3 class="pro-card__title">Geometric Compounding</h3>
+            <p class="pro-card__desc">Kelly × equity scaling — position sizes grow proportionally with portfolio value. Systematic geometric compounding embedded in the sizing engine.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+  </main>
+
+  <!-- ===== DISCLAIMER ===== -->
+  <div class="disclaimer">
+    <p class="disclaimer__text">
+      All performance figures are from backtested simulations using historical data and do not represent actual trading results. Past performance does not guarantee future results. This is not financial advice — consult a qualified advisor before making investment decisions.
+    </p>
+  </div>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="container footer__inner">
+      <span class="footer__copy">&copy; 2026 VolTradeAI</span>
+    </div>
+  </footer>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
