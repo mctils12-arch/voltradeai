@@ -89,44 +89,6 @@ function signalColor(type: string) {
   return "#d4a017";
 }
 
-// ─── Mini equity curve chart ──────────────────────────────────────────────────
-function MiniEquityCurve({ data }: { data: Array<{ date: string; value: number; pnl: number }> }) {
-  if (!data || data.length < 2) {
-    return (
-      <div style={{ height: "48px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ fontSize: "11px", color: "#2a3a4c" }}>Equity curve builds as trades complete</span>
-      </div>
-    );
-  }
-
-  const reversed = [...data].reverse();
-  const values = reversed.map(d => d.value);
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const range = maxV - minV || 1;
-  const w = 300;
-  const h = 48;
-  const pts = values.map((v, i) => {
-    const x = (i / (values.length - 1)) * w;
-    const y = h - ((v - minV) / range) * h;
-    return `${x},${y}`;
-  }).join(" ");
-
-  const isUp = values[values.length - 1] >= values[0];
-
-  return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
-      <polyline
-        points={pts}
-        fill="none"
-        stroke={isUp ? "#30d158" : "#ff453a"}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 // ─── Notification Bell ────────────────────────────────────────────────────────
 function NotificationBell({ notifications, onMarkRead }: {
@@ -278,129 +240,6 @@ function CalendarBanner() {
   );
 }
 
-// ─── Performance Card ─────────────────────────────────────────────────────────
-function PerformanceCard({ perf }: { perf: any }) {
-  if (!perf) {
-    return (
-      <div style={card}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-          <TrendingUp size={14} style={{ color: "#00e5ff" }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
-            <Tip id="performance">Performance</Tip>
-          </span>
-        </div>
-        <p style={{ color: "#4a5c70", fontSize: "13px", textAlign: "center", padding: "16px 0" }}>
-          Performance data builds as trades complete.
-        </p>
-      </div>
-    );
-  }
-
-  const { totalTrades = 0, winRate = 0, totalPnl = 0, avgGain = 0, avgLoss = 0, bestTrade, worstTrade, equityCurve } = perf || {};
-  const winRateColor = winRate >= 60 ? "#30d158" : winRate >= 45 ? "#d4a017" : "#ff453a";
-  const pnlColor = totalPnl >= 0 ? "#30d158" : "#ff453a";
-
-  return (
-    <div style={{ ...card, marginBottom: "20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-        <TrendingUp size={14} style={{ color: "#00e5ff" }} />
-        <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
-          <Tip id="performance">Performance</Tip>
-        </span>
-        <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>
-          {totalTrades} total trades
-        </span>
-      </div>
-
-      {/* Stats row */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))",
-        gap: "12px",
-        marginBottom: "16px",
-      }}>
-        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
-          <div style={label}>Total P&L</div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: pnlColor }}>
-            {totalPnl >= 0 ? "+" : ""}${(totalPnl ?? 0).toFixed(2)}
-          </div>
-        </div>
-        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
-          <div style={label}><Tip id="winrate">Win Rate</Tip></div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: winRateColor }}>
-            {(winRate ?? 0).toFixed(1)}%
-          </div>
-        </div>
-        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
-          <div style={label}>Avg Gain</div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#30d158" }}>
-            +{(avgGain ?? 0).toFixed(2)}%
-          </div>
-        </div>
-        <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "12px" }}>
-          <div style={label}>Avg Loss</div>
-          <div style={{ fontSize: "20px", fontWeight: 700, fontFamily: "monospace", color: "#ff453a" }}>
-            {(avgLoss ?? 0).toFixed(2)}%
-          </div>
-        </div>
-      </div>
-
-      {/* Best / Worst trade */}
-      {(bestTrade || worstTrade) && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
-          {bestTrade && (
-            <div style={{ background: "rgba(0,255,65,0.06)", border: "1px solid rgba(0,255,65,0.15)", borderRadius: "4px", padding: "10px" }}>
-              <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
-                Best Trade
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <ArrowUp size={12} style={{ color: "#30d158" }} />
-                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
-                  {bestTrade.ticker}
-                </span>
-                <span style={{ fontSize: "12px", color: "#30d158", marginLeft: "auto", fontWeight: 600 }}>
-                  +{(bestTrade?.pnlPct ?? 0).toFixed(2)}%
-                </span>
-              </div>
-            </div>
-          )}
-          {worstTrade && (
-            <div style={{ background: "rgba(255,51,51,0.06)", border: "1px solid rgba(255,51,51,0.15)", borderRadius: "4px", padding: "10px" }}>
-              <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
-                Worst Trade
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <ArrowDown size={12} style={{ color: "#ff453a" }} />
-                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
-                  {worstTrade.ticker}
-                </span>
-                <span style={{ fontSize: "12px", color: "#ff453a", marginLeft: "auto", fontWeight: 600 }}>
-                  {(worstTrade?.pnlPct ?? 0).toFixed(2)}%
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Equity curve */}
-      {equityCurve && equityCurve.length >= 2 && (
-        <div>
-          <div style={{ ...label, marginBottom: "8px" }}>Equity Curve</div>
-          <MiniEquityCurve data={equityCurve} />
-        </div>
-      )}
-
-      {/* No trades yet */}
-      {totalTrades === 0 && (
-        <p style={{ color: "#4a5c70", fontSize: "12px", textAlign: "center", padding: "8px 0" }}>
-          Performance data builds as the bot executes trades.
-        </p>
-      )}
-    </div>
-  );
-}
-
 // ─── Performance Dashboard ──────────────────────────────────────────────────
 function PerformanceDashboard({ perfData }: { perfData: any }) {
   const [open, setOpen] = useState(true);
@@ -412,7 +251,10 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
   const profitFactor: number = perfData?.profitFactor ?? 0;
   const avgGain: number = perfData?.avgGain ?? 0;
   const avgLoss: number = perfData?.avgLoss ?? 0;
+  const totalPnlPct: number = perfData?.totalPnlPct ?? 0;
   const drawdown: number = perfData?.currentDrawdown ?? perfData?.maxDrawdown ?? 0;
+  const bestTrade: any = perfData?.bestTrade ?? null;
+  const worstTrade: any = perfData?.worstTrade ?? null;
   const equityCurve: Array<{ date: string; value: number }> = Array.isArray(perfData?.equityCurve)
     ? perfData.equityCurve.map((d: any) => ({ date: d.date ?? "", value: d.value ?? 0 }))
     : [];
@@ -421,6 +263,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
     : Array.isArray(perfData?.trades)
     ? perfData.trades.slice(0, 10)
     : [];
+  const pnlColor = totalPnlPct >= 0 ? "#30d158" : "#ff453a";
 
   // Win rate color
   const winRateColor = winRate > 55 ? "#30d158" : winRate < 45 ? "#ff453a" : "#d4a017";
@@ -614,6 +457,14 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
               <div style={{ ...bigNum, color: "#c8d6e5" }}>{totalTrades}</div>
             </div>
 
+            {/* Total P&L */}
+            <div style={{ ...metricBox, borderColor: `${pnlColor}22` }}>
+              <div style={label}>Total P&L</div>
+              <div style={{ ...bigNum, color: pnlColor }}>
+                {totalPnlPct >= 0 ? "+" : ""}{totalPnlPct.toFixed(2)}%
+              </div>
+            </div>
+
             {/* Win Rate */}
             <div style={{ ...metricBox, borderColor: `${winRateColor}22` }}>
               <div style={label}><Tip id="winrate">Win Rate</Tip></div>
@@ -661,6 +512,44 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
               <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "4px" }}>From peak</div>
             </div>
           </div>
+
+          {/* ── Best / Worst Trade ── */}
+          {(bestTrade || worstTrade) && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "20px" }}>
+              {bestTrade && (
+                <div style={{ background: "rgba(0,255,65,0.06)", border: "1px solid rgba(0,255,65,0.15)", borderRadius: "4px", padding: "10px" }}>
+                  <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                    Best Trade
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <ArrowUp size={12} style={{ color: "#30d158" }} />
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
+                      {bestTrade.ticker}
+                    </span>
+                    <span style={{ fontSize: "12px", color: "#30d158", marginLeft: "auto", fontWeight: 600 }}>
+                      +{(bestTrade?.pnlPct ?? 0).toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+              {worstTrade && (
+                <div style={{ background: "rgba(255,51,51,0.06)", border: "1px solid rgba(255,51,51,0.15)", borderRadius: "4px", padding: "10px" }}>
+                  <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                    Worst Trade
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <ArrowDown size={12} style={{ color: "#ff453a" }} />
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#c8d6e5", fontSize: "13px" }}>
+                      {worstTrade.ticker}
+                    </span>
+                    <span style={{ fontSize: "12px", color: "#ff453a", marginLeft: "auto", fontWeight: 600 }}>
+                      {(worstTrade?.pnlPct ?? 0).toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Equity Curve Canvas ── */}
           <div style={{ marginBottom: "20px" }}>
@@ -1370,8 +1259,8 @@ export default function BotDashboard() {
         </div>
       </div>
 
-      {/* ── Performance Card ── */}
-      <PerformanceCard perf={perfData} />
+      {/* ── Performance ── */}
+      <PerformanceDashboard perfData={perfData} />
 
       {/* ── Open Positions (enhanced) ── */}
       <EnhancedPositions positions={positions} closePos={(t: string) => closePos.mutate(t)} />
@@ -1528,9 +1417,6 @@ export default function BotDashboard() {
           )}
         </div>
       </div>
-
-      {/* ── Performance Dashboard (detailed) ── */}
-      <PerformanceDashboard perfData={perfData} />
 
     </div>
   );
