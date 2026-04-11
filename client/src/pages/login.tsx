@@ -45,7 +45,7 @@ function CityMatrixCanvas() {
     }
     interface Stream {
       x: number; y: number; speed: number; length: number; chars: string[];
-      opacity: number; buildingTop: number;
+      opacity: number; buildingTop: number; charSize: number;
     }
 
     const CHARS = "01".split("");
@@ -186,20 +186,26 @@ function CityMatrixCanvas() {
         else { w = 20 + Math.random() * 40; h = H * 0.08 + Math.random() * H * 0.14; }
         layers[2].push(makeBuilding(x, w, h, 2, groundY));
 
-        const bTop = groundY - h;
-        const streamCount = Math.max(1, Math.floor(w / 22));
-        for (let s = 0; s < streamCount; s++) {
-          streams.push({
-            x: x + 4 + Math.random() * (w - 8),
-            y: bTop - Math.random() * 400,
-            speed: 1.2 + Math.random() * 3.5,
-            length: 6 + Math.floor(Math.random() * 14),
-            chars: Array.from({ length: 25 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
-            opacity: 0.12 + Math.random() * 0.28,
-            buildingTop: bTop,
-          });
-        }
         x += w + Math.random() * 3;
+      }
+
+      // ── Matrix-style binary rain columns across full width ──
+      const colSpacing = 18; // pixels between columns
+      const numCols = Math.ceil(W / colSpacing);
+      for (let i = 0; i < numCols; i++) {
+        const colX = i * colSpacing + (Math.random() * 6 - 3);
+        const speed = 1.0 + Math.random() * 2.5;
+        const len = 12 + Math.floor(Math.random() * 22);
+        streams.push({
+          x: colX,
+          y: -Math.random() * H * 1.5,
+          speed: speed,
+          length: len,
+          chars: Array.from({ length: len + 5 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
+          opacity: 0.25 + Math.random() * 0.55,
+          buildingTop: groundY,
+          charSize: 13 + Math.floor(Math.random() * 3),
+        });
       }
     }
 
@@ -555,28 +561,52 @@ function CityMatrixCanvas() {
       c.fillStyle = fogGrad;
       c.fillRect(0, groundY - 30, W, 40);
 
-      // ── Binary streams (unchanged) ──
-      c.font = "9px 'JetBrains Mono', 'Courier New', monospace";
+      // ── Matrix-style binary rain ──
+      c.textAlign = "center";
       for (const s of streams) {
         s.y += s.speed;
-        if (s.y > s.buildingTop + 15) {
-          s.y = s.buildingTop - 100 - Math.random() * 350;
+        // Reset when the entire trail has passed below the ground line
+        if (s.y - s.length * s.charSize > s.buildingTop + 10) {
+          s.y = -s.length * s.charSize - Math.random() * H * 0.6;
+          s.speed = 1.0 + Math.random() * 2.5;
           for (let i = 0; i < s.chars.length; i++) {
-            if (Math.random() < 0.4) s.chars[i] = CHARS[Math.floor(Math.random() * 2)];
+            if (Math.random() < 0.5) s.chars[i] = CHARS[Math.floor(Math.random() * 2)];
           }
         }
+        c.font = `${s.charSize}px 'JetBrains Mono', 'Courier New', monospace`;
+        const spacing = s.charSize + 2;
         for (let i = 0; i < s.length; i++) {
-          const cy = s.y + i * 10;
-          if (cy < 0 || cy > s.buildingTop + 8) continue;
-          const fade = 1 - (i / s.length);
-          const alpha = s.opacity * fade;
-          c.fillStyle = i === 0
-            ? `rgba(180, 255, 255, ${Math.min(alpha * 1.8, 0.6)})`
-            : `rgba(0, 229, 255, ${alpha})`;
+          // i=0 is the leading (bottom/brightest) character
+          const cy = s.y - i * spacing;
+          if (cy < -spacing || cy > s.buildingTop + 8) continue;
+          // Fade: head is brightest, trail fades out
+          const trailFade = 1 - (i / s.length);
+          const alpha = s.opacity * trailFade * trailFade; // quadratic falloff
+          if (alpha < 0.01) continue;
+          if (i === 0) {
+            // Leading character: bright white-cyan glow
+            c.fillStyle = `rgba(220, 255, 255, ${Math.min(s.opacity * 1.6, 0.95)})`;
+            c.shadowColor = "rgba(0, 229, 255, 0.8)";
+            c.shadowBlur = 8;
+          } else if (i <= 2) {
+            // Near-head chars: bright cyan
+            c.fillStyle = `rgba(100, 245, 255, ${Math.min(alpha * 1.4, 0.85)})`;
+            c.shadowColor = "rgba(0, 229, 255, 0.4)";
+            c.shadowBlur = 4;
+          } else {
+            // Trail: fading teal
+            c.fillStyle = `rgba(0, 200, 230, ${alpha})`;
+            c.shadowColor = "transparent";
+            c.shadowBlur = 0;
+          }
           c.fillText(s.chars[i % s.chars.length], s.x, cy);
-          if (Math.random() < 0.04) s.chars[i % s.chars.length] = CHARS[Math.floor(Math.random() * 2)];
+          // Random character mutation for organic feel
+          if (Math.random() < 0.03) s.chars[i % s.chars.length] = CHARS[Math.floor(Math.random() * 2)];
         }
+        c.shadowBlur = 0;
+        c.shadowColor = "transparent";
       }
+      c.textAlign = "start";
 
       // Scan line
       const scanY = (time * 1.2) % (H * 2) - H * 0.3;
