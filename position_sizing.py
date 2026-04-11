@@ -39,7 +39,7 @@ logger = logging.getLogger("position_sizing")
 #  CONSTANTS (absolute guardrails — these are FLOORS/CEILINGS, not targets)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ABSOLUTE_MAX_POSITION_PCT = 0.10   # Never more than 10% of portfolio in one stock
+ABSOLUTE_MAX_POSITION_PCT = 0.08   # Never more than 8% of portfolio in one stock (pro-level: tighter cap)
 ABSOLUTE_MIN_POSITION_PCT = 0.01   # Never less than 1% (not worth the trade)
 ABSOLUTE_MAX_POSITIONS    = 8      # Hard ceiling on total positions
 ABSOLUTE_MAX_PORTFOLIO_HEAT = 0.50 # Never more than 50% of portfolio deployed
@@ -59,36 +59,51 @@ SIZING_HISTORY_PATH = os.path.join(DATA_DIR, "voltrade_sizing_history.json")
 #  A. KELLY CRITERION — How much to bet given edge and confidence
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _kelly_fraction(win_rate: float, avg_win: float, avg_loss: float) -> float:
+def _kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
+                     kelly_divisor: float = 4.0) -> float:
     """
     Modified Kelly Criterion:
       f* = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
-    
+
     Returns fraction of portfolio to risk (0.0 to 1.0).
-    We use HALF-Kelly (f*/2) because full Kelly is too aggressive for
-    real trading — drawdowns are brutal at full Kelly.
+    We use QUARTER-Kelly (f*/4) by default because:
+    - Full Kelly has brutal drawdowns in practice
+    - Half-Kelly is still too aggressive for correlated positions
+    - Quarter-Kelly balances growth with survivability
+
+    The kelly_divisor parameter controls the fraction (4.0 = quarter, 2.0 = half).
     """
     if avg_win <= 0 or avg_loss <= 0:
         return 0.03  # Default 3% when no data
-    
+
     loss_rate = 1.0 - win_rate
     kelly = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
-    
-    # Half-Kelly for safety
-    half_kelly = kelly / 2.0
-    
+
+    # Quarter-Kelly for safety (configurable via kelly_divisor)
+    fractional_kelly = kelly / kelly_divisor
+
     # Clamp to reasonable range
-    return max(0.01, min(half_kelly, ABSOLUTE_MAX_POSITION_PCT))
+    return max(0.01, min(fractional_kelly, ABSOLUTE_MAX_POSITION_PCT))
 
 
 def _get_historical_stats() -> dict:
     """
     Load trade feedback history and compute win rate + avg win/loss.
     Returns stats overall and by strategy type.
+
+    Defaults are derived from 10-year backtest (2016-2026) when live data
+    is insufficient:
+      - stocks: 52.8% WR, avg win $6009, avg loss $4579
+      - csp_options: 74% WR, avg win $975, avg loss $1692
+      - vrp: 80% WR, avg win $9255, avg loss $12743
     """
     default = {
-        "overall": {"win_rate": 0.55, "avg_win": 4.0, "avg_loss": 2.0, "total_trades": 0},
-        "by_strategy": {},
+        "overall": {"win_rate": 0.528, "avg_win": 6009, "avg_loss": 4579, "total_trades": 0},
+        "by_strategy": {
+            "stocks":      {"win_rate": 0.528, "avg_win": 6009, "avg_loss": 4579, "trades": 771},
+            "csp_options": {"win_rate": 0.740, "avg_win": 975, "avg_loss": 1692, "trades": 150},
+            "vrp":         {"win_rate": 0.800, "avg_win": 9255, "avg_loss": 12743, "trades": 30},
+        },
     }
     
     try:
