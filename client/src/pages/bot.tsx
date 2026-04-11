@@ -1360,21 +1360,21 @@ export default function BotDashboard() {
           {/* Daily loss limit */}
           <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="dailyLossLimit">Daily Loss Limit</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#d4a017" }}>−3%</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#d4a017" }}>−{status?.dailyLossLimitPct ?? 5}%</div>
             <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Auto-halts trading if exceeded</div>
           </div>
 
           {/* Max position size */}
           <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="positionSize">Max Position Size</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#00e5ff" }}>5%</div>
-            <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Per trade, of portfolio</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#00e5ff" }}>{status?.maxPositionPct ?? 8}%</div>
+            <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Per trade, of portfolio (Kelly hard cap)</div>
           </div>
 
           {/* Max exposure */}
           <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="totalExposure">Max Exposure</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#a855f7" }}>50%</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#a855f7" }}>{status?.maxExposurePct ?? 80}%</div>
             <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Max portfolio invested</div>
           </div>
         </div>
