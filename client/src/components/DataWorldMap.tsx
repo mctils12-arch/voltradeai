@@ -116,14 +116,12 @@ function getMapViewport(screenW: number, screenH: number): MapViewport {
     offsetX = (screenW - mapW) / 2;
     offsetY = 0;
   } else {
-    // Tall screen (mobile portrait) — scale to fill width,
-    // then scale height to cover the full viewport so there’s no dead space.
-    // This crops the left/right edges slightly but keeps the map
-    // covering the entire background.
-    mapH = screenH;
-    mapW = mapH * MAP_ASPECT;
-    offsetX = (screenW - mapW) / 2; // will be negative, cropping sides
-    offsetY = 0;
+    // Tall screen (mobile portrait) — fit entire map within width,
+    // centered vertically so the whole world is always visible.
+    mapW = screenW;
+    mapH = mapW / MAP_ASPECT;
+    offsetX = 0;
+    offsetY = (screenH - mapH) / 2;
   }
   return { offsetX, offsetY, mapW, mapH };
 }
