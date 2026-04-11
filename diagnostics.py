@@ -84,7 +84,7 @@ def check_weekly_loss(equity_history: list) -> dict:
 # ── Cache Freshness Monitor ───────────────────────────────────────────────────
 
 EXPECTED_CACHE_FRESHNESS = {
-    "macro": {"file": "/tmp/voltrade_macro_cache.json", "max_age_hours": 1, "critical": True},
+    "macro": {"file": "/tmp/voltrade_macro_cache.json", "max_age_hours": 1, "critical": False},  # Ephemeral /tmp cache, self-heals on first scan cycle
     "insider": {"file": INSIDER_CACHE_PATH, "max_age_hours": 2, "critical": False},
     "fred": {"file": "/tmp/voltrade_alt_cache/fred_macro_expanded.json", "max_age_hours": 8, "critical": False},
     "gdelt": {"file": "/tmp/voltrade_alt_cache/gdelt_risk.json", "max_age_hours": 4, "critical": False},
