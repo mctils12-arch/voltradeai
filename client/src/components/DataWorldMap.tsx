@@ -560,7 +560,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         height: "100%",
         zIndex: 0,
         pointerEvents: "none",
-        background: BG,
+        background: "transparent",
       }}
     />
   );
