@@ -19,21 +19,19 @@ from unittest.mock import patch, MagicMock
 class TestDiagnosticsPathResolution(unittest.TestCase):
     """Verify diagnostics checks the correct DATA_DIR paths, not hardcoded /tmp."""
 
-    @patch("diagnostics.os.path.exists")
-    @patch("diagnostics.os.listdir", return_value=[])
-    @patch("diagnostics.DATA_DIR", "/data/voltrade")
-    @patch("diagnostics.INSIDER_CACHE_PATH", "/data/voltrade/voltrade_insider_cache.json")
-    def test_polygon_path_uses_data_dir(self, mock_listdir, mock_exists):
-        """Polygon check should use DATA_DIR, not /tmp."""
-        mock_exists.return_value = False
-
+    def test_polygon_path_uses_tmp(self):
+        """Polygon check should use /tmp/ (where macro_data.py writes the cache)."""
+        import inspect
         from diagnostics import run_diagnostics
-        # We just need to verify the call args include DATA_DIR-based path
-        calls = [str(c) for c in mock_exists.call_args_list]
-        polygon_calls = [c for c in calls if "macro_cache" in c]
-        for c in polygon_calls:
-            self.assertNotIn("/tmp/voltrade_macro_cache.json", c,
-                             "Polygon path should not be hardcoded to /tmp")
+        source = inspect.getsource(run_diagnostics)
+        # The polygon line should reference /tmp/ directly
+        for line in source.split('\n'):
+            if '"polygon"' in line:
+                self.assertIn('/tmp/voltrade_macro_cache.json', line,
+                              "Polygon path should use /tmp/voltrade_macro_cache.json")
+                break
+        else:
+            self.fail("No polygon line found in run_diagnostics")
 
     @patch("diagnostics.os.path.exists")
     @patch("diagnostics.os.listdir", return_value=[])

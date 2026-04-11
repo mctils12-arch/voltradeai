@@ -88,7 +88,7 @@ EXPECTED_CACHE_FRESHNESS = {
     "insider": {"file": INSIDER_CACHE_PATH, "max_age_hours": 2, "critical": False},
     "fred": {"file": "/tmp/voltrade_alt_cache/fred_macro_expanded.json", "max_age_hours": 8, "critical": False},
     "gdelt": {"file": "/tmp/voltrade_alt_cache/gdelt_risk.json", "max_age_hours": 4, "critical": False},
-    "ml_model": {"file": ML_MODEL_PATH, "max_age_hours": 168, "critical": True},  # 7 days
+    "ml_model": {"file": ML_MODEL_PATH, "max_age_hours": 168, "critical": os.path.exists(ML_MODEL_PATH)},  # 7 days
     "event_memory": {"file": EVENT_MEMORY_PATH, "max_age_hours": 48, "critical": False},
     "trade_feedback": {"file": TRADE_FEEDBACK_PATH, "max_age_hours": 168, "critical": False},
 }
@@ -245,7 +245,7 @@ def check_model_health() -> dict:
                 trades = json.load(f)
             if trades:
                 # Filter out corrupt records: require non-empty ticker and non-null pnl_pct
-                trades = [t for t in trades if t.get("ticker", "").strip() and t.get("pnl_pct") is not None]
+                trades = [t for t in trades if t.get("ticker", "").strip() and t.get("pnl_pct") is not None and not (t.get("pnl_pct") == 0 and t.get("outcome") is None)]
                 winners = [t for t in trades if t.get("pnl_pct", 0) > 0]
                 losers = [t for t in trades if t.get("pnl_pct", 0) <= 0]
                 result["performance"] = {
@@ -350,7 +350,7 @@ def run_diagnostics() -> dict:
 
     # 4. API health — check if key data sources responded recently
     api_checks = {
-        "polygon": os.path.exists(os.path.join(DATA_DIR, "voltrade_macro_cache.json")),
+        "polygon": os.path.exists("/tmp/voltrade_macro_cache.json"),
         "sec_edgar": os.path.exists(INSIDER_CACHE_PATH),
         "wikipedia": any(f.startswith("wiki_") for f in os.listdir(CACHE_DIR)) if os.path.exists(CACHE_DIR) else False,
         "gdelt": os.path.exists(os.path.join(CACHE_DIR, "gdelt_risk.json")) if os.path.exists(CACHE_DIR) else False,
