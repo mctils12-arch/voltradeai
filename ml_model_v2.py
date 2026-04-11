@@ -1805,6 +1805,15 @@ def track_fill(order_data: dict) -> None:
         time_placed, time_filled, session, volume, score
     """
     try:
+        # Validate required fields — reject empty/garbage fills
+        raw_ticker = order_data.get("ticker")
+        ticker = str(raw_ticker).strip() if raw_ticker is not None else ""
+        if not ticker:
+            return  # Skip records with no ticker
+        qty = float(order_data.get("qty", 0) or 0)
+        if qty <= 0:
+            return  # Skip records with no quantity
+
         expected   = float(order_data.get("expected_price", 0) or 0)
         fill_price = float(order_data.get("fill_price", expected) or expected)
         slippage   = abs(fill_price - expected) / expected * 100 if expected > 0 else 0.0
@@ -1824,6 +1833,7 @@ def track_fill(order_data: dict) -> None:
             "entry_features": order_data.get("entry_features", {}),
             "outcome":        None,   # filled in later by position close logic
             "pnl_pct":        None,
+            "code_version":   "1.0.34",
         }
 
         # Load ALL existing feedback (unfiltered), append, save (keep last 5000)
