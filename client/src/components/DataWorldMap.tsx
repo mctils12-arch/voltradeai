@@ -288,7 +288,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         toIdx: to,
         t: Math.random(),
         speed: 0.02 + Math.random() * 0.03,
-        size: 1 + Math.random() * 1.5,
+        size: 2 + Math.random() * 2.5,
         opacity: 0.4 + Math.random() * 0.5,
       };
     }
@@ -359,7 +359,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       if (landPolygons.length > 0) {
         ctx!.fillStyle = "rgba(0, 229, 255, 0.08)";
         ctx!.strokeStyle = "rgba(0, 229, 255, 0.3)";
-        ctx!.lineWidth = 0.6;
+        ctx!.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
 
         // Clip to the map viewport with soft inset to hide boundary artifacts
         const clipInset = vp.mapH * 0.02; // 2% fade zone
@@ -488,11 +488,13 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const y = latToY(node.lat, h, vp);
         const isUser = n === USER_NODE_IDX;
 
-        const baseSize = isUser ? 5 : node.primary ? 4 : 2.5;
-        const pulseSize = baseSize + pulseT * 2 * nodeGlow;
+        // Scale node sizes relative to viewport so they're visible on all screens
+        const scale = Math.max(w, h) / 1000;
+        const baseSize = (isUser ? 8 : node.primary ? 6 : 4) * scale;
+        const pulseSize = baseSize + pulseT * 3 * nodeGlow * scale;
 
         // Outer glow
-        const glowR = pulseSize * (isUser ? 4 : 3);
+        const glowR = pulseSize * (isUser ? 5 : 3.5);
         const grd = ctx!.createRadialGradient(x, y, 0, x, y, glowR);
         const glowAlpha = (0.15 + pulseT * 0.15) * nodeGlow;
         if (isUser) {
@@ -512,12 +514,15 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         ctx!.fill();
 
         // Label
-        ctx!.font = isUser ? "bold 9px 'JetBrains Mono', monospace" : "8px 'JetBrains Mono', monospace";
+        const fontSize = Math.max(isUser ? 13 : 10, (isUser ? 14 : 11) * scale);
+        ctx!.font = isUser
+          ? `bold ${fontSize}px 'JetBrains Mono', monospace`
+          : `${fontSize}px 'JetBrains Mono', monospace`;
         ctx!.fillStyle = isUser
-          ? `rgba(255, 51, 51, ${0.6 + pulseT * 0.3})`
-          : `rgba(0, 229, 255, ${0.4 + pulseT * 0.2})`;
+          ? `rgba(255, 51, 51, ${0.7 + pulseT * 0.3})`
+          : `rgba(0, 229, 255, ${0.5 + pulseT * 0.2})`;
         ctx!.textAlign = "center";
-        ctx!.fillText(node.label, x, y + pulseSize + 10);
+        ctx!.fillText(node.label, x, y + pulseSize + fontSize + 2);
       }
 
       // ── Loading center convergence effect ─────────────────────────
@@ -525,7 +530,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const userNode = nodes[USER_NODE_IDX];
         const cx = lonToX(userNode.lon, w, vp);
         const cy = latToY(userNode.lat, h, vp);
-        const pulseRadius = 20 + Math.sin(time * 0.005) * 10;
+        const cScale = Math.max(w, h) / 1000;
+        const pulseRadius = (30 + Math.sin(time * 0.005) * 15) * cScale;
         const grd = ctx!.createRadialGradient(cx, cy, 0, cx, cy, pulseRadius);
         grd.addColorStop(0, "rgba(255, 51, 51, 0.15)");
         grd.addColorStop(1, "rgba(255, 51, 51, 0)");
