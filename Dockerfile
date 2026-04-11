@@ -51,6 +51,9 @@ COPY package.json ./
 # dist/ contains both server bundle (index.cjs) and client (public/)
 COPY --from=builder /app/dist ./dist
 
+# ── Copy landing page (static files served at /) ────────────────
+COPY --from=builder /app/landing ./landing
+
 # ── Copy Python source (needed at runtime) ──────────────────────
 COPY *.py ./
 COPY strategies/ ./strategies/
