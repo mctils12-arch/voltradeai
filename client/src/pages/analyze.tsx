@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+
+const DataWorldMap = lazy(() => import("@/components/DataWorldMap"));
 import {
   Search, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown,
   Activity, BarChart2, Zap, Moon, Sun, RefreshCw, Target, Volume2,
@@ -2064,7 +2066,11 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
   const priceUp = data && data.price_change >= 0;
 
   return (
-    <div>
+    <div style={{ position: "relative", minHeight: "100vh" }}>
+      <Suspense fallback={null}>
+        <DataWorldMap isLoading={isLoading} hasData={!!data && !data.error} ticker={ticker} />
+      </Suspense>
+      <div style={{ position: "relative", zIndex: 1 }}>
 
         {/* Page heading badge */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
@@ -2419,6 +2425,7 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
             </div>
           </div>
         )}
+      </div>
     </div>
   );
 }
