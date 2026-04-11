@@ -357,8 +357,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Draw continent outlines (from real GeoJSON) ──────────────
       const landPolygons = landRef.current;
       if (landPolygons.length > 0) {
-        ctx!.fillStyle = "rgba(0, 229, 255, 0.03)";
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.12)";
+        ctx!.fillStyle = "rgba(0, 229, 255, 0.08)";
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.3)";
         ctx!.lineWidth = 0.6;
 
         // Clip to the map viewport with soft inset to hide boundary artifacts
@@ -415,7 +415,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const x2 = lonToX(to.lon, w, vp);
         const y2 = latToY(to.lat, h, vp);
 
-        const lineAlpha = state === "loading" ? 0.08 : state === "loaded" && inBurst ? 0.1 : 0.04;
+        const lineAlpha = state === "loading" ? 0.2 : state === "loaded" && inBurst ? 0.2 : 0.1;
 
         ctx!.beginPath();
         const mx = (x1 + x2) / 2;
