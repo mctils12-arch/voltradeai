@@ -94,12 +94,45 @@ type LandPolygon = number[][][];
 const LAT_MAX = 80;
 const LAT_MIN = -60;
 
-function lonToX(lon: number, w: number): number {
+// Aspect-ratio-preserving projection.
+// The map's natural ratio is 360 / (LAT_MAX - LAT_MIN).
+// We fit it inside the viewport, centered, so continents never stretch.
+const MAP_ASPECT = 360 / (LAT_MAX - LAT_MIN); // ~2.57
+
+interface MapViewport {
+  offsetX: number;
+  offsetY: number;
+  mapW: number;
+  mapH: number;
+}
+
+function getMapViewport(screenW: number, screenH: number): MapViewport {
+  const screenAspect = screenW / screenH;
+  let mapW: number, mapH: number, offsetX: number, offsetY: number;
+  if (screenAspect > MAP_ASPECT) {
+    // Wide screen — constrained by height
+    mapH = screenH;
+    mapW = mapH * MAP_ASPECT;
+    offsetX = (screenW - mapW) / 2;
+    offsetY = 0;
+  } else {
+    // Tall screen (mobile portrait) — constrained by width
+    mapW = screenW;
+    mapH = mapW / MAP_ASPECT;
+    offsetX = 0;
+    offsetY = (screenH - mapH) / 2;
+  }
+  return { offsetX, offsetY, mapW, mapH };
+}
+
+function lonToX(lon: number, w: number, vp?: MapViewport): number {
+  if (vp) return vp.offsetX + ((lon + 180) / 360) * vp.mapW;
   return ((lon + 180) / 360) * w;
 }
 
-function latToY(lat: number, h: number): number {
+function latToY(lat: number, h: number, vp?: MapViewport): number {
   const clamped = Math.max(LAT_MIN, Math.min(LAT_MAX, lat));
+  if (vp) return vp.offsetY + ((LAT_MAX - clamped) / (LAT_MAX - LAT_MIN)) * vp.mapH;
   return ((LAT_MAX - clamped) / (LAT_MAX - LAT_MIN)) * h;
 }
 
@@ -273,6 +306,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
 
       const w = window.innerWidth;
       const h = window.innerHeight;
+      const vp = getMapViewport(w, h);
       const nodes = allNodesRef.current;
       const connections = connectionsRef.current;
 
@@ -329,9 +363,9 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           if (!outerRing || outerRing.length < 2) continue;
 
           ctx!.beginPath();
-          ctx!.moveTo(lonToX(outerRing[0][0], w), latToY(outerRing[0][1], h));
+          ctx!.moveTo(lonToX(outerRing[0][0], w, vp), latToY(outerRing[0][1], h, vp));
           for (let i = 1; i < outerRing.length; i++) {
-            ctx!.lineTo(lonToX(outerRing[i][0], w), latToY(outerRing[i][1], h));
+            ctx!.lineTo(lonToX(outerRing[i][0], w, vp), latToY(outerRing[i][1], h, vp));
           }
           ctx!.closePath();
           ctx!.fill();
@@ -344,10 +378,10 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         if (fromIdx >= nodes.length || toIdx >= nodes.length) continue;
         const from = nodes[fromIdx];
         const to = nodes[toIdx];
-        const x1 = lonToX(from.lon, w);
-        const y1 = latToY(from.lat, h);
-        const x2 = lonToX(to.lon, w);
-        const y2 = latToY(to.lat, h);
+        const x1 = lonToX(from.lon, w, vp);
+        const y1 = latToY(from.lat, h, vp);
+        const x2 = lonToX(to.lon, w, vp);
+        const y2 = latToY(to.lat, h, vp);
 
         const lineAlpha = state === "loading" ? 0.08 : state === "loaded" && inBurst ? 0.1 : 0.04;
 
@@ -355,7 +389,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2;
         const dx = Math.abs(x2 - x1);
-        const bulge = Math.min(dx * 0.35, w * 0.12);
+        const bulge = Math.min(dx * 0.35, vp.mapW * 0.12);
         ctx!.moveTo(x1, y1);
         ctx!.quadraticCurveTo(mx, my - bulge, x2, y2);
         ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
@@ -377,12 +411,12 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         if (p.fromIdx >= nodes.length || p.toIdx >= nodes.length) continue;
         const from = nodes[p.fromIdx];
         const to = nodes[p.toIdx];
-        const x1 = lonToX(from.lon, w);
-        const y1 = latToY(from.lat, h);
-        const x2 = lonToX(to.lon, w);
-        const y2 = latToY(to.lat, h);
+        const x1 = lonToX(from.lon, w, vp);
+        const y1 = latToY(from.lat, h, vp);
+        const x2 = lonToX(to.lon, w, vp);
+        const y2 = latToY(to.lat, h, vp);
 
-        const pos = arcPoint(x1, y1, x2, y2, p.t, w);
+        const pos = arcPoint(x1, y1, x2, y2, p.t, vp.mapW);
 
         // Glow
         const glowRadius = (p.size + 3) * (state === "loading" ? 1.5 : 1);
@@ -402,8 +436,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Draw burst ripple ─────────────────────────────────────────
       if (inBurst && nodes.length > USER_NODE_IDX) {
         const userNode = nodes[USER_NODE_IDX];
-        const centerX = lonToX(userNode.lon, w);
-        const centerY = latToY(userNode.lat, h);
+        const centerX = lonToX(userNode.lon, w, vp);
+        const centerY = latToY(userNode.lat, h, vp);
         const rippleRadius = burstAge * 400;
         const rippleAlpha = Math.max(0, 0.3 * (1 - burstAge / 1.5));
         ctx!.beginPath();
@@ -418,8 +452,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
 
       for (let n = 0; n < nodes.length; n++) {
         const node = nodes[n];
-        const x = lonToX(node.lon, w);
-        const y = latToY(node.lat, h);
+        const x = lonToX(node.lon, w, vp);
+        const y = latToY(node.lat, h, vp);
         const isUser = n === USER_NODE_IDX;
 
         const baseSize = isUser ? 5 : node.primary ? 4 : 2.5;
@@ -457,8 +491,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Loading center convergence effect ─────────────────────────
       if (state === "loading" && nodes.length > USER_NODE_IDX) {
         const userNode = nodes[USER_NODE_IDX];
-        const cx = lonToX(userNode.lon, w);
-        const cy = latToY(userNode.lat, h);
+        const cx = lonToX(userNode.lon, w, vp);
+        const cy = latToY(userNode.lat, h, vp);
         const pulseRadius = 20 + Math.sin(time * 0.005) * 10;
         const grd = ctx!.createRadialGradient(cx, cy, 0, cx, cy, pulseRadius);
         grd.addColorStop(0, "rgba(255, 51, 51, 0.15)");
