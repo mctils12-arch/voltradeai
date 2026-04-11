@@ -244,6 +244,8 @@ def check_model_health() -> dict:
             with open(feedback_path) as f:
                 trades = json.load(f)
             if trades:
+                # Filter out corrupt records: require non-empty ticker and non-null pnl_pct
+                trades = [t for t in trades if t.get("ticker", "").strip() and t.get("pnl_pct") is not None]
                 winners = [t for t in trades if t.get("pnl_pct", 0) > 0]
                 losers = [t for t in trades if t.get("pnl_pct", 0) <= 0]
                 result["performance"] = {
@@ -348,8 +350,8 @@ def run_diagnostics() -> dict:
 
     # 4. API health — check if key data sources responded recently
     api_checks = {
-        "polygon": os.path.exists("/tmp/voltrade_macro_cache.json"),
-        "sec_edgar": os.path.exists("/tmp/voltrade_insider_cache.json"),
+        "polygon": os.path.exists(os.path.join(DATA_DIR, "voltrade_macro_cache.json")),
+        "sec_edgar": os.path.exists(INSIDER_CACHE_PATH),
         "wikipedia": any(f.startswith("wiki_") for f in os.listdir(CACHE_DIR)) if os.path.exists(CACHE_DIR) else False,
         "gdelt": os.path.exists(os.path.join(CACHE_DIR, "gdelt_risk.json")) if os.path.exists(CACHE_DIR) else False,
         "fred": os.path.exists(os.path.join(CACHE_DIR, "fred_macro_expanded.json")) if os.path.exists(CACHE_DIR) else False,
