@@ -772,6 +772,8 @@ feedback = []
 if os.path.exists(TRADE_FEEDBACK_PATH):
     with open(TRADE_FEEDBACK_PATH) as f: feedback = json.load(f)
 
+# Filter out corrupt records: require non-empty ticker
+feedback = [t for t in feedback if t.get('ticker', '').strip()]
 # Win rate
 wins = [t for t in feedback if t.get('pnl_pct', 0) > 0]
 losses = [t for t in feedback if t.get('pnl_pct', 0) <= 0]
@@ -3222,7 +3224,7 @@ except ImportError:
 if os.path.exists(TRADE_FEEDBACK_PATH):
     with open(TRADE_FEEDBACK_PATH) as f:
         raw = json.load(f)
-    valid = [t for t in raw if t.get('code_version', '') >= '1.0.33']
+    valid = [t for t in raw if t.get('code_version', '') >= '1.0.33' and t.get('ticker', '').strip()]
     removed = len(raw) - len(valid)
     if removed > 0:
         with open(TRADE_FEEDBACK_PATH, 'w') as f:
