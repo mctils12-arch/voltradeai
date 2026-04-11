@@ -1205,7 +1205,7 @@ def manage_positions():
     scale_out_2r = 3.0 if is_bullish else (1.5 if is_bearish else 2.0)
 
     # Tickers managed by other components — do NOT apply stop/TP logic to these
-    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "ITA", "SPY", "GLD", "XOM", "LMT"}
+    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "SPY", "SQQQ", "SPXS"}  # Removed GLD/ITA/XOM/LMT (sector rotation disabled)
 
     for pos in positions:
         ticker = pos.get("symbol", "")
@@ -2066,13 +2066,10 @@ def scan_market():
     except Exception:
         mgmt = {"actions": [], "error": "manage_positions crashed", "upgrade_candidates": []}
 
-    # Step 8: Intraday Shorts (v1.0.28 hybrid v2.1) ───────────────────────────────────
-    # Hybrid v2.1: fixed lookback signals + full universe architecture.
-    try:
-        from intraday_shorts import run_intraday_shorts
-        intraday_short_result = run_intraday_shorts(_macro)
-    except Exception:
-        intraday_short_result = {"actions": [], "status": "error"}
+    # Step 8: Intraday Shorts — DISABLED (pro-level overhaul)
+    # Backtest: -$419K total P&L, 28.5% WR, 419% max DD. Permanently disabled.
+    intraday_short_result = {"actions": [], "status": "disabled_permanently", "enabled": False,
+                             "disabled_reason": "Pro-level overhaul: shorts destroyed value (-$419K over 10yr backtest)"}
 
     # Step 8b: Options Position Manager (pro-grade exit management) ─────────
     # Runs every cycle: DTE exits, 50% profit targets, Greeks monitoring, rolling
@@ -2091,6 +2088,15 @@ def scan_market():
         third_leg_result = _run_third_leg(_macro)
     except Exception:
         third_leg_result = {"actions": [], "status": "error"}
+
+    # Step 9b: Convexity Overlay (pro-level overhaul) ────────────────────────
+    # Permanent tail hedge replacing sector rotation. Budget: 1-2% of equity
+    # annually on inverse ETFs (SQQQ/SPXS). Increases to 3-4% in PANIC/BEAR.
+    convexity_result = {"actions": [], "status": "ok"}
+    try:
+        convexity_result = _run_convexity_overlay(_macro)
+    except Exception as _ce:
+        convexity_result["status"] = f"error: {str(_ce)[:80]}"
 
     # Step 10: Passive SPY Floor (v1.0.29) ──────────────────────────────────
     # Hold passive SPY allocation based on regime. Captures market drift
@@ -2126,6 +2132,7 @@ def scan_market():
             "reasons": s.get("reasons", [])[:2],
         } for s in deep_scored[:10]],
         "third_leg": third_leg_result,
+        "convexity_overlay": convexity_result,
         "intraday_shorts": intraday_short_result,
         "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
@@ -2342,56 +2349,15 @@ def _run_third_leg(macro: dict) -> dict:
                         except Exception as e:
                             _log.debug(f"[LEG3-VRP] Order failed: {e}")
 
-        # ── Leg 3C: Regime-Adaptive Sector Rotation (v1.0.30) ─────────
-        # CRASH (PANIC/BEAR): GLD (gold) — +0.122%/day in bear, near-zero SPY corr
-        # RECOVERY (CAUTION): XOM+LMT — strong cyclical bounce-back
-        # Backtest: 19.8% CAGR (beats SPY by +7.5%), up from 18.4% with fixed XOM+LMT
-        if regime in ("BEAR", "PANIC", "CAUTION"):
-            if regime in ("PANIC", "BEAR"):
-                # Crash hedge: GLD goes UP when SPY crashes
-                sector_assets = BASE_CONFIG.get("LEG3_CRASH_ASSETS", [("GLD", 0.15)])
-            else:
-                # Recovery bounce: XOM+LMT rebound hard after fear normalizes
-                sector_assets = BASE_CONFIG.get("LEG3_RECOVERY_ASSETS", [("ITA", 0.20)])
-            for ssym, alloc_pct in sector_assets:
-                alloc_each = equity * alloc_pct
-                if alloc_each <= 100: continue
-                if ssym in position_syms: continue
-                snap_r = _req.get("https://data.alpaca.markets/v2/stocks/snapshots",
-                    params={"symbols": ssym, "feed": "sip"}, headers=headers, timeout=8)
-                price = float(snap_r.json().get(ssym,{}).get("latestTrade",{}).get("p", 0) or 0)
-                if price > 0:
-                    shares = int(alloc_each / price)
-                    if shares > 0:
-                        order = {
-                            "symbol":       ssym,
-                            "qty":          str(shares),
-                            "side":         "buy",
-                            "type":         "limit",
-                            "limit_price":  str(round(price * 1.001, 2)),
-                            "time_in_force": "day",
-                        }
-                        try:
-                            o = _req.post(f"{base_url}/v2/orders",
-                                          json=order, headers=headers, timeout=10)
-                            actions.append({
-                                "type": "sector_rotation",
-                                "symbol": ssym,
-                                "shares": shares,
-                                "price": price,
-                                "reason": f"{regime} — {'crash hedge (GLD)' if regime in ('PANIC','BEAR') else 'recovery rotation'}",
-                                "regime": regime,
-                                "order_id": o.json().get("id", "?"),
-                            })
-                            _log.info(f"[LEG3-SECTOR] Bought {shares} {ssym} @ {price:.2f} ({regime} rotation)")
-                        except Exception as e:
-                            _log.debug(f"[LEG3-SECTOR] Order failed for {ssym}: {e}")
+        # ── Leg 3C: Sector Rotation — DISABLED (pro-level overhaul) ────
+        # Backtest: -$92K total P&L, 20.7% WR, 124% max DD. Replaced by convexity overlay.
+        # Convexity overlay runs separately via _run_convexity_overlay()
 
-        # ── Exit sector positions when regime recovers ─────────────────
+        # ── Exit VRP + legacy sector positions when regime recovers ────
         if regime in ("NEUTRAL", "BULL"):
             for pos in positions_raw:
                 sym = pos.get("symbol", "")
-                if sym in ("ITA", "SVXY", "GLD", "XOM", "LMT"):  # Exit third-leg + legacy positions when regime normalizes
+                if sym in ("SVXY", "ITA", "GLD", "XOM", "LMT"):  # Exit VRP + any legacy sector positions
                     qty = pos.get("qty", "0")
                     try:
                         o = _req.post(f"{base_url}/v2/orders",
@@ -2423,6 +2389,135 @@ def _run_third_leg(macro: dict) -> dict:
 
 
 # ── Entry Point ──────────────────────────────────────────────────────────────
+
+# ── Convexity Overlay (pro-level overhaul) ────────────────────────────────────
+
+def _run_convexity_overlay(macro: dict) -> dict:
+    """
+    Permanent tail hedge replacing sector rotation.
+
+    Strategy:
+    - Budget: 1-2% of portfolio annually on inverse ETFs (SQQQ or SPXS)
+      as a proxy for deep OTM SPX puts (Alpaca paper doesn't support SPX options).
+    - In PANIC/BEAR regime, increase budget to 3-4% of portfolio.
+    - Roll monthly: check existing positions, top up if needed.
+
+    Why inverse ETFs: SQQQ (-3x QQQ) and SPXS (-3x SPY) provide convexity —
+    they go up dramatically during crashes, providing the tail protection
+    that GLD sector rotation failed to deliver.
+
+    Position sizing: small persistent position that pays off huge in crashes.
+    The annual drag is 1-2% (cost of insurance), but the payoff in a crash
+    is 50-200%+ on the hedge position.
+    """
+    actions = []
+    import logging as _logging
+    _log = _logging.getLogger("voltrade.convexity")
+
+    try:
+        from system_config import BASE_CONFIG, get_market_regime
+        import requests as _req
+
+        vxx_ratio      = float(macro.get("vxx_ratio", 1.0) or 1.0)
+        spy_vs_ma50    = float(macro.get("spy_vs_ma50", 1.0) or 1.0)
+        spy_b200       = int(macro.get("spy_below_200_days", 0) or 0)
+        spy_above_200d = bool(macro.get("spy_above_200d", True))
+        regime = get_market_regime(vxx_ratio, spy_vs_ma50,
+                                   spy_below_200_days=spy_b200,
+                                   spy_above_200d=spy_above_200d)
+
+        base_url = ALPACA_BASE_URL
+        headers  = _alpaca_headers()
+
+        # Fetch account equity and existing positions
+        acc_r = _req.get(f"{base_url}/v2/account", headers=headers, timeout=8)
+        acc   = acc_r.json()
+        equity = float(acc.get("equity", 100_000) or 100_000)
+
+        pos_r = _req.get(f"{base_url}/v2/positions", headers=headers, timeout=8)
+        positions_raw = pos_r.json() if isinstance(pos_r.json(), list) else []
+        position_syms = {p["symbol"]: p for p in positions_raw}
+
+        # Check open orders to avoid duplicates
+        try:
+            open_orders = _req.get(f"{base_url}/v2/orders",
+                params={"status": "open", "limit": 50}, headers=headers, timeout=8).json()
+            pending_syms = set()
+            if isinstance(open_orders, list):
+                for oo in open_orders:
+                    pending_syms.add(oo.get("symbol", ""))
+        except Exception:
+            pending_syms = set()
+
+        # Determine hedge budget based on regime
+        convexity_cfg = BASE_CONFIG.get("CONVEXITY_OVERLAY", {})
+        normal_budget_pct = convexity_cfg.get("normal_budget_pct", 0.015)   # 1.5% normally
+        stress_budget_pct = convexity_cfg.get("stress_budget_pct", 0.035)   # 3.5% in stress
+        hedge_ticker      = convexity_cfg.get("hedge_ticker", "SQQQ")       # -3x QQQ
+
+        if regime in ("PANIC", "BEAR"):
+            budget_pct = stress_budget_pct
+        elif regime == "CAUTION":
+            budget_pct = (normal_budget_pct + stress_budget_pct) / 2  # 2.5%
+        else:
+            budget_pct = normal_budget_pct
+
+        target_value = equity * budget_pct
+        current_value = abs(float(position_syms.get(hedge_ticker, {}).get("market_value", 0) or 0))
+
+        # Only rebalance if position is >30% off target (avoid churn)
+        if target_value > 100 and abs(current_value - target_value) > target_value * 0.3:
+            if hedge_ticker not in pending_syms:
+                # Get current price
+                snap_r = _req.get(f"https://data.alpaca.markets/v2/stocks/snapshots",
+                    params={"symbols": hedge_ticker, "feed": "sip"}, headers=headers, timeout=8)
+                price = float(snap_r.json().get(hedge_ticker, {}).get("latestTrade", {}).get("p", 0) or 0)
+                if price > 0:
+                    target_shares = int(target_value / price)
+                    current_shares = abs(int(float(position_syms.get(hedge_ticker, {}).get("qty", 0) or 0)))
+                    delta_shares = target_shares - current_shares
+
+                    if delta_shares != 0 and abs(delta_shares) >= 1:
+                        side = "buy" if delta_shares > 0 else "sell"
+                        order = {
+                            "symbol":       hedge_ticker,
+                            "qty":          str(abs(delta_shares)),
+                            "side":         side,
+                            "type":         "limit",
+                            "limit_price":  str(round(price * (1.002 if side == "buy" else 0.998), 2)),
+                            "time_in_force": "day",
+                        }
+                        try:
+                            o = _req.post(f"{base_url}/v2/orders",
+                                          json=order, headers=headers, timeout=10)
+                            actions.append({
+                                "type": "convexity_overlay",
+                                "symbol": hedge_ticker,
+                                "shares": abs(delta_shares),
+                                "side": side,
+                                "price": price,
+                                "target_pct": round(budget_pct * 100, 1),
+                                "reason": f"Convexity hedge: {side} {abs(delta_shares)} {hedge_ticker} ({regime}, budget={budget_pct:.1%})",
+                                "regime": regime,
+                                "order_id": o.json().get("id", "?"),
+                            })
+                            _log.info(f"[CONVEXITY] {side.upper()} {abs(delta_shares)} {hedge_ticker} @ {price:.2f} "
+                                      f"(regime={regime}, budget={budget_pct:.1%})")
+                        except Exception as e:
+                            _log.debug(f"[CONVEXITY] Order failed: {e}")
+
+    except Exception as e:
+        _log.debug(f"[CONVEXITY] Error: {e}")
+        return {"actions": actions, "status": "error", "error": str(e)[:100]}
+
+    return {
+        "actions": actions,
+        "status": "ok",
+        "regime": regime if 'regime' in locals() else "unknown",
+        "budget_pct": round(budget_pct * 100, 2) if 'budget_pct' in locals() else 0,
+        "hedge_ticker": hedge_ticker if 'hedge_ticker' in locals() else "SQQQ",
+    }
+
 
 # ── Passive SPY Floor (v1.0.29) ──────────────────────────────────────────────
 
@@ -2473,9 +2568,57 @@ def _manage_spy_floor(macro: dict) -> dict:
         floor_ticker = BASE_CONFIG.get("FLOOR_TICKER", "QQQ")
         floor_key = f"SPY_FLOOR_{regime}"
         target_pct = BASE_CONFIG.get(floor_key, 0)
+
+        # ── Aggressive trend-following exit (pro-level overhaul) ─────────
+        # Override regime-based allocation with trend signal when QQQ is
+        # below its 200-day MA. This catches bear markets FASTER than regime
+        # detection alone (which waits for VXX ratio to spike).
+        #
+        # Death cross (50d MA < 200d MA AND price < 200d): MAX 20% QQQ
+        # Early warning (price < 200d MA, 50d still above): MAX 50% QQQ
+        # Normal: use regime-based allocation
+        trend_override = None
+        try:
+            # Fetch QQQ price and MAs from macro data or compute
+            _qqq_ma50 = float(macro.get("qqq_ma50", 0) or 0)
+            _qqq_ma200 = float(macro.get("qqq_ma200", 0) or 0)
+            _qqq_price = float(macro.get("qqq_price", 0) or 0)
+
+            # If macro doesn't have QQQ MAs, compute from Alpaca bars
+            if _qqq_ma50 <= 0 or _qqq_ma200 <= 0 or _qqq_price <= 0:
+                _qqq_bars_resp = requests.get(
+                    f"{ALPACA_DATA_URL}/v2/stocks/{floor_ticker}/bars",
+                    params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": "sip"},
+                    headers=_alpaca_headers(), timeout=10)
+                _qqq_bars = _qqq_bars_resp.json().get("bars", [])
+                if len(_qqq_bars) >= 200:
+                    _qqq_closes = [float(b["c"]) for b in _qqq_bars]
+                    _qqq_price = _qqq_closes[-1]
+                    _qqq_ma50 = sum(_qqq_closes[-50:]) / 50
+                    _qqq_ma200 = sum(_qqq_closes[-200:]) / 200
+
+            if _qqq_price > 0 and _qqq_ma200 > 0:
+                _below_200d = _qqq_price < _qqq_ma200
+                _death_cross = _qqq_ma50 > 0 and _qqq_ma50 < _qqq_ma200
+
+                if _below_200d and _death_cross:
+                    # Death cross: most aggressive reduction
+                    trend_cap = BASE_CONFIG.get("TREND_EXIT_DEATH_CROSS_CAP", 0.20)
+                    target_pct = min(target_pct, trend_cap)
+                    trend_override = f"death_cross (50d={_qqq_ma50:.0f} < 200d={_qqq_ma200:.0f}, price={_qqq_price:.0f})"
+                elif _below_200d:
+                    # Early warning: price below 200d but 50d still above
+                    trend_cap = BASE_CONFIG.get("TREND_EXIT_EARLY_WARNING_CAP", 0.50)
+                    target_pct = min(target_pct, trend_cap)
+                    trend_override = f"early_warning (price={_qqq_price:.0f} < 200d={_qqq_ma200:.0f})"
+        except Exception:
+            pass  # Trend data unavailable — use regime-based allocation
+
         result["target_pct"] = target_pct
         result["regime"] = regime
         result["floor_ticker"] = floor_ticker
+        if trend_override:
+            result["trend_override"] = trend_override
 
         if target_pct <= 0:
             # No floor — sell any existing position (only on regime change to 0%)

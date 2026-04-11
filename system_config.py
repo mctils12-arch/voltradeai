@@ -72,16 +72,17 @@ BASE_CONFIG = {
     "MAX_CHANGE_PCT":       35.0,  # Skip stocks already up/down 35%+ (easy money gone)
     "MAX_SPREAD_PCT":       0.5,   # Skip if bid-ask spread > 0.5% (execution risk)
 
-    # ── POSITION SIZING ────────────────────────────────────────────────────────
-    # Kelly criterion determines optimal size. These are the hard limits.
-    "MAX_POSITION_PCT":     0.15,  # Never more than 15% in one position
-    "MIN_POSITION_PCT":     0.04,  # Never less than 4% (not worth friction)
+    # ── POSITION SIZING (pro-level: quarter-Kelly) ───────────────────────────
+    # Quarter-Kelly criterion determines optimal size. These are the hard limits.
+    "MAX_POSITION_PCT":     0.08,  # Never more than 8% in one position (pro: tighter cap)
+    "MIN_POSITION_PCT":     0.02,  # Never less than 2% (not worth friction)
     "MAX_TOTAL_EXPOSURE":   0.80,  # Never more than 80% of portfolio invested
     "MAX_TOTAL_CAPITAL_PCT": 1.00,  # Never deploy more than 100% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open positions
     "MAX_OPTIONS_PCT":      0.10,  # Max 10% per options position
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
+    "KELLY_DIVISOR":        4.0,   # Quarter-Kelly: divide full Kelly by 4 for safety
 
     # ── PASSIVE SPY FLOOR (v1.0.29) ────────────────────────────────────
     # Problem: in calm bull years (2017, 2019, 2023) momentum signals don't work.
@@ -124,13 +125,30 @@ BASE_CONFIG = {
     #   During CRASHES (PANIC/BEAR): hold GLD (gold) — +0.122%/day in bear, near-zero SPY corr
     #   During RECOVERY (CAUTION): hold XOM+LMT — strong cyclical bounce-back
     #   Backtest: 19.8% CAGR, beats SPY by +7.5% (vs 18.4% with fixed XOM+LMT)
-    # Crash: GLD (gold ETF) — goes UP during crashes (+0.122%/day, near-zero SPY corr)
-    # Recovery: ITA (iShares US Aerospace & Defense ETF, 35 companies) — strong bounce-back
-    #   Why ETFs not stocks: single stock risk (bad quarter, buyout, split) eliminated
-    #   ITA holds LMT, RTX, NOC, GD, BA, HII, etc. — diversified defense exposure
-    #   Backtest: ITA beats XOM+LMT combo (20.3% vs 20.0% CAGR, 0.911 vs 0.906 Sharpe)
-    "LEG3_CRASH_ASSETS":   [("GLD", 0.15)],      # Gold ETF 15% during PANIC/BEAR
-    "LEG3_RECOVERY_ASSETS": [("ITA", 0.20)],      # Defense ETF 20% during CAUTION
+    # Sector rotation DISABLED — replaced by convexity overlay.
+    # Backtest: sector rotation lost $92K over 10 years (20.7% WR, 124% max DD).
+    # Legacy config kept for reference:
+    "LEG3_CRASH_ASSETS":   [],      # DISABLED: was [("GLD", 0.15)]
+    "LEG3_RECOVERY_ASSETS": [],     # DISABLED: was [("ITA", 0.20)]
+
+    # ── CONVEXITY OVERLAY (pro-level: replaces sector rotation) ──────
+    # Permanent tail hedge using inverse ETFs (proxy for deep OTM SPX puts).
+    # Annual drag: ~1-2% (cost of insurance). Payoff in crashes: 50-200%+.
+    # Budget scales with regime: 1.5% normal, 3.5% in stress.
+    "CONVEXITY_OVERLAY": {
+        "enabled":           True,
+        "hedge_ticker":      "SQQQ",    # -3x QQQ (proxy for deep OTM puts)
+        "normal_budget_pct": 0.015,      # 1.5% of equity normally
+        "stress_budget_pct": 0.035,      # 3.5% in PANIC/BEAR
+        "rebalance_threshold": 0.30,     # Rebalance when >30% off target
+    },
+
+    # ── AGGRESSIVE TREND EXITS (pro-level) ────────────────────────────
+    # Override QQQ floor allocation when trend signals fire.
+    # Death cross (50d < 200d MA AND price < 200d): cap at 20%
+    # Early warning (price < 200d, 50d still above): cap at 50%
+    "TREND_EXIT_DEATH_CROSS_CAP":  0.20,  # Max 20% QQQ on death cross
+    "TREND_EXIT_EARLY_WARNING_CAP": 0.50, # Max 50% QQQ on early warning
 
     # ── STOP LOSS & TAKE PROFIT ────────────────────────────────────────────────
     # v1.0.23 optimized values (324-combo backtest, best risk-adjusted vs SPY):

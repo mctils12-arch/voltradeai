@@ -74,6 +74,37 @@ QQQ_FLOOR_ALLOC = {
     "PANIC":   0.00,
 }
 
+# ── PRO MODE: Kelly Criterion position sizing ────────────────────────────────
+# Quarter-Kelly fractions derived from 10-year backtest statistics
+KELLY_DIVISOR = 4.0  # Quarter-Kelly
+
+def kelly_fraction(win_rate, avg_win, avg_loss, divisor=KELLY_DIVISOR):
+    """
+    Calculate fractional Kelly position size.
+    f* = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
+    Then divide by divisor (4 = quarter-Kelly).
+    """
+    if avg_win <= 0 or avg_loss <= 0:
+        return 0.03
+    loss_rate = 1.0 - win_rate
+    kelly = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
+    return max(0.01, min(kelly / divisor, 0.08))  # Cap at 8%
+
+# Pre-computed Kelly fractions for each strategy type (from backtest stats)
+KELLY_FRACTIONS = {
+    "stocks":  kelly_fraction(0.528, 6009, 4579),    # ~52.8% WR
+    "options": kelly_fraction(0.740, 975, 1692),      # ~74% WR (CSP)
+    "vrp":     kelly_fraction(0.800, 9255, 12743),    # ~80% WR
+}
+
+# Convexity overlay: annual budget as fraction of equity
+CONVEXITY_NORMAL_PCT = 0.015     # 1.5% of equity normally
+CONVEXITY_STRESS_PCT = 0.035     # 3.5% in PANIC/BEAR
+
+# Aggressive trend exit caps for QQQ floor
+TREND_EXIT_DEATH_CROSS_CAP = 0.20   # Max 20% QQQ on death cross
+TREND_EXIT_EARLY_WARNING_CAP = 0.50 # Max 50% QQQ on early warning
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA DOWNLOAD & CACHE
@@ -178,15 +209,28 @@ def get_regime(vxx_ratio, spy_vs_ma50, spy_below_200_days=0):
     return "NEUTRAL"
 
 
-def get_adaptive_params(regime):
+def get_adaptive_params(regime, pro=False):
     """Regime-adaptive position parameters — matched to production system_config.py."""
-    params = {
-        "PANIC":   {"max_pos": 0, "min_score": 75, "size_pct": 0.06, "tp": 0.12, "sl": 0.05, "hold": 3},
-        "BEAR":    {"max_pos": 0, "min_score": 75, "size_pct": 0.08, "tp": 0.12, "sl": 0.05, "hold": 5},
-        "CAUTION": {"max_pos": 4, "min_score": 67, "size_pct": 0.10, "tp": 0.12, "sl": 0.06, "hold": 10},
-        "BULL":    {"max_pos": 8, "min_score": 63, "size_pct": 0.15, "tp": 0.12, "sl": 0.06, "hold": 10},
-        "NEUTRAL": {"max_pos": 0, "min_score": 75, "size_pct": 0.12, "tp": 0.12, "sl": 0.06, "hold": 10},
-    }
+    if pro:
+        # PRO mode: Kelly-based sizing scaled by regime conviction.
+        # Full Kelly (~16.8%) in BULL (close to baseline 15%), scaled down in weaker regimes.
+        # NEUTRAL trading with tight filters → compound more capital while limiting DD.
+        kf_full = KELLY_FRACTIONS.get("stocks", 0.04) * 4  # full Kelly (undo quarter)
+        params = {
+            "PANIC":   {"max_pos": 0, "min_score": 75, "size_pct": kf_full * 0.25, "tp": 0.12, "sl": 0.04, "hold": 3},
+            "BEAR":    {"max_pos": 0, "min_score": 75, "size_pct": kf_full * 0.30, "tp": 0.12, "sl": 0.04, "hold": 5},
+            "CAUTION": {"max_pos": 4, "min_score": 67, "size_pct": kf_full * 0.45, "tp": 0.12, "sl": 0.05, "hold": 8},
+            "BULL":    {"max_pos": 10,"min_score": 60, "size_pct": kf_full,         "tp": 0.12, "sl": 0.06, "hold": 10},
+            "NEUTRAL": {"max_pos": 4, "min_score": 70, "size_pct": kf_full * 0.35, "tp": 0.12, "sl": 0.05, "hold": 8},
+        }
+    else:
+        params = {
+            "PANIC":   {"max_pos": 0, "min_score": 75, "size_pct": 0.06, "tp": 0.12, "sl": 0.05, "hold": 3},
+            "BEAR":    {"max_pos": 0, "min_score": 75, "size_pct": 0.08, "tp": 0.12, "sl": 0.05, "hold": 5},
+            "CAUTION": {"max_pos": 4, "min_score": 67, "size_pct": 0.10, "tp": 0.12, "sl": 0.06, "hold": 10},
+            "BULL":    {"max_pos": 8, "min_score": 63, "size_pct": 0.15, "tp": 0.12, "sl": 0.06, "hold": 10},
+            "NEUTRAL": {"max_pos": 0, "min_score": 75, "size_pct": 0.12, "tp": 0.12, "sl": 0.06, "hold": 10},
+        }
     return params.get(regime, params["NEUTRAL"])
 
 
@@ -490,6 +534,7 @@ class BacktestEngine:
 
     def __init__(self, mode="all"):
         self.mode = mode
+        self.is_pro = (mode == "pro")
         self.equity = INITIAL_EQUITY
         self.peak_equity = INITIAL_EQUITY
 
@@ -497,10 +542,11 @@ class BacktestEngine:
         self.trackers = {
             "stocks":  ComponentTracker("Stock Picking"),
             "vrp":     ComponentTracker("VRP / SVXY"),
-            "sector":  ComponentTracker("Sector Rotation"),
-            "qqq":     ComponentTracker("QQQ Floor"),
-            "shorts":  ComponentTracker("Intraday Shorts"),
-            "options": ComponentTracker("Options (Simulated)"),
+            "sector":    ComponentTracker("Sector Rotation"),
+            "qqq":       ComponentTracker("QQQ Floor"),
+            "shorts":    ComponentTracker("Intraday Shorts"),
+            "options":   ComponentTracker("Options (Simulated)"),
+            "convexity": ComponentTracker("Convexity Overlay"),
         }
 
         # Active positions
@@ -514,6 +560,11 @@ class BacktestEngine:
         self.qqq_shares = 0
         self.qqq_entry_price = 0
 
+        # Convexity overlay state (PRO mode)
+        self.convexity_shares = 0
+        self.convexity_entry_price = 0
+        self.convexity_last_rebalance = 0  # Index of last rebalance
+
         # Regime tracking
         self.regime_history = []
         self.spy_below_200_count = 0
@@ -524,11 +575,14 @@ class BacktestEngine:
     def enabled(self, component):
         """Check if a component is enabled in current mode."""
         if self.mode == "all":
-            return True
-        if self.mode == "no-options":
-            return component != "options"
-        if self.mode == "no-shorts-no-sector":
+            return component != "convexity"  # convexity only in pro mode
+        if self.mode == "pro":
+            # PRO mode: no shorts, no sector rotation, add convexity
             return component not in ("shorts", "sector")
+        if self.mode == "no-options":
+            return component not in ("options", "convexity")
+        if self.mode == "no-shorts-no-sector":
+            return component not in ("shorts", "sector", "convexity")
         mode_map = {
             "stocks-only":  "stocks",
             "vrp-only":     "vrp",
@@ -685,6 +739,12 @@ class BacktestEngine:
                 self.trackers["options"].record_daily(date, pnl)
                 daily_total_pnl += pnl
 
+            # ── 7. CONVEXITY OVERLAY (PRO mode only) ─────────────────
+            if self.enabled("convexity"):
+                pnl = self._run_convexity(i, dates, regime, spy_close)
+                self.trackers["convexity"].record_daily(date, pnl)
+                daily_total_pnl += pnl
+
             # Update total equity
             self.equity += daily_total_pnl
             if self.equity > self.peak_equity:
@@ -716,7 +776,7 @@ class BacktestEngine:
     def _run_stocks(self, idx, dates, regime, stock_data, spy_close, spy_open):
         """Run stock picking logic for one day. Returns daily P&L."""
         pnl = 0.0
-        params = get_adaptive_params(regime)
+        params = get_adaptive_params(regime, pro=self.is_pro)
         date = dates[idx]
 
         # Check exits on existing positions (use next-day open for execution)
@@ -787,7 +847,7 @@ class BacktestEngine:
                 else:
                     continue
 
-                # Position sizing
+                # Position sizing — equity-based (PRO uses Kelly-derived size_pct from regime params)
                 alloc = self.equity * params["size_pct"]
                 shares = int(alloc / entry_price)
                 if shares <= 0:
@@ -884,8 +944,12 @@ class BacktestEngine:
                     vxx_declining = vix_close[idx] < vix_close[idx - 5]
 
             if vxx_declining:
-                # Allocation: 15% normal, 30% when VIX 25-40 (higher risk = higher alloc)
-                if current_vix >= 25:
+                # Allocation: PRO mode uses Kelly fraction for VRP
+                if self.is_pro:
+                    vrp_alloc_pct = KELLY_FRACTIONS.get("vrp", 0.03)
+                    if current_vix >= 25:
+                        vrp_alloc_pct = min(vrp_alloc_pct * 2, 0.15)
+                elif current_vix >= 25:
                     vrp_alloc_pct = 0.30
                 else:
                     vrp_alloc_pct = 0.15
@@ -1023,6 +1087,10 @@ class BacktestEngine:
         """
         Passive QQQ allocation in NEUTRAL/BULL regimes.
         BULL: 70%, NEUTRAL: 90%, CAUTION: 35%, BEAR/PANIC: 0%
+
+        PRO MODE: Aggressive trend exits override regime allocation:
+        - Death cross (50d < 200d MA AND price < 200d): cap at 20%
+        - Early warning (price < 200d, 50d still above): cap at 50%
         """
         if qqq_close is None:
             return 0.0
@@ -1030,6 +1098,18 @@ class BacktestEngine:
         pnl = 0.0
         target_alloc = QQQ_FLOOR_ALLOC.get(regime, 0.0)
         current_qqq_price = qqq_close[idx]
+
+        # PRO mode: aggressive trend-following exits
+        if self.is_pro and idx >= 200:
+            qqq_ma50 = np.mean(qqq_close[max(0, idx - 50):idx])
+            qqq_ma200 = np.mean(qqq_close[max(0, idx - 200):idx])
+            if qqq_ma50 > 0 and qqq_ma200 > 0 and current_qqq_price > 0:
+                below_200d = current_qqq_price < qqq_ma200
+                death_cross = qqq_ma50 < qqq_ma200
+                if below_200d and death_cross:
+                    target_alloc = min(target_alloc, TREND_EXIT_DEATH_CROSS_CAP)
+                elif below_200d:
+                    target_alloc = min(target_alloc, TREND_EXIT_EARLY_WARNING_CAP)
         if np.isnan(current_qqq_price) or current_qqq_price <= 0:
             return 0.0
 
@@ -1061,6 +1141,66 @@ class BacktestEngine:
             if not np.isnan(yest_price) and yest_price > 0:
                 daily_ret = (current_qqq_price - yest_price) / yest_price
                 pnl += self.qqq_shares * yest_price * daily_ret
+
+        return pnl
+
+    # ─── COMPONENT: Convexity Overlay (PRO mode) ────────────────────
+    def _run_convexity(self, idx, dates, regime, spy_close):
+        """
+        Simulated convexity overlay using inverse ETF proxy (SQQQ -3x QQQ).
+
+        Strategy:
+        - Hold a small permanent position in SQQQ as tail hedge
+        - Normal budget: 1.5% of equity, Stress (PANIC/BEAR): 3.5%
+        - Rebalance monthly (every 21 trading days)
+        - SQQQ returns approximately -3x SPY daily return (simplified simulation)
+
+        Since we don't have SQQQ data in the backtest, we simulate it as -3x SPY.
+        The annual drag is the cost of insurance; the payoff comes in crashes.
+        """
+        pnl = 0.0
+
+        # Determine budget
+        if regime in ("PANIC", "BEAR"):
+            budget_pct = CONVEXITY_STRESS_PCT
+        elif regime == "CAUTION":
+            budget_pct = (CONVEXITY_NORMAL_PCT + CONVEXITY_STRESS_PCT) / 2
+        else:
+            budget_pct = CONVEXITY_NORMAL_PCT
+
+        # Monthly rebalance (every 21 trading days)
+        days_since_rebalance = idx - self.convexity_last_rebalance
+        if days_since_rebalance >= 21 or self.convexity_shares == 0:
+            target_value = self.equity * budget_pct
+            # SQQQ is ~$10-50 range historically; use SPY price / 10 as proxy
+            proxy_price = spy_close[idx] / 10.0 if spy_close[idx] > 0 else 50.0
+            target_shares = int(target_value / proxy_price)
+
+            if target_shares != self.convexity_shares:
+                delta = target_shares - self.convexity_shares
+                # Slippage on rebalance
+                slippage_cost = abs(delta) * proxy_price * SLIPPAGE_PCT
+                pnl -= slippage_cost
+                self.convexity_shares = target_shares
+                self.convexity_entry_price = proxy_price
+                self.convexity_last_rebalance = idx
+
+        # Daily P&L: SQQQ ≈ -3x SPY daily return
+        if self.convexity_shares > 0 and idx > 0 and spy_close[idx - 1] > 0:
+            spy_daily_ret = (spy_close[idx] - spy_close[idx - 1]) / spy_close[idx - 1]
+            sqqq_daily_ret = -3.0 * spy_daily_ret
+            proxy_price = spy_close[idx] / 10.0 if spy_close[idx] > 0 else 50.0
+            pnl += self.convexity_shares * proxy_price * sqqq_daily_ret
+
+            # Record trade on monthly rebalance for tracking
+            if days_since_rebalance >= 21:
+                self.trackers["convexity"].record_trade({
+                    "type": "convexity_rebalance",
+                    "pnl": pnl,
+                    "regime": regime,
+                    "budget_pct": budget_pct,
+                    "shares": self.convexity_shares,
+                })
 
         return pnl
 
@@ -1186,7 +1326,10 @@ class BacktestEngine:
             return 0.0  # Low IV — options premium not worth it
 
         # Cap allocation
-        options_alloc = self.equity * OPTIONS_MAX_EQUITY_PCT
+        if self.is_pro:
+            options_alloc = self.equity * KELLY_FRACTIONS.get("options", 0.02)
+        else:
+            options_alloc = self.equity * OPTIONS_MAX_EQUITY_PCT
 
         # Pick top-scoring stock for CSP (use highest quick_score)
         best_sym = None
@@ -1460,12 +1603,13 @@ def main():
     group.add_argument("--options-only", action="store_true", help="Just options simulation")
     group.add_argument("--no-options", action="store_true", help="Everything except options")
     group.add_argument("--no-shorts-no-sector", action="store_true", help="Everything except intraday shorts and sector rotation")
+    group.add_argument("--pro", action="store_true", help="PRO mode: Kelly sizing, convexity overlay, trend exits, no shorts/sector")
 
     args = parser.parse_args()
 
     # Determine mode
     mode = "all"
-    for m in ["all", "stocks_only", "vrp_only", "etf_only", "shorts_only", "options_only", "no_options", "no_shorts_no_sector"]:
+    for m in ["all", "stocks_only", "vrp_only", "etf_only", "shorts_only", "options_only", "no_options", "no_shorts_no_sector", "pro"]:
         if getattr(args, m, False):
             mode = m.replace("_", "-")
             break

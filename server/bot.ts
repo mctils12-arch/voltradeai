@@ -1720,7 +1720,7 @@ print(json.dumps(check_weekly_loss(history)))
     const held = Array.isArray(positions) ? positions.map((p: any) => p.symbol) : [];
     // Count stock and options positions separately
     // Exclude floor + third-leg positions from active trading heat check.
-    const MANAGED_TICKERS = new Set(["QQQ", "GLD", "ITA", "SVXY", "SPY", "XOM", "LMT"]);
+    const MANAGED_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SQQQ", "SPXS"]);  // Removed GLD/ITA/XOM/LMT (sector rotation disabled)
     const stockPositions = Array.isArray(positions)
       ? positions.filter((p: any) => (p.asset_class || "us_equity") === "us_equity").length
       : held.length;
@@ -2492,7 +2492,7 @@ except: print('{}')
         stopState = JSON.parse(stdout.trim());
       } catch (_) {}
 
-      const MANAGED_TICKERS = new Set(["QQQ", "SVXY", "ITA", "SPY", "GLD", "XOM", "LMT"]);
+      const MANAGED_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SQQQ", "SPXS"]);  // Removed GLD/ITA/XOM/LMT (sector rotation disabled)
       const activeTickers = new Set<string>();
 
       for (const pos of positions) {
