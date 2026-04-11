@@ -113,9 +113,9 @@
     const canvas = document.getElementById('equityCurve');
     if (!canvas || typeof Chart === 'undefined') return;
 
-    const labels = ['2013','2014','2015','2016','2017','2018','2019','2020','2021','2022','2023','2024'];
-    const volData = [100000,139349,173893,247743,407059,382635,692361,1151996,2000626,1872435,2998651,4677519];
-    const spyData = [100000,113460,114856,128638,156566,149411,196057,231994,298645,244352,308323,385065];
+    const labels = ['2014','2015','2016','2017','2018','2019','2020','2021','2022','2023','2024','2025'];
+    const volData = [100000,127109,182757,304658,286378,513200,844814,1452322,1361831,2156674,3325554,4677519];
+    const spyData = [100000,101230,113378,137992,131686,172798,204472,263217,215364,271746,339384,399522];
 
     const style = getComputedStyle(document.documentElement);
     const primary = style.getPropertyValue('--color-primary').trim();
@@ -138,21 +138,6 @@
         labels: labels,
         datasets: [
           {
-            label: 'VolTradeAI',
-            data: volData,
-            borderColor: primary,
-            backgroundColor: gradient,
-            borderWidth: 2.5,
-            fill: true,
-            tension: 0.35,
-            pointRadius: 4,
-            pointHoverRadius: 6,
-            pointBackgroundColor: primary,
-            pointBorderColor: 'transparent',
-            pointHoverBorderColor: primary,
-            pointHoverBorderWidth: 2,
-          },
-          {
             label: 'SPY',
             data: spyData,
             borderColor: muted,
@@ -166,6 +151,21 @@
             pointBackgroundColor: muted,
             pointBorderColor: 'transparent',
             pointHoverBorderColor: muted,
+            pointHoverBorderWidth: 2,
+          },
+          {
+            label: 'VolTradeAI',
+            data: volData,
+            borderColor: primary,
+            backgroundColor: gradient,
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointBackgroundColor: primary,
+            pointBorderColor: 'transparent',
+            pointHoverBorderColor: primary,
             pointHoverBorderWidth: 2,
           }
         ]
@@ -191,7 +191,7 @@
             bodyFont: { family: 'General Sans, sans-serif', size: 12 },
             callbacks: {
               title: function(items) {
-                return items[0].label === '2013' ? 'Start (End of 2013)' : 'End of ' + items[0].label;
+                return items[0].label === '2014' ? 'Start (End of 2014)' : 'End of ' + items[0].label;
               },
               label: function(context) {
                 const val = context.parsed.y;
@@ -210,7 +210,7 @@
               color: textColor,
               font: { family: 'General Sans, sans-serif', size: 11 },
               callback: function(value, index) {
-                return labels[index] === '2013' ? 'Start' : labels[index];
+                return labels[index] === '2014' ? 'Start' : labels[index];
               }
             },
             border: { display: false },
