@@ -91,8 +91,8 @@ type LandPolygon = number[][][];
 // lat:  ~80..-60 → 0..height (simple equirectangular stretched)
 // ────────────────────────────────────────────────────────────────────────────
 
-const LAT_MAX = 80;
-const LAT_MIN = -60;
+const LAT_MAX = 85;
+const LAT_MIN = -85;
 
 // Aspect-ratio-preserving projection.
 // The map's natural ratio is 360 / (LAT_MAX - LAT_MIN).
@@ -120,7 +120,8 @@ function getMapViewport(screenW: number, screenH: number): MapViewport {
     mapW = screenW;
     mapH = mapW / MAP_ASPECT;
     offsetX = 0;
-    offsetY = (screenH - mapH) / 2;
+    // Push map toward upper third instead of dead center
+    offsetY = (screenH - mapH) * 0.3;
   }
   return { offsetX, offsetY, mapW, mapH };
 }
@@ -361,6 +362,10 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         for (const polygon of landPolygons) {
           const outerRing = polygon[0];
           if (!outerRing || outerRing.length < 2) continue;
+
+          // Skip Antarctica polygons (they create horizontal border lines)
+          const isAntarctica = outerRing.some((c: number[]) => c[1] < -70);
+          if (isAntarctica) continue;
 
           ctx!.beginPath();
           ctx!.moveTo(lonToX(outerRing[0][0], w, vp), latToY(outerRing[0][1], h, vp));
