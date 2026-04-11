@@ -76,4 +76,4 @@ ENV OPENBLAS_NUM_THREADS=2 \
 # (default threshold is 128KB — lower to 0 to release pages faster)
 ENV MALLOC_TRIM_THRESHOLD_=0
 
-CMD ["node", "dist/index.cjs"]
+CMD python3 cleanup_feedback.py; node dist/index.cjs
