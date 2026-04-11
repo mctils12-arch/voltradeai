@@ -330,9 +330,7 @@ section {
 .hero-metric__value--amber {
   color: var(--color-amber);
 }
-.hero-metric__value--blue {
-  color: var(--color-blue);
-}
+
 .hero-metric__label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);

@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VolTradeAI — AI-Driven Trading System</title>
-  <meta name="description" content="An AI-powered multi-strategy trading system delivering 45.7% CAGR with institutional-grade risk controls. Backtested over 10 years (2016–2026)." />
+  <meta name="description" content="An AI-powered multi-strategy trading system with institutional-grade risk controls and regime-aware execution." />
   <meta property="og:title" content="VolTradeAI — AI-Driven Trading System" />
-  <meta property="og:description" content="Multi-strategy AI trading: 45.7% CAGR, 2.18 Sharpe, 23.7% Max Drawdown. Backtested 2016–2026." />
+  <meta property="og:description" content="Multi-strategy AI trading with regime detection, ML-filtered execution, and pro-level risk management." />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2322c55e'/><path d='M8 22L14 10L20 18L24 12' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>" />
   <link href="./base.css" rel="stylesheet" />
   <link href="./style.css" rel="stylesheet" />
@@ -28,7 +28,7 @@
         <a href="#how-it-works">How It Works</a>
         <a href="#strategy">Strategy</a>
         <a href="#performance">Performance</a>
-        <a href="#goals">Goals</a>
+        <a href="#risk-controls">Risk Controls</a>
       </nav>
       <button class="theme-toggle" data-theme-toggle aria-label="Switch to light mode">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -42,16 +42,16 @@
       <div class="hero__grid-bg" aria-hidden="true"></div>
       <div class="hero__glow" aria-hidden="true"></div>
       <div class="container hero__content">
-        <div class="hero__badge">Paper Trading &bull; Research System</div>
+        <div class="hero__badge">AI-Powered &bull; Multi-Strategy</div>
         <h1 class="hero__title">AI-Driven Trading,<br/>Institutional Discipline</h1>
-        <p class="hero__subtitle">A multi-strategy system combining regime-aware allocation, ML-filtered stock picking, and pro-level risk controls. Backtested over 10 years.</p>
+        <p class="hero__subtitle">A multi-strategy system that reads the market regime, sizes positions mathematically, and manages risk like the institutions do.</p>
         <div class="hero__metrics">
           <div class="hero-metric">
             <div class="hero-metric__value hero-metric__value--green counter" data-target="45.7" data-suffix="%">0%</div>
             <div class="hero-metric__label">CAGR</div>
           </div>
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--blue counter" data-target="2.18" data-suffix="">0</div>
+            <div class="hero-metric__value hero-metric__value--green counter" data-target="2.18" data-suffix="">0</div>
             <div class="hero-metric__label">Sharpe Ratio</div>
           </div>
           <div class="hero-metric">
@@ -72,23 +72,23 @@
         <div class="section-header section-header--center">
           <div class="section-eyebrow">How It Works</div>
           <h2 class="section-title">Three Layers of Edge</h2>
-          <p class="section-desc">The system combines passive market exposure, active stock selection, and volatility harvesting into a unified engine with regime-aware controls.</p>
+          <p class="section-desc">The system layers market exposure, active selection, and volatility harvesting into one engine — every decision adapts to the current market regime.</p>
         </div>
         <div class="how-grid">
           <div class="how-card">
             <div class="how-card__number">1</div>
             <h3 class="how-card__title">Regime Detection</h3>
-            <p class="how-card__desc">A Markov regime model classifies the market as Bull, Neutral, Caution, or Panic using VIX, credit spreads, and momentum signals. Every decision downstream adapts to the current regime.</p>
+            <p class="how-card__desc">The system reads the market state — Bull, Neutral, Caution, or Panic — using volatility, credit spreads, and momentum signals. Every downstream decision adapts automatically.</p>
           </div>
           <div class="how-card">
             <div class="how-card__number">2</div>
             <h3 class="how-card__title">ML-Filtered Execution</h3>
-            <p class="how-card__desc">A LightGBM ensemble scores 11,635 tickers daily. Walk-forward cross-validation and calibrated probabilities ensure the model generalizes beyond training data.</p>
+            <p class="how-card__desc">A machine learning model scores thousands of tickers daily with walk-forward validation and calibrated confidence levels, filtering for only the highest-probability setups.</p>
           </div>
           <div class="how-card">
             <div class="how-card__number">3</div>
             <h3 class="how-card__title">Kelly-Sized Positions</h3>
-            <p class="how-card__desc">Every trade is sized using the Kelly Criterion, scaled by regime confidence. Full Kelly in Bull (~16.8%), quarter-Kelly in Panic. An 8% hard cap prevents any single position from dominating.</p>
+            <p class="how-card__desc">Every trade is sized using the Kelly Criterion, scaled by regime confidence. Aggressive in strong markets, conservative in weak ones. A hard cap prevents any single position from dominating.</p>
           </div>
         </div>
       </div>
@@ -100,7 +100,7 @@
         <div class="section-header">
           <div class="section-eyebrow">Strategy Breakdown</div>
           <h2 class="section-title">What Drives the Returns</h2>
-          <p class="section-desc">P&L attribution from the 10-year backtest (2016–2026). Each component is isolated and measured independently.</p>
+          <p class="section-desc">Four components working together. Each one is isolated, measured, and held accountable for its contribution.</p>
         </div>
         <div class="components-grid">
           <div class="comp-card">
@@ -109,7 +109,7 @@
               <span class="comp-card__pnl comp-card__pnl--positive">58% of P&L</span>
             </div>
             <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:58%"></div></div>
-            <p class="comp-card__desc">Regime-leveraged passive QQQ allocation. The engine — not the alpha. Captures broad market drift with regime-aware sizing: full allocation in Bull, reduced in Caution, minimal in Panic.</p>
+            <p class="comp-card__desc">Regime-leveraged index allocation. The engine — not the alpha. Captures broad market drift with adaptive sizing: full exposure in strong markets, minimal in weak ones.</p>
             <div class="comp-card__stats">
               <span class="comp-stat">Strategy: <strong>Passive + Regime</strong></span>
               <span class="comp-stat">Standalone CAGR: <strong>21.9%</strong></span>
@@ -121,7 +121,7 @@
               <span class="comp-card__pnl comp-card__pnl--positive">34% of P&L</span>
             </div>
             <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:34%"></div></div>
-            <p class="comp-card__desc">ML-filtered long positions across the full US equity universe. LightGBM scoring with walk-forward validation, triple-barrier labeling, and regime-conditional entry.</p>
+            <p class="comp-card__desc">ML-filtered long positions across the full US equity universe. Walk-forward validated scoring with calibrated confidence and regime-conditional entry gates.</p>
             <div class="comp-card__stats">
               <span class="comp-stat">Trades: <strong>1,226</strong></span>
               <span class="comp-stat">Win Rate: <strong>52.8%</strong></span>
@@ -134,7 +134,7 @@
               <span class="comp-card__pnl comp-card__pnl--positive">6% of P&L</span>
             </div>
             <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:6%"></div></div>
-            <p class="comp-card__desc">Short-volatility strategy exploiting the Volatility Risk Premium. Trades SVXY when VIX is between 25–40 with a circuit breaker that exits if VIX breaches 40.</p>
+            <p class="comp-card__desc">Short-volatility strategy harvesting the Volatility Risk Premium. Only enters when volatility is elevated but contained, with an automatic circuit breaker for extreme spikes.</p>
             <div class="comp-card__stats">
               <span class="comp-stat">Trades: <strong>30</strong></span>
               <span class="comp-stat">Win Rate: <strong>80%</strong></span>
@@ -147,7 +147,7 @@
               <span class="comp-card__pnl comp-card__pnl--positive">2% of P&L</span>
             </div>
             <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:2%"></div></div>
-            <p class="comp-card__desc">Complex multi-leg strategies only — earnings iron condors, regime spreads, gamma pins. Capped at 8% allocation. Small but positive, designed for asymmetric payoffs.</p>
+            <p class="comp-card__desc">Complex multi-leg structures only — designed for asymmetric payoffs. Capped at 8% allocation. Small but consistently positive contributor.</p>
             <div class="comp-card__stats">
               <span class="comp-stat">Win Rate: <strong>74%</strong></span>
               <span class="comp-stat">Allocation: <strong>8% max</strong></span>
@@ -163,7 +163,7 @@
         <div class="section-header section-header--center">
           <div class="section-eyebrow">Performance</div>
           <h2 class="section-title">10-Year Backtest Results</h2>
-          <p class="section-desc">Full-system PRO configuration vs. SPY benchmark. All results from the corrected, unbiased backtest (April 2026).</p>
+          <p class="section-desc">Full-system configuration vs. SPY benchmark over a 10-year simulation period.</p>
         </div>
 
         <!-- Comparison Banner -->
@@ -237,7 +237,7 @@
     </section>
 
     <!-- ===== PRO FEATURES ===== -->
-    <section class="fade-in">
+    <section id="risk-controls" class="fade-in">
       <div class="container">
         <div class="section-header section-header--center">
           <div class="section-eyebrow">Pro-Level Controls</div>
@@ -291,98 +291,13 @@
       </div>
     </section>
 
-    <!-- ===== GOALS ===== -->
-    <section id="goals" class="fade-in">
-      <div class="container">
-        <div class="section-header section-header--center">
-          <div class="section-eyebrow">System Goals</div>
-          <h2 class="section-title">What We Kept and What We Cut</h2>
-          <p class="section-desc">The system was refined through iterative backtesting — removing value destroyers and adding institutional controls.</p>
-        </div>
-        <div class="goals-grid">
-          <div class="goal-card">
-            <h3 class="goal-card__title" style="color:var(--color-primary);">What Works</h3>
-            <ul class="goal-list" role="list">
-              <li class="check">QQQ Floor — regime-aware passive allocation captures market drift (58% of P&L)</li>
-              <li class="check">ML Stock Picking — LightGBM ensemble with walk-forward CV and calibrated probabilities</li>
-              <li class="check">VRP / SVXY — short-volatility in the VIX 25–40 sweet spot, 80% win rate</li>
-              <li class="check">Multi-leg Options at 8% cap — iron condors, regime spreads, gamma pins</li>
-              <li class="check">Kelly Criterion sizing — mathematically optimal, regime-scaled</li>
-              <li class="check">Convexity overlay — permanent SQQQ tail hedge for crash protection</li>
-              <li class="check">Trend-following exits — death cross and early warning signals on QQQ</li>
-            </ul>
-          </div>
-          <div class="goal-card">
-            <h3 class="goal-card__title" style="color:var(--color-error);">What Was Removed</h3>
-            <ul class="goal-list goal-list--removed" role="list">
-              <li>Intraday Shorts — 28.5% win rate, lost $419K over 10 years. Removed entirely.</li>
-              <li>Sector Rotation (GLD/ITA) — 20.7% win rate, lost $92K from regime whipsaw. Removed.</li>
-              <li>Options above 8% allocation — profitable at 8%, but expanding to 15–20% turned negative due to over-sizing.</li>
-              <li>Simple CSPs — only complex multi-leg orders are kept. Simple CSPs didn't have consistent edge.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- ===== TECH STACK ===== -->
-    <section class="fade-in">
-      <div class="container">
-        <div class="section-header section-header--center">
-          <div class="section-eyebrow">Under the Hood</div>
-          <h2 class="section-title">Technology Stack</h2>
-        </div>
-        <div class="how-grid">
-          <div class="how-card">
-            <div class="how-card__number" style="background:var(--color-blue-dim);color:var(--color-blue);">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            </div>
-            <h3 class="how-card__title">Backend</h3>
-            <p class="how-card__desc">Node.js / Express for the trading server. Python for ML inference (LightGBM) and backtesting. Deployed on Railway with auto-deploy from GitHub.</p>
-          </div>
-          <div class="how-card">
-            <div class="how-card__number" style="background:var(--color-blue-dim);color:var(--color-blue);">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-            </div>
-            <h3 class="how-card__title">Frontend</h3>
-            <p class="how-card__desc">React 18 dashboard with real-time portfolio updates, trade logs, regime status, and performance charts. Built with shadcn/ui and Recharts.</p>
-          </div>
-          <div class="how-card">
-            <div class="how-card__number" style="background:var(--color-blue-dim);color:var(--color-blue);">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            </div>
-            <h3 class="how-card__title">Execution</h3>
-            <p class="how-card__desc">Alpaca API for paper trading. Supports stocks, ETFs, and multi-leg options. Atomic order execution with position-level risk limits.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== CTA ===== -->
-    <section class="cta-section fade-in">
-      <div class="container">
-        <div class="section-header section-header--center">
-          <div class="section-eyebrow">Open Source</div>
-          <h2 class="section-title">Explore the Code</h2>
-          <p class="section-desc">VolTradeAI is a research and paper-trading system. The full source is on GitHub — strategy logic, ML models, backtests, and infrastructure.</p>
-        </div>
-        <div class="cta-buttons">
-          <a href="https://github.com/mctils12-arch/voltradeai" target="_blank" rel="noopener noreferrer" class="btn btn--primary">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-            View on GitHub
-          </a>
-          <a href="https://voltradeai-production.up.railway.app" target="_blank" rel="noopener noreferrer" class="btn btn--outline">
-            Live Dashboard
-          </a>
-        </div>
-      </div>
-    </section>
   </main>
 
   <!-- ===== DISCLAIMER ===== -->
   <div class="disclaimer">
     <p class="disclaimer__text">
-      VolTradeAI is a research and paper-trading system. All performance figures are from backtested simulations using historical data (2016–2026) and do not represent actual trading results. Past performance does not guarantee future results. Options P&L is simulated via Black-Scholes heuristics, not real chain data. The QQQ floor's dominance means a significant portion of returns comes from leveraged market exposure during a decade-long bull run. This is not financial advice — consult a qualified advisor before making investment decisions.
+      All performance figures are from backtested simulations using historical data and do not represent actual trading results. Past performance does not guarantee future results. This is not financial advice — consult a qualified advisor before making investment decisions.
     </p>
   </div>
 
@@ -390,9 +305,6 @@
   <footer class="footer">
     <div class="container footer__inner">
       <span class="footer__copy">&copy; 2026 VolTradeAI</span>
-      <div class="footer__links">
-        <a href="https://github.com/mctils12-arch/voltradeai" target="_blank" rel="noopener noreferrer">GitHub</a>
-      </div>
     </div>
   </footer>
 
