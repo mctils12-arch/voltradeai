@@ -814,20 +814,26 @@ if len(fills) > 0:
 else:
     avg_slippage_pct = 0
 
+# Best / worst trades
+best_trade = max(feedback, key=lambda t: t.get('pnl_pct', 0)) if feedback else None
+worst_trade = min(feedback, key=lambda t: t.get('pnl_pct', 0)) if feedback else None
+
 print(json.dumps({
-    'total_trades': len(feedback),
-    'total_fills': len(fills),
-    'win_rate': round(win_rate, 1),
-    'avg_win_pct': round(avg_win, 2),
-    'avg_loss_pct': round(avg_loss, 2),
-    'total_pnl_pct': round(total_pnl, 2),
-    'profit_factor': round(profit_factor, 2) if profit_factor != float('inf') else 'inf',
-    'by_strategy': by_strat,
-    'recent_trades': feedback[-20:][::-1],
-    'realistic_pnl_pct': round(realistic_total_pnl, 2),
-    'avg_slippage_pct': round(avg_slippage_pct, 4),
-    'total_slippage_cost': round(total_slippage_cost, 2),
-    'slippage_gap_pct': round(total_pnl - realistic_total_pnl, 2),
+    'totalTrades': len(feedback),
+    'totalFills': len(fills),
+    'winRate': round(win_rate, 1),
+    'avgGain': round(avg_win, 2),
+    'avgLoss': round(avg_loss, 2),
+    'totalPnlPct': round(total_pnl, 2),
+    'profitFactor': round(profit_factor, 2) if profit_factor != float('inf') else 'inf',
+    'byStrategy': by_strat,
+    'recentTrades': feedback[-20:][::-1],
+    'realisticPnlPct': round(realistic_total_pnl, 2),
+    'avgSlippagePct': round(avg_slippage_pct, 4),
+    'totalSlippageCost': round(total_slippage_cost, 2),
+    'slippageGapPct': round(total_pnl - realistic_total_pnl, 2),
+    'bestTrade': {'ticker': best_trade.get('ticker', ''), 'pnlPct': round(best_trade.get('pnl_pct', 0), 2)} if best_trade else None,
+    'worstTrade': {'ticker': worst_trade.get('ticker', ''), 'pnlPct': round(worst_trade.get('pnl_pct', 0), 2)} if worst_trade else None,
 }))
 "`, { timeout: 10000 });
       
@@ -839,7 +845,7 @@ print(json.dumps({
         currentDrawdown: state.equityPeak > 0 ? ((equityCurve[0]?.value || 0) - state.equityPeak) / state.equityPeak * 100 : 0,
       });
     } catch (err: any) {
-      res.json({ error: err?.message, total_trades: 0, equityCurve });
+      res.json({ error: err?.message, totalTrades: 0, equityCurve });
     }
   });
 
