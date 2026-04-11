@@ -110,18 +110,20 @@ function getMapViewport(screenW: number, screenH: number): MapViewport {
   const screenAspect = screenW / screenH;
   let mapW: number, mapH: number, offsetX: number, offsetY: number;
   if (screenAspect > MAP_ASPECT) {
-    // Wide screen — constrained by height
+    // Wide screen — constrained by height, centered horizontally
     mapH = screenH;
     mapW = mapH * MAP_ASPECT;
     offsetX = (screenW - mapW) / 2;
     offsetY = 0;
   } else {
-    // Tall screen (mobile portrait) — constrained by width
-    mapW = screenW;
-    mapH = mapW / MAP_ASPECT;
-    offsetX = 0;
-    // Push map toward upper third instead of dead center
-    offsetY = (screenH - mapH) * 0.3;
+    // Tall screen (mobile portrait) — scale to fill width,
+    // then scale height to cover the full viewport so there’s no dead space.
+    // This crops the left/right edges slightly but keeps the map
+    // covering the entire background.
+    mapH = screenH;
+    mapW = mapH * MAP_ASPECT;
+    offsetX = (screenW - mapW) / 2; // will be negative, cropping sides
+    offsetY = 0;
   }
   return { offsetX, offsetY, mapW, mapH };
 }
