@@ -1,6 +1,6 @@
 /* ============================================================
    VOLTRADEAI — Design Tokens & Component Styles
-   Dark-first fintech aesthetic. Cool slate + emerald accent.
+   Dark-first fintech aesthetic. Cool slate + electric blue accent.
    ============================================================ */
 
 /* --- Fonts --- */
@@ -66,11 +66,11 @@
   --color-text-faint: #545b64;
   --color-text-inverse: #0b0e11;
 
-  /* Primary: Emerald */
-  --color-primary: #22c55e;
-  --color-primary-hover: #16a34a;
-  --color-primary-active: #15803d;
-  --color-primary-dim: rgba(34, 197, 94, 0.12);
+  /* Primary: Electric Blue */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-active: #1d4ed8;
+  --color-primary-dim: rgba(59, 130, 246, 0.12);
 
   /* Accent: Amber (for warnings, drawdown) */
   --color-amber: #f59e0b;
@@ -103,10 +103,10 @@
   --color-text-faint: #9ca3ad;
   --color-text-inverse: #f4f5f7;
 
-  --color-primary: #16a34a;
-  --color-primary-hover: #15803d;
-  --color-primary-active: #166534;
-  --color-primary-dim: rgba(22, 163, 74, 0.1);
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-active: #1e40af;
+  --color-primary-dim: rgba(37, 99, 235, 0.1);
 
   --color-amber: #d97706;
   --color-amber-dim: rgba(217, 119, 6, 0.1);
@@ -243,7 +243,7 @@ section {
   width: 600px;
   height: 600px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(34, 197, 94, 0.08) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -324,7 +324,7 @@ section {
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
-.hero-metric__value--green {
+.hero-metric__value--blue {
   color: var(--color-primary);
 }
 .hero-metric__value--amber {
