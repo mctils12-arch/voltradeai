@@ -943,6 +943,10 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       equityPeak: state.equityPeak,
       maxDrawdownPct: state.maxDrawdownPct,
       unreadNotifications: notifications.filter(n => !n.read).length,
+      // Pro-level security controls from system_config.py
+      maxPositionPct: 8,      // MAX_POSITION_PCT 0.08 — hard cap per position
+      maxExposurePct: 80,     // MAX_TOTAL_EXPOSURE 0.80 — max portfolio invested
+      dailyLossLimitPct: 5,   // DAILY_LOSS_LIMIT_PCT 5.0 — halts trading
     });
   });
 
