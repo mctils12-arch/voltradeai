@@ -131,7 +131,7 @@ function arcPoint(
 // ────────────────────────────────────────────────────────────────────────────
 
 const ACCENT = "#00e5ff";
-const USER_COLOR = "#ffd700";
+const USER_COLOR = "#ff3333";
 const BG = "#050a12";
 const MAX_PARTICLES = 200;
 
@@ -358,9 +358,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const bulge = Math.min(dx * 0.35, w * 0.12);
         ctx!.moveTo(x1, y1);
         ctx!.quadraticCurveTo(mx, my - bulge, x2, y2);
-        ctx!.strokeStyle = toIdx === USER_NODE_IDX
-          ? `rgba(255, 215, 0, ${lineAlpha})`
-          : `rgba(0, 229, 255, ${lineAlpha})`;
+        ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
         ctx!.lineWidth = 1;
         ctx!.stroke();
       }
@@ -389,23 +387,15 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         // Glow
         const glowRadius = (p.size + 3) * (state === "loading" ? 1.5 : 1);
         const gradient = ctx!.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowRadius);
-        const isUserPath = p.toIdx === USER_NODE_IDX;
-        if (isUserPath) {
-          gradient.addColorStop(0, `rgba(255, 215, 0, ${p.opacity * 0.5})`);
-          gradient.addColorStop(1, "rgba(255, 215, 0, 0)");
-        } else {
-          gradient.addColorStop(0, `rgba(0, 229, 255, ${p.opacity * 0.6})`);
-          gradient.addColorStop(1, "rgba(0, 229, 255, 0)");
-        }
+        gradient.addColorStop(0, `rgba(0, 229, 255, ${p.opacity * 0.6})`);
+        gradient.addColorStop(1, "rgba(0, 229, 255, 0)");
         ctx!.fillStyle = gradient;
         ctx!.fillRect(pos.x - glowRadius, pos.y - glowRadius, glowRadius * 2, glowRadius * 2);
 
         // Core dot
         ctx!.beginPath();
         ctx!.arc(pos.x, pos.y, p.size * 0.6, 0, Math.PI * 2);
-        ctx!.fillStyle = isUserPath
-          ? `rgba(255, 215, 0, ${p.opacity})`
-          : `rgba(0, 229, 255, ${p.opacity})`;
+        ctx!.fillStyle = `rgba(0, 229, 255, ${p.opacity})`;
         ctx!.fill();
       }
 
@@ -418,7 +408,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const rippleAlpha = Math.max(0, 0.3 * (1 - burstAge / 1.5));
         ctx!.beginPath();
         ctx!.arc(centerX, centerY, rippleRadius, 0, Math.PI * 2);
-        ctx!.strokeStyle = `rgba(255, 215, 0, ${rippleAlpha})`;
+        ctx!.strokeStyle = `rgba(255, 51, 51, ${rippleAlpha})`;
         ctx!.lineWidth = 2;
         ctx!.stroke();
       }
@@ -440,8 +430,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const grd = ctx!.createRadialGradient(x, y, 0, x, y, glowR);
         const glowAlpha = (0.15 + pulseT * 0.15) * nodeGlow;
         if (isUser) {
-          grd.addColorStop(0, `rgba(255, 215, 0, ${Math.min(glowAlpha, 0.6)})`);
-          grd.addColorStop(1, "rgba(255, 215, 0, 0)");
+          grd.addColorStop(0, `rgba(255, 51, 51, ${Math.min(glowAlpha, 0.6)})`);
+          grd.addColorStop(1, "rgba(255, 51, 51, 0)");
         } else {
           grd.addColorStop(0, `rgba(0, 229, 255, ${Math.min(glowAlpha, 0.6)})`);
           grd.addColorStop(1, "rgba(0, 229, 255, 0)");
@@ -458,7 +448,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         // Label
         ctx!.font = isUser ? "bold 9px 'JetBrains Mono', monospace" : "8px 'JetBrains Mono', monospace";
         ctx!.fillStyle = isUser
-          ? `rgba(255, 215, 0, ${0.6 + pulseT * 0.3})`
+          ? `rgba(255, 51, 51, ${0.6 + pulseT * 0.3})`
           : `rgba(0, 229, 255, ${0.4 + pulseT * 0.2})`;
         ctx!.textAlign = "center";
         ctx!.fillText(node.label, x, y + pulseSize + 10);
@@ -471,8 +461,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const cy = latToY(userNode.lat, h);
         const pulseRadius = 20 + Math.sin(time * 0.005) * 10;
         const grd = ctx!.createRadialGradient(cx, cy, 0, cx, cy, pulseRadius);
-        grd.addColorStop(0, "rgba(255, 215, 0, 0.15)");
-        grd.addColorStop(1, "rgba(255, 215, 0, 0)");
+        grd.addColorStop(0, "rgba(255, 51, 51, 0.15)");
+        grd.addColorStop(1, "rgba(255, 51, 51, 0)");
         ctx!.fillStyle = grd;
         ctx!.fillRect(cx - pulseRadius, cy - pulseRadius, pulseRadius * 2, pulseRadius * 2);
       }
