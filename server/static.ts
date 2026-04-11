@@ -19,10 +19,13 @@ export function serveStatic(app: Express) {
     });
   }
 
-  // Dashboard app
+  // Dashboard app at /app and all sub-routes
   app.use(express.static(distPath));
+  app.get("/app", (_req, res) => {
+    res.sendFile(path.resolve(distPath, "index.html"));
+  });
 
-  // fall through to dashboard index.html if the file doesn't exist
+  // fall through to dashboard index.html for any unmatched route
   app.use("/{*path}", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });

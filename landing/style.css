@@ -708,6 +708,16 @@ section {
   color: var(--color-text);
 }
 
+.footer__dashboard-link {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.footer__dashboard-link:hover {
+  text-decoration: underline;
+}
+
 /* ============================================================
    SCROLL ANIMATIONS
    ============================================================ */
