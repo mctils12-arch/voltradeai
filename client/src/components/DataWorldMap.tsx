@@ -113,7 +113,7 @@ function bezierPoint(
 ): { x: number; y: number } {
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
-  const bulge = Math.min(Math.abs(x2 - x1) * 0.35, mapW * 0.12);
+  const bulge = Math.min(Math.abs(x2 - x1) * 0.45, mapW * 0.18);
   const cx = mx;
   const cy = my - bulge;
   const u = 1 - t;
@@ -309,11 +309,26 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           if (ring.some((c) => c[1] < -70)) continue;
 
           ctx!.beginPath();
+          let penDown = false;
           for (let i = 0; i < ring.length; i++) {
+            const j = (i + 1) % ring.length;
             const px = projX(ring[i][0], vp);
-            const py = projYRaw(ring[i][1], vp); // unclamped — boundary goes offscreen
-            if (i === 0) ctx!.moveTo(px, py);
+            const py = projYRaw(ring[i][1], vp);
+
+            // If next segment jumps across the antimeridian, break the path
+            // to avoid a horizontal fill edge spanning the full map.
+            const lonSpan = i < ring.length - 1 ? Math.abs(ring[j][0] - ring[i][0]) : 0;
+
+            if (!penDown) { ctx!.moveTo(px, py); penDown = true; }
             else ctx!.lineTo(px, py);
+
+            if (lonSpan > 180) {
+              // Close current sub-path and start a new one on the other side
+              ctx!.closePath();
+              ctx!.fill();
+              ctx!.beginPath();
+              penDown = false;
+            }
           }
           ctx!.closePath();
           ctx!.fill();
@@ -348,6 +363,14 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
               continue;
             }
 
+            // Skip antimeridian wrap-around segments (-180° ↔ +180°).
+            // These span the full map width and draw horizontal lines.
+            const lonSpan = Math.abs(ring[j][0] - ring[i][0]);
+            if (lonSpan > 180) {
+              penDown = false;
+              continue;
+            }
+
             const x1 = projX(ring[i][0], vp);
             const y1 = projYRaw(lat1, vp);
             const x2 = projX(ring[j][0], vp);
@@ -360,7 +383,34 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         }
       }
 
-      // ── Particles (NO arc base lines drawn — particles only) ───────
+      // ── Data flow arc lines (curved paths between cities) ────────
+      if (nodes.length > 0) {
+        const conns = connsRef.current;
+        const lineAlpha = state === "loading" ? 0.18
+          : (state === "loaded" && inBurst) ? 0.18
+          : 0.12;
+        ctx!.lineWidth = 0.8;
+        for (const [fi, ti] of conns) {
+          if (fi >= nodes.length || ti >= nodes.length) continue;
+          const from = nodes[fi];
+          const to = nodes[ti];
+          const x1 = projX(from.lon, vp);
+          const y1 = projY(from.lat, vp);
+          const x2 = projX(to.lon, vp);
+          const y2 = projY(to.lat, vp);
+          const mx = (x1 + x2) / 2;
+          const my = (y1 + y2) / 2;
+          const dx = Math.abs(x2 - x1);
+          const bulge = Math.min(dx * 0.45, vp.mw * 0.18);
+          ctx!.beginPath();
+          ctx!.moveTo(x1, y1);
+          ctx!.quadraticCurveTo(mx, my - bulge, x2, y2);
+          ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
+          ctx!.stroke();
+        }
+      }
+
+      // ── Particles (flowing dots along arc paths) ───────────────────
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.t += p.speed * speedMul * dt;
@@ -471,7 +521,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Edge fades (all 4 sides) ──────────────────────────────────
       // These gradient overlays blend the map into the dark background
       // so there are ZERO hard edges or cutoff lines anywhere.
-      const fadeH = vp.mh * 0.08;
+      const fadeH = vp.mh * 0.15;  // Generous fade to cover Arctic data boundary (~83.6°N)
       const fadeW = vp.mw * 0.04;
       const bgFull = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 1)`;
       const bgZero = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 0)`;

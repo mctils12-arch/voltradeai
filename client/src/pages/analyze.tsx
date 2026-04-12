@@ -2048,6 +2048,13 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
     }
   }, [data]);
 
+  // Make body transparent so the canvas map shows through on mobile
+  useEffect(() => {
+    const prev = document.body.style.background;
+    document.body.style.background = "transparent";
+    return () => { document.body.style.background = prev; };
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const t = input.trim().toUpperCase();

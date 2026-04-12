@@ -291,7 +291,7 @@
 
 /* ── Base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; background: #050a12; }
 body {
   min-height: 100dvh;
   font-family: var(--font-body);
@@ -1942,6 +1942,13 @@ a, button, [role="button"], input { transition: all 150ms ease; }
     padding-bottom: calc(64px + 1rem) !important;
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
+  }
+
+  /* Make empty-state transparent on mobile so map shows through */
+  .empty-state {
+    background: rgba(5, 10, 18, 0.15);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   /* Tighten up various elements for mobile */
