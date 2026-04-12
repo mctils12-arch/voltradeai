@@ -796,13 +796,13 @@ export default function LoginPage({ onLogin }: LoginProps) {
       </div>
 
       {/* Corner HUD markers */}
-      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 12, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em", fontWeight: 600 }}>
+      <div className="hud-label-tl" style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 12, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em", fontWeight: 600 }}>
         VOLTRADEAI
       </div>
-      <div style={{ position: "absolute", bottom: 16, left: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
+      <div className="hud-status-bl" style={{ position: "absolute", bottom: 16, left: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
         SYS: ONLINE | ML: 36 FEATURES | ALPACA: CONNECTED
       </div>
-      <div style={{ position: "absolute", bottom: 16, right: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace" }}>
+      <div className="hud-status-br" style={{ position: "absolute", bottom: 16, right: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace" }}>
         v2.0 // PAPER TRADING MODE
       </div>
 
@@ -810,10 +810,36 @@ export default function LoginPage({ onLogin }: LoginProps) {
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
         @keyframes matrixFall { 0% { transform: translateY(0); } 100% { transform: translateY(100vh); } }
         @keyframes scanLine { 0% { top: -2px; } 100% { top: 100%; } }
+
+        @media (max-width: 600px) {
+          .login-card {
+            padding: 1.5rem 1.25rem !important;
+            max-width: 320px !important;
+            margin: 0 0.75rem !important;
+          }
+          .hud-label-tl {
+            left: auto !important;
+            right: 16px !important;
+            top: 16px !important;
+          }
+          .hud-status-bl, .hud-status-br {
+            left: 50% !important;
+            right: auto !important;
+            transform: translateX(-50%);
+            text-align: center;
+            white-space: nowrap;
+          }
+          .hud-status-bl {
+            bottom: 28px !important;
+          }
+          .hud-status-br {
+            bottom: 12px !important;
+          }
+        }
       `}</style>
 
       {/* Login card */}
-      <div style={{
+      <div className="login-card" style={{
         position: "relative",
         zIndex: 10,
         width: "100%",
