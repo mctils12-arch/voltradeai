@@ -369,6 +369,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           const isAntarctica = outerRing.some((c: number[]) => c[1] < -70);
           if (isAntarctica) continue;
 
+          // Draw fill (complete polygon)
           ctx!.beginPath();
           ctx!.moveTo(lonToX(outerRing[0][0], w, vp), latToY(outerRing[0][1], h, vp));
           for (let i = 1; i < outerRing.length; i++) {
@@ -376,6 +377,30 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           }
           ctx!.closePath();
           ctx!.fill();
+
+          // Draw stroke but skip segments at data boundaries (lat > 80 or < -60)
+          // These create fake horizontal lines that look like lat/lon grid lines
+          ctx!.beginPath();
+          let penDown = false;
+          for (let i = 0; i < outerRing.length; i++) {
+            const j = (i + 1) % outerRing.length;
+            const lat1 = outerRing[i][1];
+            const lat2 = outerRing[j][1];
+            // Skip if both endpoints are at an extreme latitude boundary
+            if ((lat1 > 80 && lat2 > 80) || (lat1 < -60 && lat2 < -60)) {
+              penDown = false;
+              continue;
+            }
+            const x1 = lonToX(outerRing[i][0], w, vp);
+            const y1 = latToY(outerRing[i][1], h, vp);
+            const x2 = lonToX(outerRing[j][0], w, vp);
+            const y2 = latToY(outerRing[j][1], h, vp);
+            if (!penDown) {
+              ctx!.moveTo(x1, y1);
+              penDown = true;
+            }
+            ctx!.lineTo(x2, y2);
+          }
           ctx!.stroke();
         }
 
