@@ -393,8 +393,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         }
       }
 
-      // ── Draw coastline outlines (fill-only, higher opacity for edges) ──
-      // Redraw the polygons with just a thin stroke but NO boundary segments
+      // ── Draw coastline outlines ──
       if (landPolygons.length > 0) {
         ctx!.strokeStyle = "rgba(0, 229, 255, 0.25)";
         ctx!.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
@@ -402,10 +401,6 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           const outerRing = polygon[0];
           if (!outerRing || outerRing.length < 2) continue;
           if (outerRing.some((c: number[]) => c[1] < -70)) continue;
-          // Stroke coastline segments, but skip the artificial
-          // horizontal boundary lines created by the Natural Earth
-          // data clipping at ~83.6°N. Real coastline (including
-          // Greenland) has irregular, non-horizontal segments.
           ctx!.beginPath();
           let penDown = false;
           for (let i = 0; i < outerRing.length; i++) {
@@ -420,15 +415,11 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
               continue;
             }
             // Skip northern boundary artifacts: segments where BOTH
-            // points are above 83° AND the segment is nearly horizontal
-            // (lat diff < 1°) — these are the straight clipping lines.
-            // Real Greenland coastline segments are irregular/angled.
+            // points are above 83° AND nearly horizontal
             if (lat1 > 83 && lat2 > 83 && Math.abs(lat1 - lat2) < 1) {
               penDown = false;
               continue;
             }
-            // Use unclamped projection for strokes too so Greenland
-            // coastline renders at its real position
             const x1 = lonToX(lon1, w, vp);
             const y1 = latToYRaw(lat1, vp);
             const x2 = lonToX(lon2, w, vp);
@@ -445,29 +436,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
 
 
 
-      // ── Draw connection base lines ────────────────────────────────
-      for (const [fromIdx, toIdx] of connections) {
-        if (fromIdx >= nodes.length || toIdx >= nodes.length) continue;
-        const from = nodes[fromIdx];
-        const to = nodes[toIdx];
-        const x1 = lonToX(from.lon, w, vp);
-        const y1 = latToY(from.lat, h, vp);
-        const x2 = lonToX(to.lon, w, vp);
-        const y2 = latToY(to.lat, h, vp);
-
-        const lineAlpha = state === "loading" ? 0.12 : state === "loaded" && inBurst ? 0.12 : 0.03;
-
-        ctx!.beginPath();
-        const mx = (x1 + x2) / 2;
-        const my = (y1 + y2) / 2;
-        const dx = Math.abs(x2 - x1);
-        const bulge = Math.min(dx * 0.45, vp.mapW * 0.18);
-        ctx!.moveTo(x1, y1);
-        ctx!.quadraticCurveTo(mx, my - bulge, x2, y2);
-        ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
-        ctx!.lineWidth = 0.8;
-        ctx!.stroke();
-      }
+      // Connection base lines removed — particles alone show data flow.
+      // The arc lines created visible horizontal streaks across the map.
 
       // ── Draw particles ────────────────────────────────────────────
       for (let i = particles.length - 1; i >= 0; i--) {
