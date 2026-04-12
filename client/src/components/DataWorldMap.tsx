@@ -80,7 +80,7 @@ function buildUserConnections(): [number, number][] {
 // Real geographic data — fetched at runtime from Natural Earth 110m TopoJSON
 // ────────────────────────────────────────────────────────────────────────────
 
-const TOPO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json";
+const TOPO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json";
 
 // Each polygon is an array of rings; ring[0] is the outer boundary, rest are holes
 type LandPolygon = number[][][];
@@ -91,8 +91,8 @@ type LandPolygon = number[][][];
 // lat:  ~80..-60 → 0..height (simple equirectangular stretched)
 // ────────────────────────────────────────────────────────────────────────────
 
-const LAT_MAX = 85;
-const LAT_MIN = -85;
+const LAT_MAX = 90;
+const LAT_MIN = -60;
 
 // Aspect-ratio-preserving projection.
 // The map's natural ratio is 360 / (LAT_MAX - LAT_MIN).
@@ -135,6 +135,12 @@ function latToY(lat: number, h: number, vp?: MapViewport): number {
   const clamped = Math.max(LAT_MIN, Math.min(LAT_MAX, lat));
   if (vp) return vp.offsetY + ((LAT_MAX - clamped) / (LAT_MAX - LAT_MIN)) * vp.mapH;
   return ((LAT_MAX - clamped) / (LAT_MAX - LAT_MIN)) * h;
+}
+
+// Unclamped version for fill rendering — lets boundary points
+// project naturally beyond the visible map area.
+function latToYRaw(lat: number, vp: MapViewport): number {
+  return vp.offsetY + ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * vp.mapH;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -182,6 +188,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
   const connectionsRef = useRef<[number, number][]>([]);
   const allNodesRef = useRef<Node[]>([]);
   const landRef = useRef<LandPolygon[]>([]);
+  const coastRef = useRef<number[][][]>([]); // MultiLineString coords from mesh
 
   const getState = useCallback((): AnimState => {
     if (isLoading) return "loading";
@@ -209,6 +216,12 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           }
         }
         landRef.current = polys;
+
+        // Extract coastline mesh — real coastlines only, no polygon fill boundaries
+        const coastMesh = topojson.mesh(topo, topo.objects.land);
+        if (coastMesh.type === "MultiLineString") {
+          coastRef.current = coastMesh.coordinates;
+        }
       })
       .catch(() => {
         // Silently fail — continents just won't render
@@ -352,49 +365,74 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Clear ─────────────────────────────────────────────────────
       ctx!.clearRect(0, 0, w, h);
 
-      // ── Draw continent outlines (from real GeoJSON) ──────────────
+      // ── Draw continent fills (from land polygons) ─────────────
+      // Use canvas clipping to constrain fills so boundary
+      // artifacts from the Natural Earth data never appear.
       const landPolygons = landRef.current;
       if (landPolygons.length > 0) {
         ctx!.fillStyle = "rgba(0, 229, 255, 0.08)";
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.3)";
-        ctx!.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
-
-        ctx!.save();
-
         for (const polygon of landPolygons) {
           const outerRing = polygon[0];
           if (!outerRing || outerRing.length < 2) continue;
-
-          // Skip Antarctica polygons (they create horizontal border lines)
-          const isAntarctica = outerRing.some((c: number[]) => c[1] < -70);
-          if (isAntarctica) continue;
-
-          // Draw fill (complete polygon)
+          // Skip Antarctica
+          if (outerRing.some((c: number[]) => c[1] < -70)) continue;
           ctx!.beginPath();
-          ctx!.moveTo(lonToX(outerRing[0][0], w, vp), latToY(outerRing[0][1], h, vp));
-          for (let i = 1; i < outerRing.length; i++) {
-            ctx!.lineTo(lonToX(outerRing[i][0], w, vp), latToY(outerRing[i][1], h, vp));
+          for (let i = 0; i < outerRing.length; i++) {
+            const lon = outerRing[i][0];
+            const lat = outerRing[i][1];
+            const px = lonToX(lon, w, vp);
+            // Use unclamped projection so boundary points at 83.6°N
+            // project naturally just above the map area instead of
+            // being pushed to arbitrary off-screen positions.
+            const py = latToYRaw(lat, vp);
+            if (i === 0) ctx!.moveTo(px, py);
+            else ctx!.lineTo(px, py);
           }
           ctx!.closePath();
           ctx!.fill();
+        }
+      }
 
-          // Draw stroke but skip segments at data boundaries (lat > 80 or < -60)
-          // These create fake horizontal lines that look like lat/lon grid lines
+      // ── Draw coastline outlines (fill-only, higher opacity for edges) ──
+      // Redraw the polygons with just a thin stroke but NO boundary segments
+      if (landPolygons.length > 0) {
+        ctx!.strokeStyle = "rgba(0, 229, 255, 0.25)";
+        ctx!.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
+        for (const polygon of landPolygons) {
+          const outerRing = polygon[0];
+          if (!outerRing || outerRing.length < 2) continue;
+          if (outerRing.some((c: number[]) => c[1] < -70)) continue;
+          // Stroke coastline segments, but skip the artificial
+          // horizontal boundary lines created by the Natural Earth
+          // data clipping at ~83.6°N. Real coastline (including
+          // Greenland) has irregular, non-horizontal segments.
           ctx!.beginPath();
           let penDown = false;
           for (let i = 0; i < outerRing.length; i++) {
             const j = (i + 1) % outerRing.length;
             const lat1 = outerRing[i][1];
             const lat2 = outerRing[j][1];
-            // Skip if both endpoints are at an extreme latitude boundary
-            if ((lat1 > 80 && lat2 > 80) || (lat1 < -60 && lat2 < -60)) {
+            const lon1 = outerRing[i][0];
+            const lon2 = outerRing[j][0];
+            // Skip southern boundary
+            if (lat1 < -55 || lat2 < -55) {
               penDown = false;
               continue;
             }
-            const x1 = lonToX(outerRing[i][0], w, vp);
-            const y1 = latToY(outerRing[i][1], h, vp);
-            const x2 = lonToX(outerRing[j][0], w, vp);
-            const y2 = latToY(outerRing[j][1], h, vp);
+            // Skip northern boundary artifacts: segments where BOTH
+            // points are above 83° AND the segment is nearly horizontal
+            // (lat diff < 1°) — these are the straight clipping lines.
+            // Real Greenland coastline segments are irregular/angled.
+            if (lat1 > 83 && lat2 > 83 && Math.abs(lat1 - lat2) < 1) {
+              penDown = false;
+              continue;
+            }
+            // Use unclamped projection for strokes too so Greenland
+            // coastline renders at its real position
+            const x1 = lonToX(lon1, w, vp);
+            const y1 = latToYRaw(lat1, vp);
+            const x2 = lonToX(lon2, w, vp);
+            const y2 = latToYRaw(lat2, vp);
             if (!penDown) {
               ctx!.moveTo(x1, y1);
               penDown = true;
@@ -403,8 +441,6 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           }
           ctx!.stroke();
         }
-
-        ctx!.restore();
       }
 
 
@@ -419,17 +455,17 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const x2 = lonToX(to.lon, w, vp);
         const y2 = latToY(to.lat, h, vp);
 
-        const lineAlpha = state === "loading" ? 0.2 : state === "loaded" && inBurst ? 0.2 : 0.1;
+        const lineAlpha = state === "loading" ? 0.12 : state === "loaded" && inBurst ? 0.12 : 0.03;
 
         ctx!.beginPath();
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2;
         const dx = Math.abs(x2 - x1);
-        const bulge = Math.min(dx * 0.35, vp.mapW * 0.12);
+        const bulge = Math.min(dx * 0.45, vp.mapW * 0.18);
         ctx!.moveTo(x1, y1);
         ctx!.quadraticCurveTo(mx, my - bulge, x2, y2);
         ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
-        ctx!.lineWidth = 1;
+        ctx!.lineWidth = 0.8;
         ctx!.stroke();
       }
 
@@ -542,6 +578,37 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         ctx!.fillStyle = grd;
         ctx!.fillRect(cx - pulseRadius, cy - pulseRadius, pulseRadius * 2, pulseRadius * 2);
       }
+
+      // ── Edge fade: blend map edges into background ───────────────
+      // Prevents hard cutoff lines at top/bottom of the map area.
+      const fadeH = vp.mapH * 0.08; // fade band height
+      // Top fade
+      const topGrad = ctx!.createLinearGradient(0, vp.offsetY, 0, vp.offsetY + fadeH);
+      topGrad.addColorStop(0, "rgba(5, 10, 18, 1)");
+      topGrad.addColorStop(1, "rgba(5, 10, 18, 0)")
+      ctx!.fillStyle = topGrad;
+      ctx!.fillRect(0, vp.offsetY - 2, w, fadeH + 2);
+      // Bottom fade
+      const botY = vp.offsetY + vp.mapH - fadeH;
+      const botGrad = ctx!.createLinearGradient(0, botY, 0, vp.offsetY + vp.mapH);
+      botGrad.addColorStop(0, "rgba(5, 10, 18, 0)");
+      botGrad.addColorStop(1, "rgba(5, 10, 18, 1)");
+      ctx!.fillStyle = botGrad;
+      ctx!.fillRect(0, botY, w, fadeH + 2);
+      // Left fade
+      const fadeW = vp.mapW * 0.04;
+      const leftGrad = ctx!.createLinearGradient(vp.offsetX, 0, vp.offsetX + fadeW, 0);
+      leftGrad.addColorStop(0, "rgba(5, 10, 18, 1)");
+      leftGrad.addColorStop(1, "rgba(5, 10, 18, 0)");
+      ctx!.fillStyle = leftGrad;
+      ctx!.fillRect(vp.offsetX - 2, 0, fadeW + 2, h);
+      // Right fade
+      const rightX = vp.offsetX + vp.mapW - fadeW;
+      const rightGrad = ctx!.createLinearGradient(rightX, 0, vp.offsetX + vp.mapW, 0);
+      rightGrad.addColorStop(0, "rgba(5, 10, 18, 0)");
+      rightGrad.addColorStop(1, "rgba(5, 10, 18, 1)");
+      ctx!.fillStyle = rightGrad;
+      ctx!.fillRect(rightX, 0, fadeW + 2, h);
 
       animRef.current = requestAnimationFrame(frame);
     }
