@@ -825,9 +825,9 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .empty-state {
   text-align: center;
   padding: 3rem 1.5rem;
-  background: rgba(5, 10, 18, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(5, 10, 18, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   border: 1px solid rgba(0, 229, 255, 0.08);
   border-radius: 12px;
   max-width: 520px;
