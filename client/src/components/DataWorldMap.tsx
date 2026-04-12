@@ -36,9 +36,9 @@ const USER_COLOR = "#ff3333";
 const BG_R = 5, BG_G = 10, BG_B = 18; // #050a12 decomposed
 const MAX_PARTICLES = 200;
 
-const LAT_MAX = 90;
-const LAT_MIN = -60;
-const MAP_ASPECT = 360 / (LAT_MAX - LAT_MIN); // ~2.4
+const LAT_MAX = 85;
+const LAT_MIN = -85;
+const MAP_ASPECT = 360 / (LAT_MAX - LAT_MIN); // ~2.12 (full globe)
 
 const TOPO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json";
 
@@ -305,9 +305,6 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         for (const poly of polys) {
           const ring = poly[0];
           if (!ring || ring.length < 3) continue;
-          // Skip Antarctica
-          if (ring.some((c) => c[1] < -70)) continue;
-
           ctx!.beginPath();
           let penDown = false;
           for (let i = 0; i < ring.length; i++) {
@@ -343,7 +340,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         for (const poly of polys) {
           const ring = poly[0];
           if (!ring || ring.length < 3) continue;
-          if (ring.some((c) => c[1] < -70)) continue;
+
 
           ctx!.beginPath();
           let penDown = false;
@@ -353,8 +350,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
             const lat1 = ring[i][1];
             const lat2 = ring[j][1];
 
-            // Skip southern boundary segments
-            if (lat1 < -55 || lat2 < -55) { penDown = false; continue; }
+
 
             // Skip flat segments at Natural Earth data boundary (~83.6°N).
             // These are artificial clipping lines, not real coastline.
@@ -386,10 +382,10 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Data flow arc lines (curved paths between cities) ────────
       if (nodes.length > 0) {
         const conns = connsRef.current;
-        const lineAlpha = state === "loading" ? 0.18
-          : (state === "loaded" && inBurst) ? 0.18
-          : 0.12;
-        ctx!.lineWidth = 0.8;
+        const lineAlpha = state === "loading" ? 0.35
+          : (state === "loaded" && inBurst) ? 0.35
+          : 0.25;
+        ctx!.lineWidth = 1.2;
         for (const [fi, ti] of conns) {
           if (fi >= nodes.length || ti >= nodes.length) continue;
           const from = nodes[fi];
@@ -521,8 +517,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Edge fades (all 4 sides) ──────────────────────────────────
       // These gradient overlays blend the map into the dark background
       // so there are ZERO hard edges or cutoff lines anywhere.
-      const fadeH = vp.mh * 0.15;  // Generous fade to cover Arctic data boundary (~83.6°N)
-      const fadeW = vp.mw * 0.04;
+      const fadeH = vp.mh * 0.06;
+      const fadeW = vp.mw * 0.03;
       const bgFull = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 1)`;
       const bgZero = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 0)`;
 
