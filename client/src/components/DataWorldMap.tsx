@@ -359,12 +359,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         ctx!.strokeStyle = "rgba(0, 229, 255, 0.3)";
         ctx!.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
 
-        // Clip to the map viewport with soft inset to hide boundary artifacts
-        const clipInset = vp.mapH * 0.02; // 2% fade zone
         ctx!.save();
-        ctx!.beginPath();
-        ctx!.rect(vp.offsetX, vp.offsetY + clipInset, vp.mapW, vp.mapH - clipInset * 2);
-        ctx!.clip();
 
         for (const polygon of landPolygons) {
           const outerRing = polygon[0];
@@ -387,21 +382,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         ctx!.restore();
       }
 
-      // ── Edge fade: top and bottom gradient masks ──────────────────
-      const fadeH = vp.mapH * 0.06;
-      // Top fade
-      const topGrad = ctx!.createLinearGradient(0, vp.offsetY, 0, vp.offsetY + fadeH);
-      topGrad.addColorStop(0, "rgba(5, 10, 18, 1)");
-      topGrad.addColorStop(1, "rgba(5, 10, 18, 0)");
-      ctx!.fillStyle = topGrad;
-      ctx!.fillRect(0, vp.offsetY, w, fadeH);
-      // Bottom fade
-      const btmY = vp.offsetY + vp.mapH - fadeH;
-      const btmGrad = ctx!.createLinearGradient(0, btmY, 0, btmY + fadeH);
-      btmGrad.addColorStop(0, "rgba(5, 10, 18, 0)");
-      btmGrad.addColorStop(1, "rgba(5, 10, 18, 1)");
-      ctx!.fillStyle = btmGrad;
-      ctx!.fillRect(0, btmY, w, fadeH);
+
 
       // ── Draw connection base lines ────────────────────────────────
       for (const [fromIdx, toIdx] of connections) {
