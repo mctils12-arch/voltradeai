@@ -2,9 +2,7 @@ import { useRef, useEffect, useCallback } from "react";
 import * as topojson from "topojson-client";
 import type { Topology } from "topojson-specification";
 
-// ────────────────────────────────────────────────────────────────────────────
-// Types
-// ────────────────────────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────
 
 interface DataWorldMapProps {
   isLoading: boolean;
@@ -12,7 +10,7 @@ interface DataWorldMapProps {
   ticker: string | null;
 }
 
-interface Node {
+interface CityNode {
   label: string;
   lat: number;
   lon: number;
@@ -28,135 +26,94 @@ interface Particle {
   opacity: number;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Data source nodes (lat/lon)
-// ────────────────────────────────────────────────────────────────────────────
+type AnimState = "idle" | "loading" | "loaded";
+type LandPolygon = number[][][]; // polygon[ring][point][lon,lat]
 
-const DATA_NODES: Node[] = [
-  { label: "NYC", lat: 40.71, lon: -74.01, primary: true },
-  { label: "CHI", lat: 41.88, lon: -87.63 },
-  { label: "SFO", lat: 37.77, lon: -122.42 },
-  { label: "LDN", lat: 51.51, lon: -0.13 },
-  { label: "FRA", lat: 50.11, lon: 8.68 },
-  { label: "TKY", lat: 35.68, lon: 139.69 },
-  { label: "HKG", lat: 22.32, lon: 114.17 },
-  { label: "SHA", lat: 31.23, lon: 121.47 },
-  { label: "MUM", lat: 19.08, lon: 72.88 },
-  { label: "SAO", lat: -23.55, lon: -46.63 },
-  { label: "SYD", lat: -33.87, lon: 151.21 },
-  { label: "TOR", lat: 43.65, lon: -79.38 },
-];
+// ── Constants ───────────────────────────────────────────────────────────────
 
-// Index 12 will be the user node — added dynamically
-const USER_NODE_IDX = 12;
-
-// City-to-city connections (visual complexity)
-const CITY_CONNECTIONS: [number, number][] = [
-  [4, 3],  // FRA → LDN
-  [6, 5],  // HKG → TKY
-  [7, 6],  // SHA → HKG
-  [8, 3],  // MUM → LDN
-  [5, 2],  // TKY → SFO
-];
-
-// Connections toward user (built dynamically once user location is known)
-function buildUserConnections(): [number, number][] {
-  return [
-    [0, USER_NODE_IDX],  // NYC → USER
-    [1, USER_NODE_IDX],  // CHI → USER
-    [2, USER_NODE_IDX],  // SFO → USER
-    [3, USER_NODE_IDX],  // LDN → USER
-    [4, USER_NODE_IDX],  // FRA → USER
-    [5, USER_NODE_IDX],  // TKY → USER
-    [6, USER_NODE_IDX],  // HKG → USER
-    [8, USER_NODE_IDX],  // MUM → USER
-    [9, USER_NODE_IDX],  // SAO → USER
-    [10, USER_NODE_IDX], // SYD → USER
-    [11, USER_NODE_IDX], // TOR → USER
-  ];
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Real geographic data — fetched at runtime from Natural Earth 110m TopoJSON
-// ────────────────────────────────────────────────────────────────────────────
-
-const TOPO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json";
-
-// Each polygon is an array of rings; ring[0] is the outer boundary, rest are holes
-type LandPolygon = number[][][];
-
-// ────────────────────────────────────────────────────────────────────────────
-// Projection helpers — full page edge-to-edge
-// lon: -180..180 → 0..width
-// lat:  ~80..-60 → 0..height (simple equirectangular stretched)
-// ────────────────────────────────────────────────────────────────────────────
+const ACCENT = "#00e5ff";
+const USER_COLOR = "#ff3333";
+const BG_R = 5, BG_G = 10, BG_B = 18; // #050a12 decomposed
+const MAX_PARTICLES = 200;
 
 const LAT_MAX = 90;
 const LAT_MIN = -60;
+const MAP_ASPECT = 360 / (LAT_MAX - LAT_MIN); // ~2.4
 
-// Aspect-ratio-preserving projection.
-// The map's natural ratio is 360 / (LAT_MAX - LAT_MIN).
-// We fit it inside the viewport, centered, so continents never stretch.
-const MAP_ASPECT = 360 / (LAT_MAX - LAT_MIN); // ~2.57
+const TOPO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json";
 
-interface MapViewport {
-  offsetX: number;
-  offsetY: number;
-  mapW: number;
-  mapH: number;
+// ── Data source cities ──────────────────────────────────────────────────────
+
+const DATA_NODES: CityNode[] = [
+  { label: "SFO", lat: 37.77, lon: -122.42 },
+  { label: "CHI", lat: 41.88, lon: -87.63 },
+  { label: "TOR", lat: 43.65, lon: -79.38 },
+  { label: "NYC", lat: 40.71, lon: -74.01, primary: true },
+  { label: "LDN", lat: 51.51, lon: -0.13 },
+  { label: "FRA", lat: 50.11, lon: 8.68 },
+  { label: "MUM", lat: 19.08, lon: 72.88 },
+  { label: "SHA", lat: 31.23, lon: 121.47 },
+  { label: "HKG", lat: 22.32, lon: 114.17 },
+  { label: "TKY", lat: 35.68, lon: 139.69 },
+  { label: "SYD", lat: -33.87, lon: 151.21 },
+  { label: "SAO", lat: -23.55, lon: -46.63 },
+];
+
+const USER_NODE_IDX = 12;
+
+// ── Projection ──────────────────────────────────────────────────────────────
+
+interface Viewport {
+  ox: number; // offsetX
+  oy: number; // offsetY
+  mw: number; // map width
+  mh: number; // map height
 }
 
-function getMapViewport(screenW: number, screenH: number): MapViewport {
-  const screenAspect = screenW / screenH;
-  let mapW: number, mapH: number, offsetX: number, offsetY: number;
-  if (screenAspect > MAP_ASPECT) {
-    // Wide screen — constrained by height, centered horizontally
-    mapH = screenH;
-    mapW = mapH * MAP_ASPECT;
-    offsetX = (screenW - mapW) / 2;
-    offsetY = 0;
+function computeViewport(sw: number, sh: number): Viewport {
+  const aspect = sw / sh;
+  let mw: number, mh: number, ox: number, oy: number;
+  if (aspect > MAP_ASPECT) {
+    mh = sh;
+    mw = mh * MAP_ASPECT;
+    ox = (sw - mw) / 2;
+    oy = 0;
   } else {
-    // Tall screen (mobile portrait) — fit entire map within width,
-    // centered vertically so the whole world is always visible.
-    mapW = screenW;
-    mapH = mapW / MAP_ASPECT;
-    offsetX = 0;
-    offsetY = (screenH - mapH) / 2;
+    mw = sw;
+    mh = mw / MAP_ASPECT;
+    ox = 0;
+    oy = (sh - mh) / 2;
   }
-  return { offsetX, offsetY, mapW, mapH };
+  return { ox, oy, mw, mh };
 }
 
-function lonToX(lon: number, w: number, vp?: MapViewport): number {
-  if (vp) return vp.offsetX + ((lon + 180) / 360) * vp.mapW;
-  return ((lon + 180) / 360) * w;
+/** lon → screen X */
+function projX(lon: number, vp: Viewport): number {
+  return vp.ox + ((lon + 180) / 360) * vp.mw;
 }
 
-function latToY(lat: number, h: number, vp?: MapViewport): number {
-  const clamped = Math.max(LAT_MIN, Math.min(LAT_MAX, lat));
-  if (vp) return vp.offsetY + ((LAT_MAX - clamped) / (LAT_MAX - LAT_MIN)) * vp.mapH;
-  return ((LAT_MAX - clamped) / (LAT_MAX - LAT_MIN)) * h;
+/** lat → screen Y (clamped to LAT_MIN..LAT_MAX for nodes/particles) */
+function projY(lat: number, vp: Viewport): number {
+  const c = Math.max(LAT_MIN, Math.min(LAT_MAX, lat));
+  return vp.oy + ((LAT_MAX - c) / (LAT_MAX - LAT_MIN)) * vp.mh;
 }
 
-// Unclamped version for fill rendering — lets boundary points
-// project naturally beyond the visible map area.
-function latToYRaw(lat: number, vp: MapViewport): number {
-  return vp.offsetY + ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * vp.mapH;
+/** lat → screen Y (unclamped — for polygon fills so boundary points project beyond edge) */
+function projYRaw(lat: number, vp: Viewport): number {
+  return vp.oy + ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * vp.mh;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Quadratic bezier point along an arc
-// ────────────────────────────────────────────────────────────────────────────
+// ── Bezier arc helper ───────────────────────────────────────────────────────
 
-function arcPoint(
+function bezierPoint(
   x1: number, y1: number,
   x2: number, y2: number,
   t: number,
-  w: number,
+  mapW: number,
 ): { x: number; y: number } {
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
-  const dx = Math.abs(x2 - x1);
-  const bulge = Math.min(dx * 0.35, w * 0.12);
+  const bulge = Math.min(Math.abs(x2 - x1) * 0.35, mapW * 0.12);
   const cx = mx;
   const cy = my - bulge;
   const u = 1 - t;
@@ -166,115 +123,94 @@ function arcPoint(
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Component
-// ────────────────────────────────────────────────────────────────────────────
+// ── Component ───────────────────────────────────────────────────────────────
 
-const ACCENT = "#00e5ff";
-const USER_COLOR = "#ff3333";
-const BG = "#050a12";
-const MAX_PARTICLES = 200;
-
-type AnimState = "idle" | "loading" | "loaded";
+declare global {
+  interface Window {
+    __mapState?: AnimState;
+  }
+}
 
 export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animRef = useRef<number>(0);
+  const rafRef = useRef(0);
   const stateRef = useRef<AnimState>("idle");
-  const prevStateRef = useRef<AnimState>("idle");
-  const burstRef = useRef(0);
+  const prevRef = useRef<AnimState>("idle");
+  const burstTimeRef = useRef(0);
   const particlesRef = useRef<Particle[]>([]);
-  const userLocRef = useRef<{ lat: number; lon: number }>({ lat: 40.71, lon: -74.01 });
-  const connectionsRef = useRef<[number, number][]>([]);
-  const allNodesRef = useRef<Node[]>([]);
+  const userLocRef = useRef({ lat: 40.71, lon: -74.01 });
+  const nodesRef = useRef<CityNode[]>([]);
+  const connsRef = useRef<[number, number][]>([]);
   const landRef = useRef<LandPolygon[]>([]);
-  const coastRef = useRef<number[][][]>([]); // MultiLineString coords from mesh
 
-  const getState = useCallback((): AnimState => {
+  const resolveState = useCallback((): AnimState => {
     if (isLoading) return "loading";
     if (hasData && ticker) return "loaded";
     return "idle";
   }, [isLoading, hasData, ticker]);
 
-  // Fetch real land polygons once
+  // ── Fetch TopoJSON once ─────────────────────────────────────────────────
   useEffect(() => {
-    let cancelled = false;
+    let dead = false;
     fetch(TOPO_URL)
       .then((r) => r.json())
       .then((topo: Topology) => {
-        if (cancelled) return;
+        if (dead) return;
         const land = topojson.feature(topo, topo.objects.land) as GeoJSON.FeatureCollection;
         const polys: LandPolygon[] = [];
-        for (const feature of land.features) {
-          const geom = feature.geometry;
-          if (geom.type === "Polygon") {
-            polys.push(geom.coordinates);
-          } else if (geom.type === "MultiPolygon") {
-            for (const poly of geom.coordinates) {
-              polys.push(poly);
-            }
+        for (const feat of land.features) {
+          const g = feat.geometry;
+          if (g.type === "Polygon") polys.push(g.coordinates);
+          else if (g.type === "MultiPolygon") {
+            for (const p of g.coordinates) polys.push(p);
           }
         }
         landRef.current = polys;
-
-        // Extract coastline mesh — real coastlines only, no polygon fill boundaries
-        const coastMesh = topojson.mesh(topo, topo.objects.land);
-        if (coastMesh.type === "MultiLineString") {
-          coastRef.current = coastMesh.coordinates;
-        }
       })
-      .catch(() => {
-        // Silently fail — continents just won't render
-      });
-    return () => { cancelled = true; };
+      .catch(() => {});
+    return () => { dead = true; };
   }, []);
 
+  // ── Canvas + animation ──────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let running = true;
-    let lastTime = 0;
+    let alive = true;
+    let lastT = 0;
 
-    // ── Detect user location ──────────────────────────────────────────
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          userLocRef.current = {
-            lat: pos.coords.latitude,
-            lon: pos.coords.longitude,
-          };
-          rebuildNodes();
-        },
-        () => {
-          // Fallback: NYC
-          userLocRef.current = { lat: 40.71, lon: -74.01 };
-          rebuildNodes();
-        },
-      );
-    }
-
-    function rebuildNodes() {
-      const userNode: Node = {
+    // -- Build node list & connections --
+    function rebuild() {
+      const user: CityNode = {
         label: "YOU",
         lat: userLocRef.current.lat,
         lon: userLocRef.current.lon,
         primary: true,
       };
-      allNodesRef.current = [...DATA_NODES, userNode];
-      connectionsRef.current = [
-        ...CITY_CONNECTIONS,
-        ...buildUserConnections(),
-      ];
+      nodesRef.current = [...DATA_NODES, user];
+      // Every city connects to user
+      const c: [number, number][] = [];
+      for (let i = 0; i < DATA_NODES.length; i++) {
+        c.push([i, USER_NODE_IDX]);
+      }
+      connsRef.current = c;
     }
 
-    // Initialize with default (NYC)
-    rebuildNodes();
+    // Geolocation with fallback
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          userLocRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          rebuild();
+        },
+        () => rebuild(),
+      );
+    }
+    rebuild();
 
-    // ── Resize handler ──────────────────────────────────────────────
+    // -- Resize --
     function resize() {
       const dpr = window.devicePixelRatio || 1;
       const w = window.innerWidth;
@@ -285,15 +221,14 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       canvas!.style.height = h + "px";
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
-
     resize();
     window.addEventListener("resize", resize);
 
-    // ── Particle spawner ────────────────────────────────────────────
-    function spawnParticle(): Particle {
-      const conns = connectionsRef.current;
-      const connIdx = Math.floor(Math.random() * conns.length);
-      const [from, to] = conns[connIdx];
+    // -- Particle spawner --
+    function spawn(): Particle {
+      const cs = connsRef.current;
+      const ci = Math.floor(Math.random() * cs.length);
+      const [from, to] = cs[ci];
       return {
         fromIdx: from,
         toIdx: to,
@@ -304,87 +239,79 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       };
     }
 
-    // Seed initial particles
+    // Seed particles
     if (particlesRef.current.length === 0) {
-      for (let i = 0; i < 40; i++) {
-        particlesRef.current.push(spawnParticle());
-      }
+      for (let i = 0; i < 40; i++) particlesRef.current.push(spawn());
     }
 
-    // ── Animation loop ──────────────────────────────────────────────
-    function frame(time: number) {
-      if (!running) return;
-
-      const dt = lastTime ? (time - lastTime) / 1000 : 0.016;
-      lastTime = time;
+    // -- Frame --
+    function frame(now: number) {
+      if (!alive) return;
+      const dt = lastT ? (now - lastT) / 1000 : 0.016;
+      lastT = now;
 
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const vp = getMapViewport(w, h);
-      const nodes = allNodesRef.current;
-      const connections = connectionsRef.current;
+      const vp = computeViewport(w, h);
+      const nodes = nodesRef.current;
+      const particles = particlesRef.current;
 
-      const newState = getState();
-      if (newState === "loaded" && prevStateRef.current === "loading") {
-        burstRef.current = time;
+      // State transitions
+      const next = resolveState();
+      if (next === "loaded" && prevRef.current === "loading") {
+        burstTimeRef.current = now;
       }
-      prevStateRef.current = stateRef.current;
-      stateRef.current = newState;
+      prevRef.current = stateRef.current;
+      stateRef.current = next;
+      window.__mapState = next;
 
-      const state = stateRef.current;
-      const burstAge = (time - burstRef.current) / 1000;
+      const state = next;
+      const burstAge = (now - burstTimeRef.current) / 1000;
       const inBurst = burstAge < 1.5;
 
-      // Speed multiplier & particle targets
-      let speedMult = 1;
-      let targetParticleCount = 40;
-      let nodeGlow = 1;
-      let nodePulseSpeed = 1;
+      // Dynamics per state
+      let speedMul = 1;
+      let targetCount = 40;
+      let glowMul = 1;
+      let pulseMul = 1;
 
       if (state === "loading") {
-        speedMult = 4;
-        targetParticleCount = 150;
-        nodeGlow = 2;
-        nodePulseSpeed = 3;
+        speedMul = 4;
+        targetCount = 150;
+        glowMul = 2;
+        pulseMul = 3;
       } else if (state === "loaded") {
-        speedMult = inBurst ? 6 : 1.8;
-        targetParticleCount = inBurst ? 180 : 60;
-        nodeGlow = inBurst ? 2.5 : 1.3;
-        nodePulseSpeed = inBurst ? 4 : 1.5;
+        speedMul = inBurst ? 6 : 1.8;
+        targetCount = inBurst ? 180 : 60;
+        glowMul = inBurst ? 2.5 : 1.3;
+        pulseMul = inBurst ? 4 : 1.5;
       }
 
-      // Manage particle count
-      const particles = particlesRef.current;
-      while (particles.length < targetParticleCount && particles.length < MAX_PARTICLES) {
-        particles.push(spawnParticle());
+      // Manage particle pool
+      while (particles.length < targetCount && particles.length < MAX_PARTICLES) {
+        particles.push(spawn());
       }
-      while (particles.length > targetParticleCount + 10) {
+      while (particles.length > targetCount + 10) {
         particles.splice(Math.floor(Math.random() * particles.length), 1);
       }
 
-      // ── Clear ─────────────────────────────────────────────────────
+      // ── Clear ──────────────────────────────────────────────────────
       ctx!.clearRect(0, 0, w, h);
 
-      // ── Draw continent fills (from land polygons) ─────────────
-      // Use canvas clipping to constrain fills so boundary
-      // artifacts from the Natural Earth data never appear.
-      const landPolygons = landRef.current;
-      if (landPolygons.length > 0) {
+      // ── Draw continent fills ───────────────────────────────────────
+      const polys = landRef.current;
+      if (polys.length > 0) {
         ctx!.fillStyle = "rgba(0, 229, 255, 0.08)";
-        for (const polygon of landPolygons) {
-          const outerRing = polygon[0];
-          if (!outerRing || outerRing.length < 2) continue;
+        for (const poly of polys) {
+          const ring = poly[0];
+          if (!ring || ring.length < 3) continue;
           // Skip Antarctica
-          if (outerRing.some((c: number[]) => c[1] < -70)) continue;
+          if (ring.some((c) => c[1] < -70)) continue;
+
           ctx!.beginPath();
-          for (let i = 0; i < outerRing.length; i++) {
-            const lon = outerRing[i][0];
-            const lat = outerRing[i][1];
-            const px = lonToX(lon, w, vp);
-            // Use unclamped projection so boundary points at 83.6°N
-            // project naturally just above the map area instead of
-            // being pushed to arbitrary off-screen positions.
-            const py = latToYRaw(lat, vp);
+          for (let i = 0; i < ring.length; i++) {
+            const px = projX(ring[i][0], vp);
+            const py = projYRaw(ring[i][1], vp); // unclamped — boundary goes offscreen
             if (i === 0) ctx!.moveTo(px, py);
             else ctx!.lineTo(px, py);
           }
@@ -393,59 +320,53 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         }
       }
 
-      // ── Draw coastline outlines ──
-      if (landPolygons.length > 0) {
+      // ── Draw coastline strokes ─────────────────────────────────────
+      if (polys.length > 0) {
         ctx!.strokeStyle = "rgba(0, 229, 255, 0.25)";
         ctx!.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
-        for (const polygon of landPolygons) {
-          const outerRing = polygon[0];
-          if (!outerRing || outerRing.length < 2) continue;
-          if (outerRing.some((c: number[]) => c[1] < -70)) continue;
+
+        for (const poly of polys) {
+          const ring = poly[0];
+          if (!ring || ring.length < 3) continue;
+          if (ring.some((c) => c[1] < -70)) continue;
+
           ctx!.beginPath();
           let penDown = false;
-          for (let i = 0; i < outerRing.length; i++) {
-            const j = (i + 1) % outerRing.length;
-            const lat1 = outerRing[i][1];
-            const lat2 = outerRing[j][1];
-            const lon1 = outerRing[i][0];
-            const lon2 = outerRing[j][0];
-            // Skip southern boundary
-            if (lat1 < -55 || lat2 < -55) {
-              penDown = false;
-              continue;
-            }
-            // Skip northern boundary artifacts: segments where BOTH
-            // points are above 83° AND nearly horizontal
+
+          for (let i = 0; i < ring.length; i++) {
+            const j = (i + 1) % ring.length;
+            const lat1 = ring[i][1];
+            const lat2 = ring[j][1];
+
+            // Skip southern boundary segments
+            if (lat1 < -55 || lat2 < -55) { penDown = false; continue; }
+
+            // Skip flat segments at Natural Earth data boundary (~83.6°N).
+            // These are artificial clipping lines, not real coastline.
             if (lat1 > 83 && lat2 > 83 && Math.abs(lat1 - lat2) < 1) {
               penDown = false;
               continue;
             }
-            const x1 = lonToX(lon1, w, vp);
-            const y1 = latToYRaw(lat1, vp);
-            const x2 = lonToX(lon2, w, vp);
-            const y2 = latToYRaw(lat2, vp);
-            if (!penDown) {
-              ctx!.moveTo(x1, y1);
-              penDown = true;
-            }
+
+            const x1 = projX(ring[i][0], vp);
+            const y1 = projYRaw(lat1, vp);
+            const x2 = projX(ring[j][0], vp);
+            const y2 = projYRaw(lat2, vp);
+
+            if (!penDown) { ctx!.moveTo(x1, y1); penDown = true; }
             ctx!.lineTo(x2, y2);
           }
           ctx!.stroke();
         }
       }
 
-
-
-      // Connection base lines removed — particles alone show data flow.
-      // The arc lines created visible horizontal streaks across the map.
-
-      // ── Draw particles ────────────────────────────────────────────
+      // ── Particles (NO arc base lines drawn — particles only) ───────
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-        p.t += p.speed * speedMult * dt;
+        p.t += p.speed * speedMul * dt;
 
         if (p.t >= 1) {
-          particles[i] = spawnParticle();
+          particles[i] = spawn();
           particles[i].t = 0;
           continue;
         }
@@ -453,144 +374,149 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         if (p.fromIdx >= nodes.length || p.toIdx >= nodes.length) continue;
         const from = nodes[p.fromIdx];
         const to = nodes[p.toIdx];
-        const x1 = lonToX(from.lon, w, vp);
-        const y1 = latToY(from.lat, h, vp);
-        const x2 = lonToX(to.lon, w, vp);
-        const y2 = latToY(to.lat, h, vp);
+        const x1 = projX(from.lon, vp);
+        const y1 = projY(from.lat, vp);
+        const x2 = projX(to.lon, vp);
+        const y2 = projY(to.lat, vp);
 
-        const pos = arcPoint(x1, y1, x2, y2, p.t, vp.mapW);
+        const pt = bezierPoint(x1, y1, x2, y2, p.t, vp.mw);
 
         // Glow
-        const glowRadius = (p.size + 3) * (state === "loading" ? 1.5 : 1);
-        const gradient = ctx!.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowRadius);
-        gradient.addColorStop(0, `rgba(0, 229, 255, ${p.opacity * 0.6})`);
-        gradient.addColorStop(1, "rgba(0, 229, 255, 0)");
-        ctx!.fillStyle = gradient;
-        ctx!.fillRect(pos.x - glowRadius, pos.y - glowRadius, glowRadius * 2, glowRadius * 2);
+        const gr = (p.size + 3) * (state === "loading" ? 1.5 : 1);
+        const gg = ctx!.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, gr);
+        gg.addColorStop(0, `rgba(0, 229, 255, ${p.opacity * 0.6})`);
+        gg.addColorStop(1, "rgba(0, 229, 255, 0)");
+        ctx!.fillStyle = gg;
+        ctx!.fillRect(pt.x - gr, pt.y - gr, gr * 2, gr * 2);
 
-        // Core dot
+        // Dot
         ctx!.beginPath();
-        ctx!.arc(pos.x, pos.y, p.size * 0.6, 0, Math.PI * 2);
+        ctx!.arc(pt.x, pt.y, p.size * 0.6, 0, Math.PI * 2);
         ctx!.fillStyle = `rgba(0, 229, 255, ${p.opacity})`;
         ctx!.fill();
       }
 
-      // ── Draw burst ripple ─────────────────────────────────────────
+      // ── Burst ripple on "loaded" ───────────────────────────────────
       if (inBurst && nodes.length > USER_NODE_IDX) {
-        const userNode = nodes[USER_NODE_IDX];
-        const centerX = lonToX(userNode.lon, w, vp);
-        const centerY = latToY(userNode.lat, h, vp);
-        const rippleRadius = burstAge * 400;
-        const rippleAlpha = Math.max(0, 0.3 * (1 - burstAge / 1.5));
+        const un = nodes[USER_NODE_IDX];
+        const cx = projX(un.lon, vp);
+        const cy = projY(un.lat, vp);
+        const radius = burstAge * 400;
+        const alpha = Math.max(0, 0.3 * (1 - burstAge / 1.5));
         ctx!.beginPath();
-        ctx!.arc(centerX, centerY, rippleRadius, 0, Math.PI * 2);
-        ctx!.strokeStyle = `rgba(255, 51, 51, ${rippleAlpha})`;
+        ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx!.strokeStyle = `rgba(255, 51, 51, ${alpha})`;
         ctx!.lineWidth = 2;
         ctx!.stroke();
       }
 
-      // ── Draw data source nodes ────────────────────────────────────
-      const pulseT = Math.sin(time * 0.001 * nodePulseSpeed) * 0.5 + 0.5;
+      // ── City & user nodes ──────────────────────────────────────────
+      const pulse = Math.sin(now * 0.001 * pulseMul) * 0.5 + 0.5;
+      const scale = Math.max(w, h) / 1000;
 
       for (let n = 0; n < nodes.length; n++) {
-        const node = nodes[n];
-        const x = lonToX(node.lon, w, vp);
-        const y = latToY(node.lat, h, vp);
+        const nd = nodes[n];
+        const nx = projX(nd.lon, vp);
+        const ny = projY(nd.lat, vp);
         const isUser = n === USER_NODE_IDX;
 
-        // Scale node sizes relative to viewport so they're visible on all screens
-        const scale = Math.max(w, h) / 1000;
-        const baseSize = (isUser ? 8 : node.primary ? 6 : 4) * scale;
-        const pulseSize = baseSize + pulseT * 3 * nodeGlow * scale;
+        const baseR = (isUser ? 8 : nd.primary ? 6 : 4) * scale;
+        const r = baseR + pulse * 3 * glowMul * scale;
 
         // Outer glow
-        const glowR = pulseSize * (isUser ? 5 : 3.5);
-        const grd = ctx!.createRadialGradient(x, y, 0, x, y, glowR);
-        const glowAlpha = (0.15 + pulseT * 0.15) * nodeGlow;
+        const glR = r * (isUser ? 5 : 3.5);
+        const ga = (0.15 + pulse * 0.15) * glowMul;
+        const grd = ctx!.createRadialGradient(nx, ny, 0, nx, ny, glR);
         if (isUser) {
-          grd.addColorStop(0, `rgba(255, 51, 51, ${Math.min(glowAlpha, 0.6)})`);
+          grd.addColorStop(0, `rgba(255, 51, 51, ${Math.min(ga, 0.6)})`);
           grd.addColorStop(1, "rgba(255, 51, 51, 0)");
         } else {
-          grd.addColorStop(0, `rgba(0, 229, 255, ${Math.min(glowAlpha, 0.6)})`);
+          grd.addColorStop(0, `rgba(0, 229, 255, ${Math.min(ga, 0.6)})`);
           grd.addColorStop(1, "rgba(0, 229, 255, 0)");
         }
         ctx!.fillStyle = grd;
-        ctx!.fillRect(x - glowR, y - glowR, glowR * 2, glowR * 2);
+        ctx!.fillRect(nx - glR, ny - glR, glR * 2, glR * 2);
 
-        // Core
+        // Core dot
         ctx!.beginPath();
-        ctx!.arc(x, y, pulseSize, 0, Math.PI * 2);
+        ctx!.arc(nx, ny, r, 0, Math.PI * 2);
         ctx!.fillStyle = isUser ? USER_COLOR : ACCENT;
         ctx!.fill();
 
         // Label
-        const fontSize = Math.max(isUser ? 13 : 10, (isUser ? 14 : 11) * scale);
+        const fs = Math.max(isUser ? 13 : 10, (isUser ? 14 : 11) * scale);
         ctx!.font = isUser
-          ? `bold ${fontSize}px 'JetBrains Mono', monospace`
-          : `${fontSize}px 'JetBrains Mono', monospace`;
+          ? `bold ${fs}px 'JetBrains Mono', monospace`
+          : `${fs}px 'JetBrains Mono', monospace`;
         ctx!.fillStyle = isUser
-          ? `rgba(255, 51, 51, ${0.7 + pulseT * 0.3})`
-          : `rgba(0, 229, 255, ${0.5 + pulseT * 0.2})`;
+          ? `rgba(255, 51, 51, ${0.7 + pulse * 0.3})`
+          : `rgba(0, 229, 255, ${0.5 + pulse * 0.2})`;
         ctx!.textAlign = "center";
-        ctx!.fillText(node.label, x, y + pulseSize + fontSize + 2);
+        ctx!.fillText(nd.label, nx, ny + r + fs + 2);
       }
 
-      // ── Loading center convergence effect ─────────────────────────
+      // ── Loading convergence pulse ──────────────────────────────────
       if (state === "loading" && nodes.length > USER_NODE_IDX) {
-        const userNode = nodes[USER_NODE_IDX];
-        const cx = lonToX(userNode.lon, w, vp);
-        const cy = latToY(userNode.lat, h, vp);
-        const cScale = Math.max(w, h) / 1000;
-        const pulseRadius = (30 + Math.sin(time * 0.005) * 15) * cScale;
-        const grd = ctx!.createRadialGradient(cx, cy, 0, cx, cy, pulseRadius);
+        const un = nodes[USER_NODE_IDX];
+        const cx = projX(un.lon, vp);
+        const cy = projY(un.lat, vp);
+        const pr = (30 + Math.sin(now * 0.005) * 15) * scale;
+        const grd = ctx!.createRadialGradient(cx, cy, 0, cx, cy, pr);
         grd.addColorStop(0, "rgba(255, 51, 51, 0.15)");
         grd.addColorStop(1, "rgba(255, 51, 51, 0)");
         ctx!.fillStyle = grd;
-        ctx!.fillRect(cx - pulseRadius, cy - pulseRadius, pulseRadius * 2, pulseRadius * 2);
+        ctx!.fillRect(cx - pr, cy - pr, pr * 2, pr * 2);
       }
 
-      // ── Edge fade: blend map edges into background ───────────────
-      // Prevents hard cutoff lines at top/bottom of the map area.
-      const fadeH = vp.mapH * 0.08; // fade band height
-      // Top fade
-      const topGrad = ctx!.createLinearGradient(0, vp.offsetY, 0, vp.offsetY + fadeH);
-      topGrad.addColorStop(0, "rgba(5, 10, 18, 1)");
-      topGrad.addColorStop(1, "rgba(5, 10, 18, 0)")
-      ctx!.fillStyle = topGrad;
-      ctx!.fillRect(0, vp.offsetY - 2, w, fadeH + 2);
-      // Bottom fade
-      const botY = vp.offsetY + vp.mapH - fadeH;
-      const botGrad = ctx!.createLinearGradient(0, botY, 0, vp.offsetY + vp.mapH);
-      botGrad.addColorStop(0, "rgba(5, 10, 18, 0)");
-      botGrad.addColorStop(1, "rgba(5, 10, 18, 1)");
-      ctx!.fillStyle = botGrad;
-      ctx!.fillRect(0, botY, w, fadeH + 2);
-      // Left fade
-      const fadeW = vp.mapW * 0.04;
-      const leftGrad = ctx!.createLinearGradient(vp.offsetX, 0, vp.offsetX + fadeW, 0);
-      leftGrad.addColorStop(0, "rgba(5, 10, 18, 1)");
-      leftGrad.addColorStop(1, "rgba(5, 10, 18, 0)");
-      ctx!.fillStyle = leftGrad;
-      ctx!.fillRect(vp.offsetX - 2, 0, fadeW + 2, h);
-      // Right fade
-      const rightX = vp.offsetX + vp.mapW - fadeW;
-      const rightGrad = ctx!.createLinearGradient(rightX, 0, vp.offsetX + vp.mapW, 0);
-      rightGrad.addColorStop(0, "rgba(5, 10, 18, 0)");
-      rightGrad.addColorStop(1, "rgba(5, 10, 18, 1)");
-      ctx!.fillStyle = rightGrad;
-      ctx!.fillRect(rightX, 0, fadeW + 2, h);
+      // ── Edge fades (all 4 sides) ──────────────────────────────────
+      // These gradient overlays blend the map into the dark background
+      // so there are ZERO hard edges or cutoff lines anywhere.
+      const fadeH = vp.mh * 0.08;
+      const fadeW = vp.mw * 0.04;
+      const bgFull = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 1)`;
+      const bgZero = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 0)`;
 
-      animRef.current = requestAnimationFrame(frame);
+      // Top
+      const tg = ctx!.createLinearGradient(0, vp.oy, 0, vp.oy + fadeH);
+      tg.addColorStop(0, bgFull);
+      tg.addColorStop(1, bgZero);
+      ctx!.fillStyle = tg;
+      ctx!.fillRect(0, vp.oy - 2, w, fadeH + 2);
+
+      // Bottom
+      const by = vp.oy + vp.mh - fadeH;
+      const bg = ctx!.createLinearGradient(0, by, 0, vp.oy + vp.mh);
+      bg.addColorStop(0, bgZero);
+      bg.addColorStop(1, bgFull);
+      ctx!.fillStyle = bg;
+      ctx!.fillRect(0, by, w, fadeH + 2);
+
+      // Left
+      const lg = ctx!.createLinearGradient(vp.ox, 0, vp.ox + fadeW, 0);
+      lg.addColorStop(0, bgFull);
+      lg.addColorStop(1, bgZero);
+      ctx!.fillStyle = lg;
+      ctx!.fillRect(vp.ox - 2, 0, fadeW + 2, h);
+
+      // Right
+      const rx = vp.ox + vp.mw - fadeW;
+      const rg = ctx!.createLinearGradient(rx, 0, vp.ox + vp.mw, 0);
+      rg.addColorStop(0, bgZero);
+      rg.addColorStop(1, bgFull);
+      ctx!.fillStyle = rg;
+      ctx!.fillRect(rx, 0, fadeW + 2, h);
+
+      rafRef.current = requestAnimationFrame(frame);
     }
 
-    animRef.current = requestAnimationFrame(frame);
+    rafRef.current = requestAnimationFrame(frame);
 
     return () => {
-      running = false;
-      cancelAnimationFrame(animRef.current);
+      alive = false;
+      cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
     };
-  }, [getState]);
+  }, [resolveState]);
 
   return (
     <canvas
