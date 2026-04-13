@@ -857,19 +857,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { stdout } = await execAsync(
         `python3 -c "
 import json, os, time
-model_path = os.environ.get('ML_MODEL_PATH', 'voltrade_ml_v2.pkl')
-data_dir = os.environ.get('DATA_DIR', '/tmp')
+try:
+    from storage_config import DATA_DIR as data_dir, ML_MODEL_PATH as model_path
+except ImportError:
+    data_dir = os.environ.get('DATA_DIR', '/tmp')
+    model_path = os.path.join(data_dir, 'voltrade_ml_v2.pkl')
 status_path = os.path.join(data_dir, 'ml_status.json')
 toggle_path = os.path.join(data_dir, 'ml_toggle.json')
 
 # Check model file
-model_exists = os.path.exists(model_path) or os.path.exists(os.path.join(data_dir, model_path))
+model_exists = os.path.exists(model_path)
 model_age_hours = None
-for p in [model_path, os.path.join(data_dir, model_path), os.path.join(data_dir, 'voltrade_ml_v2.pkl')]:
-    if os.path.exists(p):
-        model_age_hours = round((time.time() - os.path.getmtime(p)) / 3600, 1)
-        model_exists = True
-        break
+if model_exists:
+    model_age_hours = round((time.time() - os.path.getmtime(model_path)) / 3600, 1)
 
 # Check toggle state
 enabled = False
@@ -894,8 +894,8 @@ print(json.dumps({
     'last_features': last_train.get('feature_count'),
     'last_status': last_train.get('status', 'unknown'),
     'last_train_time': last_train.get('timestamp'),
-    'contributes_to_cagr': False,
-    'note': 'ML is disabled by default. The 20.3% CAGR runs without ML. Enable to test if ML adds edge.'
+    'contributes_to_cagr': model_exists and enabled,
+    'note': 'ML enabled. Auto-retrain runs at 4am ET daily and hourly via Tier 3.' if enabled else 'ML disabled. POST /api/ml/toggle with {enabled: true} to enable.'
 }))
 "`,
         { timeout: 10000 }
@@ -914,22 +914,26 @@ print(json.dumps({
 
   app.post("/api/ml/toggle", async (req, res) => {
     try {
-      const { enabled } = req.body;
+      const enabled = !!(req.body?.enabled);
+      const pyBool = enabled ? "True" : "False";
+      const jsBool = enabled ? "true" : "false";
       const { exec } = await import("child_process");
       const { promisify } = await import("util");
       const execAsync = promisify(exec);
-      await execAsync(
-        `python3 -c "
+      const script = `
 import json, os
-data_dir = os.environ.get('DATA_DIR', '/tmp')
+try:
+    from storage_config import DATA_DIR as data_dir
+except ImportError:
+    data_dir = os.environ.get('DATA_DIR', '/tmp')
 toggle_path = os.path.join(data_dir, 'ml_toggle.json')
+os.makedirs(data_dir, exist_ok=True)
 with open(toggle_path, 'w') as f:
-    json.dump({'enabled': ${enabled ? 'True' : 'False'}}, f)
-print(json.dumps({'enabled': ${enabled ? 'true' : 'false'}, 'status': 'ok'}))
-"`,
-        { timeout: 5000 }
-      );
-      res.json({ enabled: !!enabled, status: "ok" });
+    json.dump({'enabled': ${pyBool}}, f)
+print(json.dumps({'enabled': ${jsBool}, 'status': 'ok'}))
+`;
+      const { stdout } = await execAsync(`python3 -c "${script.replace(/"/g, '\\"')}"`, { timeout: 5000 });
+      res.json(JSON.parse(stdout.trim()));
     } catch (err: any) {
       res.status(500).json({ error: err?.message?.slice(0, 200) });
     }
@@ -942,14 +946,32 @@ print(json.dumps({'enabled': ${enabled ? 'true' : 'false'}, 'status': 'ok'}))
       const { promisify } = await import("util");
       const execAsync = promisify(exec);
       const { stdout } = await execAsync("python3 ml_retrain_safe.py", { timeout: 300000 });
-      // Save result
+      // Save result to persistent DATA_DIR so /api/ml/status can read it
       const result = JSON.parse(stdout.trim());
+      const resultJson = JSON.stringify(result).replace(/'/g, "\\'");
       await execAsync(
-        `python3 -c "import json; f=open('/tmp/ml_status.json','w'); json.dump(${JSON.stringify(JSON.stringify(result))}, f)"`,
+        `python3 -c "import json, os; from storage_config import DATA_DIR; f=open(os.path.join(DATA_DIR, 'ml_status.json'),'w'); json.dump(json.loads('${resultJson}'), f)"`,
         { timeout: 5000 }
-      );
+      ).catch(() => {});
+      // Also enable toggle automatically after successful retrain
+      if (result.status === 'ok' || result.status === 'success') {
+        await execAsync(
+          `python3 -c "import json, os; from storage_config import DATA_DIR; f=open(os.path.join(DATA_DIR, 'ml_toggle.json'),'w'); json.dump({'enabled': True}, f)"`,
+          { timeout: 5000 }
+        ).catch(() => {});
+      }
     } catch (err: any) {
-      // Background — no response to send
+      // Background — save error status
+      try {
+        const { exec } = await import("child_process");
+        const { promisify } = await import("util");
+        const execAsync = promisify(exec);
+        const errMsg = (err?.message || String(err)).slice(0, 300).replace(/'/g, "");
+        await execAsync(
+          `python3 -c "import json, os; from storage_config import DATA_DIR; f=open(os.path.join(DATA_DIR, 'ml_status.json'),'w'); json.dump({'status': 'error', 'error': '${errMsg}'}, f)"`,
+          { timeout: 5000 }
+        ).catch(() => {});
+      } catch {} 
     }
   });
 
