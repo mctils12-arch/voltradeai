@@ -7,12 +7,7 @@ import {
   DollarSign, History, Sunrise,
 } from "lucide-react";
 import TradeCharts from "@/components/TradeChart";
-
-// Inverse ETFs: held "long" in Alpaca but represent bearish/short bets on the market
-const INVERSE_ETFS = new Set([
-  "SQQQ", "SH", "SDS", "SPXU", "SDOW", "SOXS", "TZA", "FAZ",
-  "SRTY", "PSQ", "DOG", "RWM", "SPXS", "SPDN", "TECS", "LABD",
-]);
+import { getDisplaySide } from "../../../shared/inverseEtfs";
 
 // ─── Tooltip helper ──────────────────────────────────────────────────────────
 const TIPS: Record<string, string> = {
@@ -604,7 +599,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
                       const isProfit = pnlPct >= 0;
                       const tradeTicker = t.ticker ?? t.symbol ?? "";
                       const rawTradeSide = t.side ?? t.direction ?? "long";
-                      const tradeSide = INVERSE_ETFS.has(tradeTicker) && rawTradeSide === "long" ? "short" : rawTradeSide;
+                      const tradeSide = getDisplaySide(tradeTicker, rawTradeSide);
                       return (
                         <tr key={i} style={{
                           borderBottom: "1px solid rgba(0, 15, 30, 0.5)",
@@ -806,8 +801,7 @@ function EnhancedPositions({
             const showAH = !marketOpen;
             // Asset type detection
             const assetClass: string = p.asset_class ?? "us_equity";
-            const isInverseETF = INVERSE_ETFS.has(p.ticker);
-            const displaySide = isInverseETF && p.side === "long" ? "short" : p.side;
+            const displaySide = getDisplaySide(p.ticker, p.side);
             const isStockShort = displaySide === "short" && assetClass === "us_equity";
             const isOption = assetClass.toLowerCase().includes("option");
 
