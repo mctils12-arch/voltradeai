@@ -5,6 +5,7 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
+import { getDisplaySide } from "../shared/inverseEtfs";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
@@ -647,10 +648,11 @@ print(json.dumps(data))
           }
         }
 
+        const rawSide = parseFloat(p.qty) > 0 ? "long" : "short";
         return {
           ticker: p.symbol,
           qty: parseFloat(p.qty),
-          side: parseFloat(p.qty) > 0 ? "long" : "short",
+          side: getDisplaySide(p.symbol, rawSide),
           entryPrice: entry,
           currentPrice: current,
           marketValue: parseFloat(p.market_value),
@@ -838,6 +840,14 @@ print(json.dumps({
 "`, { timeout: 10000 });
       
       const perf = JSON.parse(fillsOut.trim());
+      // Apply inverse ETF side mapping to recent trades
+      if (Array.isArray(perf.recentTrades)) {
+        for (const t of perf.recentTrades) {
+          const ticker = t.ticker ?? t.symbol ?? "";
+          const rawSide = t.side ?? t.direction ?? "long";
+          t.side = getDisplaySide(ticker, rawSide);
+        }
+      }
       res.json({
         ...perf,
         equityCurve,
