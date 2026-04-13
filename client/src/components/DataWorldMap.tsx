@@ -123,6 +123,27 @@ function bezierPoint(
   };
 }
 
+// ── Offscreen sprite helpers ────────────────────────────────────────────────
+
+/** Pre-render a soft radial glow dot to an offscreen canvas for reuse */
+function createGlowSprite(
+  radius: number,
+  r: number, g: number, b: number,
+  peakAlpha: number,
+): HTMLCanvasElement {
+  const size = Math.ceil(radius * 2);
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const cx = c.getContext("2d")!;
+  const grad = cx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+  grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${peakAlpha})`);
+  grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+  cx.fillStyle = grad;
+  cx.fillRect(0, 0, size, size);
+  return c;
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 declare global {
@@ -175,11 +196,159 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
 
     let alive = true;
     let lastT = 0;
+
+    // ── Cached offscreen layers ──────────────────────────────────────
+    let landCanvas: HTMLCanvasElement | null = null;
+    let edgeFadeCanvas: HTMLCanvasElement | null = null;
+    let cachedW = 0;
+    let cachedH = 0;
+    let cachedVp: Viewport | null = null;
+
+    // Pre-rendered glow sprites (keyed by "r,g,b,size")
+    const glowSpriteCache = new Map<string, HTMLCanvasElement>();
+
+    function getCachedGlowSprite(
+      radius: number, r: number, g: number, b: number, peakAlpha: number,
+    ): HTMLCanvasElement {
+      // Bucket radius to reduce sprite count (round to nearest integer)
+      const bucketR = Math.max(1, Math.round(radius));
+      const key = `${r},${g},${b},${bucketR}`;
+      let sprite = glowSpriteCache.get(key);
+      if (!sprite) {
+        sprite = createGlowSprite(bucketR, r, g, b, peakAlpha);
+        glowSpriteCache.set(key, sprite);
+      }
+      return sprite;
+    }
+
+    // ── Render land mass + coastlines to offscreen canvas ────────────
+    function renderLandLayer(w: number, h: number, vp: Viewport) {
+      const polys = landRef.current;
+      if (polys.length === 0) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      if (!landCanvas) {
+        landCanvas = document.createElement("canvas");
+      }
+      landCanvas.width = w * dpr;
+      landCanvas.height = h * dpr;
+      const lctx = landCanvas.getContext("2d")!;
+      lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Continent fills
+      lctx.fillStyle = "rgba(0, 229, 255, 0.08)";
+      for (const poly of polys) {
+        const ring = poly[0];
+        if (!ring || ring.length < 3) continue;
+        lctx.beginPath();
+        let penDown = false;
+        for (let i = 0; i < ring.length; i++) {
+          const j = (i + 1) % ring.length;
+          const px = projX(ring[i][0], vp);
+          const py = projYRaw(ring[i][1], vp);
+          const lonSpan = i < ring.length - 1 ? Math.abs(ring[j][0] - ring[i][0]) : 0;
+
+          if (!penDown) { lctx.moveTo(px, py); penDown = true; }
+          else lctx.lineTo(px, py);
+
+          if (lonSpan > 180) {
+            lctx.closePath();
+            lctx.fill();
+            lctx.beginPath();
+            penDown = false;
+          }
+        }
+        lctx.closePath();
+        lctx.fill();
+      }
+
+      // Coastline strokes
+      lctx.strokeStyle = "rgba(0, 229, 255, 0.25)";
+      lctx.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
+
+      for (const poly of polys) {
+        const ring = poly[0];
+        if (!ring || ring.length < 3) continue;
+        lctx.beginPath();
+        let penDown = false;
+
+        for (let i = 0; i < ring.length; i++) {
+          const j = (i + 1) % ring.length;
+          const lat1 = ring[i][1];
+          const lat2 = ring[j][1];
+
+          if (lat1 > 83 && lat2 > 83 && Math.abs(lat1 - lat2) < 1) {
+            penDown = false;
+            continue;
+          }
+
+          const lonSpan = Math.abs(ring[j][0] - ring[i][0]);
+          if (lonSpan > 180) {
+            penDown = false;
+            continue;
+          }
+
+          const x1 = projX(ring[i][0], vp);
+          const y1 = projYRaw(lat1, vp);
+
+          if (!penDown) { lctx.moveTo(x1, y1); penDown = true; }
+          else lctx.lineTo(x1, y1);
+        }
+        lctx.stroke();
+      }
+    }
+
+    // ── Render edge fades to offscreen canvas ───────────────────────
+    function renderEdgeFades(w: number, h: number, vp: Viewport) {
+      const dpr = window.devicePixelRatio || 1;
+      if (!edgeFadeCanvas) {
+        edgeFadeCanvas = document.createElement("canvas");
+      }
+      edgeFadeCanvas.width = w * dpr;
+      edgeFadeCanvas.height = h * dpr;
+      const ectx = edgeFadeCanvas.getContext("2d")!;
+      ectx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const fadeH = vp.mh * 0.06;
+      const fadeW = vp.mw * 0.03;
+      const bgFull = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 1)`;
+      const bgZero = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 0)`;
+
+      // Top
+      const tg = ectx.createLinearGradient(0, vp.oy, 0, vp.oy + fadeH);
+      tg.addColorStop(0, bgFull);
+      tg.addColorStop(1, bgZero);
+      ectx.fillStyle = tg;
+      ectx.fillRect(0, vp.oy - 2, w, fadeH + 2);
+
+      // Bottom
+      const by = vp.oy + vp.mh - fadeH;
+      const bg = ectx.createLinearGradient(0, by, 0, vp.oy + vp.mh);
+      bg.addColorStop(0, bgZero);
+      bg.addColorStop(1, bgFull);
+      ectx.fillStyle = bg;
+      ectx.fillRect(0, by, w, fadeH + 2);
+
+      // Left
+      const lg = ectx.createLinearGradient(vp.ox, 0, vp.ox + fadeW, 0);
+      lg.addColorStop(0, bgFull);
+      lg.addColorStop(1, bgZero);
+      ectx.fillStyle = lg;
+      ectx.fillRect(vp.ox - 2, 0, fadeW + 2, h);
+
+      // Right
+      const rx = vp.ox + vp.mw - fadeW;
+      const rg = ectx.createLinearGradient(rx, 0, vp.ox + vp.mw, 0);
+      rg.addColorStop(0, bgZero);
+      rg.addColorStop(1, bgFull);
+      ectx.fillStyle = rg;
+      ectx.fillRect(rx, 0, fadeW + 2, h);
+    }
 
     // -- Build node list & connections --
     function rebuild() {
@@ -190,7 +359,6 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         primary: true,
       };
       nodesRef.current = [...DATA_NODES, user];
-      // Every city connects to user
       const c: [number, number][] = [];
       for (let i = 0; i < DATA_NODES.length; i++) {
         c.push([i, USER_NODE_IDX]);
@@ -220,6 +388,10 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       canvas!.style.width = w + "px";
       canvas!.style.height = h + "px";
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Invalidate caches on resize
+      cachedW = 0;
+      cachedH = 0;
+      glowSpriteCache.clear();
     }
     resize();
     window.addEventListener("resize", resize);
@@ -298,85 +470,16 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       // ── Clear ──────────────────────────────────────────────────────
       ctx!.clearRect(0, 0, w, h);
 
-      // ── Draw continent fills ───────────────────────────────────────
-      const polys = landRef.current;
-      if (polys.length > 0) {
-        ctx!.fillStyle = "rgba(0, 229, 255, 0.08)";
-        for (const poly of polys) {
-          const ring = poly[0];
-          if (!ring || ring.length < 3) continue;
-          ctx!.beginPath();
-          let penDown = false;
-          for (let i = 0; i < ring.length; i++) {
-            const j = (i + 1) % ring.length;
-            const px = projX(ring[i][0], vp);
-            const py = projYRaw(ring[i][1], vp);
-
-            // If next segment jumps across the antimeridian, break the path
-            // to avoid a horizontal fill edge spanning the full map.
-            const lonSpan = i < ring.length - 1 ? Math.abs(ring[j][0] - ring[i][0]) : 0;
-
-            if (!penDown) { ctx!.moveTo(px, py); penDown = true; }
-            else ctx!.lineTo(px, py);
-
-            if (lonSpan > 180) {
-              // Close current sub-path and start a new one on the other side
-              ctx!.closePath();
-              ctx!.fill();
-              ctx!.beginPath();
-              penDown = false;
-            }
-          }
-          ctx!.closePath();
-          ctx!.fill();
-        }
+      // ── Draw cached land layer (re-render only on resize or first load) ──
+      if (landRef.current.length > 0 && (w !== cachedW || h !== cachedH)) {
+        renderLandLayer(w, h, vp);
+        renderEdgeFades(w, h, vp);
+        cachedW = w;
+        cachedH = h;
+        cachedVp = vp;
       }
-
-      // ── Draw coastline strokes ─────────────────────────────────────
-      if (polys.length > 0) {
-        ctx!.strokeStyle = "rgba(0, 229, 255, 0.25)";
-        ctx!.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
-
-        for (const poly of polys) {
-          const ring = poly[0];
-          if (!ring || ring.length < 3) continue;
-
-
-          ctx!.beginPath();
-          let penDown = false;
-
-          for (let i = 0; i < ring.length; i++) {
-            const j = (i + 1) % ring.length;
-            const lat1 = ring[i][1];
-            const lat2 = ring[j][1];
-
-
-
-            // Skip flat segments at Natural Earth data boundary (~83.6°N).
-            // These are artificial clipping lines, not real coastline.
-            if (lat1 > 83 && lat2 > 83 && Math.abs(lat1 - lat2) < 1) {
-              penDown = false;
-              continue;
-            }
-
-            // Skip antimeridian wrap-around segments (-180° ↔ +180°).
-            // These span the full map width and draw horizontal lines.
-            const lonSpan = Math.abs(ring[j][0] - ring[i][0]);
-            if (lonSpan > 180) {
-              penDown = false;
-              continue;
-            }
-
-            const x1 = projX(ring[i][0], vp);
-            const y1 = projYRaw(lat1, vp);
-            const x2 = projX(ring[j][0], vp);
-            const y2 = projYRaw(lat2, vp);
-
-            if (!penDown) { ctx!.moveTo(x1, y1); penDown = true; }
-            ctx!.lineTo(x2, y2);
-          }
-          ctx!.stroke();
-        }
+      if (landCanvas) {
+        ctx!.drawImage(landCanvas, 0, 0, w, h);
       }
 
       // ── Data flow arc lines (curved paths between cities) ────────
@@ -385,7 +488,10 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const lineAlpha = state === "loading" ? 0.35
           : (state === "loaded" && inBurst) ? 0.35
           : 0.25;
+        ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
         ctx!.lineWidth = 1.2;
+        // Batch all arcs into a single path for fewer draw calls
+        ctx!.beginPath();
         for (const [fi, ti] of conns) {
           if (fi >= nodes.length || ti >= nodes.length) continue;
           const from = nodes[fi];
@@ -398,15 +504,14 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           const my = (y1 + y2) / 2;
           const dx = Math.abs(x2 - x1);
           const bulge = Math.min(dx * 0.45, vp.mw * 0.18);
-          ctx!.beginPath();
           ctx!.moveTo(x1, y1);
           ctx!.quadraticCurveTo(mx, my - bulge, x2, y2);
-          ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
-          ctx!.stroke();
         }
+        ctx!.stroke();
       }
 
       // ── Particles (flowing dots along arc paths) ───────────────────
+      // Draw all particle glow sprites first, then dots on top
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.t += p.speed * speedMul * dt;
@@ -427,20 +532,20 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
 
         const pt = bezierPoint(x1, y1, x2, y2, p.t, vp.mw);
 
-        // Glow
-        const gr = (p.size + 3) * (state === "loading" ? 1.5 : 1);
-        const gg = ctx!.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, gr);
-        gg.addColorStop(0, `rgba(0, 229, 255, ${p.opacity * 0.6})`);
-        gg.addColorStop(1, "rgba(0, 229, 255, 0)");
-        ctx!.fillStyle = gg;
-        ctx!.fillRect(pt.x - gr, pt.y - gr, gr * 2, gr * 2);
+        // Glow via pre-rendered sprite (avoid per-frame createRadialGradient)
+        const glowR = (p.size + 3) * (state === "loading" ? 1.5 : 1);
+        const sprite = getCachedGlowSprite(glowR, 0, 229, 255, 0.6);
+        const spriteR = sprite.width / 2;
+        ctx!.globalAlpha = p.opacity;
+        ctx!.drawImage(sprite, pt.x - spriteR, pt.y - spriteR, spriteR * 2, spriteR * 2);
 
         // Dot
         ctx!.beginPath();
         ctx!.arc(pt.x, pt.y, p.size * 0.6, 0, Math.PI * 2);
-        ctx!.fillStyle = `rgba(0, 229, 255, ${p.opacity})`;
+        ctx!.fillStyle = ACCENT;
         ctx!.fill();
       }
+      ctx!.globalAlpha = 1;
 
       // ── Burst ripple on "loaded" ───────────────────────────────────
       if (inBurst && nodes.length > USER_NODE_IDX) {
@@ -469,19 +574,15 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const baseR = (isUser ? 8 : nd.primary ? 6 : 4) * scale;
         const r = baseR + pulse * 3 * glowMul * scale;
 
-        // Outer glow
+        // Outer glow — cached sprite + globalAlpha (no per-frame gradient creation)
         const glR = r * (isUser ? 5 : 3.5);
         const ga = (0.15 + pulse * 0.15) * glowMul;
-        const grd = ctx!.createRadialGradient(nx, ny, 0, nx, ny, glR);
-        if (isUser) {
-          grd.addColorStop(0, `rgba(255, 51, 51, ${Math.min(ga, 0.6)})`);
-          grd.addColorStop(1, "rgba(255, 51, 51, 0)");
-        } else {
-          grd.addColorStop(0, `rgba(0, 229, 255, ${Math.min(ga, 0.6)})`);
-          grd.addColorStop(1, "rgba(0, 229, 255, 0)");
-        }
-        ctx!.fillStyle = grd;
-        ctx!.fillRect(nx - glR, ny - glR, glR * 2, glR * 2);
+        const nodeSprite = isUser
+          ? getCachedGlowSprite(glR, 255, 51, 51, 1)
+          : getCachedGlowSprite(glR, 0, 229, 255, 1);
+        ctx!.globalAlpha = Math.min(ga, 0.6);
+        ctx!.drawImage(nodeSprite, nx - glR, ny - glR, glR * 2, glR * 2);
+        ctx!.globalAlpha = 1;
 
         // Core dot
         ctx!.beginPath();
@@ -507,50 +608,14 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const cx = projX(un.lon, vp);
         const cy = projY(un.lat, vp);
         const pr = (30 + Math.sin(now * 0.005) * 15) * scale;
-        const grd = ctx!.createRadialGradient(cx, cy, 0, cx, cy, pr);
-        grd.addColorStop(0, "rgba(255, 51, 51, 0.15)");
-        grd.addColorStop(1, "rgba(255, 51, 51, 0)");
-        ctx!.fillStyle = grd;
-        ctx!.fillRect(cx - pr, cy - pr, pr * 2, pr * 2);
+        const pulseSprite = getCachedGlowSprite(pr, 255, 51, 51, 0.15);
+        ctx!.drawImage(pulseSprite, cx - pr, cy - pr, pr * 2, pr * 2);
       }
 
-      // ── Edge fades (all 4 sides) ──────────────────────────────────
-      // These gradient overlays blend the map into the dark background
-      // so there are ZERO hard edges or cutoff lines anywhere.
-      const fadeH = vp.mh * 0.06;
-      const fadeW = vp.mw * 0.03;
-      const bgFull = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 1)`;
-      const bgZero = `rgba(${BG_R}, ${BG_G}, ${BG_B}, 0)`;
-
-      // Top
-      const tg = ctx!.createLinearGradient(0, vp.oy, 0, vp.oy + fadeH);
-      tg.addColorStop(0, bgFull);
-      tg.addColorStop(1, bgZero);
-      ctx!.fillStyle = tg;
-      ctx!.fillRect(0, vp.oy - 2, w, fadeH + 2);
-
-      // Bottom
-      const by = vp.oy + vp.mh - fadeH;
-      const bg = ctx!.createLinearGradient(0, by, 0, vp.oy + vp.mh);
-      bg.addColorStop(0, bgZero);
-      bg.addColorStop(1, bgFull);
-      ctx!.fillStyle = bg;
-      ctx!.fillRect(0, by, w, fadeH + 2);
-
-      // Left
-      const lg = ctx!.createLinearGradient(vp.ox, 0, vp.ox + fadeW, 0);
-      lg.addColorStop(0, bgFull);
-      lg.addColorStop(1, bgZero);
-      ctx!.fillStyle = lg;
-      ctx!.fillRect(vp.ox - 2, 0, fadeW + 2, h);
-
-      // Right
-      const rx = vp.ox + vp.mw - fadeW;
-      const rg = ctx!.createLinearGradient(rx, 0, vp.ox + vp.mw, 0);
-      rg.addColorStop(0, bgZero);
-      rg.addColorStop(1, bgFull);
-      ctx!.fillStyle = rg;
-      ctx!.fillRect(rx, 0, fadeW + 2, h);
+      // ── Edge fades (cached offscreen) ──────────────────────────────
+      if (edgeFadeCanvas) {
+        ctx!.drawImage(edgeFadeCanvas, 0, 0, w, h);
+      }
 
       rafRef.current = requestAnimationFrame(frame);
     }
