@@ -10,22 +10,19 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // Landing page at root
+  // Landing page at /bot
   const landingPath = path.resolve(__dirname, "..", "landing");
   if (fs.existsSync(landingPath)) {
-    app.use("/landing", express.static(landingPath));
-    app.get("/", (_req, res) => {
+    app.use("/bot", express.static(landingPath));
+    app.get("/bot", (_req, res) => {
       res.sendFile(path.resolve(landingPath, "index.html"));
     });
   }
 
-  // Dashboard app at /app and all sub-routes
+  // Main app served at root and all sub-routes
   app.use(express.static(distPath));
-  app.get("/app", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
-  });
 
-  // fall through to dashboard index.html for any unmatched route
+  // fall through to app index.html for any unmatched route
   app.use("/{*path}", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });

@@ -47,7 +47,7 @@ interface HomeProps {
 function getInitialTab(): TabId {
   const hash = window.location.hash.replace("#/", "");
   if (hash && TABS.some(t => t.id === hash)) return hash as TabId;
-  return "scanner";
+  return "analyze";
 }
 
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
