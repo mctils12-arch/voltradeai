@@ -1253,11 +1253,15 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
   }
   const openOrders: TrackedOrder[] = [];
 
-  // ── Per-Ticker Order Attempt Counter (Fix 2026-04-10) ────────────────────
-  // ELAB had 10 canceled orders because the scanner kept recommending it and
-  // stale order sweeper kept canceling unfilled limits. Max 3 attempts per
-  // ticker per day — after that, stop trying (the fill isn't happening).
-  const MAX_ORDER_ATTEMPTS_PER_TICKER = 3;
+  // ── Per-Ticker Order Attempt Counter (Fix 2026-04-10, relaxed 2026-04-13) ─
+  // Originally set to 3 to prevent the ELAB retry-loop bug (10 canceled orders
+  // per scan cycle). Raised to 10 because the hard cap of 3 was blocking
+  // legitimate re-entries throughout the day — other protections (spread filter,
+  // limit orders, stale-order sweeper, stop cooldowns, circuit breakers) now
+  // prevent the original churn problem. The counter resets daily at 4am ET.
+  // NOTE: This only gates new ENTRY orders. Exits (stops, TP, time stops) use
+  // the WebSocket handler and are never blocked by this counter.
+  const MAX_ORDER_ATTEMPTS_PER_TICKER = 10;
   const orderAttemptCounts: Record<string, number> = {};
 
   // ── Stale Order Sweeper ──────────────────────────────────────────────────
@@ -2359,11 +2363,13 @@ print('cleared')
 
       // 4am ET: Daily ML retrain + reset daily state
       if (Math.floor(etHour) === 4) {
-        // Clear daily blocked tickers and stop counters for new trading day
+        // Clear daily blocked tickers, stop counters, and order attempt counts for new trading day
         (state as any).dailyBlockedTickers = [];
         state.consecutiveStopLosses = 0;
         (state as any).recentStopTickers = [];
         state.morningQueueExecuted = false;
+        // Reset per-ticker order attempt counter so yesterday's attempts don't block today's trades
+        for (const key of Object.keys(orderAttemptCounts)) delete orderAttemptCounts[key];
         audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
