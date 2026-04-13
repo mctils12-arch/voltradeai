@@ -233,18 +233,21 @@ section {
   opacity: 0.3;
   mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 30%, transparent 80%);
   -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 30%, transparent 80%);
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .hero__glow {
   position: absolute;
   top: -30%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateZ(0);
   width: 600px;
   height: 600px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(0, 229, 255, 0.06) 0%, transparent 70%);
   pointer-events: none;
+  backface-visibility: hidden;
 }
 
 .hero__content {
@@ -277,6 +280,7 @@ section {
   border-radius: 50%;
   background: var(--color-primary);
   animation: pulse-dot 2s ease-in-out infinite;
+  will-change: opacity;
 }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
@@ -732,6 +736,7 @@ section {
     animation: reveal-fade linear both;
     animation-timeline: view();
     animation-range: entry 0% entry 100%;
+    will-change: opacity;
   }
 }
 
@@ -772,11 +777,11 @@ section {
   transition: background var(--transition-interactive), transform var(--transition-interactive), box-shadow var(--transition-interactive);
 }
 .btn:hover {
-  transform: translateY(-1px);
+  transform: translate3d(0, -1px, 0);
   box-shadow: var(--shadow-md);
 }
 .btn:active {
-  transform: translateY(0);
+  transform: translate3d(0, 0, 0);
 }
 
 .btn--primary {

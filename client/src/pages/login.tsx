@@ -19,14 +19,25 @@ function CityMatrixCanvas() {
     let animId: number;
     let W = window.innerWidth;
     let H = window.innerHeight;
-    canvas.width = W;
-    canvas.height = H;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Offscreen canvas for static building structures (sky, structure, fog, roof details)
+    let staticCanvas: HTMLCanvasElement | null = null;
 
     const handleResize = () => {
       W = window.innerWidth;
       H = window.innerHeight;
-      canvas.width = W;
-      canvas.height = H;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      staticCanvas = null; // invalidate cache
       generateCity();
     };
     window.addEventListener("resize", handleResize);
@@ -206,293 +217,16 @@ function CityMatrixCanvas() {
     generateCity();
     let time = 0;
 
-    // ── Render a single building ──
-    function drawBuilding(c: CanvasRenderingContext2D, b: Building, groundY: number, layerAlpha: number) {
-      const bTop = groundY - b.h;
-
-      // Build the building silhouette path with setbacks
-      c.save();
-      c.beginPath();
-      // Start bottom-left, go up
-      let curX = b.x;
-      let curY = groundY;
-      c.moveTo(curX, curY);
-
-      // Left side going up with setbacks
-      const sortedSetbacks = [...b.setbacks].sort((a, bb) => bb.fromTop - a.fromTop);
-      let prevLeft = b.x;
-      for (const sb of sortedSetbacks) {
-        const sbY = bTop + sb.fromTop;
-        c.lineTo(prevLeft, sbY);
-        c.lineTo(b.x + sb.insetLeft, sbY);
-        prevLeft = b.x + sb.insetLeft;
-      }
-      c.lineTo(prevLeft, bTop);
-      // Top
-      let prevRight = b.x + b.w;
-      for (const sb of sortedSetbacks) {
-        prevRight = b.x + b.w - sb.insetRight;
-      }
-      c.lineTo(prevRight, bTop);
-      // Right side going down with setbacks
-      const reversedSetbacks = [...b.setbacks].sort((a, bb) => a.fromTop - bb.fromTop);
-      for (const sb of reversedSetbacks) {
-        const sbY = bTop + sb.fromTop;
-        c.lineTo(b.x + b.w - sb.insetRight, sbY);
-        c.lineTo(b.x + b.w, sbY);
-      }
-      c.lineTo(b.x + b.w, groundY);
-      c.closePath();
-
-      // Main building fill — dark glass facade
-      const bGrad = c.createLinearGradient(b.x, bTop, b.x + b.w, groundY);
-      bGrad.addColorStop(0, `rgba(10, 20, 38, ${0.88 * layerAlpha})`);
-      bGrad.addColorStop(0.3, `rgba(8, 16, 32, ${0.82 * layerAlpha})`);
-      bGrad.addColorStop(0.7, `rgba(5, 12, 25, ${0.85 * layerAlpha})`);
-      bGrad.addColorStop(1, `rgba(4, 9, 18, ${0.92 * layerAlpha})`);
-      c.fillStyle = bGrad;
-      c.fill();
-
-      // Glass reflection streak — vertical lighter band
-      const reflGrad = c.createLinearGradient(b.reflectionX, bTop, b.reflectionX + b.reflectionW, bTop);
-      reflGrad.addColorStop(0, "transparent");
-      reflGrad.addColorStop(0.3, `rgba(80, 140, 180, ${0.04 * layerAlpha})`);
-      reflGrad.addColorStop(0.5, `rgba(100, 170, 210, ${0.06 * layerAlpha})`);
-      reflGrad.addColorStop(0.7, `rgba(80, 140, 180, ${0.04 * layerAlpha})`);
-      reflGrad.addColorStop(1, "transparent");
-      c.fillStyle = reflGrad;
-      c.fill();
-
-      // Horizontal floor bands
-      const floorH = b.layer === 0 ? 7 : b.layer === 1 ? 9 : 11;
-      c.strokeStyle = `rgba(60, 90, 120, ${0.08 * layerAlpha})`;
-      c.lineWidth = 0.4;
-      for (let fy = bTop + floorH; fy < groundY; fy += floorH) {
-        c.beginPath();
-        c.moveTo(b.x, fy);
-        c.lineTo(b.x + b.w, fy);
-        c.stroke();
-      }
-
-      // Vertical mullion lines (structural)
-      const panelW = Math.max(8, b.w / Math.max(1, Math.floor(b.w / 12)));
-      c.strokeStyle = `rgba(50, 80, 110, ${0.05 * layerAlpha})`;
-      c.lineWidth = 0.3;
-      for (let fx = b.x + panelW; fx < b.x + b.w; fx += panelW) {
-        c.beginPath();
-        c.moveTo(fx, bTop);
-        c.lineTo(fx, groundY);
-        c.stroke();
-      }
-
-      // 3D depth — right face shadow
-      const edgeW = Math.min(14, b.w * 0.12);
-      const edgeGrad = c.createLinearGradient(b.x + b.w - edgeW, bTop, b.x + b.w, bTop);
-      edgeGrad.addColorStop(0, "transparent");
-      edgeGrad.addColorStop(1, `rgba(0, 0, 0, ${0.45 * layerAlpha})`);
-      c.fillStyle = edgeGrad;
-      c.fillRect(b.x + b.w - edgeW, bTop, edgeW, b.h);
-
-      // Left edge highlight
-      c.fillStyle = `rgba(100, 160, 200, ${0.06 * layerAlpha})`;
-      c.fillRect(b.x, bTop, 1.2, b.h);
-
-      // Roof line glow
-      c.strokeStyle = `rgba(0, 229, 255, ${0.14 * layerAlpha})`;
-      c.lineWidth = 1.2;
-      c.beginPath();
-      c.moveTo(b.x, bTop);
-      c.lineTo(b.x + b.w, bTop);
-      c.stroke();
-
-      // Building outline
-      c.strokeStyle = `rgba(40, 70, 100, ${0.1 * layerAlpha})`;
-      c.lineWidth = 0.6;
-      c.strokeRect(b.x, bTop, b.w, b.h);
-
-      // ── Roof details ──
-      for (const rd of b.roofDetails) {
-        if (rd.type === "spire") {
-          const sx = b.x + rd.xOff;
-          const spH = rd.params.height;
-          const tipW = rd.params.tipW;
-          // Spire shaft
-          c.strokeStyle = `rgba(80, 110, 140, ${0.3 * layerAlpha})`;
-          c.lineWidth = tipW;
-          c.beginPath();
-          c.moveTo(sx, bTop);
-          c.lineTo(sx, bTop - spH);
-          c.stroke();
-          // Spire tip light
-          const blink = Math.sin(time * 0.04 + b.x * 0.1);
-          if (blink > 0) {
-            c.fillStyle = `rgba(255, 40, 40, ${blink * 0.85 * layerAlpha})`;
-            c.beginPath();
-            c.arc(sx, bTop - spH, 2, 0, Math.PI * 2);
-            c.fill();
-            c.fillStyle = `rgba(255, 40, 40, ${blink * 0.2 * layerAlpha})`;
-            c.beginPath();
-            c.arc(sx, bTop - spH, 7, 0, Math.PI * 2);
-            c.fill();
-          }
-        } else if (rd.type === "art-deco") {
-          // Tiered art-deco crown
-          const tiers = rd.params.tiers;
-          for (let t = 0; t < tiers; t++) {
-            const tierW = b.w * (0.8 - t * 0.15);
-            const tierH = 6 + t * 3;
-            const tx = b.x + (b.w - tierW) / 2;
-            const ty = bTop - (t + 1) * tierH;
-            c.fillStyle = `rgba(12, 24, 42, ${0.9 * layerAlpha})`;
-            c.fillRect(tx, ty, tierW, tierH);
-            c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
-            c.lineWidth = 0.5;
-            c.strokeRect(tx, ty, tierW, tierH);
-          }
-        } else if (rd.type === "angular-crown") {
-          // Angled/sloped top
-          const crownH = 15 + Math.random() * 10;
-          c.fillStyle = `rgba(10, 22, 40, ${0.9 * layerAlpha})`;
-          c.beginPath();
-          if (rd.params.angle === 0) {
-            // Peaked
-            c.moveTo(b.x, bTop);
-            c.lineTo(b.x + b.w * 0.5, bTop - crownH);
-            c.lineTo(b.x + b.w, bTop);
-          } else {
-            // Slanted
-            c.moveTo(b.x, bTop);
-            c.lineTo(b.x + b.w * 0.3, bTop - crownH);
-            c.lineTo(b.x + b.w, bTop - crownH * 0.4);
-            c.lineTo(b.x + b.w, bTop);
-          }
-          c.closePath();
-          c.fill();
-          c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
-          c.lineWidth = 0.5;
-          c.stroke();
-        } else if (rd.type === "stepped-crown") {
-          const steps = rd.params.steps;
-          const stepH = 5;
-          for (let s = 0; s < steps; s++) {
-            const sw = b.w * (1 - (s + 1) * 0.2);
-            const sx = b.x + (b.w - sw) / 2;
-            const sy = bTop - (s + 1) * stepH;
-            c.fillStyle = `rgba(10, 20, 38, ${0.9 * layerAlpha})`;
-            c.fillRect(sx, sy, sw, stepH);
-            c.strokeStyle = `rgba(50, 80, 110, ${0.08 * layerAlpha})`;
-            c.lineWidth = 0.4;
-            c.strokeRect(sx, sy, sw, stepH);
-          }
-        } else if (rd.type === "water-tower") {
-          const wtX = b.x + rd.xOff;
-          const sz = rd.params.size;
-          // Legs
-          c.strokeStyle = `rgba(70, 90, 110, ${0.2 * layerAlpha})`;
-          c.lineWidth = 0.8;
-          c.beginPath();
-          c.moveTo(wtX - sz * 0.5, bTop);
-          c.lineTo(wtX - sz * 0.3, bTop - sz * 2);
-          c.moveTo(wtX + sz * 0.5, bTop);
-          c.lineTo(wtX + sz * 0.3, bTop - sz * 2);
-          c.stroke();
-          // Tank
-          c.fillStyle = `rgba(15, 28, 45, ${0.8 * layerAlpha})`;
-          c.fillRect(wtX - sz * 0.5, bTop - sz * 3, sz, sz);
-          c.strokeStyle = `rgba(50, 80, 110, ${0.15 * layerAlpha})`;
-          c.lineWidth = 0.4;
-          c.strokeRect(wtX - sz * 0.5, bTop - sz * 3, sz, sz);
-        } else if (rd.type === "mech-penthouse") {
-          const mpX = b.x + rd.xOff;
-          const pw = rd.params.pw;
-          const ph = rd.params.ph;
-          c.fillStyle = `rgba(12, 22, 38, ${0.85 * layerAlpha})`;
-          c.fillRect(mpX, bTop - ph, pw, ph);
-          c.strokeStyle = `rgba(50, 80, 110, ${0.1 * layerAlpha})`;
-          c.lineWidth = 0.4;
-          c.strokeRect(mpX, bTop - ph, pw, ph);
-        } else if (rd.type === "helipad") {
-          const hx = b.x + rd.xOff;
-          const hr = rd.params.radius;
-          c.strokeStyle = `rgba(0, 229, 255, ${0.12 * layerAlpha})`;
-          c.lineWidth = 0.8;
-          c.beginPath();
-          c.arc(hx, bTop - 2, hr, 0, Math.PI * 2);
-          c.stroke();
-          // H marking
-          c.strokeStyle = `rgba(0, 229, 255, ${0.08 * layerAlpha})`;
-          c.lineWidth = 1;
-          c.beginPath();
-          c.moveTo(hx - hr * 0.3, bTop - 2 - hr * 0.35);
-          c.lineTo(hx - hr * 0.3, bTop - 2 + hr * 0.35);
-          c.moveTo(hx + hr * 0.3, bTop - 2 - hr * 0.35);
-          c.lineTo(hx + hr * 0.3, bTop - 2 + hr * 0.35);
-          c.moveTo(hx - hr * 0.3, bTop - 2);
-          c.lineTo(hx + hr * 0.3, bTop - 2);
-          c.stroke();
-        }
-      }
-
-      // Antenna with blinking red light
-      if (b.antennaHeight > 0) {
-        const ax = b.x + b.w * 0.5;
-        c.strokeStyle = `rgba(80, 100, 130, ${0.25 * layerAlpha})`;
-        c.lineWidth = 0.8;
-        c.beginPath();
-        c.moveTo(ax, bTop);
-        c.lineTo(ax, bTop - b.antennaHeight);
-        c.stroke();
-        const blinkPhase = Math.sin(time * 0.04 + b.x * 0.1);
-        if (blinkPhase > 0) {
-          const alpha = blinkPhase * 0.85 * layerAlpha;
-          c.fillStyle = `rgba(255, 40, 40, ${alpha})`;
-          c.beginPath();
-          c.arc(ax, bTop - b.antennaHeight, 2, 0, Math.PI * 2);
-          c.fill();
-          c.fillStyle = `rgba(255, 40, 40, ${alpha * 0.25})`;
-          c.beginPath();
-          c.arc(ax, bTop - b.antennaHeight, 7, 0, Math.PI * 2);
-          c.fill();
-        }
-      }
-
-      // ── Windows — realistic nighttime office ──
-      for (const win of b.windows) {
-        if (!win.lit) {
-          // Dark window — faint glass reflection
-          c.fillStyle = `rgba(20, 35, 55, ${0.15 * layerAlpha})`;
-          c.fillRect(win.wx, win.wy, win.ww, win.wh);
-          // Tiny chance to flicker on
-          if (Math.random() < 0.0003) win.lit = true;
-          continue;
-        }
-        if (Math.random() < 0.0003) { win.lit = false; continue; }
-
-        const flick = Math.sin(time * 0.008 + win.flicker) * 0.5 + 0.5;
-        const baseAlpha = (0.15 + flick * 0.35) * layerAlpha;
-
-        // Window color based on warmth (warm yellow to cool white)
-        const r = Math.floor(200 + win.warmth * 55);
-        const g = Math.floor(170 + win.warmth * 50);
-        const bVal = Math.floor(80 + (1 - win.warmth) * 120);
-
-        // Inner glow
-        c.fillStyle = `rgba(${r}, ${g}, ${bVal}, ${baseAlpha})`;
-        c.fillRect(win.wx, win.wy, win.ww, win.wh);
-
-        // Outer bleed glow
-        c.fillStyle = `rgba(${r}, ${g}, ${bVal}, ${baseAlpha * 0.12})`;
-        c.fillRect(win.wx - 0.8, win.wy - 0.5, win.ww + 1.6, win.wh + 1);
-      }
-
-      c.restore();
-    }
-
-    function draw() {
-      if (document.hidden) { animId = requestAnimationFrame(draw); return; }
-      time++;
-      const c = ctx!;
-      c.clearRect(0, 0, W, H);
+    // ── Render the static building layer to an offscreen canvas ──
+    // This includes: sky, building silhouettes, floor lines, mullions, edges,
+    // outlines, roof details (without blinking lights), fog, ambient glow, ground.
+    // Everything EXCEPT windows, blinking lights, streams, and scan line.
+    function renderStaticLayer(): HTMLCanvasElement {
+      const sc = document.createElement("canvas");
+      sc.width = W * dpr;
+      sc.height = H * dpr;
+      const c = sc.getContext("2d")!;
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Sky gradient
       const grad = c.createLinearGradient(0, 0, 0, H);
@@ -505,8 +239,221 @@ function CityMatrixCanvas() {
 
       const groundY = H * 0.92;
 
-      // ── Layer 0 (background) — faint, atmospheric ──
-      for (const b of layers[0]) drawBuilding(c, b, groundY, 0.35);
+      // Helper: draw static parts of a building (no windows, no blinking)
+      function drawBuildingStatic(b: Building, layerAlpha: number) {
+        const bTop = groundY - b.h;
+        c.save();
+        c.beginPath();
+        let curX = b.x;
+        c.moveTo(curX, groundY);
+        const sortedSetbacks = [...b.setbacks].sort((a, bb) => bb.fromTop - a.fromTop);
+        let prevLeft = b.x;
+        for (const sb of sortedSetbacks) {
+          const sbY = bTop + sb.fromTop;
+          c.lineTo(prevLeft, sbY);
+          c.lineTo(b.x + sb.insetLeft, sbY);
+          prevLeft = b.x + sb.insetLeft;
+        }
+        c.lineTo(prevLeft, bTop);
+        let prevRight = b.x + b.w;
+        for (const sb of sortedSetbacks) {
+          prevRight = b.x + b.w - sb.insetRight;
+        }
+        c.lineTo(prevRight, bTop);
+        const reversedSetbacks = [...b.setbacks].sort((a, bb) => a.fromTop - bb.fromTop);
+        for (const sb of reversedSetbacks) {
+          const sbY = bTop + sb.fromTop;
+          c.lineTo(b.x + b.w - sb.insetRight, sbY);
+          c.lineTo(b.x + b.w, sbY);
+        }
+        c.lineTo(b.x + b.w, groundY);
+        c.closePath();
+
+        const bGrad = c.createLinearGradient(b.x, bTop, b.x + b.w, groundY);
+        bGrad.addColorStop(0, `rgba(10, 20, 38, ${0.88 * layerAlpha})`);
+        bGrad.addColorStop(0.3, `rgba(8, 16, 32, ${0.82 * layerAlpha})`);
+        bGrad.addColorStop(0.7, `rgba(5, 12, 25, ${0.85 * layerAlpha})`);
+        bGrad.addColorStop(1, `rgba(4, 9, 18, ${0.92 * layerAlpha})`);
+        c.fillStyle = bGrad;
+        c.fill();
+
+        const reflGrad = c.createLinearGradient(b.reflectionX, bTop, b.reflectionX + b.reflectionW, bTop);
+        reflGrad.addColorStop(0, "transparent");
+        reflGrad.addColorStop(0.3, `rgba(80, 140, 180, ${0.04 * layerAlpha})`);
+        reflGrad.addColorStop(0.5, `rgba(100, 170, 210, ${0.06 * layerAlpha})`);
+        reflGrad.addColorStop(0.7, `rgba(80, 140, 180, ${0.04 * layerAlpha})`);
+        reflGrad.addColorStop(1, "transparent");
+        c.fillStyle = reflGrad;
+        c.fill();
+
+        const floorH = b.layer === 0 ? 7 : b.layer === 1 ? 9 : 11;
+        c.strokeStyle = `rgba(60, 90, 120, ${0.08 * layerAlpha})`;
+        c.lineWidth = 0.4;
+        for (let fy = bTop + floorH; fy < groundY; fy += floorH) {
+          c.beginPath();
+          c.moveTo(b.x, fy);
+          c.lineTo(b.x + b.w, fy);
+          c.stroke();
+        }
+
+        const panelW = Math.max(8, b.w / Math.max(1, Math.floor(b.w / 12)));
+        c.strokeStyle = `rgba(50, 80, 110, ${0.05 * layerAlpha})`;
+        c.lineWidth = 0.3;
+        for (let fx = b.x + panelW; fx < b.x + b.w; fx += panelW) {
+          c.beginPath();
+          c.moveTo(fx, bTop);
+          c.lineTo(fx, groundY);
+          c.stroke();
+        }
+
+        const edgeW = Math.min(14, b.w * 0.12);
+        const edgeGrad = c.createLinearGradient(b.x + b.w - edgeW, bTop, b.x + b.w, bTop);
+        edgeGrad.addColorStop(0, "transparent");
+        edgeGrad.addColorStop(1, `rgba(0, 0, 0, ${0.45 * layerAlpha})`);
+        c.fillStyle = edgeGrad;
+        c.fillRect(b.x + b.w - edgeW, bTop, edgeW, b.h);
+
+        c.fillStyle = `rgba(100, 160, 200, ${0.06 * layerAlpha})`;
+        c.fillRect(b.x, bTop, 1.2, b.h);
+
+        c.strokeStyle = `rgba(0, 229, 255, ${0.14 * layerAlpha})`;
+        c.lineWidth = 1.2;
+        c.beginPath();
+        c.moveTo(b.x, bTop);
+        c.lineTo(b.x + b.w, bTop);
+        c.stroke();
+
+        c.strokeStyle = `rgba(40, 70, 100, ${0.1 * layerAlpha})`;
+        c.lineWidth = 0.6;
+        c.strokeRect(b.x, bTop, b.w, b.h);
+
+        // Roof details (static parts only — no blinking lights)
+        for (const rd of b.roofDetails) {
+          if (rd.type === "spire") {
+            const sx = b.x + rd.xOff;
+            const spH = rd.params.height;
+            const tipW = rd.params.tipW;
+            c.strokeStyle = `rgba(80, 110, 140, ${0.3 * layerAlpha})`;
+            c.lineWidth = tipW;
+            c.beginPath();
+            c.moveTo(sx, bTop);
+            c.lineTo(sx, bTop - spH);
+            c.stroke();
+          } else if (rd.type === "art-deco") {
+            const tiers = rd.params.tiers;
+            for (let t = 0; t < tiers; t++) {
+              const tierW = b.w * (0.8 - t * 0.15);
+              const tierH = 6 + t * 3;
+              const tx = b.x + (b.w - tierW) / 2;
+              const ty = bTop - (t + 1) * tierH;
+              c.fillStyle = `rgba(12, 24, 42, ${0.9 * layerAlpha})`;
+              c.fillRect(tx, ty, tierW, tierH);
+              c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
+              c.lineWidth = 0.5;
+              c.strokeRect(tx, ty, tierW, tierH);
+            }
+          } else if (rd.type === "angular-crown") {
+            const crownH = 15 + Math.random() * 10;
+            c.fillStyle = `rgba(10, 22, 40, ${0.9 * layerAlpha})`;
+            c.beginPath();
+            if (rd.params.angle === 0) {
+              c.moveTo(b.x, bTop);
+              c.lineTo(b.x + b.w * 0.5, bTop - crownH);
+              c.lineTo(b.x + b.w, bTop);
+            } else {
+              c.moveTo(b.x, bTop);
+              c.lineTo(b.x + b.w * 0.3, bTop - crownH);
+              c.lineTo(b.x + b.w, bTop - crownH * 0.4);
+              c.lineTo(b.x + b.w, bTop);
+            }
+            c.closePath();
+            c.fill();
+            c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
+            c.lineWidth = 0.5;
+            c.stroke();
+          } else if (rd.type === "stepped-crown") {
+            const steps = rd.params.steps;
+            const stepH = 5;
+            for (let s = 0; s < steps; s++) {
+              const sw = b.w * (1 - (s + 1) * 0.2);
+              const sx = b.x + (b.w - sw) / 2;
+              const sy = bTop - (s + 1) * stepH;
+              c.fillStyle = `rgba(10, 20, 38, ${0.9 * layerAlpha})`;
+              c.fillRect(sx, sy, sw, stepH);
+              c.strokeStyle = `rgba(50, 80, 110, ${0.08 * layerAlpha})`;
+              c.lineWidth = 0.4;
+              c.strokeRect(sx, sy, sw, stepH);
+            }
+          } else if (rd.type === "water-tower") {
+            const wtX = b.x + rd.xOff;
+            const sz = rd.params.size;
+            c.strokeStyle = `rgba(70, 90, 110, ${0.2 * layerAlpha})`;
+            c.lineWidth = 0.8;
+            c.beginPath();
+            c.moveTo(wtX - sz * 0.5, bTop);
+            c.lineTo(wtX - sz * 0.3, bTop - sz * 2);
+            c.moveTo(wtX + sz * 0.5, bTop);
+            c.lineTo(wtX + sz * 0.3, bTop - sz * 2);
+            c.stroke();
+            c.fillStyle = `rgba(15, 28, 45, ${0.8 * layerAlpha})`;
+            c.fillRect(wtX - sz * 0.5, bTop - sz * 3, sz, sz);
+            c.strokeStyle = `rgba(50, 80, 110, ${0.15 * layerAlpha})`;
+            c.lineWidth = 0.4;
+            c.strokeRect(wtX - sz * 0.5, bTop - sz * 3, sz, sz);
+          } else if (rd.type === "mech-penthouse") {
+            const mpX = b.x + rd.xOff;
+            const pw = rd.params.pw;
+            const ph = rd.params.ph;
+            c.fillStyle = `rgba(12, 22, 38, ${0.85 * layerAlpha})`;
+            c.fillRect(mpX, bTop - ph, pw, ph);
+            c.strokeStyle = `rgba(50, 80, 110, ${0.1 * layerAlpha})`;
+            c.lineWidth = 0.4;
+            c.strokeRect(mpX, bTop - ph, pw, ph);
+          } else if (rd.type === "helipad") {
+            const hx = b.x + rd.xOff;
+            const hr = rd.params.radius;
+            c.strokeStyle = `rgba(0, 229, 255, ${0.12 * layerAlpha})`;
+            c.lineWidth = 0.8;
+            c.beginPath();
+            c.arc(hx, bTop - 2, hr, 0, Math.PI * 2);
+            c.stroke();
+            c.strokeStyle = `rgba(0, 229, 255, ${0.08 * layerAlpha})`;
+            c.lineWidth = 1;
+            c.beginPath();
+            c.moveTo(hx - hr * 0.3, bTop - 2 - hr * 0.35);
+            c.lineTo(hx - hr * 0.3, bTop - 2 + hr * 0.35);
+            c.moveTo(hx + hr * 0.3, bTop - 2 - hr * 0.35);
+            c.lineTo(hx + hr * 0.3, bTop - 2 + hr * 0.35);
+            c.moveTo(hx - hr * 0.3, bTop - 2);
+            c.lineTo(hx + hr * 0.3, bTop - 2);
+            c.stroke();
+          }
+        }
+
+        // Antenna shaft (static — blinking light drawn dynamically)
+        if (b.antennaHeight > 0) {
+          const ax = b.x + b.w * 0.5;
+          c.strokeStyle = `rgba(80, 100, 130, ${0.25 * layerAlpha})`;
+          c.lineWidth = 0.8;
+          c.beginPath();
+          c.moveTo(ax, bTop);
+          c.lineTo(ax, bTop - b.antennaHeight);
+          c.stroke();
+        }
+
+        // Dark (unlit) windows — static background rectangles
+        for (const win of b.windows) {
+          if (!win.lit) {
+            c.fillStyle = `rgba(20, 35, 55, ${0.15 * layerAlpha})`;
+            c.fillRect(win.wx, win.wy, win.ww, win.wh);
+          }
+        }
+
+        c.restore();
+      }
+
+      // Layer 0 (background)
+      for (const b of layers[0]) drawBuildingStatic(b, 0.35);
 
       // Fog between back and mid layer
       const fog0 = c.createLinearGradient(0, groundY - H * 0.45, 0, groundY);
@@ -517,8 +464,8 @@ function CityMatrixCanvas() {
       c.fillStyle = fog0;
       c.fillRect(0, groundY - H * 0.45, W, H * 0.45);
 
-      // ── Layer 1 (midground) ──
-      for (const b of layers[1]) drawBuilding(c, b, groundY, 0.6);
+      // Layer 1 (midground)
+      for (const b of layers[1]) drawBuildingStatic(b, 0.6);
 
       // Fog between mid and foreground
       const fog1 = c.createLinearGradient(0, groundY - H * 0.3, 0, groundY);
@@ -528,10 +475,10 @@ function CityMatrixCanvas() {
       c.fillStyle = fog1;
       c.fillRect(0, groundY - H * 0.3, W, H * 0.3);
 
-      // ── Layer 2 (foreground) — full detail ──
-      for (const b of layers[2]) drawBuilding(c, b, groundY, 1.0);
+      // Layer 2 (foreground)
+      for (const b of layers[2]) drawBuildingStatic(b, 1.0);
 
-      // ── Ambient glow at skyline base ──
+      // Ambient glow at skyline base
       const ambientGlow = c.createRadialGradient(W * 0.5, groundY, 0, W * 0.5, groundY, W * 0.6);
       ambientGlow.addColorStop(0, "rgba(0, 180, 220, 0.025)");
       ambientGlow.addColorStop(0.5, "rgba(0, 140, 180, 0.012)");
@@ -555,7 +502,78 @@ function CityMatrixCanvas() {
       c.fillStyle = fogGrad;
       c.fillRect(0, groundY - 30, W, 40);
 
-      // ── Binary streams (unchanged) ──
+      return sc;
+    }
+
+    // ── Draw dynamic elements per-frame (windows, blinking lights, streams, scan) ──
+    function drawDynamic(c: CanvasRenderingContext2D, t: number) {
+      const groundY = H * 0.92;
+
+      // Lit windows for each layer
+      function drawWindowsForLayer(layerBuildings: Building[], layerAlpha: number) {
+        for (const b of layerBuildings) {
+          for (const win of b.windows) {
+            // Random flicker: tiny chance to toggle
+            if (win.lit && Math.random() < 0.0003) { win.lit = false; continue; }
+            if (!win.lit) {
+              if (Math.random() < 0.0003) win.lit = true;
+              continue;
+            }
+            const flick = Math.sin(t * 0.008 + win.flicker) * 0.5 + 0.5;
+            const baseAlpha = (0.15 + flick * 0.35) * layerAlpha;
+            const r = Math.floor(200 + win.warmth * 55);
+            const g = Math.floor(170 + win.warmth * 50);
+            const bVal = Math.floor(80 + (1 - win.warmth) * 120);
+
+            c.fillStyle = `rgba(${r}, ${g}, ${bVal}, ${baseAlpha})`;
+            c.fillRect(win.wx, win.wy, win.ww, win.wh);
+            c.fillStyle = `rgba(${r}, ${g}, ${bVal}, ${baseAlpha * 0.12})`;
+            c.fillRect(win.wx - 0.8, win.wy - 0.5, win.ww + 1.6, win.wh + 1);
+          }
+
+          // Blinking spire/antenna lights
+          const bTop = groundY - b.h;
+          const layerA = layerAlpha;
+          for (const rd of b.roofDetails) {
+            if (rd.type === "spire") {
+              const sx = b.x + rd.xOff;
+              const spH = rd.params.height;
+              const blink = Math.sin(t * 0.04 + b.x * 0.1);
+              if (blink > 0) {
+                c.fillStyle = `rgba(255, 40, 40, ${blink * 0.85 * layerA})`;
+                c.beginPath();
+                c.arc(sx, bTop - spH, 2, 0, Math.PI * 2);
+                c.fill();
+                c.fillStyle = `rgba(255, 40, 40, ${blink * 0.2 * layerA})`;
+                c.beginPath();
+                c.arc(sx, bTop - spH, 7, 0, Math.PI * 2);
+                c.fill();
+              }
+            }
+          }
+          if (b.antennaHeight > 0) {
+            const ax = b.x + b.w * 0.5;
+            const blinkPhase = Math.sin(t * 0.04 + b.x * 0.1);
+            if (blinkPhase > 0) {
+              const alpha = blinkPhase * 0.85 * layerA;
+              c.fillStyle = `rgba(255, 40, 40, ${alpha})`;
+              c.beginPath();
+              c.arc(ax, bTop - b.antennaHeight, 2, 0, Math.PI * 2);
+              c.fill();
+              c.fillStyle = `rgba(255, 40, 40, ${alpha * 0.25})`;
+              c.beginPath();
+              c.arc(ax, bTop - b.antennaHeight, 7, 0, Math.PI * 2);
+              c.fill();
+            }
+          }
+        }
+      }
+
+      drawWindowsForLayer(layers[0], 0.35);
+      drawWindowsForLayer(layers[1], 0.6);
+      drawWindowsForLayer(layers[2], 1.0);
+
+      // Binary streams
       c.font = "9px 'JetBrains Mono', 'Courier New', monospace";
       for (const s of streams) {
         s.y += s.speed;
@@ -579,13 +597,31 @@ function CityMatrixCanvas() {
       }
 
       // Scan line
-      const scanY = (time * 1.2) % (H * 2) - H * 0.3;
+      const scanY = (t * 1.2) % (H * 2) - H * 0.3;
       const scanGrad = c.createLinearGradient(0, scanY - 15, 0, scanY + 15);
       scanGrad.addColorStop(0, "transparent");
       scanGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.025)");
       scanGrad.addColorStop(1, "transparent");
       c.fillStyle = scanGrad;
       c.fillRect(0, scanY - 15, W, 30);
+    }
+
+    function draw() {
+      if (document.hidden) { animId = requestAnimationFrame(draw); return; }
+      time++;
+      const c = ctx!;
+
+      // Build static layer once (rebuilt on resize)
+      if (!staticCanvas) {
+        staticCanvas = renderStaticLayer();
+      }
+
+      // Blit static layer (sky + buildings + fog)
+      c.clearRect(0, 0, W, H);
+      c.drawImage(staticCanvas, 0, 0, W, H);
+
+      // Draw dynamic elements (windows, lights, streams, scan line)
+      drawDynamic(c, time);
 
       animId = requestAnimationFrame(draw);
     }
@@ -780,6 +816,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
             background: "linear-gradient(180deg, transparent 0%, #00e5ff 30%, #00e5ff 50%, transparent 100%)",
             animation: `matrixFall ${3 + (i % 4) * 2}s linear infinite`,
             animationDelay: `${(i * 0.7) % 5}s`,
+            willChange: "transform",
           }} />
         ))}
       </div>
@@ -789,9 +826,10 @@ export default function LoginPage({ onLogin }: LoginProps) {
         position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", overflow: "hidden",
       }}>
         <div style={{
-          position: "absolute", left: 0, right: 0, height: "1px",
+          position: "absolute", top: 0, left: 0, right: 0, height: "1px",
           background: "rgba(0, 229, 255, 0.06)",
           animation: "scanLine 6s linear infinite",
+          willChange: "transform",
         }} />
       </div>
 
@@ -808,8 +846,8 @@ export default function LoginPage({ onLogin }: LoginProps) {
 
       <style>{`
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-        @keyframes matrixFall { 0% { transform: translateY(0); } 100% { transform: translateY(100vh); } }
-        @keyframes scanLine { 0% { top: -2px; } 100% { top: 100%; } }
+        @keyframes matrixFall { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(0, 100vh, 0); } }
+        @keyframes scanLine { 0% { transform: translate3d(0, -2px, 0); } 100% { transform: translate3d(0, 100vh, 0); } }
 
         @media (max-width: 600px) {
           .login-card {
