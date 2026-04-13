@@ -41,6 +41,9 @@ result = {
     "last_samples": last_train.get("samples"),
     "last_features": last_train.get("feature_count"),
     "last_status": last_train.get("status", "unknown"),
+    "last_error": last_train.get("error"),
+    "last_traceback": last_train.get("traceback"),
+    "last_steps": last_train.get("steps") or last_train.get("steps_completed"),
     "last_train_time": last_train.get("timestamp"),
     "contributes_to_cagr": model_exists and enabled,
     "note": "ML enabled. Auto-retrain runs at 4am ET daily and hourly via Tier 3."
