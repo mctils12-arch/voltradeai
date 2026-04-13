@@ -27,12 +27,13 @@ RUN rm -rf node_modules && npm ci --prefer-offline --omit=dev
 # ══════════════════════════════════════════════════════════════════
 FROM node:20-slim
 
-# Python runtime only — no build-essential, no python3-dev
+# Python runtime + libgomp (required by LightGBM for OpenMP threading)
 # numpy/scipy/lightgbm all ship pre-built manylinux wheels
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
