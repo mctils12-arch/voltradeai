@@ -8,6 +8,12 @@ import {
 } from "lucide-react";
 import TradeCharts from "@/components/TradeChart";
 
+// Inverse ETFs: held "long" in Alpaca but represent bearish/short bets on the market
+const INVERSE_ETFS = new Set([
+  "SQQQ", "SH", "SDS", "SPXU", "SDOW", "SOXS", "TZA", "FAZ",
+  "SRTY", "PSQ", "DOG", "RWM", "SPXS", "SPDN", "TECS", "LABD",
+]);
+
 // ─── Tooltip helper ──────────────────────────────────────────────────────────
 const TIPS: Record<string, string> = {
   portfolio: "Total value of your account — cash plus the value of all open positions.",
@@ -596,6 +602,9 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
                     {recentTrades.map((t: any, i: number) => {
                       const pnlPct = t.pnlPct ?? t.pnl_pct ?? t.returnPct ?? 0;
                       const isProfit = pnlPct >= 0;
+                      const tradeTicker = t.ticker ?? t.symbol ?? "";
+                      const rawTradeSide = t.side ?? t.direction ?? "long";
+                      const tradeSide = INVERSE_ETFS.has(tradeTicker) && rawTradeSide === "long" ? "short" : rawTradeSide;
                       return (
                         <tr key={i} style={{
                           borderBottom: "1px solid rgba(0, 15, 30, 0.5)",
@@ -606,8 +615,8 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
                           <td style={{ padding: "7px 10px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: "#c8d6e5" }}>
                             {t.ticker ?? t.symbol ?? "—"}
                           </td>
-                          <td style={{ padding: "7px 6px", color: (t.side ?? t.direction ?? "long") === "short" ? "#ff453a" : "#30d158", fontFamily: "monospace", fontSize: "11px", fontWeight: 600, textTransform: "uppercase" }}>
-                            {t.side ?? t.direction ?? "long"}
+                          <td style={{ padding: "7px 6px", color: tradeSide === "short" ? "#ff453a" : "#30d158", fontFamily: "monospace", fontSize: "11px", fontWeight: 600, textTransform: "uppercase" }}>
+                            {tradeSide}
                           </td>
                           <td style={{ padding: "7px 6px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: isProfit ? "#30d158" : "#ff453a" }}>
                             {isProfit ? "+" : ""}{Number(pnlPct).toFixed(2)}%
@@ -797,7 +806,9 @@ function EnhancedPositions({
             const showAH = !marketOpen;
             // Asset type detection
             const assetClass: string = p.asset_class ?? "us_equity";
-            const isStockShort = p.side === "short" && assetClass === "us_equity";
+            const isInverseETF = INVERSE_ETFS.has(p.ticker);
+            const displaySide = isInverseETF && p.side === "long" ? "short" : p.side;
+            const isStockShort = displaySide === "short" && assetClass === "us_equity";
             const isOption = assetClass.toLowerCase().includes("option");
 
             return (
@@ -818,12 +829,12 @@ function EnhancedPositions({
                   </span>
                   <span style={{
                     fontSize: "11px", fontWeight: 600, padding: "2px 7px", borderRadius: "3px",
-                    color: p.side === "long" ? "#30d158" : "#ff453a",
-                    background: p.side === "long" ? "rgba(48,209,88,0.12)" : "rgba(255,68,68,0.12)",
-                    border: `1px solid ${p.side === "long" ? "rgba(48,209,88,0.25)" : "rgba(255,68,68,0.25)"}`,
+                    color: displaySide === "long" ? "#30d158" : "#ff453a",
+                    background: displaySide === "long" ? "rgba(48,209,88,0.12)" : "rgba(255,68,68,0.12)",
+                    border: `1px solid ${displaySide === "long" ? "rgba(48,209,88,0.25)" : "rgba(255,68,68,0.25)"}`,
                     textTransform: "uppercase" as const,
                   }}>
-                    {p.side}
+                    {displaySide}
                   </span>
                   {/* FIX 3: STOCK SHORT badge for equity shorts */}
                   {isStockShort && (
