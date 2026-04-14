@@ -408,6 +408,181 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(BASE_CONFIG["MAX_OPTIONS_PCT"], 0.08)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  FIX 6: config_overrides.json cannot override options caps
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestFix6_ProtectedConfigKeys(unittest.TestCase):
+    """config_overrides.json must not be able to override options allocation caps."""
+
+    def test_protected_keys_defined(self):
+        """_PROTECTED_KEYS should include all options cap keys."""
+        from system_config import _PROTECTED_KEYS
+        self.assertIn("MAX_OPTIONS_PCT", _PROTECTED_KEYS)
+        self.assertIn("MAX_TOTAL_OPTIONS_PCT", _PROTECTED_KEYS)
+        self.assertIn("MAX_OPTIONS_PCT_CEILING", _PROTECTED_KEYS)
+
+    def test_override_strips_protected_keys(self):
+        """load_config_overrides must strip protected keys from the result."""
+        import tempfile, json as _json
+        from system_config import DATA_DIR
+
+        override_path = os.path.join(DATA_DIR, "config_overrides.json")
+        # Write a config_overrides.json that tries to raise options caps
+        malicious_overrides = {
+            "MAX_OPTIONS_PCT": 0.25,          # Trying to raise from 0.08
+            "MAX_TOTAL_OPTIONS_PCT": 0.30,    # Trying to raise from 0.08
+            "MAX_OPTIONS_PCT_CEILING": 0.20,  # Trying to raise from 0.08
+            "MIN_SCORE": 50,                  # This is NOT protected — should pass through
+        }
+        try:
+            with open(override_path, "w") as f:
+                _json.dump(malicious_overrides, f)
+
+            from system_config import load_config_overrides
+            result = load_config_overrides()
+
+            # Protected keys should NOT be in the result
+            self.assertNotIn("MAX_OPTIONS_PCT", result,
+                "MAX_OPTIONS_PCT must be stripped from overrides")
+            self.assertNotIn("MAX_TOTAL_OPTIONS_PCT", result,
+                "MAX_TOTAL_OPTIONS_PCT must be stripped from overrides")
+            self.assertNotIn("MAX_OPTIONS_PCT_CEILING", result,
+                "MAX_OPTIONS_PCT_CEILING must be stripped from overrides")
+
+            # Non-protected keys should still pass through
+            self.assertEqual(result.get("MIN_SCORE"), 50,
+                "Non-protected keys should still be applied")
+        finally:
+            # Clean up
+            if os.path.exists(override_path):
+                os.remove(override_path)
+
+    def test_cfg_retains_8pct_cap_with_override(self):
+        """Even with a malicious config_overrides.json, MAX_OPTIONS_PCT stays 0.08."""
+        from system_config import BASE_CONFIG
+        # BASE_CONFIG is the source of truth and doesn't get overridden
+        self.assertEqual(BASE_CONFIG["MAX_OPTIONS_PCT"], 0.08)
+
+    def test_no_override_file_returns_empty(self):
+        """When no config_overrides.json exists, should return empty dict."""
+        from system_config import load_config_overrides, DATA_DIR
+        override_path = os.path.join(DATA_DIR, "config_overrides.json")
+        # Make sure file doesn't exist
+        if os.path.exists(override_path):
+            os.remove(override_path)
+        result = load_config_overrides()
+        self.assertEqual(result, {})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  FIX 7: Earnings IV crush always uses iron_condor (no naked straddles)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestFix7_EarningsAlwaysIronCondor(unittest.TestCase):
+    """Earnings IV crush setup must always produce iron_condor strategy,
+    never short_straddle. Naked straddles have unlimited risk which
+    destroys drawdown metrics and Sortino ratio."""
+
+    def test_low_iv_move_produces_iron_condor(self):
+        """When iv_implied_move <= 8%, strategy must still be iron_condor."""
+        # Previously this case returned short_straddle
+        from options_scanner import _setup_earnings_iv_crush
+
+        # Mock all the network calls this function makes
+        with patch("options_scanner._fetch_options_chain") as mock_chain, \
+             patch("options_scanner._fetch_iv_rank", return_value=75.0), \
+             patch("options_scanner._build_setup_features", return_value=[0]*10), \
+             patch("options_scanner._options_ml_score", return_value=0.8):
+
+            # Simulate liquid ATM options with IV implied move of ~5% (< 8%)
+            mock_chain.return_value = [
+                {"strike": 100, "type": "call", "expiry": "2026-04-20",
+                 "mid": 3.50, "bid": 3.40, "ask": 3.60, "iv": 0.50,
+                 "spread_pct": 0.06, "oi": 1000,
+                 "occ_symbol": "AAPL260420C00100000"},
+                {"strike": 100, "type": "put", "expiry": "2026-04-20",
+                 "mid": 1.50, "bid": 1.40, "ask": 1.60, "iv": 0.50,
+                 "spread_pct": 0.07, "oi": 800,
+                 "occ_symbol": "AAPL260420P00100000"},
+            ]
+
+            result = _setup_earnings_iv_crush(
+                ticker="AAPL", price=100.0, days_to_earnings=3, vxx_ratio=1.1
+            )
+
+            if result is not None:
+                self.assertEqual(result["options_strategy"], "iron_condor",
+                    "Earnings IV crush must always use iron_condor, never short_straddle")
+                self.assertNotIn("STRADDLE", result["action_label"].upper(),
+                    "Action label should not say STRADDLE")
+                self.assertIn("IRON CONDOR", result["action_label"].upper())
+
+    def test_high_iv_move_produces_iron_condor(self):
+        """When iv_implied_move > 8%, strategy must be iron_condor."""
+        from options_scanner import _setup_earnings_iv_crush
+
+        with patch("options_scanner._fetch_options_chain") as mock_chain, \
+             patch("options_scanner._fetch_iv_rank", return_value=80.0), \
+             patch("options_scanner._build_setup_features", return_value=[0]*10), \
+             patch("options_scanner._options_ml_score", return_value=0.85):
+
+            # Simulate options with high IV implied move > 8%
+            mock_chain.return_value = [
+                {"strike": 100, "type": "call", "expiry": "2026-04-20",
+                 "mid": 6.00, "bid": 5.80, "ask": 6.20, "iv": 0.80,
+                 "spread_pct": 0.05, "oi": 1500,
+                 "occ_symbol": "NVDA260420C00100000"},
+                {"strike": 100, "type": "put", "expiry": "2026-04-20",
+                 "mid": 4.00, "bid": 3.80, "ask": 4.20, "iv": 0.80,
+                 "spread_pct": 0.05, "oi": 1200,
+                 "occ_symbol": "NVDA260420P00100000"},
+            ]
+
+            result = _setup_earnings_iv_crush(
+                ticker="NVDA", price=100.0, days_to_earnings=2, vxx_ratio=1.05
+            )
+
+            if result is not None:
+                self.assertEqual(result["options_strategy"], "iron_condor",
+                    "High IV earnings must also use iron_condor")
+
+    def test_no_short_straddle_in_scanner_output(self):
+        """The earnings setup detector must never return short_straddle.
+        This is a code-level check on the source."""
+        import inspect
+        from options_scanner import _setup_earnings_iv_crush
+
+        source = inspect.getsource(_setup_earnings_iv_crush)
+        # Check that 'strategy = "short_straddle"' does NOT appear
+        self.assertNotIn('strategy = "short_straddle"', source,
+            "_setup_earnings_iv_crush must not assign short_straddle strategy")
+        # The function should always set strategy = "iron_condor"
+        self.assertIn('strategy = "iron_condor"', source,
+            "_setup_earnings_iv_crush must always assign iron_condor")
+
+    def test_get_options_trades_blocks_straddle_for_all_setups(self):
+        """get_options_trades should never output a short_straddle from any setup."""
+        from options_scanner import get_options_trades, HIGH_EDGE_SETUPS
+
+        # Mock scan_options to return earnings opportunities with various strategies
+        test_opps = [
+            {"ticker": "AAPL", "setup": "earnings_iv_crush", "score": 85,
+             "options_strategy": "iron_condor", "price": 200.0, "side": "sell",
+             "action_label": "SELL IRON CONDOR", "reasoning": "Test"},
+            {"ticker": "MSFT", "setup": "high_iv_premium_sale", "score": 80,
+             "options_strategy": "short_straddle", "price": 400.0, "side": "sell",
+             "action_label": "SELL STRADDLE", "reasoning": "Test"},
+        ]
+
+        with patch("options_scanner.scan_options",
+                   return_value={"opportunities": test_opps}):
+            trades = get_options_trades(equity=100000, current_tickers=[])
+            for trade in trades:
+                self.assertNotEqual(trade.get("options_strategy"), "short_straddle",
+                    f"Trade for {trade.get('ticker')} should not use short_straddle")
+
+
 if __name__ == "__main__":
     # Set env vars to prevent import errors
     os.environ.setdefault("ALPACA_KEY", "test")

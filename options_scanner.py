@@ -598,14 +598,23 @@ def _setup_earnings_iv_crush(
     if avg_iv < 0.40:
         return None
 
-    # Strategy: if IV implied move >> 8% → iron condor (capped risk)
-    #           if IV implied move 3-8% → short straddle (more premium)
+    # Strategy: always iron condor for earnings plays (v1.0.34)
+    #
+    # Previous: short_straddle when iv_implied_move <= 8%, iron_condor above.
+    # Problem:  short straddles have unlimited downside risk. One earnings
+    #           surprise (stock gaps 15-20%) wipes out months of premium.
+    #           This destroys drawdown metrics and Sortino ratio.
+    # Research: SteadyOptions backtest — iron condors had 0.05 Sharpe vs
+    #           strangles 0.64 on SPY, BUT iron condors had defined max loss.
+    #           For a system targeting low drawdowns + high Sortino, capping
+    #           downside per trade is more important than maximizing premium.
+    # Decision: iron_condor only. Gives up ~20-30% of premium per trade but
+    #           eliminates tail-risk blowups that kill compounding.
+    strategy = "iron_condor"
     if iv_implied_move_pct > 8.0:
-        strategy = "iron_condor"
-        action_label = "SELL IRON CONDOR (earnings IV crush)"
+        action_label = "SELL IRON CONDOR (earnings IV crush — wide wings)"
     else:
-        strategy = "short_straddle"
-        action_label = "SELL STRADDLE (earnings IV crush)"
+        action_label = "SELL IRON CONDOR (earnings IV crush — tight wings)"
 
     # Score formula:
     #  Base 60 + IV premium bonus (how much IV is above normal) + liquidity bonus

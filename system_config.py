@@ -371,13 +371,37 @@ def get_adaptive_params(
     return p
 
 
+# ── PROTECTED KEYS (v1.0.34) ────────────────────────────────────────────────
+# These keys cannot be overridden by config_overrides.json on Railway.
+# Without this guard, a stale /data/voltrade/config_overrides.json could
+# silently raise MAX_OPTIONS_PCT back to 10-15%, defeating the 8% cap.
+_PROTECTED_KEYS = {
+    "MAX_OPTIONS_PCT",
+    "MAX_TOTAL_OPTIONS_PCT",    # instrument_selector.py hard cap
+    "MAX_OPTIONS_PCT_CEILING",  # instrument_selector.py ceiling
+}
+
+
 def load_config_overrides() -> dict:
-    """Load any manual overrides from /data/voltrade/config_overrides.json"""
+    """Load any manual overrides from /data/voltrade/config_overrides.json.
+
+    v1.0.34: Protected keys (options allocation caps) are stripped from
+    overrides to prevent stale Railway config from defeating the fixes.
+    If a protected key is found, it is logged and ignored.
+    """
     override_path = os.path.join(DATA_DIR, "config_overrides.json")
     try:
         if os.path.exists(override_path):
             with open(override_path) as f:
-                return json.load(f)
+                overrides = json.load(f)
+            # Strip protected keys — log so we know if it happened
+            stripped = {k: v for k, v in overrides.items() if k in _PROTECTED_KEYS}
+            if stripped:
+                import logging
+                logging.getLogger("system_config").warning(
+                    f"config_overrides.json tried to set protected keys (ignored): {stripped}"
+                )
+            return {k: v for k, v in overrides.items() if k not in _PROTECTED_KEYS}
     except Exception:
         pass
     return {}
