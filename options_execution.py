@@ -1410,6 +1410,7 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
                 delta=entry_delta, qty=entry_qty,
                 ticker=trade.get("ticker", ""),
                 setup=trade.get("setup", ""),
+                max_loss=contract.get("max_loss", 0),
             )
         except Exception:
             pass  # Manager registration failed — non-critical

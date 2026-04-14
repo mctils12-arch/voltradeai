@@ -1653,11 +1653,32 @@ def get_options_trades(
     Returns:
         List of trade dicts ready for options_execution.execute_options_trade()
     """
+    # ── Market Calendar Check (v1.0.34) ──────────────────────────────
+    # Skip opening new options on half-days and before long weekends.
+    # Half-days have reduced liquidity and wider spreads. Pre-long-weekend
+    # means unmonitored gamma risk over 3+ consecutive closed days.
+    try:
+        from market_calendar import should_skip_new_options, is_short_week, trading_days_this_week
+        skip, skip_reason = should_skip_new_options()
+        if skip:
+            return []  # No new options trades today
+
+        # Short week awareness: raise minimum score by 5 points
+        # Fewer trading days = less time for theta to work, more gap risk
+        _short_week = is_short_week()
+        _trading_days = trading_days_this_week()
+    except ImportError:
+        _short_week = False
+        _trading_days = 5
+
     scan_result = scan_options()
     opps = scan_result.get("opportunities", [])
 
     # Enforce minimum score floor
     min_score = max(min_score, MIN_OPTIONS_SCORE)
+    # Short-week penalty: raise the bar when fewer trading days available
+    if _short_week:
+        min_score = max(min_score, MIN_OPTIONS_SCORE + 5)
 
     trades = []
     for opp in opps:

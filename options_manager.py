@@ -43,6 +43,7 @@ DTE_EXIT_THRESHOLD = 21          # Close/roll at 21 DTE
 DTE_CRITICAL = 5                 # Force close at 5 DTE (no roll attempt)
 PROFIT_TARGET_PCT = 0.50         # Close sold premium at 50% of max profit
 LOSS_LIMIT_MULTIPLIER = 2.0      # Close if loss exceeds 2x credit received
+IC_MAX_LOSS_EXIT_PCT = 0.50      # Close iron condor at 50% of max loss (v1.0.34)
 GAMMA_THRESHOLD = 0.08           # Exit if per-contract gamma exceeds this
 DELTA_DRIFT_THRESHOLD = 0.25     # Alert/act if delta shifted >0.25 from entry
 ASSIGNMENT_DELTA_THRESHOLD = 0.80  # ITM risk when |delta| > 0.80
@@ -542,6 +543,48 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
             for occ in all_occ_symbols:
                 state.pop(occ, None)
             return actions
+
+    # ── Exit Rule 2b: IRON CONDOR 50%-OF-MAX-LOSS EARLY EXIT (v1.0.34) ──
+    # For iron condors, we know the exact max loss (wing_width - credit).
+    # If unrealized loss reaches 50% of that, close early. Rationale:
+    #   - At 50% max loss, risk/reward of holding gets unfavorable
+    #   - One earnings blowout shouldn't ride to full max loss
+    #   - Tastylive research: managing losers at a defined threshold
+    #     improves Sortino ratio by capping the left tail
+    #   - Applies to ALL iron condors, not just earnings plays
+    if strategy == "iron_condor" and total_unrealized_pnl < 0:
+        # Try to get max_loss from state (set at entry via register_options_entry)
+        group_max_loss = 0
+        for occ in all_occ_symbols:
+            occ_state = state.get(occ, {})
+            ml = occ_state.get("max_loss", 0)
+            if ml > 0:
+                group_max_loss = max(group_max_loss, ml)
+                break  # All legs share the same max_loss
+
+        if group_max_loss > 0:
+            loss_pct_of_max = abs(total_unrealized_pnl) / group_max_loss
+            if loss_pct_of_max >= IC_MAX_LOSS_EXIT_PCT:
+                result = _close_strategy_mleg(legs, ticker)
+                actions.append({
+                    "action": "CLOSE_STRATEGY",
+                    "ticker": ticker,
+                    "strategy": strategy,
+                    "legs": all_occ_symbols,
+                    "reason": (
+                        f"IC MAX-LOSS EXIT: Unrealized loss ${abs(total_unrealized_pnl):.2f} is "
+                        f"{loss_pct_of_max:.0%} of max loss ${group_max_loss:.2f} — "
+                        f"closing before full max loss (threshold: {IC_MAX_LOSS_EXIT_PCT:.0%})"
+                    ),
+                    "type": "strategy_ic_max_loss_exit",
+                    "combined_pnl": round(total_unrealized_pnl, 2),
+                    "max_loss": group_max_loss,
+                    "loss_pct_of_max": round(loss_pct_of_max * 100, 1),
+                    "order": result,
+                })
+                for occ in all_occ_symbols:
+                    state.pop(occ, None)
+                return actions
 
     # ── Exit Rule 3: LOSS LIMIT ───────────────────────────────────
     if is_credit_strategy and total_entry_cost > 0:
@@ -1061,13 +1104,15 @@ def manage_options_positions(equity: float = 100000) -> dict:
 
 def register_options_entry(occ_symbol: str, entry_price: float, side: str,
                            strategy: str, delta: float = 0, qty: int = 1,
-                           ticker: str = "", setup: str = ""):
+                           ticker: str = "", setup: str = "",
+                           max_loss: float = 0):
     """
     Called when a new options position is opened. Records the entry state
     so the manager can track profit targets, delta drift, etc.
 
     v1.0.34: Added ticker and setup params for proper strategy grouping.
     Also extracts ticker from OCC symbol as fallback.
+    Added max_loss param for iron condor 50%-of-max-loss early exit.
     """
     # Extract ticker from OCC symbol if not provided
     if not ticker:
@@ -1089,5 +1134,6 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
         "ticker": ticker,
         "side": "short" if side == "sell" else "long",
         "qty": qty,
+        "max_loss": max_loss,  # v1.0.34: for 50%-of-max-loss early exit
     }
     _save_options_state(state)

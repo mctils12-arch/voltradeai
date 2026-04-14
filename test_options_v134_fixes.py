@@ -583,6 +583,155 @@ class TestFix7_EarningsAlwaysIronCondor(unittest.TestCase):
                     f"Trade for {trade.get('ticker')} should not use short_straddle")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  FIX 8: Iron condor 50%-of-max-loss early exit
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestFix8_IronCondorMaxLossExit(unittest.TestCase):
+    """Iron condors must close at 50% of max loss to protect drawdowns."""
+
+    def test_ic_max_loss_exit_constant_defined(self):
+        """IC_MAX_LOSS_EXIT_PCT should be 0.50 (50%)."""
+        from options_manager import IC_MAX_LOSS_EXIT_PCT
+        self.assertEqual(IC_MAX_LOSS_EXIT_PCT, 0.50)
+
+    def test_manage_strategy_group_has_ic_exit_rule(self):
+        """_manage_strategy_group must contain the IC max-loss exit logic."""
+        import inspect
+        from options_manager import _manage_strategy_group
+        source = inspect.getsource(_manage_strategy_group)
+        self.assertIn("IC_MAX_LOSS_EXIT_PCT", source,
+            "_manage_strategy_group must reference IC_MAX_LOSS_EXIT_PCT")
+        self.assertIn("strategy_ic_max_loss_exit", source,
+            "_manage_strategy_group must have ic_max_loss_exit action type")
+
+    def test_register_entry_stores_max_loss(self):
+        """register_options_entry must store max_loss in state."""
+        from options_manager import register_options_entry, _load_options_state, OPTIONS_STATE_PATH
+
+        test_path = "/tmp/test_opts_state_fix8.json"
+        with patch("options_manager.OPTIONS_STATE_PATH", test_path):
+            if os.path.exists(test_path):
+                os.remove(test_path)
+
+            register_options_entry(
+                "AAPL260420C00110000", 1.80, "sell", "iron_condor",
+                delta=-0.20, qty=1, ticker="AAPL", setup="earnings_iv_crush",
+                max_loss=320.00
+            )
+
+            state = _load_options_state()
+            occ_state = state.get("AAPL260420C00110000", {})
+            self.assertEqual(occ_state.get("max_loss"), 320.00,
+                "max_loss must be stored in entry state")
+
+            os.remove(test_path)
+
+    def test_execution_passes_max_loss_to_register(self):
+        """options_execution must pass max_loss to register_options_entry."""
+        import inspect
+        import options_execution as oe
+        source = inspect.getsource(oe)
+        self.assertIn("max_loss=contract.get", source,
+            "execute_options_trade must pass max_loss to register_options_entry")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  FIX 9: Market calendar awareness
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestFix9_MarketCalendar(unittest.TestCase):
+    """Market calendar utility must correctly identify holidays, half-days,
+    and short weeks for 2026."""
+
+    def test_good_friday_2026_is_holiday(self):
+        from market_calendar import is_market_holiday
+        from datetime import date
+        self.assertTrue(is_market_holiday(date(2026, 4, 3)),
+            "Good Friday 2026 should be a holiday")
+
+    def test_thanksgiving_is_holiday(self):
+        from market_calendar import is_market_holiday
+        from datetime import date
+        self.assertTrue(is_market_holiday(date(2026, 11, 26)),
+            "Thanksgiving 2026 should be a holiday")
+
+    def test_day_after_thanksgiving_is_half_day(self):
+        from market_calendar import is_half_day
+        from datetime import date
+        self.assertTrue(is_half_day(date(2026, 11, 27)),
+            "Day after Thanksgiving should be a half-day")
+
+    def test_christmas_eve_is_half_day(self):
+        from market_calendar import is_half_day
+        from datetime import date
+        self.assertTrue(is_half_day(date(2026, 12, 24)),
+            "Christmas Eve 2026 should be a half-day")
+
+    def test_regular_monday_not_holiday(self):
+        from market_calendar import is_market_holiday
+        from datetime import date
+        self.assertFalse(is_market_holiday(date(2026, 4, 14)),
+            "Regular Monday should not be a holiday")
+
+    def test_saturday_is_holiday(self):
+        from market_calendar import is_market_holiday
+        from datetime import date
+        self.assertTrue(is_market_holiday(date(2026, 4, 11)),
+            "Saturday should count as market closure")
+
+    def test_good_friday_week_is_short(self):
+        from market_calendar import is_short_week, trading_days_this_week
+        from datetime import date
+        # Week of March 30 - April 3 (Good Friday on April 3)
+        gf_week = date(2026, 3, 31)  # Tuesday of that week
+        self.assertTrue(is_short_week(gf_week),
+            "Good Friday week should be a short week")
+        self.assertEqual(trading_days_this_week(gf_week), 4)
+
+    def test_thanksgiving_week_is_short(self):
+        from market_calendar import is_short_week, trading_days_this_week
+        from datetime import date
+        # Week of Nov 23-27 (Thanksgiving Nov 26)
+        tg_week = date(2026, 11, 23)  # Monday
+        self.assertTrue(is_short_week(tg_week))
+        # Mon, Tue, Wed open; Thu closed; Fri half-day (but still open)
+        self.assertEqual(trading_days_this_week(tg_week), 4)
+
+    def test_regular_week_is_not_short(self):
+        from market_calendar import is_short_week, trading_days_this_week
+        from datetime import date
+        regular = date(2026, 4, 14)  # Regular Monday
+        self.assertFalse(is_short_week(regular))
+        self.assertEqual(trading_days_this_week(regular), 5)
+
+    def test_half_day_skips_new_options(self):
+        from market_calendar import should_skip_new_options
+        from datetime import date
+        skip, reason = should_skip_new_options(date(2026, 11, 27))
+        self.assertTrue(skip, "Should skip new options on half-days")
+        self.assertIn("Half-day", reason)
+
+    def test_pre_long_weekend_skips_new_options(self):
+        from market_calendar import should_skip_new_options, is_pre_long_weekend
+        from datetime import date
+        # Thursday April 2 is the day before Good Friday (3-day weekend)
+        self.assertTrue(is_pre_long_weekend(date(2026, 4, 2)),
+            "Day before Good Friday should be pre-long-weekend")
+        skip, reason = should_skip_new_options(date(2026, 4, 2))
+        self.assertTrue(skip, "Should skip new options before long weekend")
+
+    def test_scanner_uses_calendar(self):
+        """get_options_trades must reference market calendar."""
+        import inspect
+        from options_scanner import get_options_trades
+        source = inspect.getsource(get_options_trades)
+        self.assertIn("should_skip_new_options", source,
+            "get_options_trades must check market calendar")
+        self.assertIn("is_short_week", source,
+            "get_options_trades must check for short weeks")
+
+
 if __name__ == "__main__":
     # Set env vars to prevent import errors
     os.environ.setdefault("ALPACA_KEY", "test")
