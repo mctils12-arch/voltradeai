@@ -770,6 +770,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 "entry_price": entry_price,
                 "entry_delta": current_delta,
                 "entry_date": time.strftime("%Y-%m-%d"),
+                "entry_timestamp": datetime.now().isoformat(),  # v1.0.34 FIX: was missing — MIN_HOLD defaulted to 999min
                 "initial_credit": entry_price if side == "short" else 0,
                 "max_profit_target": entry_price * PROFIT_TARGET_PCT if side == "short" else 0,
                 "highest_value": current_price,
@@ -845,7 +846,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 # Update state to new symbol
                 new_sym = roll_result.get("new_symbol")
                 if new_sym:
-                    state[new_sym] = {**pos_state, "entry_date": time.strftime("%Y-%m-%d")}
+                    state[new_sym] = {**pos_state, "entry_date": time.strftime("%Y-%m-%d"), "entry_timestamp": datetime.now().isoformat()}
                 state.pop(occ_symbol, None)
                 continue
             else:
@@ -884,7 +885,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     })
                     new_sym = roll_result.get("new_symbol")
                     if new_sym:
-                        state[new_sym] = {**pos_state, "entry_date": time.strftime("%Y-%m-%d")}
+                        state[new_sym] = {**pos_state, "entry_date": time.strftime("%Y-%m-%d"), "entry_timestamp": datetime.now().isoformat()}
                     state.pop(occ_symbol, None)
                     continue
                 else:
@@ -1059,11 +1060,21 @@ def manage_options_positions(equity: float = 100000) -> dict:
 
 
 def register_options_entry(occ_symbol: str, entry_price: float, side: str,
-                           strategy: str, delta: float = 0, qty: int = 1):
+                           strategy: str, delta: float = 0, qty: int = 1,
+                           ticker: str = "", setup: str = ""):
     """
     Called when a new options position is opened. Records the entry state
     so the manager can track profit targets, delta drift, etc.
+
+    v1.0.34: Added ticker and setup params for proper strategy grouping.
+    Also extracts ticker from OCC symbol as fallback.
     """
+    # Extract ticker from OCC symbol if not provided
+    if not ticker:
+        for i, ch in enumerate(occ_symbol):
+            if ch.isdigit():
+                ticker = occ_symbol[:i]
+                break
     state = _load_options_state()
     state[occ_symbol] = {
         "entry_price": entry_price,
@@ -1074,6 +1085,8 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
         "max_profit_target": entry_price * PROFIT_TARGET_PCT if side == "sell" else 0,
         "highest_value": entry_price,
         "strategy": strategy,
+        "setup": setup,
+        "ticker": ticker,
         "side": "short" if side == "sell" else "long",
         "qty": qty,
     }

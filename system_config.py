@@ -80,7 +80,7 @@ BASE_CONFIG = {
     "MAX_TOTAL_CAPITAL_PCT": 1.00,  # Never deploy more than 100% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open positions
-    "MAX_OPTIONS_PCT":      0.10,  # Max 10% per options position
+    "MAX_OPTIONS_PCT":      0.08,  # Max 8% per options position (v1.0.34: was 10%)
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
     "KELLY_DIVISOR":        4.0,   # Quarter-Kelly: divide full Kelly by 4 for safety
 

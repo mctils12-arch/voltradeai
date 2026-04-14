@@ -819,23 +819,13 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     if not dte_contracts:
         return None
 
-    # Choose strategy based on IV level:
-    # IV rank 85+ = extreme → iron condor (capped risk)
-    # IV rank 70-85 = elevated → short straddle (more premium)
-    strategy = "iron_condor" if iv_rank >= 85 else "straddle"
-
-    if strategy == "iron_condor":
-        # Iron condor: sell 20-delta call + 20-delta put (short wings)
-        # Buy 10-delta call + 10-delta put (long wings = protection)
-        # 20-delta = ~1 standard deviation OTM — high probability of expiring worthless
-        # This is the most common institutional iron condor placement
-        best_call = _find_by_delta(dte_contracts, "call", target_delta=0.20)
-        best_put  = _find_by_delta(dte_contracts, "put",  target_delta=0.20)
-    else:
-        # Short straddle: sell 50-delta call + put (ATM)
-        # Maximum premium — but more risk than condor, hence we only use for iv_rank < 85
-        best_call = _find_by_delta(dte_contracts, "call", target_delta=0.50)
-        best_put  = _find_by_delta(dte_contracts, "put",  target_delta=0.50)
+    # v1.0.34: Always use iron condor (capped risk, wider profit zone).
+    # Short straddles disabled — lost money to spreads/gamma in live trading.
+    # Iron condor: sell 20-delta call + 20-delta put (short wings)
+    # Buy 10-delta call + 10-delta put (long wings = protection)
+    # 20-delta = ~1 standard deviation OTM — high probability of expiring worthless
+    best_call = _find_by_delta(dte_contracts, "call", target_delta=0.20)
+    best_put  = _find_by_delta(dte_contracts, "put",  target_delta=0.20)
 
     if not best_call or not best_put:
         return None
@@ -865,9 +855,12 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     if _hi_expected_profit < _hi_total_spread * 2:
         return None  # Not enough edge to cover spread
 
-    # Strategy: use iron condor for extreme IV, straddle for moderate
-    # v1.0.32: adjusted strategy split to match new IVR 50 threshold
-    strategy = "iron_condor" if iv_rank >= 75 else "short_straddle"
+    # Strategy: iron condor ONLY (v1.0.34 fix)
+    # Short straddles at IVR 50-74 were the rapid-fire scalps that lost
+    # money every day in Apr 3-10 — the premium captured never exceeded
+    # the bid-ask spread cost + gamma risk. Iron condors have capped risk
+    # and wider profit zone, matching the MULTILEG backtest config (27.8% CAGR).
+    strategy = "iron_condor"
     action_label = f"SELL {strategy.replace('_', ' ').upper()} (IV rank {iv_rank:.0f}/100 — premium selling)"
 
     # Research: Bakshi & Kapadia 2003 — selling options earns a premium when IV > RV.
@@ -1563,12 +1556,14 @@ def scan_options() -> dict:
         r5 = _setup_gamma_pin(tkr, price)
         if r5:
             found.append(r5)
-        # Setup 6: Cash-secured put in normal markets (v1.0.33)
-        # Fills the IVR 20-50 gap where no other setup triggers
-        if setup_hint in ("anchor", "any", "high_iv", "low_iv"):
-            r6 = _setup_csp_normal_market(tkr, price, vxx_ratio)
-            if r6:
-                found.append(r6)
+        # Setup 6: Cash-secured put in normal markets — DISABLED (v1.0.34)
+        # Backtest: CSP filler strategy at IVR 20-50 had negative P&L.
+        # Premium too small to overcome spread cost + assignment risk.
+        # Kept commented for reference:
+        # if setup_hint in ("anchor", "any", "high_iv", "low_iv"):
+        #     r6 = _setup_csp_normal_market(tkr, price, vxx_ratio)
+        #     if r6:
+        #         found.append(r6)
         return found
 
     # 16 workers — each candidate needs 1-2 OPRA chain fetches (~0.2s each)
@@ -1610,21 +1605,41 @@ def scan_options() -> dict:
 #  SECTION 5: MERGE INTO BOT_ENGINE FORMAT
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── HIGH-EDGE SETUPS ONLY (v1.0.34 fix) ─────────────────────────────────
+# Backtest: only these setups had positive P&L at 8% allocation.
+# Earnings IV crush, VXX panic puts, and iron condors (IVR 75+) are the
+# proven edge. Everything else (straddle scalps, CSP fillers, low-IV buys,
+# gamma pins) lost money consistently in Apr 3-13 live trading and in the
+# MULTILEG backtest config.
+HIGH_EDGE_SETUPS = {
+    "earnings_iv_crush",     # 65-68% WR, well-studied (Tastytrade research)
+    "vxx_panic_put_sale",    # ~70% WR, strongest statistical edge
+    "high_iv_premium_sale",  # Only iron_condor variant (IVR 75+), capped risk
+}
+# Minimum score for options trades — higher bar than stocks (65)
+# because options have built-in time decay + spread cost headwinds.
+MIN_OPTIONS_SCORE = 70.0
+
+
 def get_options_trades(
     equity: float,
     current_tickers: list,
     max_new: int = 2,
-    min_score: float = 65.0,
+    min_score: float = 70.0,
 ) -> list:
     """
     Run the options scanner and return ready-to-use trade recommendations
     in the same format as bot_engine.py scan_market() output.
 
+    v1.0.34: Restricted to HIGH_EDGE_SETUPS only. CSP fillers, straddle
+    scalps, low-IV buys, and gamma pins are disabled — they were net
+    negative in both backtesting and live trading.
+
     Args:
         equity:          Total account equity (for position sizing)
         current_tickers: Currently held tickers (skip if already in portfolio)
         max_new:         Max number of new options trades to return per scan
-        min_score:       Minimum score threshold
+        min_score:       Minimum score threshold (default 70 — higher bar for options)
 
     Returns:
         List of trade dicts ready for options_execution.execute_options_trade()
@@ -1632,10 +1647,26 @@ def get_options_trades(
     scan_result = scan_options()
     opps = scan_result.get("opportunities", [])
 
+    # Enforce minimum score floor
+    min_score = max(min_score, MIN_OPTIONS_SCORE)
+
     trades = []
     for opp in opps:
         if len(trades) >= max_new:
             break
+
+        # ── HIGH-EDGE GATE: Only allow proven setups ─────────────────
+        setup = opp.get("setup", "")
+        if setup not in HIGH_EDGE_SETUPS:
+            continue
+
+        # For high_iv_premium_sale, only allow iron_condor (capped risk).
+        # Short straddles at IVR 50-74 were the rapid-fire scalps that
+        # lost money every day in Apr 3-10.
+        if setup == "high_iv_premium_sale":
+            strategy = opp.get("options_strategy", "")
+            if strategy not in ("iron_condor", "sell_iron_condor"):
+                continue
 
         # ── Vol Surface Score Adjustment (v1.0.33) ─────────────────────
         # Boost or penalize based on market-wide VRP and surface
@@ -1674,17 +1705,15 @@ def get_options_trades(
         # Half-Kelly = 14% (too aggressive). Quarter-Kelly = 7-8% (practical).
         # Research: Thorp 2006 — quarter to half Kelly maximizes long-run growth.
         # Backtest result: 8% sizing +2.9% vs baseline, options P&L +63%.
-        base_size = 0.08  # 8% default (quarter-Kelly for 57% WR setups)
+        # v1.0.34: Only high-edge setups reach here (others filtered above).
+        # All capped at 8% per the MAX_OPTIONS_PCT_CEILING.
+        base_size = 0.06  # Default: conservative 6%
         if opp["setup"] == "vxx_panic_put_sale":
-            base_size = 0.10  # 10% — strongest edge (~70% WR), well-defined max loss
-        elif opp["setup"] == "gamma_pin":
-            base_size = 0.03  # 3% — very short-term, binary, limited edge
-        elif opp["setup"] == "low_iv_breakout_buy":
-            base_size = 0.08  # 8% — 56% WR, cheap entry, quarter-Kelly appropriate
+            base_size = 0.08  # 8% — strongest edge (~70% WR), well-defined max loss
         elif opp["setup"] == "earnings_iv_crush":
-            base_size = 0.08  # 8% — 65-68% WR, well-studied setup
-        elif opp["setup"] == "csp_normal_market":
-            base_size = 0.06  # 6% — conservative, steady-income setup (~72% WR at 30-delta)
+            base_size = 0.07  # 7% — 65-68% WR, well-studied setup
+        elif opp["setup"] == "high_iv_premium_sale":
+            base_size = 0.06  # 6% — iron condor, capped risk
         position_dollars = round(equity * base_size, 2)
 
         trades.append({
