@@ -1277,7 +1277,7 @@ export default function BotDashboard() {
       {/* ── Trade History Panel ── */}
       <TradeHistoryPanel />
 
-      {/* ── AI Signals Panel ── */
+      {/* ── AI Signals Panel ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
           <Zap size={14} style={{ color: "#d4a017" }} />
