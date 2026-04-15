@@ -96,13 +96,16 @@ const STOP_LOSS_PCT = 0.15; // Emergency backstop only — real stops from syste
 const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_config.py (12% ATR-based)
 // NOTE: These are EMERGENCY SAFETY NETS only. The real limits come from
 // system_config.py's get_adaptive_params() which adapts by regime:
-//   BULL: 90% max exposure, 15% position size, 12% TP, 6% SL
-//   NEUTRAL: 90% (QQQ floor handles it), no active stock trades
+//   BULL: 95% max exposure, 15% position size, 12% TP, 6% SL
+//   NEUTRAL: 95% (QQQ floor handles it), no active stock trades
 //   CAUTION: 60% exposure, 10% position size
 //   BEAR: 50% exposure (third leg only)
 //   PANIC: 30% exposure
 // The QQQ floor deploys 70-90% of equity — these safety nets MUST
 // be above that or they block the core strategy.
+// MAX_TOTAL_EXPOSURE here (0.30) is for ACTIVE satellite trades only
+// (QQQ/SVXY/SPY excluded via MANAGED_TICKERS). system_config.py's
+// 0.95 controls total portfolio including floor.
 
 // ─── ET Hour Helper (DST-aware) ───────────────────────────────────────────────
 function getETHour(): number {
@@ -1023,7 +1026,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       unreadNotifications: notifications.filter(n => !n.read).length,
       // Pro-level security controls from system_config.py
       maxPositionPct: 8,      // MAX_POSITION_PCT 0.08 — hard cap per position
-      maxExposurePct: 80,     // MAX_TOTAL_EXPOSURE 0.80 — max portfolio invested
+      maxExposurePct: 95,     // MAX_TOTAL_EXPOSURE 0.95 — max portfolio invested (regime engine controls actual)
       dailyLossLimitPct: 5,   // DAILY_LOSS_LIMIT_PCT 5.0 — halts trading
     });
   });
@@ -3356,7 +3359,7 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
     audit("RULES", `Max positions: ${MAX_POSITIONS} ceiling (dynamic sizing uses portfolio heat)`);
     audit("RULES", `Position sizing: DYNAMIC — Kelly Criterion × volatility × confidence × VIX × earnings × liquidity × time`);
     audit("RULES", `Position range: 1-${MAX_POSITION_SIZE * 100}% per trade (sized by conviction + risk)`);
-    audit("RULES", `Max total exposure: ${MAX_TOTAL_EXPOSURE * 100}% of portfolio invested`);
+    audit("RULES", `Max active satellite exposure: ${MAX_TOTAL_EXPOSURE * 100}% (QQQ floor + VRP excluded) | Total portfolio cap: 95% (regime-adaptive)`);
     audit("RULES", `Stop loss: ATR-based (1.5-8% dynamic) | Emergency backstop: ${STOP_LOSS_PCT * 100}%`);
     audit("RULES", `Take profit: ATR-based (4-15% dynamic) | Ceiling: ${TAKE_PROFIT_PCT * 100}%`);
     audit("RULES", `Earnings proximity: auto-reduces position size near earnings dates`);
