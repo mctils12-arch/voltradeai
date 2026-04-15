@@ -122,8 +122,6 @@ const titleStyle: React.CSSProperties = {
   fontSize: "14px",
   fontWeight: 600,
   color: "#c8d6e5",
-  fontFamily: "'JetBrains Mono', monospace",
-  letterSpacing: "0.05em",
 };
 
 const countStyle: React.CSSProperties = {
@@ -186,16 +184,16 @@ const tableStyle: React.CSSProperties = {
   minWidth: "560px",
 };
 
-// Badge styles for trade types
-const badgeColors: Record<string, { bg: string; color: string }> = {
-  "type-long": { bg: "rgba(48, 209, 88, 0.15)", color: "#30d158" },
-  "type-short": { bg: "rgba(255, 69, 58, 0.15)", color: "#ff453a" },
-  "type-short-etf": { bg: "rgba(255, 69, 58, 0.15)", color: "#ff453a" },
-  "type-etf": { bg: "rgba(0, 229, 255, 0.15)", color: "#00e5ff" },
-  "type-put": { bg: "rgba(249, 115, 22, 0.15)", color: "#f97316" },
-  "type-call": { bg: "rgba(168, 85, 247, 0.15)", color: "#a855f7" },
-  "type-iron-condor": { bg: "rgba(236, 72, 153, 0.15)", color: "#ec4899" },
-  "type-option": { bg: "rgba(234, 179, 8, 0.15)", color: "#eab308" },
+// Badge styles — matches existing bot.tsx badge pattern (rectangular, bordered, 3px radius)
+const badgeColors: Record<string, { bg: string; color: string; border: string }> = {
+  "type-long":        { bg: "rgba(48,209,88,0.12)",   color: "#30d158", border: "rgba(48,209,88,0.25)" },
+  "type-short":       { bg: "rgba(255,69,58,0.12)",   color: "#ff453a", border: "rgba(255,69,58,0.25)" },
+  "type-short-etf":   { bg: "rgba(255,69,58,0.12)",   color: "#ff453a", border: "rgba(255,69,58,0.25)" },
+  "type-etf":         { bg: "rgba(0,229,255,0.12)",   color: "#00e5ff", border: "rgba(0,229,255,0.25)" },
+  "type-put":         { bg: "rgba(255,69,58,0.12)",   color: "#ff453a", border: "rgba(255,69,58,0.3)" },
+  "type-call":        { bg: "rgba(48,209,88,0.12)",   color: "#30d158", border: "rgba(48,209,88,0.3)" },
+  "type-iron-condor": { bg: "rgba(191,90,242,0.12)",  color: "#bf5af2", border: "rgba(191,90,242,0.3)" },
+  "type-option":      { bg: "rgba(212,160,23,0.12)",  color: "#d4a017", border: "rgba(212,160,23,0.25)" },
 };
 
 function Badge({ type }: { type: TradeType }) {
@@ -204,15 +202,15 @@ function Badge({ type }: { type: TradeType }) {
     <span style={{
       display: "inline-block",
       fontSize: "10px",
-      fontWeight: 600,
-      padding: "2px 8px",
-      borderRadius: "9999px",
-      textTransform: "uppercase",
-      letterSpacing: "0.03em",
+      fontWeight: 700,
+      padding: "2px 6px",
+      borderRadius: "3px",
+      textTransform: "uppercase" as const,
+      letterSpacing: "0.4px",
       whiteSpace: "nowrap",
       background: colors.bg,
       color: colors.color,
-      fontFamily: "monospace",
+      border: `1px solid ${colors.border}`,
     }}>
       {type.label}
     </span>
@@ -268,7 +266,7 @@ export default function TradingActivity() {
       <div style={card} data-testid="todays-trades-panel">
         <div style={headerRow}>
           <ArrowUpDown size={14} style={{ color: "#00e5ff" }} />
-          <span style={titleStyle}>TODAY'S TRADES</span>
+          <span style={titleStyle}>Today's Trades</span>
           <span style={countStyle}>
             {trades.length} fills
             {lastUpdate && <> · {lastUpdate}</>}
@@ -333,7 +331,7 @@ export default function TradingActivity() {
       <div style={card} data-testid="open-orders-panel">
         <div style={headerRow}>
           <BookOpen size={14} style={{ color: "#00e5ff" }} />
-          <span style={titleStyle}>OPEN ORDERS</span>
+          <span style={titleStyle}>Open Orders</span>
           <span style={countStyle}>{orders.length} pending</span>
         </div>
 
@@ -372,10 +370,11 @@ export default function TradingActivity() {
                       <td style={tdRight}>{limitPrice}</td>
                       <td style={tdStyle}>
                         <span style={{
-                          display: "inline-block", fontSize: "10px", fontWeight: 600,
-                          padding: "2px 8px", borderRadius: "9999px",
-                          background: "rgba(0, 229, 255, 0.1)", color: "#00e5ff",
-                          textTransform: "capitalize", fontFamily: "monospace",
+                          display: "inline-block", fontSize: "10px", fontWeight: 700,
+                          padding: "2px 6px", borderRadius: "3px",
+                          background: "rgba(0, 229, 255, 0.12)", color: "#00e5ff",
+                          border: "1px solid rgba(0, 229, 255, 0.25)",
+                          textTransform: "capitalize" as const, letterSpacing: "0.3px",
                         }}>
                           {status.replace("_", " ")}
                         </span>
