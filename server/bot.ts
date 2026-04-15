@@ -25,7 +25,12 @@ const execAsync = (cmd: string, opts?: any) => _execRaw(cmd, { env: _pyEnv, ...o
 // container past its memory limit. This mutex ensures sequential execution.
 let pythonRunning = false;
 async function execPythonSerialized(cmd: string, opts?: any) {
-  while (pythonRunning) await new Promise(r => setTimeout(r, 500));
+  const maxWait = opts?.timeout || 30000;
+  const start = Date.now();
+  while (pythonRunning) {
+    if (Date.now() - start > maxWait) throw new Error("Python mutex timeout — another Python process is holding the lock");
+    await new Promise(r => setTimeout(r, 500));
+  }
   pythonRunning = true;
   try { return await execAsync(cmd, opts); }
   finally { pythonRunning = false; }
@@ -69,6 +74,10 @@ async function alpaca(path: string, opts: any = {}) {
         ...opts.headers,
       },
     });
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      throw new Error(`Alpaca ${r.status}: ${body || r.statusText}`);
+    }
     return r.json();
   } finally {
     clearTimeout(timeout);
@@ -607,8 +616,19 @@ export function registerBotRoutes(app: Express) {
   app.get("/api/bot/positions", requireAuth, async (_req, res) => {
     try {
       const positions = await alpaca("/v2/positions");
-      // Load evolving stop state for stop/TP levels
-      const { stdout: stopOut } = await execPythonSerialized(`python3 -c "
+      if (!Array.isArray(positions)) {
+        console.error("[bot] /v2/positions returned non-array:", JSON.stringify(positions).slice(0, 200));
+        return res.json([]);
+      }
+
+      // Load stop state and options state in parallel — these are enrichment data,
+      // so failures must not prevent returning positions
+      let stopState: any = {};
+      let optionsState: any = {};
+      await Promise.all([
+        (async () => {
+          try {
+            const { stdout: stopOut } = await execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import DATA_DIR
@@ -619,13 +639,15 @@ try:
     with open(stop_path) as f: data = json.load(f)
 except Exception: data = {}
 print(json.dumps(data))
-"`, { timeout: 5000 }).catch(() => ({ stdout: "{}" }));
-      const stopState: any = JSON.parse(stopOut.trim() || "{}");
-
-      // Load options state (tracks which setup/strategy each options position came from)
-      let optionsState: any = {};
-      try {
-        const { stdout: optOut } = await execPythonSerialized(`python3 -c "
+"`, { timeout: 5000 });
+            stopState = JSON.parse(stopOut.trim() || "{}");
+          } catch (e: any) {
+            console.error("[bot] Failed to load stop state:", e.message);
+          }
+        })(),
+        (async () => {
+          try {
+            const { stdout: optOut } = await execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import DATA_DIR
@@ -636,9 +658,13 @@ try:
     with open(path) as f: data = json.load(f)
 except Exception: data = {}
 print(json.dumps(data))
-"`, { timeout: 5000 }).catch(() => ({ stdout: "{}" }));
-        optionsState = JSON.parse(optOut.trim() || "{}");
-      } catch (_) {}
+"`, { timeout: 5000 });
+            optionsState = JSON.parse(optOut.trim() || "{}");
+          } catch (e: any) {
+            console.error("[bot] Failed to load options state:", e.message);
+          }
+        })(),
+      ]);
 
       const mapped = (positions as any[]).map((p: any) => {
         const ss = stopState[p.symbol] || {};
@@ -702,6 +728,7 @@ print(json.dumps(data))
       });
       res.json(mapped);
     } catch (e: any) {
+      console.error("[bot] /api/bot/positions error:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
@@ -711,6 +738,7 @@ print(json.dumps(data))
   app.get("/api/bot/history", requireAuth, async (_req, res) => {
     try {
       const orders = await alpaca("/v2/orders?status=closed&limit=50");
+      if (!Array.isArray(orders)) return res.json([]);
       const mapped = (orders as any[]).map((o: any) => ({
         ticker: o.symbol,
         side: o.side,
