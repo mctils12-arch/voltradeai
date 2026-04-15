@@ -271,6 +271,191 @@
     });
   }
 
+  // --- Trading Activity Dashboard ---
+  const INVERSE_ETFS = new Set([
+    "SH","SDS","SPXU","SPXS","SPDN","PSQ","QID","SQQQ",
+    "DOG","DXD","SDOW","RWM","TWM","SRTY","TZA",
+    "SOXS","TECS","FAZ","SKF","LABD","ERY","DRIP","DUST","JDST","YANG","EDZ","WEBS","SVXY"
+  ]);
+
+  function getDisplaySide(ticker, rawSide) {
+    if (INVERSE_ETFS.has(ticker) && rawSide === 'long') return 'short';
+    return rawSide;
+  }
+
+  function isOption(order) {
+    if (order.asset_class === 'us_option') return true;
+    if (order.symbol && order.symbol.length > 8) return true;
+    return false;
+  }
+
+  function formatCurrency(val) {
+    const n = parseFloat(val);
+    if (isNaN(n)) return '—';
+    return n < 0
+      ? '-$' + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function formatTime(isoStr) {
+    if (!isoStr) return '—';
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function pnlClass(val) {
+    const n = parseFloat(val);
+    if (isNaN(n) || n === 0) return 'pnl-zero';
+    return n > 0 ? 'pnl-positive' : 'pnl-negative';
+  }
+
+  function sideClass(side) {
+    const s = side.toLowerCase();
+    if (s === 'buy' || s === 'long') return 'side-buy';
+    if (s === 'sell' || s === 'short') return 'side-short';
+    return '';
+  }
+
+  async function fetchTradingData() {
+    const [tradesRes, ordersRes, positionsRes] = await Promise.all([
+      fetch('/api/trades/today').then(r => r.json()).catch(() => ({ trades: [] })),
+      fetch('/api/orders/open').then(r => r.json()).catch(() => ({ orders: [] })),
+      fetch('/api/positions').then(r => r.json()).catch(() => ({ positions: [] })),
+    ]);
+    return {
+      trades: tradesRes.trades || [],
+      orders: ordersRes.orders || [],
+      positions: positionsRes.positions || [],
+    };
+  }
+
+  function renderTrades(trades) {
+    const tbody = document.getElementById('tradesBody');
+    const count = document.getElementById('tradesCount');
+    if (!tbody) return;
+    count.textContent = trades.length;
+
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="trading-table__empty">No trades today</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = trades.map(t => {
+      const sym = t.symbol || '';
+      const rawSide = (t.side || '').toLowerCase();
+      const displaySide = INVERSE_ETFS.has(sym) && rawSide === 'buy' ? 'Short' : rawSide.charAt(0).toUpperCase() + rawSide.slice(1);
+      const qty = t.filled_qty || t.qty || '0';
+      const price = t.filled_avg_price || '0';
+      const type = isOption(t) ? 'Option' : 'Stock';
+      const typeClass = isOption(t) ? 'type-option' : 'type-stock';
+
+      return '<tr>' +
+        '<td>' + formatTime(t.filled_at || t.updated_at) + '</td>' +
+        '<td style="font-weight:600;">' + sym + '</td>' +
+        '<td class="' + sideClass(displaySide) + '">' + displaySide + '</td>' +
+        '<td>' + qty + '</td>' +
+        '<td>' + formatCurrency(price) + '</td>' +
+        '<td class="' + typeClass + '">' + type + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderOrders(orders) {
+    const tbody = document.getElementById('ordersBody');
+    const count = document.getElementById('ordersCount');
+    if (!tbody) return;
+    count.textContent = orders.length;
+
+    if (!orders.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="trading-table__empty">No open orders</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = orders.map(o => {
+      const sym = o.symbol || '';
+      const side = (o.side || '').charAt(0).toUpperCase() + (o.side || '').slice(1);
+      const qty = o.qty || '0';
+      const orderType = (o.type || 'market').replace('_', ' ');
+      const limitPrice = o.limit_price ? formatCurrency(o.limit_price) : '—';
+      const status = o.status || 'unknown';
+
+      return '<tr>' +
+        '<td>' + formatTime(o.submitted_at || o.created_at) + '</td>' +
+        '<td style="font-weight:600;">' + sym + '</td>' +
+        '<td class="' + sideClass(side) + '">' + side + '</td>' +
+        '<td>' + qty + '</td>' +
+        '<td style="text-transform:capitalize;">' + orderType + '</td>' +
+        '<td>' + limitPrice + '</td>' +
+        '<td><span class="status-badge">' + status.replace('_', ' ') + '</span></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderPositions(positions) {
+    const tbody = document.getElementById('positionsBody');
+    const count = document.getElementById('positionsCount');
+    if (!tbody) return;
+    count.textContent = positions.length;
+
+    if (!positions.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="trading-table__empty">No open positions</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = positions.map(p => {
+      const sym = p.symbol || '';
+      const rawSide = (p.side || 'long').toLowerCase();
+      const displaySide = getDisplaySide(sym, rawSide);
+      const sideLabel = displaySide.charAt(0).toUpperCase() + displaySide.slice(1);
+      const qty = Math.abs(parseFloat(p.qty || '0'));
+      const avgEntry = parseFloat(p.avg_entry_price || '0');
+      const current = parseFloat(p.current_price || '0');
+      const marketValue = parseFloat(p.market_value || '0');
+      const unrealizedPl = parseFloat(p.unrealized_pl || '0');
+      const unrealizedPlPct = parseFloat(p.unrealized_plpc || '0') * 100;
+      const type = isOption(p) ? 'Option' : 'Stock';
+
+      return '<tr>' +
+        '<td style="font-weight:600;">' + sym + '</td>' +
+        '<td class="' + sideClass(sideLabel) + '">' + sideLabel + '</td>' +
+        '<td>' + qty + '</td>' +
+        '<td>' + formatCurrency(avgEntry) + '</td>' +
+        '<td>' + formatCurrency(current) + '</td>' +
+        '<td>' + formatCurrency(marketValue) + '</td>' +
+        '<td class="' + pnlClass(unrealizedPl) + '">' + formatCurrency(unrealizedPl) + '</td>' +
+        '<td class="' + pnlClass(unrealizedPlPct) + '">' + (unrealizedPlPct >= 0 ? '+' : '') + unrealizedPlPct.toFixed(2) + '%</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  async function refreshTradingDashboard() {
+    const btn = document.getElementById('refreshTrading');
+    const timestamp = document.getElementById('tradingLastUpdate');
+    if (btn) btn.disabled = true;
+    try {
+      const data = await fetchTradingData();
+      renderTrades(data.trades);
+      renderOrders(data.orders);
+      renderPositions(data.positions);
+      if (timestamp) timestamp.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (err) {
+      console.error('[trading] Refresh failed:', err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Initial load + auto-refresh every 30s
+  if (document.getElementById('tradesBody')) {
+    refreshTradingDashboard();
+    setInterval(refreshTradingDashboard, 30000);
+
+    var refreshBtn = document.getElementById('refreshTrading');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', refreshTradingDashboard);
+    }
+  }
+
   // --- Fallback fade-in for browsers without animation-timeline ---
   if (!CSS.supports('animation-timeline', 'scroll()')) {
     const fadeEls = document.querySelectorAll('.fade-in');

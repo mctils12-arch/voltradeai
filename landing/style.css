@@ -918,6 +918,161 @@ section {
 }
 
 /* ============================================================
+   TRADING ACTIVITY DASHBOARD
+   ============================================================ */
+
+.trading-section {
+  background: var(--color-bg);
+}
+
+.trading-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  justify-content: flex-end;
+}
+
+.btn--sm {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+}
+.btn--sm svg {
+  flex-shrink: 0;
+}
+
+.trading-timestamp {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.trading-card {
+  margin-bottom: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.trading-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.trading-card__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.trading-card__badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-blue-dim);
+  color: var(--color-blue);
+  font-variant-numeric: tabular-nums;
+}
+
+.trading-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trading-table {
+  min-width: 500px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trading-table thead {
+  background: var(--color-surface-offset);
+}
+
+.trading-table th {
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: var(--space-3) var(--space-4);
+  white-space: nowrap;
+}
+
+.trading-table td {
+  font-size: var(--text-sm);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-divider);
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.trading-table__empty {
+  text-align: center;
+  color: var(--color-text-faint);
+  padding: var(--space-8) var(--space-4) !important;
+  font-style: italic;
+}
+
+.trading-table .side-buy,
+.trading-table .side-long {
+  color: #22c55e;
+  font-weight: 600;
+}
+.trading-table .side-sell,
+.trading-table .side-short {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.trading-table .pnl-positive {
+  color: #22c55e;
+  font-weight: 600;
+}
+.trading-table .pnl-negative {
+  color: #ef4444;
+  font-weight: 600;
+}
+.trading-table .pnl-zero {
+  color: var(--color-text-muted);
+}
+
+.trading-table .type-option {
+  color: var(--color-amber);
+  font-weight: 500;
+}
+.trading-table .type-stock {
+  color: var(--color-text-muted);
+}
+
+.trading-table .status-badge {
+  display: inline-block;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-blue-dim);
+  color: var(--color-blue);
+  text-transform: capitalize;
+}
+
+@media (max-width: 768px) {
+  .trading-table {
+    font-size: var(--text-xs);
+  }
+  .trading-table th,
+  .trading-table td {
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+/* ============================================================
    COMPARISON BANNER
    ============================================================ */
 

@@ -716,6 +716,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Trading Activity Dashboard (landing page) ───────────────────────────
+  // Today's filled orders
+  app.get("/api/trades/today", async (_req, res) => {
+    try {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const response = await fetch(
+        `https://paper-api.alpaca.markets/v2/orders?status=closed&after=${encodeURIComponent(todayStart)}&limit=200&direction=desc`,
+        { headers: alpacaHeaders }
+      );
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: errText, trades: [] });
+      }
+      const orders: any[] = await response.json();
+      // Only include filled orders
+      const filled = orders.filter((o: any) => o.status === "filled");
+      res.json({ trades: filled });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, trades: [] });
+    }
+  });
+
+  // Open orders
+  app.get("/api/orders/open", async (_req, res) => {
+    try {
+      const response = await fetch(
+        "https://paper-api.alpaca.markets/v2/orders?status=open&limit=200",
+        { headers: alpacaHeaders }
+      );
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: errText, orders: [] });
+      }
+      const orders: any[] = await response.json();
+      res.json({ orders });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, orders: [] });
+    }
+  });
+
+  // Open positions
+  app.get("/api/positions", async (_req, res) => {
+    try {
+      const response = await fetch(
+        "https://paper-api.alpaca.markets/v2/positions",
+        { headers: alpacaHeaders }
+      );
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: errText, positions: [] });
+      }
+      const positions: any[] = await response.json();
+      res.json({ positions });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, positions: [] });
+    }
+  });
+
   // ── Intraday Shorts Dashboard API (v1.0.27) ─────────────────────────────
   app.get("/api/shorts/dashboard", async (_req, res) => {
     try {
