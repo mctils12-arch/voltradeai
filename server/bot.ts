@@ -832,8 +832,11 @@ print(json.dumps(data))
   // ── Performance Dashboard Data ────────────────────────────────────────────
   app.get("/api/bot/performance", requireAuth, async (_req, res) => {
     try {
-      // Get trade history from fills
-      const { stdout: fillsOut } = await execPythonSerialized(`python3 -c "
+      let perf: any = { totalTrades: 0, totalFills: 0, winRate: 0, avgGain: 0, avgLoss: 0, totalPnlPct: 0, profitFactor: 0, byStrategy: {}, recentTrades: [], realisticPnlPct: 0, avgSlippagePct: 0, totalSlippageCost: 0, slippageGapPct: 0, bestTrade: null, worstTrade: null };
+
+      try {
+        // Get trade history from fills
+        const { stdout: fillsOut } = await execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import FILLS_PATH, TRADE_FEEDBACK_PATH
@@ -913,8 +916,11 @@ print(json.dumps({
     'worstTrade': {'ticker': worst_trade.get('ticker', ''), 'pnlPct': round(worst_trade.get('pnl_pct', 0), 2)} if worst_trade else None,
 }))
 "`, { timeout: 10000 });
-      
-      let perf = JSON.parse(fillsOut.trim());
+
+        perf = JSON.parse(fillsOut.trim());
+      } catch (pyErr: any) {
+        console.error("[perf] Python execution failed, falling back to Alpaca:", pyErr?.message || pyErr);
+      }
 
       // Fallback: if Python files yielded no trades, compute from Alpaca orders
       if (perf.totalTrades === 0) {
