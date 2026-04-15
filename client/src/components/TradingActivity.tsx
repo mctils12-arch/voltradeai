@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, ArrowUpDown, BookOpen } from "lucide-react";
+import { ArrowUpDown, BookOpen } from "lucide-react";
 import { INVERSE_ETFS, getDisplaySide } from "../../../shared/inverseEtfs";
 
 // ─── ETF sets ────────────────────────────────────────────────────────────────
@@ -122,6 +122,8 @@ const titleStyle: React.CSSProperties = {
   fontSize: "14px",
   fontWeight: 600,
   color: "#c8d6e5",
+  fontFamily: "'JetBrains Mono', monospace",
+  letterSpacing: "0.05em",
 };
 
 const countStyle: React.CSSProperties = {
@@ -222,11 +224,8 @@ function Badge({ type }: { type: TradeType }) {
 export default function TradingActivity() {
   const [trades, setTrades] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
-  const [lastUpdate, setLastUpdate] = useState<string>("");
-  const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
-    setRefreshing(true);
     try {
       const [tradesRes, ordersRes] = await Promise.all([
         fetch("/api/trades/today").then(r => r.json()).catch(() => ({ trades: [] })),
@@ -234,11 +233,8 @@ export default function TradingActivity() {
       ]);
       setTrades(tradesRes.trades || []);
       setOrders(ordersRes.orders || []);
-      setLastUpdate(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("[trading] Refresh failed:", err);
-    } finally {
-      setRefreshing(false);
     }
   }, []);
 
@@ -266,22 +262,8 @@ export default function TradingActivity() {
       <div style={card} data-testid="todays-trades-panel">
         <div style={headerRow}>
           <ArrowUpDown size={14} style={{ color: "#00e5ff" }} />
-          <span style={titleStyle}>Today's Trades</span>
-          <span style={countStyle}>
-            {trades.length} fills
-            {lastUpdate && <> · {lastUpdate}</>}
-            <button
-              onClick={fetchData}
-              disabled={refreshing}
-              style={{
-                background: "none", border: "none", color: "#00e5ff", cursor: refreshing ? "not-allowed" : "pointer",
-                marginLeft: "8px", padding: "2px", display: "inline-flex", alignItems: "center", opacity: refreshing ? 0.4 : 0.7,
-              }}
-              title="Refresh"
-            >
-              <RefreshCw size={12} style={refreshing ? { animation: "spin 1s linear infinite" } : {}} />
-            </button>
-          </span>
+          <span style={titleStyle}>TODAY'S TRADES</span>
+          <span style={countStyle}>{trades.length} fills</span>
         </div>
 
         {trades.length === 0 ? (
@@ -304,8 +286,8 @@ export default function TradingActivity() {
                   const sym = t.symbol || "";
                   const rawSide = (t.side || "").toLowerCase();
                   const displaySide = INVERSE_ETFS.has(sym) && rawSide === "buy"
-                    ? "Short"
-                    : rawSide.charAt(0).toUpperCase() + rawSide.slice(1);
+                    ? "SHORT"
+                    : rawSide.toUpperCase();
                   const qty = t.filled_qty || t.qty || "0";
                   const price = t.filled_avg_price || "0";
                   const tradeType = getTradeType(t);
@@ -331,7 +313,7 @@ export default function TradingActivity() {
       <div style={card} data-testid="open-orders-panel">
         <div style={headerRow}>
           <BookOpen size={14} style={{ color: "#00e5ff" }} />
-          <span style={titleStyle}>Open Orders</span>
+          <span style={titleStyle}>OPEN ORDERS</span>
           <span style={countStyle}>{orders.length} pending</span>
         </div>
 
@@ -354,7 +336,7 @@ export default function TradingActivity() {
               <tbody>
                 {orders.map((o: any, i: number) => {
                   const sym = o.symbol || "";
-                  const side = (o.side || "").charAt(0).toUpperCase() + (o.side || "").slice(1);
+                  const side = (o.side || "").toUpperCase();
                   const qty = o.qty || "0";
                   const orderType = (o.type || "market").replace("_", " ");
                   const limitPrice = o.limit_price ? formatCurrency(o.limit_price) : "—";
@@ -388,12 +370,6 @@ export default function TradingActivity() {
         )}
       </div>
 
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </>
   );
 }
