@@ -977,12 +977,27 @@ print(json.dumps({
             }
           }
 
+          // Include open positions as unrealized "trades"
+          for (const pos of (alpacaPositions as any[])) {
+            const sym = pos.symbol || "";
+            const unrealizedPl = parseFloat(pos.unrealized_pl) || 0;
+            const unrealizedPlPct = (parseFloat(pos.unrealized_plpc) || 0) * 100;
+            const side = (pos.side || "long").toLowerCase();
+            trades.push({ ticker: sym, side, pnl_pct: unrealizedPlPct, pnl: unrealizedPl });
+          }
+
+          // Account-level daily P/L from Alpaca (most accurate headline number)
+          const acct = alpacaAccount as any;
+          const equity = parseFloat(acct?.equity) || 0;
+          const lastEquity = parseFloat(acct?.last_equity) || 0;
+          const accountPnlDollar = lastEquity > 0 ? equity - lastEquity : 0;
+          const accountPnlPct = lastEquity > 0 ? ((equity - lastEquity) / lastEquity) * 100 : 0;
+
           const wins = trades.filter(t => t.pnl_pct > 0);
           const losses = trades.filter(t => t.pnl_pct <= 0);
           const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
           const avgGain = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl_pct, 0) / wins.length : 0;
           const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.pnl_pct, 0) / losses.length : 0;
-          const totalPnlPct = trades.reduce((s, t) => s + t.pnl_pct, 0);
           const grossProfit = wins.reduce((s, t) => s + t.pnl_pct, 0);
           const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl_pct, 0));
           const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : 0);
@@ -996,11 +1011,12 @@ print(json.dumps({
             winRate: Math.round(winRate * 10) / 10,
             avgGain: Math.round(avgGain * 100) / 100,
             avgLoss: Math.round(avgLoss * 100) / 100,
-            totalPnlPct: Math.round(totalPnlPct * 100) / 100,
+            totalPnlPct: Math.round(accountPnlPct * 100) / 100,
+            totalPnlDollar: Math.round(accountPnlDollar * 100) / 100,
             profitFactor: profitFactor === Infinity ? "inf" : Math.round(profitFactor * 100) / 100,
             byStrategy: {},
             recentTrades: trades.slice(-20).reverse().map(t => ({ ticker: t.ticker, side: t.side, pnl_pct: Math.round(t.pnl_pct * 100) / 100 })),
-            realisticPnlPct: Math.round(totalPnlPct * 100) / 100,
+            realisticPnlPct: Math.round(accountPnlPct * 100) / 100,
             avgSlippagePct: 0,
             totalSlippageCost: 0,
             slippageGapPct: 0,
