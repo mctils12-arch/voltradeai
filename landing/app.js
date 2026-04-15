@@ -278,6 +278,96 @@
     "SOXS","TECS","FAZ","SKF","LABD","ERY","DRIP","DUST","JDST","YANG","EDZ","WEBS","SVXY"
   ]);
 
+  const COMMON_ETFS = new Set([
+    "SPY","QQQ","IWM","DIA","XLK","XLF","XLE","XLV","XLI","XLU","XLC","XLY","XLP","XLRE","XLB",
+    "VTI","VOO","VEA","VWO","BND","AGG","GLD","SLV","USO","UNG","TLT","HYG","LQD","EEM","EFA",
+    "ARKK","ARKW","ARKF","ARKG","ARKQ","TQQQ","SOXL","TECL","UPRO","SPXL","UDOW","URTY",
+    "SMH","XBI","IBB","KWEB","FXI","MCHI","INDA","EWZ","EWJ","VGK"
+  ]);
+
+  // Determine granular trade type: Long, Short, Short ETF, ETF, Put, Call, Iron Condor
+  function getTradeType(order) {
+    const sym = (order.symbol || '').toUpperCase();
+    const side = (order.side || '').toLowerCase();
+    const orderClass = (order.order_class || '').toLowerCase();
+    const assetClass = (order.asset_class || '').toLowerCase();
+    const legs = order.legs;
+
+    // Multi-leg options = Iron Condor (or spread)
+    if (legs && Array.isArray(legs) && legs.length >= 2) {
+      return { label: 'Iron Condor', cssClass: 'type-iron-condor' };
+    }
+    if (orderClass === 'oco' || orderClass === 'bracket' || orderClass === 'oto') {
+      return { label: 'Iron Condor', cssClass: 'type-iron-condor' };
+    }
+
+    // Options — determine put vs call from symbol
+    if (assetClass === 'us_option' || sym.length > 8) {
+      // OCC option symbol format: AAPL  260117C00150000
+      // The letter before the strike price digits is C or P
+      const match = sym.match(/[CP]\d{8}$/);
+      if (match) {
+        const optType = match[0][0];
+        if (optType === 'P') return { label: 'Put', cssClass: 'type-put' };
+        if (optType === 'C') return { label: 'Call', cssClass: 'type-call' };
+      }
+      // Fallback: check side
+      if (side.includes('buy_to_open') || side === 'buy') {
+        return { label: 'Option', cssClass: 'type-option' };
+      }
+      return { label: 'Option', cssClass: 'type-option' };
+    }
+
+    // Inverse ETF = Short ETF
+    if (INVERSE_ETFS.has(sym)) {
+      return { label: 'Short ETF', cssClass: 'type-short-etf' };
+    }
+
+    // Regular ETF
+    if (COMMON_ETFS.has(sym)) {
+      return { label: 'ETF', cssClass: 'type-etf' };
+    }
+
+    // Stock short
+    if (side === 'sell' || side === 'sell_short' || side === 'short') {
+      return { label: 'Short', cssClass: 'type-short' };
+    }
+
+    // Stock long
+    return { label: 'Long', cssClass: 'type-long' };
+  }
+
+  // For positions — similar logic but uses position side
+  function getPositionType(position) {
+    const sym = (position.symbol || '').toUpperCase();
+    const rawSide = (position.side || 'long').toLowerCase();
+    const assetClass = (position.asset_class || '').toLowerCase();
+
+    if (assetClass === 'us_option' || sym.length > 8) {
+      const match = sym.match(/[CP]\d{8}$/);
+      if (match) {
+        const optType = match[0][0];
+        if (optType === 'P') return { label: 'Put', cssClass: 'type-put' };
+        if (optType === 'C') return { label: 'Call', cssClass: 'type-call' };
+      }
+      return { label: 'Option', cssClass: 'type-option' };
+    }
+
+    if (INVERSE_ETFS.has(sym)) {
+      return { label: 'Short ETF', cssClass: 'type-short-etf' };
+    }
+
+    if (COMMON_ETFS.has(sym)) {
+      return { label: 'ETF', cssClass: 'type-etf' };
+    }
+
+    if (rawSide === 'short') {
+      return { label: 'Short', cssClass: 'type-short' };
+    }
+
+    return { label: 'Long', cssClass: 'type-long' };
+  }
+
   function getDisplaySide(ticker, rawSide) {
     if (INVERSE_ETFS.has(ticker) && rawSide === 'long') return 'short';
     return rawSide;
@@ -346,8 +436,7 @@
       const displaySide = INVERSE_ETFS.has(sym) && rawSide === 'buy' ? 'Short' : rawSide.charAt(0).toUpperCase() + rawSide.slice(1);
       const qty = t.filled_qty || t.qty || '0';
       const price = t.filled_avg_price || '0';
-      const type = isOption(t) ? 'Option' : 'Stock';
-      const typeClass = isOption(t) ? 'type-option' : 'type-stock';
+      const tradeType = getTradeType(t);
 
       return '<tr>' +
         '<td>' + formatTime(t.filled_at || t.updated_at) + '</td>' +
@@ -355,7 +444,7 @@
         '<td class="' + sideClass(displaySide) + '">' + displaySide + '</td>' +
         '<td>' + qty + '</td>' +
         '<td>' + formatCurrency(price) + '</td>' +
-        '<td class="' + typeClass + '">' + type + '</td>' +
+        '<td><span class="trade-type-badge ' + tradeType.cssClass + '">' + tradeType.label + '</span></td>' +
         '</tr>';
     }).join('');
   }
@@ -398,7 +487,7 @@
     count.textContent = positions.length;
 
     if (!positions.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="trading-table__empty">No open positions</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="trading-table__empty">No open positions</td></tr>';
       return;
     }
 
@@ -413,11 +502,12 @@
       const marketValue = parseFloat(p.market_value || '0');
       const unrealizedPl = parseFloat(p.unrealized_pl || '0');
       const unrealizedPlPct = parseFloat(p.unrealized_plpc || '0') * 100;
-      const type = isOption(p) ? 'Option' : 'Stock';
+      const posType = getPositionType(p);
 
       return '<tr>' +
         '<td style="font-weight:600;">' + sym + '</td>' +
         '<td class="' + sideClass(sideLabel) + '">' + sideLabel + '</td>' +
+        '<td><span class="trade-type-badge ' + posType.cssClass + '">' + posType.label + '</span></td>' +
         '<td>' + qty + '</td>' +
         '<td>' + formatCurrency(avgEntry) + '</td>' +
         '<td>' + formatCurrency(current) + '</td>' +
