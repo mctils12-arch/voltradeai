@@ -33,11 +33,12 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: string | undefined = undefined;
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
+    // OOM fix: truncate immediately instead of keeping full response object in closure
+    capturedJsonResponse = JSON.stringify(bodyJson).slice(0, 500);
     return originalResJson.apply(res, [bodyJson, ...args]);
   };
 
@@ -46,8 +47,7 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        const jsonStr = JSON.stringify(capturedJsonResponse);
-        logLine += ` :: ${jsonStr.length > 500 ? jsonStr.slice(0, 500) + "..." : jsonStr}`;
+        logLine += ` :: ${capturedJsonResponse}${capturedJsonResponse.length >= 500 ? "..." : ""}`;
       }
 
       log(logLine);

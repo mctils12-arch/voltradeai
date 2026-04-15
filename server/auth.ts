@@ -101,6 +101,8 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; lock
 }
 
 function recordFailedLogin(ip: string) {
+  // OOM fix: cap map size to prevent unbounded growth under brute-force attacks
+  if (loginAttempts.size > 10000) loginAttempts.clear();
   const entry = loginAttempts.get(ip) || { count: 0, lockedUntil: 0 };
   entry.count++;
   if (entry.count >= MAX_LOGIN_ATTEMPTS) {

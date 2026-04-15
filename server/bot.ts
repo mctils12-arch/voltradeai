@@ -19,6 +19,36 @@ const _pyEnv = {
 };
 const execAsync = (cmd: string, opts?: any) => _execRaw(cmd, { env: _pyEnv, ...opts });
 
+// ─── Python Subprocess Serialization (OOM fix) ─────────────────────────────
+// At most 1 heavy Python subprocess at a time. Each Python invocation imports
+// numpy/pandas/sklearn/lightgbm (~100-150MB). Concurrent subprocesses push the
+// container past its memory limit. This mutex ensures sequential execution.
+let pythonRunning = false;
+async function execPythonSerialized(cmd: string, opts?: any) {
+  while (pythonRunning) await new Promise(r => setTimeout(r, 500));
+  pythonRunning = true;
+  try { return await execAsync(cmd, opts); }
+  finally { pythonRunning = false; }
+}
+
+// ─── Temp File Cleanup (OOM fix) ────────────────────────────────────────────
+// Orphaned temp files from fire-and-forget Python subprocesses that timed out
+// or failed. Clean up every 10 minutes; delete files older than 5 minutes.
+setInterval(() => {
+  try {
+    const tmpFiles = fs.readdirSync('/tmp').filter(f =>
+      f.startsWith('fb_') || f.startsWith('fill_') || f.startsWith('opt_')
+    );
+    const now = Date.now();
+    for (const f of tmpFiles) {
+      try {
+        const stat = fs.statSync(`/tmp/${f}`);
+        if (now - stat.mtimeMs > 300000) fs.unlinkSync(`/tmp/${f}`);
+      } catch (_) {}
+    }
+  } catch (_) {}
+}, 600000);
+
 // ─── Alpaca Config ──────────────────────────────────────────────────────────
 const ALPACA_BASE = "https://paper-api.alpaca.markets";
 const ALPACA_KEY = process.env.ALPACA_KEY || "";
@@ -158,8 +188,7 @@ function broadcastSSE(data: any) {
 
 function audit(action: string, detail: string) {
   const entry = { time: new Date().toISOString(), type: action, action, detail, message: detail };
-  state.auditLog.unshift(entry);
-  if (state.auditLog.length > 200) state.auditLog.length = 200;
+  // OOM fix: removed in-memory auditLog accumulation — always read from SQLite instead
   console.log(`[BOT] ${action}: ${detail}`);
   broadcastSSE(entry);
   // Persist to database (survives deploys)
@@ -273,6 +302,8 @@ async function trackClosedTrades() {
       const entryPrice = parseFloat(order.filled_avg_price || 0);
       const exitPrice = parseFloat(order.filled_avg_price || 0); // simplified — same fill price
 
+      // OOM fix: strip entryFeatures/exitContext from in-memory array — they're
+      // only needed for ML feedback (written to file), not for the dashboard
       tradeResults.unshift({
         ticker: order.symbol,
         side: order.side,
@@ -319,7 +350,7 @@ async function trackClosedTrades() {
         }));
         const fbTmpPath = `/tmp/fb_${Date.now()}.json`;
         fs.writeFileSync(fbTmpPath, JSON.stringify(feedbackData));
-        execAsync(`python3 -c "
+        execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import TRADE_FEEDBACK_PATH
@@ -459,7 +490,7 @@ async function placeOptionsOrder(
     const optTmpPath = `/tmp/opt_order_${ticker}_${Date.now()}.json`;
     fs.writeFileSync(optTmpPath, JSON.stringify(tradeData));
 
-    const { stdout, stderr } = await execAsync(
+    const { stdout, stderr } = await execPythonSerialized(
       `python3 -c "
 import json, sys, os
 sys.path.insert(0, '.')
@@ -577,7 +608,7 @@ export function registerBotRoutes(app: Express) {
     try {
       const positions = await alpaca("/v2/positions");
       // Load evolving stop state for stop/TP levels
-      const { stdout: stopOut } = await execAsync(`python3 -c "
+      const { stdout: stopOut } = await execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import DATA_DIR
@@ -594,7 +625,7 @@ print(json.dumps(data))
       // Load options state (tracks which setup/strategy each options position came from)
       let optionsState: any = {};
       try {
-        const { stdout: optOut } = await execAsync(`python3 -c "
+        const { stdout: optOut } = await execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import DATA_DIR
@@ -736,7 +767,7 @@ print(json.dumps(data))
     
     // Check 4: Python engine
     try {
-      const { stdout } = await execAsync('python3 -c "print(\'ok\')"', { timeout: 5000 });
+      const { stdout } = await execPythonSerialized('python3 -c "print(\'ok\')"', { timeout: 5000 });
       checks.checks.python = { status: stdout.trim() === "ok" ? "ok" : "error" };
     } catch (err: any) {
       checks.checks.python = { status: "error", detail: err?.message };
@@ -750,6 +781,15 @@ print(json.dumps(data))
       drawdownPct: state.equityPeak > 0 ? (((state.equityPeak - parseFloat(state.lastEquity || String(state.equityPeak))) / state.equityPeak) * 100).toFixed(1) : "N/A",
     };
     
+    // OOM fix: expose memory usage in health check for monitoring
+    const mem = process.memoryUsage();
+    checks.checks.memory = {
+      heapUsedMB: Math.round(mem.heapUsed / 1048576),
+      heapTotalMB: Math.round(mem.heapTotal / 1048576),
+      rssMB: Math.round(mem.rss / 1048576),
+      externalMB: Math.round(mem.external / 1048576),
+    };
+
     const httpCode = checks.status === "ok" ? 200 : 503;
     res.status(httpCode).json(checks);
   });
@@ -758,7 +798,7 @@ print(json.dumps(data))
   app.get("/api/bot/performance", requireAuth, async (_req, res) => {
     try {
       // Get trade history from fills
-      const { stdout: fillsOut } = await execAsync(`python3 -c "
+      const { stdout: fillsOut } = await execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import FILLS_PATH, TRADE_FEEDBACK_PATH
@@ -862,7 +902,7 @@ print(json.dumps({
   // ── Trade History CSV Export ─────────────────────────────────────────────
   app.get("/api/bot/export-trades", requireAuth, async (_req, res) => {
     try {
-      const { stdout } = await execAsync(`python3 -c "
+      const { stdout } = await execPythonSerialized(`python3 -c "
 import json, os, csv, io
 try:
     from storage_config import TRADE_FEEDBACK_PATH, FILLS_PATH
@@ -905,7 +945,7 @@ print(out.getvalue())
   // ── Data Backup Endpoint (manual trigger or cron) ──────────────────────────
   app.post("/api/bot/backup", requireAuth, async (_req, res) => {
     try {
-      const { stdout } = await execAsync(`python3 -c "
+      const { stdout } = await execPythonSerialized(`python3 -c "
 import json, os, shutil, time
 try:
     from storage_config import DATA_DIR
@@ -997,14 +1037,10 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
   });
 
   // Audit log
+  // OOM fix: always read from SQLite instead of in-memory array
   app.get("/api/bot/audit", requireAuth, (_req, res) => {
-    // Return in-memory log, fall back to persistent DB log if empty (e.g. after redeploy)
-    if (state.auditLog.length > 0) {
-      res.json(state.auditLog.slice(0, 100));
-    } else {
-      const persisted = getPersistedAuditLog(100);
-      res.json(persisted.map((e: any) => ({ time: e.time, action: e.type, type: e.type, detail: e.message, message: e.message })));
-    }
+    const persisted = getPersistedAuditLog(100);
+    res.json(persisted.map((e: any) => ({ time: e.time, action: e.type, type: e.type, detail: e.message, message: e.message })));
   });
 
   // Place a trade (manual or from bot signals)
@@ -1123,7 +1159,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
     const scriptPath = path.resolve("analyze.py");
     for (const ticker of tickers) {
       try {
-        const { stdout } = await execAsync(
+        const { stdout } = await execPythonSerialized(
           `python3 "${scriptPath}" "${ticker}" --mode=scan`,
           { timeout: 30000 }
         );
@@ -1210,7 +1246,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
 
     try {
       audit("BACKTEST", `Running ${strategy} on ${ticker} (${years}yr)`);
-      const { stdout } = await execAsync(
+      const { stdout } = await execPythonSerialized(
         `python3 "${scriptPath}" "${ticker}" "${strategy}" "${years}"`,
         { timeout: 120000 }
       );
@@ -1262,7 +1298,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
   // NOTE: This only gates new ENTRY orders. Exits (stops, TP, time stops) use
   // the WebSocket handler and are never blocked by this counter.
   const MAX_ORDER_ATTEMPTS_PER_TICKER = 10;
-  const orderAttemptCounts: Record<string, number> = {};
+  let orderAttemptCounts: Record<string, number> = {};
 
   // ── Stale Order Sweeper ──────────────────────────────────────────────────
   const STALE_ORDER_MINUTES = 12; // cancel unfilled limits after 12 minutes
@@ -1402,7 +1438,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
 
       // ── Pre-market price check: verify price hasn't gapped more than 5% ──
       try {
-        const { stdout: priceCheck } = await execAsync(
+        const { stdout: priceCheck } = await execPythonSerialized(
           `python3 -c "import requests,json,os; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=sip', headers={'APCA-API-KEY-ID':os.environ.get('ALPACA_KEY',''),'APCA-API-SECRET-KEY':os.environ.get('ALPACA_SECRET','')}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
           { timeout: 8000 }
         );
@@ -1457,7 +1493,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
           };
           const mfTmp = `/tmp/fill_m_${trade.ticker}_${Date.now()}.json`;
           fs.writeFileSync(mfTmp, JSON.stringify(morningFillPayload));
-          execAsync(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${mfTmp}')); os.remove('${mfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
+          execPythonSerialized(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${mfTmp}')); os.remove('${mfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
         } catch (err: any) { console.error("[bot]", err?.message || err); }
 
         slotsUsed++;
@@ -1494,7 +1530,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       // 2. Sync position monitor stop state from bot_engine (refreshes ATR/phases)
       //    This keeps the WS monitor's levels accurate without blocking exits.
       try {
-        const { stdout } = await execAsync(`python3 -c "
+        const { stdout } = await execPythonSerialized(`python3 -c "
 from bot_engine import manage_positions
 import json
 result = manage_positions()
@@ -1556,7 +1592,7 @@ print(json.dumps(result))
     state.diagCycleCount++;
     if (state.diagCycleCount % 5 === 0) {
       try {
-        const { stdout: diagOut } = await execAsync(`python3 -c "
+        const { stdout: diagOut } = await execPythonSerialized(`python3 -c "
 from diagnostics import get_auto_fix_params
 import json
 print(json.dumps(get_auto_fix_params()))
@@ -1589,7 +1625,7 @@ print(json.dumps(get_auto_fix_params()))
 
     try {
       const enginePath = require("path").resolve(process.cwd(), "bot_engine.py");
-      const { stdout, stderr } = await execAsync(`python3 -W ignore "${enginePath}" full`, { timeout: 300000 }); // 5 min timeout
+      const { stdout, stderr } = await execPythonSerialized(`python3 -W ignore "${enginePath}" full`, { timeout: 300000 }); // 5 min timeout
       // Robust JSON extraction: find the first '{' to skip any warning/debug text before JSON
       const cleanStdout = stdout.replace(/\r/g, '').trim();
       const jsonStart = cleanStdout.indexOf('{');
@@ -1649,6 +1685,11 @@ print(json.dumps(get_auto_fix_params()))
         });
       }
       if (signals.length > 30) signals.length = 30;
+      // OOM fix: expire stale signals older than 1 hour
+      const signalCutoff = Date.now() - 3600000;
+      for (let i = signals.length - 1; i >= 0; i--) {
+        if (new Date(signals[i].timestamp).getTime() < signalCutoff) signals.splice(i, 1);
+      }
 
       // 4. Check daily/weekly limits
       const acct = await alpaca("/v2/account");
@@ -1664,7 +1705,7 @@ print(json.dumps(get_auto_fix_params()))
 
       // Weekly loss check
       try {
-        const { stdout: weeklyOut } = await execAsync(`python3 -c "
+        const { stdout: weeklyOut } = await execPythonSerialized(`python3 -c "
 from diagnostics import check_weekly_loss
 import json
 history = [{'date': '${new Date().toISOString().split('T')[0]}', 'equity': ${equity}}]
@@ -1687,7 +1728,7 @@ print(json.dumps(check_weekly_loss(history)))
       const etForShorts = getETHour();
       if (isMarketOpen && etForShorts >= 15.83) { // 3:50 PM ET
         try {
-          const { stdout: shortsOut } = await execAsync(
+          const { stdout: shortsOut } = await execPythonSerialized(
             'python3 -c "from intraday_shorts import close_open_shorts; import json; print(json.dumps(close_open_shorts()))"',
             { timeout: 30000 }
           );
@@ -1795,7 +1836,7 @@ print(json.dumps(check_weekly_loss(history)))
 
       // Exchange halt check (via position_sizing.py)
       try {
-        const { stdout: haltOut } = await execAsync(
+        const { stdout: haltOut } = await execPythonSerialized(
           `python3 -c "from position_sizing import check_halt_status; import json; print(json.dumps(check_halt_status('${trade.ticker}')))"`,
           { timeout: 8000 }
         );
@@ -1886,7 +1927,7 @@ print(json.dumps(check_weekly_loss(history)))
               };
               const scanTmpPath = `/tmp/opt_scan_${trade.ticker}_${Date.now()}.json`;
               fs.writeFileSync(scanTmpPath, JSON.stringify(scannerPayload));
-              const { stdout: scanResult } = await execAsync(
+              const { stdout: scanResult } = await execPythonSerialized(
                 `python3 -c "
 import json, sys; sys.path.insert(0, '.')
 from options_execution import select_contract, submit_options_order
@@ -1934,7 +1975,7 @@ else:
               };
               const tmpPath = `/tmp/opt_${trade.ticker}_${Date.now()}.json`;
               fs.writeFileSync(tmpPath, JSON.stringify(optionsPayload));
-              const { stdout: optResult } = await execAsync(
+              const { stdout: optResult } = await execPythonSerialized(
                 `python3 -c "import json; from options_execution import evaluate_and_execute; d=json.load(open('${tmpPath}')); print(json.dumps(evaluate_and_execute(d['trade'], d['equity'], d['positions'])))"`,
                 { timeout: 30000 }
               );
@@ -2061,7 +2102,7 @@ else:
           };
           const rfTmp = `/tmp/fill_r_${pending.trade.ticker}_${Date.now()}.json`;
           fs.writeFileSync(rfTmp, JSON.stringify(fillPayload));
-          execAsync(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${rfTmp}')); os.remove('${rfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
+          execPythonSerialized(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${rfTmp}')); os.remove('${rfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
         } catch (cfErr: any) {
           // Confirmation failed — record with best-guess data
           audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — recording expected values`);
@@ -2077,7 +2118,7 @@ else:
 
     // 1. ML model retrain (if needed)
     try {
-      const { stdout: modelCheck } = await execAsync(`python3 -c "
+      const { stdout: modelCheck } = await execPythonSerialized(`python3 -c "
 import os, time, json
 from storage_config import ML_MODEL_PATH as path
 if not os.path.exists(path) or (time.time() - os.path.getmtime(path)) > 86400:
@@ -2090,7 +2131,7 @@ else:
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model stale or missing — triggering retrain...");
         try {
-          const { stdout: trainOut } = await execAsync("python3 ml_retrain_safe.py", { timeout: 300000 });
+          const { stdout: trainOut } = await execPythonSerialized("python3 ml_retrain_safe.py", { timeout: 300000 });
           const trainResult = JSON.parse(trainOut.trim());
           audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
         } catch (trainErr: any) {
@@ -2103,7 +2144,7 @@ else:
 
     // 2. Manipulation detection scan
     try {
-      const { stdout: manipOut } = await execAsync(`python3 -c "
+      const { stdout: manipOut } = await execPythonSerialized(`python3 -c "
 from manipulation_detect import scan_for_manipulation
 import json
 print(json.dumps(scan_for_manipulation()))
@@ -2118,7 +2159,7 @@ print(json.dumps(scan_for_manipulation()))
 
     // 3. Run full diagnostics
     try {
-      const { stdout: diagFull } = await execAsync(`python3 -c "
+      const { stdout: diagFull } = await execPythonSerialized(`python3 -c "
 from diagnostics import run_diagnostics
 import json
 print(json.dumps(run_diagnostics()))
@@ -2184,7 +2225,7 @@ print(json.dumps(run_diagnostics()))
       if (etHour >= 20 && etHour < 22) {
         audit("RESEARCH", "Evening scan — analyzing today's movers for tomorrow's plays");
         const enginePath3 = path.resolve("bot_engine.py");
-        const { stdout: scanOut3 } = await execAsync(`python3 -W ignore "${enginePath3}" full 2>/dev/null`, { timeout: 300000 });
+        const { stdout: scanOut3 } = await execPythonSerialized(`python3 -W ignore "${enginePath3}" full 2>/dev/null`, { timeout: 300000 });
         const jsonStart3 = scanOut3.indexOf('{');
         if (jsonStart3 !== -1) {
           lastScanResult = JSON.parse(scanOut3.slice(jsonStart3));
@@ -2193,7 +2234,7 @@ print(json.dumps(run_diagnostics()))
 
         // Process extreme movers from today — analyze for tomorrow's entry
         try {
-          const { stdout: emOut } = await execAsync(`python3 -c "
+          const { stdout: emOut } = await execPythonSerialized(`python3 -c "
 import json, os, time
 try:
     from storage_config import DATA_DIR
@@ -2219,7 +2260,7 @@ else:
             for (const mover of todayMovers.slice(0, 5)) { // Max 5 extreme movers analyzed
               try {
                 // Deep analyze each extreme mover for tomorrow's setup
-                const { stdout: deepOut } = await execAsync(
+                const { stdout: deepOut } = await execPythonSerialized(
                   `python3 -W ignore -c "
 from analyze import quick_scan
 import json
@@ -2289,7 +2330,7 @@ print(json.dumps(result))
             }
 
             // Clear extreme movers file after processing
-            await execAsync(`python3 -c "
+            await execPythonSerialized(`python3 -c "
 import os, json
 try:
     from storage_config import DATA_DIR
@@ -2312,7 +2353,7 @@ print('cleared')
         audit("RESEARCH", "Running backtest validation on active strategies...");
         const btPath = path.resolve("backtest.py");
         try {
-          const { stdout: btOut } = await execAsync(
+          const { stdout: btOut } = await execPythonSerialized(
             `python3 "${btPath}" SPY all 2`, { timeout: 120000 }
           );
           const btResult = JSON.parse(btOut.trim());
@@ -2330,7 +2371,7 @@ print('cleared')
         const earningsTickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"];
         for (const t of earningsTickers) {
           try {
-            const { stdout: aOut } = await execAsync(
+            const { stdout: aOut } = await execPythonSerialized(
               `python3 "${path.resolve('analyze.py')}" "${t}" --mode=scan`, { timeout: 30000 }
             );
             const analysis = JSON.parse(aOut.trim());
@@ -2349,7 +2390,7 @@ print('cleared')
         // Re-scan to get freshest data
         const enginePath4 = path.resolve("bot_engine.py");
         try {
-          const { stdout: scanOut } = await execAsync(`python3 "${enginePath4}" scan`, { timeout: 180000 });
+          const { stdout: scanOut } = await execPythonSerialized(`python3 "${enginePath4}" scan`, { timeout: 180000 });
           lastScanResult = JSON.parse(scanOut.trim());
           const topTrades = lastScanResult.new_trades || [];
           if (topTrades.length > 0) {
@@ -2368,12 +2409,12 @@ print('cleared')
         state.consecutiveStopLosses = 0;
         (state as any).recentStopTickers = [];
         state.morningQueueExecuted = false;
-        // Reset per-ticker order attempt counter so yesterday's attempts don't block today's trades
-        for (const key of Object.keys(orderAttemptCounts)) delete orderAttemptCounts[key];
+        // OOM fix: reassign instead of for...delete (V8 keeps hidden class slots with delete)
+        orderAttemptCounts = {};
         audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
-          const { stdout: trainOut } = await execAsync(
+          const { stdout: trainOut } = await execPythonSerialized(
             `python3 ml_retrain_safe.py`,
             { timeout: 300000 }
           );
@@ -2385,7 +2426,7 @@ print('cleared')
 
         // Nightly auto-backup at 4am alongside retrain
         try {
-          const { stdout: backupOut } = await execAsync(`python3 -c "
+          const { stdout: backupOut } = await execPythonSerialized(`python3 -c "
 import json, os, shutil, time
 try:
     from storage_config import DATA_DIR
@@ -2413,7 +2454,7 @@ print(json.dumps({'files': count}))
           // Off-site backup: push data snapshot to GitHub data-backup branch
           try {
             const backupScript = path.resolve("backup_to_github.py");
-            const { stdout: gitBackup } = await execAsync(
+            const { stdout: gitBackup } = await execPythonSerialized(
               `python3 "${backupScript}"`, { timeout: 60000 }
             );
             const gbResult = JSON.parse(gitBackup.trim());
@@ -2505,7 +2546,7 @@ print(json.dumps({'files': count}))
       // Load stop state from disk (same file bot_engine writes)
       let stopState: Record<string, any> = {};
       try {
-        const { stdout } = await execAsync(`python3 -c "
+        const { stdout } = await execPythonSerialized(`python3 -c "
 import json, os
 DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
 p = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
@@ -2649,6 +2690,12 @@ except: print('{}')
    */
   function removePositionFromMonitor(ticker: string) {
     delete monitoredPositions[ticker];
+    // OOM fix: clean up stream data for non-base tickers to prevent unbounded growth
+    if (!STREAM_TICKERS.includes(ticker)) {
+      delete streamVolHistory[ticker];
+      delete streamPriceHistory[ticker];
+      delete streamLastSignal[ticker];
+    }
     if (positionSubscribedTickers.has(ticker)) {
       positionSubscribedTickers.delete(ticker);
       if (streamWs && streamConnected) {
@@ -2760,7 +2807,7 @@ except: print('{}')
 
         // Persist scale-out state to stop_state.json
         try {
-          await execAsync(`python3 -c "
+          await execPythonSerialized(`python3 -c "
 import json, os
 DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
 p = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
@@ -2894,7 +2941,7 @@ if '${ticker}' in ss:
       // Write stop-loss cooldown
       if (exitType === 'stop_loss' || exitType === 'trailing_stop') {
         try {
-          await execAsync(`python3 -c "
+          await execPythonSerialized(`python3 -c "
 import json, os, time
 DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
 cd_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
@@ -2935,6 +2982,8 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
             const blockedTicker = recentTickers[recentTickers.length - 1];
             if (!Array.isArray((state as any).dailyBlockedTickers)) (state as any).dailyBlockedTickers = [];
             (state as any).dailyBlockedTickers.push(blockedTicker);
+            // OOM fix: cap dailyBlockedTickers to prevent unbounded growth
+            if ((state as any).dailyBlockedTickers.length > 20) (state as any).dailyBlockedTickers.length = 20;
             state.consecutiveStopLosses = 0;
             audit("TICKER-BLOCKED", `${blockedTicker}: 3 stops on same ticker — blocked for today`);
           }
@@ -3244,7 +3293,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     // The ML filter in ml_model_v2.py also skips them, but cleaning the file
     // prevents accumulating dead weight and speeds up future loads.
     try {
-      execAsync(`python3 -c "
+      execPythonSerialized(`python3 -c "
 import json, os
 try:
     from storage_config import TRADE_FEEDBACK_PATH
@@ -3339,7 +3388,7 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
   // ── Self-Diagnostic Status ───────────────────────────────────────
   app.get("/api/bot/diagnostics", requireAuth, async (_req, res) => {
     try {
-      const { stdout } = await execAsync(`python3 -c "
+      const { stdout } = await execPythonSerialized(`python3 -c "
 from diagnostics import run_diagnostics, get_auto_fix_params
 import json
 report = run_diagnostics()
@@ -3356,7 +3405,7 @@ print(json.dumps({'report': report, 'auto_fix': params}))
   // ── ML Model Status ───────────────────────────────────────────────────────
   app.get("/api/bot/ml-status", requireAuth, async (_req, res) => {
     try {
-      const { stdout } = await execAsync(
+      const { stdout } = await execPythonSerialized(
         `python3 -c "
 import json, os, time
 try:
