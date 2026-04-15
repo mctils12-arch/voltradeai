@@ -30,7 +30,6 @@
         <a href="#strategy">Strategy</a>
         <a href="#performance">Performance</a>
         <a href="#risk-controls">Risk Controls</a>
-        <a href="#trading-activity">Trading</a>
         <a href="/" style="color:var(--color-primary);font-weight:600;">Dashboard →</a>
       </nav>
       <button class="theme-toggle" data-theme-toggle aria-label="Switch to light mode">
@@ -306,104 +305,6 @@
       </div>
     </section>
 
-
-    <!-- ===== TRADING ACTIVITY ===== -->
-    <section id="trading-activity" class="trading-section fade-in">
-      <div class="container">
-        <div class="section-header section-header--center">
-          <div class="section-eyebrow">Live Paper Trading</div>
-          <h2 class="section-title">Trading Activity</h2>
-          <p class="section-desc">Real-time view of today's trades, open orders, and current positions from the paper trading account.</p>
-        </div>
-
-        <div class="trading-controls">
-          <button id="refreshTrading" class="btn btn--outline btn--sm" aria-label="Refresh trading data">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            Refresh
-          </button>
-          <span id="tradingLastUpdate" class="trading-timestamp"></span>
-        </div>
-
-        <!-- Today's Trades -->
-        <div class="trading-card">
-          <div class="trading-card__header">
-            <h3 class="trading-card__title">Today's Trades</h3>
-            <span id="tradesCount" class="trading-card__badge">0</span>
-          </div>
-          <div class="trading-table-wrap">
-            <table class="trading-table" id="tradesTable">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Symbol</th>
-                  <th>Side</th>
-                  <th>Qty</th>
-                  <th>Fill Price</th>
-                  <th>Type</th>
-                </tr>
-              </thead>
-              <tbody id="tradesBody">
-                <tr><td colspan="6" class="trading-table__empty">Loading...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Open Orders -->
-        <div class="trading-card">
-          <div class="trading-card__header">
-            <h3 class="trading-card__title">Open Orders</h3>
-            <span id="ordersCount" class="trading-card__badge">0</span>
-          </div>
-          <div class="trading-table-wrap">
-            <table class="trading-table" id="ordersTable">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Symbol</th>
-                  <th>Side</th>
-                  <th>Qty</th>
-                  <th>Type</th>
-                  <th>Limit Price</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="ordersBody">
-                <tr><td colspan="7" class="trading-table__empty">Loading...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Open Positions -->
-        <div class="trading-card">
-          <div class="trading-card__header">
-            <h3 class="trading-card__title">Open Positions</h3>
-            <span id="positionsCount" class="trading-card__badge">0</span>
-          </div>
-          <div class="trading-table-wrap">
-            <table class="trading-table" id="positionsTable">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Side</th>
-                  <th>Type</th>
-                  <th>Qty</th>
-                  <th>Avg Entry</th>
-                  <th>Current</th>
-                  <th>Mkt Value</th>
-                  <th>P/L</th>
-                  <th>P/L %</th>
-                </tr>
-              </thead>
-              <tbody id="positionsBody">
-                <tr><td colspan="9" class="trading-table__empty">Loading...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
 
   </main>
 

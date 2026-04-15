@@ -7,6 +7,7 @@ import {
   DollarSign, History, Sunrise,
 } from "lucide-react";
 import TradeCharts from "@/components/TradeChart";
+import TradingActivity from "@/components/TradingActivity";
 import { getDisplaySide } from "../../../shared/inverseEtfs";
 
 // ─── Tooltip helper ──────────────────────────────────────────────────────────
@@ -1422,6 +1423,9 @@ export default function BotDashboard() {
           )}
         </div>
       </div>
+
+      {/* ── Trading Activity Dashboard ── */}
+      <TradingActivity />
 
     </div>
   );
