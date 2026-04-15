@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ArrowUpDown, BookOpen, Briefcase } from "lucide-react";
 import { INVERSE_ETFS, getDisplaySide } from "../../../shared/inverseEtfs";
 
 // ─── ETF sets ────────────────────────────────────────────────────────────────
@@ -100,88 +100,98 @@ function formatTime(isoStr: string | undefined) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ─── Shared styles (matching bot.tsx card pattern exactly) ────────────────────
 
-const sectionCard: React.CSSProperties = {
+const card: React.CSSProperties = {
   background: "rgba(0, 20, 40, 0.5)",
   border: "1px solid rgba(0, 229, 255, 0.1)",
   borderRadius: "6px",
-  overflow: "hidden",
-  marginBottom: "16px",
+  padding: "20px",
   backdropFilter: "blur(20px)",
+  marginBottom: "20px",
 };
 
-const cardHeader: React.CSSProperties = {
+const headerRow: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
-  padding: "14px 18px",
-  borderBottom: "1px solid rgba(0, 229, 255, 0.08)",
+  gap: "8px",
+  marginBottom: "12px",
 };
 
-const cardTitle: React.CSSProperties = {
+const titleStyle: React.CSSProperties = {
   fontSize: "14px",
   fontWeight: 600,
   color: "#c8d6e5",
-};
-
-const countBadge: React.CSSProperties = {
-  fontSize: "11px",
-  fontWeight: 600,
-  padding: "2px 10px",
-  borderRadius: "9999px",
-  background: "rgba(59, 130, 246, 0.15)",
-  color: "#3b82f6",
-  fontVariantNumeric: "tabular-nums",
-};
-
-const tableWrap: React.CSSProperties = {
-  overflowX: "auto",
-  WebkitOverflowScrolling: "touch",
-};
-
-const table: React.CSSProperties = {
-  width: "100%",
-  minWidth: "500px",
-  fontVariantNumeric: "tabular-nums",
-  borderCollapse: "collapse",
-};
-
-const th: React.CSSProperties = {
-  textAlign: "left",
-  fontSize: "11px",
-  fontWeight: 600,
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-  color: "#4a5c70",
-  padding: "10px 16px",
-  whiteSpace: "nowrap",
-  background: "rgba(0, 15, 30, 0.4)",
   fontFamily: "'JetBrains Mono', monospace",
+  letterSpacing: "0.05em",
 };
 
-const td: React.CSSProperties = {
-  fontSize: "13px",
-  padding: "10px 16px",
-  borderTop: "1px solid rgba(0, 229, 255, 0.06)",
-  whiteSpace: "nowrap",
-  color: "#c8d6e5",
-};
-
-const emptyCell: React.CSSProperties = {
-  textAlign: "center",
+const countStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  fontSize: "12px",
   color: "#4a5c70",
-  padding: "28px 16px",
-  fontStyle: "italic",
+};
+
+const stickyHead: React.CSSProperties = {
+  position: "sticky",
+  top: 0,
+  background: "rgba(0, 10, 20, 0.95)",
+  zIndex: 1,
+};
+
+const thStyle: React.CSSProperties = {
+  padding: "7px 10px",
+  fontWeight: 500,
+  color: "#4a5c70",
+  textAlign: "left",
+  fontSize: "12px",
+  whiteSpace: "nowrap",
+};
+
+const thRight: React.CSSProperties = { ...thStyle, textAlign: "right" };
+
+const tdStyle: React.CSSProperties = {
+  padding: "7px 10px",
+  fontFamily: "monospace",
+  color: "#a1a1a6",
+  fontSize: "12px",
+  whiteSpace: "nowrap",
+};
+
+const tdSymbol: React.CSSProperties = {
+  padding: "7px 10px",
+  fontFamily: "'JetBrains Mono', monospace",
+  fontWeight: 700,
+  color: "#c8d6e5",
+  fontSize: "12px",
+};
+
+const tdRight: React.CSSProperties = { ...tdStyle, textAlign: "right" };
+
+const rowBorder: React.CSSProperties = {
+  borderBottom: "1px solid rgba(0, 15, 30, 0.4)",
+};
+
+const emptyRow: React.CSSProperties = {
+  color: "#4a5c70",
   fontSize: "13px",
+  textAlign: "center",
+  padding: "20px 0",
+};
+
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  fontSize: "12px",
+  minWidth: "560px",
 };
 
 // Badge styles for trade types
 const badgeColors: Record<string, { bg: string; color: string }> = {
-  "type-long": { bg: "rgba(34, 197, 94, 0.15)", color: "#22c55e" },
-  "type-short": { bg: "rgba(239, 68, 68, 0.15)", color: "#ef4444" },
-  "type-short-etf": { bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" },
-  "type-etf": { bg: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" },
+  "type-long": { bg: "rgba(48, 209, 88, 0.15)", color: "#30d158" },
+  "type-short": { bg: "rgba(255, 69, 58, 0.15)", color: "#ff453a" },
+  "type-short-etf": { bg: "rgba(255, 69, 58, 0.15)", color: "#ff453a" },
+  "type-etf": { bg: "rgba(0, 229, 255, 0.15)", color: "#00e5ff" },
   "type-put": { bg: "rgba(249, 115, 22, 0.15)", color: "#f97316" },
   "type-call": { bg: "rgba(168, 85, 247, 0.15)", color: "#a855f7" },
   "type-iron-condor": { bg: "rgba(236, 72, 153, 0.15)", color: "#ec4899" },
@@ -202,22 +212,11 @@ function Badge({ type }: { type: TradeType }) {
       whiteSpace: "nowrap",
       background: colors.bg,
       color: colors.color,
+      fontFamily: "monospace",
     }}>
       {type.label}
     </span>
   );
-}
-
-function pnlStyle(val: number): React.CSSProperties {
-  if (isNaN(val) || val === 0) return { color: "#4a5c70" };
-  return { color: val > 0 ? "#22c55e" : "#ef4444", fontWeight: 600 };
-}
-
-function sideStyle(side: string): React.CSSProperties {
-  const s = side.toLowerCase();
-  if (s === "buy" || s === "long") return { color: "#22c55e", fontWeight: 600 };
-  if (s === "sell" || s === "short") return { color: "#ef4444", fontWeight: 600 };
-  return {};
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -240,7 +239,7 @@ export default function TradingActivity() {
       setTrades(tradesRes.trades || []);
       setOrders(ordersRes.orders || []);
       setPositions(positionsRes.positions || []);
-      setLastUpdate("Updated " + new Date().toLocaleTimeString());
+      setLastUpdate(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("[trading] Refresh failed:", err);
     } finally {
@@ -254,212 +253,217 @@ export default function TradingActivity() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  const pnlColor = (val: number) => {
+    if (isNaN(val) || val === 0) return "#4a5c70";
+    return val > 0 ? "#30d158" : "#ff453a";
+  };
+
+  const sideColor = (side: string) => {
+    const s = side.toLowerCase();
+    if (s === "buy" || s === "long") return "#30d158";
+    if (s === "sell" || s === "short") return "#ff453a";
+    return "#a1a1a6";
+  };
+
   return (
-    <div style={{ marginTop: "20px" }}>
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        marginBottom: "16px", flexWrap: "wrap", gap: "8px",
-      }}>
-        <div>
-          <div style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#00e5ff", marginBottom: "4px" }}>
-            Live Paper Trading
-          </div>
-          <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#c8d6e5", margin: 0 }}>
-            Trading Activity
-          </h2>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "11px", color: "#4a5c70", fontVariantNumeric: "tabular-nums" }}>
-            {lastUpdate}
+    <>
+      {/* ── Today's Trades ── */}
+      <div style={card} data-testid="todays-trades-panel">
+        <div style={headerRow}>
+          <ArrowUpDown size={14} style={{ color: "#00e5ff" }} />
+          <span style={titleStyle}>TODAY'S TRADES</span>
+          <span style={countStyle}>
+            {trades.length} fills
+            {lastUpdate && <> · {lastUpdate}</>}
+            <button
+              onClick={fetchData}
+              disabled={refreshing}
+              style={{
+                background: "none", border: "none", color: "#00e5ff", cursor: refreshing ? "not-allowed" : "pointer",
+                marginLeft: "8px", padding: "2px", display: "inline-flex", alignItems: "center", opacity: refreshing ? 0.4 : 0.7,
+              }}
+              title="Refresh"
+            >
+              <RefreshCw size={12} style={refreshing ? { animation: "spin 1s linear infinite" } : {}} />
+            </button>
           </span>
-          <button
-            onClick={fetchData}
-            disabled={refreshing}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: "6px",
-              padding: "6px 14px", borderRadius: "4px", fontSize: "11px", fontWeight: 600,
-              background: "rgba(0, 229, 255, 0.08)", border: "1px solid rgba(0, 229, 255, 0.2)",
-              color: "#00e5ff", cursor: refreshing ? "not-allowed" : "pointer",
-              opacity: refreshing ? 0.5 : 1,
-              fontFamily: "'JetBrains Mono', monospace",
-              letterSpacing: "0.04em", textTransform: "uppercase",
-            }}
-          >
-            <RefreshCw size={12} style={refreshing ? { animation: "spin 1s linear infinite" } : {}} />
-            Refresh
-          </button>
         </div>
+
+        {trades.length === 0 ? (
+          <div style={emptyRow}>No trades today</div>
+        ) : (
+          <div style={{ maxHeight: "300px", overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch" as any }}>
+            <table style={tableStyle}>
+              <thead style={stickyHead}>
+                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                  <th style={thStyle}>Time</th>
+                  <th style={thStyle}>Symbol</th>
+                  <th style={thStyle}>Side</th>
+                  <th style={thStyle}>Type</th>
+                  <th style={thRight}>Qty</th>
+                  <th style={thRight}>Fill Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.map((t: any, i: number) => {
+                  const sym = t.symbol || "";
+                  const rawSide = (t.side || "").toLowerCase();
+                  const displaySide = INVERSE_ETFS.has(sym) && rawSide === "buy"
+                    ? "Short"
+                    : rawSide.charAt(0).toUpperCase() + rawSide.slice(1);
+                  const qty = t.filled_qty || t.qty || "0";
+                  const price = t.filled_avg_price || "0";
+                  const tradeType = getTradeType(t);
+
+                  return (
+                    <tr key={i} style={rowBorder}>
+                      <td style={tdStyle}>{formatTime(t.filled_at || t.updated_at)}</td>
+                      <td style={tdSymbol}>{sym}</td>
+                      <td style={{ ...tdStyle, color: sideColor(displaySide), fontWeight: 600, fontSize: "11px" }}>{displaySide}</td>
+                      <td style={tdStyle}><Badge type={tradeType} /></td>
+                      <td style={tdRight}>{qty}</td>
+                      <td style={tdRight}>{formatCurrency(price)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Today's Trades */}
-      <div style={sectionCard}>
-        <div style={cardHeader}>
-          <span style={cardTitle}>Today's Trades</span>
-          <span style={countBadge}>{trades.length}</span>
+      {/* ── Open Orders ── */}
+      <div style={card} data-testid="open-orders-panel">
+        <div style={headerRow}>
+          <BookOpen size={14} style={{ color: "#00e5ff" }} />
+          <span style={titleStyle}>OPEN ORDERS</span>
+          <span style={countStyle}>{orders.length} pending</span>
         </div>
-        <div style={tableWrap}>
-          <table style={table}>
-            <thead>
-              <tr>
-                <th style={th}>Time</th>
-                <th style={th}>Symbol</th>
-                <th style={th}>Side</th>
-                <th style={th}>Qty</th>
-                <th style={th}>Fill Price</th>
-                <th style={th}>Type</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trades.length === 0 ? (
-                <tr><td colSpan={6} style={emptyCell}>No trades today</td></tr>
-              ) : trades.map((t: any, i: number) => {
-                const sym = t.symbol || "";
-                const rawSide = (t.side || "").toLowerCase();
-                const displaySide = INVERSE_ETFS.has(sym) && rawSide === "buy"
-                  ? "Short"
-                  : rawSide.charAt(0).toUpperCase() + rawSide.slice(1);
-                const qty = t.filled_qty || t.qty || "0";
-                const price = t.filled_avg_price || "0";
-                const tradeType = getTradeType(t);
 
-                return (
-                  <tr key={i}>
-                    <td style={td}>{formatTime(t.filled_at || t.updated_at)}</td>
-                    <td style={{ ...td, fontWeight: 600 }}>{sym}</td>
-                    <td style={{ ...td, ...sideStyle(displaySide) }}>{displaySide}</td>
-                    <td style={td}>{qty}</td>
-                    <td style={td}>{formatCurrency(price)}</td>
-                    <td style={td}><Badge type={tradeType} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {orders.length === 0 ? (
+          <div style={emptyRow}>No open orders</div>
+        ) : (
+          <div style={{ maxHeight: "250px", overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch" as any }}>
+            <table style={tableStyle}>
+              <thead style={stickyHead}>
+                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                  <th style={thStyle}>Time</th>
+                  <th style={thStyle}>Symbol</th>
+                  <th style={thStyle}>Side</th>
+                  <th style={thRight}>Qty</th>
+                  <th style={thStyle}>Order Type</th>
+                  <th style={thRight}>Limit Price</th>
+                  <th style={thStyle}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map((o: any, i: number) => {
+                  const sym = o.symbol || "";
+                  const side = (o.side || "").charAt(0).toUpperCase() + (o.side || "").slice(1);
+                  const qty = o.qty || "0";
+                  const orderType = (o.type || "market").replace("_", " ");
+                  const limitPrice = o.limit_price ? formatCurrency(o.limit_price) : "—";
+                  const status = o.status || "unknown";
+
+                  return (
+                    <tr key={i} style={rowBorder}>
+                      <td style={tdStyle}>{formatTime(o.submitted_at || o.created_at)}</td>
+                      <td style={tdSymbol}>{sym}</td>
+                      <td style={{ ...tdStyle, color: sideColor(side), fontWeight: 600, fontSize: "11px" }}>{side}</td>
+                      <td style={tdRight}>{qty}</td>
+                      <td style={{ ...tdStyle, textTransform: "capitalize" }}>{orderType}</td>
+                      <td style={tdRight}>{limitPrice}</td>
+                      <td style={tdStyle}>
+                        <span style={{
+                          display: "inline-block", fontSize: "10px", fontWeight: 600,
+                          padding: "2px 8px", borderRadius: "9999px",
+                          background: "rgba(0, 229, 255, 0.1)", color: "#00e5ff",
+                          textTransform: "capitalize", fontFamily: "monospace",
+                        }}>
+                          {status.replace("_", " ")}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Open Orders */}
-      <div style={sectionCard}>
-        <div style={cardHeader}>
-          <span style={cardTitle}>Open Orders</span>
-          <span style={countBadge}>{orders.length}</span>
+      {/* ── Open Positions ── */}
+      <div style={card} data-testid="open-positions-panel">
+        <div style={headerRow}>
+          <Briefcase size={14} style={{ color: "#00e5ff" }} />
+          <span style={titleStyle}>OPEN POSITIONS</span>
+          <span style={countStyle}>{positions.length} active</span>
         </div>
-        <div style={tableWrap}>
-          <table style={table}>
-            <thead>
-              <tr>
-                <th style={th}>Time</th>
-                <th style={th}>Symbol</th>
-                <th style={th}>Side</th>
-                <th style={th}>Qty</th>
-                <th style={th}>Type</th>
-                <th style={th}>Limit Price</th>
-                <th style={th}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.length === 0 ? (
-                <tr><td colSpan={7} style={emptyCell}>No open orders</td></tr>
-              ) : orders.map((o: any, i: number) => {
-                const sym = o.symbol || "";
-                const side = (o.side || "").charAt(0).toUpperCase() + (o.side || "").slice(1);
-                const qty = o.qty || "0";
-                const orderType = (o.type || "market").replace("_", " ");
-                const limitPrice = o.limit_price ? formatCurrency(o.limit_price) : "—";
-                const status = o.status || "unknown";
 
-                return (
-                  <tr key={i}>
-                    <td style={td}>{formatTime(o.submitted_at || o.created_at)}</td>
-                    <td style={{ ...td, fontWeight: 600 }}>{sym}</td>
-                    <td style={{ ...td, ...sideStyle(side) }}>{side}</td>
-                    <td style={td}>{qty}</td>
-                    <td style={{ ...td, textTransform: "capitalize" }}>{orderType}</td>
-                    <td style={td}>{limitPrice}</td>
-                    <td style={td}>
-                      <span style={{
-                        display: "inline-block", fontSize: "11px", fontWeight: 500,
-                        padding: "2px 8px", borderRadius: "9999px",
-                        background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6",
-                        textTransform: "capitalize",
-                      }}>
-                        {status.replace("_", " ")}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {positions.length === 0 ? (
+          <div style={emptyRow}>No open positions</div>
+        ) : (
+          <div style={{ maxHeight: "300px", overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch" as any }}>
+            <table style={{ ...tableStyle, minWidth: "720px" }}>
+              <thead style={stickyHead}>
+                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                  <th style={thStyle}>Symbol</th>
+                  <th style={thStyle}>Side</th>
+                  <th style={thStyle}>Type</th>
+                  <th style={thRight}>Qty</th>
+                  <th style={thRight}>Avg Entry</th>
+                  <th style={thRight}>Current</th>
+                  <th style={thRight}>Mkt Value</th>
+                  <th style={thRight}>P&L $</th>
+                  <th style={thRight}>P&L %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((p: any, i: number) => {
+                  const sym = p.symbol || "";
+                  const rawSide = (p.side || "long").toLowerCase();
+                  const displaySide = getDisplaySide(sym, rawSide);
+                  const sideLabel = displaySide.charAt(0).toUpperCase() + displaySide.slice(1);
+                  const qty = Math.abs(parseFloat(p.qty || "0"));
+                  const avgEntry = parseFloat(p.avg_entry_price || "0");
+                  const current = parseFloat(p.current_price || "0");
+                  const marketValue = parseFloat(p.market_value || "0");
+                  const unrealizedPl = parseFloat(p.unrealized_pl || "0");
+                  const unrealizedPlPct = parseFloat(p.unrealized_plpc || "0") * 100;
+                  const posType = getPositionType(p);
+                  const isPos = unrealizedPl >= 0;
+
+                  return (
+                    <tr key={i} style={{
+                      ...rowBorder,
+                      background: isPos ? "rgba(48,209,88,0.03)" : "rgba(255,68,68,0.03)",
+                    }}>
+                      <td style={tdSymbol}>{sym}</td>
+                      <td style={{ ...tdStyle, color: sideColor(sideLabel), fontWeight: 600, fontSize: "11px" }}>{sideLabel}</td>
+                      <td style={tdStyle}><Badge type={posType} /></td>
+                      <td style={tdRight}>{qty}</td>
+                      <td style={tdRight}>{formatCurrency(avgEntry)}</td>
+                      <td style={tdRight}>{formatCurrency(current)}</td>
+                      <td style={tdRight}>{formatCurrency(marketValue)}</td>
+                      <td style={{ ...tdRight, color: pnlColor(unrealizedPl), fontWeight: 600 }}>{formatCurrency(unrealizedPl)}</td>
+                      <td style={{ ...tdRight, color: pnlColor(unrealizedPlPct), fontWeight: 600 }}>
+                        {(unrealizedPlPct >= 0 ? "+" : "") + unrealizedPlPct.toFixed(2) + "%"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Open Positions */}
-      <div style={sectionCard}>
-        <div style={cardHeader}>
-          <span style={cardTitle}>Open Positions</span>
-          <span style={countBadge}>{positions.length}</span>
-        </div>
-        <div style={tableWrap}>
-          <table style={table}>
-            <thead>
-              <tr>
-                <th style={th}>Symbol</th>
-                <th style={th}>Side</th>
-                <th style={th}>Type</th>
-                <th style={th}>Qty</th>
-                <th style={th}>Avg Entry</th>
-                <th style={th}>Current</th>
-                <th style={th}>Mkt Value</th>
-                <th style={th}>P/L</th>
-                <th style={th}>P/L %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions.length === 0 ? (
-                <tr><td colSpan={9} style={emptyCell}>No open positions</td></tr>
-              ) : positions.map((p: any, i: number) => {
-                const sym = p.symbol || "";
-                const rawSide = (p.side || "long").toLowerCase();
-                const displaySide = getDisplaySide(sym, rawSide);
-                const sideLabel = displaySide.charAt(0).toUpperCase() + displaySide.slice(1);
-                const qty = Math.abs(parseFloat(p.qty || "0"));
-                const avgEntry = parseFloat(p.avg_entry_price || "0");
-                const current = parseFloat(p.current_price || "0");
-                const marketValue = parseFloat(p.market_value || "0");
-                const unrealizedPl = parseFloat(p.unrealized_pl || "0");
-                const unrealizedPlPct = parseFloat(p.unrealized_plpc || "0") * 100;
-                const posType = getPositionType(p);
-
-                return (
-                  <tr key={i}>
-                    <td style={{ ...td, fontWeight: 600 }}>{sym}</td>
-                    <td style={{ ...td, ...sideStyle(sideLabel) }}>{sideLabel}</td>
-                    <td style={td}><Badge type={posType} /></td>
-                    <td style={td}>{qty}</td>
-                    <td style={td}>{formatCurrency(avgEntry)}</td>
-                    <td style={td}>{formatCurrency(current)}</td>
-                    <td style={td}>{formatCurrency(marketValue)}</td>
-                    <td style={{ ...td, ...pnlStyle(unrealizedPl) }}>{formatCurrency(unrealizedPl)}</td>
-                    <td style={{ ...td, ...pnlStyle(unrealizedPlPct) }}>
-                      {(unrealizedPlPct >= 0 ? "+" : "") + unrealizedPlPct.toFixed(2) + "%"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Spin animation for refresh button */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
       `}</style>
-    </div>
+    </>
   );
 }
