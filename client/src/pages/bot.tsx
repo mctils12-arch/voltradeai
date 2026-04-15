@@ -1271,11 +1271,11 @@ export default function BotDashboard() {
       {/* ── Open Positions (enhanced) ── */}
       <EnhancedPositions positions={positions} closePos={(t: string) => closePos.mutate(t)} />
 
+      {/* ── Today's Trades & Open Orders ── */}
+      <TradingActivity />
+
       {/* ── Trade History Panel ── */}
       <TradeHistoryPanel />
-
-      {/* ── Trading Activity (Today's Trades, Open Orders, Open Positions) ── */}
-      <TradingActivity />
 
       {/* ── AI Signals Panel ── */
       <div style={{ ...card, marginBottom: "20px" }}>
