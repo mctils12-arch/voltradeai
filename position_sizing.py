@@ -42,7 +42,7 @@ logger = logging.getLogger("position_sizing")
 ABSOLUTE_MAX_POSITION_PCT = 0.08   # Never more than 8% of portfolio in one stock (pro-level: tighter cap)
 ABSOLUTE_MIN_POSITION_PCT = 0.01   # Never less than 1% (not worth the trade)
 ABSOLUTE_MAX_POSITIONS    = 8      # Hard ceiling on total positions
-ABSOLUTE_MAX_PORTFOLIO_HEAT = 0.50 # Never more than 50% of portfolio deployed
+ABSOLUTE_MAX_PORTFOLIO_HEAT = 0.95 # Let regime engine control exposure — was 0.50 (silent bottleneck)
 DEFAULT_COMMISSION_PER_SHARE = 0.0 # Alpaca paper = $0. Change for live.
 OPTIONS_FEE_PER_CONTRACT = 0.65    # Standard options fee
 
@@ -60,18 +60,18 @@ SIZING_HISTORY_PATH = os.path.join(DATA_DIR, "voltrade_sizing_history.json")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
-                     kelly_divisor: float = 4.0) -> float:
+                     kelly_divisor: float = 3.0) -> float:
     """
     Modified Kelly Criterion:
       f* = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
 
     Returns fraction of portfolio to risk (0.0 to 1.0).
-    We use QUARTER-Kelly (f*/4) by default because:
+    We use THIRD-Kelly (f*/3) by default because:
     - Full Kelly has brutal drawdowns in practice
     - Half-Kelly is still too aggressive for correlated positions
-    - Quarter-Kelly balances growth with survivability
+    - Third-Kelly captures more edge than quarter while staying conservative
 
-    The kelly_divisor parameter controls the fraction (4.0 = quarter, 2.0 = half).
+    The kelly_divisor parameter controls the fraction (3.0 = third, 4.0 = quarter, 2.0 = half).
     """
     if avg_win <= 0 or avg_loss <= 0:
         return 0.03  # Default 3% when no data
@@ -79,7 +79,7 @@ def _kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
     loss_rate = 1.0 - win_rate
     kelly = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
 
-    # Quarter-Kelly for safety (configurable via kelly_divisor)
+    # Third-Kelly for safety (configurable via kelly_divisor)
     fractional_kelly = kelly / kelly_divisor
 
     # Clamp to reasonable range
@@ -262,6 +262,13 @@ def _liquidity_scalar(volume: int, price: float, position_value: float) -> float
 #  E. PORTFOLIO HEAT — How much risk is already deployed
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Floor ticker excluded from heat — passive allocation, not active risk
+try:
+    from system_config import BASE_CONFIG as _HEAT_CFG
+    _FLOOR_TICKER = _HEAT_CFG.get("FLOOR_TICKER", "QQQ")
+except ImportError:
+    _FLOOR_TICKER = "QQQ"
+
 def _portfolio_heat_scalar(current_positions: list, equity: float, 
                             new_ticker_sector: str = None) -> float:
     """
@@ -273,23 +280,31 @@ def _portfolio_heat_scalar(current_positions: list, equity: float,
     - 6+ positions: 0.5x
     
     Extra penalty if new trade is in same sector as existing positions.
+    NOTE: QQQ floor is excluded — it's passive allocation, not active risk.
     """
     if not current_positions or not isinstance(current_positions, list):
         return 1.0
     
-    num_pos = len(current_positions)
-    total_deployed = sum(abs(float(p.get("market_value", 0))) for p in current_positions)
+    # Exclude the passive floor ticker (QQQ) from heat calculation
+    active_positions = [p for p in current_positions 
+                        if p.get("symbol", "") != _FLOOR_TICKER]
+    
+    num_pos = len(active_positions)
+    total_deployed = sum(abs(float(p.get("market_value", 0))) for p in active_positions)
     deployed_pct = total_deployed / equity if equity > 0 else 0
     
     # Base scalar from position count
     count_scalar = max(0.4, 1.0 - (num_pos * 0.10))
     
     # Deployed capital scalar
-    if deployed_pct > 0.40:
+    # Thresholds aligned with ABSOLUTE_MAX_PORTFOLIO_HEAT=0.95.
+    # QQQ floor alone deploys 70-90%, so old 0.20/0.30/0.40 thresholds
+    # would crush all satellite sizing. Scale relative to the ceiling.
+    if deployed_pct > 0.90:
         deploy_scalar = 0.50
-    elif deployed_pct > 0.30:
+    elif deployed_pct > 0.80:
         deploy_scalar = 0.70
-    elif deployed_pct > 0.20:
+    elif deployed_pct > 0.70:
         deploy_scalar = 0.85
     else:
         deploy_scalar = 1.0
@@ -857,11 +872,15 @@ def size_portfolio(trades: list, equity: float, current_positions: list = None,
     total_deployed = 0
     max_deploy = equity * ABSOLUTE_MAX_PORTFOLIO_HEAT
     
-    # Account for already-deployed capital
+    # Account for already-deployed capital (exclude passive QQQ floor)
     if current_positions and isinstance(current_positions, list):
-        total_deployed = sum(abs(float(p.get("market_value", 0))) for p in current_positions)
+        active_pos = [p for p in current_positions 
+                      if p.get("symbol", "") != _FLOOR_TICKER]
+        total_deployed = sum(abs(float(p.get("market_value", 0))) for p in active_pos)
+    else:
+        active_pos = []
     
-    positions_used = len(current_positions) if current_positions else 0
+    positions_used = len(active_pos)
     
     for orig_idx, trade in indexed:
         if positions_used >= ABSOLUTE_MAX_POSITIONS:

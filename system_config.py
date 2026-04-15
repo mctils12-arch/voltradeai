@@ -76,13 +76,13 @@ BASE_CONFIG = {
     # Quarter-Kelly criterion determines optimal size. These are the hard limits.
     "MAX_POSITION_PCT":     0.08,  # Never more than 8% in one position (pro: tighter cap)
     "MIN_POSITION_PCT":     0.02,  # Never less than 2% (not worth friction)
-    "MAX_TOTAL_EXPOSURE":   0.80,  # Never more than 80% of portfolio invested
+    "MAX_TOTAL_EXPOSURE":   0.95,  # Per-regime overrides control actual exposure — was 0.80 (bottleneck)
     "MAX_TOTAL_CAPITAL_PCT": 1.00,  # Never deploy more than 100% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open positions
     "MAX_OPTIONS_PCT":      0.08,  # Max 8% per options position (v1.0.34: was 10%)
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
-    "KELLY_DIVISOR":        4.0,   # Quarter-Kelly: divide full Kelly by 4 for safety
+    "KELLY_DIVISOR":        3.0,   # Third-Kelly: divide full Kelly by 3 — was 4.0 (quarter-Kelly)
 
     # ── PASSIVE SPY FLOOR (v1.0.29) ────────────────────────────────────
     # Problem: in calm bull years (2017, 2019, 2023) momentum signals don't work.
@@ -328,7 +328,7 @@ def get_adaptive_params(
         p["MAX_POSITIONS"]          = 8
         p["MAX_POSITION_PCT"]       = 0.15
         p["MIN_SCORE"]              = 63     # More setups allowed in bull
-        p["MAX_TOTAL_EXPOSURE"]     = 0.90   # Near fully invested
+        p["MAX_TOTAL_EXPOSURE"]     = 0.95   # Near fully invested — was 0.90
         p["STREAM_VOL_SPIKE_RATIO"] = 2.2    # Lower bar — more signals
         p["ATR_STOP_MULTIPLIER"]    = 2.0    # Standard stop multiplier
         p["TIME_STOP_DAYS"]         = 10     # Standard hold period
@@ -340,7 +340,7 @@ def get_adaptive_params(
         # Passive SPY floor (85%) captures the market drift instead.
         # Active trades in NEUTRAL had net negative P&L over 10 years.
         p["MAX_POSITIONS"]          = 0      # No stock trades in NEUTRAL
-        p["MAX_TOTAL_EXPOSURE"]     = 0.90   # SPY floor handles exposure
+        p["MAX_TOTAL_EXPOSURE"]     = 0.95   # SPY floor handles exposure — was 0.90
         p["regime"] = "NEUTRAL"
 
     else:  # CAUTION

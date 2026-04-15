@@ -76,7 +76,7 @@ QQQ_FLOOR_ALLOC = {
 
 # ── PRO MODE: Kelly Criterion position sizing ────────────────────────────────
 # Quarter-Kelly fractions derived from 10-year backtest statistics
-KELLY_DIVISOR = 4.0  # Quarter-Kelly
+KELLY_DIVISOR = 3.0  # Third-Kelly — was 4.0 (quarter-Kelly)
 
 def kelly_fraction(win_rate, avg_win, avg_loss, divisor=KELLY_DIVISOR):
     """
