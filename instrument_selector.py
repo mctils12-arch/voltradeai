@@ -42,15 +42,9 @@ def _alpaca_headers() -> dict:
     return {"APCA-API-KEY-ID": _ALPACA_KEY, "APCA-API-SECRET-KEY": _ALPACA_SECRET}
 
 logger = logging.getLogger("instrument_selector")
-# Large-cap stocks safe to short (always easy to borrow, liquid)
-LARGE_CAP_SHORTABLE = {
-    "SPY", "QQQ", "IWM", "DIA", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG",
-    "META", "TSLA", "AMD", "AVGO", "COST", "NFLX", "ORCL", "CRM", "ADBE", "INTC",
-    "QCOM", "TXN", "AMAT", "LRCX", "KLAC", "MU", "JPM", "BAC", "GS", "MS", "WFC",
-    "V", "MA", "UNH", "JNJ", "LLY", "ABBV", "PFE", "MRK", "WMT", "HD", "AMGN",
-    "XOM", "CVX", "COP", "BA", "CAT", "GE", "HON", "DE", "T", "VZ", "TMUS",
-    "DIS", "CMCSA", "NFLX", "SBUX", "MCD", "NKE",
-}
+# REMOVED (PR #53): Stock shorting permanently disabled.
+# LARGE_CAP_SHORTABLE set removed — no code path should reference it.
+LARGE_CAP_SHORTABLE = set()  # Empty — kept for backward compat only
 
 
 # ── Sibling module path ───────────────────────────────────────────────────────
@@ -446,8 +440,8 @@ def _score_stock(trade: dict, intelligence: dict) -> dict:
     # Clamp
     inst_score = max(0.0, min(100.0, inst_score))
 
-    # Strategy label
-    strategy = "buy_stock" if side == "buy" else "short_stock"
+    # Strategy label — always buy_stock (shorting disabled PR #53)
+    strategy = "buy_stock"
 
     # Max loss: worst case is price → 0 for long, unlimited for short (capped at 30%)
     max_loss_pct = 100.0 if side == "buy" else 30.0

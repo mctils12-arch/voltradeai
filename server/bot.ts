@@ -1098,7 +1098,22 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
     } catch (err: any) { console.error("[bot]", err?.message || err); }
 
     try {
-      const orderSide = side === "short" ? "sell" : side;
+      // ══ HARD BLOCK: No stock shorting via manual API (PR #53) ══════════
+      let orderSide = side;
+      if (side === "short" || side === "sell") {
+        // Check if this is a close (user holds a long position) or a new short
+        try {
+          const posCheck = await alpaca(`/v2/positions/${ticker.toUpperCase()}`);
+          if (posCheck && posCheck.side === "long") {
+            orderSide = "sell"; // Closing a long position — allowed
+          } else {
+            return res.status(400).json({ error: "Stock shorting is disabled. Use options for bearish plays." });
+          }
+        } catch {
+          // No existing position — this would be a short sale. Block it.
+          return res.status(400).json({ error: "Stock shorting is disabled. Use options for bearish plays." });
+        }
+      }
       const order = await alpaca("/v2/orders", {
         method: "POST",
         body: JSON.stringify({
@@ -1492,13 +1507,19 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
         }
       } catch (err: any) { console.error("[bot]", err?.message || err); }
 
+      // ══ HARD BLOCK: No stock shorting in morning queue (PR #53) ══════════
+      if (trade.trade_type !== "options" && (trade.side === "short" || trade.side === "sell")) {
+        audit("SHORT-BLOCKED", `${trade.ticker}: side='${trade.side}' blocked in morning queue — stock shorting disabled. Converting to BUY.`);
+        trade.side = "buy";
+      }
+
       try {
         const order = await alpaca("/v2/orders", {
           method: "POST",
           body: JSON.stringify({
             symbol: trade.ticker,
             qty: String(Math.floor(trade.shares)),
-            side: trade.side === "short" ? "sell" : (trade.side || "buy"),
+            side: trade.side || "buy",
             ...getOrderParams(trade.price || 0), // Market during regular hours, limit during extended
           }),
         });
@@ -1513,7 +1534,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
           if (mVol > 20000000) mSlip = 0.05 + Math.random() * 0.05;
           else if (mVol > 5000000) mSlip = 0.08 + Math.random() * 0.07;
           else mSlip = 0.15 + Math.random() * 0.10;
-          const mSide = trade.side === "short" ? "sell" : (trade.side || "buy");
+          const mSide = trade.side || "buy";  // side already normalized above (short blocked)
           const mDir = mSide === "buy" ? 1 : -1;
           const mFillPrice = Math.round((trade.price * (1 + mDir * mSlip / 100)) * 100) / 100;
 
@@ -1533,7 +1554,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
 
         slotsUsed++;
         // Auto-subscribe for real-time exit monitoring
-        addPositionToMonitor(trade.ticker, trade.side === "short" ? "short" : "long", trade.price || 0, Math.floor(trade.shares));
+        addPositionToMonitor(trade.ticker, "long", trade.price || 0, Math.floor(trade.shares));  // Always long (short blocked)
       } catch (e: any) {
         audit("MORNING-ERROR", `Failed: ${trade.ticker} — ${e.message}`);
       }
@@ -1937,7 +1958,7 @@ print(json.dumps(check_weekly_loss(history)))
             await alpaca("/v2/orders", {
               method: "POST",
               body: JSON.stringify({
-                symbol: etfTicker, qty: String(etfShares), side: trade.side || "buy",
+                symbol: etfTicker, qty: String(etfShares), side: "buy",  // Always buy (short blocked)
                 ...etfOrderParams,
               }),
             });
@@ -2049,22 +2070,17 @@ else:
         // ── Stock execution (default or fallback from options) ──
         const qty = Math.floor(trade.shares);
         if (qty <= 0) continue;
-        const isShort = trade.side === "short";
-        const side = isShort ? "sell" : (trade.side || "buy");
 
-        // Short stock: verify easy-to-borrow before submitting
-        if (isShort) {
-          try {
-            const assetInfo = await alpaca(`/v2/assets/${trade.ticker}`);
-            if (!assetInfo.easy_to_borrow) {
-              audit("SHORT-SKIP", `${trade.ticker}: not easy to borrow — routing to puts`);
-              continue; // Skip — options path should have handled this
-            }
-          } catch (borrowErr: any) {
-            audit("SHORT-SKIP", `${trade.ticker}: borrow check failed — skipping short`);
-            continue;
-          }
+        // ══ HARD BLOCK: No stock shorting (PR #52 + PR #53) ══════════════
+        // Stock shorts destroyed value (-$419K backtest). All bearish plays
+        // route through options. This is the final safety net — if ANY code
+        // path produces side="sell" or side="short" for a stock, block it.
+        if (trade.side === "short" || trade.side === "sell") {
+          audit("SHORT-BLOCKED", `${trade.ticker}: side='${trade.side}' blocked — stock shorting disabled. Converting to BUY.`);
+          trade.side = "buy";
+          trade.action_label = "BUY";
         }
+        const side = trade.side || "buy";
 
         const orderParams = getOrderParams(trade.price || 0);
         const orderResult = await alpaca("/v2/orders", {
@@ -2082,7 +2098,7 @@ else:
         notify("trade", `${side.toUpperCase()} ${qty} ${trade.ticker} @ $${trade.price} (${((trade.position_value / equity) * 100).toFixed(1)}% of portfolio)`);
         slotsUsed++;
         totalDeployed += trade.position_value;
-        addPositionToMonitor(trade.ticker, isShort ? "short" : "long", trade.price || 0, qty);
+        addPositionToMonitor(trade.ticker, "long", trade.price || 0, qty);  // Always long (short blocked)
 
         // Collect order for batch confirmation
         if (orderId) {
@@ -2243,9 +2259,9 @@ print(json.dumps(run_diagnostics()))
           if (upgradeQty > 0) {
             await alpaca("/v2/orders", {
               method: "POST",
-              body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: betterPick.side === "short" ? "sell" : "buy", ...getOrderParams(betterPick.price || 0) }),
+              body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: "buy", ...getOrderParams(betterPick.price || 0) }),  // Always buy (short blocked)
             });
-            addPositionToMonitor(betterPick.ticker, betterPick.side === "short" ? "short" : "long", betterPick.price || 0, upgradeQty);
+            addPositionToMonitor(betterPick.ticker, "long", betterPick.price || 0, upgradeQty);  // Always long (short blocked)
           }
         } catch (e: any) { audit("UPGRADE-ERROR", `Failed to upgrade: ${e.message}`); }
       }
