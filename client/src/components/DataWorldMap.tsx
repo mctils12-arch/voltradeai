@@ -583,12 +583,11 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const ny = projY(nd.lat, vp);
         const isUser = n === USER_NODE_IDX;
 
-        // Fixed dot radius — no pulse animation
-        const baseR = (isUser ? 8 : nd.primary ? 6 : 4) * scale;
-        const r = baseR;
+        // Fixed dot radius — uniform for all nodes
+        const r = 3 * scale;
 
         // Outer glow — fixed alpha, no pulse
-        const glR = r * (isUser ? 5 : 3.5);
+        const glR = r * 3.5;
         const ga = 0.22 * glowMul;
         const nodeSprite = isUser
           ? getCachedGlowSprite(glR, 255, 51, 51, 1)
