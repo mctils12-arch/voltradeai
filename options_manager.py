@@ -724,6 +724,25 @@ def manage_options_positions(equity: float = 100000) -> dict:
             p.get("asset_class", "") == "option")
     ]
 
+    # Skip positions managed by convexity overlay (protective QQQ puts)
+    # These are managed by _run_convexity_overlay() in bot_engine.py
+    convexity_symbols = set()
+    try:
+        meta_path = os.path.join(DATA_DIR, 'voltrade_options_state.json')
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                _all_meta = json.load(f)
+            for sym, meta in _all_meta.items():
+                if meta.get('strategy') == 'convexity_hedge' or meta.get('managed_by') == 'convexity_overlay':
+                    convexity_symbols.add(sym)
+    except Exception:
+        pass
+
+    options_positions = [
+        p for p in options_positions
+        if p.get("symbol", "") not in convexity_symbols
+    ]
+
     if not options_positions:
         # Clean stale state entries
         if state:
