@@ -254,6 +254,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
   const avgGain: number = perfData?.avgGain ?? 0;
   const avgLoss: number = perfData?.avgLoss ?? 0;
   const totalPnlPct: number = perfData?.totalPnlPct ?? 0;
+  const totalPnlDollar: number = perfData?.totalPnlDollar ?? 0;
   const drawdown: number = perfData?.currentDrawdown ?? perfData?.maxDrawdown ?? 0;
   const bestTrade: any = perfData?.bestTrade ?? null;
   const worstTrade: any = perfData?.worstTrade ?? null;
@@ -465,6 +466,11 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
               <div style={{ ...bigNum, color: pnlColor }}>
                 {totalPnlPct >= 0 ? "+" : ""}{totalPnlPct.toFixed(2)}%
               </div>
+              {totalPnlDollar !== 0 && (
+                <div style={{ fontSize: "11px", color: pnlColor, marginTop: "4px", fontFamily: "'JetBrains Mono', monospace", opacity: 0.85 }}>
+                  {totalPnlDollar >= 0 ? "+$" : "-$"}{Math.abs(totalPnlDollar).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              )}
             </div>
 
             {/* Win Rate */}
