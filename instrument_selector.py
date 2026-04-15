@@ -99,8 +99,8 @@ except ImportError:
     ABSOLUTE_MAX_POSITION_PCT = 0.10
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-MAX_OPTIONS_PCT_CEILING = 0.10   # Absolute max 10% per options trade
-MAX_TOTAL_OPTIONS_PCT   = 0.20   # Absolute max 20% total options exposure
+MAX_OPTIONS_PCT_CEILING = 0.08   # Absolute max 8% per options trade (v1.0.34: was 10%)
+MAX_TOTAL_OPTIONS_PCT   = 0.08   # Absolute max 8% total options exposure (v1.0.34: was 20%)
 ETF_LEVERAGE_DISCOUNT   = 0.50   # ETF sized at 50% of stock (2× leverage)
 MIN_OPTIONS_SCORE       = 65     # Minimum deep_score to consider options (lowered from 70)
 MIN_ETF_VOLUME          = 100_000  # Minimum ETF daily volume

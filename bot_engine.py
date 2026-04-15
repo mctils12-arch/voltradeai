@@ -1214,6 +1214,15 @@ def manage_positions():
         if ticker in FLOOR_AND_LEG_TICKERS:
             continue
 
+        # ── FIX: Skip options positions (managed by options_manager.py) ───
+        # OCC option symbols (e.g. AAPL260420C00257500) are >8 chars and have
+        # asset_class "us_option". The stock stop/TP logic doesn't apply to
+        # options — ATR lookup fails on OCC symbols, defaulting to 2% which
+        # triggers false stops within minutes. Options have their own exit
+        # logic in options_manager.py (DTE, profit target, Greeks, rolling).
+        if pos.get("asset_class") == "us_option" or len(ticker) > 8:
+            continue
+
         current = float(pos.get("current_price", 0))
         entry = float(pos.get("avg_entry_price", current))
         pnl_pct = float(pos.get("unrealized_plpc", 0)) * 100

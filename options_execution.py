@@ -17,8 +17,8 @@ KEY CONSTRAINTS:
 SAFETY RULES:
   - Never sell naked calls (unlimited risk)
   - Never sell naked puts beyond cash-secured amount
-  - Max 10% of portfolio in any single options position
-  - Max 20% total options exposure
+  - Max 8% of portfolio in any single options position (v1.0.34: was 10%)
+  - Max 8% total options exposure (v1.0.34: was 20%)
   - Only trade options with bid-ask spread < 15% of mid price
   - Only trade options with volume > 100 and open interest > 500
   - No options on stocks with earnings within 2 days (IV crush risk for buyers)
@@ -1408,6 +1408,9 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
             register_options_entry(
                 occ, entry_px, entry_side, decision["strategy"],
                 delta=entry_delta, qty=entry_qty,
+                ticker=trade.get("ticker", ""),
+                setup=trade.get("setup", ""),
+                max_loss=contract.get("max_loss", 0),
             )
         except Exception:
             pass  # Manager registration failed — non-critical

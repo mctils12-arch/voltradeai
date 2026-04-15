@@ -356,7 +356,7 @@ class TestDTEExitLogic(unittest.TestCase):
     @patch("options_manager._submit_close_order")
     def test_21_dte_closes_bought_option(self, mock_close, mock_snap, mock_get):
         """Bought option at 18 DTE should be closed (theta acceleration zone)."""
-        from options_manager import manage_options_positions, OPTIONS_STATE_PATH
+        from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
         exp = (datetime.now() + timedelta(days=18)).strftime("%y%m%d")
         occ = f"SPY{exp}C00500000"
@@ -369,8 +369,15 @@ class TestDTEExitLogic(unittest.TestCase):
                                    "delta": 0.40, "gamma": 0.04, "theta": -0.12, "vega": 0.08, "iv": 0.25}
         mock_close.return_value = {"status": "submitted", "order_id": "test456"}
 
-        if os.path.exists(OPTIONS_STATE_PATH):
-            os.remove(OPTIONS_STATE_PATH)
+        # Pre-seed state with entry_timestamp > 60 min ago (v1.0.34: MIN_HOLD gate)
+        _save_options_state({
+            occ: {
+                "entry_price": 5.00, "entry_delta": 0.50, "side": "long",
+                "entry_date": "2026-04-12",
+                "entry_timestamp": (datetime.now() - timedelta(hours=2)).isoformat(),
+                "strategy": "buy_call", "highest_value": 5.00, "qty": 2,
+            }
+        })
 
         result = manage_options_positions(100000)
         close_actions = [a for a in result["actions"] if a["action"] == "CLOSE"]
@@ -538,8 +545,15 @@ class TestLossLimit(unittest.TestCase):
                                    "delta": 0.15, "gamma": 0.01, "theta": -0.08, "vega": 0.05, "iv": 0.20}
         mock_close.return_value = {"status": "submitted", "order_id": "bloss456"}
 
-        if os.path.exists(OPTIONS_STATE_PATH):
-            os.remove(OPTIONS_STATE_PATH)
+        # Pre-seed state with entry_timestamp > 60 min ago (v1.0.34: MIN_HOLD gate)
+        _save_options_state({
+            occ: {
+                "entry_price": 5.00, "entry_delta": 0.50, "side": "long",
+                "entry_date": "2026-04-12",
+                "entry_timestamp": (datetime.now() - timedelta(hours=2)).isoformat(),
+                "strategy": "buy_call", "highest_value": 5.00, "qty": 2,
+            }
+        })
 
         result = manage_options_positions(100000)
         loss_closes = [a for a in result["actions"] if a.get("type") == "bought_loss_limit"]
@@ -558,7 +572,7 @@ class TestGammaRisk(unittest.TestCase):
     @patch("options_manager._submit_close_order")
     def test_high_gamma_triggers_exit(self, mock_close, mock_snap, mock_get):
         """Position with gamma > 0.08 and <=30 DTE should be closed."""
-        from options_manager import manage_options_positions, OPTIONS_STATE_PATH
+        from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
         exp = (datetime.now() + timedelta(days=25)).strftime("%y%m%d")
         occ = f"AAPL{exp}C00185000"
@@ -577,8 +591,15 @@ class TestGammaRisk(unittest.TestCase):
                                    "delta": 0.55, "gamma": 0.12, "theta": -0.10, "vega": 0.06, "iv": 0.28}
         mock_close.return_value = {"status": "submitted", "order_id": "gamma789"}
 
-        if os.path.exists(OPTIONS_STATE_PATH):
-            os.remove(OPTIONS_STATE_PATH)
+        # Pre-seed state with entry_timestamp > 60 min ago (v1.0.34: MIN_HOLD gate)
+        _save_options_state({
+            occ: {
+                "entry_price": 4.00, "entry_delta": 0.50, "side": "long",
+                "entry_date": "2026-04-12",
+                "entry_timestamp": (datetime.now() - timedelta(hours=2)).isoformat(),
+                "strategy": "buy_call", "highest_value": 4.50, "qty": 1,
+            }
+        })
 
         result = manage_options_positions(100000)
         gamma_closes = [a for a in result["actions"] if a.get("type") == "gamma_risk"]
@@ -970,21 +991,17 @@ class TestOptionsSlotseparation(unittest.TestCase):
 class TestV1033ThresholdFixes(unittest.TestCase):
     """Verify v1.0.33 threshold changes are in the source code."""
 
-    def test_earnings_spread_widened_to_015(self):
-        """Earnings IV crush spread limit should be 0.15, not 0.08."""
+    def test_earnings_spread_at_010(self):
+        """Earnings IV crush spread limit should be 0.10 (v1.0.34: tightened from 0.15)."""
         import options_scanner as os_mod
         src = inspect.getsource(os_mod._setup_earnings_iv_crush)
-        # Must contain the new 0.15 threshold
-        self.assertIn('> 0.15', src)
-        # Must NOT contain the old 0.08
-        self.assertNotIn('> 0.08', src)
+        self.assertIn('> 0.10', src)
 
-    def test_high_iv_spread_widened_to_015(self):
-        """High-IV premium sale spread limit should be 0.15, not 0.10."""
+    def test_high_iv_spread_at_010(self):
+        """High-IV premium sale spread limit should be 0.10 (v1.0.34: tightened from 0.15)."""
         import options_scanner as os_mod
         src = inspect.getsource(os_mod._setup_high_iv_premium_sale)
-        self.assertIn('> 0.15', src)
-        self.assertNotIn('> 0.10', src)
+        self.assertIn('> 0.10', src)
 
     def test_high_iv_ivr_threshold_at_50(self):
         """High-IV premium sale must use IVR 50, not 70."""
@@ -1029,12 +1046,10 @@ class TestCSPNormalMarketSetup(unittest.TestCase):
         src = inspect.getsource(os_mod.scan_options)
         self.assertIn('_setup_csp_normal_market', src)
 
-    def test_csp_sizing_in_get_options_trades(self):
-        """get_options_trades must have a sizing rule for csp_normal_market."""
-        import options_scanner as os_mod
-        src = inspect.getsource(os_mod.get_options_trades)
-        self.assertIn('csp_normal_market', src)
-        self.assertIn('0.06', src)  # 6% sizing
+    def test_csp_excluded_from_get_options_trades(self):
+        """v1.0.34: get_options_trades must NOT pass through csp_normal_market (disabled filler)."""
+        from options_scanner import HIGH_EDGE_SETUPS
+        self.assertNotIn('csp_normal_market', HIGH_EDGE_SETUPS)
 
     def test_csp_returns_correct_strategy(self):
         """CSP setup must output sell_cash_secured_put as the strategy."""

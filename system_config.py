@@ -80,7 +80,7 @@ BASE_CONFIG = {
     "MAX_TOTAL_CAPITAL_PCT": 1.00,  # Never deploy more than 100% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open positions
-    "MAX_OPTIONS_PCT":      0.10,  # Max 10% per options position
+    "MAX_OPTIONS_PCT":      0.08,  # Max 8% per options position (v1.0.34: was 10%)
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
     "KELLY_DIVISOR":        4.0,   # Quarter-Kelly: divide full Kelly by 4 for safety
 
@@ -371,13 +371,37 @@ def get_adaptive_params(
     return p
 
 
+# ── PROTECTED KEYS (v1.0.34) ────────────────────────────────────────────────
+# These keys cannot be overridden by config_overrides.json on Railway.
+# Without this guard, a stale /data/voltrade/config_overrides.json could
+# silently raise MAX_OPTIONS_PCT back to 10-15%, defeating the 8% cap.
+_PROTECTED_KEYS = {
+    "MAX_OPTIONS_PCT",
+    "MAX_TOTAL_OPTIONS_PCT",    # instrument_selector.py hard cap
+    "MAX_OPTIONS_PCT_CEILING",  # instrument_selector.py ceiling
+}
+
+
 def load_config_overrides() -> dict:
-    """Load any manual overrides from /data/voltrade/config_overrides.json"""
+    """Load any manual overrides from /data/voltrade/config_overrides.json.
+
+    v1.0.34: Protected keys (options allocation caps) are stripped from
+    overrides to prevent stale Railway config from defeating the fixes.
+    If a protected key is found, it is logged and ignored.
+    """
     override_path = os.path.join(DATA_DIR, "config_overrides.json")
     try:
         if os.path.exists(override_path):
             with open(override_path) as f:
-                return json.load(f)
+                overrides = json.load(f)
+            # Strip protected keys — log so we know if it happened
+            stripped = {k: v for k, v in overrides.items() if k in _PROTECTED_KEYS}
+            if stripped:
+                import logging
+                logging.getLogger("system_config").warning(
+                    f"config_overrides.json tried to set protected keys (ignored): {stripped}"
+                )
+            return {k: v for k, v in overrides.items() if k not in _PROTECTED_KEYS}
     except Exception:
         pass
     return {}
