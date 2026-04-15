@@ -183,7 +183,7 @@ const tableStyle: React.CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
   fontSize: "12px",
-  minWidth: "560px",
+  minWidth: "780px",
 };
 
 // Badge styles — matches existing bot.tsx badge pattern (rectangular, bordered, 3px radius)
@@ -278,7 +278,10 @@ export default function TradingActivity() {
                   <th style={thStyle}>Side</th>
                   <th style={thStyle}>Type</th>
                   <th style={thRight}>Qty</th>
-                  <th style={thRight}>Fill Price</th>
+                  <th style={thRight}>Entry</th>
+                  <th style={thRight}>Exit</th>
+                  <th style={thRight}>P&L $</th>
+                  <th style={thRight}>P&L %</th>
                 </tr>
               </thead>
               <tbody>
@@ -289,17 +292,31 @@ export default function TradingActivity() {
                     ? "SHORT"
                     : rawSide.toUpperCase();
                   const qty = t.filled_qty || t.qty || "0";
-                  const price = t.filled_avg_price || "0";
                   const tradeType = getTradeType(t);
+                  const pnlVal = t.pnl ?? null;
+                  const pnlPctVal = t.pnl_pct ?? null;
+                  const isPos = pnlVal !== null && pnlVal >= 0;
+                  const pnlCellColor = pnlVal !== null ? (isPos ? "#30d158" : "#ff453a") : "#4a5c70";
 
                   return (
-                    <tr key={i} style={rowBorder}>
+                    <tr key={i} style={{ ...rowBorder, background: pnlVal !== null ? (isPos ? "rgba(48,209,88,0.03)" : "rgba(255,68,68,0.03)") : undefined }}>
                       <td style={tdStyle}>{formatTime(t.filled_at || t.updated_at)}</td>
                       <td style={tdSymbol}>{sym}</td>
                       <td style={{ ...tdStyle, color: sideColor(displaySide), fontWeight: 600, fontSize: "11px" }}>{displaySide}</td>
                       <td style={tdStyle}><Badge type={tradeType} /></td>
                       <td style={tdRight}>{qty}</td>
-                      <td style={tdRight}>{formatCurrency(price)}</td>
+                      <td style={{ ...tdRight, color: "#a1a1a6" }}>
+                        {t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : "—"}
+                      </td>
+                      <td style={{ ...tdRight, color: "#c8d6e5" }}>
+                        {t.exit_price != null ? `$${Number(t.exit_price).toFixed(2)}` : "OPEN"}
+                      </td>
+                      <td style={{ ...tdRight, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: pnlCellColor }}>
+                        {pnlVal !== null ? `${isPos ? "+" : ""}${pnlVal.toFixed(2)}` : "—"}
+                      </td>
+                      <td style={{ ...tdRight, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: pnlCellColor }}>
+                        {pnlPctVal !== null ? `${isPos ? "+" : ""}${pnlPctVal.toFixed(2)}%` : "—"}
+                      </td>
                     </tr>
                   );
                 })}
