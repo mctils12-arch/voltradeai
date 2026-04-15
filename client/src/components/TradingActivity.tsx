@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, ArrowUpDown, BookOpen, Briefcase } from "lucide-react";
+import { RefreshCw, ArrowUpDown, BookOpen } from "lucide-react";
 import { INVERSE_ETFS, getDisplaySide } from "../../../shared/inverseEtfs";
 
 // ─── ETF sets ────────────────────────────────────────────────────────────────
@@ -224,21 +224,18 @@ function Badge({ type }: { type: TradeType }) {
 export default function TradingActivity() {
   const [trades, setTrades] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
-  const [positions, setPositions] = useState<any[]>([]);
   const [lastUpdate, setLastUpdate] = useState<string>("");
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [tradesRes, ordersRes, positionsRes] = await Promise.all([
+      const [tradesRes, ordersRes] = await Promise.all([
         fetch("/api/trades/today").then(r => r.json()).catch(() => ({ trades: [] })),
         fetch("/api/orders/open").then(r => r.json()).catch(() => ({ orders: [] })),
-        fetch("/api/positions").then(r => r.json()).catch(() => ({ positions: [] })),
       ]);
       setTrades(tradesRes.trades || []);
       setOrders(ordersRes.orders || []);
-      setPositions(positionsRes.positions || []);
       setLastUpdate(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("[trading] Refresh failed:", err);
@@ -382,72 +379,6 @@ export default function TradingActivity() {
                         }}>
                           {status.replace("_", " ")}
                         </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* ── Open Positions ── */}
-      <div style={card} data-testid="open-positions-panel">
-        <div style={headerRow}>
-          <Briefcase size={14} style={{ color: "#00e5ff" }} />
-          <span style={titleStyle}>OPEN POSITIONS</span>
-          <span style={countStyle}>{positions.length} active</span>
-        </div>
-
-        {positions.length === 0 ? (
-          <div style={emptyRow}>No open positions</div>
-        ) : (
-          <div style={{ maxHeight: "300px", overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch" as any }}>
-            <table style={{ ...tableStyle, minWidth: "720px" }}>
-              <thead style={stickyHead}>
-                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
-                  <th style={thStyle}>Symbol</th>
-                  <th style={thStyle}>Side</th>
-                  <th style={thStyle}>Type</th>
-                  <th style={thRight}>Qty</th>
-                  <th style={thRight}>Avg Entry</th>
-                  <th style={thRight}>Current</th>
-                  <th style={thRight}>Mkt Value</th>
-                  <th style={thRight}>P&L $</th>
-                  <th style={thRight}>P&L %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((p: any, i: number) => {
-                  const sym = p.symbol || "";
-                  const rawSide = (p.side || "long").toLowerCase();
-                  const displaySide = getDisplaySide(sym, rawSide);
-                  const sideLabel = displaySide.charAt(0).toUpperCase() + displaySide.slice(1);
-                  const qty = Math.abs(parseFloat(p.qty || "0"));
-                  const avgEntry = parseFloat(p.avg_entry_price || "0");
-                  const current = parseFloat(p.current_price || "0");
-                  const marketValue = parseFloat(p.market_value || "0");
-                  const unrealizedPl = parseFloat(p.unrealized_pl || "0");
-                  const unrealizedPlPct = parseFloat(p.unrealized_plpc || "0") * 100;
-                  const posType = getPositionType(p);
-                  const isPos = unrealizedPl >= 0;
-
-                  return (
-                    <tr key={i} style={{
-                      ...rowBorder,
-                      background: isPos ? "rgba(48,209,88,0.03)" : "rgba(255,68,68,0.03)",
-                    }}>
-                      <td style={tdSymbol}>{sym}</td>
-                      <td style={{ ...tdStyle, color: sideColor(sideLabel), fontWeight: 600, fontSize: "11px" }}>{sideLabel}</td>
-                      <td style={tdStyle}><Badge type={posType} /></td>
-                      <td style={tdRight}>{qty}</td>
-                      <td style={tdRight}>{formatCurrency(avgEntry)}</td>
-                      <td style={tdRight}>{formatCurrency(current)}</td>
-                      <td style={tdRight}>{formatCurrency(marketValue)}</td>
-                      <td style={{ ...tdRight, color: pnlColor(unrealizedPl), fontWeight: 600 }}>{formatCurrency(unrealizedPl)}</td>
-                      <td style={{ ...tdRight, color: pnlColor(unrealizedPlPct), fontWeight: 600 }}>
-                        {(unrealizedPlPct >= 0 ? "+" : "") + unrealizedPlPct.toFixed(2) + "%"}
                       </td>
                     </tr>
                   );
