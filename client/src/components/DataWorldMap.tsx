@@ -631,13 +631,13 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       function tryAlternatePositions(rect: LabelRect, settled: LabelRect[]): void {
         const positions = [
           // Above the dot
-          { x: rect.nx - rect.w / 2, y: rect.ny - rect.r - rect.fs - 6 },
+          { x: rect.nx - rect.w / 2, y: rect.ny - rect.r - rect.fs - 2 },
           // Right of the dot
-          { x: rect.nx + rect.r + 4, y: rect.ny + rect.fs / 3 },
+          { x: rect.nx + rect.r + 2, y: rect.ny + rect.fs / 3 },
           // Left of the dot
-          { x: rect.nx - rect.r - rect.w - 4, y: rect.ny + rect.fs / 3 },
+          { x: rect.nx - rect.r - rect.w - 2, y: rect.ny + rect.fs / 3 },
           // Further below
-          { x: rect.nx - rect.w / 2, y: rect.ny + rect.r + rect.fs * 2 + 6 },
+          { x: rect.nx - rect.w / 2, y: rect.ny + rect.r + rect.fs + 4 },
         ];
 
         for (const pos of positions) {
