@@ -914,7 +914,98 @@ print(json.dumps({
 }))
 "`, { timeout: 10000 });
       
-      const perf = JSON.parse(fillsOut.trim());
+      let perf = JSON.parse(fillsOut.trim());
+
+      // Fallback: if Python files yielded no trades, compute from Alpaca orders
+      if (perf.totalTrades === 0) {
+        try {
+          // Compute trading-day start: 4 AM ET today (or yesterday if before 4 AM)
+          const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+          if (nowET.getHours() < 4) nowET.setDate(nowET.getDate() - 1);
+          nowET.setHours(4, 0, 0, 0);
+          const etYear = nowET.getFullYear();
+          const etMonth = String(nowET.getMonth() + 1).padStart(2, "0");
+          const etDay = String(nowET.getDate()).padStart(2, "0");
+          const jan = new Date(etYear, 0, 1);
+          const jul = new Date(etYear, 6, 1);
+          const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+          const isDST = nowET.getTimezoneOffset() < stdOffset;
+          const utcHour = isDST ? 8 : 9;
+          const tradingDayStart = `${etYear}-${etMonth}-${etDay}T${String(utcHour).padStart(2, "0")}:00:00Z`;
+
+          const [alpacaOrders, alpacaPositions, alpacaAccount] = await Promise.all([
+            alpaca(`/v2/orders?status=closed&after=${encodeURIComponent(tradingDayStart)}&limit=200&direction=desc`),
+            alpaca("/v2/positions"),
+            alpaca("/v2/account"),
+          ]);
+
+          const filled = (alpacaOrders as any[]).filter((o: any) => o.status === "filled");
+          const posMap: Record<string, number> = {};
+          for (const p of (alpacaPositions as any[])) {
+            posMap[p.symbol] = parseFloat(p.avg_entry_price) || 0;
+          }
+
+          // Pair buys/sells by symbol to compute P/L
+          const buysBySymbol: Record<string, number[]> = {};
+          const trades: Array<{ ticker: string; side: string; pnl_pct: number; pnl: number }> = [];
+
+          // Process chronologically (oldest first)
+          for (const o of [...filled].reverse()) {
+            const sym = o.symbol || "";
+            const side = (o.side || "").toLowerCase();
+            const fillPrice = parseFloat(o.filled_avg_price) || 0;
+            const qty = parseFloat(o.filled_qty || o.qty) || 0;
+
+            if (side === "buy") {
+              if (!buysBySymbol[sym]) buysBySymbol[sym] = [];
+              buysBySymbol[sym].push(fillPrice);
+            } else if (side === "sell") {
+              const entryPrice = (buysBySymbol[sym] && buysBySymbol[sym].length > 0)
+                ? buysBySymbol[sym].shift()!
+                : posMap[sym] || 0;
+              if (entryPrice > 0) {
+                const pnlDollar = (fillPrice - entryPrice) * qty;
+                const pnlPct = ((fillPrice - entryPrice) / entryPrice) * 100;
+                trades.push({ ticker: sym, side: "sell", pnl_pct: pnlPct, pnl: pnlDollar });
+              }
+            }
+          }
+
+          const wins = trades.filter(t => t.pnl_pct > 0);
+          const losses = trades.filter(t => t.pnl_pct <= 0);
+          const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
+          const avgGain = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl_pct, 0) / wins.length : 0;
+          const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.pnl_pct, 0) / losses.length : 0;
+          const totalPnlPct = trades.reduce((s, t) => s + t.pnl_pct, 0);
+          const grossProfit = wins.reduce((s, t) => s + t.pnl_pct, 0);
+          const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl_pct, 0));
+          const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : 0);
+
+          const bestTrade = trades.length > 0 ? trades.reduce((a, b) => a.pnl_pct > b.pnl_pct ? a : b) : null;
+          const worstTrade = trades.length > 0 ? trades.reduce((a, b) => a.pnl_pct < b.pnl_pct ? a : b) : null;
+
+          perf = {
+            totalTrades: trades.length,
+            totalFills: filled.length,
+            winRate: Math.round(winRate * 10) / 10,
+            avgGain: Math.round(avgGain * 100) / 100,
+            avgLoss: Math.round(avgLoss * 100) / 100,
+            totalPnlPct: Math.round(totalPnlPct * 100) / 100,
+            profitFactor: profitFactor === Infinity ? "inf" : Math.round(profitFactor * 100) / 100,
+            byStrategy: {},
+            recentTrades: trades.slice(-20).reverse().map(t => ({ ticker: t.ticker, side: t.side, pnl_pct: Math.round(t.pnl_pct * 100) / 100 })),
+            realisticPnlPct: Math.round(totalPnlPct * 100) / 100,
+            avgSlippagePct: 0,
+            totalSlippageCost: 0,
+            slippageGapPct: 0,
+            bestTrade: bestTrade ? { ticker: bestTrade.ticker, pnlPct: Math.round(bestTrade.pnl_pct * 100) / 100 } : null,
+            worstTrade: worstTrade ? { ticker: worstTrade.ticker, pnlPct: Math.round(worstTrade.pnl_pct * 100) / 100 } : null,
+          };
+        } catch (alpacaErr: any) {
+          console.error("[perf] Alpaca fallback failed:", alpacaErr?.message || alpacaErr);
+        }
+      }
+
       // Apply inverse ETF side mapping to recent trades
       if (Array.isArray(perf.recentTrades)) {
         for (const t of perf.recentTrades) {

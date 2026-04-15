@@ -717,23 +717,125 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Trading Activity Dashboard (landing page) ───────────────────────────
-  // Today's filled orders
+
+  /** Compute the current trading-day start: 4:00 AM ET today, or yesterday if before 4 AM ET */
+  function getTradingDayStart(): string {
+    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    // If before 4 AM ET, use yesterday's 4 AM
+    if (nowET.getHours() < 4) {
+      nowET.setDate(nowET.getDate() - 1);
+    }
+    nowET.setHours(4, 0, 0, 0);
+    // Convert back to UTC: build an ISO string in ET then let the offset handle it
+    // We need the UTC equivalent of this ET time
+    const etYear = nowET.getFullYear();
+    const etMonth = String(nowET.getMonth() + 1).padStart(2, "0");
+    const etDay = String(nowET.getDate()).padStart(2, "0");
+    // Determine ET offset (EDT = -4, EST = -5)
+    const jan = new Date(etYear, 0, 1);
+    const jul = new Date(etYear, 6, 1);
+    const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+    const isDST = nowET.getTimezoneOffset() < stdOffset;
+    // For server-side: compute UTC hour directly
+    // 4 AM ET = 4 + offset hours UTC (EDT=+4, EST=+5)
+    const utcHour = isDST ? 8 : 9; // 4AM EDT = 08:00 UTC, 4AM EST = 09:00 UTC
+    return `${etYear}-${etMonth}-${etDay}T${String(utcHour).padStart(2, "0")}:00:00Z`;
+  }
+
+  // Today's filled orders with P/L enrichment
   app.get("/api/trades/today", async (_req, res) => {
     try {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const response = await fetch(
-        `https://paper-api.alpaca.markets/v2/orders?status=closed&after=${encodeURIComponent(todayStart)}&limit=200&direction=desc`,
-        { headers: alpacaHeaders }
-      );
-      if (!response.ok) {
-        const errText = await response.text();
-        return res.status(response.status).json({ error: errText, trades: [] });
+      const tradingDayStart = getTradingDayStart();
+
+      // Fetch filled orders and current positions in parallel
+      const [ordersResponse, positionsResponse] = await Promise.all([
+        fetch(
+          `https://paper-api.alpaca.markets/v2/orders?status=closed&after=${encodeURIComponent(tradingDayStart)}&limit=200&direction=desc`,
+          { headers: alpacaHeaders }
+        ),
+        fetch(
+          "https://paper-api.alpaca.markets/v2/positions",
+          { headers: alpacaHeaders }
+        ),
+      ]);
+
+      if (!ordersResponse.ok) {
+        const errText = await ordersResponse.text();
+        return res.status(ordersResponse.status).json({ error: errText, trades: [] });
       }
-      const orders: any[] = await response.json();
-      // Only include filled orders
+
+      const orders: any[] = await ordersResponse.json();
       const filled = orders.filter((o: any) => o.status === "filled");
-      res.json({ trades: filled });
+
+      // Build positions lookup: symbol -> { avg_entry_price, current_price, qty }
+      const posMap: Record<string, { avgEntry: number; currentPrice: number; qty: number }> = {};
+      if (positionsResponse.ok) {
+        const positions: any[] = await positionsResponse.json();
+        for (const p of positions) {
+          posMap[p.symbol] = {
+            avgEntry: parseFloat(p.avg_entry_price) || 0,
+            currentPrice: parseFloat(p.current_price) || 0,
+            qty: parseFloat(p.qty) || 0,
+          };
+        }
+      }
+
+      // Build a map of today's buy fills by symbol for entry price lookups
+      const buysBySymbol: Record<string, number[]> = {};
+      for (const o of [...filled].reverse()) {
+        const side = (o.side || "").toLowerCase();
+        if (side === "buy") {
+          const sym = o.symbol || "";
+          if (!buysBySymbol[sym]) buysBySymbol[sym] = [];
+          buysBySymbol[sym].push(parseFloat(o.filled_avg_price) || 0);
+        }
+      }
+
+      // Enrich each trade with entry/exit/P&L
+      const enriched = filled.map((o: any) => {
+        const sym = o.symbol || "";
+        const side = (o.side || "").toLowerCase();
+        const fillPrice = parseFloat(o.filled_avg_price) || 0;
+        const qty = parseFloat(o.filled_qty || o.qty) || 0;
+        const pos = posMap[sym];
+
+        let entry_price: number | null = null;
+        let exit_price: number | null = null;
+        let pnl: number | null = null;
+        let pnl_pct: number | null = null;
+
+        if (side === "sell" || side === "sell_short") {
+          // Sell: entry = position avg_entry or earlier buy price, exit = fill price
+          exit_price = fillPrice;
+          if (pos) {
+            entry_price = pos.avgEntry;
+          } else if (buysBySymbol[sym] && buysBySymbol[sym].length > 0) {
+            entry_price = buysBySymbol[sym][0]; // earliest buy
+          }
+          if (entry_price && entry_price > 0) {
+            pnl = (exit_price - entry_price) * qty;
+            pnl_pct = ((exit_price - entry_price) / entry_price) * 100;
+          }
+        } else {
+          // Buy: entry = fill price, exit = current price (unrealized) or null
+          entry_price = fillPrice;
+          if (pos && pos.currentPrice > 0) {
+            exit_price = pos.currentPrice;
+            pnl = (exit_price - entry_price) * qty;
+            pnl_pct = entry_price > 0 ? ((exit_price - entry_price) / entry_price) * 100 : null;
+          }
+        }
+
+        return {
+          ...o,
+          entry_price,
+          exit_price,
+          pnl: pnl !== null ? Math.round(pnl * 100) / 100 : null,
+          pnl_pct: pnl_pct !== null ? Math.round(pnl_pct * 100) / 100 : null,
+        };
+      });
+
+      res.json({ trades: enriched });
     } catch (e: any) {
       res.status(500).json({ error: e.message, trades: [] });
     }
