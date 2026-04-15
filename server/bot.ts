@@ -85,8 +85,6 @@ async function alpaca(path: string, opts: any = {}) {
 }
 
 // ─── Bot State ──────────────────────────────────────────────────────────────
-interface AuditEntry { time: string; action: string; detail: string; }
-
 // Phase 6: Security guardrails (absolute ceilings — dynamic sizing handles the real math)
 const DAILY_LOSS_LIMIT = -3; // percent — hard circuit breaker
 const MAX_POSITION_SIZE = 0.20; // Safety ceiling — real sizing from system_config.py (3-15%)
@@ -177,7 +175,6 @@ const state = {
   killSwitch: false,
   dailyPnL: 0,
   dailyLossLimit: DAILY_LOSS_LIMIT,
-  auditLog: [] as AuditEntry[],
   positionSizeMultiplier: 1.0, // Legacy — diagnostics can still reduce this as emergency brake
   minScoreThreshold: 65,
   diagCycleCount: 0,
@@ -558,6 +555,13 @@ function getPersistedAuditLog(limit = 100): any[] {
   try {
     return db.prepare("SELECT time, type, message FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as any[];
   } catch { return []; }
+}
+
+function getAuditLogCount(): number {
+  try {
+    const row = db.prepare("SELECT COUNT(*) as cnt FROM audit_log").get() as any;
+    return row?.cnt ?? 0;
+  } catch { return 0; }
 }
 
 export function registerBotRoutes(app: Express) {
@@ -1019,7 +1023,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       active: state.active,
       killSwitch: state.killSwitch,
       dailyLossLimit: state.dailyLossLimit,
-      auditLogCount: state.auditLog.length,
+      auditLogCount: getAuditLogCount(),
       mode: "paper",
       equityPeak: state.equityPeak,
       maxDrawdownPct: state.maxDrawdownPct,
