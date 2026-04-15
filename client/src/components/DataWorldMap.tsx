@@ -445,18 +445,15 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       let speedMul = 1;
       let targetCount = 40;
       let glowMul = 1;
-      let pulseMul = 1;
 
       if (state === "loading") {
         speedMul = 4;
         targetCount = 150;
         glowMul = 2;
-        pulseMul = 3;
       } else if (state === "loaded") {
         speedMul = inBurst ? 6 : 1.8;
         targetCount = inBurst ? 180 : 60;
         glowMul = inBurst ? 2.5 : 1.3;
-        pulseMul = inBurst ? 4 : 1.5;
       }
 
       // Manage particle pool
@@ -562,8 +559,23 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       }
 
       // ── City & user nodes ──────────────────────────────────────────
-      const pulse = Math.sin(now * 0.001 * pulseMul) * 0.5 + 0.5;
       const scale = Math.max(w, h) / 1000;
+
+      // Collect label rects for collision detection (Fix 2 & 3)
+      type LabelRect = {
+        idx: number;
+        nx: number;
+        ny: number;
+        r: number;
+        fs: number;
+        label: string;
+        isUser: boolean;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+      };
+      const labelRects: LabelRect[] = [];
 
       for (let n = 0; n < nodes.length; n++) {
         const nd = nodes[n];
@@ -571,12 +583,13 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const ny = projY(nd.lat, vp);
         const isUser = n === USER_NODE_IDX;
 
+        // Fixed dot radius — no pulse animation
         const baseR = (isUser ? 8 : nd.primary ? 6 : 4) * scale;
-        const r = baseR + pulse * 3 * glowMul * scale;
+        const r = baseR;
 
-        // Outer glow — cached sprite + globalAlpha (no per-frame gradient creation)
+        // Outer glow — fixed alpha, no pulse
         const glR = r * (isUser ? 5 : 3.5);
-        const ga = (0.15 + pulse * 0.15) * glowMul;
+        const ga = 0.22 * glowMul;
         const nodeSprite = isUser
           ? getCachedGlowSprite(glR, 255, 51, 51, 1)
           : getCachedGlowSprite(glR, 0, 229, 255, 1);
@@ -590,16 +603,84 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         ctx!.fillStyle = isUser ? USER_COLOR : ACCENT;
         ctx!.fill();
 
-        // Label
+        // Compute label metrics for collision detection
         const fs = Math.max(isUser ? 13 : 10, (isUser ? 14 : 11) * scale);
         ctx!.font = isUser
           ? `bold ${fs}px 'JetBrains Mono', monospace`
           : `${fs}px 'JetBrains Mono', monospace`;
-        ctx!.fillStyle = isUser
-          ? `rgba(255, 51, 51, ${0.7 + pulse * 0.3})`
-          : `rgba(0, 229, 255, ${0.5 + pulse * 0.2})`;
-        ctx!.textAlign = "center";
-        ctx!.fillText(nd.label, nx, ny + r + fs + 2);
+        const tw = ctx!.measureText(nd.label).width;
+        // Default position: below the dot, centered
+        const lx = nx - tw / 2;
+        const ly = ny + r + fs + 2;
+        labelRects.push({
+          idx: n, nx, ny, r, fs, label: nd.label, isUser,
+          x: lx, y: ly - fs, w: tw, h: fs + 4,
+        });
+      }
+
+      // ── Label collision detection & resolution ─────────────────────
+      // "YOU" label always gets priority; nudge others on overlap
+      // Sort so USER is processed first (its position is locked)
+      labelRects.sort((a, b) => (a.isUser ? -1 : b.isUser ? 1 : 0));
+
+      function rectsOverlap(a: LabelRect, b: LabelRect): boolean {
+        return a.x < b.x + b.w && a.x + a.w > b.x &&
+               a.y < b.y + b.h && a.y + a.h > b.y;
+      }
+
+      // Alternate positions: above, left, right
+      function tryAlternatePositions(rect: LabelRect, settled: LabelRect[]): void {
+        const positions = [
+          // Above the dot
+          { x: rect.nx - rect.w / 2, y: rect.ny - rect.r - rect.fs - 6 },
+          // Right of the dot
+          { x: rect.nx + rect.r + 4, y: rect.ny + rect.fs / 3 },
+          // Left of the dot
+          { x: rect.nx - rect.r - rect.w - 4, y: rect.ny + rect.fs / 3 },
+          // Further below
+          { x: rect.nx - rect.w / 2, y: rect.ny + rect.r + rect.fs * 2 + 6 },
+        ];
+
+        for (const pos of positions) {
+          const candidate = { ...rect, x: pos.x, y: pos.y - rect.fs };
+          let overlap = false;
+          for (const s of settled) {
+            if (rectsOverlap(candidate, s)) { overlap = true; break; }
+          }
+          if (!overlap) {
+            rect.x = candidate.x;
+            rect.y = candidate.y;
+            return;
+          }
+        }
+        // If all positions overlap, keep the last tried (further below)
+        const last = positions[positions.length - 1];
+        rect.x = last.x;
+        rect.y = last.y - rect.fs;
+      }
+
+      const settled: LabelRect[] = [];
+      for (const rect of labelRects) {
+        let hasOverlap = false;
+        for (const s of settled) {
+          if (rectsOverlap(rect, s)) { hasOverlap = true; break; }
+        }
+        if (hasOverlap && !rect.isUser) {
+          tryAlternatePositions(rect, settled);
+        }
+        settled.push(rect);
+      }
+
+      // Draw all labels with fixed opacity (no pulse)
+      for (const lr of labelRects) {
+        ctx!.font = lr.isUser
+          ? `bold ${lr.fs}px 'JetBrains Mono', monospace`
+          : `${lr.fs}px 'JetBrains Mono', monospace`;
+        ctx!.fillStyle = lr.isUser
+          ? `rgba(255, 51, 51, 0.85)`
+          : `rgba(0, 229, 255, 0.6)`;
+        ctx!.textAlign = "left";
+        ctx!.fillText(lr.label, lr.x, lr.y + lr.fs);
       }
 
       // ── Loading convergence pulse ──────────────────────────────────
