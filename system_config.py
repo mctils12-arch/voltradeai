@@ -132,12 +132,16 @@ BASE_CONFIG = {
     "LEG3_RECOVERY_ASSETS": [],     # DISABLED: was [("ITA", 0.20)]
 
     # ── CONVEXITY OVERLAY (pro-level: replaces sector rotation) ──────
-    # Permanent tail hedge using inverse ETFs (proxy for deep OTM SPX puts).
+    # Protective puts on QQQ — far OTM, 30-45 DTE, rolled monthly.
+    # Defined-risk tail protection with convex crash payoff.
     # Annual drag: ~1-2% (cost of insurance). Payoff in crashes: 50-200%+.
     # Budget scales with regime: 1.5% normal, 3.5% in stress.
     "CONVEXITY_OVERLAY": {
         "enabled":           True,
-        "hedge_ticker":      "SQQQ",    # -3x QQQ (proxy for deep OTM puts)
+        "hedge_ticker":      "QQQ",      # Buy puts on QQQ (not SQQQ shares)
+        "hedge_type":        "puts",     # Options-based hedge, not inverse ETF
+        "put_dte":           35,         # Target 30-45 DTE
+        "put_delta":         0.08,       # Target ~5-10 delta (far OTM)
         "normal_budget_pct": 0.015,      # 1.5% of equity normally
         "stress_budget_pct": 0.035,      # 3.5% in PANIC/BEAR
         "rebalance_threshold": 0.30,     # Rebalance when >30% off target
