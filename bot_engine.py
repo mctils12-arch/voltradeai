@@ -1058,9 +1058,11 @@ except Exception as e:
             side = "sell"
             trade_type = "options"
             action_label = "SELL OPTIONS"
-        elif momentum_is_negative and sentiment_is_bearish:
-            side = "short"
-            action_label = "SHORT"
+        # Stock shorting disabled: backtest showed -$419K over 10yr.
+        # Bearish conviction handled by options scanner (puts) instead.
+        # elif momentum_is_negative and sentiment_is_bearish:
+        #     side = "short"
+        #     action_label = "SHORT"
         elif rsi_overbought:
             side = "sell"
             action_label = "SELL"
@@ -1854,22 +1856,10 @@ def scan_market():
             except Exception: pass
             continue  # Skip — will be analyzed tonight for tomorrow
 
-        # Smart short logic:
-        # - Large-cap liquid stocks → allow actual short sell (instrument_selector handles borrow check)
-        # - Everything else → options path (puts) handles it, don't convert to buy
-        # - Micro-caps up 50%+ → already blocked by extreme mover filter above
-        _LARGE_CAP_SHORTABLE = {
-            "SPY", "QQQ", "IWM", "DIA", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG",
-            "META", "TSLA", "AMD", "AVGO", "COST", "NFLX", "ORCL", "CRM", "ADBE",
-            "INTC", "QCOM", "TXN", "AMAT", "LRCX", "MU", "JPM", "BAC", "GS", "MS",
-            "V", "MA", "UNH", "JNJ", "LLY", "ABBV", "PFE", "MRK", "WMT", "HD", "XOM", "CVX",
-        }
-        if side == "sell" and stock.get("trade_type") != "options":
-            if ticker in _LARGE_CAP_SHORTABLE:
-                pass  # Allow short — large-cap, borrow always available
-            else:
-                side = "buy"  # Non-large-cap: convert to buy (options path handles bearish plays)
-                action_label = "BUY"
+        # Stock shorting disabled (backtest: -$419K). Bearish plays use options scanner.
+        if side in ("sell", "short") and stock.get("trade_type") != "options":
+            side = "buy"
+            action_label = "BUY"
 
         # ── Spread awareness check (Fix 2026-04-10) ───────────────────
         # Reject equities with bid-ask spread > 0.5% of price.
@@ -2448,9 +2438,9 @@ def _run_convexity_overlay(macro: dict) -> dict:
     Permanent tail hedge using QQQ protective puts.
 
     Strategy:
-    - Buy far OTM QQQ puts (~8-10% below current price, ~5-10 delta)
-    - Target 30-45 DTE, rolled monthly when existing put has <7 DTE
-    - Budget: 1.5% of equity normally, 3.5% in PANIC/BEAR (regime-scaled)
+    - Buy far OTM QQQ puts (~20% below current price, ~3-5 delta)
+    - Target 60 DTE, rolled when existing put has <21 DTE remaining
+    - Budget: 2.0% of equity normally, 4.0% in PANIC/BEAR (regime-scaled)
     - Uses Alpaca options API with OCC symbol format (e.g. QQQ260515P00520000)
 
     Why puts instead of SQQQ: real convexity (capped downside = premium paid,
@@ -2503,9 +2493,9 @@ def _run_convexity_overlay(macro: dict) -> dict:
 
         # Load config
         convexity_cfg  = BASE_CONFIG.get("CONVEXITY_OVERLAY", {})
-        normal_budget  = convexity_cfg.get("normal_budget_pct", 0.015)
-        stress_budget  = convexity_cfg.get("stress_budget_pct", 0.035)
-        target_dte     = convexity_cfg.get("put_dte", 35)
+        normal_budget  = convexity_cfg.get("normal_budget_pct", 0.020)
+        stress_budget  = convexity_cfg.get("stress_budget_pct", 0.040)
+        target_dte     = convexity_cfg.get("put_dte", 60)
 
         if regime in ("PANIC", "BEAR"):
             budget_pct = stress_budget
@@ -2534,11 +2524,11 @@ def _run_convexity_overlay(macro: dict) -> dict:
                 except (ValueError, IndexError):
                     continue
 
-        # ── Roll logic: close existing put if <7 DTE ─────────────────────────
+        # ── Roll logic: close existing put if <21 DTE ────────────────────────
         need_new_put = True
         if existing_put and existing_put_expiry:
             days_to_expiry = (existing_put_expiry - today).days
-            if days_to_expiry < 7:
+            if days_to_expiry < convexity_cfg.get("roll_dte", 21):
                 # Close the expiring put
                 put_sym = existing_put["symbol"]
                 put_qty = abs(int(float(existing_put.get("qty", 0) or 0)))
@@ -2589,20 +2579,20 @@ def _run_convexity_overlay(macro: dict) -> dict:
             _log.debug("[CONVEXITY] Could not get QQQ price")
             return {"actions": actions, "status": "error", "error": "no QQQ price"}
 
-        # Target strike: ~8-10% below current price (far OTM, ~5-10 delta)
-        target_strike = round(qqq_price * 0.91, 0)  # ~9% OTM
+        # Target strike: ~20% below current price (far OTM, ~3-5 delta)
+        target_strike = round(qqq_price * 0.80, 0)  # ~20% OTM
 
         # ── Find QQQ put contracts via Alpaca options discovery ───────────────
-        exp_gte = today + _td(days=28)   # At least 28 DTE
-        exp_lte = today + _td(days=50)   # At most 50 DTE (wider window for liquidity)
+        exp_gte = today + _td(days=45)   # At least 45 DTE
+        exp_lte = today + _td(days=75)   # At most 75 DTE (wider window for liquidity)
 
         contracts_r = _req.get(f"{base_url}/v2/options/contracts", params={
             "underlying_symbols":  "QQQ",
             "type":                "put",
             "expiration_date_gte": exp_gte.strftime("%Y-%m-%d"),
             "expiration_date_lte": exp_lte.strftime("%Y-%m-%d"),
-            "strike_price_gte":    str(round(qqq_price * 0.85, 2)),  # 15% below
-            "strike_price_lte":    str(round(qqq_price * 0.95, 2)),  # 5% below
+            "strike_price_gte":    str(round(qqq_price * 0.75, 2)),  # 25% below
+            "strike_price_lte":    str(round(qqq_price * 0.90, 2)),  # 10% below
             "limit":               50,
         }, headers=headers, timeout=10)
 
@@ -2696,6 +2686,26 @@ def _run_convexity_overlay(macro: dict) -> dict:
                 })
                 _log.info(f"[CONVEXITY] BUY {num_contracts}x {occ_symbol} @ {mid_price:.2f} "
                           f"(strike={contract_strike}, exp={contract_exp}, regime={regime}, budget={budget_pct:.1%})")
+                # Register in options state so options_manager skips this position
+                try:
+                    import os as _os2, json as _json2
+                    try:
+                        from storage_config import DATA_DIR as _dd
+                    except ImportError:
+                        _dd = '/data/voltrade' if _os2.path.isdir('/data') else '/tmp'
+                    _state_path = _os2.path.join(_dd, 'voltrade_options_state.json')
+                    try:
+                        with open(_state_path) as _f: _ostate = _json2.load(_f)
+                    except: _ostate = {}
+                    _ostate[occ_symbol] = {
+                        'strategy': 'convexity_hedge',
+                        'setup': 'protective_put',
+                        'ticker': 'QQQ',
+                        'managed_by': 'convexity_overlay',
+                        'entry_date': today.isoformat(),
+                    }
+                    with open(_state_path, 'w') as _f: _json2.dump(_ostate, _f)
+                except: pass
             except Exception as e:
                 _log.debug(f"[CONVEXITY] Put order failed: {e}")
 

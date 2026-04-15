@@ -132,19 +132,23 @@ BASE_CONFIG = {
     "LEG3_RECOVERY_ASSETS": [],     # DISABLED: was [("ITA", 0.20)]
 
     # ── CONVEXITY OVERLAY (pro-level: replaces sector rotation) ──────
-    # Protective puts on QQQ — far OTM, 30-45 DTE, rolled monthly.
+    # Protective puts on QQQ — far OTM, 60 DTE, rolled at 21 DTE.
     # Defined-risk tail protection with convex crash payoff.
     # Annual drag: ~1-2% (cost of insurance). Payoff in crashes: 50-200%+.
-    # Budget scales with regime: 1.5% normal, 3.5% in stress.
+    # Budget scales with regime: 2.0% normal, 4.0% in stress.
     "CONVEXITY_OVERLAY": {
-        "enabled":           True,
-        "hedge_ticker":      "QQQ",      # Buy puts on QQQ (not SQQQ shares)
-        "hedge_type":        "puts",     # Options-based hedge, not inverse ETF
-        "put_dte":           35,         # Target 30-45 DTE
-        "put_delta":         0.08,       # Target ~5-10 delta (far OTM)
-        "normal_budget_pct": 0.015,      # 1.5% of equity normally
-        "stress_budget_pct": 0.035,      # 3.5% in PANIC/BEAR
-        "rebalance_threshold": 0.30,     # Rebalance when >30% off target
+        "enabled":             True,
+        "hedge_type":          "puts",           # QQQ protective puts (was SQQQ inverse ETF)
+        "hedge_ticker":        "QQQ",            # Underlying for put contracts
+        "normal_budget_pct":   0.020,            # 2.0% of equity normally (was 1.5%)
+        "stress_budget_pct":   0.040,            # 4.0% in PANIC/BEAR (was 3.5%)
+        "put_dte":             60,               # Target 60 DTE (was 35 default)
+        "put_otm_pct":         0.20,             # 20% OTM strike (was 9%)
+        "roll_dte":            21,               # Roll when ≤21 DTE remaining (was 7)
+        "dte_search_min":      45,               # Min DTE for contract search
+        "dte_search_max":      75,               # Max DTE for contract search
+        "strike_range_low":    0.75,             # Strike search: 75% of QQQ price
+        "strike_range_high":   0.90,             # Strike search: 90% of QQQ price
     },
 
     # ── AGGRESSIVE TREND EXITS (pro-level) ────────────────────────────
