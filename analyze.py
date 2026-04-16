@@ -24,6 +24,8 @@ warnings.filterwarnings('ignore')
 
 from datetime import datetime, timedelta
 import threading
+import os
+import requests
 
 
 # ── Timeout wrapper for yfinance calls (prevents indefinite hangs) ────────────
@@ -46,6 +48,76 @@ def _yf_call_with_timeout(fn, timeout=15):
     if exc[0]:
         raise exc[0]
     return result[0]
+
+
+# ── Known ETFs (skip yfinance ticker.info — returns 404) ─────────────────────
+
+_KNOWN_ETFS = {
+    # Broad market
+    "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "VEA", "VWO", "VTV", "VUG",
+    # Sector
+    "XLF", "XLK", "XLE", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC", "XLY",
+    # Commodity / fixed-income
+    "GLD", "SLV", "TLT", "HYG", "LQD", "IEF", "SHY", "BND", "TIP", "USO", "UNG",
+    # International
+    "EEM", "EFA", "FXI", "INDA", "MCHI", "VGK",
+    # Thematic / ARK
+    "ARKK", "ARKW", "ARKG", "ARKF", "ARKQ",
+    # Leveraged / inverse
+    "SOXL", "SOXS", "TQQQ", "SQQQ", "UPRO", "SPXU", "TNA", "TZA",
+    "LABU", "LABD", "UVXY", "SVXY", "VXX", "VIXY",
+    "QLD", "SSO", "SDS", "SH", "PSQ", "DOG", "RWM",
+    # Other popular
+    "KWEB", "JETS", "IBIT", "BITO", "XBI", "XOP", "XHB", "XRT",
+    "SMH", "SOXX", "IGV", "HACK", "BOTZ", "ICLN", "TAN", "LIT",
+}
+
+
+# ── Alpaca Market Data helper ────────────────────────────────────────────────
+
+_ALPACA_BASE = "https://data.alpaca.markets/v2/stocks"
+
+def _fetch_alpaca_bars(symbol, days=180):
+    """Fetch daily OHLCV bars from Alpaca Market Data API v2.
+    Returns a pandas DataFrame matching yfinance format (Open, High, Low, Close, Volume)
+    with a DatetimeIndex, or an empty DataFrame on failure."""
+    import pandas as pd
+    api_key = os.environ.get("ALPACA_API_KEY", "")
+    secret  = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not api_key or not secret:
+        return pd.DataFrame()
+
+    end   = datetime.utcnow()
+    start = end - timedelta(days=days)
+    url   = f"{_ALPACA_BASE}/{symbol}/bars"
+    params = {
+        "start":     start.strftime("%Y-%m-%dT00:00:00Z"),
+        "end":       end.strftime("%Y-%m-%dT00:00:00Z"),
+        "timeframe": "1Day",
+        "limit":     days + 30,
+        "adjustment": "split",
+    }
+    headers = {
+        "APCA-API-KEY-ID":     api_key,
+        "APCA-API-SECRET-KEY": secret,
+    }
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        bars = data.get("bars") or []
+        if not bars:
+            return pd.DataFrame()
+        df = pd.DataFrame(bars)
+        # Alpaca columns: t, o, h, l, c, v, n, vw
+        df = df.rename(columns={"t": "Date", "o": "Open", "h": "High",
+                                "l": "Low", "c": "Close", "v": "Volume"})
+        df["Date"] = pd.to_datetime(df["Date"], utc=True)
+        df = df.set_index("Date").sort_index()
+        df = df[["Open", "High", "Low", "Close", "Volume"]]
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
 # ── Math helpers ──────────────────────────────────────────────────────────────
@@ -1747,37 +1819,52 @@ def analyze_ticker(ticker_symbol):
     import yfinance as yf
     import time
     ticker_symbol = ticker_symbol.upper().strip()
+    _data_source = "unknown"
 
-    # Retry up to 3 times on rate limit (with per-call timeout to prevent hangs)
-    for attempt in range(3):
-        try:
-            ticker = yf.Ticker(ticker_symbol)
-            hist   = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
-            if not hist.empty:
-                break
-            if attempt < 2:
-                time.sleep(3)
-        except TimeoutError:
-            if attempt < 2:
-                time.sleep(2)
-                continue
-            raise
-        except Exception as e:
-            if "Too Many Requests" in str(e) or "rate" in str(e).lower():
-                if attempt < 2:
-                    time.sleep(5 * (attempt + 1))
-                    continue
-            raise
+    # ── Price history: Alpaca first, yfinance fallback ────────────────────────
+    hist = _fetch_alpaca_bars(ticker_symbol, days=365)
+    if not hist.empty and len(hist) >= 30:
+        _data_source = "alpaca"
     else:
-        hist = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
+        # Fall back to yfinance with retry logic
+        _data_source = "yfinance"
+        for attempt in range(3):
+            try:
+                ticker = yf.Ticker(ticker_symbol)
+                hist   = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
+                if not hist.empty:
+                    break
+                if attempt < 2:
+                    time.sleep(3)
+            except TimeoutError:
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                raise
+            except Exception as e:
+                if "Too Many Requests" in str(e) or "rate" in str(e).lower():
+                    if attempt < 2:
+                        time.sleep(5 * (attempt + 1))
+                        continue
+                raise
+        else:
+            hist = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
 
     if hist.empty:
         return {"error": f"No data found for '{ticker_symbol}'. Please check the ticker symbol."}
 
-    try:
-        info = _yf_call_with_timeout(lambda: ticker.info, timeout=15)
-    except (TimeoutError, Exception):
+    # We always need a yfinance Ticker object for options chains
+    ticker = yf.Ticker(ticker_symbol)
+
+    # ── Fundamentals: skip ticker.info for known ETFs (404 on yfinance) ──────
+    is_etf = ticker_symbol in _KNOWN_ETFS
+    if is_etf:
         info = {}
+    else:
+        try:
+            info = _yf_call_with_timeout(lambda: ticker.info, timeout=15)
+        except (TimeoutError, Exception):
+            info = {}
     spot = float(hist['Close'].iloc[-1])
     r    = 0.05  # risk-free rate
 
@@ -2211,9 +2298,11 @@ def analyze_ticker(ticker_symbol):
     except Exception:
         pass
 
-    # Relative Strength
+    # Relative Strength (Alpaca-first for SPY benchmark)
     try:
-        _spy = _yf_call_with_timeout(lambda: yf.Ticker("SPY").history(period="1mo"), timeout=10)
+        _spy = _fetch_alpaca_bars("SPY", days=30)
+        if _spy.empty:
+            _spy = _yf_call_with_timeout(lambda: yf.Ticker("SPY").history(period="1mo"), timeout=10)
         rs_score, rs_signal = compute_relative_strength(hist, _spy)
         if rs_score is not None:
             edge_factors['relative_strength'] = rs_score
@@ -2237,6 +2326,7 @@ def analyze_ticker(ticker_symbol):
     result = {
         "ticker":           ticker_symbol,
         "company_name":     company_name,
+        "data_source":      _data_source,
         "spot":             round(spot, 2),
         "price_change":     price_change,
         "price_change_pct": price_change_pct,
@@ -2294,10 +2384,15 @@ def quick_scan(ticker_symbol):
     """
     import yfinance as yf
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        hist   = _yf_call_with_timeout(lambda: ticker.history(period="6mo"), timeout=10)
+        # Alpaca-first for price history, yfinance fallback
+        hist = _fetch_alpaca_bars(ticker_symbol, days=180)
         if hist.empty or len(hist) < 30:
-            return None
+            ticker = yf.Ticker(ticker_symbol)
+            hist   = _yf_call_with_timeout(lambda: ticker.history(period="6mo"), timeout=10)
+            if hist.empty or len(hist) < 30:
+                return None
+        else:
+            ticker = yf.Ticker(ticker_symbol)
 
         spot = float(hist['Close'].iloc[-1])
         rv20 = realized_vol(hist, 20) or 20.0
