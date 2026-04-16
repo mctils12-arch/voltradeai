@@ -1643,9 +1643,6 @@ def scan_market():
         _sig.signal(_sig.SIGALRM, _old_handler)
 
 
-_partial_scan_result = None
-
-
 def _scan_market_inner():
     global _partial_scan_result
     _partial_scan_result = None
@@ -1755,7 +1752,6 @@ def _scan_market_inner():
     scored = quick_results
 
     # Checkpoint 0: save quick-scored results so timeout handler has something
-    global _partial_scan_result
     _partial_scan_result = {
         "scanned": len(all_tickers) if 'all_tickers' in dir() else len(scored),
         "top_10": [{"ticker": s["ticker"], "score": s.get("quick_score", 0), "reasons": s.get("reasons", []), "side": "buy"} for s in scored[:10]],
