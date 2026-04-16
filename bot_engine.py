@@ -14,6 +14,9 @@ Usage:
   python3 bot_engine.py full          # Full cycle: scan + decide + recommend
 """
 
+# Module-level variable for partial scan results on timeout
+_partial_scan_result = None
+
 def _compute_stock_iv_rank(ticker: str, closes: list) -> float:
     """Per-stock IV rank from its own 30-day HV vs 52-week range.
     Uses price data already fetched by deep_score — no extra API call."""
@@ -1625,7 +1628,7 @@ def scan_market():
         raise TimeoutError("scan_market exceeded 50-second hard cap")
 
     _old_handler = _sig.signal(_sig.SIGALRM, _scan_timeout_handler)
-    _sig.alarm(50)  # 50s hard cap — Node kills at 90s
+    _sig.alarm(55)  # 55s hard cap — Node kills at 90s
     try:
         return _scan_market_inner()
     except TimeoutError as _te:
@@ -1751,11 +1754,20 @@ def _scan_market_inner():
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
     scored = quick_results
 
+    # Checkpoint 0: save quick-scored results so timeout handler has something
+    global _partial_scan_result
+    _partial_scan_result = {
+        "scanned": len(all_tickers) if 'all_tickers' in dir() else len(scored),
+        "top_10": [{"ticker": s["ticker"], "score": s.get("quick_score", 0), "reasons": s.get("reasons", []), "side": "buy"} for s in scored[:10]],
+        "new_trades": [],
+        "trades": [],
+        "partial": True,
+    }
     # Step 3: Deep analyze top 5 in PARALLEL (capped from 10 for timeout safety)
     # Each deep_score internally runs 5 data sources in parallel too.
     # Per-future timeout (12s) + total cap (25s) prevents yfinance hangs.
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    top_candidates = scored[:5]  # Cap at 5 to stay under timeout (was 10)
+    top_candidates = scored[:5]  # Cap at 5 to stay under timeout
     deep_scored = [None] * len(top_candidates)
 
     def _deep_one(args):
