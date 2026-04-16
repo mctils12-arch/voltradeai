@@ -27,9 +27,9 @@ let pythonRunning = false;
 let pythonLockedAt = 0;
 async function execPythonSerialized(cmd: string, opts?: any) {
   const maxWait = opts?.timeout || 30000;
+  const hardTimeout = Math.min(opts?.timeout || 60000, 60000); // Never exceed 60s
   const start = Date.now();
   while (pythonRunning) {
-    // Self-heal: force-release stale locks held longer than 10 minutes
     if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 600000) {
       console.error("[python-mutex] Force-releasing stale lock held for", Math.round((Date.now() - pythonLockedAt) / 1000), "seconds");
       pythonRunning = false;
@@ -41,8 +41,12 @@ async function execPythonSerialized(cmd: string, opts?: any) {
   }
   pythonRunning = true;
   pythonLockedAt = Date.now();
-  try { return await execAsync(cmd, opts); }
-  finally { pythonRunning = false; pythonLockedAt = 0; }
+  try {
+    return await execAsync(cmd, { ...opts, timeout: hardTimeout, killSignal: 'SIGKILL' });
+  } finally {
+    pythonRunning = false;
+    pythonLockedAt = 0;
+  }
 }
 
 // ─── Python Mutex Watchdog ──────────────────────────────────────────────────
@@ -668,7 +672,16 @@ print(json.dumps(data))
 "`, { timeout: 5000 });
             stopState = JSON.parse(stopOut.trim() || "{}");
           } catch (e: any) {
-            console.error("[bot] Failed to load stop state:", e.message);
+            console.error("[bot] Python stop state failed, trying direct file read:", e.message);
+            try {
+              const DATA_DIR = fs.existsSync('/data/voltrade') ? '/data/voltrade' : '/tmp';
+              const stopPath = `${DATA_DIR}/voltrade_stop_state.json`;
+              if (fs.existsSync(stopPath)) {
+                stopState = JSON.parse(fs.readFileSync(stopPath, 'utf8'));
+              }
+            } catch (fsErr: any) {
+              console.error("[bot] Direct file read also failed:", fsErr.message);
+            }
           }
         })(),
         (async () => {
@@ -687,7 +700,16 @@ print(json.dumps(data))
 "`, { timeout: 5000 });
             optionsState = JSON.parse(optOut.trim() || "{}");
           } catch (e: any) {
-            console.error("[bot] Failed to load options state:", e.message);
+            console.error("[bot] Python options state failed, trying direct file read:", e.message);
+            try {
+              const DATA_DIR = fs.existsSync('/data/voltrade') ? '/data/voltrade' : '/tmp';
+              const optionsPath = `${DATA_DIR}/voltrade_options_state.json`;
+              if (fs.existsSync(optionsPath)) {
+                optionsState = JSON.parse(fs.readFileSync(optionsPath, 'utf8'));
+              }
+            } catch (fsErr: any) {
+              console.error("[bot] Direct file read also failed:", fsErr.message);
+            }
           }
         })(),
       ]);
@@ -1160,6 +1182,10 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       equityPeak: state.equityPeak,
       maxDrawdownPct: state.maxDrawdownPct,
       unreadNotifications: notifications.filter(n => !n.read).length,
+      // Circuit breaker status
+      circuitBreakerActive: state.circuitBreakerUntil > Date.now(),
+      circuitBreakerUntil: state.circuitBreakerUntil > 0 ? new Date(state.circuitBreakerUntil).toISOString() : null,
+      consecutiveStopLosses: state.consecutiveStopLosses,
       // Pro-level security controls from system_config.py
       maxPositionPct: 8,      // MAX_POSITION_PCT 0.08 — hard cap per position
       maxExposurePct: 95,     // MAX_TOTAL_EXPOSURE 0.95 — max portfolio invested (regime engine controls actual)
@@ -1201,6 +1227,15 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       notify("system", "Kill switch deactivated — trading can resume");
     }
     res.json({ ok: true, killSwitch: state.killSwitch });
+  });
+
+  // Reset circuit breaker
+  app.post("/api/bot/circuit-breaker/reset", requireAuth, async (_req, res) => {
+    state.circuitBreakerUntil = 0;
+    state.consecutiveStopLosses = 0;
+    audit("CIRCUIT-BREAKER-RESET", "Manual reset by owner");
+    notify("system", "Circuit breaker manually reset");
+    res.json({ ok: true, circuitBreakerUntil: 0, consecutiveStopLosses: 0 });
   });
 
   // Audit log
@@ -1282,6 +1317,13 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
   // ── Chart data from Alpaca ──────────────────────────────────────────────────
   app.get("/api/bot/bars/:ticker", requireAuth, async (req, res) => {
     const { ticker } = req.params;
+
+    // Detect OCC option symbols (e.g., XLK260424P00149000) and return empty bars
+    const tickerStr = String(ticker).toUpperCase();
+    if (tickerStr.length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/.test(tickerStr)) {
+      return res.json({ bars: [], ticker: tickerStr, timeframe: "1Day", isOptionSymbol: true });
+    }
+
     const timeframe = (String(req.query.timeframe || "1Day")) || "1Day";
     const limit = parseInt(String(req.query.limit || "200")) || 200;
 
@@ -2727,6 +2769,12 @@ print(json.dumps({'files': count}))
     atrPct: number;            // Current ATR as % of price
     highestPrice: number;      // Highest price reached (for ATR trailing from price, not P&L)
     pendingExit?: boolean;     // True when exit order placed but not yet filled
+    // Options position tracking
+    positionType?: 'stock' | 'credit_spread' | 'iron_condor' | 'covered_call' | 'csp';
+    creditReceived?: number;    // For credit strategies
+    maxLoss?: number;           // For defined-risk strategies
+    legSymbols?: string[];      // OCC symbols of all legs
+    strategyLabel?: string;     // Display label
   }
 
   const monitoredPositions: Record<string, MonitoredPosition> = {};
@@ -2928,6 +2976,11 @@ except: print('{}')
     if (!pos || exitingTickers.has(ticker)) return;
     if (pos.pendingExit) return; // Exit order already placed, waiting for fill
     if (!state.active || state.killSwitch) return;
+
+    // Skip stock exit logic for options positions — options_manager.py handles those
+    if (pos.positionType && pos.positionType !== 'stock') {
+      return;
+    }
 
     const entry = pos.entryPrice;
     if (entry <= 0 || currentPrice <= 0) return;
@@ -3232,7 +3285,10 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
         if (Date.now() - lastStopTime < 300000) {
           audit("WS-EXIT", `${ticker}: skipping circuit breaker increment — same ticker stopped ${Math.round((Date.now() - lastStopTime) / 1000)}s ago`);
         } else {
-          state.consecutiveStopLosses++;
+          // Options exits don't trigger stock circuit breaker
+          if (!pos.positionType || pos.positionType === 'stock') {
+            state.consecutiveStopLosses++;
+          }
         }
         (state as any).lastStopTimes[ticker] = Date.now();
         if (!Array.isArray((state as any).recentStopTickers)) (state as any).recentStopTickers = [];
