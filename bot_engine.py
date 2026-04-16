@@ -1616,7 +1616,7 @@ def scan_market():
     1. Load full universe (~11,600 symbols, cached daily)
     2. Fetch ALL snapshots in parallel (16 workers, ~4 seconds)
     3. Quick-score everything that passes price+volume filters
-    4. Deep-analyze top 10 candidates (capped for timeout safety)
+    4. Deep-analyze top 5 candidates (capped for timeout safety)
     5. Return top positions with full trade recommendations
     """
     import signal as _sig
@@ -1630,14 +1630,23 @@ def scan_market():
         return _scan_market_inner()
     except TimeoutError as _te:
         import logging
-        logging.getLogger("bot_engine").error(f"Scan timed out: {_te}")
-        return {"error": "scan_market timed out (50s hard cap)", "trades": [], "new_trades": []}
+        logging.getLogger("bot_engine").warning(f"Scan timed out: {_te} — returning partial results")
+        global _partial_scan_result
+        if _partial_scan_result:
+            return _partial_scan_result  # No "error" key — Node will process it
+        return {"error": "scan_market timed out with no partial results", "trades": [], "new_trades": []}
     finally:
         _sig.alarm(0)
         _sig.signal(_sig.SIGALRM, _old_handler)
 
 
+_partial_scan_result = None
+
+
 def _scan_market_inner():
+    global _partial_scan_result
+    _partial_scan_result = None
+
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
     # Step 1: Get full universe (cached daily)
@@ -1672,7 +1681,7 @@ def _scan_market_inner():
             return {"error": "Could not fetch market universe", "trades": []}
 
     # Step 2: Fetch ALL snapshots in parallel (16 workers = ~4 seconds for 11K stocks)
-    batches = [ticker_symbols[i:i+50] for i in range(0, len(ticker_symbols), 50)]
+    batches = [ticker_symbols[i:i+1000] for i in range(0, len(ticker_symbols), 1000)]
     snap_all = {}
 
     def _fetch_snap(batch):
@@ -1742,11 +1751,11 @@ def _scan_market_inner():
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
     scored = quick_results
 
-    # Step 3: Deep analyze top 10 in PARALLEL (capped from 20 for timeout safety)
+    # Step 3: Deep analyze top 5 in PARALLEL (capped from 10 for timeout safety)
     # Each deep_score internally runs 5 data sources in parallel too.
-    # Per-future timeout (20s) + total cap (45s) prevents yfinance hangs.
+    # Per-future timeout (12s) + total cap (25s) prevents yfinance hangs.
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    top_candidates = scored[:10]  # Cap at 10 to stay under timeout (was 20)
+    top_candidates = scored[:5]  # Cap at 5 to stay under timeout (was 10)
     deep_scored = [None] * len(top_candidates)
 
     def _deep_one(args):
@@ -1759,20 +1768,32 @@ def _scan_market_inner():
     with ThreadPoolExecutor(max_workers=4) as _dpool:
         futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
         try:
-            for future in as_completed(futures, timeout=45):  # 45s total hard cap
+            for future in as_completed(futures, timeout=25):  # 25s total hard cap
                 try:
-                    idx, result = future.result(timeout=20)  # 20s per ticker
+                    idx, result = future.result(timeout=12)  # 12s per ticker
                     deep_scored[idx] = result
                 except Exception:
                     deep_scored[futures[future]] = None
         except TimeoutError:
             import logging
-            logging.getLogger("bot_engine").warning("Deep scoring hit 45s cap — using partial results")
+            logging.getLogger("bot_engine").warning("Deep scoring hit 25s cap — using partial results")
 
     deep_scored = [d for d in deep_scored if d is not None]
 
     # Sort by deep score (or quick score if no deep)
     deep_scored.sort(key=lambda x: x.get("deep_score", x.get("quick_score", 0)), reverse=True)
+
+    # Save partial results after deep scoring — survives SIGALRM timeout
+    _partial_scan_result = {
+        "timestamp": datetime.now().isoformat(),
+        "scanned": len(all_tickers) if 'all_tickers' in dir() else 0,
+        "filtered": len(scored),
+        "deep_analyzed": len(deep_scored),
+        "top_10": [{"ticker": s["ticker"], "score": s.get("deep_score", s.get("quick_score", 0)), "reasons": s.get("reasons", [])[:2], "side": s.get("side", "buy")} for s in deep_scored[:10] if s],
+        "new_trades": [],
+        "trades": [],
+        "partial": True,
+    }
 
     # Step 4: Get account info for position sizing
     try:
@@ -2091,6 +2112,114 @@ def _scan_market_inner():
             "regime_at_entry": stock.get("regime_label", "UNKNOWN"),
         })
 
+    # Update partial results with stock trades — survives SIGALRM if timeout
+    # fires during options scanner or later steps
+    _partial_scan_result = {
+        "timestamp": datetime.now().isoformat(),
+        "scanned": len(all_tickers) if 'all_tickers' in dir() else 0,
+        "filtered": len(scored),
+        "deep_analyzed": len(deep_scored),
+        "portfolio_value": portfolio_value,
+        "cash": cash,
+        "current_positions": num_positions,
+        "slots_available": slots_available,
+        "new_trades": list(trades),  # Copy — trades may grow later
+        "top_10": [{"ticker": s["ticker"], "price": s.get("price", 0), "score": s.get("deep_score", s.get("quick_score", 0)), "change_pct": s.get("change_pct", 0), "side": s.get("side", "buy"), "action_label": s.get("action_label", "BUY"), "reasons": s.get("reasons", [])[:2]} for s in deep_scored[:10]],
+        "partial": True,
+    }
+
+    # Step 6c: Covered Call Sweep (moved before options scanner — no external API calls)
+    # Check ALL existing stock positions for covered call eligibility.
+    # Runs independently of the stock scanner — a position doesn't need to
+    # "score well" to have a covered call written on it. It just needs 100+ shares.
+    # This fixes QQQ (passive floor) never getting covered calls because it
+    # never appears in the stock scanner results.
+    try:
+        for _cc_pos in (current_positions if isinstance(current_positions, list) else []):
+            _cc_ticker = str(_cc_pos.get("symbol", ""))
+            _cc_qty = int(float(_cc_pos.get("qty", 0)))
+            _cc_class = _cc_pos.get("asset_class", "us_equity")
+
+            # Skip options positions, positions with <100 shares, or long OCC symbols
+            if _cc_class == "us_option" or len(_cc_ticker) > 8 or _cc_qty < 100:
+                continue
+
+            # Skip if we already have a short call on this ticker
+            _has_cc = False
+            for _ex_pos in (current_positions if isinstance(current_positions, list) else []):
+                _ex_sym = str(_ex_pos.get("symbol", ""))
+                if (_ex_pos.get("asset_class") == "us_option"
+                        and _ex_sym.startswith(_cc_ticker)
+                        and int(float(_ex_pos.get("qty", 0))) < 0
+                        and "C" in _ex_sym[len(_cc_ticker):]):
+                    _has_cc = True
+                    break
+            if _has_cc:
+                continue
+
+            # Skip if already in today's trade list
+            if _cc_ticker in [t["ticker"] for t in trades if t.get("trade_type") == "options"]:
+                continue
+
+            # Earnings guard (7 days for covered calls)
+            try:
+                from options_execution import _check_earnings_guard
+                if not _check_earnings_guard(_cc_ticker, 7):
+                    continue
+            except Exception:
+                pass
+
+            # Skip in BEAR/PANIC regimes
+            _cc_regime = _scan_regime if '_scan_regime' in dir() else "NEUTRAL"
+            if _cc_regime in ("BEAR", "PANIC"):
+                continue
+
+            _cc_price = float(_cc_pos.get("current_price", 0) or 0)
+            if _cc_price <= 0:
+                continue
+
+            trades.append({
+                "action": "SELL COVERED CALL",
+                "side": "sell",
+                "trade_type": "options",
+                "ticker": _cc_ticker,
+                "shares": 0,
+                "price": _cc_price,
+                "score": 75,
+                "reasons": [f"Covered call on {_cc_qty} shares of {_cc_ticker}"],
+                "recommendation": None,
+                "rec_reasoning": f"Covered call: sell OTM calls against {_cc_qty} shares",
+                "stop_loss": None,
+                "take_profit": None,
+                "position_value": 0,
+                "sizing_reasoning": f"Covered call on existing {_cc_qty}-share position",
+                "sizing_scalars": {},
+                "momentum_score": None,
+                "mean_reversion_score": None,
+                "vrp_score": None,
+                "squeeze_score": None,
+                "volume_score": None,
+                "ewma_rv": None,
+                "garch_rv": None,
+                "rsi": None,
+                "vrp": None,
+                "instrument": "options",
+                "instrument_strategy": "covered_call",
+                "instrument_reasoning": f"Covered call on {_cc_qty} shares",
+                "instrument_ticker": _cc_ticker,
+                "instrument_scores": {},
+                "use_options": True,
+                "options_strategy": "covered_call",
+                "options_reasoning": f"Sell OTM call against {_cc_qty}-share holding",
+                "options_edge_pct": 3.0,
+                "rules_score": 75,
+                "ml_score_raw": None,
+                "shares_held": _cc_qty,
+            })
+    except Exception as _cc_sweep_err:
+        import logging as _cc_log
+        _cc_log.getLogger("bot_engine").warning(f"Covered call sweep error: {_cc_sweep_err}")
+
     # Step 6b: Run options scanner synchronously with real portfolio equity.
     # Options have their OWN slot allocation (MAX_OPTIONS_POSITIONS), separate
     # from stock slots. This lets options trade even when stock positions are full.
@@ -2185,98 +2314,6 @@ def _scan_market_inner():
         options_mgmt_result = manage_options_positions(equity=portfolio_value)
     except Exception as _ome:
         options_mgmt_result["error"] = str(_ome)[:200]
-
-    # Step 8c: Covered Call Sweep ──────────────────────────────────────────────
-    # Check ALL existing stock positions for covered call eligibility.
-    # Runs independently of the stock scanner — a position doesn't need to
-    # "score well" to have a covered call written on it. It just needs 100+ shares.
-    # This fixes QQQ (passive floor) never getting covered calls because it
-    # never appears in the stock scanner results.
-    try:
-        for _cc_pos in (current_positions if isinstance(current_positions, list) else []):
-            _cc_ticker = str(_cc_pos.get("symbol", ""))
-            _cc_qty = int(float(_cc_pos.get("qty", 0)))
-            _cc_class = _cc_pos.get("asset_class", "us_equity")
-
-            # Skip options positions, positions with <100 shares, or long OCC symbols
-            if _cc_class == "us_option" or len(_cc_ticker) > 8 or _cc_qty < 100:
-                continue
-
-            # Skip if we already have a short call on this ticker
-            _has_cc = False
-            for _ex_pos in (current_positions if isinstance(current_positions, list) else []):
-                _ex_sym = str(_ex_pos.get("symbol", ""))
-                if (_ex_pos.get("asset_class") == "us_option"
-                        and _ex_sym.startswith(_cc_ticker)
-                        and int(float(_ex_pos.get("qty", 0))) < 0
-                        and "C" in _ex_sym[len(_cc_ticker):]):
-                    _has_cc = True
-                    break
-            if _has_cc:
-                continue
-
-            # Skip if already in today's trade list
-            if _cc_ticker in [t["ticker"] for t in trades if t.get("trade_type") == "options"]:
-                continue
-
-            # Earnings guard (7 days for covered calls)
-            try:
-                from options_execution import _check_earnings_guard
-                if not _check_earnings_guard(_cc_ticker, 7):
-                    continue
-            except Exception:
-                pass
-
-            # Skip in BEAR/PANIC regimes
-            _cc_regime = _scan_regime if '_scan_regime' in dir() else "NEUTRAL"
-            if _cc_regime in ("BEAR", "PANIC"):
-                continue
-
-            _cc_price = float(_cc_pos.get("current_price", 0) or 0)
-            if _cc_price <= 0:
-                continue
-
-            trades.append({
-                "action": "SELL COVERED CALL",
-                "side": "sell",
-                "trade_type": "options",
-                "ticker": _cc_ticker,
-                "shares": 0,
-                "price": _cc_price,
-                "score": 75,
-                "reasons": [f"Covered call on {_cc_qty} shares of {_cc_ticker}"],
-                "recommendation": None,
-                "rec_reasoning": f"Covered call: sell OTM calls against {_cc_qty} shares",
-                "stop_loss": None,
-                "take_profit": None,
-                "position_value": 0,
-                "sizing_reasoning": f"Covered call on existing {_cc_qty}-share position",
-                "sizing_scalars": {},
-                "momentum_score": None,
-                "mean_reversion_score": None,
-                "vrp_score": None,
-                "squeeze_score": None,
-                "volume_score": None,
-                "ewma_rv": None,
-                "garch_rv": None,
-                "rsi": None,
-                "vrp": None,
-                "instrument": "options",
-                "instrument_strategy": "covered_call",
-                "instrument_reasoning": f"Covered call on {_cc_qty} shares",
-                "instrument_ticker": _cc_ticker,
-                "instrument_scores": {},
-                "use_options": True,
-                "options_strategy": "covered_call",
-                "options_reasoning": f"Sell OTM call against {_cc_qty}-share holding",
-                "options_edge_pct": 3.0,
-                "rules_score": 75,
-                "ml_score_raw": None,
-                "shares_held": _cc_qty,
-            })
-    except Exception as _cc_sweep_err:
-        import logging as _cc_log
-        _cc_log.getLogger("bot_engine").warning(f"Covered call sweep error: {_cc_sweep_err}")
 
     # Step 9: Third Leg (v1.0.25) ─────────────────────────────────────────────
     # Runs alongside stock scan in every cycle.
