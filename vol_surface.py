@@ -23,7 +23,7 @@ ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 DATA_URL = "https://data.alpaca.markets"
 RISK_FREE_RATE = 0.045
-CACHE_TTL = 300  # 5 minutes
+CACHE_TTL = 3600  # 60 min — vol surface doesn't change fast intraday
 
 _HEADERS = {
     "APCA-API-KEY-ID": ALPACA_KEY,
@@ -34,7 +34,7 @@ _HEADERS = {
 
 _surface_cache: dict = {}  # {ticker: {"timestamp": float, "surface": dict}}
 _sabr_cache: dict = {}  # {(ticker, expiry): {"timestamp": float, "params": dict}}
-SABR_CACHE_TTL = 300  # 5 minutes
+SABR_CACHE_TTL = 3600  # 60 min
 
 
 # ─── Standard Normal CDF (Abramowitz & Stegun) ──────────────────────────────
@@ -190,12 +190,12 @@ def _fetch_options_chain(ticker: str, dte_min: int = 7, dte_max: int = 90) -> di
                 f"{DATA_URL}/v1beta1/options/snapshots/{ticker}",
                 params=params,
                 headers=_HEADERS,
-                timeout=15,
+                timeout=8,
             )
             resp.raise_for_status()
         except requests.RequestException as e:
-            logger.error("Options chain fetch failed (page %d): %s", page_num, e)
-            break
+            logger.warning("Options chain fetch slow/failed (page %d): %s", page_num, e)
+            break  # Return partial chain — still useful for vol surface
 
         data = resp.json()
         snapshots = data.get("snapshots", {})
@@ -281,11 +281,11 @@ def _fetch_historical_bars(ticker: str, days: int = 90) -> list:
                 f"{DATA_URL}/v2/stocks/bars",
                 params=params,
                 headers=_HEADERS,
-                timeout=15,
+                timeout=8,
             )
             resp.raise_for_status()
         except requests.RequestException as e:
-            logger.error("Historical bars fetch failed: %s", e)
+            logger.warning("Historical bars fetch slow/failed: %s", e)
             break
 
         data = resp.json()
