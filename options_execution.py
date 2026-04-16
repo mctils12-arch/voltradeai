@@ -66,6 +66,32 @@ MIN_OPTION_VOLUME = 10           # Minimum daily volume on the contract
 MIN_OPEN_INTEREST = 200          # Minimum open interest
 MAX_SPREAD_PCT = 0.10            # Max bid-ask spread as % of mid price (tightened from 0.15, 2026-04-10)
 
+# Top 10 QQQ holdings for iron condor earnings guard
+QQQ_TOP_HOLDINGS = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "COST"]
+
+
+def _check_earnings_guard(ticker: str, days_threshold: int = 7) -> bool:
+    """Returns True if safe to trade (no earnings within threshold), False if blocked."""
+    try:
+        from position_sizing import _earnings_scalar
+        scalar = _earnings_scalar(ticker)
+        # _earnings_scalar returns < 0.6 when earnings are within ~2 days
+        # and < 0.85 when within ~7 days
+        if days_threshold <= 2:
+            return scalar >= 0.6
+        else:
+            return scalar >= 0.85
+    except Exception:
+        return True  # Don't block on errors
+
+
+def _check_qqq_earnings_guard() -> bool:
+    """Check if any top 10 QQQ holdings have earnings this week."""
+    for holding in QQQ_TOP_HOLDINGS:
+        if not _check_earnings_guard(holding, 7):
+            return False
+    return True
+
 
 def _dynamic_options_size(trade: dict, equity: float, existing_positions: list = None,
                           macro: dict = None) -> float:
@@ -269,7 +295,10 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
     """
     try:
         # Fetch available options contracts from Alpaca
-        contracts = _fetch_option_chain(ticker, price)
+        # Weekly strategies (QQQ iron condor, covered call) need short-dated contracts
+        _weekly_strategies = ("qqq_iron_condor", "covered_call")
+        _min_dte = 3 if strategy in _weekly_strategies else 7
+        contracts = _fetch_option_chain(ticker, price, min_dte=_min_dte)
         if not contracts:
             return {"error": "No options contracts available for this ticker"}
         
@@ -312,6 +341,12 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             result = _select_straddle(liquid, price, equity, ticker, size_pct)
         elif strategy == "iron_condor":
             result = _select_condor(liquid, price, equity, ticker, size_pct)
+        elif strategy == "bull_put_credit_spread":
+            result = _select_bull_put_credit_spread(liquid, price, equity, ticker, size_pct)
+        elif strategy == "qqq_iron_condor":
+            result = _select_qqq_iron_condor(liquid, price, equity, ticker)
+        elif strategy == "covered_call":
+            result = _select_covered_call(liquid, price, equity, ticker, trade.get("shares_held", 0))
         else:
             return {"error": f"Unknown strategy: {strategy}"}
 
@@ -331,18 +366,26 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         return {"error": f"Contract selection failed: {str(e)[:200]}"}
 
 
-def _fetch_option_chain(ticker: str, current_price: float) -> list:
-    """Fetch options chain from Alpaca data API."""
+def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7) -> list:
+    """Fetch options chain from Alpaca data API.
+
+    Args:
+        ticker: Stock symbol.
+        current_price: Current stock price for strike range filtering.
+        min_dte: Minimum days to expiry (default 7). Set lower for weekly
+                 strategies like QQQ iron condors and covered calls.
+    """
     contracts = []
     try:
-        # Get contracts expiring 7-50 days out
+        # Get contracts expiring min_dte-50 days out
         # v1.0.33: widened from 14-45 to 7-50 to cover all scanner setups:
         #   - low_iv_breakout_buy fetches 10-25 DTE
         #   - high_iv_premium_sale fetches 14-45 DTE
         #   - csp_normal_market fetches 25-50 DTE
         #   - gamma_pin fetches 0-2 DTE (handled separately)
+        #   - qqq_iron_condor / covered_call need 3-7 DTE (weekly)
         now = datetime.now()
-        min_exp = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+        min_exp = (now + timedelta(days=min_dte)).strftime("%Y-%m-%d")
         max_exp = (now + timedelta(days=50)).strftime("%Y-%m-%d")
         
         # Strike range: within 10% of current price
@@ -620,6 +663,391 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         "premium_received": round(premium_received, 2),
         "max_loss": round(best["strike"] * qty * 100 - premium_received, 2),
         "cash_required": round(cash_per_contract * qty, 2),
+        "delta": best.get("delta"),
+        "gamma": best.get("gamma"),
+        "theta": best.get("theta"),
+        "iv": best.get("iv"),
+        "days_to_expiry": best.get("days_to_expiry"),
+        "error": None,
+    }
+
+
+def _select_bull_put_credit_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
+    """
+    Bull put credit spread: sell OTM put (20-30 delta), buy further OTM put ~5% below.
+    Defined risk, net credit received. Profits when stock stays above short strike.
+
+    Preferred over naked CSP because risk is capped at spread width - credit.
+
+    Target: 25-45 DTE, same expiry for both legs.
+    Exit targets: 50% of credit (profit), 2x credit (stop), 21 DTE.
+    """
+    puts = [c for c in contracts if c["option_type"] == "put" and c["strike"] <= price]
+    if len(puts) < 2:
+        return {"error": "Not enough put contracts for bull put credit spread"}
+
+    # Same-expiry enforcement: group puts by expiry
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(list)
+    for p in puts:
+        by_expiry[p["expiry"]].append(p)
+
+    # Filter to expiries with at least 2 puts, prefer 25-45 DTE
+    valid_expiries = [(exp, grp) for exp, grp in by_expiry.items() if len(grp) >= 2]
+    if not valid_expiries:
+        return {"error": "No single expiry has enough puts for bull put credit spread"}
+
+    # Prefer expiry closest to 35 DTE (middle of 25-45 range)
+    valid_expiries.sort(key=lambda x: abs(x[1][0].get("days_to_expiry", 35) - 35))
+
+    best_result = None
+    for _, exp_puts in valid_expiries:
+        dte = exp_puts[0].get("days_to_expiry", 0)
+        # Prefer 25-45 DTE; skip if outside 14-50 DTE entirely
+        if dte < 14 or dte > 50:
+            continue
+
+        exp_puts = sorted(exp_puts, key=lambda c: c["strike"], reverse=True)
+
+        # Short leg: sell 20-30 delta OTM put
+        short_candidates = [
+            p for p in exp_puts
+            if -0.35 <= p.get("delta", 0) <= -0.15
+        ]
+        if not short_candidates:
+            # Fallback: pick put closest to -0.25 delta
+            short_candidates = sorted(exp_puts, key=lambda c: abs(c.get("delta", 0) + 0.25))
+            short_candidates = short_candidates[:3]  # Top 3 closest
+
+        for short_leg in short_candidates:
+            # Long leg: ~5% below short strike
+            target_long_strike = short_leg["strike"] * 0.95
+            long_candidates = [
+                p for p in exp_puts
+                if p["strike"] < short_leg["strike"] and p["expiry"] == short_leg["expiry"]
+            ]
+            if not long_candidates:
+                continue
+
+            long_leg = min(long_candidates, key=lambda p: abs(p["strike"] - target_long_strike))
+
+            # Calculate credit
+            short_credit = _optimized_limit_price(short_leg, "sell")
+            long_debit = _optimized_limit_price(long_leg, "buy")
+            net_credit = round(short_credit - long_debit, 2)
+
+            if net_credit <= 0:
+                continue
+
+            spread_width = short_leg["strike"] - long_leg["strike"]
+            max_loss_per = round((spread_width - net_credit) * 100, 2)
+
+            if max_loss_per <= 0:
+                continue
+
+            best_result = (short_leg, long_leg, net_credit, spread_width, max_loss_per)
+            break
+
+        if best_result:
+            break
+
+    if best_result is None:
+        return {"error": "No suitable legs for bull put credit spread"}
+
+    short_leg, long_leg, net_credit, spread_width, max_loss_per = best_result
+
+    max_profit_per = round(net_credit * 100, 2)
+
+    # Size: max_contracts = equity * size_pct / max_loss_per, capped at 5
+    max_contracts = int(equity * size_pct / max_loss_per) if max_loss_per > 0 else 0
+    if max_contracts <= 0:
+        max_contracts = 1
+    qty = min(max_contracts, 5)
+
+    # Breakeven
+    breakeven = round(short_leg["strike"] - net_credit, 2)
+
+    # Exit targets
+    profit_target = round(net_credit * 0.50, 2)  # Close at 50% of credit received
+    stop_loss = round(net_credit * 2.0, 2)        # Close at 2x credit (loss)
+
+    # EV calculation using short delta as probability proxy
+    short_delta = abs(short_leg.get("delta", 0))
+    result = {
+        "strategy": "bull_put_credit_spread",
+        "short_leg": short_leg["occ_symbol"],
+        "long_leg": long_leg["occ_symbol"],
+        "short_strike": short_leg["strike"],
+        "long_strike": long_leg["strike"],
+        "expiry": short_leg["expiry"],
+        "qty": qty,
+        "net_credit": net_credit,
+        "total_credit": round(net_credit * qty * 100, 2),
+        "limit_price": net_credit,
+        "max_profit": round(max_profit_per * qty, 2),
+        "max_loss": round(max_loss_per * qty, 2),
+        "breakeven": breakeven,
+        "spread_width": spread_width,
+        "risk_reward": round(max_profit_per / max_loss_per, 2) if max_loss_per > 0 else 0,
+        "profit_target_price": profit_target,
+        "stop_loss_price": stop_loss,
+        "dte_exit": 21,
+        "days_to_expiry": short_leg.get("days_to_expiry"),
+        "short_delta": short_leg.get("delta"),
+        "long_delta": long_leg.get("delta"),
+        "error": None,
+    }
+
+    if short_delta > 0:
+        p_win = 1 - short_delta  # P(OTM at expiry) for short put
+        p_loss = 1 - p_win
+        ev = p_win * max_profit_per - p_loss * max_loss_per
+        result["ev"] = round(ev, 2)
+        result["win_probability"] = round(p_win * 100, 1)
+        if ev < 0:
+            result["ev_warning"] = "Negative expected value"
+
+    return result
+
+
+def _select_qqq_iron_condor(contracts: list, price: float, equity: float, ticker: str = "QQQ") -> dict:
+    """
+    QQQ weekly iron condor: sell 10-delta call + 10-delta put, buy 5-delta wings.
+    Fixed 5 contracts, $5 wing width, 4-7 DTE preferred (Monday open, Friday close).
+    Only for QQQ.
+    """
+    if ticker != "QQQ":
+        return {"error": "QQQ iron condor strategy only available for QQQ"}
+
+    # Check QQQ earnings guard — block if any top-10 holding reports this week
+    if not _check_qqq_earnings_guard():
+        return {"error": "QQQ iron condor blocked: top-10 QQQ holding has earnings this week"}
+
+    all_calls = [c for c in contracts if c["option_type"] == "call"]
+    all_puts = [c for c in contracts if c["option_type"] == "put"]
+
+    if len(all_calls) < 2 or len(all_puts) < 2:
+        return {"error": "Not enough contracts for QQQ iron condor"}
+
+    # Group by expiry, require all 4 legs from one expiry
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(lambda: {"calls": [], "puts": []})
+    for c in all_calls:
+        by_expiry[c["expiry"]]["calls"].append(c)
+    for p in all_puts:
+        by_expiry[p["expiry"]]["puts"].append(p)
+
+    valid_expiries = [
+        (exp, grp) for exp, grp in by_expiry.items()
+        if len(grp["calls"]) >= 2 and len(grp["puts"]) >= 2
+    ]
+    if not valid_expiries:
+        return {"error": "No single expiry has enough contracts for QQQ iron condor"}
+
+    # Prefer 4-7 DTE (weekly); accept up to 14 DTE
+    def dte_score(item):
+        dte = item[1]["calls"][0].get("days_to_expiry", 999)
+        if 4 <= dte <= 7:
+            return 0  # Perfect weekly range
+        return abs(dte - 5)  # Penalize distance from 5 DTE
+
+    valid_expiries.sort(key=dte_score)
+
+    best_result = None
+    for _, grp in valid_expiries:
+        dte = grp["calls"][0].get("days_to_expiry", 0)
+        if dte < 2 or dte > 14:
+            continue
+
+        calls = sorted(grp["calls"], key=lambda c: c["strike"])
+        puts = sorted(grp["puts"], key=lambda c: c["strike"], reverse=True)
+
+        # Short call: ~10 delta (0.08-0.15)
+        sc_candidates = [c for c in calls if 0.05 <= abs(c.get("delta", 0)) <= 0.18 and c["strike"] > price]
+        if not sc_candidates:
+            sc_candidates = sorted(
+                [c for c in calls if c["strike"] > price],
+                key=lambda c: abs(abs(c.get("delta", 0)) - 0.10)
+            )[:3]
+        if not sc_candidates:
+            continue
+        short_call = min(sc_candidates, key=lambda c: abs(abs(c.get("delta", 0)) - 0.10))
+
+        # Short put: ~10 delta (-0.08 to -0.15)
+        sp_candidates = [p for p in puts if -0.18 <= p.get("delta", 0) <= -0.05 and p["strike"] < price]
+        if not sp_candidates:
+            sp_candidates = sorted(
+                [p for p in puts if p["strike"] < price],
+                key=lambda c: abs(abs(c.get("delta", 0)) - 0.10)
+            )[:3]
+        if not sp_candidates:
+            continue
+        short_put = min(sp_candidates, key=lambda p: abs(abs(p.get("delta", 0)) - 0.10))
+
+        # Long call: ~$5 above short call (wing width)
+        target_lc_strike = short_call["strike"] + 5
+        lc_candidates = [c for c in calls if c["strike"] > short_call["strike"]]
+        if not lc_candidates:
+            continue
+        long_call = min(lc_candidates, key=lambda c: abs(c["strike"] - target_lc_strike))
+
+        # Long put: ~$5 below short put (wing width)
+        target_lp_strike = short_put["strike"] - 5
+        lp_candidates = [p for p in puts if p["strike"] < short_put["strike"]]
+        if not lp_candidates:
+            continue
+        long_put = min(lp_candidates, key=lambda p: abs(p["strike"] - target_lp_strike))
+
+        # Calculate net credit from all 4 legs
+        call_credit = round(short_call.get("bid", 0) - long_call.get("ask", 0), 2)
+        put_credit = round(short_put.get("bid", 0) - long_put.get("ask", 0), 2)
+        net_credit = round(call_credit + put_credit, 2)
+
+        if net_credit <= 0:
+            continue
+
+        best_result = (short_call, long_call, short_put, long_put, net_credit)
+        break
+
+    if best_result is None:
+        return {"error": "No suitable legs for QQQ iron condor"}
+
+    short_call, long_call, short_put, long_put, net_credit = best_result
+
+    # Fixed 5 contracts for QQQ weekly condor
+    qty = 5
+
+    call_wing = round(long_call["strike"] - short_call["strike"], 2)
+    put_wing = round(short_put["strike"] - long_put["strike"], 2)
+    wider_wing = max(call_wing, put_wing)
+    max_loss_per = round((wider_wing - net_credit) * 100, 2)
+    max_profit_per = round(net_credit * 100, 2)
+
+    upper_be = round(short_call["strike"] + net_credit, 2)
+    lower_be = round(short_put["strike"] - net_credit, 2)
+
+    # EV calculation
+    sc_delta = abs(short_call.get("delta", 0))
+    sp_delta = abs(short_put.get("delta", 0))
+
+    result = {
+        "strategy": "qqq_iron_condor",
+        "short_call": short_call["occ_symbol"],
+        "long_call": long_call["occ_symbol"],
+        "short_put": short_put["occ_symbol"],
+        "long_put": long_put["occ_symbol"],
+        "short_call_strike": short_call["strike"],
+        "short_put_strike": short_put["strike"],
+        "long_call_strike": long_call["strike"],
+        "long_put_strike": long_put["strike"],
+        "expiry": short_call["expiry"],
+        "qty": qty,
+        "net_credit": net_credit,
+        "total_credit": round(net_credit * qty * 100, 2),
+        "limit_price": net_credit,
+        "max_profit": round(max_profit_per * qty, 2),
+        "max_loss": round(max_loss_per * qty, 2),
+        "upper_breakeven": upper_be,
+        "lower_breakeven": lower_be,
+        "profit_range": f"${lower_be:.2f} to ${upper_be:.2f} (short strikes ${short_put['strike']}-${short_call['strike']})",
+        "call_wing_width": call_wing,
+        "put_wing_width": put_wing,
+        "risk_reward": round(max_profit_per / max_loss_per, 2) if max_loss_per > 0 else 0,
+        "days_to_expiry": short_call.get("days_to_expiry"),
+        "error": None,
+    }
+
+    if sc_delta > 0 or sp_delta > 0:
+        avg_short_delta = (sc_delta + sp_delta) / 2 if (sc_delta > 0 and sp_delta > 0) else max(sc_delta, sp_delta)
+        p_win = 1 - avg_short_delta
+        p_loss = 1 - p_win
+        ev = p_win * max_profit_per - p_loss * max_loss_per
+        result["ev"] = round(ev, 2)
+        result["win_probability"] = round(p_win * 100, 1)
+        if ev < 0:
+            result["ev_warning"] = "Negative expected value"
+
+    return result
+
+
+def _select_covered_call(contracts: list, price: float, equity: float, ticker: str, shares_held: int = 100) -> dict:
+    """
+    Covered call: sell OTM call (15-20 delta) against existing stock holding.
+    Weekly: 4-7 DTE preferred.
+    qty = shares_held // 100 (one contract per 100-share lot).
+    """
+    if shares_held < 100:
+        return {"error": f"Need at least 100 shares to sell covered call (have {shares_held})"}
+
+    calls = [c for c in contracts if c["option_type"] == "call" and c["strike"] > price]
+    if not calls:
+        return {"error": "No suitable OTM calls found for covered call"}
+
+    # Group by expiry
+    from collections import defaultdict
+    by_expiry: dict = defaultdict(list)
+    for c in calls:
+        by_expiry[c["expiry"]].append(c)
+
+    # Prefer 4-7 DTE (weekly); accept up to 14 DTE
+    valid_expiries = [(exp, grp) for exp, grp in by_expiry.items() if grp]
+    if not valid_expiries:
+        return {"error": "No expiries available for covered call"}
+
+    def dte_score(item):
+        dte = item[1][0].get("days_to_expiry", 999)
+        if 4 <= dte <= 7:
+            return 0  # Perfect weekly range
+        return abs(dte - 5)
+
+    valid_expiries.sort(key=dte_score)
+
+    best = None
+    for _, exp_calls in valid_expiries:
+        dte = exp_calls[0].get("days_to_expiry", 0)
+        if dte < 2 or dte > 21:
+            continue
+
+        # Target 15-20 delta OTM call
+        candidates = [
+            c for c in exp_calls
+            if 0.10 <= abs(c.get("delta", 0)) <= 0.25
+        ]
+        if not candidates:
+            # Fallback: closest to 0.175 delta
+            candidates = sorted(exp_calls, key=lambda c: abs(abs(c.get("delta", 0)) - 0.175))
+            candidates = candidates[:3]
+        if not candidates:
+            continue
+
+        best = min(candidates, key=lambda c: abs(abs(c.get("delta", 0)) - 0.175))
+        break
+
+    if best is None:
+        return {"error": "No suitable strike for covered call"}
+
+    limit_price = _optimized_limit_price(best, "sell")
+    qty = shares_held // 100
+
+    premium_received = round(limit_price * qty * 100, 2)
+    # Max profit = premium + (strike - current price) * shares
+    upside_gain = round((best["strike"] - price) * qty * 100, 2)
+    max_profit = round(premium_received + upside_gain, 2)
+
+    return {
+        "strategy": "covered_call",
+        "occ_symbol": best["occ_symbol"],
+        "strike": best["strike"],
+        "expiry": best["expiry"],
+        "option_type": "call",
+        "side": "sell",
+        "qty": qty,
+        "limit_price": round(limit_price, 2),
+        "max_cost": 0,  # We receive premium
+        "premium_received": premium_received,
+        "max_profit": max_profit,
+        "max_loss": round(price * qty * 100 - premium_received, 2),  # Stock drops to 0
+        "shares_covered": qty * 100,
         "delta": best.get("delta"),
         "gamma": best.get("gamma"),
         "theta": best.get("theta"),
@@ -1161,9 +1589,12 @@ def submit_options_order(contract: dict) -> dict:
         return _submit_buy_straddle_order(contract)
     elif strategy == "short_straddle":
         return _submit_straddle_order(contract)
-    elif strategy == "iron_condor":
+    elif strategy in ("iron_condor", "qqq_iron_condor"):
         return _submit_condor_order(contract)
-    
+    elif strategy == "covered_call":
+        # Covered call is a single-leg sell (stock is already held)
+        pass  # Falls through to single-leg order below
+
     # Single-leg order
     occ_symbol = contract.get("occ_symbol", "")
     side = contract.get("side", "buy")
