@@ -150,6 +150,44 @@ SECTOR_MAP = {
     "AMZN": "Consumer Discretionary", "WMT": "Consumer Staples", "TGT": "Consumer Discretionary", "COST": "Consumer Staples",
 }
 
+# ── Sector Cache (ticker → sector from yfinance, persisted to disk) ─────────
+SECTOR_CACHE_PATH = os.path.join(DATA_DIR, "voltrade_sector_cache.json")
+
+def _load_sector_cache():
+    """Load the ticker→sector cache from disk."""
+    try:
+        with open(SECTOR_CACHE_PATH, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _update_sector_cache(ticker, sector):
+    """Update a single ticker→sector entry in the cache and persist to disk."""
+    if not ticker or not sector or sector == "Unknown":
+        return
+    cache = _load_sector_cache()
+    cache[ticker.upper()] = sector
+    try:
+        with open(SECTOR_CACHE_PATH, "w") as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+
+def _get_sector(ticker, sector=None):
+    """Resolve sector for a ticker using: provided value > cache > SECTOR_MAP > 'Unknown'."""
+    if sector and sector != "Unknown":
+        return sector
+    t = ticker.upper()
+    # Check SECTOR_MAP first (fast, no I/O)
+    mapped = SECTOR_MAP.get(t)
+    if mapped:
+        return mapped
+    # Check persisted cache (covers previously deep-scored tickers)
+    cached = _load_sector_cache().get(t)
+    if cached:
+        return cached
+    return "Unknown"
+
 # ── EWMA / GARCH Volatility ──────────────────────────────────────────────────
 
 def ewma_vol(returns, lambd=0.94):
@@ -1068,6 +1106,10 @@ except Exception as e:
             action_label = "SELL"
         # else: default BUY
 
+    # Extract sector from yfinance valuation data and update the cache
+    _yf_sector = detail.get("valuation", {}).get("sector", "Unknown")
+    _update_sector_cache(ticker, _yf_sector)
+
     return {
         **quick_result,
         "deep_score": round(combined_score, 1),
@@ -1095,25 +1137,47 @@ except Exception as e:
         # Score attribution (exposed at scan level via stock.get())
         "rules_only_score": rules_only_score,  # Pre-ML-blend score captured above
         "ml_only_score": ml_s if 'ml_s' in locals() else None,
+        "sector": _yf_sector,
     }
 
 # ── Correlation / Sector Check ───────────────────────────────────────────────
 
-def check_sector_correlation(ticker, existing_tickers):
+def check_sector_correlation(ticker, existing_tickers, sector=None,
+                             existing_positions=None):
     """
     Returns True if adding this ticker would create dangerous concentration.
     Checks both sector limits AND portfolio beta correlation.
     False = safe to trade.
+
+    sector: optional yfinance sector for the new ticker (from deep_score).
+    existing_positions: optional list of position dicts from Alpaca — used to
+        exclude options positions from the sector count (options have separate
+        slots and should NOT count toward the stock sector limit).
     """
-    # Check 1: Sector concentration
-    sector = SECTOR_MAP.get(ticker.upper(), "unknown")
-    if sector != "unknown":
-        count = sum(
-            1 for t in existing_tickers
-            if SECTOR_MAP.get(t.upper(), "unknown") == sector
-        )
-        if count >= MAX_SECTOR_POSITIONS:
-            return True
+    # Check 1: Sector concentration (stocks only)
+    new_sector = _get_sector(ticker, sector)
+
+    # Build a set of stock-only tickers from existing positions (exclude options)
+    if existing_positions is not None:
+        stock_tickers = [
+            str(p.get("symbol", "")) for p in existing_positions
+            if p.get("asset_class", "us_equity") != "us_option"
+            and len(str(p.get("symbol", ""))) <= 8
+        ]
+    else:
+        # Fallback: assume all existing_tickers are stocks (legacy callers)
+        stock_tickers = list(existing_tickers)
+
+    # Also include pending trade tickers (already filtered to stocks by caller)
+    pending_stock_tickers = [t for t in existing_tickers if t not in stock_tickers]
+    all_stock_tickers = stock_tickers + pending_stock_tickers
+
+    count = sum(
+        1 for t in all_stock_tickers
+        if _get_sector(t) == new_sector
+    )
+    if count >= MAX_SECTOR_POSITIONS:
+        return True
 
     # Check 2: High-beta concentration — don't load up on all volatile names
     # If we already hold 3+ positions, check if adding this one makes the
@@ -1704,6 +1768,7 @@ def scan_market():
             if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
         )
     except Exception:
+        current_positions = []
         current_tickers = []
         num_positions = 0
 
@@ -1804,7 +1869,14 @@ def scan_market():
             continue
 
         # Correlation / sector check — don't over-concentrate
-        if check_sector_correlation(ticker, current_tickers + [t["ticker"] for t in trades]):
+        # Pass dynamic sector from yfinance and raw positions so options are excluded
+        _pos_list = current_positions if isinstance(current_positions, list) else []
+        if check_sector_correlation(
+            ticker,
+            current_tickers + [t["ticker"] for t in trades],
+            sector=stock.get("sector"),
+            existing_positions=_pos_list,
+        ):
             continue
 
         side = stock.get("side", "buy")
