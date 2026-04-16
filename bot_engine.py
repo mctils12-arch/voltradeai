@@ -1605,20 +1605,39 @@ def _get_full_universe() -> list:
 def scan_market():
     """
     Full market scan — ALL ~11,600 tradeable US stocks, not just top 100.
-    
+
     WHY FULL UNIVERSE:
       - most-actives API only returns top 100 by volume — misses 99% of stocks
       - Scanning 11,600 with 16 parallel workers takes ~4 seconds
-      - Deep analysis only runs on top 20 — same speed as before
+      - Deep analysis only runs on top 10 — same speed as before
       - We were missing real opportunities (AEHR +17%, ENVX +13%) every scan
-    
+
     Pipeline:
     1. Load full universe (~11,600 symbols, cached daily)
     2. Fetch ALL snapshots in parallel (16 workers, ~4 seconds)
     3. Quick-score everything that passes price+volume filters
-    4. Deep-analyze top 20 candidates (same as before)
+    4. Deep-analyze top 10 candidates (capped for timeout safety)
     5. Return top positions with full trade recommendations
     """
+    import signal as _sig
+
+    def _scan_timeout_handler(signum, frame):
+        raise TimeoutError("scan_market exceeded 50-second hard cap")
+
+    _old_handler = _sig.signal(_sig.SIGALRM, _scan_timeout_handler)
+    _sig.alarm(50)  # 50s hard cap — Node kills at 90s
+    try:
+        return _scan_market_inner()
+    except TimeoutError as _te:
+        import logging
+        logging.getLogger("bot_engine").error(f"Scan timed out: {_te}")
+        return {"error": "scan_market timed out (50s hard cap)", "trades": [], "new_trades": []}
+    finally:
+        _sig.alarm(0)
+        _sig.signal(_sig.SIGALRM, _old_handler)
+
+
+def _scan_market_inner():
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
     # Step 1: Get full universe (cached daily)
@@ -1723,11 +1742,11 @@ def scan_market():
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
     scored = quick_results
 
-    # Step 3: Deep analyze top 20 in PARALLEL
+    # Step 3: Deep analyze top 10 in PARALLEL (capped from 20 for timeout safety)
     # Each deep_score internally runs 5 data sources in parallel too.
-    # Net result: 20 tickers that used to take ~4 min now complete in ~15-20s.
-    from concurrent.futures import ThreadPoolExecutor
-    top_candidates = scored[:20]
+    # Per-future timeout (20s) + total cap (45s) prevents yfinance hangs.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    top_candidates = scored[:10]  # Cap at 10 to stay under timeout (was 20)
     deep_scored = [None] * len(top_candidates)
 
     def _deep_one(args):
@@ -1738,8 +1757,17 @@ def scan_market():
             return idx, candidate
 
     with ThreadPoolExecutor(max_workers=4) as _dpool:
-        for idx, result in _dpool.map(_deep_one, enumerate(top_candidates)):
-            deep_scored[idx] = result
+        futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
+        try:
+            for future in as_completed(futures, timeout=45):  # 45s total hard cap
+                try:
+                    idx, result = future.result(timeout=20)  # 20s per ticker
+                    deep_scored[idx] = result
+                except Exception:
+                    deep_scored[futures[future]] = None
+        except TimeoutError:
+            import logging
+            logging.getLogger("bot_engine").warning("Deep scoring hit 45s cap — using partial results")
 
     deep_scored = [d for d in deep_scored if d is not None]
 
