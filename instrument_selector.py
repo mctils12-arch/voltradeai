@@ -667,7 +667,31 @@ def _score_options(trade: dict, intelligence: dict, equity: float) -> Optional[d
 
     # ── Choose strategy ────────────────────────────────────────────────────
 
-    if sell_premium:
+    ticker = trade.get("ticker", "")
+    vxx_ratio = trade.get("_vxx_ratio", 1.0)
+    regime = (trade.get("macro") or {}).get("vix_regime", "NORMAL") or "NORMAL"
+    shares_held = trade.get("shares_held", 0) or 0
+
+    # ── QQQ weekly iron condor: Monday open, Friday close ─────────────
+    # Conditions: QQQ, it's Monday, VXX ratio calm-to-normal (0.8-1.05)
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        _now_et = datetime.now(_ZI("America/New_York"))
+        _is_monday = _now_et.weekday() == 0
+    except Exception:
+        _is_monday = False
+
+    if ticker == "QQQ" and _is_monday and 0.80 <= vxx_ratio <= 1.05:
+        strategy = "qqq_iron_condor"
+        base_edge = 4.0  # Weekly premium capture
+        # No further scoring needed — this is a systematic weekly play
+
+    # ── Covered call: sell calls against existing stock holding ────────
+    elif shares_held >= 100 and not near_earnings and regime not in ("BEAR", "PANIC"):
+        strategy = "covered_call"
+        base_edge = 3.0  # Modest premium enhancement on existing position
+
+    elif sell_premium:
         # BACKTEST VALIDATED: sell_csp wins 72% of trades over 10yr (2016-2026)
         # sell_cash_secured_put is the ONLY profitable options strategy in our universe
         strategy = "sell_cash_secured_put"  # Always sell put regardless of direction
@@ -676,6 +700,19 @@ def _score_options(trade: dict, intelligence: dict, equity: float) -> Optional[d
         # IV crush bonus: if near earnings with good crush setup, reward sellers
         if iv_crush_score is not None and iv_crush_score > 50:
             base_edge += iv_crush_score * 0.05
+
+        # ── Upgrade CSP to bull put credit spread if conditions warrant ──
+        # Bull put credit spread is defined risk (better than naked CSP), so
+        # we prefer it when the setup is strong enough.
+        # Conditions: score >= 70, IVR > 40, VRP > 5, VXX ratio > 1.0,
+        #             GEX not "explosive", no earnings within 7 days
+        _ivr_val = ivr if ivr is not None else 0
+        _gex_ok = gex_regime != "explosive"
+        _no_earn_7d = not near_earnings  # near_earnings is True if <= 7 days
+        if (score >= 70 and _ivr_val > 40 and vrp > 5
+                and vxx_ratio > 1.0 and _gex_ok and _no_earn_7d):
+            strategy = "bull_put_credit_spread"
+            base_edge += 1.5  # Slight boost: defined risk is safer than naked CSP
 
     elif buy_options:
         # BACKTEST FINDING: buy_call WR=22%, avg=-2.44% over 10yr — DISABLED

@@ -77,6 +77,50 @@ const card: React.CSSProperties = { background: "rgba(0, 20, 40, 0.5)", border: 
 const label: React.CSSProperties = { fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px", fontFamily: "'JetBrains Mono', monospace" };
 const bigNum: React.CSSProperties = { fontSize: "clamp(18px, 3.5vw, 28px)", fontWeight: 700, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", color: "#c8d6e5", wordBreak: "break-word", overflow: "hidden", textOverflow: "ellipsis" };
 
+// ─── Strategy label mapping ──────────────────────────────────────────────────
+function getStrategyLabel(p: any): string | null {
+  const meta = p.optionMeta;
+  if (!meta) return null;
+  const strategy = meta.strategy || meta.setup || "";
+  const ticker = meta.underlyingTicker || p.ticker || "";
+  switch (strategy) {
+    case "sell_cash_secured_put":
+    case "csp_normal_market":
+      return "Cash-Secured Put";
+    case "bull_put_credit_spread":
+      return "Bull Put Credit Spread";
+    case "qqq_iron_condor":
+    case "iron_condor":
+      return `Iron Condor (${ticker || "QQQ"})`;
+    case "covered_call":
+      return `Covered Call (${ticker})`;
+    case "buy_call":
+      return "Long Call";
+    case "buy_put":
+      return "Long Put";
+    case "bull_call_spread":
+      return "Bull Call Spread";
+    case "bear_put_spread":
+      return "Bear Put Spread";
+    case "short_straddle":
+      return "Short Straddle";
+    case "buy_straddle":
+      return "Long Straddle";
+    case "convexity_hedge":
+      return "Protective Put";
+    default:
+      return strategy ? strategy.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : null;
+  }
+}
+
+function strategyColor(strategy: string): string {
+  if (strategy.includes("Credit Spread") || strategy.includes("Iron Condor")) return "#d4a017";
+  if (strategy.includes("Cash-Secured")) return "#30d158";
+  if (strategy.includes("Covered Call")) return "#64d2ff";
+  if (strategy.includes("Long")) return "#bf5af2";
+  return "#00e5ff";
+}
+
 // ─── Sharpe color helper ──────────────────────────────────────────────────────
 function sharpeColor(v: number) {
   if (v >= 1) return "#30d158";
@@ -762,6 +806,32 @@ function EnhancedPositions({
     setDollarView(prev => ({ ...prev, [ticker]: !prev[ticker] }));
   };
 
+  // Group multi-leg options into single display rows
+  const MULTI_LEG_STRATEGIES = ["bull_put_credit_spread", "qqq_iron_condor", "iron_condor", "bear_call_credit_spread"];
+  const grouped = (() => {
+    if (!Array.isArray(positions) || positions.length === 0) return [];
+    const stratGroups: Record<string, any[]> = {};
+    const singles: any[] = [];
+    for (const p of positions) {
+      const strat = p.optionMeta?.strategy || p.optionMeta?.setup || "";
+      const underlying = p.optionMeta?.underlyingTicker || "";
+      if (underlying && MULTI_LEG_STRATEGIES.includes(strat)) {
+        const key = `${underlying}:${strat}`;
+        if (!stratGroups[key]) stratGroups[key] = [];
+        stratGroups[key].push(p);
+      } else {
+        singles.push(p);
+      }
+    }
+    const result: Array<{ type: "single"; data: any } | { type: "group"; legs: any[]; strategy: string; underlying: string }> = [];
+    for (const [key, legs] of Object.entries(stratGroups)) {
+      const [underlying, strategy] = key.split(":");
+      result.push({ type: "group", legs, strategy, underlying });
+    }
+    for (const p of singles) result.push({ type: "single", data: p });
+    return result;
+  })();
+
   return (
     <div style={{ ...card, marginBottom: "20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
@@ -786,9 +856,134 @@ function EnhancedPositions({
         </span>
       </div>
 
-      {Array.isArray(positions) && positions.length > 0 ? (
+      {grouped.length > 0 ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {positions.map((p: any) => {
+          {/* Multi-leg grouped positions */}
+          {grouped.filter(g => g.type === "group").map((g) => {
+            if (g.type !== "group") return null;
+            const { legs, strategy, underlying } = g;
+            const totalPnl = legs.reduce((s, l) => s + Number(l.pnl ?? l.unrealized_pl ?? 0), 0);
+            const totalValue = legs.reduce((s, l) => s + Number(l.marketValue ?? l.market_value ?? 0), 0);
+            const totalCost = legs.reduce((s, l) => s + Math.abs(Number(l.qty ?? 0)) * Number(l.entryPrice ?? l.avg_entry_price ?? 0), 0);
+            // Credit received = sum of entry prices for short legs (negative qty = sold)
+            const creditReceived = legs.reduce((s, l) => {
+              const qty = Number(l.qty ?? 0);
+              if (qty < 0) return s + Math.abs(qty) * Number(l.entryPrice ?? l.avg_entry_price ?? 0);
+              return s;
+            }, 0);
+            // Max loss for credit spreads: width of strikes - credit received
+            const strikes = legs.map(l => Number(l.optionMeta?.strike ?? 0)).filter(s => s > 0);
+            const strikeWidth = strikes.length >= 2 ? (Math.max(...strikes) - Math.min(...strikes)) * 100 : 0;
+            const maxLoss = strikeWidth > 0 ? strikeWidth * Math.abs(Number(legs[0]?.qty ?? 1)) - creditReceived * 100 : 0;
+            const maxProfit = creditReceived * 100;
+            const pnlPctOfMax = maxProfit > 0 ? (totalPnl / maxProfit) * 100 : 0;
+            const pnlColor = totalPnl >= 0 ? "#30d158" : "#ff453a";
+            const stratLabel = getStrategyLabel(legs[0]) || strategy.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+            const sColor = strategyColor(stratLabel);
+            const expiry = legs[0]?.optionMeta?.expiry || "";
+            const dte = legs[0]?.optionMeta?.daysToExpiry ?? 99;
+            return (
+              <div
+                key={`group-${underlying}-${strategy}`}
+                style={{
+                  background: "rgba(0, 15, 30, 0.4)",
+                  border: `1px solid ${sColor}33`,
+                  borderLeft: `3px solid ${sColor}`,
+                  borderRadius: "4px",
+                  padding: "12px 14px",
+                }}
+              >
+                {/* Header: underlying, strategy badge, leg count, expiry */}
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" }}>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: "15px", color: "#bf5af2" }}>
+                    {underlying}
+                  </span>
+                  <span style={{
+                    fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
+                    color: sColor, background: `${sColor}1f`, border: `1px solid ${sColor}4d`,
+                    letterSpacing: "0.3px",
+                  }}>
+                    {stratLabel}
+                  </span>
+                  <span style={{ fontSize: "11px", color: "#a1a1a6" }}>
+                    {legs.length} legs
+                  </span>
+                  <span style={{
+                    fontSize: "10px", fontWeight: 600, padding: "2px 5px", borderRadius: "3px",
+                    color: dte <= 7 ? "#ff453a" : "#ffd60a",
+                    background: dte <= 7 ? "rgba(255,69,58,0.12)" : "rgba(255,214,10,0.10)",
+                    border: `1px solid ${dte <= 7 ? "rgba(255,69,58,0.3)" : "rgba(255,214,10,0.25)"}`,
+                    fontFamily: "monospace",
+                  }}>
+                    {dte}d → {expiry}
+                  </span>
+                  <button
+                    onClick={() => legs.forEach(l => closePos(l.ticker))}
+                    style={{
+                      marginLeft: "auto", padding: "4px 10px", borderRadius: "4px",
+                      border: "1px solid rgba(255,51,51,0.3)", background: "transparent",
+                      color: "#ff453a", fontSize: "11px", cursor: "pointer",
+                    }}
+                  >
+                    Close All Legs
+                  </button>
+                </div>
+                {/* Leg details */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: "8px" }}>
+                  {legs.map((l: any) => {
+                    const lQty = Number(l.qty ?? 0);
+                    const lStrike = l.optionMeta?.strike ?? 0;
+                    const lType = l.optionMeta?.optionType || "?";
+                    const lCurrent = Number(l.currentPrice ?? l.current_price ?? 0);
+                    return (
+                      <div key={l.ticker} style={{ display: "flex", gap: "8px", fontSize: "11px", color: "#a1a1a6", fontFamily: "monospace" }}>
+                        <span style={{ color: lQty < 0 ? "#ff453a" : "#30d158", fontWeight: 600, width: "40px" }}>
+                          {lQty < 0 ? "SELL" : "BUY"}
+                        </span>
+                        <span>{Math.abs(lQty)}x</span>
+                        <span style={{ color: lType === "CALL" ? "#30d158" : "#ff453a" }}>{lType}</span>
+                        <span>${lStrike}</span>
+                        <span style={{ color: "#4a5c70" }}>@ ${lCurrent.toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* P&L row: total P&L + % of max profit */}
+                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", fontSize: "12px" }}>
+                  <span style={{ color: "#4a5c70" }}>
+                    P&L:{" "}
+                    <span style={{ color: pnlColor, fontFamily: "monospace", fontWeight: 600 }}>
+                      {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
+                    </span>
+                  </span>
+                  {maxProfit > 0 && (
+                    <span style={{ color: "#4a5c70" }}>
+                      % of Max Profit:{" "}
+                      <span style={{ color: pnlPctOfMax >= 0 ? "#30d158" : "#ff453a", fontFamily: "monospace", fontWeight: 600 }}>
+                        {pnlPctOfMax >= 0 ? "+" : ""}{pnlPctOfMax.toFixed(1)}%
+                      </span>
+                    </span>
+                  )}
+                  {maxProfit > 0 && (
+                    <span style={{ color: "#4a5c70" }}>
+                      Max Profit:{" "}
+                      <span style={{ color: "#a1a1a6", fontFamily: "monospace" }}>${maxProfit.toFixed(0)}</span>
+                    </span>
+                  )}
+                  {maxLoss > 0 && (
+                    <span style={{ color: "#4a5c70" }}>
+                      Max Loss:{" "}
+                      <span style={{ color: "#ff453a", fontFamily: "monospace" }}>${maxLoss.toFixed(0)}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {/* Single (non-grouped) positions */}
+          {grouped.filter(g => g.type === "single").map((g) => {
+            if (g.type !== "single") return null;
+            const p = g.data;
             const qty = Number(p.qty ?? 0);
             const entry = Number(p.entryPrice ?? p.avg_entry_price ?? 0);
             const current = Number(p.currentPrice ?? p.current_price ?? 0);
@@ -861,19 +1056,23 @@ function EnhancedPositions({
                       {p.optionMeta?.optionType || "OPTION"}
                     </span>
                   )}
-                  {/* Options strategy badge */}
-                  {isOption && p.optionMeta?.setup && (
-                    <span style={{
-                      fontSize: "9px", fontWeight: 700, padding: "2px 5px", borderRadius: "3px",
-                      color: "#bf5af2",
-                      background: "rgba(191,90,242,0.12)",
-                      border: "1px solid rgba(191,90,242,0.3)",
-                      letterSpacing: "0.3px",
-                      textTransform: "uppercase" as const,
-                    }}>
-                      {(p.optionMeta.setup || "").replace(/_/g, " ")}
-                    </span>
-                  )}
+                  {/* Options strategy label */}
+                  {isOption && (() => {
+                    const stratLabel = getStrategyLabel(p);
+                    if (!stratLabel) return null;
+                    const sColor = strategyColor(stratLabel);
+                    return (
+                      <span style={{
+                        fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
+                        color: sColor,
+                        background: `${sColor}1f`,
+                        border: `1px solid ${sColor}4d`,
+                        letterSpacing: "0.3px",
+                      }}>
+                        {stratLabel}
+                      </span>
+                    );
+                  })()}
                   <span style={{ fontSize: "12px", color: "#a1a1a6", fontFamily: "monospace" }}>
                     {isOption ? `${qty} contracts` : `${qty} shares`}
                   </span>
@@ -970,6 +1169,19 @@ function EnhancedPositions({
                       {pnl >= 0 ? "+" : ""}${(pnl ?? 0).toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{(pnlPct ?? 0).toFixed(2)}%)
                     </span>
                   </span>
+                  {/* For single-leg credit strategies (CSP, covered call): show % of max profit */}
+                  {isOption && qty < 0 && entry > 0 && (() => {
+                    const maxProfit = Math.abs(qty) * entry * 100;
+                    const pctOfMax = maxProfit > 0 ? (pnl / maxProfit) * 100 : 0;
+                    return (
+                      <span style={{ color: "#4a5c70" }}>
+                        % Max Profit:{" "}
+                        <span style={{ color: pctOfMax >= 0 ? "#30d158" : "#ff453a", fontFamily: "monospace", fontWeight: 600 }}>
+                          {pctOfMax >= 0 ? "+" : ""}{pctOfMax.toFixed(1)}%
+                        </span>
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {/* Row 3: Today change (toggle) */}
@@ -1059,8 +1271,9 @@ function TradeHistoryPanel() {
             <thead style={{ position: "sticky", top: 0, background: "rgba(0, 10, 20, 0.95)", zIndex: 1 }}>
               <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
                 <th style={{ padding: "7px 10px", fontWeight: 500 }}>Symbol</th>
+                <th style={{ padding: "7px 6px", fontWeight: 500 }}>Strategy</th>
                 <th style={{ padding: "7px 6px", fontWeight: 500 }}>Side</th>
-                <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>Shares</th>
+                <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>Qty</th>
                 <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>Entry</th>
                 <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>Exit</th>
                 <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>P&L $</th>
@@ -1075,6 +1288,13 @@ function TradeHistoryPanel() {
                 const isPos = pnl >= 0;
                 const pnlColor = isPos ? "#30d158" : "#ff453a";
                 const sideColor = t.side === "BUY" ? "#30d158" : "#ff453a";
+                // Detect OCC option symbol: e.g. AAPL260418C00250000
+                const occMatch = (t.symbol || "").match(/^([A-Z]+)\d{6}[CP]\d{8}$/);
+                const isOptionTrade = !!occMatch;
+                const displaySymbol = occMatch ? occMatch[1] : t.symbol;
+                const strategyTag = t.strategy
+                  ? t.strategy.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+                  : isOptionTrade ? "Options" : "Stock";
                 return (
                   <tr
                     key={i}
@@ -1084,8 +1304,18 @@ function TradeHistoryPanel() {
                       background: isPos ? "rgba(48,209,88,0.03)" : "rgba(255,68,68,0.03)",
                     }}
                   >
-                    <td style={{ padding: "7px 10px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: "#c8d6e5" }}>
-                      {t.symbol}
+                    <td style={{ padding: "7px 10px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: isOptionTrade ? "#bf5af2" : "#c8d6e5" }}>
+                      {displaySymbol}
+                    </td>
+                    <td style={{ padding: "7px 6px" }}>
+                      <span style={{
+                        fontSize: "10px", fontWeight: 600, padding: "2px 5px", borderRadius: "3px",
+                        color: isOptionTrade ? "#bf5af2" : "#00e5ff",
+                        background: isOptionTrade ? "rgba(191,90,242,0.12)" : "rgba(0,229,255,0.08)",
+                        border: `1px solid ${isOptionTrade ? "rgba(191,90,242,0.3)" : "rgba(0,229,255,0.15)"}`,
+                      }}>
+                        {strategyTag}
+                      </span>
                     </td>
                     <td style={{ padding: "7px 6px", color: sideColor, fontFamily: "monospace", fontSize: "11px", fontWeight: 600 }}>
                       {t.side}
@@ -1177,6 +1407,10 @@ export default function BotDashboard() {
   const markAllRead = useMutation({
     mutationFn: () => apiRequest("POST", "/api/bot/notifications/read").then(r => r.json()),
     onSuccess: () => refetchNotifs(),
+  });
+  const resetCircuitBreaker = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/bot/circuit-breaker/reset").then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] }); queryClient.invalidateQueries({ queryKey: ["/api/bot/audit"] }); },
   });
 
   // ── Derived values ────────────────────────────────────────────────────────
@@ -1393,6 +1627,34 @@ export default function BotDashboard() {
             <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Max portfolio invested</div>
           </div>
         </div>
+
+        {/* Circuit Breaker Status & Reset */}
+        {status?.circuitBreakerActive && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px",
+            marginBottom: "16px", borderRadius: "4px",
+            background: "rgba(255,69,58,0.08)", border: "1px solid rgba(255,69,58,0.25)",
+          }}>
+            <ShieldAlert size={16} style={{ color: "#ff453a", flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "13px", fontWeight: 600, color: "#ff453a" }}>Circuit Breaker Active</div>
+              <div style={{ fontSize: "11px", color: "#a1a1a6", marginTop: "2px" }}>
+                {status.consecutiveStopLosses} consecutive stop losses
+                {status.circuitBreakerUntil && ` | Paused until ${new Date(status.circuitBreakerUntil).toLocaleTimeString()}`}
+              </div>
+            </div>
+            <button
+              onClick={() => resetCircuitBreaker.mutate()}
+              style={{
+                padding: "6px 14px", borderRadius: "4px", fontSize: "12px", fontWeight: 600,
+                border: "1px solid rgba(255,69,58,0.4)", background: "rgba(255,69,58,0.15)",
+                color: "#ff453a", cursor: "pointer", whiteSpace: "nowrap",
+              }}
+            >
+              Reset Circuit Breaker
+            </button>
+          </div>
+        )}
 
         {/* Mode & security badges */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
