@@ -2783,10 +2783,20 @@ except: print('{}')
         const tpPct = phase < 3 ? Math.max(4.0, Math.min(atrPct * 3.0, 15.0)) : 999;
 
         // Scale-out state from stop_state.json (persisted across restarts)
+        // IMPORTANT: If the position already exists in memory, preserve the
+        // in-memory values using Math.max — they may be more recent than the
+        // file if a Python persist failed (e.g., mutex timeout).
+        const existingPos = monitoredPositions[ticker];
         const originalQty = ps.original_qty || qty;
-        const remainingQty = ps.remaining_qty || qty;
-        const scalesCompleted = ps.scales_completed || 0;
-        const breakevenActive = ps.breakeven_active || false;
+        const scalesCompleted = existingPos
+          ? Math.max(existingPos.scalesCompleted, ps.scales_completed || 0)
+          : (ps.scales_completed || 0);
+        const remainingQty = existingPos
+          ? Math.min(existingPos.remainingQty, ps.remaining_qty || qty)
+          : (ps.remaining_qty || qty);
+        const breakevenActive = existingPos
+          ? (existingPos.breakevenActive || ps.breakeven_active || false)
+          : (ps.breakeven_active || false);
         const regime = ps.regime || "NEUTRAL";
         const highestPrice = Math.max(ps.highest_price || current, current);
 
@@ -2966,6 +2976,32 @@ except: print('{}')
       }
     }
 
+    // ── DUPLICATE SELL ORDER GUARD ──────────────────────────────────────────
+    // Primary defense: if there's already an open sell order for this ticker
+    // (from a prior scale-out whose persist failed), skip to avoid duplicates.
+    if (shouldScaleOut) {
+      const exitSide = pos.side === 'long' ? 'sell' : 'buy';
+      const existingSellOrder = openOrders.find(o => o.ticker === ticker && o.side === exitSide);
+      if (existingSellOrder) {
+        audit("WS-SCALE-OUT", `${ticker}: skipping — existing open ${exitSide} order found (id=${existingSellOrder.orderId})`);
+        shouldScaleOut = false;
+      }
+    }
+    if (shouldScaleOut) {
+      // Double-check against Alpaca API in case local tracking missed something
+      try {
+        const exitSide = pos.side === 'long' ? 'sell' : 'buy';
+        const existingOrders = await alpaca(`/v2/orders?status=open&symbols=${ticker}&side=${exitSide}`);
+        const parsed = JSON.parse(typeof existingOrders === 'string' ? existingOrders : JSON.stringify(existingOrders));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          audit("WS-SCALE-OUT", `${ticker}: skipping duplicate — ${parsed.length} open ${exitSide} orders already exist on Alpaca`);
+          shouldScaleOut = false;
+        }
+      } catch (_) {
+        // If API check fails, proceed with local guard only (already checked above)
+      }
+    }
+
     if (shouldScaleOut) {
       exitingTickers.add(ticker);
       try {
@@ -2995,6 +3031,7 @@ except: print('{}')
         notify("exit", `Scale-out ${ticker}: ${scaleOutLabel}`);
 
         // Persist scale-out state to stop_state.json
+        let pythonPersistOk = false;
         try {
           await execPythonSerialized(`python3 -c "
 import json, os
@@ -3010,7 +3047,27 @@ if '${ticker}' in ss:
     ss['${ticker}']['breakeven_active'] = ${pos.breakevenActive ? 'True' : 'False'}
     with open(p, 'w') as f: json.dump(ss, f)
 "`, { timeout: 5000 });
-        } catch (_) {}
+          pythonPersistOk = true;
+        } catch (persistErr: any) {
+          audit("WS-SCALE-OUT-WARN", `${ticker}: Python persist failed (${persistErr?.message?.slice(0, 80)}), using Node.js fallback`);
+        }
+
+        // Fallback: persist directly from Node.js if Python mutex is stuck
+        if (!pythonPersistOk) {
+          try {
+            const DATA_DIR = fs.existsSync('/data') ? '/data/voltrade' : '/tmp';
+            const statePath = path.join(DATA_DIR, 'voltrade_stop_state.json');
+            const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+            if (state[ticker]) {
+              state[ticker].scales_completed = pos.scalesCompleted;
+              state[ticker].remaining_qty = pos.remainingQty;
+              state[ticker].original_qty = pos.originalQty;
+              state[ticker].breakeven_active = pos.breakevenActive;
+              fs.writeFileSync(statePath, JSON.stringify(state));
+              audit("WS-SCALE-OUT", `${ticker}: scale-out state persisted via Node.js fallback`);
+            }
+          } catch (_) {}
+        }
 
       } catch (err: any) {
         audit("WS-SCALE-OUT-ERROR", `${ticker}: ${err?.message?.slice(0, 150)}`);
