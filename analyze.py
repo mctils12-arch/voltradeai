@@ -23,6 +23,29 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from datetime import datetime, timedelta
+import threading
+
+
+# ── Timeout wrapper for yfinance calls (prevents indefinite hangs) ────────────
+
+def _yf_call_with_timeout(fn, timeout=15):
+    """Run a yfinance call in a daemon thread with a hard timeout.
+    Returns the result or raises TimeoutError if the call hangs."""
+    result = [None]
+    exc = [None]
+    def _run():
+        try:
+            result[0] = fn()
+        except Exception as e:
+            exc[0] = e
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(f"yfinance call timed out after {timeout}s")
+    if exc[0]:
+        raise exc[0]
+    return result[0]
 
 
 # ── Math helpers ──────────────────────────────────────────────────────────────
@@ -1025,7 +1048,7 @@ def get_earnings_intelligence(ticker, ticker_obj, spot, atm_iv):
 
         # ── 3. Post-earnings price moves ────────────────────────────────────
         try:
-            hist_2y = ticker_obj.history(period='2y')
+            hist_2y = _yf_call_with_timeout(lambda: ticker_obj.history(period='2y'), timeout=15)
             if not hist_2y.empty and len(earnings_dates) >= 2:
                 closes = hist_2y['Close']
                 post_beat_moves = []
@@ -1725,15 +1748,20 @@ def analyze_ticker(ticker_symbol):
     import time
     ticker_symbol = ticker_symbol.upper().strip()
 
-    # Retry up to 3 times on rate limit
+    # Retry up to 3 times on rate limit (with per-call timeout to prevent hangs)
     for attempt in range(3):
         try:
             ticker = yf.Ticker(ticker_symbol)
-            hist   = ticker.history(period="1y")
+            hist   = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
             if not hist.empty:
                 break
             if attempt < 2:
                 time.sleep(3)
+        except TimeoutError:
+            if attempt < 2:
+                time.sleep(2)
+                continue
+            raise
         except Exception as e:
             if "Too Many Requests" in str(e) or "rate" in str(e).lower():
                 if attempt < 2:
@@ -1741,12 +1769,15 @@ def analyze_ticker(ticker_symbol):
                     continue
             raise
     else:
-        hist = ticker.history(period="1y")
+        hist = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
 
     if hist.empty:
         return {"error": f"No data found for '{ticker_symbol}'. Please check the ticker symbol."}
 
-    info = ticker.info
+    try:
+        info = _yf_call_with_timeout(lambda: ticker.info, timeout=15)
+    except (TimeoutError, Exception):
+        info = {}
     spot = float(hist['Close'].iloc[-1])
     r    = 0.05  # risk-free rate
 
@@ -2182,7 +2213,7 @@ def analyze_ticker(ticker_symbol):
 
     # Relative Strength
     try:
-        _spy = yf.Ticker("SPY").history(period="1mo")
+        _spy = _yf_call_with_timeout(lambda: yf.Ticker("SPY").history(period="1mo"), timeout=10)
         rs_score, rs_signal = compute_relative_strength(hist, _spy)
         if rs_score is not None:
             edge_factors['relative_strength'] = rs_score
@@ -2264,7 +2295,7 @@ def quick_scan(ticker_symbol):
     import yfinance as yf
     try:
         ticker = yf.Ticker(ticker_symbol)
-        hist   = ticker.history(period="6mo")
+        hist   = _yf_call_with_timeout(lambda: ticker.history(period="6mo"), timeout=10)
         if hist.empty or len(hist) < 30:
             return None
 

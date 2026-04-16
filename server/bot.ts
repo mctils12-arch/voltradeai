@@ -27,10 +27,10 @@ let pythonRunning = false;
 let pythonLockedAt = 0;
 async function execPythonSerialized(cmd: string, opts?: any) {
   const maxWait = opts?.timeout || 30000;
-  const hardTimeout = Math.min(opts?.timeout || 60000, 60000); // Never exceed 60s
+  const hardTimeout = Math.min(opts?.timeout || 90000, 90000); // Never exceed 90s (Python has 50s SIGALRM)
   const start = Date.now();
   while (pythonRunning) {
-    if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 600000) {
+    if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 120000) {
       console.error("[python-mutex] Force-releasing stale lock held for", Math.round((Date.now() - pythonLockedAt) / 1000), "seconds");
       pythonRunning = false;
       pythonLockedAt = 0;
@@ -52,7 +52,7 @@ async function execPythonSerialized(cmd: string, opts?: any) {
 // ─── Python Mutex Watchdog ──────────────────────────────────────────────────
 // Safety net: force-release stale Python locks every 60s, independent of scan loop
 setInterval(() => {
-  if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 600000) {
+  if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 120000) {
     console.error("[python-mutex] Watchdog: force-releasing stale lock held for", Math.round((Date.now() - pythonLockedAt) / 1000), "seconds");
     pythonRunning = false;
     pythonLockedAt = 0;
