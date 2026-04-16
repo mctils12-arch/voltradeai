@@ -1505,10 +1505,19 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
         // Remove from tracked list
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
+        // Clear pendingExit so the position can be re-evaluated for exit
+        if (monitoredPositions[stale.ticker]) {
+          monitoredPositions[stale.ticker].pendingExit = false;
+        }
       } catch (e: any) {
         // Order may have already filled or been cancelled
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
+        // Also clear pendingExit — if the order filled, the next sync will remove
+        // the position entirely; if cancelled, we want to allow re-evaluation
+        if (monitoredPositions[stale.ticker]) {
+          monitoredPositions[stale.ticker].pendingExit = false;
+        }
       }
     }
 
@@ -2597,6 +2606,7 @@ print('cleared')
         (state as any).dailyBlockedTickers = [];
         state.consecutiveStopLosses = 0;
         (state as any).recentStopTickers = [];
+        (state as any).lastStopTimes = {};
         state.morningQueueExecuted = false;
         // OOM fix: reassign instead of for...delete (V8 keeps hidden class slots with delete)
         orderAttemptCounts = {};
@@ -2716,6 +2726,7 @@ print(json.dumps({'files': count}))
     // ATR-based trailing (Phase 4 fix)
     atrPct: number;            // Current ATR as % of price
     highestPrice: number;      // Highest price reached (for ATR trailing from price, not P&L)
+    pendingExit?: boolean;     // True when exit order placed but not yet filled
   }
 
   const monitoredPositions: Record<string, MonitoredPosition> = {};
@@ -2808,19 +2819,17 @@ except: print('{}')
           originalQty, remainingQty, scalesCompleted, breakevenActive,
           regime, atrPct: atrPct, highestPrice,
         };
+        // Preserve pendingExit flag from in-memory state — prevents re-triggering
+        // exit logic while a limit sell order is still open and unfilled
+        if (existingPos?.pendingExit) {
+          monitoredPositions[ticker].pendingExit = true;
+        }
       }
 
-      // Remove positions that are no longer held
+      // Remove positions that are no longer held (order filled or closed externally)
       for (const ticker of Object.keys(monitoredPositions)) {
         if (!activeTickers.has(ticker)) {
-          delete monitoredPositions[ticker];
-          // Unsubscribe if we added it for monitoring
-          if (positionSubscribedTickers.has(ticker)) {
-            positionSubscribedTickers.delete(ticker);
-            if (streamWs && streamConnected) {
-              try { streamWs.send(JSON.stringify({ action: "unsubscribe", bars: [ticker] })); } catch (_) {}
-            }
-          }
+          removePositionFromMonitor(ticker);
         }
       }
 
@@ -2917,6 +2926,7 @@ except: print('{}')
   async function checkPositionOnTick(ticker: string, currentPrice: number) {
     const pos = monitoredPositions[ticker];
     if (!pos || exitingTickers.has(ticker)) return;
+    if (pos.pendingExit) return; // Exit order already placed, waiting for fill
     if (!state.active || state.killSwitch) return;
 
     const entry = pos.entryPrice;
@@ -3158,6 +3168,21 @@ if '${ticker}' in ss:
     // ── FIRE EXIT ORDER (remaining position) ─────────────────────────────────
     exitingTickers.add(ticker);
 
+    // Check for existing open sell orders on this ticker before placing exit
+    try {
+      const exitSideCheck = pos.side === 'long' ? 'sell' : 'buy';
+      const existingResp = await alpaca(`/v2/orders?status=open&symbols=${ticker}&side=${exitSideCheck}`);
+      const existingOrders = JSON.parse(typeof existingResp === 'string' ? existingResp : JSON.stringify(existingResp));
+      if (Array.isArray(existingOrders) && existingOrders.length > 0) {
+        const totalHeld = existingOrders.reduce((sum: number, o: any) => sum + Number(o.qty || 0), 0);
+        audit("WS-EXIT", `${ticker}: skipping — ${existingOrders.length} open ${exitSideCheck} orders already exist (${totalHeld} shares held)`);
+        exitingTickers.delete(ticker);
+        return;
+      }
+    } catch (_) {
+      // If the check fails, proceed cautiously
+    }
+
     try {
       const exitSide = pos.side === 'long' ? 'sell' : 'buy';
       const exitQty = pos.remainingQty;
@@ -3200,8 +3225,16 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
 "`, { timeout: 5000 });
         } catch (_) {}
 
-        // Circuit breaker logic
-        state.consecutiveStopLosses++;
+        // Circuit breaker logic — dedup same ticker within 5 min to prevent
+        // duplicate exit attempts from inflating the stop counter
+        if (!(state as any).lastStopTimes) (state as any).lastStopTimes = {};
+        const lastStopTime = (state as any).lastStopTimes[ticker] || 0;
+        if (Date.now() - lastStopTime < 300000) {
+          audit("WS-EXIT", `${ticker}: skipping circuit breaker increment — same ticker stopped ${Math.round((Date.now() - lastStopTime) / 1000)}s ago`);
+        } else {
+          state.consecutiveStopLosses++;
+        }
+        (state as any).lastStopTimes[ticker] = Date.now();
         if (!Array.isArray((state as any).recentStopTickers)) (state as any).recentStopTickers = [];
         (state as any).recentStopTickers.push(ticker);
         if ((state as any).recentStopTickers.length > 5) (state as any).recentStopTickers.shift();
@@ -3238,8 +3271,10 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
         state.consecutiveStopLosses = 0;
       }
 
-      // Remove from monitoring (position fully closed)
-      removePositionFromMonitor(ticker);
+      // Mark as pending exit — don't remove from monitoring until the order fills.
+      // This prevents the position from being re-discovered on the next sync and
+      // triggering a duplicate exit order (which fails with 403 insufficient qty).
+      pos.pendingExit = true;
 
     } catch (err: any) {
       audit("WS-EXIT-ERROR", `${ticker}: ${err?.message?.slice(0, 150)}`);
