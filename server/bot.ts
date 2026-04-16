@@ -3067,6 +3067,48 @@ except: print('{}')
 
     if (shouldScaleOut) {
       exitingTickers.add(ticker);
+
+      // ── COVERED CALL CHECK on scale-out ──────────────────────────────────
+      // If scaling out would drop us below 100 shares, buy back any short calls first
+      // to prevent becoming under-covered (partial naked exposure).
+      const sharesAfterScale = pos.remainingQty - scaleOutQty;
+      if (sharesAfterScale < 100) {
+        try {
+          const scalePositions = await alpaca("/v2/positions");
+          const scaleAllPos = Array.isArray(scalePositions) ? scalePositions : JSON.parse(typeof scalePositions === 'string' ? scalePositions : '[]');
+          const scaleCalls = scaleAllPos.filter((p: any) =>
+            p.asset_class === "us_option"
+            && p.symbol.startsWith(ticker)
+            && parseInt(p.qty) < 0
+            && p.symbol.slice(ticker.length).includes("C")
+          );
+          for (const sc of scaleCalls) {
+            const buyBackQty = Math.abs(parseInt(sc.qty));
+            audit("CC-UNWIND", `${ticker}: Scale-out would leave ${sharesAfterScale} shares — buying back ${buyBackQty}x ${sc.symbol}`);
+            try {
+              await alpaca("/v2/orders", {
+                method: "POST",
+                body: JSON.stringify({
+                  symbol: sc.symbol,
+                  qty: String(buyBackQty),
+                  side: "buy",
+                  type: "market",
+                  time_in_force: "day",
+                }),
+              });
+              audit("CC-UNWIND", `${ticker}: Buy-back order placed for ${sc.symbol}`);
+            } catch (unwindErr: any) {
+              audit("CC-UNWIND-ERROR", `${ticker}: Failed to buy back ${sc.symbol} on scale-out: ${unwindErr?.message}`);
+              notify("system", `CRITICAL: Could not buy back covered call ${sc.symbol} — scale-out BLOCKED`);
+              exitingTickers.delete(ticker);
+              return;
+            }
+          }
+        } catch (_) {
+          audit("CC-UNWIND-WARN", `${ticker}: Could not check for open calls on scale-out`);
+        }
+      }
+
       try {
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         const orderParams = getOrderParams(currentPrice, 'take_profit');
@@ -3220,6 +3262,46 @@ if '${ticker}' in ss:
 
     // ── FIRE EXIT ORDER (remaining position) ─────────────────────────────────
     exitingTickers.add(ticker);
+
+    // ── COVERED CALL UNWIND: Buy back any short calls before selling stock ──
+    // If we sell stock while holding a short call, it becomes naked (unlimited risk).
+    try {
+      const positionsResp = await alpaca("/v2/positions");
+      const allPositions = Array.isArray(positionsResp) ? positionsResp : JSON.parse(typeof positionsResp === 'string' ? positionsResp : '[]');
+      const shortCalls = allPositions.filter((p: any) =>
+        p.asset_class === "us_option"
+        && p.symbol.startsWith(ticker)
+        && parseInt(p.qty) < 0
+        && p.symbol.slice(ticker.length).includes("C")
+      );
+
+      for (const sc of shortCalls) {
+        const buyBackQty = Math.abs(parseInt(sc.qty));
+        audit("CC-UNWIND", `${ticker}: Buying back ${buyBackQty}x ${sc.symbol} before stock exit`);
+        try {
+          await alpaca("/v2/orders", {
+            method: "POST",
+            body: JSON.stringify({
+              symbol: sc.symbol,
+              qty: String(buyBackQty),
+              side: "buy",
+              type: "market",
+              time_in_force: "day",
+            }),
+          });
+          audit("CC-UNWIND", `${ticker}: Buy-back order placed for ${sc.symbol}`);
+        } catch (unwindErr: any) {
+          audit("CC-UNWIND-ERROR", `${ticker}: Failed to buy back ${sc.symbol}: ${unwindErr?.message}`);
+          // DON'T proceed with stock sale if we can't close the call — that leaves us naked
+          notify("system", `CRITICAL: Could not buy back covered call ${sc.symbol} — stock exit BLOCKED`);
+          exitingTickers.delete(ticker);
+          return;
+        }
+      }
+    } catch (posErr: any) {
+      // If we can't check positions, log but proceed (better to exit than hold)
+      audit("CC-UNWIND-WARN", `${ticker}: Could not check for open calls: ${posErr?.message}`);
+    }
 
     // Check for existing open sell orders on this ticker before placing exit
     try {
