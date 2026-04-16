@@ -1954,11 +1954,18 @@ def scan_market():
         # Instrument decision: stock vs 2x ETF vs options (unified selector)
         instrument_decision = {"chosen": "stock", "strategy": "buy_stock", "reasoning": "default"}
         options_decision = {"use_options": False, "strategy": "stock", "reason": ""}
+        # Look up shares held for this ticker (needed for covered call eligibility)
+        _ticker_shares = 0
+        for _p in (current_positions if isinstance(current_positions, list) else []):
+            if str(_p.get("symbol", "")).upper() == ticker.upper() and _p.get("asset_class", "us_equity") != "us_option":
+                _ticker_shares = int(float(_p.get("qty", 0)))
+                break
         try:
             from instrument_selector import select_instrument
             instrument_decision = select_instrument(
                 trade={**stock, "score": final_score, "deep_score": final_score,
-                       "side": side, "action_label": action_label},
+                       "side": side, "action_label": action_label,
+                       "shares_held": _ticker_shares},
                 equity=portfolio_value,
                 positions=current_positions if isinstance(current_positions, list) else [],
                 macro=_macro,
@@ -2150,6 +2157,98 @@ def scan_market():
         options_mgmt_result = manage_options_positions(equity=portfolio_value)
     except Exception as _ome:
         options_mgmt_result["error"] = str(_ome)[:200]
+
+    # Step 8c: Covered Call Sweep ──────────────────────────────────────────────
+    # Check ALL existing stock positions for covered call eligibility.
+    # Runs independently of the stock scanner — a position doesn't need to
+    # "score well" to have a covered call written on it. It just needs 100+ shares.
+    # This fixes QQQ (passive floor) never getting covered calls because it
+    # never appears in the stock scanner results.
+    try:
+        for _cc_pos in (current_positions if isinstance(current_positions, list) else []):
+            _cc_ticker = str(_cc_pos.get("symbol", ""))
+            _cc_qty = int(float(_cc_pos.get("qty", 0)))
+            _cc_class = _cc_pos.get("asset_class", "us_equity")
+
+            # Skip options positions, positions with <100 shares, or long OCC symbols
+            if _cc_class == "us_option" or len(_cc_ticker) > 8 or _cc_qty < 100:
+                continue
+
+            # Skip if we already have a short call on this ticker
+            _has_cc = False
+            for _ex_pos in (current_positions if isinstance(current_positions, list) else []):
+                _ex_sym = str(_ex_pos.get("symbol", ""))
+                if (_ex_pos.get("asset_class") == "us_option"
+                        and _ex_sym.startswith(_cc_ticker)
+                        and int(float(_ex_pos.get("qty", 0))) < 0
+                        and "C" in _ex_sym[len(_cc_ticker):]):
+                    _has_cc = True
+                    break
+            if _has_cc:
+                continue
+
+            # Skip if already in today's trade list
+            if _cc_ticker in [t["ticker"] for t in trades if t.get("trade_type") == "options"]:
+                continue
+
+            # Earnings guard (7 days for covered calls)
+            try:
+                from options_execution import _check_earnings_guard
+                if not _check_earnings_guard(_cc_ticker, 7):
+                    continue
+            except Exception:
+                pass
+
+            # Skip in BEAR/PANIC regimes
+            _cc_regime = _scan_regime if '_scan_regime' in dir() else "NEUTRAL"
+            if _cc_regime in ("BEAR", "PANIC"):
+                continue
+
+            _cc_price = float(_cc_pos.get("current_price", 0) or 0)
+            if _cc_price <= 0:
+                continue
+
+            trades.append({
+                "action": "SELL COVERED CALL",
+                "side": "sell",
+                "trade_type": "options",
+                "ticker": _cc_ticker,
+                "shares": 0,
+                "price": _cc_price,
+                "score": 75,
+                "reasons": [f"Covered call on {_cc_qty} shares of {_cc_ticker}"],
+                "recommendation": None,
+                "rec_reasoning": f"Covered call: sell OTM calls against {_cc_qty} shares",
+                "stop_loss": None,
+                "take_profit": None,
+                "position_value": 0,
+                "sizing_reasoning": f"Covered call on existing {_cc_qty}-share position",
+                "sizing_scalars": {},
+                "momentum_score": None,
+                "mean_reversion_score": None,
+                "vrp_score": None,
+                "squeeze_score": None,
+                "volume_score": None,
+                "ewma_rv": None,
+                "garch_rv": None,
+                "rsi": None,
+                "vrp": None,
+                "instrument": "options",
+                "instrument_strategy": "covered_call",
+                "instrument_reasoning": f"Covered call on {_cc_qty} shares",
+                "instrument_ticker": _cc_ticker,
+                "instrument_scores": {},
+                "use_options": True,
+                "options_strategy": "covered_call",
+                "options_reasoning": f"Sell OTM call against {_cc_qty}-share holding",
+                "options_edge_pct": 3.0,
+                "rules_score": 75,
+                "ml_score_raw": None,
+                "shares_held": _cc_qty,
+            })
+    except Exception as _cc_sweep_err:
+        import logging as _cc_log
+        _cc_log.getLogger("bot_engine").warning(f"Covered call sweep error: {_cc_sweep_err}")
 
     # Step 9: Third Leg (v1.0.25) ─────────────────────────────────────────────
     # Runs alongside stock scan in every cycle.
@@ -2795,6 +2894,40 @@ def _run_convexity_overlay(macro: dict) -> dict:
     }
 
 
+def _unwind_covered_calls(ticker: str) -> list:
+    """Buy back any short calls on `ticker` before selling the underlying stock.
+    Returns a list of action dicts describing what was unwound.
+    If a buy-back order fails, raises RuntimeError to block the stock sale."""
+    import requests as _req
+    actions = []
+    try:
+        positions = get_alpaca_positions()
+        for pos in (positions if isinstance(positions, list) else []):
+            sym = str(pos.get("symbol", ""))
+            if (pos.get("asset_class") == "us_option"
+                    and sym.startswith(ticker)
+                    and int(float(pos.get("qty", 0))) < 0
+                    and "C" in sym[len(ticker):]):
+                buy_qty = abs(int(float(pos.get("qty", 0))))
+                import logging as _uwlog
+                _uwlog.getLogger("bot_engine").info(
+                    f"[CC-UNWIND] {ticker}: Buying back {buy_qty}x {sym} before stock sale")
+                resp = _req.post(f"{ALPACA_BASE_URL}/v2/orders",
+                    json={"symbol": sym, "qty": str(buy_qty),
+                          "side": "buy", "type": "market", "time_in_force": "day"},
+                    headers=_alpaca_headers(), timeout=10)
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"Failed to buy back {sym}: HTTP {resp.status_code} {resp.text[:200]}")
+                actions.append({"type": "cc_unwind", "symbol": sym, "qty": buy_qty,
+                                "ticker": ticker})
+    except RuntimeError:
+        raise  # Propagate — caller must block stock sale
+    except Exception as e:
+        import logging as _uwlog
+        _uwlog.getLogger("bot_engine").warning(f"[CC-UNWIND] {ticker}: Error checking calls: {e}")
+    return actions
+
+
 # ── Passive SPY Floor (v1.0.29) ──────────────────────────────────────────────
 
 def _manage_spy_floor(macro: dict) -> dict:
@@ -2905,6 +3038,14 @@ def _manage_spy_floor(macro: dict) -> dict:
                     if floor_pos:
                         qty = abs(int(float(floor_pos[0].get("qty", 0))))
                         if qty > 0:
+                            # Unwind any covered calls before selling stock
+                            try:
+                                uw_actions = _unwind_covered_calls(floor_ticker)
+                                result["actions"].extend(uw_actions)
+                            except RuntimeError as _uw_err:
+                                import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {floor_ticker}, blocking sale: {_uw_err}")
+                                result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
+                                return result
                             requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                                 json={"symbol": floor_ticker, "qty": str(qty),
                                       "side": "sell", "type": "market",
@@ -3018,6 +3159,16 @@ def _manage_spy_floor(macro: dict) -> dict:
         else:
             sell_qty = min(abs(shares_diff), current_spy_shares)
             if sell_qty > 0:
+                # Unwind covered calls if selling would leave <100 shares
+                _remaining_after_sell = current_spy_shares - sell_qty
+                if _remaining_after_sell < 100:
+                    try:
+                        uw_actions = _unwind_covered_calls(floor_ticker)
+                        result["actions"].extend(uw_actions)
+                    except RuntimeError as _uw_err:
+                        import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {floor_ticker}, blocking sale: {_uw_err}")
+                        result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
+                        return result
                 try:
                     requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                         json={"symbol": floor_ticker, "qty": str(sell_qty),
