@@ -1761,7 +1761,7 @@ def _scan_market_inner():
     }
     # Step 3: Deep analyze top 5 in PARALLEL (capped from 10 for timeout safety)
     # Each deep_score internally runs 5 data sources in parallel too.
-    # Per-future timeout (12s) + total cap (25s) prevents yfinance hangs.
+    # Per-future timeout (8s) + total cap (35s) prevents yfinance hangs.
     from concurrent.futures import ThreadPoolExecutor, as_completed
     top_candidates = scored[:10]  # Deep analyze top 10 quick-scored stocks
     deep_scored = [None] * len(top_candidates)
@@ -1776,9 +1776,9 @@ def _scan_market_inner():
     with ThreadPoolExecutor(max_workers=4) as _dpool:
         futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
         try:
-            for future in as_completed(futures, timeout=25):  # 25s total hard cap
+            for future in as_completed(futures, timeout=35):  # 35s total hard cap
                 try:
-                    idx, result = future.result(timeout=12)  # 12s per ticker
+                    idx, result = future.result(timeout=8)  # 8s per ticker — kill slow yfinance calls
                     deep_scored[idx] = result
                 except Exception:
                     deep_scored[futures[future]] = None
