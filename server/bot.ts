@@ -24,17 +24,36 @@ const execAsync = (cmd: string, opts?: any) => _execRaw(cmd, { env: _pyEnv, ...o
 // numpy/pandas/sklearn/lightgbm (~100-150MB). Concurrent subprocesses push the
 // container past its memory limit. This mutex ensures sequential execution.
 let pythonRunning = false;
+let pythonLockedAt = 0;
 async function execPythonSerialized(cmd: string, opts?: any) {
   const maxWait = opts?.timeout || 30000;
   const start = Date.now();
   while (pythonRunning) {
+    // Self-heal: force-release stale locks held longer than 10 minutes
+    if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 600000) {
+      console.error("[python-mutex] Force-releasing stale lock held for", Math.round((Date.now() - pythonLockedAt) / 1000), "seconds");
+      pythonRunning = false;
+      pythonLockedAt = 0;
+      break;
+    }
     if (Date.now() - start > maxWait) throw new Error("Python mutex timeout — another Python process is holding the lock");
     await new Promise(r => setTimeout(r, 500));
   }
   pythonRunning = true;
+  pythonLockedAt = Date.now();
   try { return await execAsync(cmd, opts); }
-  finally { pythonRunning = false; }
+  finally { pythonRunning = false; pythonLockedAt = 0; }
 }
+
+// ─── Python Mutex Watchdog ──────────────────────────────────────────────────
+// Safety net: force-release stale Python locks every 60s, independent of scan loop
+setInterval(() => {
+  if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 600000) {
+    console.error("[python-mutex] Watchdog: force-releasing stale lock held for", Math.round((Date.now() - pythonLockedAt) / 1000), "seconds");
+    pythonRunning = false;
+    pythonLockedAt = 0;
+  }
+}, 60000);
 
 // ─── Temp File Cleanup (OOM fix) ────────────────────────────────────────────
 // Orphaned temp files from fire-and-forget Python subprocesses that timed out
@@ -3327,6 +3346,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       return;
     }
 
+    let hitMutexTimeout = false;
     try {
       const clock = await alpaca("/v2/clock");
       const etH = getETHour();
@@ -3341,11 +3361,18 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       audit("TIER2", `Starting scan (interval: ${Math.round(interval / 60000)}min based on market time)`);
       await tier2Intelligence(clock.is_open, etH);
     } catch (err: any) {
-      console.error("[tier2]", err?.message || err);
-      audit("TIER2-ERROR", String(err?.message || err).slice(0, 200));
+      const msg = String(err?.message || err);
+      hitMutexTimeout = msg.includes("mutex timeout");
+      if (!hitMutexTimeout) {
+        console.error("[tier2]", msg);
+        audit("TIER2-ERROR", msg.slice(0, 200));
+      } else {
+        console.error("[tier2] mutex timeout — backing off 60s");
+      }
     } finally {
       tier2Running = false;
-      setTimeout(scheduleTier2, getTier2Interval());
+      const delay = hitMutexTimeout ? Math.max(60000, getTier2Interval()) : getTier2Interval();
+      setTimeout(scheduleTier2, delay);
     }
   }
 
