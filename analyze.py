@@ -82,8 +82,8 @@ def _fetch_alpaca_bars(symbol, days=180):
     Returns a pandas DataFrame matching yfinance format (Open, High, Low, Close, Volume)
     with a DatetimeIndex, or an empty DataFrame on failure."""
     import pandas as pd
-    api_key = os.environ.get("ALPACA_API_KEY", "")
-    secret  = os.environ.get("ALPACA_SECRET_KEY", "")
+    api_key = os.environ.get("ALPACA_KEY", "")
+    secret  = os.environ.get("ALPACA_SECRET", "")
     if not api_key or not secret:
         return pd.DataFrame()
 
