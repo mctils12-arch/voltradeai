@@ -220,7 +220,13 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
     
     # Scenario 1: SELL OPTIONS — VRP is high (IV >> realized vol)
     # Options are overpriced. Selling premium has an edge.
-    if "SELL OPTIONS" in action.upper() or vrp > 4:
+    #
+    # VRP bar lowered from +4 to +2.0 (2026-04-17, backtest_scenario_c_wf).
+    # Rationale: Alpaca options are commission-free, so the historical +4 bar
+    # (which existed to cover $0.65/contract costs) is no longer justified.
+    # OOS walk-forward (2023-2026) showed CAGR 37.90% → 40.07%, Sortino 2.88 → 3.30,
+    # MaxDD 15.29% → 12.24% when dropping the threshold to +2.0.
+    if "SELL OPTIONS" in action.upper() or vrp > 2.0:
         if earn_scalar < 0.6:
             # Near earnings — IV is high for a reason, selling is risky
             result["reason"] = "VRP is high but earnings are near — IV could spike more, too risky to sell"
@@ -972,9 +978,11 @@ def _select_qqq_iron_condor(contracts: list, price: float, equity: float, ticker
 
 def _select_covered_call(contracts: list, price: float, equity: float, ticker: str, shares_held: int = 100) -> dict:
     """
-    Covered call: sell OTM call (15-20 delta) against existing stock holding.
+    Covered call: sell OTM call (20 delta) against existing stock holding.
     Weekly: 4-7 DTE preferred.
     qty = shares_held // 100 (one contract per 100-share lot).
+
+    Delta target raised from 17.5 → 20 on 2026-04-17 per backtest_cc_investigation.
     """
     if shares_held < 100:
         return {"error": f"Need at least 100 shares to sell covered call (have {shares_held})"}
@@ -1008,19 +1016,23 @@ def _select_covered_call(contracts: list, price: float, equity: float, ticker: s
         if dte < 2 or dte > 21:
             continue
 
-        # Target 15-20 delta OTM call
+        # Target 20-delta OTM call (raised from 17.5-delta on 2026-04-17).
+        # Backtest backtest_cc_investigation (OOS 2023-2026): CC delta 30 → 20
+        # flipped CC P&L from -$10,417 to ~-$5,292 and lifted portfolio CAGR
+        # from 40.07% → 42.23%, Sortino 3.30 → 3.41, MaxDD 12.24% → 12.76%.
+        # Further OTM = less upside capping on winning stocks.
         candidates = [
             c for c in exp_calls
-            if 0.10 <= abs(c.get("delta", 0)) <= 0.25
+            if 0.15 <= abs(c.get("delta", 0)) <= 0.25
         ]
         if not candidates:
-            # Fallback: closest to 0.175 delta
-            candidates = sorted(exp_calls, key=lambda c: abs(abs(c.get("delta", 0)) - 0.175))
+            # Fallback: closest to 0.20 delta
+            candidates = sorted(exp_calls, key=lambda c: abs(abs(c.get("delta", 0)) - 0.20))
             candidates = candidates[:3]
         if not candidates:
             continue
 
-        best = min(candidates, key=lambda c: abs(abs(c.get("delta", 0)) - 0.175))
+        best = min(candidates, key=lambda c: abs(abs(c.get("delta", 0)) - 0.20))
         break
 
     if best is None:
