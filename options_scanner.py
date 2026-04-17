@@ -749,8 +749,14 @@ def _setup_vxx_panic_put_sale(vxx_ratio: float, spy_vs_ma50: float) -> Optional[
         "setup":            "vxx_panic_put_sale",
         "score":            score,
         "price":            spy_price,
-        "action_label":     "SELL PUT (VXX panic — market overpaying for protection)",
-        "options_strategy": "sell_cash_secured_put",
+        "action_label":     "SELL PUT SPREAD (VXX panic — market overpaying for protection)",
+        # P0-10 FIX: VXX panic fires when vxx_ratio >= 1.30, i.e. market is
+        # genuinely panicking. Selling a NAKED cash-secured put there ties
+        # up massive buying power (strike × 100 per contract) and leaves us
+        # exposed to unbounded downside on a 1987-style gap. Switching to
+        # a defined-risk bull put credit spread keeps the same positive-carry
+        # thesis (we collect premium) but caps the tail at spread width × 100.
+        "options_strategy": "bull_put_credit_spread",
         "vxx_ratio":        vxx_ratio,
         "put_strike":       best_put["strike"],
         "put_exp":          best_put["exp_date"],

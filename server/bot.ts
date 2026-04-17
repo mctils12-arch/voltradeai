@@ -2183,10 +2183,44 @@ if contract.get('error'):
 else:
     order = submit_options_order(contract)
     if order.get('status') in ('submitted','filled','pending_new','accepted'):
+        # P0-9 FIX: previous call passed delta as the 4th positional arg,
+        # but register_options_entry's signature is
+        # (occ_symbol, entry_price, side, strategy, delta=0, qty=1, ticker, setup, max_loss).
+        # So strategy was never registered, every position defaulted to
+        # strategy='' which broke grouping/profit-target/max-loss logic.
+        # Use kwargs + iterate ALL leg keys so multi-leg states get saved.
         try:
             from options_manager import register_options_entry
-            register_options_entry(contract.get('occ_symbol',''), contract.get('limit_price',0), contract.get('side','buy'), contract.get('delta',0), contract.get('qty',1))
-        except: pass
+            _strategy = data.get('strategy','')
+            _ticker = data.get('ticker','')
+            _setup = data.get('setup','')
+            _max_loss = float(contract.get('max_loss', 0) or 0)
+            _leg_keys = ['occ_symbol','short_call','long_call','short_put','long_put','call_leg','put_leg']
+            _registered = set()
+            for _lk in _leg_keys:
+                _occ = contract.get(_lk,'')
+                if not _occ or _occ in _registered:
+                    continue
+                _registered.add(_occ)
+                # Each leg carries its own side / delta / qty if present,
+                # falling back to top-level contract fields.
+                _leg_side = contract.get(_lk + '_side') or contract.get('side','buy')
+                _leg_delta = contract.get(_lk + '_delta')
+                if _leg_delta is None: _leg_delta = contract.get('delta',0)
+                _leg_qty = contract.get(_lk + '_qty') or contract.get('qty',1)
+                _leg_price = contract.get(_lk + '_price') or contract.get('limit_price',0)
+                register_options_entry(
+                    occ_symbol=_occ,
+                    entry_price=float(_leg_price or 0),
+                    side=_leg_side,
+                    strategy=_strategy,
+                    delta=float(_leg_delta or 0),
+                    qty=int(_leg_qty or 1),
+                    ticker=_ticker,
+                    setup=_setup,
+                    max_loss=_max_loss,
+                )
+        except Exception as _e: pass
         # v1.0.33: Save options state for dashboard display (setup, strategy, expiry)
         try:
             import os
@@ -2198,7 +2232,11 @@ else:
             try:
                 with open(state_path) as _f: ostate = json.load(_f)
             except: ostate = {}
-            for key in [contract.get('occ_symbol',''), contract.get('call_leg',''), contract.get('put_leg','')]:
+            # P0-9 FIX: iterate all possible multi-leg keys, not just call/put.
+            for key in [contract.get('occ_symbol',''),
+                        contract.get('short_call',''), contract.get('long_call',''),
+                        contract.get('short_put',''),  contract.get('long_put',''),
+                        contract.get('call_leg',''),   contract.get('put_leg','')]:
                 if key:
                     ostate[key] = {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'ticker': data.get('ticker','')}
             ostate[data.get('ticker','')] = {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'options_strategy': data.get('strategy','')}

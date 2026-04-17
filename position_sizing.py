@@ -156,31 +156,73 @@ def _get_historical_stats() -> dict:
 #  B. VOLATILITY SCALING — Volatile stocks get smaller positions
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _normalize_vol_to_daily_pct(v):
+    """
+    Normalize heterogeneous volatility inputs to a daily percentage value
+    in the 0.5-10 range expected by _volatility_scalar().
+
+    Accepted inputs (auto-detected by magnitude):
+      * Daily ATR percent, e.g. 2.3      -> returned as-is
+      * Annualized vol percent, e.g. 22  -> divided by sqrt(252) -> 1.39
+      * Annualized vol fraction, e.g. 0.22 -> *100 then /sqrt(252)
+
+    Heuristic boundaries (tightened 2026-04-17):
+      v <= 0.6    : treat as annualized *fraction* (like 0.22 = 22%, 0.5 = 50%)
+                    — no stock has a 60% *daily* ATR, so this is always a fraction.
+      0.6 < v <= 12 : treat as daily percent (typical ATR% range)
+      v > 12      : treat as annualized percent (like 22, 45, 60 for vol)
+    """
+    if v is None or v <= 0:
+        return None
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if x <= 0.0:
+        return None
+    # Annualized fraction (0.22 = 22% ann'd, covers up to 60% ann vol).
+    # Raised cutoff from 0.2 → 0.6 since 0.22 (a common ann'd fraction for
+    # large caps) previously fell into the daily-pct branch and was treated
+    # as 0.22% daily ATR (insanely low) — giving 1.2x size scalar on
+    # volatile regimes.
+    if x <= 0.6:
+        return (x * 100.0) / 15.874  # sqrt(252) ≈ 15.874
+    # Daily ATR percent (typical range 0.5-8)
+    if x <= 12.0:
+        return x
+    # Annualized percent (e.g., 22 = 22% ann'd) -> daily %
+    return x / 15.874
+
+
 def _volatility_scalar(atr_pct: float, garch_vol: float = None) -> float:
     """
     Scale position size inversely with volatility.
-    
+
     A stock with 1% daily range (calm, like JNJ) gets full size.
     A stock with 5% daily range (wild, like TSLA) gets ~40% size.
-    
-    Uses ATR% as primary, GARCH as secondary signal.
-    Returns a multiplier from 0.25 to 1.2
+
+    Accepts mixed units — bot_engine.ewma_vol()/analyze.ewma_vol() return
+    annualized vol × 100 (values like 22), while some callers pass daily ATR%
+    (values like 2.3). We auto-normalize to daily % internally.
+
+    Returns a multiplier from 0.25 to 1.2.
     """
-    if atr_pct is None or atr_pct <= 0:
-        atr_pct = 2.0  # Default assumption
-    
+    daily_atr_pct = _normalize_vol_to_daily_pct(atr_pct)
+    if daily_atr_pct is None:
+        daily_atr_pct = 2.0  # Default: normal stock
+
     # Base: inverse relationship. Lower vol = bigger position.
-    # Anchor at 2% ATR = 1.0x (normal stock)
-    vol_scalar = 2.0 / max(atr_pct, 0.5)
-    
-    # If GARCH says volatility is expanding (higher than ATR), reduce further
-    if garch_vol and garch_vol > 0 and atr_pct > 0:
-        garch_pct = garch_vol * 100  # Convert to percentage
-        if garch_pct > atr_pct * 1.5:
+    # Anchor at 2% daily ATR = 1.0x (normal stock).
+    vol_scalar = 2.0 / max(daily_atr_pct, 0.5)
+
+    # If GARCH says volatility is expanding vs ATR, reduce further.
+    daily_garch_pct = _normalize_vol_to_daily_pct(garch_vol)
+    if daily_garch_pct is not None and daily_garch_pct > 0 and daily_atr_pct > 0:
+        if daily_garch_pct > daily_atr_pct * 1.5:
             # Volatility expanding — reduce by 20%
             vol_scalar *= 0.80
-    
-    # Clamp: never more than 1.2x (very calm stocks), never less than 0.25x
+
+    # Clamp: never more than 1.2x (very calm stocks), never less than 0.25x.
     return max(0.25, min(vol_scalar, 1.20))
 
 

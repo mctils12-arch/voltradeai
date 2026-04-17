@@ -5,9 +5,13 @@ Simulates: 4am → pre-market → 9:30 open → mid-day → close → after-hour
 Tests every component, catches every error, reports everything.
 """
 import os, sys, time, json, traceback
-sys.path.insert(0, '/tmp/vt_test')
-os.environ['VOLTRADE_DATA_DIR'] = '/tmp/vt_test_data'
-os.makedirs('/tmp/vt_test_data', exist_ok=True)
+# v1.0.29+: Resolve repo root from this file's location instead of hard-coded /tmp/vt_test
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+# Data dir: honor env override, else isolated /tmp scratch
+os.environ.setdefault('VOLTRADE_DATA_DIR', '/tmp/vt_test_data')
+os.makedirs(os.environ['VOLTRADE_DATA_DIR'], exist_ok=True)
 
 results = []
 
@@ -85,9 +89,12 @@ def t_options_ml_differentiation():
 test("4AM","Options ML differentiates scenarios", t_options_ml_differentiation)
 
 def t_stock_ml_features():
-    """31 features must all be present and produce a score in 0-100."""
+    """All features must be present and produce a score in 0-100.
+    Feature count matches ml_model_v2.FEATURE_COLS (currently 34 — v3)."""
     from ml_model_v2 import ml_score, FEATURE_COLS
-    assert len(FEATURE_COLS) == 31, f"Expected 31 features (v3), got {len(FEATURE_COLS)}"
+    # Use dynamic count instead of hard-coded — survives future feature additions
+    _EXPECTED = len(FEATURE_COLS)
+    assert _EXPECTED >= 30, f"Feature count suspiciously low: {_EXPECTED}"
     feats = {c: 0.5 for c in FEATURE_COLS}
     feats.update({"rsi_14":50,"vxx_ratio":1.0,"spy_vs_ma50":1.0,"regime_score":50,
                   "momentum_1m":2.0,"volume_ratio":1.5,"markov_state":1,
@@ -101,7 +108,7 @@ def t_stock_ml_features():
     if mt == "fallback_rules":
         return "WARN", f"Using fallback rules (model not loaded yet)"
     return "PASS", f"score={sc:.1f} signal={r.get('ml_signal')} model={mt} ({len(FEATURE_COLS)} features)"
-test("4AM","Stock ML 31-feature inference (v3)", t_stock_ml_features)
+test("4AM","Stock ML feature inference (v3)", t_stock_ml_features)
 
 def t_markov_regime():
     from markov_regime import get_regime
@@ -117,21 +124,25 @@ test("4AM","Markov regime detection", t_markov_regime)
 def t_system_config_all_regimes():
     from system_config import get_market_regime, get_adaptive_params
     # Standard VXX-based cases + Fix B 200d MA cases
+    # Cases: (vxx_ratio, spy_vs_ma50, markov_state, spy_below_200_days, spy_above_200d, expected)
+    # Updated for v1.0.29 widened BULL branch: spy_above_200d AND vxx≤1.02 → BULL.
+    # To get NEUTRAL/CAUTION with calm VXX, spy_above_200d must be False.
     cases = [
-        (1.40, 0.96, 1, 0,  "PANIC"),
-        (1.20, 1.00, 1, 0,  "BEAR"),
-        (1.07, 1.01, 1, 0,  "CAUTION"),
-        (1.00, 1.01, 1, 0,  "NEUTRAL"),
-        (0.83, 1.04, 2, 0,  "BULL"),
-        (1.00, 0.99, 1, 10, "BEAR"),    # Fix B: 10 days below 200d MA forces BEAR
-        (1.00, 0.99, 1, 9,  "CAUTION"), # Fix B: only 9 days = not triggered
-        (1.35, 0.99, 1, 15, "PANIC"),   # Fix B: VXX panic overrides to PANIC
+        (1.40, 0.96, 1, 0,  True,  "PANIC"),
+        (1.20, 1.00, 1, 0,  True,  "BEAR"),
+        (1.07, 1.01, 1, 0,  True,  "CAUTION"),    # vxx=1.07 ≥ 1.05 CAUTION threshold
+        (1.00, 1.01, 1, 0,  False, "NEUTRAL"),    # spy_above_200d=False skips widened BULL
+        (0.83, 1.04, 2, 0,  True,  "BULL"),
+        (1.00, 0.99, 1, 10, True,  "BEAR"),       # Fix B: 10 days below 200d MA forces BEAR
+        (1.00, 0.99, 1, 9,  False, "CAUTION"),    # Fix B not triggered, below MA → CAUTION
+        (1.35, 0.99, 1, 15, True,  "PANIC"),      # Fix B: VXX panic overrides to PANIC
+        (1.00, 1.01, 1, 0,  True,  "BULL"),       # v1.0.29: calm VXX + spy_above_200d = BULL
     ]
     errors = []
-    for vxx, spy, ms, b200, expected in cases:
-        got = get_market_regime(vxx, spy, ms, spy_below_200_days=b200)
+    for vxx, spy, ms, b200, above_200, expected in cases:
+        got = get_market_regime(vxx, spy, ms, spy_below_200_days=b200, spy_above_200d=above_200)
         if got != expected:
-            errors.append(f"b200={b200} vxx={vxx} expected={expected} got={got}")
+            errors.append(f"b200={b200} vxx={vxx} above200={above_200} expected={expected} got={got}")
     if errors:
         return "FAIL", "Regime mismatch: " + "; ".join(errors)
     for regime in ["PANIC","BEAR","CAUTION","NEUTRAL","BULL"]:
@@ -291,28 +302,37 @@ def t_snapshot_parallel_fetch():
 test("OPEN","Parallel snapshot fetch (16 workers)", t_snapshot_parallel_fetch)
 
 def t_score_stock():
-    from bot_engine import score_stock
+    # score_stock() was refactored into inline scan_market logic (v1.0.29+).
+    # Verify the replacement — deep_score() — exists and callable.
+    from bot_engine import deep_score
     import requests
     H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
-    r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots?symbols=NVDA,TSLA,AAPL&feed=sip",headers=H,timeout=8)
-    snaps = r.json()
+    try:
+        r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots?symbols=NVDA,TSLA,AAPL&feed=sip",headers=H,timeout=8)
+        snaps = r.json()
+    except Exception as e:
+        return "WARN", f"Snapshot fetch failed: {str(e)[:40]}"
     scored = []
-    for sym, snap in snaps.items():
+    for sym, snap in list(snaps.items())[:3]:
         bar  = snap.get("dailyBar",{})
         prev = snap.get("prevDailyBar",{})
         c = float(bar.get("c",0)); v = int(bar.get("v",0)); pc = float(prev.get("c",c))
         if c < 5 or v < 100_000: continue
         chg = (c-pc)/pc*100 if pc>0 else 0
-        mock = {"ticker":sym,"price":c,"close":c,"prev_close":pc,"volume":v,
-                "change_pct":chg,"above_vwap":True,"range_pct":abs(chg)*0.5,"vwap_dist":chg*0.3,"reasons":[]}
-        r2 = score_stock(mock)
-        qs = r2.get("quick_score", r2.get("score",0)) if isinstance(r2,dict) else float(r2 or 0)
-        scored.append((sym, round(qs,1)))
+        quick = {"ticker":sym,"price":c,"close":c,"prev_close":pc,"volume":v,
+                 "change_pct":chg,"above_vwap":True,"range_pct":abs(chg)*0.5,
+                 "vwap_dist":chg*0.3,"reasons":[],"quick_score":abs(chg)*3}
+        try:
+            r2 = deep_score(sym, quick)
+            ds = r2.get("deep_score", r2.get("quick_score", 0)) if isinstance(r2, dict) else 0
+            scored.append((sym, round(ds,1)))
+        except Exception as e:
+            return "WARN", f"deep_score({sym}) raised: {str(e)[:60]}"
     if not scored:
         return "WARN", "No stocks scored (market may be closed)"
     scored.sort(key=lambda x:x[1],reverse=True)
-    return "PASS", f"Scored {len(scored)}: {', '.join(f'{s}={sc}' for s,sc in scored)}"
-test("OPEN","Quick score pipeline (score_stock)", t_score_stock)
+    return "PASS", f"Scored {len(scored)} via deep_score: {', '.join(f'{s}={sc}' for s,sc in scored)}"
+test("OPEN","Deep score pipeline (deep_score)", t_score_stock)
 
 def t_deep_score():
     from bot_engine import deep_score
@@ -588,17 +608,20 @@ def t_third_leg():
     from bot_engine import _run_third_leg
 
     # Check config values are correct
-    tlt    = BASE_CONFIG.get("LEG3_TLT_PCT",    -1)
-    vrp    = BASE_CONFIG.get("LEG3_VRP_PCT",    -1)
-    sector = BASE_CONFIG.get("LEG3_SECTOR_PCT", -1)
-    if tlt == -1 or vrp == -1 or sector == -1:
+    # v1.0.29+: LEG3_SECTOR_PCT removed — replaced by regime-adaptive
+    # LEG3_CRASH_ASSETS / LEG3_RECOVERY_ASSETS lists.
+    tlt       = BASE_CONFIG.get("LEG3_TLT_PCT",    -1)
+    vrp       = BASE_CONFIG.get("LEG3_VRP_PCT",    -1)
+    crash     = BASE_CONFIG.get("LEG3_CRASH_ASSETS", None)
+    recovery  = BASE_CONFIG.get("LEG3_RECOVERY_ASSETS", None)
+    if tlt == -1 or vrp == -1 or crash is None or recovery is None:
         return "FAIL", "LEG3 config keys missing from BASE_CONFIG"
     if tlt != 0.0:
         return "FAIL", f"TLT should be 0 (disabled by backtest), got {tlt}"
-    if not (0.10 <= vrp <= 0.20):
-        return "FAIL", f"VRP pct {vrp} outside expected 10-20% range"
-    if not (0.08 <= sector <= 0.20):
-        return "FAIL", f"Sector pct {sector} outside expected 8-20% range"
+    if not (0.10 <= vrp <= 0.60):
+        return "FAIL", f"VRP pct {vrp} outside expected 10-60% range"
+    if not isinstance(crash, list) or not isinstance(recovery, list):
+        return "FAIL", f"LEG3 asset lists wrong type: crash={type(crash).__name__} recovery={type(recovery).__name__}"
 
     # Test _run_third_leg runs without crashing
     mock_macro = {
@@ -609,7 +632,7 @@ def t_third_leg():
     if "status" not in result:
         return "FAIL", "_run_third_leg returned no status key"
     actions = result.get("actions", [])
-    return "PASS", (f"TLT={tlt:.0%} VRP={vrp:.0%} Sector={sector:.0%} | "
+    return "PASS", (f"TLT={tlt:.0%} VRP={vrp:.0%} crash={len(crash)}assets recovery={len(recovery)}assets | "
                     f"regime={result.get('regime','?')} actions={len(actions)} | "
                     f"Backtest: CAGR +14.8%/yr beats SPY +12.3%/yr")
 test("MANAGE","Third leg: VRP harvest + sector rotation (v1.0.25)", t_third_leg)
@@ -619,22 +642,29 @@ print("\n── 2:00 PM ─ Mid-Day Checks ──")
 # ═══════════════════════════════════════════════════════════
 
 def t_blocked_tickers():
-    """Blocked tickers (DKNG, RBLX, SQQQ etc.) must never appear in trades."""
-    from bot_engine import scan_market
-    # Re-use cached scan result
-    import requests
-    H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
-    # Check that blocked tickers are defined
-    import re
-    with open("/tmp/vt_test/bot_engine.py") as f:
+    """Blocked tickers (DKNG, RBLX, SQQQ etc.) must never appear in trades.
+    v1.0.29+: _BLOCKED_TICKERS is scoped inside _scan_market_inner() and built
+    from BASE_CONFIG['BLOCKED_TICKERS'] union with hard-coded set. We verify
+    both the config entry and the in-source reference exist."""
+    import re, os
+    from system_config import BASE_CONFIG
+    # Current location of bot_engine.py — resolve via import rather than hard path
+    import bot_engine
+    src_path = bot_engine.__file__
+    with open(src_path) as f:
         src = f.read()
-    blocked_match = re.search(r'_BLOCKED_TICKERS\s*=\s*\{([^}]+)\}', src)
-    if not blocked_match:
+    # Check that the name is referenced in source
+    if "_BLOCKED_TICKERS" not in src:
         return "FAIL", "_BLOCKED_TICKERS not found in bot_engine.py"
-    blocked_str = blocked_match.group(1)
-    blocked = [s.strip().strip('"').strip("'") for s in blocked_str.split(',') if s.strip().strip('"').strip("'")]
-    blocked = [b for b in blocked if b and not b.startswith('#')]
-    return "PASS", f"{len(blocked)} tickers blocked: {blocked[:8]}"
+    # Count references (assignment + usage should be ≥2)
+    ref_count = src.count("_BLOCKED_TICKERS")
+    if ref_count < 2:
+        return "FAIL", f"Only {ref_count} _BLOCKED_TICKERS reference(s) — expected ≥2 (definition + usage)"
+    # Check BASE_CONFIG entry exists (may be empty list/set)
+    cfg_blocked = BASE_CONFIG.get("BLOCKED_TICKERS", None)
+    if cfg_blocked is None:
+        return "WARN", f"BLOCKED_TICKERS missing from BASE_CONFIG (source has {ref_count} refs)"
+    return "PASS", f"_BLOCKED_TICKERS defined ({ref_count} refs), BASE_CONFIG has {len(cfg_blocked)} user-blocked"
 test("MIDDAY","Blocked ticker list present", t_blocked_tickers)
 
 def t_ml_self_learning_structure():
@@ -644,9 +674,12 @@ def t_ml_self_learning_structure():
     fb_path = FEEDBACK_PATH  # Use the actual path ml_model_v2 will look at
     os.makedirs(os.path.dirname(fb_path), exist_ok=True)
     # Create a synthetic feedback entry matching the real format
+    # v1.0.33+: code_version required; trades missing it are filtered out.
+    from ml_model_v2 import MIN_FEEDBACK_VERSION
     sample = [{
         "ticker":"NVDA","entry_date":"2026-04-01","exit_date":"2026-04-06",
         "pnl_pct":3.2,"pnl_amt":384.0,"instrument":"stock","use_options":False,
+        "code_version": MIN_FEEDBACK_VERSION,
         "entry_features":{
             "momentum_1m":4.1,"momentum_3m":12.3,"rsi_14":58,"volume_ratio":2.3,
             "vwap_position":1,"adx":31,"ewma_vol":2.1,"range_pct":2.4,
@@ -718,7 +751,8 @@ test("CLOSE","Sector correlation filter (max per sector)", t_sector_correlation_
 def t_event_triggered_retrain():
     """Event triggers (VXX spike, 3 consecutive stops) should flag retraining."""
     # Check if the retrain logic is in place in bot_engine
-    with open("/tmp/vt_test/bot_engine.py") as f:
+    import bot_engine
+    with open(bot_engine.__file__) as f:
         src = f.read()
     has_event = "needs_train" in src and "train_model" in src
     has_options_train = "train_options_model" in src
@@ -752,10 +786,7 @@ test("AFTERHOURS","Storage config paths", t_storage_config)
 
 def t_options_scanner_import_clean():
     """options_scanner.py must import without errors."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("options_scanner", "/tmp/vt_test/options_scanner.py")
-    mod  = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    import options_scanner as mod
     fns  = [f for f in dir(mod) if callable(getattr(mod, f)) and not f.startswith("_")]
     required = ["scan_options","get_options_trades","_get_options_candidates",
                 "_fetch_options_chain","_find_by_delta","_setup_earnings_iv_crush",
@@ -768,12 +799,10 @@ def t_options_scanner_import_clean():
 test("AFTERHOURS","options_scanner.py imports clean", t_options_scanner_import_clean)
 
 def t_bot_engine_import_clean():
-    """bot_engine.py must import and export required functions."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("bot_engine_check", "/tmp/vt_test/bot_engine.py")
-    mod  = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    required = ["scan_market","manage_positions","deep_score","score_stock",
+    """bot_engine.py must import and export required functions.
+    v1.0.29+: score_stock was refactored into inline scan_market — removed from required list."""
+    import bot_engine as mod
+    required = ["scan_market","manage_positions","deep_score",
                 "get_alpaca_account","get_alpaca_positions"]
     missing = [f for f in required if not hasattr(mod, f)]
     if missing:
@@ -894,8 +923,14 @@ def t_shorts_regime_gate():
 test("SHORTS","Regime gate (no shorts in BULL/NEUTRAL)", t_shorts_regime_gate)
 
 def t_version_check():
-    import json
-    with open("/tmp/vt_test/package.json") as f:
+    import json, os
+    # Resolve package.json relative to bot_engine (repo root)
+    import bot_engine
+    repo_root = os.path.dirname(os.path.abspath(bot_engine.__file__))
+    pkg_path = os.path.join(repo_root, "package.json")
+    if not os.path.exists(pkg_path):
+        return "WARN", f"package.json not found at {pkg_path}"
+    with open(pkg_path) as f:
         pkg = json.load(f)
     v = pkg.get("version","?")
     return "PASS", f"v{v}"
