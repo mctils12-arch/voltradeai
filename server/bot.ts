@@ -23,41 +23,82 @@ const execAsync = (cmd: string, opts?: any) => _execRaw(cmd, { env: _pyEnv, ...o
 // At most 1 heavy Python subprocess at a time. Each Python invocation imports
 // numpy/pandas/sklearn/lightgbm (~100-150MB). Concurrent subprocesses push the
 // container past its memory limit. This mutex ensures sequential execution.
+//
+// LOCK SAFETY CONTRACT:
+//   - Lock is ALWAYS released in finally{} even if execAsync throws/hangs
+//   - Watchdog force-releases stale locks every 30s (was 60s)
+//   - Stale threshold is hardTimeout + 10s grace (was fixed 120s)
+//   - TRIVIAL_PYTHON commands bypass the mutex entirely
 let pythonRunning = false;
 let pythonLockedAt = 0;
+let pythonLockHardTimeout = 90000;  // tracks the hardTimeout of current holder
+
+// Trivial commands that don't import heavy libs — bypass mutex.
+// Pattern match: `python3 -c "print('ok')"` and similar <100-byte pings
+function isTrivialPython(cmd: string): boolean {
+  if (cmd.length > 150) return false;
+  if (/import\s+(numpy|pandas|sklearn|lightgbm|scipy|torch)/.test(cmd)) return false;
+  return true;
+}
+
 async function execPythonSerialized(cmd: string, opts?: any) {
   const maxWait = opts?.timeout || 30000;
-  const hardTimeout = Math.min(opts?.timeout || 90000, 90000); // Never exceed 90s (Python has 50s SIGALRM)
+  const hardTimeout = Math.min(opts?.timeout || 90000, 90000);
+
+  // Bypass mutex for trivial pings (e.g., /api/health)
+  if (isTrivialPython(cmd)) {
+    return execAsync(cmd, { ...opts, timeout: Math.min(hardTimeout, 10000), killSignal: 'SIGKILL' });
+  }
+
   const start = Date.now();
   while (pythonRunning) {
-    if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 120000) {
-      console.error("[python-mutex] Force-releasing stale lock held for", Math.round((Date.now() - pythonLockedAt) / 1000), "seconds");
+    // Eager stale-lock detection: if the current holder's hardTimeout + 10s grace
+    // has elapsed, force-release. This is tighter than the old fixed 120s.
+    const staleAfter = pythonLockHardTimeout + 10000;
+    if (pythonLockedAt > 0 && Date.now() - pythonLockedAt > staleAfter) {
+      console.error("[python-mutex] Force-releasing stale lock held for",
+        Math.round((Date.now() - pythonLockedAt) / 1000),
+        "seconds (stale threshold:", Math.round(staleAfter/1000), "s)");
       pythonRunning = false;
       pythonLockedAt = 0;
+      pythonLockHardTimeout = 90000;
       break;
     }
-    if (Date.now() - start > maxWait) throw new Error("Python mutex timeout — another Python process is holding the lock");
+    if (Date.now() - start > maxWait) {
+      throw new Error("Python mutex timeout — another Python process is holding the lock");
+    }
     await new Promise(r => setTimeout(r, 500));
   }
   pythonRunning = true;
   pythonLockedAt = Date.now();
+  pythonLockHardTimeout = hardTimeout;
   try {
     return await execAsync(cmd, { ...opts, timeout: hardTimeout, killSignal: 'SIGKILL' });
   } finally {
+    // CRITICAL: always release — even if execAsync throws, hangs, or the
+    // SIGKILL fires before Node cleans up the child's stdio.
     pythonRunning = false;
     pythonLockedAt = 0;
+    pythonLockHardTimeout = 90000;
   }
 }
 
 // ─── Python Mutex Watchdog ──────────────────────────────────────────────────
-// Safety net: force-release stale Python locks every 60s, independent of scan loop
+// Safety net: force-release stale Python locks every 30s (was 60s).
+// Tighter interval catches stuck locks faster. Stale threshold scales to the
+// lock holder's declared hardTimeout rather than a fixed 120s.
 setInterval(() => {
-  if (pythonRunning && pythonLockedAt > 0 && Date.now() - pythonLockedAt > 120000) {
-    console.error("[python-mutex] Watchdog: force-releasing stale lock held for", Math.round((Date.now() - pythonLockedAt) / 1000), "seconds");
+  if (!pythonRunning || pythonLockedAt === 0) return;
+  const heldMs = Date.now() - pythonLockedAt;
+  const staleAfter = pythonLockHardTimeout + 10000;
+  if (heldMs > staleAfter) {
+    console.error("[python-mutex] Watchdog: force-releasing stale lock held for",
+      Math.round(heldMs / 1000), "seconds (stale threshold:", Math.round(staleAfter/1000), "s)");
     pythonRunning = false;
     pythonLockedAt = 0;
+    pythonLockHardTimeout = 90000;
   }
-}, 60000);
+}, 30000);
 
 // ─── Temp File Cleanup (OOM fix) ────────────────────────────────────────────
 // Orphaned temp files from fire-and-forget Python subprocesses that timed out
