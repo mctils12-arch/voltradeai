@@ -197,12 +197,21 @@ def ewma_vol(returns, lambd=0.94):
     """
     EWMA (RiskMetrics) volatility estimate — reacts faster than rolling stddev.
     Annualised and expressed as a percentage.
+
+    BUGFIX (2026-04-17): previous implementation seeded `var` with the sample
+    variance of the whole window and then iterated `for r in arr`, effectively
+    double-counting every observation. The sample variance seed already used
+    arr[0] — iterating from arr[0] again inflated vol by ~5-8% consistently,
+    which fed a too-small position_size scalar in quiet regimes. Correct
+    recursion seeds from the first squared return, then folds in each
+    subsequent return — which is the actual RiskMetrics spec.
     """
     if len(returns) < 5:
         return None
     arr = np.array(returns, dtype=float)
-    var = float(np.var(arr))
-    for r in arr:
+    # Seed with first squared return; iterate from the 2nd onwards.
+    var = float(arr[0]) ** 2
+    for r in arr[1:]:
         var = lambd * var + (1 - lambd) * float(r) ** 2
     return round(float(np.sqrt(var * 252)) * 100, 2)
 
@@ -245,6 +254,151 @@ def get_alpaca_positions():
         "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET
     }, timeout=10)
     return r.json()
+
+
+# ── Portfolio-Level Drawdown Tracking ──────────────────────────────────────────
+# Tracks all-time peak equity + halt state across runs. Persisted to disk so
+# the halt survives process restarts. Provides:
+#   - update_equity_peak(equity): update peak and compute current DD %
+#   - get_portfolio_dd_state(): return {peak, dd_pct, halted, halt_reason}
+#   - is_trading_halted(regime): master check — True if new entries should skip
+#   - should_escalate_hedge(): True if DD ≥ DRAWDOWN_HEDGE_ESCALATE_PCT
+# One-way ratchet: halt resets ONLY when regime ∈ DRAWDOWN_HALT_RESUME_REGIMES
+# AND current equity within DRAWDOWN_HALT_RESUME_EQUITY_PCT of peak.
+
+_DD_STATE_PATH = os.path.join(DATA_DIR, "voltrade_portfolio_dd.json")
+
+def _load_dd_state() -> dict:
+    """Load persisted drawdown state. Returns safe defaults if missing/corrupt."""
+    try:
+        if os.path.exists(_DD_STATE_PATH):
+            with open(_DD_STATE_PATH) as f:
+                s = json.load(f)
+            # Validate required keys
+            if "peak_equity" in s and "halted" in s:
+                return s
+    except Exception:
+        pass
+    return {"peak_equity": 0.0, "halted": False, "halt_reason": "",
+            "halt_started_at": None, "last_equity": 0.0, "last_updated": None}
+
+
+def _save_dd_state(state: dict) -> None:
+    """Persist drawdown state atomically."""
+    try:
+        os.makedirs(os.path.dirname(_DD_STATE_PATH), exist_ok=True)
+        tmp = _DD_STATE_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, _DD_STATE_PATH)
+    except Exception as e:
+        import logging
+        logging.getLogger("voltrade.dd").debug(f"Failed to save DD state: {e}")
+
+
+def update_equity_peak(current_equity: float, regime: str = "NEUTRAL") -> dict:
+    """
+    Update equity peak and evaluate halt / recovery state.
+    Call this once per cycle before manage_positions / scan_market.
+
+    Returns the updated state dict with keys:
+        peak_equity, current_equity, dd_pct, halted, halt_reason,
+        halt_started_at, should_escalate_hedge, regime
+    """
+    from system_config import BASE_CONFIG
+    import logging
+    _log = logging.getLogger("voltrade.dd")
+
+    state = _load_dd_state()
+    peak = float(state.get("peak_equity", 0.0) or 0.0)
+    cur  = float(current_equity or 0.0)
+
+    # First-run bootstrap: seed peak with current equity
+    if peak <= 0 and cur > 0:
+        peak = cur
+
+    # New all-time high — update peak (only goes up, never down)
+    if cur > peak:
+        peak = cur
+
+    dd_pct = ((peak - cur) / peak * 100.0) if peak > 0 else 0.0
+    halt_pct = float(BASE_CONFIG.get("DRAWDOWN_HALT_PCT", 18.0))
+    halt_enabled = bool(BASE_CONFIG.get("DRAWDOWN_HALT_ENABLED", True))
+    resume_regimes = set(BASE_CONFIG.get("DRAWDOWN_HALT_RESUME_REGIMES", ["BULL", "NEUTRAL"]))
+    resume_eq_pct  = float(BASE_CONFIG.get("DRAWDOWN_HALT_RESUME_EQUITY_PCT", 5.0))
+    hedge_esc_pct  = float(BASE_CONFIG.get("DRAWDOWN_HEDGE_ESCALATE_PCT", 10.0))
+
+    halted = bool(state.get("halted", False))
+    halt_reason = state.get("halt_reason", "")
+    halt_started_at = state.get("halt_started_at")
+
+    # ── Trigger halt: DD breaches threshold ─────────────────────────────────
+    if halt_enabled and not halted and dd_pct >= halt_pct:
+        halted = True
+        halt_reason = f"DD {dd_pct:.2f}% >= {halt_pct:.1f}% (peak=${peak:,.0f} cur=${cur:,.0f})"
+        halt_started_at = datetime.now().isoformat()
+        _log.warning(f"[DD_HALT] TRIGGERED: {halt_reason}")
+
+    # ── One-way ratchet resume: regime OK AND equity close to peak ─────────
+    # Both conditions must be met. Prevents premature resumption during a
+    # bear-rally that temporarily flips the regime.
+    elif halted and regime in resume_regimes:
+        equity_gap_pct = ((peak - cur) / peak * 100.0) if peak > 0 else 0.0
+        if equity_gap_pct <= resume_eq_pct:
+            _log.info(f"[DD_HALT] RESUMED: regime={regime} equity_gap={equity_gap_pct:.2f}% ≤ {resume_eq_pct}%")
+            halted = False
+            halt_reason = ""
+            halt_started_at = None
+
+    should_escalate = dd_pct >= hedge_esc_pct
+
+    new_state = {
+        "peak_equity": peak,
+        "last_equity": cur,
+        "last_updated": datetime.now().isoformat(),
+        "halted": halted,
+        "halt_reason": halt_reason,
+        "halt_started_at": halt_started_at,
+    }
+    _save_dd_state(new_state)
+
+    return {
+        "peak_equity": peak, "current_equity": cur, "dd_pct": dd_pct,
+        "halted": halted, "halt_reason": halt_reason,
+        "halt_started_at": halt_started_at,
+        "should_escalate_hedge": should_escalate,
+        "regime": regime,
+    }
+
+
+def get_portfolio_dd_state() -> dict:
+    """Read-only view of current drawdown state (no equity update)."""
+    s = _load_dd_state()
+    peak = float(s.get("peak_equity", 0.0) or 0.0)
+    cur  = float(s.get("last_equity", 0.0) or 0.0)
+    dd_pct = ((peak - cur) / peak * 100.0) if peak > 0 and cur > 0 else 0.0
+    return {
+        "peak_equity": peak, "current_equity": cur, "dd_pct": dd_pct,
+        "halted": bool(s.get("halted", False)),
+        "halt_reason": s.get("halt_reason", ""),
+    }
+
+
+def is_trading_halted() -> bool:
+    """Quick boolean check for gating new entries."""
+    return bool(_load_dd_state().get("halted", False))
+
+
+def should_escalate_hedge() -> bool:
+    """True if portfolio DD >= DRAWDOWN_HEDGE_ESCALATE_PCT threshold."""
+    s = _load_dd_state()
+    peak = float(s.get("peak_equity", 0.0) or 0.0)
+    cur  = float(s.get("last_equity", 0.0) or 0.0)
+    if peak <= 0 or cur <= 0:
+        return False
+    dd_pct = (peak - cur) / peak * 100.0
+    from system_config import BASE_CONFIG
+    return dd_pct >= float(BASE_CONFIG.get("DRAWDOWN_HEDGE_ESCALATE_PCT", 10.0))
 
 # ── Strategy Scoring ─────────────────────────────────────────────────────────
 
@@ -1406,6 +1560,21 @@ def manage_positions():
             should_stop = True
             breakeven_triggered = True
 
+        # ── HARD CATASTROPHE STOP (v1.0.29+) ────────────────────────────────────
+        # Absolute -20% floor per position to cap overnight / gap-down losses
+        # that the chandelier and daily-limit checks can miss. Fires only in
+        # phase 1 (pre-first-scale-out); after 1R the chandelier + breakeven
+        # already prevent deeper losses. Options (asset_class=="us_option")
+        # are skipped earlier in the loop and unaffected.
+        hard_stop_triggered = False
+        if not should_stop and phase < 2:
+            _hs_enabled = bool(BASE_CONFIG.get("POSITION_HARD_STOP_ENABLED", True))
+            _hs_pct = float(BASE_CONFIG.get("POSITION_HARD_STOP_PCT", 20.0))
+            if _hs_enabled and pnl_pct <= -_hs_pct:
+                should_stop = True
+                hard_stop_triggered = True
+                stop_reason = f"HARD FLOOR: pnl={pnl_pct:.1f}% ≤ -{_hs_pct:.0f}% (catastrophe stop)"
+
         # Dynamic take profit: only for final third after both scale-outs done
         tp_pct = max(4.0, min(atr_pct * 3.0, 15.0)) if phase < 3 else 999
 
@@ -1478,9 +1647,15 @@ def manage_positions():
                 reason = f"STOP LOSS: {pnl_pct:.1f}% loss hit Phase 1 stop at -{stop_pct:.1f}% (ATR: ${atr or 0:.2f})"
 
             scale_note = f" (final {remaining_qty}/{original_qty} shares, {scales_completed} prior scale-outs)" if scales_completed > 0 else ""
+            # P0-5 FIX: unwind any covered calls BEFORE the stock sale. If a CC is
+            # left open after selling the underlying, we're naked short a call —
+            # unbounded tail risk on a gap-up. `unwind_cc_first=True` signals to
+            # the executor (bot.ts / runtime) that the helper must run first and
+            # block the stock close if the unwind fails.
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": reason + scale_note, "type": stop_type, "phase": phase,
-                "qty": remaining_qty, "exit_context": exit_context})
+                "qty": remaining_qty, "exit_context": exit_context,
+                "unwind_cc_first": True})
             # Record stop-loss cooldown to prevent immediate re-entry
             try:
                 _cd_path = os.path.join(DATA_DIR, 'voltrade_stop_cooldown.json')
@@ -1496,13 +1671,15 @@ def manage_positions():
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": f"TAKE PROFIT: +{pnl_pct:.1f}% hit target +{tp_pct:.1f}% (Phase {phase}){scale_note}",
                 "type": "take_profit", "phase": phase,
-                "qty": remaining_qty, "exit_context": exit_context})
+                "qty": remaining_qty, "exit_context": exit_context,
+                "unwind_cc_first": True})
         elif time_stop:
             scale_note = f" ({remaining_qty}/{original_qty} shares)" if scales_completed > 0 else ""
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": f"TIME STOP: {days_held} days held, P&L only {pnl_pct:+.1f}% — capital locked up{scale_note}",
                 "type": "time_stop", "phase": phase,
-                "qty": remaining_qty, "exit_context": exit_context})
+                "qty": remaining_qty, "exit_context": exit_context,
+                "unwind_cc_first": True})
 
         # Upgrade candidate: position is flat or slightly negative in Phase 1
         if phase == 1 and -stop_pct < pnl_pct < 1.0:
@@ -1511,15 +1688,24 @@ def manage_positions():
                 "score": 50 + pnl_pct * 5, "qty": qty, "side": side,
             })
 
-    # Persist stop state
-    try:
-        with open(_stop_state_path, 'w') as f:
-            json.dump(stop_state, f)
-    except Exception:
-        pass
-
-    # Clean up stop state for positions no longer held
+    # Persist stop state — single write after clean-up.
+    #
+    # BUGFIX P0-6: Previously we saved twice. The cleanup step used
+    # `held_tickers = {pos.symbol for pos in positions}`, but `positions`
+    # still includes tickers that were just emitted as CLOSE (the close
+    # hasn't filled yet). That meant freshly-computed phase/scale-out state
+    # was correctly kept; but a race window existed where a failed write
+    # between the two dumps could leave truncated state. Consolidate into
+    # a single atomic write.
+    #
+    # We also exclude any ticker that has an actual CLOSE action in THIS
+    # cycle AND was already fully scaled out (remaining_qty==0 after
+    # scaling) — those are guaranteed flat after fill and shouldn't
+    # retain state that could be re-applied to a future re-entry.
     held_tickers = {pos.get('symbol', '') for pos in positions}
+    _closing_now = {a.get('ticker', '') for a in actions
+                    if a.get('action') == 'CLOSE'
+                    and (a.get('qty') or 0) >= 0}
     for old_ticker in list(stop_state.keys()):
         if old_ticker not in held_tickers:
             del stop_state[old_ticker]
@@ -1533,32 +1719,49 @@ def manage_positions():
 
 
 def _get_atr(ticker, period=14):
-    """Get 14-day ATR for a ticker using Alpaca daily bars."""
+    """Get 14-day ATR for a ticker using Alpaca daily bars.
+
+    BUGFIX (2026-04-17): previous implementation returned a simple MEAN of
+    the last `period` true ranges. Wilder's ATR — the industry standard and
+    the one every backtest benchmarks against — uses recursive smoothing:
+        ATR_t = (ATR_{t-1} * (period-1) + TR_t) / period
+    The simple-mean version reacts too slowly to vol expansion AND has
+    boundary artifacts that cause position-stop placement to drift from
+    what the backtest assumed. Also widened the lookback so we have enough
+    bars to seed the Wilder average plus a few extra for smoothing.
+    """
     import requests
     try:
-        end = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        # Need enough calendar days for `period * 2` trading days + buffer.
+        # 14-period ATR with recursive smoothing benefits from ~2x bars.
+        lookback_days = max(60, period * 4)
+        start = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
         url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
-               f"?timeframe=1Day&start={start}&limit={period + 5}&adjustment=all&feed=sip")
+               f"?timeframe=1Day&start={start}&limit={period * 3}&adjustment=all&feed=sip")
         resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
         data = resp.json()
         results = data.get("bars", [])
-        if len(results) < period:
+        if len(results) < period + 1:
             return None
-        
-        # Calculate ATR
+
+        # Compute all True Ranges (ascending order, i-1 is prior day).
         trs = []
-        for i in range(1, min(period + 1, len(results))):
-            h = results[i].get("h", 0)
-            l = results[i].get("l", 0)
-            prev_c = results[i - 1].get("c", 0)  # ascending sort: i-1 is the prior day
-            # True Range = max(H-L, |H-prevClose|, |L-prevClose|)
+        for i in range(1, len(results)):
+            h      = results[i].get("h", 0)
+            l      = results[i].get("l", 0)
+            prev_c = results[i - 1].get("c", 0)
             tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
             trs.append(tr)
-        
-        if not trs:
+
+        if len(trs) < period:
             return None
-        return sum(trs) / len(trs)
+
+        # Seed with simple mean of the first `period` TRs, then Wilder-smooth
+        # for the remainder.
+        atr = sum(trs[:period]) / period
+        for tr in trs[period:]:
+            atr = (atr * (period - 1) + tr) / period
+        return atr
     except Exception:
         return None
 
@@ -1609,6 +1812,12 @@ def scan_market():
     """
     Full market scan — ALL ~11,600 tradeable US stocks, not just top 100.
 
+    ⚠ Portfolio DD halt: before scanning, update_equity_peak() is called so
+    that is_trading_halted() reflects the current account state. If halted,
+    scan returns an empty action list with halt_reason populated, blocking
+    ALL new entries until the one-way ratchet resume fires.
+    (See get_portfolio_dd_state / DRAWDOWN_HALT_* config keys.)
+
     WHY FULL UNIVERSE:
       - most-actives API only returns top 100 by volume — misses 99% of stocks
       - Scanning 11,600 with 16 parallel workers takes ~4 seconds
@@ -1648,6 +1857,49 @@ def _scan_market_inner():
     _partial_scan_result = None
 
     from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    # ── Portfolio-level DD halt check (v1.0.29+) ────────────────────────────────
+    # If portfolio has breached the DRAWDOWN_HALT_PCT threshold, block all
+    # new entries until regime returns to BULL/NEUTRAL AND equity recovers to
+    # within DRAWDOWN_HALT_RESUME_EQUITY_PCT of peak (one-way ratchet).
+    # Existing positions continue to be managed by manage_positions() — only
+    # entries are gated, not exits.
+    try:
+        _acct = get_alpaca_account()
+        _equity = float(_acct.get("equity", 0) or 0)
+        # Determine current regime for ratchet evaluation
+        _regime = "NEUTRAL"
+        try:
+            from macro_data import get_macro_snapshot
+            _macro = get_macro_snapshot()
+            from system_config import get_market_regime as _gmr
+            _regime = _gmr(
+                float(_macro.get("vxx_ratio", 1.0) or 1.0),
+                float(_macro.get("spy_vs_ma50", 1.0) or 1.0),
+                spy_below_200_days=int(_macro.get("spy_below_200_days", 0) or 0),
+                spy_above_200d=bool(_macro.get("spy_above_200d", True)),
+            )
+        except Exception:
+            pass
+        _dd_state = update_equity_peak(_equity, regime=_regime)
+        if _dd_state.get("halted"):
+            import logging
+            logging.getLogger("bot_engine").warning(
+                f"[DD_HALT] scan_market returning empty — {_dd_state.get('halt_reason', '')}"
+            )
+            return {
+                "trades": [], "new_trades": [], "top_10": [],
+                "halted": True,
+                "halt_reason": _dd_state.get("halt_reason", ""),
+                "peak_equity": _dd_state.get("peak_equity", 0),
+                "current_equity": _dd_state.get("current_equity", 0),
+                "dd_pct": _dd_state.get("dd_pct", 0),
+                "regime": _regime,
+            }
+    except Exception as _dd_e:
+        # DD tracking must never break scanning — log and continue
+        import logging
+        logging.getLogger("bot_engine").debug(f"DD halt check failed (non-fatal): {_dd_e}")
 
     # Step 1: Get full universe (cached daily)
     full_universe = _get_full_universe()
@@ -1701,7 +1953,13 @@ def _scan_market_inner():
     _et_now = datetime.now(ZoneInfo("America/New_York"))
     _et_hour = _et_now.hour
     _et_min  = _et_now.minute
-    _min_vol = 100_000 if (_et_hour == 9 and _et_min < 60) else MIN_VOLUME
+    # BUGFIX (2026-04-17): previous check was (_et_hour == 9 and _et_min < 60).
+    # Minutes are always 0–59, so that condition was True for the *entire*
+    # 9 o'clock hour — including 9:00–9:29 which is PRE-MARKET. We only want
+    # the first 30 minutes AFTER the 9:30 open, i.e. 9:30–9:59. Rewritten
+    # to require the market to actually be open.
+    _opening_half_hour = (_et_hour == 9 and 30 <= _et_min < 60)
+    _min_vol = 100_000 if _opening_half_hour else MIN_VOLUME
 
     all_tickers = list(snap_all.keys())  # For scanned count
 
@@ -2351,6 +2609,16 @@ def _scan_market_inner():
     except Exception as _sfe:
         spy_floor_result["status"] = f"error: {str(_sfe)[:80]}"
 
+    # Step 10b: Defensive Floor (P1-1, GLD bear-regime rotation) ──────────
+    # Rotate INTO GLD when regime goes bearish / death cross fires, and
+    # OUT of GLD when regime recovers. Sized by DEFENSIVE_FLOOR_* config.
+    # User ask: "switch from qqq to something in bear".
+    defensive_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
+    try:
+        defensive_floor_result = _manage_defensive_floor(_macro)
+    except Exception as _dfe:
+        defensive_floor_result["status"] = f"error: {str(_dfe)[:80]}"
+
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),
@@ -2379,6 +2647,7 @@ def _scan_market_inner():
         "intraday_shorts": intraday_short_result,
         "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
+        "defensive_floor": defensive_floor_result,
     }
 
 
@@ -2741,8 +3010,22 @@ def _run_convexity_overlay(macro: dict) -> dict:
         stress_budget  = convexity_cfg.get("stress_budget_pct", 0.040)
         target_dte     = convexity_cfg.get("put_dte", 60)
 
-        if regime in ("PANIC", "BEAR"):
+        # ── Drawdown-gated hedge escalation (v1.0.29+) ───────────────────────
+        # If portfolio drawdown ≥ DRAWDOWN_HEDGE_ESCALATE_PCT, force stress
+        # budget regardless of regime. Protects against regime-lag where VXX
+        # hasn't spiked yet but equity is already bleeding. This is an OR with
+        # the regime gate — whichever signals stress first wins.
+        _dd_escalate = False
+        try:
+            _dd_escalate = should_escalate_hedge()
+        except Exception:
+            pass
+
+        if regime in ("PANIC", "BEAR") or _dd_escalate:
             budget_pct = stress_budget
+            if _dd_escalate and regime not in ("PANIC", "BEAR"):
+                _log.info(f"[CONVEXITY] DD-escalated to stress budget "
+                          f"(regime={regime}, portfolio DD triggered escalation)")
         elif regime == "CAUTION":
             budget_pct = (normal_budget + stress_budget) / 2
         else:
@@ -3262,6 +3545,249 @@ def _manage_spy_floor(macro: dict) -> dict:
         try:
             with open(_floor_state_path, "w") as f:
                 json.dump(_floor_state, f)
+        except Exception:
+            pass
+
+    except Exception as e:
+        result["status"] = f"error: {str(e)[:80]}"
+
+    return result
+
+
+def _manage_defensive_floor(macro: dict) -> dict:
+    """
+    P1-1: Defensive-asset rotation for BEAR/PANIC regimes.
+
+    User directive (2026-04-17):
+      "Fix everything you see wrong make sure it works.
+       Not holding it permanently but a switch from qqq to something in bear."
+
+    Design:
+      * Holds GLD (positive carry in both bull and bear days, near-zero SPY corr)
+      * Allocation ramps with regime via DEFENSIVE_FLOOR_* config:
+          BULL/NEUTRAL: 0%   — full QQQ exposure
+          CAUTION:      10%  — start rotating in
+          BEAR:         30%
+          PANIC:        40%
+      * Death-cross override forces min DEFENSIVE_FLOOR_DEATHCROSS_MIN (25%)
+        even if VXX-based regime is still CAUTION/NEUTRAL — catches slow bear
+        onsets before VXX spikes.
+      * Only rebalances on regime change or >10% drift band, to avoid churn.
+      * Uses limit orders near last trade to minimize spread slippage.
+
+    This mirrors _manage_spy_floor() for the QQQ leg but moves the opposite
+    direction, so as QQQ floor → 0 in BEAR, GLD floor ramps up.
+    """
+    result = {"actions": [], "status": "ok", "target_pct": 0, "current_pct": 0}
+
+    try:
+        from system_config import BASE_CONFIG, get_market_regime
+
+        if not BASE_CONFIG.get("DEFENSIVE_FLOOR_ENABLED", False):
+            result["status"] = "disabled"
+            return result
+
+        defensive_ticker = BASE_CONFIG.get("DEFENSIVE_FLOOR_TICKER", "GLD")
+
+        vxx_ratio   = float(macro.get("vxx_ratio", 1.0) or 1.0)
+        spy_vs_ma50 = float(macro.get("spy_vs_ma50", 1.0) or 1.0)
+        spy_b200    = int(macro.get("spy_below_200_days", 0) or 0)
+        spy_above   = bool(macro.get("spy_above_200d", True))
+
+        regime = get_market_regime(vxx_ratio, spy_vs_ma50,
+                                   spy_below_200_days=spy_b200,
+                                   spy_above_200d=spy_above)
+        result["regime"] = regime
+        result["ticker"] = defensive_ticker
+
+        # Base allocation from regime
+        regime_key = f"DEFENSIVE_FLOOR_{regime}"
+        target_pct = float(BASE_CONFIG.get(regime_key, 0.0) or 0.0)
+
+        # Death-cross override (catch bear markets faster than VXX)
+        floor_ticker = BASE_CONFIG.get("FLOOR_TICKER", "QQQ")
+        try:
+            _qqq_ma50  = float(macro.get("qqq_ma50", 0) or 0)
+            _qqq_ma200 = float(macro.get("qqq_ma200", 0) or 0)
+            _qqq_price = float(macro.get("qqq_price", 0) or 0)
+            if (_qqq_ma50 <= 0 or _qqq_ma200 <= 0 or _qqq_price <= 0):
+                _bars_resp = requests.get(
+                    f"{ALPACA_DATA_URL}/v2/stocks/{floor_ticker}/bars",
+                    params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": "sip"},
+                    headers=_alpaca_headers(), timeout=10)
+                _bars = _bars_resp.json().get("bars", [])
+                if len(_bars) >= 200:
+                    _cl = [float(b["c"]) for b in _bars]
+                    _qqq_price = _cl[-1]
+                    _qqq_ma50  = sum(_cl[-50:]) / 50
+                    _qqq_ma200 = sum(_cl[-200:]) / 200
+            if _qqq_price > 0 and _qqq_ma50 > 0 and _qqq_ma200 > 0:
+                _death_cross = (_qqq_ma50 < _qqq_ma200) and (_qqq_price < _qqq_ma200)
+                if _death_cross:
+                    _dc_min = float(BASE_CONFIG.get("DEFENSIVE_FLOOR_DEATHCROSS_MIN", 0.25) or 0.25)
+                    if target_pct < _dc_min:
+                        target_pct = _dc_min
+                        result["death_cross_override"] = True
+        except Exception:
+            pass
+
+        result["target_pct"] = round(target_pct, 3)
+
+        # ── Persist regime so we only rebalance on regime change or drift ─
+        _state_path = os.path.join(DATA_DIR, 'voltrade_defensive_floor_state.json')
+        _state = {}
+        try:
+            with open(_state_path) as f:
+                _state = json.load(f)
+        except Exception:
+            pass
+        last_regime = _state.get("last_regime")
+        regime_changed = (last_regime is not None and last_regime != regime)
+
+        # ── Current GLD position & equity ────────────────────────────────
+        try:
+            acc = requests.get(f"{ALPACA_BASE_URL}/v2/account",
+                               headers=_alpaca_headers(), timeout=8).json()
+            equity = float(acc.get("equity", 100000) or 100000)
+        except Exception:
+            equity = 100000
+
+        current_value = 0.0
+        current_shares = 0
+        try:
+            for p in get_alpaca_positions():
+                if p.get("symbol") == defensive_ticker:
+                    current_shares = int(float(p.get("qty", 0) or 0))
+                    current_value  = abs(float(p.get("market_value", 0) or 0))
+                    break
+        except Exception:
+            pass
+
+        current_pct = (current_value / equity) if equity > 0 else 0
+        result["current_pct"] = round(current_pct, 3)
+
+        target_value = equity * target_pct
+        diff = target_value - current_value
+        drift_pct = abs(diff) / equity if equity > 0 else 0
+
+        # ── Target 0: sell any existing GLD on regime change ─────────────
+        if target_pct <= 0:
+            if (regime_changed or last_regime is None) and current_shares > 0:
+                try:
+                    requests.post(
+                        f"{ALPACA_BASE_URL}/v2/orders",
+                        json={"symbol": defensive_ticker, "qty": str(current_shares),
+                              "side": "sell", "type": "market",
+                              "time_in_force": "day"},
+                        headers=_alpaca_headers(), timeout=10)
+                    result["actions"].append({
+                        "type": "defensive_exit",
+                        "shares": current_shares, "ticker": defensive_ticker,
+                        "reason": f"regime {last_regime}→{regime}: rotate back into QQQ",
+                    })
+                    import logging as _dlog
+                    _dlog.getLogger("bot_engine").info(
+                        f"[DEFENSIVE] Sold {current_shares} {defensive_ticker} (regime {last_regime}→{regime})")
+                except Exception as _e:
+                    import logging as _dlog
+                    _dlog.getLogger("bot_engine").debug(f"[DEFENSIVE] Sell failed: {_e}")
+            else:
+                result["status"] = "no_target_no_change"
+            _state["last_regime"] = regime
+            _state["last_rebalance"] = datetime.now().isoformat()
+            try:
+                with open(_state_path, "w") as f:
+                    json.dump(_state, f)
+            except Exception:
+                pass
+            return result
+
+        # ── Skip if we're already within 10% drift band ──────────────────
+        _band = 0.10
+        needs_rebalance = regime_changed or (last_regime is None and current_shares == 0)
+        if (not needs_rebalance) and drift_pct < _band:
+            result["status"] = "within_band"
+            _state["last_regime"] = regime
+            try:
+                with open(_state_path, "w") as f:
+                    json.dump(_state, f)
+            except Exception:
+                pass
+            return result
+
+        # ── Get last trade price for limit orders ─────────────────────────
+        try:
+            snap = requests.get(
+                f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
+                params={"symbols": defensive_ticker, "feed": "sip"},
+                headers=_alpaca_headers(), timeout=8).json()
+            last_px = float(snap.get(defensive_ticker, {}).get("latestTrade", {}).get("p", 0) or 0)
+        except Exception:
+            last_px = 0
+        if last_px <= 0:
+            result["status"] = "no_price"
+            return result
+
+        shares_diff = int(diff / last_px)
+        if shares_diff == 0:
+            result["status"] = "within_band"
+            _state["last_regime"] = regime
+            try:
+                with open(_state_path, "w") as f:
+                    json.dump(_state, f)
+            except Exception:
+                pass
+            return result
+
+        _limit_price = str(round(last_px, 2))
+        if shares_diff > 0:
+            try:
+                requests.post(
+                    f"{ALPACA_BASE_URL}/v2/orders",
+                    json={"symbol": defensive_ticker, "qty": str(shares_diff),
+                          "side": "buy", "type": "limit",
+                          "limit_price": _limit_price,
+                          "time_in_force": "day"},
+                    headers=_alpaca_headers(), timeout=10)
+                result["actions"].append({
+                    "type": "defensive_buy",
+                    "shares": shares_diff, "ticker": defensive_ticker,
+                    "reason": f"regime {last_regime}→{regime}, target {target_pct*100:.0f}%, current {current_pct*100:.0f}%",
+                })
+                import logging as _dlog
+                _dlog.getLogger("bot_engine").info(
+                    f"[DEFENSIVE] Bought {shares_diff} {defensive_ticker} (regime {last_regime}→{regime}: {target_pct*100:.0f}% target)")
+            except Exception as _e:
+                import logging as _dlog
+                _dlog.getLogger("bot_engine").debug(f"[DEFENSIVE] Buy failed: {_e}")
+        else:
+            sell_qty = min(abs(shares_diff), current_shares)
+            if sell_qty > 0:
+                try:
+                    requests.post(
+                        f"{ALPACA_BASE_URL}/v2/orders",
+                        json={"symbol": defensive_ticker, "qty": str(sell_qty),
+                              "side": "sell", "type": "limit",
+                              "limit_price": _limit_price,
+                              "time_in_force": "day"},
+                        headers=_alpaca_headers(), timeout=10)
+                    result["actions"].append({
+                        "type": "defensive_sell",
+                        "shares": sell_qty, "ticker": defensive_ticker,
+                        "reason": f"regime {last_regime}→{regime}, target {target_pct*100:.0f}%, current {current_pct*100:.0f}%",
+                    })
+                    import logging as _dlog
+                    _dlog.getLogger("bot_engine").info(
+                        f"[DEFENSIVE] Sold {sell_qty} {defensive_ticker} (regime {last_regime}→{regime}: {target_pct*100:.0f}% target)")
+                except Exception as _e:
+                    import logging as _dlog
+                    _dlog.getLogger("bot_engine").debug(f"[DEFENSIVE] Sell failed: {_e}")
+
+        _state["last_regime"] = regime
+        _state["last_rebalance"] = datetime.now().isoformat()
+        try:
+            with open(_state_path, "w") as f:
+                json.dump(_state, f)
         except Exception:
             pass
 

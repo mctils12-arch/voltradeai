@@ -522,12 +522,28 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         return actions
 
     # ── Exit Rule 2: PROFIT TARGET (50% for credit strategies) ────
-    is_credit_strategy = strategy in ("short_straddle", "iron_condor", "csp_normal_market")
+    #
+    # P0-8 FIX: Expanded credit-strategy list so bull_put_credit_spread,
+    # sell_cash_secured_put, covered_call, and qqq_iron_condor now honor
+    # the profit target as well (previously fell into standalone path or
+    # nothing at all).
+    is_credit_strategy = strategy in (
+        "short_straddle", "iron_condor", "csp_normal_market",
+        "bull_put_credit_spread", "sell_cash_secured_put",
+        "covered_call", "qqq_iron_condor",
+    )
     is_debit_strategy = strategy in ("buy_straddle", "bull_call_spread", "bear_put_spread")
 
     if is_credit_strategy and total_entry_cost > 0:
-        # For credit strategies: profit = credit received - cost to close
-        profit_pct = -combined_pnl_pct  # Flip sign for credit strategies
+        # P0-8 FIX: Sign was inverted. For a credit strategy, Alpaca's
+        # `unrealized_pl` is POSITIVE when the sold options decay (which is
+        # profit). `combined_pnl_pct = total_unrealized_pnl / total_entry_cost`
+        # is therefore already positive when winning. The prior line
+        # `profit_pct = -combined_pnl_pct` made it negative — the 50%
+        # target could never fire. Tastytrade research shows managing at
+        # 50% of max profit is the single biggest WR+Sortino lever for
+        # short-premium strategies.
+        profit_pct = combined_pnl_pct
         if profit_pct >= PROFIT_TARGET_PCT:
             result = _close_strategy_mleg(legs, ticker)
             actions.append({
@@ -552,7 +568,7 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
     #   - Tastylive research: managing losers at a defined threshold
     #     improves Sortino ratio by capping the left tail
     #   - Applies to ALL iron condors, not just earnings plays
-    if strategy == "iron_condor" and total_unrealized_pnl < 0:
+    if strategy in ("iron_condor", "qqq_iron_condor") and total_unrealized_pnl < 0:
         # Try to get max_loss from state (set at entry via register_options_entry)
         group_max_loss = 0
         for occ in all_occ_symbols:
@@ -773,8 +789,13 @@ def manage_options_positions(equity: float = 100000) -> dict:
         strategy = meta.get("strategy", "")
         ticker = meta.get("ticker", "")
 
+        # P0-7/M4 FIX: added bull_put_credit_spread and qqq_iron_condor so
+        # they get group-level profit target / max-loss / coordinated exit
+        # management. Previously their 4 (or 2) legs were managed as
+        # standalone positions which can't coordinate exits.
         if strategy in ("buy_straddle", "short_straddle", "iron_condor",
-                         "bull_call_spread", "bear_put_spread"):
+                         "bull_call_spread", "bear_put_spread",
+                         "bull_put_credit_spread", "qqq_iron_condor"):
             key = f"{ticker}_{strategy}"
             if key not in strategy_groups:
                 strategy_groups[key] = {"legs": [], "strategy": strategy, "ticker": ticker, "setup": meta.get("setup", "")}

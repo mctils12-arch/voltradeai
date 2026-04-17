@@ -99,8 +99,29 @@ BASE_CONFIG = {
     "SPY_FLOOR_BULL":       0.70,  # 70% passive QQQ in BULL
     "SPY_FLOOR_NEUTRAL":    0.90,  # 90% passive QQQ in NEUTRAL (signals = noise here)
     "SPY_FLOOR_CAUTION":    0.35,  # 35% passive QQQ in CAUTION
-    "SPY_FLOOR_BEAR":       0.00,  # 0% in BEAR (third leg takes over)
+    "SPY_FLOOR_BEAR":       0.00,  # 0% in BEAR (defensive floor takes over)
     "SPY_FLOOR_PANIC":      0.00,  # 0% in PANIC (all defensive)
+
+    # ── DEFENSIVE FLOOR: BEAR-REGIME ROTATION (P1-1) ──────────────────
+    # User ask: "switch from qqq to something in bear — not hold permanently".
+    # GLD is the only defensive asset we tested that has POSITIVE expected
+    # return in BOTH bull (+0.117%/day) and bear (+0.072%/day) with near-zero
+    # SPY correlation (+0.07). SQQQ/VIXY/SH/TLT all decay.
+    #
+    # This is a REGIME-GATED rotation, not a permanent hold. When VXX panic
+    # or death cross fires (regime -> BEAR/PANIC), the QQQ floor goes to 0
+    # and the GLD floor ramps up. When regime recovers, GLD unwinds back
+    # into QQQ. The allocations below are total equity, not of-the-floor.
+    "DEFENSIVE_FLOOR_ENABLED":  True,
+    "DEFENSIVE_FLOOR_TICKER":   "GLD",
+    "DEFENSIVE_FLOOR_BULL":     0.00,   # Full QQQ exposure
+    "DEFENSIVE_FLOOR_NEUTRAL":  0.00,
+    "DEFENSIVE_FLOOR_CAUTION":  0.10,   # Start rotating in (10%)
+    "DEFENSIVE_FLOOR_BEAR":     0.30,   # Heavy GLD (was 0% third leg)
+    "DEFENSIVE_FLOOR_PANIC":    0.40,   # All-out crisis rotation
+    # If death cross fires on QQQ, force at least this much GLD regardless
+    # of regime (catches bear markets faster than VXX alone).
+    "DEFENSIVE_FLOOR_DEATHCROSS_MIN": 0.25,
 
     # ── THIRD LEG (v1.0.25) ────────────────────────────────────────────
     # 64-combo backtest winner: VRP=15% + Sector=12%, TLT=0%
@@ -128,7 +149,7 @@ BASE_CONFIG = {
     # Sector rotation DISABLED — replaced by convexity overlay.
     # Backtest: sector rotation lost $92K over 10 years (20.7% WR, 124% max DD).
     # Legacy config kept for reference:
-    "LEG3_CRASH_ASSETS":   [],      # DISABLED: was [("GLD", 0.15)]
+    "LEG3_CRASH_ASSETS":   [],      # DISABLED legacy leg — replaced by DEFENSIVE_FLOOR_* above.
     "LEG3_RECOVERY_ASSETS": [],     # DISABLED: was [("ITA", 0.20)]
 
     # ── CONVEXITY OVERLAY (pro-level: replaces sector rotation) ──────
@@ -137,7 +158,12 @@ BASE_CONFIG = {
     # Annual drag: ~1-2% (cost of insurance). Payoff in crashes: 50-200%+.
     # Budget scales with regime: 2.0% normal, 4.0% in stress.
     "CONVEXITY_OVERLAY": {
-        "enabled":             True,
+        # Disabled 2026-04-17: 10yr backtest showed the QQQ put overlay bled
+        # $307K-$508K in annual premium vs 1-2 crash payoffs that didn't fully
+        # recoup. User directive: "we are not looking to loose money anywhere
+        # that's just giving away CAGR". The DEFENSIVE_FLOOR (GLD rotation)
+        # above replaces this as the primary bear hedge.
+        "enabled":             False,
         "hedge_type":          "puts",           # QQQ protective puts (was SQQQ inverse ETF)
         "hedge_ticker":        "QQQ",            # Underlying for put contracts
         "normal_budget_pct":   0.020,            # 2.0% of equity normally (was 1.5%)
@@ -195,7 +221,18 @@ BASE_CONFIG = {
 
     # ── RISK MANAGEMENT ────────────────────────────────────────────────────────
     "DAILY_LOSS_LIMIT_PCT":   5.0,  # Halt trading if down 5% on the day
-    "DRAWDOWN_HALT_PCT":      15.0, # Halt if drawdown from peak > 15%
+    "DRAWDOWN_HALT_PCT":      18.0, # Halt new entries if equity drawdown from all-time peak > 18%
+                                    # Walk-forward OOS 2023-2026 max DD was 15.3% — 18% leaves
+                                    # headroom so halt doesn't fire on normal recoverable pullbacks.
+    "DRAWDOWN_HALT_ENABLED":  True, # Master switch for portfolio-level DD halt
+    "DRAWDOWN_HALT_RESUME_REGIMES": ["BULL", "NEUTRAL"], # One-way ratchet: halt resets only in these regimes
+    "DRAWDOWN_HALT_RESUME_EQUITY_PCT": 5.0, # AND within 5% of all-time peak equity
+    "DRAWDOWN_HEDGE_ESCALATE_PCT": 10.0,  # Bump convexity overlay to stress budget
+                                          # whenever portfolio DD ≥ 10%, regardless of regime
+    "POSITION_HARD_STOP_PCT": 20.0, # Absolute -20% floor per stock position (gap-down guard).
+                                    # Fires only before first scale-out; chandelier handles post-1R.
+                                    # Stocks only — options have their own 50%-of-max-loss exits.
+    "POSITION_HARD_STOP_ENABLED": True,
     "STOP_COOLDOWN_SECONDS":  7200, # 2 hours: no re-entry after a stop fires
     "CIRCUIT_BREAKER_STOPS":  3,    # 3 consecutive stops = circuit breaker
     "CIRCUIT_BREAKER_HOURS":  1,    # Pause 1 hour after circuit breaker

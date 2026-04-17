@@ -651,14 +651,32 @@ def _build_training_data(all_bars: dict,
     tlt_list = to_list(tlt_bars_raw)
     hyg_list = to_list(hyg_bars_raw)
 
+    # BUGFIX P0-3: Build date→index maps for ALL reference series so we can
+    # align by actual calendar date rather than positional index. Previously,
+    # a PLTR row at stock_idx=100 (i.e. PLTR's 100th trading day, ~mid-2021)
+    # was paired with vxx_bars[100] (VXX's 100th day, ~late-2009). Every IPO-era
+    # ticker trained on wrong-era regime features.
+    def _date_key(bar):
+        t = bar.get("t", "")
+        if isinstance(t, str):
+            return t[:10]  # YYYY-MM-DD
+        return str(t)[:10]
+
+    vxx_date_idx = {_date_key(b): i for i, b in enumerate(vxx_list)}
+    spy_date_idx = {_date_key(b): i for i, b in enumerate(spy_list)}
+    tlt_date_idx = {_date_key(b): i for i, b in enumerate(tlt_list)}
+    hyg_date_idx = {_date_key(b): i for i, b in enumerate(hyg_list)}
+
     X_rows, y_labels, regimes_list = [], [], []
 
-    # Compute cross-sectional ranks
-    all_changes_by_day: Dict[int, list] = {}
+    # Compute cross-sectional ranks BY DATE (also previously used positional idx
+    # which collides across tickers that start on different dates).
+    all_changes_by_date: Dict[str, list] = {}
 
-    # Pre-compute market breadth: % of tickers above 50d MA per day
-    breadth_by_day: Dict[int, float] = {}
+    # Pre-compute market breadth: % of tickers above 50d MA PER DATE
+    breadth_by_date: Dict[str, float] = {}
     ticker_closes_map = {}
+    ticker_dates_map = {}
     tradeable_tickers = [t for t in all_bars if t not in ("SPY","QQQ","IWM","VXX","GLD","TLT","HYG")]
 
     for ticker, bars_raw in all_bars.items():
@@ -666,48 +684,92 @@ def _build_training_data(all_bars: dict,
         bars = to_list(bars_raw)
         if len(bars) < 30: continue
         closes = [b["c"] for b in bars]
+        dates = [_date_key(b) for b in bars]
         ticker_closes_map[ticker] = closes
+        ticker_dates_map[ticker] = dates
         for idx in range(1, len(bars)):
             if closes[idx-1] > 0:
                 chg = (closes[idx]-closes[idx-1])/closes[idx-1]*100
-                all_changes_by_day.setdefault(idx, []).append(chg)
+                all_changes_by_date.setdefault(dates[idx], []).append(chg)
 
-    # Compute breadth per day index
-    for idx in range(50, max((len(c) for c in ticker_closes_map.values()), default=51)):
+    # Compute breadth per CALENDAR DATE (not positional idx). Previously, idx=100
+    # meant "100 bars into each ticker's own history", so PLTR's idx=100 (2021-ish)
+    # was aggregated with AAPL's idx=100 (2020-ish) — breadth was temporally smeared.
+    all_dates_sorted = sorted({d for dates in ticker_dates_map.values() for d in dates})
+    for target_date in all_dates_sorted:
         above_50ma = 0
         total = 0
-        for t_closes in ticker_closes_map.values():
-            if idx < len(t_closes) and idx >= 50:
-                ma50 = sum(t_closes[idx-50:idx]) / 50
-                if ma50 > 0:
-                    total += 1
-                    if t_closes[idx] > ma50:
-                        above_50ma += 1
-        breadth_by_day[idx] = above_50ma / max(total, 1)
+        for tkr, t_closes in ticker_closes_map.items():
+            t_dates = ticker_dates_map.get(tkr, [])
+            if target_date not in t_dates:
+                continue
+            j = t_dates.index(target_date)  # O(n) but dates are monotonic; acceptable for training-time work
+            if j < 50:
+                continue
+            ma50 = sum(t_closes[j-50:j]) / 50
+            if ma50 > 0:
+                total += 1
+                if t_closes[j] > ma50:
+                    above_50ma += 1
+        if total > 0:
+            breadth_by_date[target_date] = above_50ma / total
 
     for ticker, bars_raw in all_bars.items():
         if ticker in ("SPY","QQQ","IWM","VXX","GLD","TLT","HYG"): continue
         bars = to_list(bars_raw)
         if len(bars) < 30: continue
         closes = [b["c"] for b in bars]
+        dates  = [_date_key(b) for b in bars]
 
         earn_surp = (earnings_surprises or {}).get(ticker, 0.0)
 
+        # P0-3 FIX: pre-compute aligned VXX/SPY/TLT/HYG slices keyed to THIS
+        # stock's calendar dates. _compute_features then just uses stock's idx
+        # and everything lines up.
+        def _aligned(ref_list, ref_date_idx):
+            """Return a list of length len(bars) where position i holds the ref_list
+            bar whose date equals (or most-recently precedes) bars[i]'s date.
+            Fills missing early dates with the first available bar."""
+            out = []
+            last_good_idx = None
+            for d in dates:
+                j = ref_date_idx.get(d)
+                if j is None and last_good_idx is None:
+                    # walk backwards through sorted ref_date_idx keys up to d
+                    # (use linear scan once; ref series are small ~2500 bars)
+                    for rd in sorted(ref_date_idx.keys()):
+                        if rd <= d:
+                            last_good_idx = ref_date_idx[rd]
+                        else:
+                            break
+                    out.append(ref_list[last_good_idx] if last_good_idx is not None else (ref_list[0] if ref_list else None))
+                elif j is None:
+                    out.append(ref_list[last_good_idx] if last_good_idx is not None else None)
+                else:
+                    last_good_idx = j
+                    out.append(ref_list[j])
+            return out
+
+        aligned_vxx = _aligned(vxx_list, vxx_date_idx)
+        aligned_spy = _aligned(spy_list, spy_date_idx)
+        aligned_tlt = _aligned(tlt_list, tlt_date_idx) if tlt_list else None
+        aligned_hyg = _aligned(hyg_list, hyg_date_idx) if hyg_list else None
+
         for idx in range(25, len(bars) - 6):
-            breadth = breadth_by_day.get(idx, 0.5)
+            breadth = breadth_by_date.get(dates[idx], 0.5)
             feats = _compute_features(bars, idx, all_bars, ticker,
-                                        vxx_list, spy_list, earn_surp,
+                                        aligned_vxx, aligned_spy, earn_surp,
                                         cross_sec_rank=0.5,
                                         news_sentiment=0.0,
                                         insider_signal=0.0,
-                                        tlt_bars=tlt_list,
-                                        hyg_bars=hyg_list,
+                                        tlt_bars=aligned_tlt,
+                                        hyg_bars=aligned_hyg,
                                         breadth_pct=breadth)
             if feats is None:
                 continue
 
-            # Cross-sectional rank for this day
-            day_changes = all_changes_by_day.get(idx, [])
+            # Cross-sectional rank for this DATE (fixes same bug as breadth).
+            day_changes = all_changes_by_date.get(dates[idx], [])
             if day_changes and len(day_changes) > 10:
                 stock_chg = (closes[idx]-closes[idx-1])/closes[idx-1]*100 if closes[idx-1]>0 else 0
                 rank_pct  = sum(1 for x in day_changes if x <= stock_chg) / len(day_changes)
@@ -746,7 +808,7 @@ def _build_training_data(all_bars: dict,
             regimes_list.append(regime_label)
 
     # Release large intermediate structures before converting to numpy
-    del ticker_closes_map, all_changes_by_day, breadth_by_day
+    del ticker_closes_map, ticker_dates_map, all_changes_by_date, breadth_by_date
 
     if len(X_rows) < 50:
         return None, None, None
@@ -766,6 +828,34 @@ def _build_training_data(all_bars: dict,
 # poison the model with outcomes caused by bugs, not bad signals.
 MIN_FEEDBACK_VERSION = "1.0.33"
 
+
+def _version_tuple(v):
+    """Parse "1.0.33" -> (1, 0, 33) for correct numeric comparison.
+
+    BUGFIX P0-4: Previously `t.get("code_version", "") >= MIN_FEEDBACK_VERSION`
+    used lexicographic string comparison — "1.0.9" >= "1.0.33" is True, so
+    trades from v1.0.9 (pre-bugfix, poisonous) passed the filter. Tuple
+    comparison fixes this: (1,0,9) < (1,0,33).
+    """
+    if not v:
+        return (0, 0, 0)
+    try:
+        parts = str(v).split(".")
+        # Coerce each segment to int; strip any non-numeric prefix/suffix.
+        def _to_int(s):
+            num = ""
+            started = False
+            for ch in s:
+                if ch.isdigit():
+                    num += ch
+                    started = True
+                elif started:
+                    break
+            return int(num) if num else 0
+        return tuple(_to_int(p) for p in parts[:3]) + (0,) * max(0, 3 - len(parts))
+    except Exception:
+        return (0, 0, 0)
+
 def _load_trade_feedback() -> List[dict]:
     try:
         if os.path.exists(FEEDBACK_PATH):
@@ -773,7 +863,8 @@ def _load_trade_feedback() -> List[dict]:
                 raw = json.load(f)
             # Filter: only train on trades from code >= MIN_FEEDBACK_VERSION
             # Trades without code_version are from pre-fix code — skip them
-            valid = [t for t in raw if t.get("code_version", "") >= MIN_FEEDBACK_VERSION]
+            _min_v = _version_tuple(MIN_FEEDBACK_VERSION)
+            valid = [t for t in raw if _version_tuple(t.get("code_version", "")) >= _min_v]
             skipped = len(raw) - len(valid)
             if skipped > 0:
                 import logging
@@ -976,13 +1067,26 @@ def train_model(fast_mode: bool = False) -> dict:
     # (bot_engine stores labels as UPPERCASE e.g. "NEUTRAL", training expects "neutral")
     reg_all = [r.lower() for r in reg_all]
 
-    # Fast mode: subsample to reduce memory on Railway
+    # Fast mode: subsample to reduce memory on Railway.
+    #
+    # BUGFIX: Previous implementation used rng.choice() to pick a *random*
+    # 10K rows, then handed the result to _purged_train_test_split() which
+    # uses the LAST 20% as the test set. Because the rows were shuffled,
+    # "last 20%" became random 20% — training set contained rows that came
+    # chronologically AFTER validation rows. Classic look-ahead leakage.
+    #
+    # sample_weights also went out of alignment because they were sliced
+    # by position AFTER the shuffle (see line ~1049 `sample_weights[:len(X_tr)]`).
+    #
+    # Fix: take the most recent contiguous 10K rows — preserves temporal order,
+    # keeps sample_weights aligned, and is a more relevant training window.
     if fast_mode and len(X_all) > 10000:
-        rng = np.random.RandomState(42)
-        idx_sub = rng.choice(len(X_all), 10000, replace=False)
-        X_all = X_all[idx_sub]
-        y_all = y_all[idx_sub]
-        reg_all = [reg_all[i] for i in idx_sub]
+        keep = 10000
+        X_all = X_all[-keep:]
+        y_all = y_all[-keep:]
+        reg_all = reg_all[-keep:]
+        if sample_weights is not None:
+            sample_weights = sample_weights[-keep:]
 
     if len(X_all) < 50:
         return {"status": "insufficient_data", "samples": len(X_all)}
