@@ -1188,10 +1188,15 @@ def _setup_csp_normal_market(ticker: str, price: float, vxx_ratio: float) -> Opt
     if iv_rank is None:
         return None
 
-    # Only fire in the "normal" IVR band: 20-50
-    # Below 20 → low_iv_breakout_buy handles it (buy cheap options)
+    # Only fire in the "normal" IVR band: 15-50
+    # Below 15 → low_iv_breakout_buy handles it (buy cheap options)
     # Above 50 → high_iv_premium_sale handles it (sell expensive options)
-    if iv_rank < 20 or iv_rank > 50:
+    #
+    # IVR lower bound dropped from 20 → 15 (2026-04-17, backtest_scenario_c_wf).
+    # Rationale: Alpaca is commission-free on options, so CSPs fire profitably
+    # on calmer underlyings. Backtest equivalent (wheel_min_vix 15→12) produced
+    # CSP P&L of -$4,416 → +$10,238 in OOS 2023-2026.
+    if iv_rank < 15 or iv_rank > 50:
         return None
 
     # Fetch 30-45 DTE options (theta decay sweet spot for short premium)
@@ -1213,8 +1218,10 @@ def _setup_csp_normal_market(ticker: str, price: float, vxx_ratio: float) -> Opt
         return None  # Premium too small to be worth the capital tie-up
 
     avg_iv = best_put["iv"]
-    if avg_iv < 0.20:
+    if avg_iv < 0.15:
         return None  # Not enough IV to generate meaningful premium
+    # IV floor dropped from 0.20 → 0.15 (2026-04-17). Matches cc_min_iv change
+    # from 0.25 → 0.18 in backtest harness.
 
     # Calculate key metrics
     premium = best_put["mid"]

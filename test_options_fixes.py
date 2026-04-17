@@ -1059,11 +1059,15 @@ class TestCSPNormalMarketSetup(unittest.TestCase):
         self.assertIn('"csp_normal_market"', src)
         self.assertIn('"sell"', src)  # side must be sell
 
-    def test_csp_ivr_band_20_to_50(self):
-        """CSP should only fire for IVR 20-50 (moderate IV)."""
+    def test_csp_ivr_band_15_to_50(self):
+        """CSP should only fire for IVR 15-50 (moderate IV).
+
+        Lower bound dropped from 20 → 15 on 2026-04-17 per backtest_scenario_c_wf
+        (Alpaca commission-free options justify firing on calmer underlyings).
+        """
         import options_scanner as os_mod
         src = inspect.getsource(os_mod._setup_csp_normal_market)
-        self.assertIn('iv_rank < 20', src)
+        self.assertIn('iv_rank < 15', src)
         self.assertIn('iv_rank > 50', src)
 
     def test_csp_uses_30_delta_put(self):
