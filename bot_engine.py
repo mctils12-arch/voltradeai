@@ -498,7 +498,13 @@ def deep_score(ticker, quick_result):
         yf_fundamentals = _yf_cache[_yf_cache_key]
     else:
         try:
-            _yf_script = f'''import yfinance as yf, json, sys
+            _yf_script = f'''import logging, sys
+# Silence yfinance's noisy HTTP error logging — 404s for ETFs without
+# fundamentals (QQQ, SPY, etc.) are expected and not actionable.
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("peewee").setLevel(logging.CRITICAL)
+import yfinance as yf, json
 try:
     t = yf.Ticker("{ticker}")
     info = t.info or {{}}

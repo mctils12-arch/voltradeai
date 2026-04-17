@@ -161,19 +161,36 @@ def parse_occ_symbol(symbol: str) -> dict:
 
 # ─── Alpaca Data Fetchers ───────────────────────────────────────────────────
 
+# High-volume index ETFs that have huge chains — narrow DTE to avoid timeouts
+_HEAVY_CHAIN_TICKERS = {"SPY", "QQQ", "IWM", "DIA", "SPX", "NDX", "VIX"}
+
+
 def _fetch_options_chain(ticker: str, dte_min: int = 7, dte_max: int = 90) -> dict:
     """
     Fetch the full options chain from Alpaca OPRA.
     Returns raw snapshots dict keyed by OCC symbol.
     Handles pagination automatically.
+
+    For heavy-chain tickers (SPY, QQQ, IWM etc.) caps DTE to 30 days to
+    avoid 4000+ contract scans that can blow the per-scan time budget.
     """
+    # Narrow DTE for index ETFs with massive chains — we trade weekly/monthly
+    # premium not far-dated, so capping at 30 DTE costs us nothing useful but
+    # cuts contract count by ~70% on SPY/QQQ.
+    if ticker.upper() in _HEAVY_CHAIN_TICKERS and dte_max > 30:
+        dte_max = 30
+
     today = datetime.now(timezone.utc).date()
     gte = (today + timedelta(days=dte_min)).isoformat()
     lte = (today + timedelta(days=dte_max)).isoformat()
 
     all_snapshots = {}
     page_token = None
-    max_pages = 30  # Safety limit — SPY can have 4000+ contracts
+    # Pagination cap: 10 pages × 200/page = 2000 contracts max. Previously
+    # 30 pages allowed 6000 contracts which on a slow connection could take
+    # 30 × 8s = 240s wall-clock — well past the 50s scan cap. Hard-cap to 10
+    # pages × 4s timeout = 40s worst case (still within scan budget).
+    max_pages = 10
 
     for page_num in range(max_pages):
         params = {
@@ -190,7 +207,7 @@ def _fetch_options_chain(ticker: str, dte_min: int = 7, dte_max: int = 90) -> di
                 f"{DATA_URL}/v1beta1/options/snapshots/{ticker}",
                 params=params,
                 headers=_HEADERS,
-                timeout=8,
+                timeout=4,  # Reduced from 8s — 10 pages × 4s = 40s worst case
             )
             resp.raise_for_status()
         except requests.RequestException as e:
@@ -784,30 +801,54 @@ def _calibrate_expiry_sabr(ticker: str, expiry: str, strikes_data: dict,
 
 # ─── Surface Builder ─────────────────────────────────────────────────────────
 
-def build_surface(ticker: str) -> dict:
+# Per-ticker time budget. If build_surface takes longer than this, we return
+# what we have so the caller (scan_market) can move on. Thread-safe (no
+# signal-based timeout) so it works from ThreadPoolExecutor workers.
+BUILD_SURFACE_TIME_BUDGET_S = 12.0
+
+
+def build_surface(ticker: str, time_budget_s: float = BUILD_SURFACE_TIME_BUDGET_S) -> dict:
     """
     Build a 2D implied volatility surface from live OPRA data.
 
     Returns a structured dict with expirations, strikes, IVs, greeks,
     ATM vol, realized vol, and the volatility risk premium.
+
+    Has a soft time budget (default 12s). If exceeded mid-build, returns
+    a partial result with whatever expiries were processed before the
+    budget ran out. This prevents one slow ticker from blowing the
+    enclosing scan_market 50s hard cap.
     """
+    _t_start = time.time()
+
+    def _budget_left() -> float:
+        return time_budget_s - (time.time() - _t_start)
+
     # Check cache
     cached = _surface_cache.get(ticker)
     if cached and (time.time() - cached["timestamp"]) < CACHE_TTL:
         logger.info("Returning cached surface for %s (%.0fs old)", ticker, time.time() - cached["timestamp"])
         return cached["surface"]
 
-    logger.info("Building volatility surface for %s", ticker)
+    logger.info("Building volatility surface for %s (budget=%.1fs)", ticker, time_budget_s)
 
     spot = _fetch_spot_price(ticker)
     if spot <= 0:
         logger.error("Could not determine spot price for %s", ticker)
         return {"ticker": ticker, "error": "spot_price_unavailable"}
 
+    if _budget_left() <= 0:
+        logger.warning("build_surface budget exceeded for %s after spot fetch", ticker)
+        return {"ticker": ticker, "spot_price": spot, "error": "time_budget_exceeded"}
+
     raw_chain = _fetch_options_chain(ticker)
     if not raw_chain:
         logger.error("No options data for %s", ticker)
         return {"ticker": ticker, "spot_price": spot, "error": "no_options_data"}
+
+    if _budget_left() <= 0:
+        logger.warning("build_surface budget exceeded for %s after chain fetch", ticker)
+        return {"ticker": ticker, "spot_price": spot, "error": "time_budget_exceeded"}
 
     today = datetime.now(timezone.utc).date()
     expirations: dict = {}
@@ -874,19 +915,29 @@ def build_surface(ticker: str) -> dict:
     atm_iv = _compute_atm_iv(expirations, spot)
 
     # ── SABR calibration per expiry ──
+    # Skip the whole SABR loop if we're already over budget. SABR is a
+    # nice-to-have for skew analysis but not required for VRP / scoring.
     sabr_params = {}
-    for expiry, exp_data in expirations.items():
-        dte_val = exp_data.get("dte", 0)
-        strikes_data = exp_data.get("strikes", {})
-        if dte_val > 0 and len(strikes_data) >= 5:
-            try:
-                sp = _calibrate_expiry_sabr(ticker, expiry, strikes_data, spot, dte_val)
-                if sp and sp.get("alpha", 0) > 0:
-                    sabr_params[expiry] = sp
-                    # Store SABR params in the expiry dict too for easy access
-                    exp_data["sabr"] = sp
-            except Exception as e:
-                logger.warning("SABR calibration failed for %s %s: %s", ticker, expiry, e)
+    if _budget_left() <= 1.0:
+        logger.info("build_surface skipping SABR for %s (budget %.1fs left)", ticker, _budget_left())
+    else:
+        for expiry, exp_data in expirations.items():
+            if _budget_left() <= 0.5:
+                logger.info("build_surface SABR loop hit budget for %s after %d expiries", ticker, len(sabr_params))
+                break
+            dte_val = exp_data.get("dte", 0)
+            strikes_data = exp_data.get("strikes", {})
+            if dte_val > 0 and len(strikes_data) >= 5:
+                try:
+                    sp = _calibrate_expiry_sabr(ticker, expiry, strikes_data, spot, dte_val)
+                    if sp and sp.get("alpha", 0) > 0:
+                        sabr_params[expiry] = sp
+                        # Store SABR params in the expiry dict too for easy access
+                        exp_data["sabr"] = sp
+                except Exception as e:
+                    # Demoted from warning — calibration failures are common on
+                    # noisy short-DTE chains and don't affect downstream VRP/score.
+                    logger.debug("SABR calibration failed for %s %s: %s", ticker, expiry, e)
 
     # Compute realized vol
     bars = _fetch_historical_bars(ticker, days=90)
