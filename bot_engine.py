@@ -3804,6 +3804,21 @@ def _manage_defensive_floor(macro: dict) -> dict:
 
 
 if __name__ == "__main__":
+    # ── Memory diagnostics ─────────────────────────────────────────────
+    # Log RSS at entry so OOM kills leave a breadcrumb. Without this, an
+    # OOM-killed scan shows up in Node.js as "Command failed" with empty
+    # stderr (SIGKILL skips flush). This line is written BEFORE heavy
+    # imports, so even if the scan is killed mid-load we know roughly how
+    # much memory was available at start.
+    try:
+        import resource as _res
+        _rss_kb = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
+        # Linux: ru_maxrss is KB. macOS: bytes. We always want MB.
+        _rss_mb = _rss_kb // 1024 if _rss_kb > 100_000 else _rss_kb // 1024
+        print(f"[mem] scan entry rss~{_rss_mb}MB argv={sys.argv}", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
     # ── ML v2 Training Schedule ─────────────────────────────────────────
     # Daily retrain at 4am (called by Tier 3 in bot.ts)
     # Event-triggered: VXX > 1.3, 3+ consecutive stops, SPY > 3% move
