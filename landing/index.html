@@ -26,11 +26,12 @@
         <span class="logo__text">Vol<span>Trade</span>AI</span>
       </a>
       <nav class="header__nav" aria-label="Main navigation">
+        <a href="#plain-english">In Plain English</a>
         <a href="#how-it-works">How It Works</a>
         <a href="#strategy">Strategy</a>
         <a href="#performance">Performance</a>
         <a href="#risk-controls">Risk Controls</a>
-        <a href="/" style="color:var(--color-primary);font-weight:600;">Dashboard →</a>
+        <a href="/" style="color:var(--color-primary);font-weight:600;">Open Dashboard →</a>
       </nav>
       <button class="theme-toggle" data-theme-toggle aria-label="Switch to light mode">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -64,6 +65,66 @@
             <div class="hero-metric__value hero-metric__value--amber counter" data-target="6.8" data-suffix="%">0%</div>
             <div class="hero-metric__label">Max Drawdown</div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PLAIN ENGLISH MECHANICS ===== -->
+    <section id="plain-english" class="fade-in">
+      <div class="container">
+        <div class="section-header section-header--center">
+          <div class="section-eyebrow">In Plain English</div>
+          <h2 class="section-title">What This Actually Does</h2>
+          <p class="section-desc">You know investing. You don't work at a hedge fund. Here's exactly what the system is doing on your behalf, in the simplest terms — without losing the part that makes it special: this is the kind of machine that funds with billions of dollars run, available to you.</p>
+        </div>
+
+        <div class="plain-grid">
+          <div class="plain-card">
+            <div class="plain-card__step">Step 1</div>
+            <h3 class="plain-card__title">It reads the market's mood first</h3>
+            <p class="plain-card__desc">Before it does anything, the system looks at what kind of market we're in today: calm and rising (Bull), jittery (Caution), falling (Bear), or panicking (Panic). Every decision it makes — how aggressive to be, what to buy, how big to size — is tuned to that mood. It's the difference between sprinting in good weather and tightening up in a storm.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> Most investors use the same playbook in every market. That's how people blow up in 2008 or 2020. This doesn't.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 2</div>
+            <h3 class="plain-card__title">It scores every stock, every day</h3>
+            <p class="plain-card__desc">A machine-learning model scans the U.S. stock universe every session and scores each name on its odds of going up from here. The model was trained on a decade of data, with safeguards to prevent it from memorizing the past instead of actually learning. Only the high-confidence picks get traded — everything below the bar is ignored.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> You're not buying on a hunch or a tweet. You're buying the top decile of setups the model has actually seen work before.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 3</div>
+            <h3 class="plain-card__title">It sizes each bet mathematically</h3>
+            <p class="plain-card__desc">Once it picks a trade, it uses the Kelly Criterion — the same math MIT professors used to beat Vegas blackjack and that Jim Simons' Renaissance fund scaled to billions. It calculates the exact bet size that grows your money fastest without blowing up. Then it throttles that down when markets are shaky, and caps every position at 8% of the account so no single trade can hurt you too badly.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> Most people bet too big on conviction trades and too small on boring winners. This is the opposite — disciplined, geometric, compounding.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 4</div>
+            <h3 class="plain-card__title">It harvests "fear premium" on the side</h3>
+            <p class="plain-card__desc">When the market is scared, options get overpriced — people pay too much for insurance. The system sells that overpriced insurance (carefully, with an auto-kill switch if things get wild) and keeps the premium. It's the same Volatility Risk Premium trade hedge funds have run for decades, but only when the math actually supports it — not 24/7 like the amateurs who eventually get wiped out.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> It's a second income stream that typically works when stocks are flat or mildly choppy — exactly when buy-and-hold earns nothing.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 5</div>
+            <h3 class="plain-card__title">It buys crash insurance with the profits</h3>
+            <p class="plain-card__desc">A small slice of the account (usually 1-2%, up to 3.5% when things look nervous) goes into far out-of-the-money QQQ put options. These are cheap lottery tickets that pay out massively if the market crashes. In a normal year they're a small cost. In a 2020-style crash, they print money and cushion the whole portfolio.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> That's why the max drawdown stays under 7% — the system is paying a small fee every year to make sure a black-swan month can't take it down.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 6</div>
+            <h3 class="plain-card__title">It never sleeps, never panics, never gets bored</h3>
+            <p class="plain-card__desc">All six steps run automatically, every trading day, on live market data. No emotion, no "I have a feeling about this one," no missed signals because you were at dinner. The same rules that got tested across 11 years of backtests — including 2018's correction, 2020's COVID crash, and 2022's bear market — are the rules running your account.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> The real edge isn't any one trick. It's doing all of it, consistently, forever, without flinching.</p>
+          </div>
+        </div>
+
+        <div class="plain-footer">
+          <p class="plain-footer__line">The tools. The math. The discipline.<br/>The same machinery that runs billions at the top funds — built for you.</p>
+          <a href="#how-it-works" class="plain-footer__cta">See the technical version →</a>
         </div>
       </div>
     </section>
@@ -319,7 +380,11 @@
   <footer class="footer">
     <div class="container footer__inner">
       <span class="footer__copy">&copy; 2026 VolTradeAI</span>
-      <a href="/" class="footer__dashboard-link">Open Dashboard →</a>
+      <div class="footer__links">
+        <a href="#plain-english" class="footer__link">In Plain English</a>
+        <a href="#performance" class="footer__link">Performance</a>
+        <a href="/" class="footer__dashboard-link">Open Dashboard →</a>
+      </div>
     </div>
   </footer>
 

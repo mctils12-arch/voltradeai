@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X } from "lucide-react";
+import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AnalyzePage from "./analyze";
 import ScannerPage from "./scanner";
@@ -153,6 +153,15 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <a
+            href="/bot"
+            className="theme-toggle-btn"
+            aria-label="About the Bot"
+            title="About the Bot — performance, strategy, mechanics"
+            style={{ color: "#00e5ff", display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
+          >
+            <Info size={15} />
+          </a>
           <button
             className="theme-toggle-btn"
             onClick={() => setDark(!dark)}
@@ -191,6 +200,15 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
           <span className="tab-nav-logo-text"><span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+          <a
+            href="/bot"
+            className="theme-toggle-btn"
+            aria-label="About the Bot"
+            title="About the Bot"
+            style={{ color: "#00e5ff", display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
+          >
+            <Info size={15} />
+          </a>
           <button
             className="theme-toggle-btn"
             onClick={() => setDark(!dark)}
