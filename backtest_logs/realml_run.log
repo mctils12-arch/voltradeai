@@ -1,0 +1,64 @@
+$SQ: possibly delisted; no timezone found
+
+1 Failed download:
+['SQ']: possibly delisted; no timezone found
+$ALXN: possibly delisted; no timezone found
+$TWTR: possibly delisted; no timezone found
+$SPLK: possibly delisted; no timezone found
+$CELG: possibly delisted; no timezone found
+$VIX: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+
+5 Failed downloads:
+['ALXN', 'TWTR', 'SPLK', 'CELG']: possibly delisted; no timezone found
+['VIX']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+Sample tickers: 200
+Train end: 2022-12-31
+[download] 0/210 batch of 50
+[download] 50/210 batch of 50
+[download] 100/210 batch of 50
+[download] 150/210 batch of 50
+[download] 200/210 batch of 10
+[cache] Saved 204 tickers to /tmp/backtest_real_ml_cache.pkl
+[main] Loaded 204 tickers
+
+==============================================================================
+  TRAINING ML MODEL on 2016 -> 2022-12-31
+==============================================================================
+[train] 202 tickers with historical bars
+[train] Reference series present: SPY=1762, VXX=1762, TLT=1762, HYG=1762
+[train] Computing 34-feature training matrix (triple-barrier labels)...
+[train] Built 293083 training rows in 246.6s
+[train] Label distribution: win=128209, loss=164874
+[train] Regime distribution: bull=131868, neutral=107161, bear=54054
+[train] Training global model...
+[train] Global model accuracy: 65.6%
+[train] Training bull regime model on 131868 rows...
+[train]   bull accuracy: 64.6%
+[train] Training bear regime model on 54054 rows...
+[train]   bear accuracy: 73.9%
+[train] Training neutral regime model on 107161 rows...
+[train]   neutral accuracy: 67.7%
+[train] Saved bundle to /tmp/voltrade_ml_v2.pkl
+
+==============================================================================
+  RUNNING BACKTEST 2016-01-01 -> 2026-04-01
+==============================================================================
+[bt] 2575 trading days
+[bt] 192 stocks in universe
+
+==============================================================================
+  REAL-ML BACKTEST RESULTS
+==============================================================================
+  Period:            2016-01-04 to 2026-03-31 (10.24 years)
+  Universe:          192 stocks
+  Final Equity:      $       399,630
+  Total Return:             299.6%
+  CAGR:                     14.49%
+  Max Drawdown:             66.10%
+  Sharpe:                     1.241
+  Sortino:                    1.494
+  SPY CAGR:                 14.01%
+  Total trades:                 628
+  Win rate:                  53.8%
+
+  Results saved to /home/user/workspace/voltradeai/backtest_real_ml_results.json
