@@ -1,0 +1,72 @@
+[sweep] 384 configurations
+[init] loading data + ML scores...
+[init] loaded 85547 ML scores from cache
+[1/384] CAGR=10.3% DD=25.3% Sortino=0.77 opt_pnl=-5461
+[2/384] CAGR=10.1% DD=25.4% Sortino=0.98 opt_pnl=0
+[3/384] CAGR=12.7% DD=22.2% Sortino=1.06 opt_pnl=-5930
+[4/384] CAGR=12.6% DD=23.2% Sortino=1.21 opt_pnl=0
+[5/384] CAGR=10.4% DD=25.3% Sortino=0.73 opt_pnl=-5479
+[20/384] CAGR=12.0% DD=23.1% Sortino=1.10 opt_pnl=0
+[40/384] CAGR=10.8% DD=22.3% Sortino=1.21 opt_pnl=0
+[60/384] CAGR=11.5% DD=23.1% Sortino=1.15 opt_pnl=0
+[80/384] CAGR=11.9% DD=24.2% Sortino=1.15 opt_pnl=0
+[100/384] CAGR=12.0% DD=27.3% Sortino=1.23 opt_pnl=0
+[120/384] CAGR=10.5% DD=27.9% Sortino=1.04 opt_pnl=0
+[140/384] CAGR=13.4% DD=25.0% Sortino=1.24 opt_pnl=0
+[160/384] CAGR=13.1% DD=23.9% Sortino=1.18 opt_pnl=0
+[180/384] CAGR=9.0% DD=32.2% Sortino=0.89 opt_pnl=0
+[200/384] CAGR=14.3% DD=25.2% Sortino=1.21 opt_pnl=0
+[220/384] CAGR=15.2% DD=28.7% Sortino=1.31 opt_pnl=0
+[240/384] CAGR=14.3% DD=32.4% Sortino=1.23 opt_pnl=0
+[260/384] CAGR=12.7% DD=23.8% Sortino=1.18 opt_pnl=0
+[280/384] CAGR=13.8% DD=18.2% Sortino=1.24 opt_pnl=0
+[300/384] CAGR=10.6% DD=27.8% Sortino=1.03 opt_pnl=0
+[320/384] CAGR=12.7% DD=24.7% Sortino=1.22 opt_pnl=0
+[340/384] CAGR=19.6% DD=24.2% Sortino=1.51 opt_pnl=0
+[360/384] CAGR=17.2% DD=34.9% Sortino=1.33 opt_pnl=0
+[380/384] CAGR=14.4% DD=41.5% Sortino=1.16 opt_pnl=0
+
+[sweep] done in 2.3 min
+309/384 configs meet DD < 33.72%
+
+========================================================================================================================
+TOP 15 BY CAGR (DD < SPY's 33.72%)
+========================================================================================================================
+   CAGR   MaxDD  Sortino  Sharpe  Trades   Win%    OptPnL  Config
+  19.6%   24.2%     1.51    1.11     785  56.3%         0  sz=10% np=5 h=10d sl=-0.1 tp=None th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+  18.9%   30.7%     0.98    0.83     779  56.0%    -10054  sz=10% np=5 h=10d sl=-0.1 tp=None th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=1
+  18.5%   32.1%     0.95    0.80     849  51.0%     -4090  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=1
+  18.2%   28.0%     1.41    1.08     890  50.6%         0  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+  17.8%   26.4%     1.39    1.05     839  54.7%         0  sz=10% np=5 h=10d sl=-0.1 tp=0.2 th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+  17.7%   27.7%     1.37    1.04     841  50.9%         0  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+  17.4%   29.7%     1.31    0.99     782  55.9%         0  sz=10% np=5 h=10d sl=-0.1 tp=None th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+  17.2%   32.9%     0.82    0.71     868  50.1%     -6593  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.6 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=1
+  17.1%   25.7%     1.04    0.84     812  55.3%     -3430  sz=10% np=5 h=10d sl=-0.1 tp=None th=0.6 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=1
+  16.9%   30.3%     1.31    1.03     915  51.4%         0  sz=10% np=5 h=10d sl=-0.05 tp=0.2 th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+  16.8%   26.4%     1.28    1.00     863  50.3%         0  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.6 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+  16.7%   28.9%     1.29    1.02     875  51.0%         0  sz=10% np=5 h=10d sl=-0.05 tp=0.2 th=0.6 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+  16.6%   30.7%     1.03    0.84     866  50.5%     -4769  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.6 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=1
+  16.4%   25.7%     1.28    0.96     812  55.0%         0  sz=10% np=5 h=10d sl=-0.1 tp=None th=0.6 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+  16.2%   33.5%     0.79    0.68     823  56.3%     -9251  sz=8% np=5 h=10d sl=-0.1 tp=None th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=1
+
+========================================================================================================================
+TOP 15 BY SORTINO (DD < SPY's 33.72%)
+========================================================================================================================
+ Sortino    CAGR   MaxDD  Sharpe  Trades   Win%  Config
+    1.51   19.6%   24.2%    1.11     785  56.3%  sz=10% np=5 h=10d sl=-0.1 tp=None th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.41   18.2%   28.0%    1.08     890  50.6%  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.39   17.8%   26.4%    1.05     839  54.7%  sz=10% np=5 h=10d sl=-0.1 tp=0.2 th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.37   17.7%   27.7%    1.04     841  50.9%  sz=10% np=5 h=10d sl=-0.05 tp=None th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.35   15.7%   32.5%    1.00     741  42.4%  sz=8% np=5 h=20d sl=-0.05 tp=None th=0.6 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.35   15.1%   18.2%    1.04     476  55.7%  sz=10% np=3 h=10d sl=-0.1 tp=None th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.33   13.2%   26.7%    1.01     765  43.0%  sz=5% np=5 h=20d sl=-0.05 tp=None th=0.6 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.33   14.6%   19.3%    1.02     488  54.7%  sz=10% np=3 h=10d sl=-0.1 tp=0.2 th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.31   16.9%   30.3%    1.03     915  51.4%  sz=10% np=5 h=10d sl=-0.05 tp=0.2 th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.31   17.4%   29.7%    0.99     782  55.9%  sz=10% np=5 h=10d sl=-0.1 tp=None th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.31   15.2%   28.7%    0.99     800  56.2%  sz=8% np=5 h=10d sl=-0.1 tp=0.2 th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.30   13.7%   24.7%    0.94     423  46.3%  sz=10% np=3 h=20d sl=-0.1 tp=0.2 th=0.55 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.30   15.4%   27.3%    1.00     922  50.1%  sz=8% np=5 h=10d sl=-0.05 tp=None th=0.55 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.29   16.7%   28.9%    1.02     875  51.0%  sz=10% np=5 h=10d sl=-0.05 tp=0.2 th=0.6 qqq=1.0x gld=1 vrp=1 sec=1 kel=0 opt=0
+    1.29   13.0%   24.4%    0.96     468  38.9%  sz=8% np=3 h=20d sl=-0.05 tp=None th=0.6 qqq=1.3x gld=1 vrp=1 sec=1 kel=0 opt=1
+
+Results: /home/user/workspace/voltradeai/backtest_full_system_results.json
