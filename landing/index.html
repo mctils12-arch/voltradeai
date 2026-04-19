@@ -26,7 +26,6 @@
         <span class="logo__text">Vol<span>Trade</span>AI</span>
       </a>
       <nav class="header__nav" aria-label="Main navigation">
-        <a href="#plain-english">In Plain English</a>
         <a href="#how-it-works">How It Works</a>
         <a href="#strategy">Strategy</a>
         <a href="#performance">Performance</a>
@@ -66,7 +65,6 @@
             <div class="hero-metric__label">Max Drawdown</div>
           </div>
         </div>
-        <div class="hero__footnote">Walk-forward out-of-sample — the model had never seen this data during training. The honest number.</div>
       </div>
     </section>
 
@@ -82,9 +80,9 @@
         <div class="plain-grid">
           <div class="plain-card">
             <div class="plain-card__step">Step 1</div>
-            <h3 class="plain-card__title">It reads the market's mood first</h3>
-            <p class="plain-card__desc">Before it does anything, the system looks at what kind of market we're in today: calm and rising (Bull), jittery (Caution), falling (Bear), or panicking (Panic). Every decision it makes — how aggressive to be, what to buy, how big to size — is tuned to that mood. It's the difference between sprinting in good weather and tightening up in a storm.</p>
-            <p class="plain-card__why"><strong>Why it matters:</strong> Most investors use the same playbook in every market. That's how people blow up in 2008 or 2020. This doesn't.</p>
+            <h3 class="plain-card__title">It identifies the market regime first</h3>
+            <p class="plain-card__desc">Before placing a single trade, the system classifies the current environment into one of four regimes — Bull, Caution, Bear, or Panic — using volatility, breadth, and trend signals. Every downstream decision (exposure level, instrument selection, position sizing) is conditioned on that regime. Risk is taken when it's paid for and cut when it isn't.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> Static strategies treat every market the same. Regime-adaptive allocation is how institutional quant funds avoid the drawdowns that end retail accounts in events like 2008 or 2020.</p>
           </div>
 
           <div class="plain-card">
