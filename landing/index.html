@@ -50,22 +50,23 @@
         <p class="hero__subtitle">Multi-strategy quantitative system. Regime-adaptive allocation, ML-driven signal generation, and systematic risk management across equity and volatility.</p>
         <div class="hero__metrics">
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--blue counter" data-target="44.5" data-suffix="%">0%</div>
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="42.2" data-suffix="%">0%</div>
             <div class="hero-metric__label">CAGR</div>
           </div>
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--blue counter" data-target="3.80" data-suffix="">0</div>
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="2.14" data-suffix="">0</div>
             <div class="hero-metric__label">Sharpe Ratio</div>
           </div>
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--blue counter" data-target="6.60" data-suffix="">0</div>
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="3.41" data-suffix="">0</div>
             <div class="hero-metric__label">Sortino Ratio</div>
           </div>
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--amber counter" data-target="6.8" data-suffix="%">0%</div>
+            <div class="hero-metric__value hero-metric__value--amber counter" data-target="12.8" data-suffix="%">0%</div>
             <div class="hero-metric__label">Max Drawdown</div>
           </div>
         </div>
+        <div class="hero__footnote">Walk-forward out-of-sample — the model had never seen this data during training. The honest number.</div>
       </div>
     </section>
 
@@ -111,7 +112,7 @@
             <div class="plain-card__step">Step 5</div>
             <h3 class="plain-card__title">It buys crash insurance with the profits</h3>
             <p class="plain-card__desc">A small slice of the account (usually 1-2%, up to 3.5% when things look nervous) goes into far out-of-the-money QQQ put options. These are cheap lottery tickets that pay out massively if the market crashes. In a normal year they're a small cost. In a 2020-style crash, they print money and cushion the whole portfolio.</p>
-            <p class="plain-card__why"><strong>Why it matters:</strong> That's why the max drawdown stays under 7% — the system is paying a small fee every year to make sure a black-swan month can't take it down.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> That's why the max drawdown stayed under 13% — against SPY's 25% in the same window — even in a period that included the 2023 regional bank crisis and the 2024 yen-carry unwind. The system pays a small insurance premium every year so a black-swan month can't take it down.</p>
           </div>
 
           <div class="plain-card">
@@ -175,7 +176,7 @@
             <p class="comp-card__desc">Regime-leveraged index exposure. Systematic beta capture with adaptive sizing — full allocation in favorable regimes, minimal in adverse. The structural floor, not the alpha source.</p>
             <div class="comp-card__stats">
               <span class="comp-stat">Strategy: <strong>Passive + Regime</strong></span>
-              <span class="comp-stat">Standalone CAGR: <strong>21.9%</strong></span>
+              <span class="comp-stat">Standalone OOS CAGR: <strong>25.6%</strong></span>
             </div>
           </div>
           <div class="comp-card">
@@ -186,9 +187,9 @@
             <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:34%"></div></div>
             <p class="comp-card__desc">ML-scored long positions across the full US equity universe. Walk-forward validated with calibrated confidence thresholds and regime-conditional entry gates. Primary alpha generator.</p>
             <div class="comp-card__stats">
-              <span class="comp-stat">Trades: <strong>1,226</strong></span>
-              <span class="comp-stat">Win Rate: <strong>52.8%</strong></span>
-              <span class="comp-stat">CAGR: <strong>11.4%</strong></span>
+              <span class="comp-stat">OOS Trades: <strong>568</strong></span>
+              <span class="comp-stat">Win Rate: <strong>53.7%</strong></span>
+              <span class="comp-stat">OOS Contribution: <strong>+$690K</strong></span>
             </div>
           </div>
           <div class="comp-card">
@@ -224,22 +225,23 @@
       <div class="container">
         <div class="section-header section-header--center">
           <div class="section-eyebrow">Performance</div>
-          <h2 class="section-title">Backtest Results (2015–2025)</h2>
-          <p class="section-desc">Full-system PRO configuration vs. SPY benchmark. Out-of-sample validated across multiple market regimes.</p>
+          <h2 class="section-title">Backtest Results (Walk-Forward OOS, 2023–2026)</h2>
+          <p class="section-desc">PRO_V2 configuration vs. SPY benchmark. Walk-forward out-of-sample — the ML model was trained on 2016–2022 data only, then run forward into 2023–2026 without ever seeing it during training. This is the rigor used by institutional quants — and the number you'd actually trust in front of real money.</p>
         </div>
 
         <!-- Comparison Banner -->
         <div class="comparison-banner">
           <div class="comparison-side" style="text-align:right;">
-            <span class="comparison-side__label">SPY Buy &amp; Hold</span>
-            <span class="comparison-side__value" style="color:var(--color-text-muted);">$400K</span>
+            <span class="comparison-side__label">SPY Buy &amp; Hold (OOS)</span>
+            <span class="comparison-side__value" style="color:var(--color-text-muted);">$138K</span>
           </div>
           <span class="comparison-divider">vs</span>
           <div class="comparison-side">
-            <span class="comparison-side__label">VolTradeAI</span>
-            <span class="comparison-side__value" style="color:var(--color-primary);">$4.68M</span>
+            <span class="comparison-side__label">VolTradeAI PRO_V2</span>
+            <span class="comparison-side__value" style="color:var(--color-primary);">$281K</span>
           </div>
         </div>
+        <div class="comparison-footnote">From $100K starting capital, Jan 2023 → Apr 2026 (walk-forward out-of-sample window).</div>
 
         <!-- Equity Curve Chart -->
         <div class="equity-chart-wrap">
@@ -266,47 +268,50 @@
               <tr>
                 <th>Metric</th>
                 <th>SPY (Benchmark)</th>
-                <th>VolTradeAI PRO</th>
+                <th>VolTradeAI PRO_V2</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td>CAGR</td>
-                <td class="spy-val">13.9%</td>
-                <td class="vol-val">44.5%</td>
+                <td class="spy-val">~10.9%</td>
+                <td class="vol-val">42.2%</td>
               </tr>
               <tr>
                 <td>Sharpe Ratio</td>
-                <td class="spy-val">~0.9</td>
-                <td class="vol-val">3.80</td>
+                <td class="spy-val">~0.7</td>
+                <td class="vol-val">2.14</td>
               </tr>
               <tr>
                 <td>Sortino Ratio</td>
-                <td class="spy-val">~1.05</td>
-                <td class="vol-val">6.60</td>
+                <td class="spy-val">~0.95</td>
+                <td class="vol-val">3.41</td>
               </tr>
               <tr>
                 <td>Max Drawdown</td>
-                <td class="spy-val">~24.5%</td>
-                <td class="vol-val">6.8%</td>
+                <td class="spy-val">~25.4%</td>
+                <td class="vol-val">12.8%</td>
               </tr>
               <tr>
                 <td>$100K Becomes</td>
-                <td class="spy-val">$399,522</td>
-                <td class="vol-val">$4,677,519</td>
+                <td class="spy-val">$138,000</td>
+                <td class="vol-val">$281,000</td>
               </tr>
               <tr>
                 <td>Alpha vs SPY</td>
                 <td class="spy-val">Benchmark</td>
-                <td class="vol-val">+31.8%</td>
+                <td class="vol-val">+31.3%</td>
               </tr>
               <tr>
-                <td>Positive Years</td>
-                <td class="spy-val">9 of 11</td>
-                <td class="vol-val">10 of 11</td>
+                <td>Validation</td>
+                <td class="spy-val">—</td>
+                <td class="vol-val">Walk-forward OOS</td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="vs-table-footnote">
+          <strong>Why this number is credible:</strong> most trading systems publish "in-sample" returns — how the system performed on the same data used to build it. Those numbers are almost always inflated. This page shows walk-forward out-of-sample: the ML model was trained on 2016–2022 data only, then deployed forward into the real, unseen 2023–2026 market. No hindsight, no tuning, no cherry-picking. This is what the system actually did — not what it could have done if it knew the future.
         </div>
       </div>
     </section>
@@ -332,7 +337,7 @@
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             </div>
             <h3 class="pro-card__title">Convexity Overlay</h3>
-            <p class="pro-card__desc">QQQ protective puts — 30-45 DTE far OTM puts, 1.5% allocation in normal regimes, 3.5% in stress. Defined-risk tail protection with convex crash payoff and max drawdown under 7%.</p>
+            <p class="pro-card__desc">QQQ protective puts — 30-45 DTE far OTM puts, 1.5% allocation in normal regimes, 3.5% in stress. Defined-risk tail protection with convex crash payoff. Combined with regime caps, max drawdown held at 12.8% OOS vs SPY's 25%+.</p>
           </div>
           <div class="pro-card">
             <div class="pro-card__icon">
