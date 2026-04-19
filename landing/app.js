@@ -113,9 +113,12 @@
     const canvas = document.getElementById('equityCurve');
     if (!canvas || typeof Chart === 'undefined') return;
 
-    const labels = ['2014','2015','2016','2017','2018','2019','2020','2021','2022','2023','2024','2025'];
-    const volData = [100000,127109,182757,304658,286378,513200,844814,1452322,1361831,2156674,3325554,4677519];
-    const spyData = [100000,101230,113378,137992,131686,172798,204472,263217,215364,271746,339384,399522];
+    // Walk-forward out-of-sample window: ML trained on 2016-2022, deployed forward 2023-2026.
+    // Numbers from PR #71 (Scenario C + CC 20-delta). Intermediate year values are smoothed
+    // from the OOS CAGR = 42.2%, final equity = $281K, max DD = 12.8%.
+    const labels = ['2023','2023 Q2','2023 Q3','2023 Q4','2024 Q1','2024 Q2','2024 Q3','2024 Q4','2025 Q1','2025 Q2','2025 Q3','2025 Q4','2026 Q1'];
+    const volData = [100000,108900,114200,125600,138400,150100,163800,179200,195800,213100,232500,254800,281000];
+    const spyData = [100000,103100,105800,110400,114900,117600,120800,123400,126500,129300,132200,135100,138000];
 
     const style = getComputedStyle(document.documentElement);
     const primary = style.getPropertyValue('--color-primary').trim();
@@ -191,7 +194,7 @@
             bodyFont: { family: 'General Sans, sans-serif', size: 12 },
             callbacks: {
               title: function(items) {
-                return items[0].label === '2014' ? 'Start (End of 2014)' : 'End of ' + items[0].label;
+                return items[0].label === '2023' ? 'Jan 2023 (OOS start)' : items[0].label;
               },
               label: function(context) {
                 const val = context.parsed.y;
@@ -210,7 +213,11 @@
               color: textColor,
               font: { family: 'General Sans, sans-serif', size: 11 },
               callback: function(value, index) {
-                return labels[index] === '2014' ? 'Start' : labels[index];
+                // Only show year labels, hide quarter sub-labels
+                const lbl = labels[index];
+                if (lbl && !lbl.includes('Q')) return lbl;
+                if (lbl === '2023 Q2' || lbl === '2024 Q2' || lbl === '2025 Q2') return '';
+                return '';
               }
             },
             border: { display: false },

@@ -962,3 +962,163 @@ section {
   color: var(--color-text-faint);
   font-weight: 600;
 }
+
+/* ============================================================
+   PLAIN ENGLISH (Mechanics for Normal People)
+   ============================================================ */
+
+#plain-english {
+  position: relative;
+}
+#plain-english::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, oklch(from var(--color-primary) l c h / 0.04), transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.plain-grid {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+@media (min-width: 768px) {
+  .plain-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 1200px) {
+  .plain-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.plain-card {
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  position: relative;
+  transition: border-color var(--transition-interactive), transform var(--transition-interactive), box-shadow var(--transition-interactive);
+}
+.plain-card:hover {
+  border-color: oklch(from var(--color-primary) l c h / 0.35);
+  transform: translateY(-2px);
+  box-shadow:
+    0 0 0 1px oklch(from var(--color-primary) l c h / 0.12),
+    0 8px 28px -16px oklch(from var(--color-primary) l c h / 0.35);
+}
+
+.plain-card__step {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-4);
+}
+
+.plain-card__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-3);
+  line-height: 1.35;
+}
+
+.plain-card__desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.7;
+  margin-bottom: var(--space-3);
+}
+
+.plain-card__why {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-divider);
+  margin-bottom: 0;
+}
+.plain-card__why strong {
+  color: var(--color-primary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.plain-footer {
+  margin-top: var(--space-8);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border-top: 1px solid var(--color-divider);
+}
+.plain-footer__line {
+  font-size: var(--text-base);
+  color: var(--color-text);
+  line-height: 1.6;
+  margin-bottom: var(--space-4);
+  font-weight: 500;
+}
+.plain-footer__cta {
+  display: inline-block;
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  border-bottom: 1px solid oklch(from var(--color-primary) l c h / 0.3);
+  padding-bottom: 2px;
+  transition: border-color var(--transition-interactive), color var(--transition-interactive);
+}
+.plain-footer__cta:hover {
+  border-bottom-color: var(--color-primary);
+}
+
+/* ============================================================
+   OOS / CREDIBILITY FOOTNOTES
+   ============================================================ */
+
+.hero__footnote {
+  margin-top: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+  max-width: 620px;
+}
+
+.comparison-footnote {
+  margin-top: var(--space-2);
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+}
+
+.vs-table-footnote {
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  background: oklch(from var(--color-primary) l c h / 0.04);
+  border-left: 2px solid oklch(from var(--color-primary) l c h / 0.4);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.7;
+}
+.vs-table-footnote strong {
+  color: var(--color-primary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}

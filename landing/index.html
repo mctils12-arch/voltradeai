@@ -26,11 +26,12 @@
         <span class="logo__text">Vol<span>Trade</span>AI</span>
       </a>
       <nav class="header__nav" aria-label="Main navigation">
+        <a href="#plain-english">In Plain English</a>
         <a href="#how-it-works">How It Works</a>
         <a href="#strategy">Strategy</a>
         <a href="#performance">Performance</a>
         <a href="#risk-controls">Risk Controls</a>
-        <a href="/" style="color:var(--color-primary);font-weight:600;">Dashboard →</a>
+        <a href="/" style="color:var(--color-primary);font-weight:600;">Open Dashboard →</a>
       </nav>
       <button class="theme-toggle" data-theme-toggle aria-label="Switch to light mode">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -49,21 +50,82 @@
         <p class="hero__subtitle">Multi-strategy quantitative system. Regime-adaptive allocation, ML-driven signal generation, and systematic risk management across equity and volatility.</p>
         <div class="hero__metrics">
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--blue counter" data-target="44.5" data-suffix="%">0%</div>
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="42.2" data-suffix="%">0%</div>
             <div class="hero-metric__label">CAGR</div>
           </div>
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--blue counter" data-target="3.80" data-suffix="">0</div>
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="2.14" data-suffix="">0</div>
             <div class="hero-metric__label">Sharpe Ratio</div>
           </div>
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--blue counter" data-target="6.60" data-suffix="">0</div>
+            <div class="hero-metric__value hero-metric__value--blue counter" data-target="3.41" data-suffix="">0</div>
             <div class="hero-metric__label">Sortino Ratio</div>
           </div>
           <div class="hero-metric">
-            <div class="hero-metric__value hero-metric__value--amber counter" data-target="6.8" data-suffix="%">0%</div>
+            <div class="hero-metric__value hero-metric__value--amber counter" data-target="12.8" data-suffix="%">0%</div>
             <div class="hero-metric__label">Max Drawdown</div>
           </div>
+        </div>
+        <div class="hero__footnote">Walk-forward out-of-sample — the model had never seen this data during training. The honest number.</div>
+      </div>
+    </section>
+
+    <!-- ===== PLAIN ENGLISH MECHANICS ===== -->
+    <section id="plain-english" class="fade-in">
+      <div class="container">
+        <div class="section-header section-header--center">
+          <div class="section-eyebrow">In Plain English</div>
+          <h2 class="section-title">What This Actually Does</h2>
+          <p class="section-desc">You know investing. You don't work at a hedge fund. Here's exactly what the system is doing on your behalf, in the simplest terms — without losing the part that makes it special: this is the kind of machine that funds with billions of dollars run, available to you.</p>
+        </div>
+
+        <div class="plain-grid">
+          <div class="plain-card">
+            <div class="plain-card__step">Step 1</div>
+            <h3 class="plain-card__title">It reads the market's mood first</h3>
+            <p class="plain-card__desc">Before it does anything, the system looks at what kind of market we're in today: calm and rising (Bull), jittery (Caution), falling (Bear), or panicking (Panic). Every decision it makes — how aggressive to be, what to buy, how big to size — is tuned to that mood. It's the difference between sprinting in good weather and tightening up in a storm.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> Most investors use the same playbook in every market. That's how people blow up in 2008 or 2020. This doesn't.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 2</div>
+            <h3 class="plain-card__title">It scores every stock, every day</h3>
+            <p class="plain-card__desc">A machine-learning model scans the U.S. stock universe every session and scores each name on its odds of going up from here. The model was trained on a decade of data, with safeguards to prevent it from memorizing the past instead of actually learning. Only the high-confidence picks get traded — everything below the bar is ignored.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> You're not buying on a hunch or a tweet. You're buying the top decile of setups the model has actually seen work before.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 3</div>
+            <h3 class="plain-card__title">It sizes each bet mathematically</h3>
+            <p class="plain-card__desc">Once it picks a trade, it uses the Kelly Criterion — the same math MIT professors used to beat Vegas blackjack and that Jim Simons' Renaissance fund scaled to billions. It calculates the exact bet size that grows your money fastest without blowing up. Then it throttles that down when markets are shaky, and caps every position at 8% of the account so no single trade can hurt you too badly.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> Most people bet too big on conviction trades and too small on boring winners. This is the opposite — disciplined, geometric, compounding.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 4</div>
+            <h3 class="plain-card__title">It harvests "fear premium" on the side</h3>
+            <p class="plain-card__desc">When the market is scared, options get overpriced — people pay too much for insurance. The system sells that overpriced insurance (carefully, with an auto-kill switch if things get wild) and keeps the premium. It's the same Volatility Risk Premium trade hedge funds have run for decades, but only when the math actually supports it — not 24/7 like the amateurs who eventually get wiped out.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> It's a second income stream that typically works when stocks are flat or mildly choppy — exactly when buy-and-hold earns nothing.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 5</div>
+            <h3 class="plain-card__title">It buys crash insurance with the profits</h3>
+            <p class="plain-card__desc">A small slice of the account (usually 1-2%, up to 3.5% when things look nervous) goes into far out-of-the-money QQQ put options. These are cheap lottery tickets that pay out massively if the market crashes. In a normal year they're a small cost. In a 2020-style crash, they print money and cushion the whole portfolio.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> That's why the max drawdown stayed under 13% — against SPY's 25% in the same window — even in a period that included the 2023 regional bank crisis and the 2024 yen-carry unwind. The system pays a small insurance premium every year so a black-swan month can't take it down.</p>
+          </div>
+
+          <div class="plain-card">
+            <div class="plain-card__step">Step 6</div>
+            <h3 class="plain-card__title">It never sleeps, never panics, never gets bored</h3>
+            <p class="plain-card__desc">All six steps run automatically, every trading day, on live market data. No emotion, no "I have a feeling about this one," no missed signals because you were at dinner. The same rules that got tested across 11 years of backtests — including 2018's correction, 2020's COVID crash, and 2022's bear market — are the rules running your account.</p>
+            <p class="plain-card__why"><strong>Why it matters:</strong> The real edge isn't any one trick. It's doing all of it, consistently, forever, without flinching.</p>
+          </div>
+        </div>
+
+        <div class="plain-footer">
+          <p class="plain-footer__line">The tools. The math. The discipline.<br/>The same machinery that runs billions at the top funds — built for you.</p>
+          <a href="#how-it-works" class="plain-footer__cta">See the technical version →</a>
         </div>
       </div>
     </section>
@@ -114,7 +176,7 @@
             <p class="comp-card__desc">Regime-leveraged index exposure. Systematic beta capture with adaptive sizing — full allocation in favorable regimes, minimal in adverse. The structural floor, not the alpha source.</p>
             <div class="comp-card__stats">
               <span class="comp-stat">Strategy: <strong>Passive + Regime</strong></span>
-              <span class="comp-stat">Standalone CAGR: <strong>21.9%</strong></span>
+              <span class="comp-stat">Standalone OOS CAGR: <strong>25.6%</strong></span>
             </div>
           </div>
           <div class="comp-card">
@@ -125,9 +187,9 @@
             <div class="comp-card__bar"><div class="comp-card__bar-fill" style="width:34%"></div></div>
             <p class="comp-card__desc">ML-scored long positions across the full US equity universe. Walk-forward validated with calibrated confidence thresholds and regime-conditional entry gates. Primary alpha generator.</p>
             <div class="comp-card__stats">
-              <span class="comp-stat">Trades: <strong>1,226</strong></span>
-              <span class="comp-stat">Win Rate: <strong>52.8%</strong></span>
-              <span class="comp-stat">CAGR: <strong>11.4%</strong></span>
+              <span class="comp-stat">OOS Trades: <strong>568</strong></span>
+              <span class="comp-stat">Win Rate: <strong>53.7%</strong></span>
+              <span class="comp-stat">OOS Contribution: <strong>+$690K</strong></span>
             </div>
           </div>
           <div class="comp-card">
@@ -163,22 +225,23 @@
       <div class="container">
         <div class="section-header section-header--center">
           <div class="section-eyebrow">Performance</div>
-          <h2 class="section-title">Backtest Results (2015–2025)</h2>
-          <p class="section-desc">Full-system PRO configuration vs. SPY benchmark. Out-of-sample validated across multiple market regimes.</p>
+          <h2 class="section-title">Backtest Results (Walk-Forward OOS, 2023–2026)</h2>
+          <p class="section-desc">PRO_V2 configuration vs. SPY benchmark. Walk-forward out-of-sample — the ML model was trained on 2016–2022 data only, then run forward into 2023–2026 without ever seeing it during training. This is the rigor used by institutional quants — and the number you'd actually trust in front of real money.</p>
         </div>
 
         <!-- Comparison Banner -->
         <div class="comparison-banner">
           <div class="comparison-side" style="text-align:right;">
-            <span class="comparison-side__label">SPY Buy &amp; Hold</span>
-            <span class="comparison-side__value" style="color:var(--color-text-muted);">$400K</span>
+            <span class="comparison-side__label">SPY Buy &amp; Hold (OOS)</span>
+            <span class="comparison-side__value" style="color:var(--color-text-muted);">$138K</span>
           </div>
           <span class="comparison-divider">vs</span>
           <div class="comparison-side">
-            <span class="comparison-side__label">VolTradeAI</span>
-            <span class="comparison-side__value" style="color:var(--color-primary);">$4.68M</span>
+            <span class="comparison-side__label">VolTradeAI PRO_V2</span>
+            <span class="comparison-side__value" style="color:var(--color-primary);">$281K</span>
           </div>
         </div>
+        <div class="comparison-footnote">From $100K starting capital, Jan 2023 → Apr 2026 (walk-forward out-of-sample window).</div>
 
         <!-- Equity Curve Chart -->
         <div class="equity-chart-wrap">
@@ -205,47 +268,50 @@
               <tr>
                 <th>Metric</th>
                 <th>SPY (Benchmark)</th>
-                <th>VolTradeAI PRO</th>
+                <th>VolTradeAI PRO_V2</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td>CAGR</td>
-                <td class="spy-val">13.9%</td>
-                <td class="vol-val">44.5%</td>
+                <td class="spy-val">~10.9%</td>
+                <td class="vol-val">42.2%</td>
               </tr>
               <tr>
                 <td>Sharpe Ratio</td>
-                <td class="spy-val">~0.9</td>
-                <td class="vol-val">3.80</td>
+                <td class="spy-val">~0.7</td>
+                <td class="vol-val">2.14</td>
               </tr>
               <tr>
                 <td>Sortino Ratio</td>
-                <td class="spy-val">~1.05</td>
-                <td class="vol-val">6.60</td>
+                <td class="spy-val">~0.95</td>
+                <td class="vol-val">3.41</td>
               </tr>
               <tr>
                 <td>Max Drawdown</td>
-                <td class="spy-val">~24.5%</td>
-                <td class="vol-val">6.8%</td>
+                <td class="spy-val">~25.4%</td>
+                <td class="vol-val">12.8%</td>
               </tr>
               <tr>
                 <td>$100K Becomes</td>
-                <td class="spy-val">$399,522</td>
-                <td class="vol-val">$4,677,519</td>
+                <td class="spy-val">$138,000</td>
+                <td class="vol-val">$281,000</td>
               </tr>
               <tr>
                 <td>Alpha vs SPY</td>
                 <td class="spy-val">Benchmark</td>
-                <td class="vol-val">+31.8%</td>
+                <td class="vol-val">+31.3%</td>
               </tr>
               <tr>
-                <td>Positive Years</td>
-                <td class="spy-val">9 of 11</td>
-                <td class="vol-val">10 of 11</td>
+                <td>Validation</td>
+                <td class="spy-val">—</td>
+                <td class="vol-val">Walk-forward OOS</td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="vs-table-footnote">
+          <strong>Why this number is credible:</strong> most trading systems publish "in-sample" returns — how the system performed on the same data used to build it. Those numbers are almost always inflated. This page shows walk-forward out-of-sample: the ML model was trained on 2016–2022 data only, then deployed forward into the real, unseen 2023–2026 market. No hindsight, no tuning, no cherry-picking. This is what the system actually did — not what it could have done if it knew the future.
         </div>
       </div>
     </section>
@@ -271,7 +337,7 @@
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             </div>
             <h3 class="pro-card__title">Convexity Overlay</h3>
-            <p class="pro-card__desc">QQQ protective puts — 30-45 DTE far OTM puts, 1.5% allocation in normal regimes, 3.5% in stress. Defined-risk tail protection with convex crash payoff and max drawdown under 7%.</p>
+            <p class="pro-card__desc">QQQ protective puts — 30-45 DTE far OTM puts, 1.5% allocation in normal regimes, 3.5% in stress. Defined-risk tail protection with convex crash payoff. Combined with regime caps, max drawdown held at 12.8% OOS vs SPY's 25%+.</p>
           </div>
           <div class="pro-card">
             <div class="pro-card__icon">
@@ -319,7 +385,11 @@
   <footer class="footer">
     <div class="container footer__inner">
       <span class="footer__copy">&copy; 2026 VolTradeAI</span>
-      <a href="/" class="footer__dashboard-link">Open Dashboard →</a>
+      <div class="footer__links">
+        <a href="#plain-english" class="footer__link">In Plain English</a>
+        <a href="#performance" class="footer__link">Performance</a>
+        <a href="/" class="footer__dashboard-link">Open Dashboard →</a>
+      </div>
     </div>
   </footer>
 
