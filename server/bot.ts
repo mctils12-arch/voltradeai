@@ -17,7 +17,13 @@ const _pyEnv = {
   NUMEXPR_MAX_THREADS: "2",
   VECLIB_MAXIMUM_THREADS: "2",
 };
-const execAsync = (cmd: string, opts?: any) => _execRaw(cmd, { env: _pyEnv, ...opts });
+// Bump maxBuffer from 1MB (Node default) to 32MB. Full scans log many
+// tickers to stdout; hitting 1MB caused exec to SIGKILL the child and throw
+// "Command failed" with EMPTY stderr — making root causes impossible to
+// diagnose. 32MB handles any realistic scan output comfortably.
+const DEFAULT_MAX_BUFFER = 32 * 1024 * 1024;
+const execAsync = (cmd: string, opts?: any) =>
+  _execRaw(cmd, { env: _pyEnv, maxBuffer: DEFAULT_MAX_BUFFER, ...opts });
 
 // ─── Python Subprocess Serialization (OOM fix) ─────────────────────────────
 // At most 1 heavy Python subprocess at a time. Each Python invocation imports
@@ -2035,10 +2041,37 @@ print(json.dumps(check_weekly_loss(history)))
 
     } catch (err: any) {
       console.error("[tier2-scan]", err?.message || err);
-      const errStr = String(err?.stderr || err?.message || err);
-      // Capture the TAIL of the traceback — Python puts the exception at the END
-      const errTail = errStr.length > 500 ? '…' + errStr.slice(-500) : errStr;
-      audit("TIER2-ERROR", `Scan failed: ${errTail}`);
+
+      // Gather everything useful: stderr, stdout tail (in case Python wrote
+      // the error there), exit code, kill signal, and current memory. Without
+      // these, OOM kills and buffer overruns both show as "Command failed"
+      // with no context.
+      const stderr = String(err?.stderr || "");
+      const stdout = String(err?.stdout || "");
+      const code = err?.code !== undefined ? err.code : "?";
+      const signal = err?.signal || "none";
+      const msg = String(err?.message || err);
+
+      // Prefer stderr (where Python tracebacks live), fall back to stdout tail
+      const primary = stderr.trim() ? stderr : stdout;
+      const tail = primary.length > 800 ? '…' + primary.slice(-800) : primary;
+
+      // Memory snapshot — helps correlate OOM kills
+      const mem = process.memoryUsage();
+      const memStr = `rss=${Math.round(mem.rss/1024/1024)}MB heap=${Math.round(mem.heapUsed/1024/1024)}/${Math.round(mem.heapTotal/1024/1024)}MB`;
+
+      // Classify: SIGKILL+empty-stderr is almost always OOM or buffer overflow
+      let classification = "";
+      if (signal === "SIGKILL" && !stderr.trim()) {
+        classification = " [likely OOM kill or maxBuffer exceeded]";
+      } else if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+        classification = " [stdout buffer exceeded — raise DEFAULT_MAX_BUFFER]";
+      } else if (signal === "SIGTERM") {
+        classification = " [timed out or killed externally]";
+      }
+
+      const detail = tail.trim() || msg;
+      audit("TIER2-ERROR", `Scan failed (code=${code} signal=${signal} ${memStr})${classification}: ${detail}`);
     }
 
     // Overnight/pre-market research: runs during 8pm-4am ET window
