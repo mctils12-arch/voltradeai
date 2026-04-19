@@ -1,0 +1,196 @@
+{
+  "version": "v3_survivorship_bias_free",
+  "period": "2016-03-16 to 2026-03-31",
+  "trading_days": 2525,
+  "years": 10.2,
+  "universe_size": 94,
+  "overall": {
+    "starting_equity": 100000,
+    "final_equity": 2320299.14,
+    "total_return_pct": 2220.3,
+    "cagr_pct": 36.03,
+    "max_drawdown_pct": 23.14,
+    "sharpe": 1.625,
+    "sortino": 2.177,
+    "spy_cagr_pct": 13.91,
+    "spy_total_return_pct": 278.39
+  },
+  "components": {
+    "stocks": {
+      "name": "Stock Picking (Broad)",
+      "total_pnl": 393189.25,
+      "pct_of_total": 17.71,
+      "trade_count": 1160,
+      "win_rate_pct": 48.62,
+      "avg_win": 8261.16,
+      "avg_loss": -7157.9,
+      "max_drawdown_pct": 102.14,
+      "simulated": false
+    },
+    "vrp": {
+      "name": "VRP / SVXY",
+      "total_pnl": 152303.32,
+      "pct_of_total": 6.86,
+      "trade_count": 30,
+      "win_rate_pct": 80.0,
+      "avg_win": 9690.12,
+      "avg_loss": -13376.61,
+      "max_drawdown_pct": 33.79,
+      "simulated": false
+    },
+    "qqq": {
+      "name": "QQQ Floor",
+      "total_pnl": 1533660.47,
+      "pct_of_total": 69.07,
+      "trade_count": 0,
+      "win_rate_pct": 0,
+      "avg_win": 0,
+      "avg_loss": 0,
+      "max_drawdown_pct": 26.76,
+      "simulated": false
+    },
+    "options": {
+      "name": "Options (Simulated)",
+      "total_pnl": 141146.1,
+      "pct_of_total": 6.36,
+      "trade_count": 205,
+      "win_rate_pct": 81.95,
+      "avg_win": 1527.1,
+      "avg_loss": -3119.09,
+      "max_drawdown_pct": 10.92,
+      "simulated": true
+    }
+  },
+  "annual": {
+    "2016": {
+      "stocks": 20303.19,
+      "vrp": 0.0,
+      "qqq": 18249.05,
+      "options": 193.45,
+      "total": 38745.69
+    },
+    "2017": {
+      "stocks": 9198.32,
+      "vrp": 0.0,
+      "qqq": 42523.3,
+      "options": 0.0,
+      "total": 51721.62
+    },
+    "2018": {
+      "stocks": -3191.06,
+      "vrp": 1607.76,
+      "qqq": 44143.13,
+      "options": -821.11,
+      "total": 41738.72
+    },
+    "2019": {
+      "stocks": 10876.81,
+      "vrp": 15979.38,
+      "qqq": 88710.61,
+      "options": 1768.97,
+      "total": 117335.77
+    },
+    "2020": {
+      "stocks": 39375.68,
+      "vrp": 9211.11,
+      "qqq": 220857.04,
+      "options": 34995.61,
+      "total": 304439.44
+    },
+    "2021": {
+      "stocks": -71960.98,
+      "vrp": 0.0,
+      "qqq": 140235.51,
+      "options": 37426.85,
+      "total": 105701.38
+    },
+    "2022": {
+      "stocks": -106121.09,
+      "vrp": 94789.46,
+      "qqq": -159058.44,
+      "options": 433.48,
+      "total": -169956.59
+    },
+    "2023": {
+      "stocks": 472235.96,
+      "vrp": 7694.84,
+      "qqq": 265866.2,
+      "options": 10512.34,
+      "total": 756309.34
+    },
+    "2024": {
+      "stocks": -67117.81,
+      "vrp": -61329.16,
+      "qqq": 418393.59,
+      "options": -185.29,
+      "total": 289761.33
+    },
+    "2025": {
+      "stocks": -23169.08,
+      "vrp": 82522.14,
+      "qqq": 377135.21,
+      "options": 63245.14,
+      "total": 499733.41
+    },
+    "2026": {
+      "stocks": 112759.31,
+      "vrp": 1827.8,
+      "qqq": 76605.27,
+      "options": -6423.34,
+      "total": 184769.04
+    }
+  },
+  "regime_distribution": {
+    "BULL": 597,
+    "NEUTRAL": 1223,
+    "CAUTION": 258,
+    "BEAR": 309,
+    "PANIC": 138
+  },
+  "universe_history": [
+    [
+      "2016-03-16",
+      41
+    ],
+    [
+      "2017-01-03",
+      46
+    ],
+    [
+      "2018-01-02",
+      49
+    ],
+    [
+      "2019-01-02",
+      49
+    ],
+    [
+      "2020-01-02",
+      53
+    ],
+    [
+      "2021-01-04",
+      69
+    ],
+    [
+      "2022-01-03",
+      70
+    ],
+    [
+      "2023-01-03",
+      67
+    ],
+    [
+      "2024-01-02",
+      76
+    ],
+    [
+      "2025-01-02",
+      81
+    ],
+    [
+      "2026-01-02",
+      94
+    ]
+  ]
+}

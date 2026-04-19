@@ -1,0 +1,175 @@
+$CLVS: possibly delisted; no timezone found
+$IBMX: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01) (Yahoo error = "Data doesn't exist for startDate = 1451624400, endDate = 1775016000")
+
+2 Failed downloads:
+['CLVS']: possibly delisted; no timezone found
+['IBMX']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01) (Yahoo error = "Data doesn't exist for startDate = 1451624400, endDate = 1775016000")
+$BACCR: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$SLGC: possibly delisted; no timezone found
+
+2 Failed downloads:
+['BACCR']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+['SLGC']: possibly delisted; no timezone found
+$CHARR: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$GVCIW: possibly delisted; no timezone found
+$DLCAU: possibly delisted; no timezone found
+$TWCBU: possibly delisted; no timezone found
+$TSIBU: possibly delisted; no timezone found
+$GLT: possibly delisted; no timezone found
+$SDACU: possibly delisted; no timezone found
+$AXDX: possibly delisted; no timezone found
+$GIFI: possibly delisted; no timezone found
+$GTERR: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+
+10 Failed downloads:
+['CHARR', 'GTERR']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+['GVCIW', 'DLCAU', 'TWCBU', 'TSIBU', 'GLT', 'SDACU', 'AXDX', 'GIFI']: possibly delisted; no timezone found
+$IMPPV: possibly delisted; no timezone found
+$EZRAW: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$IROHR: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$AIFE: possibly delisted; no timezone found
+$WWACU: possibly delisted; no timezone found
+$BWCAU: possibly delisted; no timezone found
+
+6 Failed downloads:
+['IMPPV', 'AIFE', 'WWACU', 'BWCAU']: possibly delisted; no timezone found
+['EZRAW', 'IROHR']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$ZXZZT: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$CFB: possibly delisted; no timezone found
+$GLTA: possibly delisted; no timezone found
+$IMACW: possibly delisted; no timezone found
+$RGLS: possibly delisted; no timezone found
+$AEPPZ: possibly delisted; no timezone found
+
+6 Failed downloads:
+['ZXZZT']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+['CFB', 'GLTA', 'IMACW', 'RGLS', 'AEPPZ']: possibly delisted; no timezone found
+$SUNSV: possibly delisted; no timezone found
+$TMTSW: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$CPAA: possibly delisted; no timezone found
+$HORIU: possibly delisted; no timezone found
+$KRON: possibly delisted; no timezone found
+$NOEMR: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$MBNKP: possibly delisted; no timezone found
+$LCAA: possibly delisted; no timezone found
+$DUETW: possibly delisted; no timezone found
+$ATEST: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+
+10 Failed downloads:
+['SUNSV', 'CPAA', 'HORIU', 'KRON', 'MBNKP', 'LCAA', 'DUETW']: possibly delisted; no timezone found
+['TMTSW', 'NOEMR', 'ATEST']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01)
+$PALO: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01) (Yahoo error = "Data doesn't exist for startDate = 1451624400, endDate = 1775016000")
+
+1 Failed download:
+['PALO']: possibly delisted; no price data found  (1d 2016-01-01 -> 2026-04-01) (Yahoo error = "Data doesn't exist for startDate = 1451624400, endDate = 1775016000")
+================================================================================
+  VolTradeAI Backtest v3 — Survivorship-Bias-Free
+================================================================================
+  Sample size: 200
+  Random seed: 42
+  Cache: enabled
+
+[UNIVERSE] Loading cached universe...
+[UNIVERSE] Cached: 7575 total, 300 sampled
+[DATA] Downloading 305 tickers from yfinance...
+  Batch 1/7 (0/305 downloaded, ETA: 0.0min)
+  Batch 2/7 (44/305 downloaded, ETA: 0.4min)
+  Batch 3/7 (89/305 downloaded, ETA: 0.3min)
+  Batch 4/7 (123/305 downloaded, ETA: 0.2min)
+  Batch 5/7 (166/305 downloaded, ETA: 0.2min)
+  Batch 6/7 (205/305 downloaded, ETA: 0.1min)
+  Batch 7/7 (241/305 downloaded, ETA: 0.0min)
+[DATA] Downloaded 245 tickers with valid data in 26s
+[DATA] Cached 245 tickers to /tmp/backtest_v3_cache.pkl
+
+[BACKTEST] Running survivorship-bias-free mode
+[BACKTEST] Period: 2016-01-04 to 2026-03-31 | 2575 trading days
+[BACKTEST] Total tickers with data: 245
+[BACKTEST] Aligning stock data to SPY dates...
+[BACKTEST] Aligned 240 tickers to trading calendar
+[REGIME] Distribution: BULL=597, NEUTRAL=1268, CAUTION=262, BEAR=310, PANIC=138
+[UNIVERSE] 2016-03-16: 41 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2017-01-03: 46 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2018-01-02: 49 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2019-01-02: 49 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2020-01-02: 53 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2021-01-04: 69 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2022-01-03: 70 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2023-01-03: 67 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2024-01-02: 76 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2025-01-02: 81 investable stocks (price>$5.0, dvol>$5M)
+[UNIVERSE] 2026-01-02: 94 investable stocks (price>$5.0, dvol>$5M)
+
+================================================================================
+  VolTradeAI Backtest v3 — SURVIVORSHIP-BIAS-FREE
+  Period: 2016-03-16 to 2026-03-31 (2525 trading days, 10.2 years)
+  Universe: ~94 investable stocks (from broad sample)
+  Components: Stock Picking (broad), VRP/SVXY, QQQ Floor, Options (sim)
+  Removed: Intraday Shorts, Sector Rotation
+================================================================================
+
+  OVERALL PERFORMANCE
+  ----------------------------------------
+  Starting Equity:   $     100,000
+  Final Equity:      $   2,320,299
+  Total Return:           2220.3%
+  CAGR:                     36.0%
+  Max Drawdown:             23.1%
+  Sharpe Ratio:             1.63
+  Sortino Ratio:            2.18
+  SPY CAGR:                 13.9%
+  SPY Total Return:        278.4%
+
+  COMPONENT P&L ATTRIBUTION
+  ----------------------------------------------------------------------------
+  Component                    Total P&L % of Total   Trades   Win Rate     Max DD
+  ----------------------------------------------------------------------------
+  Stock Picking (Broad)     $    393,189      17.7%    1160      48.6%     102.1%
+  VRP / SVXY                $    152,303       6.9%      30      80.0%      33.8%
+  QQQ Floor                 $  1,533,660      69.1%       0       0.0%      26.8%
+  Options (Simulated) *     $    141,146       6.4%     205      82.0%      10.9%
+  ----------------------------------------------------------------------------
+  TOTAL                     $  2,220,299     100.0%
+
+  * Options P&L is SIMULATED using Black-Scholes heuristic (no real chain data)
+
+  INVESTABLE UNIVERSE SIZE (annual)
+  ----------------------------------------
+  2016-03-16:    41 stocks
+  2017-01-03:    46 stocks
+  2018-01-02:    49 stocks
+  2019-01-02:    49 stocks
+  2020-01-02:    53 stocks
+  2021-01-04:    69 stocks
+  2022-01-03:    70 stocks
+  2023-01-03:    67 stocks
+  2024-01-02:    76 stocks
+  2025-01-02:    81 stocks
+  2026-01-02:    94 stocks
+
+  ANNUAL RETURNS BY COMPONENT
+  ------------------------------------------------------------------------------------------
+  Year   Stock Pickin   VRP / SVXY    QQQ Floor Options (Sim        Total          SPY
+  ------------------------------------------------------------------------------------------
+  2016   $     20,303 $          0 $     18,249 $        193 $     38,746        13.6%
+  2017   $      9,198 $          0 $     42,523 $          0 $     51,722        20.8%
+  2018   $     -3,191 $      1,608 $     44,143 $       -821 $     41,739        -5.2%
+  2019   $     10,877 $     15,979 $     88,711 $      1,769 $    117,336        31.1%
+  2020   $     39,376 $      9,211 $    220,857 $     34,996 $    304,439        17.2%
+  2021   $    -71,961 $          0 $    140,236 $     37,427 $    105,701        30.5%
+  2022   $   -106,121 $     94,789 $   -159,058 $        433 $   -169,957       -18.6%
+  2023   $    472,236 $      7,695 $    265,866 $     10,512 $    756,309        26.7%
+  2024   $    -67,118 $    -61,329 $    418,394 $       -185 $    289,761        25.6%
+  2025   $    -23,169 $     82,522 $    377,135 $     63,245 $    499,733        18.0%
+  2026   $    112,759 $      1,828 $     76,605 $     -6,423 $    184,769        -4.5%
+
+  REGIME DISTRIBUTION
+  ----------------------------------------
+  BULL           597 days  ( 23.6%)
+  NEUTRAL       1223 days  ( 48.4%)
+  CAUTION        258 days  ( 10.2%)
+  BEAR           309 days  ( 12.2%)
+  PANIC          138 days  (  5.5%)
+
+
+  Results saved to /home/user/workspace/voltradeai/backtest_v3_results.json
