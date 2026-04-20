@@ -415,6 +415,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Auth & Bot ────────────────────────────────────────────────────────────
   app.use(cookieParser());
+
+  // ── AUTH MIDDLEWARE (2026-04-20 security fix Bug #22) ──────────────────
+  // Centralizes the 3-step session lookup previously copy-pasted in 3 places.
+  // Returns null if not authenticated, or the user object if OK.
+  function _checkSession(req: any): { email: string; id: number } | null {
+    const session = req?.cookies?.session;
+    if (!session) return null;
+    try {
+      const sessionRow = db.prepare("SELECT user_id FROM sessions WHERE token = ?").get(session) as any;
+      if (!sessionRow) return null;
+      const user = db.prepare("SELECT id, email FROM users WHERE id = ?").get(sessionRow.user_id) as any;
+      return user || null;
+    } catch { return null; }
+  }
+
+  // Required-auth wrapper — returns 401 if not authenticated
+  function requireAuth(handler: (req: any, res: any) => any) {
+    return async (req: any, res: any) => {
+      const user = _checkSession(req);
+      if (!user) return res.status(401).json({ error: "Authentication required" });
+      (req as any).user = user;
+      return handler(req, res);
+    };
+  }
+
+  // ── ALPACA_BASE from env (2026-04-20 fix Bug #23) ──────────────────────
+  // Previously several endpoints had hardcoded paper URLs, meaning switching
+  // to live trading would show stale paper data on the dashboard forever.
+  const ALPACA_BASE_URL = process.env.ALPACA_BASE_URL || "https://paper-api.alpaca.markets";
+
   registerAuthRoutes(app);
   registerBotRoutes(app);
 
@@ -743,18 +773,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   // Today's filled orders with P/L enrichment
-  app.get("/api/trades/today", async (_req, res) => {
+  app.get("/api/trades/today", async (req, res) => {
+    // AUTH (2026-04-20 fix Bug #22)
+    const _user = _checkSession(req);
+    if (!_user) return res.status(401).json({ error: "Authentication required" });
     try {
       const tradingDayStart = getTradingDayStart();
 
       // Fetch filled orders and current positions in parallel
       const [ordersResponse, positionsResponse] = await Promise.all([
         fetch(
-          `https://paper-api.alpaca.markets/v2/orders?status=closed&after=${encodeURIComponent(tradingDayStart)}&limit=200&direction=desc`,
+          `${ALPACA_BASE_URL}/v2/orders?status=closed&after=${encodeURIComponent(tradingDayStart)}&limit=200&direction=desc`,
           { headers: alpacaHeaders }
         ),
         fetch(
-          "https://paper-api.alpaca.markets/v2/positions",
+          `${ALPACA_BASE_URL}/v2/positions`,
           { headers: alpacaHeaders }
         ),
       ]);
@@ -842,10 +875,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Open orders
-  app.get("/api/orders/open", async (_req, res) => {
+  app.get("/api/orders/open", async (req, res) => {
+    // AUTH (2026-04-20 fix Bug #22)
+    const _user = _checkSession(req);
+    if (!_user) return res.status(401).json({ error: "Authentication required" });
     try {
       const response = await fetch(
-        "https://paper-api.alpaca.markets/v2/orders?status=open&limit=200",
+        `${ALPACA_BASE_URL}/v2/orders?status=open&limit=200`,
         { headers: alpacaHeaders }
       );
       if (!response.ok) {
@@ -860,10 +896,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Open positions
-  app.get("/api/positions", async (_req, res) => {
+  app.get("/api/positions", async (req, res) => {
+    // AUTH (2026-04-20 fix Bug #22)
+    const _user = _checkSession(req);
+    if (!_user) return res.status(401).json({ error: "Authentication required" });
     try {
       const response = await fetch(
-        "https://paper-api.alpaca.markets/v2/positions",
+        `${ALPACA_BASE_URL}/v2/positions`,
         { headers: alpacaHeaders }
       );
       if (!response.ok) {
@@ -878,7 +917,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Intraday Shorts Dashboard API (v1.0.27) ─────────────────────────────
-  app.get("/api/shorts/dashboard", async (_req, res) => {
+  app.get("/api/shorts/dashboard", async (req, res) => {
+    // AUTH (2026-04-20 fix Bug #22)
+    const _user = _checkSession(req);
+    if (!_user) return res.status(401).json({ error: "Authentication required" });
     try {
       const { stdout } = await execAsync(
         `python3 -c "import sys; sys.path.insert(0,'.'); from intraday_shorts import get_dashboard_data; import json; print(json.dumps(get_dashboard_data()))"`,
@@ -898,10 +940,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Trade History (filled orders from Alpaca) ──────────────────────────
-  app.get("/api/trades/history", async (_req, res) => {
+  app.get("/api/trades/history", async (req, res) => {
+    // AUTH (2026-04-20 fix Bug #22)
+    const _user = _checkSession(req);
+    if (!_user) return res.status(401).json({ error: "Authentication required" });
     try {
       const response = await fetch(
-        "https://paper-api.alpaca.markets/v2/orders?status=filled&limit=50&direction=desc",
+        `${ALPACA_BASE_URL}/v2/orders?status=filled&limit=50&direction=desc`,
         { headers: alpacaHeaders }
       );
       if (!response.ok) {
@@ -913,7 +958,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Also fetch market clock to know if we're in extended hours
       let marketOpen = false;
       try {
-        const clockRes = await fetch("https://paper-api.alpaca.markets/v2/clock", { headers: alpacaHeaders });
+        const clockRes = await fetch(`${ALPACA_BASE_URL}/v2/clock`, { headers: alpacaHeaders });
         const clock = await clockRes.json();
         marketOpen = clock.is_open === true;
       } catch { /* ignore */ }
@@ -1029,6 +1074,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post("/api/ml/toggle", async (req, res) => {
+    // AUTH (2026-04-20 fix Bug #22)
+    const _user = _checkSession(req);
+    if (!_user) return res.status(401).json({ error: "Authentication required" });
     try {
       const enabled = !!(req.body?.enabled);
       const action = enabled ? "enable" : "disable";
@@ -1042,7 +1090,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/ml/retrain", async (_req, res) => {
+  app.post("/api/ml/retrain", async (req, res) => {
+    // AUTH (2026-04-20 fix Bug #22)
+    const _user = _checkSession(req);
+    if (!_user) return res.status(401).json({ error: "Authentication required" });
     try {
       res.json({ status: "started", message: "ML retrain started in background" });
       const { exec } = await import("child_process");
