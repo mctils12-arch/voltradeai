@@ -3804,78 +3804,99 @@ def _manage_defensive_floor(macro: dict) -> dict:
 
 
 if __name__ == "__main__":
-    # ── Memory diagnostics ─────────────────────────────────────────────
-    # Log RSS at entry so OOM kills leave a breadcrumb. Without this, an
-    # OOM-killed scan shows up in Node.js as "Command failed" with empty
-    # stderr (SIGKILL skips flush). This line is written BEFORE heavy
-    # imports, so even if the scan is killed mid-load we know roughly how
-    # much memory was available at start.
+    # ── Memory / phase diagnostics ─────────────────────────────────────
+    # Log RSS + phase markers to stderr so SIGKILL'd scans leave breadcrumbs.
+    # Without this, an OOM-killed scan shows up in Node.js as "Command failed"
+    # with empty stderr (SIGKILL skips flush). Each phase marker is flushed
+    # immediately so the LAST line in stderr pinpoints where Python died.
+    def _phase(tag: str) -> None:
+        try:
+            import resource as _res
+            _rss_kb = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
+            _rss_mb = _rss_kb // 1024  # Linux: ru_maxrss is KB
+            print(f"[mem] {tag} rss~{_rss_mb}MB", file=sys.stderr, flush=True)
+        except Exception:
+            # Still emit the phase even if rss lookup fails
+            try:
+                print(f"[mem] {tag}", file=sys.stderr, flush=True)
+            except Exception:
+                pass
+
     try:
-        import resource as _res
-        _rss_kb = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
-        # Linux: ru_maxrss is KB. macOS: bytes. We always want MB.
-        _rss_mb = _rss_kb // 1024 if _rss_kb > 100_000 else _rss_kb // 1024
-        print(f"[mem] scan entry rss~{_rss_mb}MB argv={sys.argv}", file=sys.stderr, flush=True)
+        import resource as _res0
+        _rss0_kb = _res0.getrusage(_res0.RUSAGE_SELF).ru_maxrss
+        _rss0_mb = _rss0_kb // 1024
+        print(f"[mem] scan entry rss~{_rss0_mb}MB argv={sys.argv}",
+              file=sys.stderr, flush=True)
     except Exception:
         pass
 
     # ── ML v2 Training Schedule ─────────────────────────────────────────
-    # Daily retrain at 4am (called by Tier 3 in bot.ts)
-    # Event-triggered: VXX > 1.3, 3+ consecutive stops, SPY > 3% move
-    # Research basis:
-    #   - News signals decay in 1-5 days → retrain daily captures yesterday's regime
-    #   - Momentum signals last 3-6 months → 60-day window is right
-    #   - Own trade feedback: 3x weight after 50+ trades (self-learning)
+    # Tier 3 in bot.ts is the canonical retrain entrypoint — it calls
+    # `python3 ml_retrain_safe.py` which uses train_model(fast_mode=True) in
+    # an isolated subprocess. Running an additional (non-fast) train_model()
+    # here, inline with the scan path on a 512MB Railway container, has been
+    # the root cause of TIER2-ERROR Scan failed (signal=SIGKILL) events: the
+    # combined footprint of Node + Python imports + training data + LightGBM
+    # fitting pushes the container past its memory limit, so the OOM killer
+    # sends SIGKILL before Python can flush a traceback.
+    #
+    # Default: SKIP the inline retrain. Tier 3 keeps the model fresh.
+    # Escape hatch: BOT_ENGINE_INLINE_TRAIN=1 preserves the legacy behaviour
+    # (but runs in fast_mode to cap peak RSS), for environments where Tier 3
+    # is not running (e.g. local one-shot invocations).
+    _inline_train = os.environ.get("BOT_ENGINE_INLINE_TRAIN", "").strip() in ("1", "true", "yes")
     try:
-        from ml_model_v2 import train_model, FEEDBACK_PATH
-        model_v2_path = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
-
-        # Delete old broken model on first run (52-feature with 42 zeros)
+        # Always clean up the legacy 0- or 52-feature model on startup — this
+        # is cheap and does not import heavy ML deps.
         old_model = os.path.join(DATA_DIR, "voltrade_ml_model.pkl")
         if os.path.exists(old_model):
             try:
                 import joblib as _jbl
                 _old = _jbl.load(old_model)
                 _old_features = len(_old.get("feature_names", []))
-                # Old model had 0 stored feature names (confirmed in audit)
-                # OR had 52 features with 42 zeros — delete and replace
                 if _old_features == 0 or _old_features == 52:
                     os.remove(old_model)
             except Exception:
-                pass  # Can't load it — leave it
-
-        # Retrain v2 if: doesn't exist, older than 24hrs, or feedback has grown significantly
-        needs_train = (
-            not os.path.exists(model_v2_path)
-            or (time.time() - os.path.getmtime(model_v2_path)) > 24 * 3600
-        )
-        # Also retrain if we have 20+ new trades since last train
-        if not needs_train and os.path.exists(FEEDBACK_PATH):
-            try:
-                with open(FEEDBACK_PATH) as _ff:
-                    _fb = json.load(_ff)
-                if os.path.exists(model_v2_path):
-                    model_age = time.time() - os.path.getmtime(model_v2_path)
-                    # Rough estimate: trades since last train
-                    recent_trades = sum(1 for t in _fb
-                        if time.time() - time.mktime(time.strptime(t.get("exit_date","2000-01-01"), "%Y-%m-%d")) < model_age)
-                    if recent_trades >= 20:
-                        needs_train = True
-            except Exception:
                 pass
 
-        if needs_train:
-            train_result = train_model()  # Returns status dict, silent output
-            # Also train the options-specific ML model if enough options trades exist
-            try:
-                from ml_model_v2 import train_options_model
-                train_options_model()  # No-op if < 30 options trades; silent otherwise
-            except Exception:
-                pass
+        if _inline_train:
+            _phase("train_gate_check")
+            from ml_model_v2 import train_model, FEEDBACK_PATH
+            model_v2_path = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
+            needs_train = (
+                not os.path.exists(model_v2_path)
+                or (time.time() - os.path.getmtime(model_v2_path)) > 24 * 3600
+            )
+            if not needs_train and os.path.exists(FEEDBACK_PATH):
+                try:
+                    with open(FEEDBACK_PATH) as _ff:
+                        _fb = json.load(_ff)
+                    if os.path.exists(model_v2_path):
+                        model_age = time.time() - os.path.getmtime(model_v2_path)
+                        recent_trades = sum(1 for t in _fb
+                            if time.time() - time.mktime(time.strptime(t.get("exit_date","2000-01-01"), "%Y-%m-%d")) < model_age)
+                        if recent_trades >= 20:
+                            needs_train = True
+                except Exception:
+                    pass
+            if needs_train:
+                _phase("train_start_fast_mode")
+                # fast_mode=True caps training rows to most-recent 10K and
+                # matches the memory profile used by ml_retrain_safe.py.
+                train_model(fast_mode=True)
+                _phase("train_done")
+                try:
+                    from ml_model_v2 import train_options_model
+                    train_options_model()
+                except Exception:
+                    pass
     except Exception:
+        # Training must never block the scan path.
         pass
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "full"
+    _phase(f"dispatch_{mode}")
 
     try:
         if mode == "scan":
@@ -3886,6 +3907,7 @@ if __name__ == "__main__":
             result = scan_market()
         else:
             result = {"error": f"Unknown mode: {mode}"}
+        _phase(f"dispatch_{mode}_done")
     except Exception as _fatal:
         import traceback
         _tb = traceback.format_exc()

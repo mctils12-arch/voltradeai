@@ -2083,6 +2083,15 @@ print(json.dumps(check_weekly_loss(history)))
         classification = " [python3 not found on PATH]";
       }
 
+      // On SIGKILL with `[mem]` phase breadcrumbs in stderr, surface the last
+      // phase. This pinpoints where Python died (import/train/scan) even when
+      // the OOM killer prevents a traceback.
+      if (signal === "SIGKILL") {
+        const phaseLines = stderr.split("\n").filter(l => l.includes("[mem]"));
+        const lastPhase = phaseLines[phaseLines.length - 1];
+        if (lastPhase) classification += ` last_phase='${lastPhase.trim().slice(0, 120)}'`;
+      }
+
       const detail = tail.trim() || msg;
       audit("TIER2-ERROR", `Scan failed (code=${code} signal=${signal} ${memStr})${classification}: ${detail}`);
     }
