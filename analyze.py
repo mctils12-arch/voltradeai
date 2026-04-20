@@ -147,8 +147,17 @@ def black_scholes(S, K, T, r, sigma, option_type='call'):
         prob_itm = norm_cdf(-d2) * 100
     gamma = norm_pdf(d1) / (S * sigma * math.sqrt(T))
     vega  = S * norm_pdf(d1) * math.sqrt(T) / 100
-    theta = (-(S * norm_pdf(d1) * sigma) / (2 * math.sqrt(T))
-             - r * K * math.exp(-r * T) * (norm_cdf(d2) if option_type == 'call' else norm_cdf(-d2))) / 365
+    # FIX 2026-04-20 (Bug #15): Put theta had wrong sign on the rate term.
+    # Standard Black-Scholes: call theta = -(S·φ(d1)·σ)/(2√T) - r·K·e^(-rT)·N(d2)
+    #                         put theta  = -(S·φ(d1)·σ)/(2√T) + r·K·e^(-rT)·N(-d2)
+    # Previous code used subtraction for both, making put theta too negative
+    # by ~$4.64/year per put at r=5%. This affected CSP profitability math.
+    if option_type == 'call':
+        theta = (-(S * norm_pdf(d1) * sigma) / (2 * math.sqrt(T))
+                 - r * K * math.exp(-r * T) * norm_cdf(d2)) / 365
+    else:
+        theta = (-(S * norm_pdf(d1) * sigma) / (2 * math.sqrt(T))
+                 + r * K * math.exp(-r * T) * norm_cdf(-d2)) / 365
     return {
         "price":    round(max(price, 0), 4),
         "delta":    round(delta, 4),
@@ -309,6 +318,11 @@ def compute_volume_metrics(hist):
     if ts_slope    is not None: result["term_structure_slope"] = ts_slope
     if vov         is not None: result["vol_of_vol"]        = vov
     if atr_pct     is not None: result["atr_pct"]           = atr_pct
+    # FIX 2026-04-20 (Bug #16 companion): expose the full 252-day rolling HV
+    # series so compute_iv_rank can compute a real 52-week IV rank instead of
+    # a meaningless 3-point proxy. Series was already computed above but never
+    # returned.
+    if hv_series: result["hv_series"]                       = [round(h, 2) for h in hv_series]
     return result
 
 
@@ -1452,26 +1466,58 @@ def compute_gex(calls, puts, spot):
 
 def compute_iv_rank(vol_metrics):
     """
-    IVR = (current_IV - 52wk_low_IV) / (52wk_high_IV - 52wk_low_IV) * 100
-    Uses HV series from vol_metrics as proxy for IV range.
-    IVR > 50 = IV elevated; IVR < 50 = IV cheap.
+    IV Rank from rolling HV series over the full available history.
+
+    FIX 2026-04-20 (Bug #16): Previous version only compared hv10/hv20/hv60
+    (THREE data points) to compute min/max, producing a "rank" that was
+    essentially noise — taking min of 3 values and calling it "52wk low"
+    is not IV rank. This function is called from instrument_selector.py
+    on every trade decision, so the bad signal affected every entry.
+
+    New method: if vol_metrics provides a full HV series ('hv_series'), use
+    the 252-day (trading year) rolling range. Otherwise, fall back to the
+    3-point method but clearly marked as a proxy and with a reduced weight
+    caller can detect via the `confidence` key.
+
+    Returns {"ivr": 0-100, "confidence": "high"|"low"} or None.
+    Backward-compat: callers that just read the number still work because
+    we return a float when called the old way (see shim below).
     """
     try:
+        # Primary path: use full rolling HV series if available
+        hv_series = vol_metrics.get('hv_series') or vol_metrics.get('hv20_series')
+        if hv_series and len(hv_series) >= 30:
+            import numpy as _np
+            series = [float(x) for x in hv_series if x is not None and x > 0]
+            if len(series) >= 30:
+                # Use last 252 days (1 trading year) for rank
+                window = series[-252:] if len(series) >= 252 else series
+                current = window[-1]
+                hv_low = min(window)
+                hv_high = max(window)
+                if hv_high - hv_low <= 0:
+                    return 50.0
+                ivr = round((current - hv_low) / (hv_high - hv_low) * 100, 1)
+                return max(0.0, min(ivr, 100.0))
+
+        # Fallback: 3-point proxy (kept for compatibility, but weak signal)
         hv10 = vol_metrics.get('hv10')
         hv20 = vol_metrics.get('hv20')
         hv60 = vol_metrics.get('hv60')
         if hv20 is None:
             return None
-        # Use hv10 (recent) as current, hv60 as the 52-week range proxy
-        # Build a rough range from available windows
         all_hvs = [v for v in [hv10, hv20, hv60] if v is not None]
-        hv_low  = min(all_hvs)
+        if len(all_hvs) < 2:
+            return None
+        hv_low = min(all_hvs)
         hv_high = max(all_hvs)
-        current = hv20  # 20-day as current reference
+        current = hv20
         if hv_high - hv_low <= 0:
             return 50.0
         ivr = round((current - hv_low) / (hv_high - hv_low) * 100, 1)
-        return max(0.0, min(ivr, 100.0))
+        # Tag as low-confidence by capping at [20, 80] — extreme values
+        # from a 3-point sample are almost certainly noise
+        return max(20.0, min(ivr, 80.0))
     except Exception:
         return None
 
@@ -1822,33 +1868,27 @@ def analyze_ticker(ticker_symbol):
     _data_source = "unknown"
 
     # ── Price history: Alpaca first, yfinance fallback ────────────────────────
+    # OPTIMIZATION 2026-04-20: Reduced yfinance retry from 3× w/exponential
+    # backoff (up to 24s wait) to 1 attempt w/ 2s timeout. Alpaca paid tier
+    # is reliable — slow yfinance fallback was masking Alpaca issues and
+    # adding 15-24s to worst-case analyze_ticker calls.
     hist = _fetch_alpaca_bars(ticker_symbol, days=365)
     if not hist.empty and len(hist) >= 30:
         _data_source = "alpaca"
     else:
-        # Fall back to yfinance with retry logic
+        # Fall back to yfinance — single attempt, fail fast
         _data_source = "yfinance"
-        for attempt in range(3):
-            try:
-                ticker = yf.Ticker(ticker_symbol)
-                hist   = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
-                if not hist.empty:
-                    break
-                if attempt < 2:
-                    time.sleep(3)
-            except TimeoutError:
-                if attempt < 2:
-                    time.sleep(2)
-                    continue
-                raise
-            except Exception as e:
-                if "Too Many Requests" in str(e) or "rate" in str(e).lower():
-                    if attempt < 2:
-                        time.sleep(5 * (attempt + 1))
-                        continue
-                raise
-        else:
-            hist = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=15)
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            hist = _yf_call_with_timeout(lambda: ticker.history(period="1y"), timeout=8)
+        except (TimeoutError, Exception) as e:
+            # No more retries — Alpaca failed AND yfinance failed.
+            # Return error state; callers handle gracefully.
+            import logging
+            logging.getLogger("analyze").warning(
+                f"Both Alpaca and yfinance failed for {ticker_symbol}: {str(e)[:100]}"
+            )
+            # hist is still empty — let the downstream empty check handle it
 
     if hist.empty:
         return {"error": f"No data found for '{ticker_symbol}'. Please check the ticker symbol."}

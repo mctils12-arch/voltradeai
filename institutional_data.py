@@ -29,11 +29,24 @@ def _cache_get(key, ttl_seconds=3600):
     return None
 
 def _cache_set(key, data):
-    """Write to cache."""
+    """
+    Write to cache atomically.
+    FIX 2026-04-20 (Bug #21): Previously a naive open+write could race when
+    parallel deep_score workers write the same key concurrently. Now uses
+    tempfile + os.replace for atomic write.
+    """
+    import tempfile
     path = os.path.join(CACHE_DIR, f"{key}.json")
     try:
-        with open(path, "w") as f:
-            json.dump(data, f)
+        dirname = os.path.dirname(path) or "."
+        fd, tmp = tempfile.mkstemp(dir=dirname, prefix=".cache.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+        except Exception:
+            try: os.unlink(tmp)
+            except Exception: pass
     except Exception:
         pass
 

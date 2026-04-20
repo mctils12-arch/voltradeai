@@ -25,10 +25,19 @@ DATA_URL = "https://data.alpaca.markets"
 RISK_FREE_RATE = 0.045
 CACHE_TTL = 3600  # 60 min — vol surface doesn't change fast intraday
 
-_HEADERS = {
-    "APCA-API-KEY-ID": ALPACA_KEY,
-    "APCA-API-SECRET-KEY": ALPACA_SECRET,
-}
+def _headers() -> dict:
+    """Build Alpaca auth headers at call time — not import time.
+    FIX (2026-04-20): The captured-at-import _HEADERS dict grabbed empty
+    strings when env vars loaded AFTER module import (tests, late dotenv
+    loading), causing silent 401 auth failures. Function call re-reads
+    env vars each time."""
+    return {
+        "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+        "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
+    }
+
+# Backward-compatibility alias for any legacy _HEADERS references
+_HEADERS = _headers()  # initial snapshot (still captured — avoid if calling after env load)
 
 # ─── Module-level cache ─────────────────────────────────────────────────────
 
@@ -206,7 +215,7 @@ def _fetch_options_chain(ticker: str, dte_min: int = 7, dte_max: int = 90) -> di
             resp = requests.get(
                 f"{DATA_URL}/v1beta1/options/snapshots/{ticker}",
                 params=params,
-                headers=_HEADERS,
+                headers=_headers(),
                 timeout=4,  # Reduced from 8s — 10 pages × 4s = 40s worst case
             )
             resp.raise_for_status()
@@ -234,7 +243,7 @@ def _fetch_spot_price(ticker: str) -> float:
         resp = requests.get(
             f"{DATA_URL}/v2/stocks/trades/latest",
             params={"symbols": ticker, "feed": "sip"},
-            headers=_HEADERS,
+            headers=_headers(),
             timeout=10,
         )
         resp.raise_for_status()
@@ -259,7 +268,7 @@ def _fetch_spot_price(ticker: str) -> float:
                 "adjustment": "all",
                 "feed": "sip",
             },
-            headers=_HEADERS,
+            headers=_headers(),
             timeout=10,
         )
         resp.raise_for_status()
@@ -297,7 +306,7 @@ def _fetch_historical_bars(ticker: str, days: int = 90) -> list:
             resp = requests.get(
                 f"{DATA_URL}/v2/stocks/bars",
                 params=params,
-                headers=_HEADERS,
+                headers=_headers(),
                 timeout=8,
             )
             resp.raise_for_status()

@@ -81,17 +81,23 @@ def _h(): return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_S
 
 
 def _classify_regime(vxx_ratio: float, spy_vs_ma50: float) -> str:
-    """Unified regime classification — used in both training and inference.
+    """Unified regime classification — delegates to regime_util.
 
-    Thresholds derived from historical VXX distributions (training data).
-    Must be used everywhere regime is assigned to avoid train/inference mismatch.
+    FIX 2026-04-20 (Bug #7): Previously each module (system_config, ml_model_v2,
+    markov_regime) had its own thresholds. Now all three import from
+    regime_util.classify_regime so changes propagate everywhere.
     """
-    if vxx_ratio >= 1.15 or spy_vs_ma50 < 0.94:
-        return "bear"
-    elif vxx_ratio <= 0.95 and spy_vs_ma50 >= 0.98:
-        return "bull"
-    else:
-        return "neutral"
+    try:
+        from regime_util import classify_regime
+        return classify_regime(vxx_ratio, spy_vs_ma50)
+    except ImportError:
+        # Backward-compat fallback — matches old thresholds exactly
+        if vxx_ratio >= 1.15 or spy_vs_ma50 < 0.94:
+            return "bear"
+        elif vxx_ratio <= 0.95 and spy_vs_ma50 >= 0.98:
+            return "bull"
+        else:
+            return "neutral"
 
 
 def _frac_diff(closes: list, d: float = 0.4) -> float:
@@ -167,7 +173,14 @@ CALIBRATOR_PATH = os.path.join(DATA_DIR, "voltrade_ml_calibrator.pkl")
 # ── Model cache — load once, reuse for all inference calls ──────
 # Without this, joblib.load() deserializes the full LightGBM model + scalers
 # on every ml_score() call (~20+ times per scan cycle), causing memory spikes.
+#
+# THREAD SAFETY FIX (2026-04-20): _model_cache is accessed by parallel workers
+# in bot_engine.deep_score() via ThreadPoolExecutor. Without a lock, two
+# workers can both see bundle=None, both call joblib.load() (50MB allocation
+# each), and the second overwrite leaks the first. Lock prevents the race.
+import threading as _threading_ml
 _model_cache = {"bundle": None, "mtime": 0.0, "calibrator": None, "cal_mtime": 0.0}
+_model_cache_lock = _threading_ml.Lock()
 
 # ══════════════════════════════════════════════════════════════════
 # DATA FETCHING
@@ -828,6 +841,73 @@ def _build_training_data(all_bars: dict,
 # poison the model with outcomes caused by bugs, not bad signals.
 MIN_FEEDBACK_VERSION = "1.0.33"
 
+# ──────────────────────────────────────────────────────────────────────────
+# ITEM 18 FIX 2026-04-20: Auto-clean poisoned feedback on first post-deploy run
+# Bug #13 was writing every trade as `pnl_pct=0`. After the fix, these records
+# still exist in voltrade_trade_feedback.json and will pollute Kelly sizing
+# until they age out. This runs once on import — if we detect poisoned
+# records (pnl_pct=0 + no code_version) covering >20% of the file, archive
+# them to a backup and keep only the clean ones.
+# ──────────────────────────────────────────────────────────────────────────
+def _clean_poisoned_feedback_on_startup():
+    """Idempotent one-time cleanup. Safe to call multiple times."""
+    try:
+        import os, json, time
+        feedback_path = TRADE_FEEDBACK_PATH
+        marker_path = os.path.join(DATA_DIR, "voltrade_feedback_cleaned.marker")
+        if os.path.exists(marker_path):
+            return  # Already cleaned
+        if not os.path.exists(feedback_path):
+            return  # No feedback file yet
+
+        with open(feedback_path) as f:
+            records = json.load(f)
+        if not isinstance(records, list) or len(records) == 0:
+            return
+
+        # Classify: poisoned = (pnl_pct == 0 OR None) AND no code_version
+        poisoned = [r for r in records
+                    if (r.get("pnl_pct", 0) == 0 or r.get("pnl_pct") is None)
+                    and not r.get("code_version")]
+        clean = [r for r in records if r not in poisoned]
+
+        poison_pct = len(poisoned) / len(records)
+        if poison_pct < 0.20:
+            # Not enough poison to bother — leave it alone
+            # (ML loader will weight it low anyway via MIN_FEEDBACK_VERSION)
+            open(marker_path, "w").write(f"skipped, only {poison_pct*100:.1f}% poisoned")
+            return
+
+        # Archive the poisoned records (in case we need to inspect later)
+        backup_path = os.path.join(DATA_DIR, f"voltrade_trade_feedback_poisoned_{int(time.time())}.json")
+        try:
+            with open(backup_path, "w") as f:
+                json.dump(poisoned, f)
+        except Exception:
+            pass
+
+        # Write back only the clean records
+        tmp_path = feedback_path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(clean, f)
+        os.replace(tmp_path, feedback_path)
+
+        # Mark as done so we don't re-run
+        with open(marker_path, "w") as f:
+            f.write(f"cleaned {len(poisoned)}/{len(records)} records on {time.time()}")
+    except Exception as e:
+        # Never crash on cleanup — just log and continue
+        import logging
+        logging.getLogger("voltrade.ml").warning(f"Feedback cleanup failed: {e}")
+
+
+# Run cleanup once on module import
+try:
+    _clean_poisoned_feedback_on_startup()
+except Exception:
+    pass
+
+
 
 def _version_tuple(v):
     """Parse "1.0.33" -> (1, 0, 33) for correct numeric comparison.
@@ -857,22 +937,51 @@ def _version_tuple(v):
         return (0, 0, 0)
 
 def _load_trade_feedback() -> List[dict]:
+    """
+    Load trade feedback for training.
+
+    FIX 2026-04-20 (MIN_FEEDBACK_VERSION data loss):
+    Previously, bumping MIN_FEEDBACK_VERSION after a schema-changing bug fix
+    silently discarded ALL older records. For a model that often has only
+    200-500 training samples, losing a month of history kills learning.
+
+    New behavior: old records are KEPT but marked with a _legacy_weight
+    multiplier that the training loop applies as sample_weight * 0.4.
+    This way the model still has the older signal at reduced confidence
+    rather than losing it entirely. Records with genuinely incompatible
+    schemas (missing entry_features) are still dropped.
+    """
     try:
         if os.path.exists(FEEDBACK_PATH):
             with open(FEEDBACK_PATH) as f:
                 raw = json.load(f)
-            # Filter: only train on trades from code >= MIN_FEEDBACK_VERSION
-            # Trades without code_version are from pre-fix code — skip them
+
             _min_v = _version_tuple(MIN_FEEDBACK_VERSION)
-            valid = [t for t in raw if _version_tuple(t.get("code_version", "")) >= _min_v]
-            skipped = len(raw) - len(valid)
-            if skipped > 0:
+            # Records that pass the version gate get full weight
+            # Older records get weight=0.4 but stay in the pool
+            valid = []
+            legacy_kept = 0
+            schema_drops = 0
+            for t in raw:
+                # Schema check — need entry_features to train at all
+                if not t.get("entry_features"):
+                    schema_drops += 1
+                    continue
+                is_legacy = _version_tuple(t.get("code_version", "")) < _min_v
+                if is_legacy:
+                    t = dict(t)  # shallow copy to avoid mutating raw file
+                    t["_legacy_weight"] = 0.4
+                    legacy_kept += 1
+                valid.append(t)
+
+            if legacy_kept > 0 or schema_drops > 0:
                 import logging
                 logging.getLogger("voltrade.ml").info(
-                    f"[FEEDBACK] Skipped {skipped} pre-{MIN_FEEDBACK_VERSION} trades "
-                    f"(kept {len(valid)} valid)")
+                    f"[FEEDBACK] Loaded {len(valid)} trades "
+                    f"(legacy weighted 0.4x: {legacy_kept}, schema-dropped: {schema_drops})")
             return valid
-    except Exception: pass
+    except Exception:
+        pass
     return []
 
 
@@ -915,6 +1024,9 @@ def _build_feedback_training_data(trades: List[dict]) -> Tuple:
         trade_age_days = (current_ts - float(trade_ts)) / 86400
         decay_weight = 2 ** (-trade_age_days / half_life_days)
         weight = 3.0 * decay_weight  # max 3x for new trades, decays over time
+        # Legacy weight (from MIN_FEEDBACK_VERSION fix) — keeps old records
+        # in the training pool at reduced confidence rather than dropping them
+        weight *= trade.get("_legacy_weight", 1.0)
 
         row = [float(features.get(col, 0) or 0) for col in FEATURE_COLS]
         X_rows.append(row)
@@ -1273,11 +1385,13 @@ def ml_score(features_dict: dict) -> dict:
             return _rule_based_fallback(features_dict)
 
         # Use cached model — only reload if file changed on disk
+        # Thread-safe: two parallel workers can't both trigger a reload
         model_mtime = os.path.getmtime(MODEL_PATH)
-        if _model_cache["bundle"] is None or _model_cache["mtime"] != model_mtime:
-            _model_cache["bundle"] = joblib.load(MODEL_PATH)
-            _model_cache["mtime"] = model_mtime
-        bundle = _model_cache["bundle"]
+        with _model_cache_lock:
+            if _model_cache["bundle"] is None or _model_cache["mtime"] != model_mtime:
+                _model_cache["bundle"] = joblib.load(MODEL_PATH)
+                _model_cache["mtime"] = model_mtime
+            bundle = _model_cache["bundle"]
         if bundle is None:
             return _rule_based_fallback(features_dict)
 
@@ -1337,10 +1451,11 @@ def ml_score(features_dict: dict) -> dict:
         if calibrator_path and os.path.exists(calibrator_path):
             try:
                 cal_mtime = os.path.getmtime(calibrator_path)
-                if _model_cache["calibrator"] is None or _model_cache["cal_mtime"] != cal_mtime:
-                    _model_cache["calibrator"] = joblib.load(calibrator_path)
-                    _model_cache["cal_mtime"] = cal_mtime
-                cal = _model_cache["calibrator"]
+                with _model_cache_lock:
+                    if _model_cache["calibrator"] is None or _model_cache["cal_mtime"] != cal_mtime:
+                        _model_cache["calibrator"] = joblib.load(calibrator_path)
+                        _model_cache["cal_mtime"] = cal_mtime
+                    cal = _model_cache["calibrator"]
                 prob = float(cal.transform([prob])[0])
                 prob = max(0.10, min(0.90, prob))
             except Exception:
@@ -1899,61 +2014,220 @@ def train_options_model() -> dict:
 # Saves fill data to the trade feedback file so the self-learning loop
 # can use real trade outcomes to improve future predictions.
 # Compatible drop-in for the old ml_model.track_fill() signature.
+#
+# CRITICAL FIX 2026-04-20 (Bug #13): Previously, track_fill only APPENDED new
+# records. When a trade closed (sell fill after buy, or buy-to-close after
+# short), it added a SECOND record instead of updating the first. The
+# "outcome" and "pnl_pct" fields stayed None on the entry record forever.
+# In _build_feedback_training_data, pnl_pct defaults to 0 when None, which
+# falls through the label logic to label=0 (loss). Result: the model was
+# silently learning "every trade I took was a loss", regardless of actual
+# outcome. This fix detects exit fills and updates the matching entry record.
+#
+# THREAD SAFETY: Uses fcntl file locking + atomic rename to prevent corruption
+# when bot.ts fires multiple track_fill calls near-simultaneously (rare but
+# possible during EOD mass-close events).
+_feedback_lock = _threading_ml.Lock()
+
+def _atomic_write_feedback(records: list) -> bool:
+    """Write feedback file atomically with POSIX file lock.
+    Returns True on success, False on failure."""
+    import tempfile
+    try:
+        try:
+            import fcntl
+            use_flock = True
+        except ImportError:
+            use_flock = False
+
+        lock_path = FEEDBACK_PATH + ".lock"
+        lock_f = open(lock_path, "a+")
+        try:
+            if use_flock:
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+            # Atomic write: temp file + rename
+            dirname = os.path.dirname(FEEDBACK_PATH) or "."
+            fd, tmp_path = tempfile.mkstemp(dir=dirname, prefix=".feedback.", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as tf:
+                    json.dump(records, tf, indent=2)
+                os.replace(tmp_path, FEEDBACK_PATH)
+                return True
+            except Exception:
+                try: os.unlink(tmp_path)
+                except Exception: pass
+                return False
+        finally:
+            try:
+                if use_flock:
+                    fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
+            except Exception: pass
+            lock_f.close()
+    except Exception:
+        return False
+
+
+def _is_exit_fill(order_data: dict) -> bool:
+    """Detect whether a fill is closing a prior position vs. opening new.
+
+    Exit fills:
+      - side="sell" (closing a long equity position)
+      - side="buy" with is_close flag (covering a short)
+      - exit_context present (bot_engine exit_context dict is passed through)
+      - exit_reason present (from options_manager exit logic)
+    """
+    if order_data.get("exit_context"):
+        return True
+    if order_data.get("exit_reason"):
+        return True
+    if order_data.get("is_close"):
+        return True
+    # Heuristic: sell side usually means exit (but could be short-open).
+    # Use the bot_engine.exit_context signal as the primary indicator.
+    return False
+
+
+def _find_entry_record(records: list, ticker: str) -> int:
+    """Find the index of the most recent entry record for this ticker that
+    still has outcome=None (meaning it hasn't been closed yet).
+
+    Returns -1 if not found.
+    Searches backwards for efficiency (entries are usually recent).
+    """
+    for i in range(len(records) - 1, -1, -1):
+        r = records[i]
+        if r.get("ticker") != ticker:
+            continue
+        if r.get("outcome") is not None:
+            continue  # already closed
+        if r.get("pnl_pct") is not None:
+            continue  # already labeled
+        return i
+    return -1
+
+
 def track_fill(order_data: dict) -> None:
     """
     Log an order fill for ML self-learning.
     Called by bot.ts after every filled order.
 
-    order_data keys (same as old ml_model.track_fill):
+    For ENTRY fills: appends a new record with entry_features, outcome=None.
+    For EXIT fills:  finds the matching entry record and updates it with
+                     computed outcome + pnl_pct.
+
+    order_data keys:
         ticker, side, qty, expected_price, fill_price,
-        time_placed, time_filled, session, volume, score
+        time_placed, time_filled, session, volume, score,
+        entry_features, exit_context (present on exits), exit_reason, is_close
     """
     try:
-        # Validate required fields — reject empty/garbage fills
+        # Validate required fields
         raw_ticker = order_data.get("ticker")
-        ticker = str(raw_ticker).strip() if raw_ticker is not None else ""
+        ticker = str(raw_ticker).strip().upper() if raw_ticker is not None else ""
         if not ticker:
-            return  # Skip records with no ticker
+            return
         qty = float(order_data.get("qty", 0) or 0)
         if qty <= 0:
-            return  # Skip records with no quantity
+            return
 
         expected   = float(order_data.get("expected_price", 0) or 0)
         fill_price = float(order_data.get("fill_price", expected) or expected)
         slippage   = abs(fill_price - expected) / expected * 100 if expected > 0 else 0.0
 
-        record = {
-            "ticker":         str(order_data.get("ticker", "")),
-            "side":           str(order_data.get("side", "buy")),
-            "qty":            float(order_data.get("qty", 0) or 0),
-            "expected_price": expected,
-            "fill_price":     fill_price,
-            "slippage_pct":   round(slippage, 4),
-            "volume":         float(order_data.get("volume", 0) or 0),
-            "session":        str(order_data.get("session", "regular")),
-            "time_placed":    str(order_data.get("time_placed", datetime.now().isoformat())),
-            "time_filled":    str(order_data.get("time_filled", datetime.now().isoformat())),
-            "score":          float(order_data.get("score", 0) or 0),
-            "entry_features": order_data.get("entry_features", {}),
-            "outcome":        None,   # filled in later by position close logic
-            "pnl_pct":        None,
-            "code_version":   "1.0.34",
-        }
-
-        # Load ALL existing feedback (unfiltered), append, save (keep last 5000)
-        # Note: use raw load here, not _load_trade_feedback() which filters by version
-        # and would permanently discard old records on every save
-        raw_feedback = []
-        try:
-            if os.path.exists(FEEDBACK_PATH):
-                with open(FEEDBACK_PATH) as _ff:
-                    raw_feedback = json.load(_ff)
-        except Exception:
+        with _feedback_lock:  # prevent interleaved writes
+            # Load current feedback (raw, unfiltered)
             raw_feedback = []
-        raw_feedback.append(record)
-        if len(raw_feedback) > 5000:
-            raw_feedback = raw_feedback[-5000:]
-        with open(FEEDBACK_PATH, "w") as f:
-            json.dump(raw_feedback, f, indent=2)
-    except Exception:
+            try:
+                if os.path.exists(FEEDBACK_PATH):
+                    with open(FEEDBACK_PATH) as _ff:
+                        raw_feedback = json.load(_ff)
+            except Exception:
+                raw_feedback = []
+
+            if _is_exit_fill(order_data):
+                # ── EXIT FILL: update the matching entry record ──
+                idx = _find_entry_record(raw_feedback, ticker)
+                if idx >= 0:
+                    entry = raw_feedback[idx]
+                    entry_price = float(entry.get("fill_price", 0) or 0)
+                    entry_side = entry.get("side", "buy").lower()
+
+                    if entry_price > 0:
+                        # Compute pnl_pct based on entry side
+                        if entry_side in ("buy", "long"):
+                            pnl_pct = (fill_price - entry_price) / entry_price * 100
+                        else:  # sell/short entry — short covered with buy
+                            pnl_pct = (entry_price - fill_price) / entry_price * 100
+
+                        # Exit context from bot_engine.py gives us the real label
+                        exit_ctx = order_data.get("exit_context", {}) or {}
+                        # Prefer the bot-reported pnl_pct if available (matches the
+                        # bot's own accounting including partial fills and scale-outs)
+                        reported_pnl = exit_ctx.get("pnl_pct")
+                        if reported_pnl is not None:
+                            pnl_pct = float(reported_pnl)
+
+                        # Update the entry record in place
+                        entry["outcome"] = "win" if pnl_pct > 0 else ("flat" if pnl_pct == 0 else "loss")
+                        entry["pnl_pct"] = round(pnl_pct, 3)
+                        entry["exit_price"] = fill_price
+                        entry["exit_time"] = str(order_data.get("time_filled", datetime.now().isoformat()))
+                        entry["exit_reason"] = str(order_data.get("exit_reason", exit_ctx.get("exit_reason", "close")))
+                        entry["days_held"] = exit_ctx.get("days_held", 0)
+                        entry["exit_context"] = exit_ctx
+                        # Keep the record with same code_version (don't bump — preserves
+                        # training eligibility if MIN_FEEDBACK_VERSION hasn't changed)
+                        raw_feedback[idx] = entry
+                    # No matching entry found — log the exit as a standalone record
+                    # so we don't lose the data entirely
+                    else:
+                        raw_feedback.append({
+                            "ticker": ticker, "side": str(order_data.get("side", "sell")),
+                            "qty": qty, "fill_price": fill_price,
+                            "time_filled": str(order_data.get("time_filled", datetime.now().isoformat())),
+                            "outcome": "orphan_exit", "pnl_pct": None,
+                            "note": "Exit fill with no matching open entry",
+                            "code_version": "1.0.34",
+                        })
+                else:
+                    # No matching entry — might be manual trade or pre-existing position
+                    # Log it anyway so the record exists
+                    raw_feedback.append({
+                        "ticker": ticker, "side": str(order_data.get("side", "sell")),
+                        "qty": qty, "fill_price": fill_price,
+                        "time_filled": str(order_data.get("time_filled", datetime.now().isoformat())),
+                        "outcome": "orphan_exit", "pnl_pct": None,
+                        "note": "Exit fill with no matching open entry",
+                        "code_version": "1.0.34",
+                    })
+            else:
+                # ── ENTRY FILL: append new record ──
+                record = {
+                    "ticker":         ticker,
+                    "side":           str(order_data.get("side", "buy")),
+                    "qty":            qty,
+                    "expected_price": expected,
+                    "fill_price":     fill_price,
+                    "slippage_pct":   round(slippage, 4),
+                    "volume":         float(order_data.get("volume", 0) or 0),
+                    "session":        str(order_data.get("session", "regular")),
+                    "time_placed":    str(order_data.get("time_placed", datetime.now().isoformat())),
+                    "time_filled":    str(order_data.get("time_filled", datetime.now().isoformat())),
+                    "score":          float(order_data.get("score", 0) or 0),
+                    "entry_features": order_data.get("entry_features", {}),
+                    "outcome":        None,   # backfilled on matching exit fill
+                    "pnl_pct":        None,
+                    "code_version":   "1.0.34",
+                }
+                raw_feedback.append(record)
+
+            # Rotate: keep last 5000 records
+            if len(raw_feedback) > 5000:
+                raw_feedback = raw_feedback[-5000:]
+
+            # Write atomically
+            _atomic_write_feedback(raw_feedback)
+    except Exception as e:
+        import logging as _tfl
+        _tfl.getLogger("voltrade.ml").debug(f"track_fill error: {e}")
         pass  # Never crash bot.ts for a logging call

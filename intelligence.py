@@ -591,18 +591,59 @@ def _generate_summary(news, insider, earnings, score):
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _load_json(path):
+    """Load JSON with shared lock to prevent reading mid-write."""
     try:
         if os.path.exists(path):
-            with open(path) as f:
-                return json.load(f)
+            try:
+                import fcntl
+                with open(path) as f:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                    data = json.load(f)
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                return data
+            except ImportError:
+                with open(path) as f:
+                    return json.load(f)
     except Exception:
         pass
     return None
 
 def _save_json(path, data):
+    """
+    FIX 2026-04-20 (Bug #18): Atomic write with exclusive lock. Previously,
+    parallel deep_score workers writing to the same cache file (INSIDER_CACHE,
+    EVENT_DB, EARNINGS_DB) could corrupt JSON. Same class of bug as
+    bot_engine sector cache race — now fixed with fcntl + os.replace.
+    """
     try:
-        with open(path, "w") as f:
-            json.dump(data, f)
+        import tempfile
+        try:
+            import fcntl
+            use_flock = True
+        except ImportError:
+            use_flock = False
+
+        lock_path = path + ".lock"
+        lock_f = open(lock_path, "a+")
+        try:
+            if use_flock:
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+            # Atomic write: temp file + rename
+            dirname = os.path.dirname(path) or "."
+            fd, tmp_path = tempfile.mkstemp(dir=dirname, prefix=".", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as tf:
+                    json.dump(data, tf)
+                os.replace(tmp_path, path)
+            except Exception:
+                try: os.unlink(tmp_path)
+                except Exception: pass
+        finally:
+            try:
+                if use_flock:
+                    fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
+            except Exception: pass
+            lock_f.close()
     except Exception:
         pass
 

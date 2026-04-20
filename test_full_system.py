@@ -268,7 +268,7 @@ print("\n── 9:30 AM ─ Market Open: Stock Scan ──")
 def t_universe_size():
     import requests
     H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
-    r = requests.get("https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",headers=H,timeout=20)
+    r = requests.get(f"{os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')}/v2/assets?status=active&asset_class=us_equity",headers=H,timeout=20)
     assets = r.json()
     syms = [a["symbol"] for a in assets if a.get("tradable") and "." not in a.get("symbol","") and len(a.get("symbol",""))<=5]
     if len(syms) < 8000:
@@ -281,7 +281,7 @@ def t_snapshot_parallel_fetch():
     from concurrent.futures import ThreadPoolExecutor
     H = {"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),"APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")}
     # Test parallel fetch speed with 500 stocks
-    r0 = requests.get("https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",headers=H,timeout=20)
+    r0 = requests.get(f"{os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')}/v2/assets?status=active&asset_class=us_equity",headers=H,timeout=20)
     syms = [a["symbol"] for a in r0.json() if a.get("tradable") and "." not in a.get("symbol","") and len(a.get("symbol",""))<=5][:500]
     batches = [syms[i:i+50] for i in range(0,len(syms),50)]
     snaps = {}

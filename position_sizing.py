@@ -42,7 +42,7 @@ logger = logging.getLogger("position_sizing")
 ABSOLUTE_MAX_POSITION_PCT = 0.08   # Never more than 8% of portfolio in one stock (pro-level: tighter cap)
 ABSOLUTE_MIN_POSITION_PCT = 0.01   # Never less than 1% (not worth the trade)
 ABSOLUTE_MAX_POSITIONS    = 8      # Hard ceiling on total positions
-ABSOLUTE_MAX_PORTFOLIO_HEAT = 0.95 # Let regime engine control exposure — was 0.50 (silent bottleneck)
+ABSOLUTE_MAX_PORTFOLIO_HEAT = 1.00 # USER: 100% invested — was 0.95; regime engine still enforces lower bounds during stress
 DEFAULT_COMMISSION_PER_SHARE = 0.0 # Alpaca paper = $0. Change for live.
 OPTIONS_FEE_PER_CONTRACT = 0.65    # Standard options fee
 
@@ -97,12 +97,27 @@ def _get_historical_stats() -> dict:
       - csp_options: 74% WR, avg win $975, avg loss $1692
       - vrp: 80% WR, avg win $9255, avg loss $12743
     """
+    # DEFAULTS FIX 2026-04-20 (Bug #6): Previous defaults were derived from the
+    # overfit 10-year backtest that underperformed SPY by 14%/yr. Using those
+    # numbers as a Kelly prior means "I'm losing to the benchmark, so bet big."
+    # New defaults are pessimistic and derived from HONEST per-strategy analysis
+    # (trade_analysis/strategy_edges_NEW_CSP_ONLY.csv from real trade records):
+    #   - stocks: 44.6% WR with negative expectancy → use 45% WR, tighter risk
+    #   - csp_options: 71.6% WR with profit factor 3.81 (real edge confirmed)
+    #   - vrp: hold CSP numbers until real feedback accumulates
+    # These defaults apply ONLY when live trade count < 10. Once real feedback
+    # builds up, _get_historical_stats() uses actual measurements.
     default = {
-        "overall": {"win_rate": 0.528, "avg_win": 6009, "avg_loss": 4579, "total_trades": 0},
+        "overall": {"win_rate": 0.55, "avg_win": 2.0, "avg_loss": 2.0, "total_trades": 0},
         "by_strategy": {
-            "stocks":      {"win_rate": 0.528, "avg_win": 6009, "avg_loss": 4579, "trades": 771},
-            "csp_options": {"win_rate": 0.740, "avg_win": 975, "avg_loss": 1692, "trades": 150},
-            "vrp":         {"win_rate": 0.800, "avg_win": 9255, "avg_loss": 12743, "trades": 30},
+            # Stocks: negative expectancy in honest analysis — use pessimistic defaults
+            # that force quarter-Kelly or smaller until real data proves otherwise
+            "stocks":      {"win_rate": 0.45, "avg_win": 2.0, "avg_loss": 2.5, "trades": 0},
+            # CSP: real edge confirmed in 1,226-trade analysis (71.6% WR, PF 3.81)
+            # Use slightly conservative defaults that match the real numbers
+            "csp_options": {"win_rate": 0.70, "avg_win": 1.0, "avg_loss": 2.0, "trades": 0},
+            # VRP: same as CSP until options feedback builds up separately
+            "vrp":         {"win_rate": 0.65, "avg_win": 1.5, "avg_loss": 3.5, "trades": 0},
         },
     }
     
@@ -339,7 +354,7 @@ def _portfolio_heat_scalar(current_positions: list, equity: float,
     count_scalar = max(0.4, 1.0 - (num_pos * 0.10))
     
     # Deployed capital scalar
-    # Thresholds aligned with ABSOLUTE_MAX_PORTFOLIO_HEAT=0.95.
+    # Thresholds aligned with ABSOLUTE_MAX_PORTFOLIO_HEAT=1.00.
     # QQQ floor alone deploys 70-90%, so old 0.20/0.30/0.40 thresholds
     # would crush all satellite sizing. Scale relative to the ceiling.
     if deployed_pct > 0.90:
@@ -552,7 +567,7 @@ def check_halt_status(ticker: str) -> dict:
     """
     try:
         resp = requests.get(
-            f"https://paper-api.alpaca.markets/v2/assets/{ticker}",
+            f"{os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')}/v2/assets/{ticker}",
             headers={
                 "APCA-API-KEY-ID": ALPACA_KEY,
                 "APCA-API-SECRET-KEY": ALPACA_SECRET,

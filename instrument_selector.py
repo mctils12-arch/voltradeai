@@ -30,6 +30,15 @@ import time
 import logging
 import subprocess
 import requests
+# Alpaca rate limiter — prevents silent 429 errors during parallel scans
+try:
+    from alpaca_rate_limiter import alpaca_throttle
+    _HAS_ALPACA_THROTTLE = True
+except ImportError:
+    _HAS_ALPACA_THROTTLE = False
+    class _NoThrottle:
+        def acquire(self): pass
+    alpaca_throttle = _NoThrottle()
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -141,13 +150,26 @@ def _safe_call(fn, *args, default=None, label=""):
 
 
 def _options_exposure_pct(positions: list, equity: float) -> float:
-    """Calculate current options exposure as fraction of equity."""
+    """Calculate current options exposure as fraction of equity.
+
+    FIX 2026-04-20 (Bug #14): Previous version checked
+    `asset_class == "option"` but Alpaca returns "us_option" (with us_
+    prefix). That meant options exposure ALWAYS computed as 0, silently
+    disabling the 8% options safety cap. Now checks both "us_option" and
+    "option" (future-proof) AND uses the correct OCC symbol length
+    threshold (>8 is the actual OCC minimum, not >10).
+
+    OCC symbol format: TICKER (1-6 chars) + YYMMDD (6) + C/P (1) + strike
+    (8) = minimum 15 chars. Using len > 8 as fallback catches all real
+    OCC symbols without false-positive on normal tickers.
+    """
     if not positions or equity <= 0:
         return 0.0
     options_value = sum(
         abs(float(p.get("market_value", 0)))
         for p in positions
-        if p.get("asset_class") == "option" or len(str(p.get("symbol", ""))) > 10
+        if p.get("asset_class") in ("us_option", "option")
+           or len(str(p.get("symbol", ""))) > 8
     )
     return options_value / equity
 
@@ -1128,24 +1150,36 @@ def select_instrument(trade: dict, equity: float,
     #   ratio 0.9-1.1 (within 10%): normal conditions
     #   ratio < 0.9 (-10% below avg): calm, options cheaper
     #   ratio < 0.7 (-30% below avg): complacency, buying options is cheap
+    #
+    # OPTIMIZATION 2026-04-20: route through macro_data.get_macro_snapshot()
+    # (5-min cache) instead of independent Alpaca fetch. Saves one call per
+    # instrument evaluation — significant at scale (50+ tickers per scan).
+    # Fallback to direct fetch preserved.
+    _vxx_price = 25.0
+    _vxx_ratio = 1.0
     try:
-        from datetime import timedelta as _td
-        _vxx_start = (datetime.utcnow() - _td(days=45)).strftime("%Y-%m-%d")
-        _vxx_resp = requests.get(
-            f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed=sip",
-            headers=_alpaca_headers(), timeout=5
-        )
-        _vxx_bars = _vxx_resp.json().get("bars", [])
-        if len(_vxx_bars) >= 10:
-            _vxx_price = float(_vxx_bars[-1]["c"])  # Latest close
-            _vxx_avg30 = sum(b["c"] for b in _vxx_bars[-30:]) / len(_vxx_bars[-30:])  # 30-day avg
-            _vxx_ratio = _vxx_price / _vxx_avg30  # >1 = above normal, <1 = below normal
-        else:
-            _vxx_price = 25.0
-            _vxx_ratio = 1.0
+        from macro_data import get_macro_snapshot
+        _macro_snap = get_macro_snapshot()
+        if _macro_snap and _macro_snap.get("vxx_ratio"):
+            _vxx_ratio = float(_macro_snap["vxx_ratio"])
+            _vxx_price = float(_macro_snap.get("vxx_latest", 25.0))
     except Exception:
-        _vxx_price = 25.0
-        _vxx_ratio = 1.0  # Default: assume normal
+        # Fallback: direct Alpaca fetch (original behavior)
+        try:
+            from datetime import timedelta as _td
+            _vxx_start = (datetime.utcnow() - _td(days=45)).strftime("%Y-%m-%d")
+            _vxx_resp = alpaca_throttle.acquire()
+            _vxx_resp = requests.get(
+                f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed=sip",
+                headers=_alpaca_headers(), timeout=5
+            )
+            _vxx_bars = _vxx_resp.json().get("bars", [])
+            if len(_vxx_bars) >= 10:
+                _vxx_price = float(_vxx_bars[-1]["c"])
+                _vxx_avg30 = sum(b["c"] for b in _vxx_bars[-30:]) / len(_vxx_bars[-30:])
+                _vxx_ratio = _vxx_price / _vxx_avg30
+        except Exception:
+            pass  # use defaults from above
 
     # Map ratio to IVR — self-calibrating regardless of VXX price level
     if _vxx_ratio >= 1.30:

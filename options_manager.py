@@ -35,7 +35,7 @@ logger = logging.getLogger("options_manager")
 
 ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
-ALPACA_BASE = "https://paper-api.alpaca.markets"
+ALPACA_BASE = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")  # FIX: was hardcoded — broke paper/live switching
 ALPACA_DATA = "https://data.alpaca.markets"
 
 # ── Configuration ────────────────────────────────────────────────────────────
