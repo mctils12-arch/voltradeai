@@ -2048,7 +2048,14 @@ print(json.dumps(check_weekly_loss(history)))
       // with no context.
       const stderr = String(err?.stderr || "");
       const stdout = String(err?.stdout || "");
-      const code = err?.code !== undefined ? err.code : "?";
+      // Node's child_process.exec overloads err.code: numeric exit status for
+      // non-zero exits, string error name for spawn/buffer failures (e.g.
+      // ERR_CHILD_PROCESS_STDIO_MAXBUFFER), and null when the child was killed
+      // by a signal. Normalize so the activity log never prints "code=null"
+      // or "code=undefined", which look like bugs to operators.
+      const rawCode = err?.code;
+      const code: string | number =
+        rawCode === undefined || rawCode === null || rawCode === "" ? "?" : rawCode;
       const signal = err?.signal || "none";
       const msg = String(err?.message || err);
 
@@ -2060,14 +2067,20 @@ print(json.dumps(check_weekly_loss(history)))
       const mem = process.memoryUsage();
       const memStr = `rss=${Math.round(mem.rss/1024/1024)}MB heap=${Math.round(mem.heapUsed/1024/1024)}/${Math.round(mem.heapTotal/1024/1024)}MB`;
 
-      // Classify: SIGKILL+empty-stderr is almost always OOM or buffer overflow
+      // Classify: SIGKILL+empty-stderr is almost always OOM or buffer overflow.
+      // Compare against rawCode (not the "?" placeholder) so classification
+      // still fires when the exec error arrives as a string code.
       let classification = "";
       if (signal === "SIGKILL" && !stderr.trim()) {
         classification = " [likely OOM kill or maxBuffer exceeded]";
-      } else if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+      } else if (rawCode === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
         classification = " [stdout buffer exceeded — raise DEFAULT_MAX_BUFFER]";
       } else if (signal === "SIGTERM") {
         classification = " [timed out or killed externally]";
+      } else if (rawCode === "ETIMEDOUT") {
+        classification = " [exec timeout exceeded]";
+      } else if (rawCode === "ENOENT") {
+        classification = " [python3 not found on PATH]";
       }
 
       const detail = tail.trim() || msg;
