@@ -59,6 +59,10 @@ COPY --from=builder /app/landing ./landing
 COPY *.py ./
 COPY strategies/ ./strategies/
 
+# ── Copy daemon supervisor script (used by Railway startCommand) ─
+COPY run_with_daemon.sh ./
+RUN chmod +x run_with_daemon.sh
+
 # ── Pre-compile Python bytecode ─────────────────────────────────
 RUN python3 -m compileall -q . 2>/dev/null || true
 
