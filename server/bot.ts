@@ -2190,6 +2190,7 @@ print(json.dumps(result[:20]))
 
   let autoRunning = false; // used by runOvernightResearch
   let lastScanResult: any = null;
+  let _shadowBackfilledToday = false;
 
   // ── Tier 1: Reflex — order management, morning queue (45s) ─────────────────
   // NOTE: Position monitoring (stops, trailing stops, take-profits) has been
@@ -2237,6 +2238,24 @@ print(json.dumps(result))
 
       // 5. Track closed trades for learning
       await trackClosedTrades();
+
+      // Once per day, backfill shadow portfolio outcomes.
+      // Runs ~3-5 Alpaca batch calls (token-bucketed to stay within 200/min).
+      const nowHour = new Date().getUTCHours();
+      if (nowHour === 22 && !_shadowBackfilledToday) {  // 10pm UTC = 5pm EST
+          execPythonSerialized(
+              `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(500)))"`,
+              { timeout: 120000 }  // 2 min cap
+          ).then((result) => {
+              console.log("[SHADOW] Backfill result:", result.stdout);
+              _shadowBackfilledToday = true;
+          }).catch((e) => {
+              console.error("[SHADOW] Backfill failed:", e);
+          });
+      }
+      if (nowHour === 0) {
+          _shadowBackfilledToday = false;  // reset at midnight UTC
+      }
 
     } catch (err: any) {
       console.error("[tier1]", err?.message || err);
@@ -2425,6 +2444,148 @@ print(json.dumps(check_weekly_loss(history)))
             morningQueue.push({ ...trade, queuedAt: new Date().toISOString() });
             audit("QUEUE", `${trade.ticker} queued for market open (score ${trade.score})`);
           }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────────
+      // TIER DISPATCHER — routes tier_actions to the right execution path
+      // ──────────────────────────────────────────────────────────────────────
+      if (result.tier_actions && result.tier_actions.length > 0) {
+        audit("TIERS", `${result.tier_actions.length} tier actions: ${JSON.stringify(result.tier_stats || {})}`);
+
+        for (const action of result.tier_actions) {
+          if (state.killSwitch) break;
+          try {
+            // ── TIER 1/2: SELL CSP ────────────────────────────────────────────
+            // CSPs are options trades — use the Python options_execution path
+            // via placeOptionsOrder. The Python side picks the actual contract
+            // based on metadata (target_dte, target_delta).
+            if (action.action === "SELL_CSP") {
+              // Delegate to Python options_execution which handles strike/expiry
+              // selection based on target_delta and target_dte_min/max in metadata
+              const cspPayload = {
+                ticker: action.ticker,
+                strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
+                price: 0,  // Python will fetch current price
+                equity: equity,
+                size_pct: action.size_pct,
+                metadata: action.metadata,
+              };
+              const cspTmpPath = `/tmp/tier_csp_${action.ticker}_${Date.now()}.json`;
+              fs.writeFileSync(cspTmpPath, JSON.stringify(cspPayload));
+              try {
+                const { stdout } = await execPythonSerialized(
+                  `python3 -c "
+import json, sys; sys.path.insert(0, '.')
+from options_execution import select_contract, submit_options_order
+data = json.load(open('${cspTmpPath}'))
+import os; os.remove('${cspTmpPath}')
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+if contract.get('error'):
+    print(json.dumps({'status': 'error', 'reason': contract['error']}))
+else:
+    result = submit_options_order(contract)
+    print(json.dumps(result))
+"`,
+                  { timeout: 30000 }
+                );
+                const r = JSON.parse(stdout.trim());
+                if (r.status === "submitted" || r.status === "filled") {
+                  audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
+                } else {
+                  audit("T" + action.tier + "-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
+                }
+              } catch (e: any) {
+                audit("T" + action.tier + "-ERR", `${action.ticker}: ${e?.message?.slice(0,120)}`);
+              }
+            }
+
+            // ── TIER 3: BUY SPY/QQQ at 2x ───────────────────────────────────────
+            // Stock/ETF — use direct alpaca() call
+            else if (action.action === "BUY") {
+              const acctT3 = await alpaca("/v2/account");
+              const buyingPower = parseFloat(acctT3.buying_power || "0");
+              const targetDollars = equity * action.size_pct;
+
+              // Fetch current price to compute shares
+              const snap = await alpaca(`/v2/stocks/${action.ticker}/snapshot`).catch(() => null);
+              const currentPrice = parseFloat(snap?.latestTrade?.p || snap?.dailyBar?.c || 0);
+              if (currentPrice > 0 && targetDollars <= buyingPower) {
+                const shares = Math.floor(targetDollars / currentPrice);
+                if (shares > 0) {
+                  const orderParams = getOrderParams(currentPrice);
+                  try {
+                    await alpaca("/v2/orders", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        symbol: action.ticker,
+                        qty: String(shares),
+                        side: "buy",
+                        ...orderParams,
+                      }),
+                    });
+                    audit("T3", `BUY ${shares} ${action.ticker} @ ~$${currentPrice.toFixed(2)} | ${action.reason}`);
+                  } catch (e: any) {
+                    audit("T3-FAIL", `${action.ticker}: ${e?.message?.slice(0,120)}`);
+                  }
+                }
+              } else {
+                audit("T3-SKIP", `${action.ticker}: insufficient BP or no price`);
+              }
+            }
+
+            // ── TIER 4: BUY OTM SPY PUT (tail hedge) ───────────────────────────
+            else if (action.action === "BUY_PUT") {
+              // Tail hedge — same options execution path as CSP, different strategy
+              const hedgePayload = {
+                ticker: action.ticker,
+                strategy: "buy_put",  // tail hedge = long OTM put; matches options_execution.select_contract
+                price: 0,
+                equity: equity,
+                size_pct: action.size_pct,
+                metadata: action.metadata,
+              };
+              const hedgeTmpPath = `/tmp/tier_hedge_${action.ticker}_${Date.now()}.json`;
+              fs.writeFileSync(hedgeTmpPath, JSON.stringify(hedgePayload));
+              try {
+                const { stdout } = await execPythonSerialized(
+                  `python3 -c "
+import json, sys; sys.path.insert(0, '.')
+from options_execution import select_contract, submit_options_order
+data = json.load(open('${hedgeTmpPath}'))
+import os; os.remove('${hedgeTmpPath}')
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+if contract.get('error'):
+    print(json.dumps({'status': 'error', 'reason': contract['error']}))
+else:
+    result = submit_options_order(contract)
+    print(json.dumps(result))
+"`,
+                  { timeout: 30000 }
+                );
+                const r = JSON.parse(stdout.trim());
+                if (r.status === "submitted" || r.status === "filled") {
+                  audit("T4", `BUY_PUT ${action.ticker} hedge | ${action.reason}`);
+                } else {
+                  audit("T4-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
+                }
+              } catch (e: any) {
+                audit("T4-ERR", `${action.ticker}: ${e?.message?.slice(0,120)}`);
+              }
+            }
+          } catch (e: any) {
+            audit("TIER-DISPATCH-ERR", `T${action.tier} ${action.ticker}: ${e?.message?.slice(0,120)}`);
+          }
+        }
+      }
+
+      // Surface kill-switch warnings
+      if (result.kill_status) {
+        if (result.kill_status.killed) {
+          audit("KILL-SWITCH", `FIRED: ${result.kill_status.kill_reason}`);
+        }
+        for (const warning of (result.kill_status.warnings || [])) {
+          audit("KILL-WARN", warning);
         }
       }
 

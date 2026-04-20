@@ -1175,6 +1175,22 @@ def train_model(fast_mode: bool = False) -> dict:
     else:
         return {"status": "failed", "reason": "No training data"}
 
+    # ── NEW: blend in shadow portfolio training data ─────────────────────
+    try:
+        from shadow_portfolio import load_shadow_data
+        shadow = load_shadow_data(horizon_days=10, shadow_weight=0.3)
+        if shadow is not None:
+            X_shadow, y_shadow, w_shadow = shadow
+            if sample_weights is None:
+                sample_weights = np.ones(len(X_all), dtype=np.float32)
+            X_all = np.vstack([X_all, X_shadow])
+            y_all = np.concatenate([y_all, y_shadow])
+            reg_all = reg_all + ["neutral"] * len(X_shadow)
+            sample_weights = np.concatenate([sample_weights, w_shadow])
+            logger.info(f"[ML] Blended {len(X_shadow)} shadow samples (weight 0.3x)")
+    except Exception as e:
+        logger.debug(f"[ML] Shadow blend skipped: {e}")
+
     # Normalize regime labels to lowercase to match training split expectations
     # (bot_engine stores labels as UPPERCASE e.g. "NEUTRAL", training expects "neutral")
     reg_all = [r.lower() for r in reg_all]
@@ -2170,6 +2186,11 @@ def track_fill(order_data: dict) -> None:
                         # Update the entry record in place
                         entry["outcome"] = "win" if pnl_pct > 0 else ("flat" if pnl_pct == 0 else "loss")
                         entry["pnl_pct"] = round(pnl_pct, 3)
+                        try:
+                            from risk_kill_switch import record_trade_outcome
+                            record_trade_outcome(pnl_pct)
+                        except Exception:
+                            pass
                         entry["exit_price"] = fill_price
                         entry["exit_time"] = str(order_data.get("time_filled", datetime.now().isoformat()))
                         entry["exit_reason"] = str(order_data.get("exit_reason", exit_ctx.get("exit_reason", "close")))

@@ -68,6 +68,19 @@ try:
 except ImportError:
     pass  # Rate limiter optional — system works without it
 
+# ── Tiered strategy engine (4-tier Option D) ───
+try:
+    from tiered_strategy import (
+        TieredStrategy, TierContext, update_peak_equity,
+        get_portfolio_margin_status,
+    )
+    from risk_kill_switch import (
+        check_kill_switches, record_trade_outcome,
+    )
+    _HAS_TIERED = True
+except ImportError:
+    _HAS_TIERED = False
+
 def _et_now_hour() -> float:
     """Return current ET hour (fractional), DST-aware."""
     now_et = datetime.now(ZoneInfo("America/New_York"))
@@ -1423,6 +1436,32 @@ except Exception as e:
     # Extract sector from yfinance valuation data and update the cache
     _yf_sector = detail.get("valuation", {}).get("sector", "Unknown")
     _update_sector_cache(ticker, _yf_sector)
+
+    # ── SHADOW PORTFOLIO LOGGING (learning data multiplier) ───────────────
+    # Log EVERY scored candidate so we can learn from rejections too
+    try:
+        from shadow_portfolio import log_candidate
+        # Decision tracking: score threshold + risk filters
+        _min_score = _scan_params.get("MIN_SCORE", 63) if '_scan_params' in locals() else 63
+        if combined_score >= _min_score:
+            _decision = "taken"
+            _reason = f"score {combined_score:.1f} >= MIN_SCORE {_min_score}"
+        else:
+            _decision = "rejected_score"
+            _reason = f"score {combined_score:.1f} < MIN_SCORE {_min_score}"
+
+        log_candidate(
+            ticker=ticker,
+            features=ml_features,
+            score=combined_score,
+            decision=_decision,
+            decision_reason=_reason,
+            entry_price=quick_result.get("price", 0),
+            vxx_ratio=float(_regime_ctx.get("vxx_ratio", 1.0) or 1.0) if '_regime_ctx' in locals() else 1.0,
+            regime_label=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+        )
+    except Exception:
+        pass  # Shadow logging must never break the trading loop
 
     return {
         **quick_result,
@@ -2788,6 +2827,57 @@ def _scan_market_inner():
     except Exception as _dfe:
         defensive_floor_result["status"] = f"error: {str(_dfe)[:80]}"
 
+    # ══════════════════════════════════════════════════════════════════════
+    # TIERED STRATEGY LAYER — runs in parallel to existing scoring.
+    # Existing scan continues to produce `new_trades`. Tier engine adds
+    # its own trade list in `tier_actions`. bot.ts dispatches both.
+    # ══════════════════════════════════════════════════════════════════════
+    tiered_actions = []
+    kill_status = None
+    tier_stats = {}
+    if _HAS_TIERED:
+        try:
+            acct = get_alpaca_account()
+            equity = float(acct.get("equity", 100000) or 100000)
+            bp = float(acct.get("buying_power", equity) or equity)
+            positions = get_alpaca_positions() or []
+            peak = update_peak_equity(equity)
+
+            vxx_r = float(_macro.get("vxx_ratio", 1.0) or 1.0) if '_macro' in locals() else 1.0
+            daily_pnl = float(acct.get("daily_pnl_pct", 0) or 0) / 100.0
+            kill_status = check_kill_switches(
+                equity=equity, peak_equity=peak, positions=positions,
+                daily_pnl_pct=daily_pnl, vxx_ratio=vxx_r, buying_power=bp,
+            )
+
+            if not kill_status["killed"]:
+                ctx = TierContext(
+                    equity=equity, peak_equity=peak, buying_power=bp,
+                    positions=positions,
+                    macro=_macro if '_macro' in locals() else {},
+                    portfolio_margin=get_portfolio_margin_status(),
+                    daily_pnl_pct=daily_pnl,
+                    regime=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+                    vxx_ratio=vxx_r,
+                    spy_vs_ma50=float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0,
+                )
+                ts = TieredStrategy()
+                tier_result = ts.run_tiers(ctx)
+                tiered_actions = tier_result["actions"]
+                tier_stats = tier_result.get("tier_stats", {})
+                import logging
+                logging.getLogger("bot_engine").info(
+                    f"[TIERS] {len(tiered_actions)} actions: {tier_stats}"
+                )
+            else:
+                import logging
+                logging.getLogger("bot_engine").warning(
+                    f"[TIERS] BLOCKED: {kill_status['kill_reason']}"
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger("bot_engine").error(f"[TIERS] failed: {e}")
+
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),
@@ -2817,6 +2907,15 @@ def _scan_market_inner():
         "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
         "defensive_floor": defensive_floor_result,
+        "tier_actions": [
+            {
+                "tier": a.tier, "action": a.action, "ticker": a.ticker,
+                "strategy": a.strategy, "size_pct": a.size_pct,
+                "reason": a.reason, "metadata": a.metadata,
+            } for a in tiered_actions
+        ],
+        "tier_stats": tier_stats,
+        "kill_status": kill_status,
     }
 
 
