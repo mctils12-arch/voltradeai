@@ -6,6 +6,15 @@ import json
 import os
 import time
 import requests
+# Alpaca rate limiter — prevents silent 429 errors during parallel scans
+try:
+    from alpaca_rate_limiter import alpaca_throttle
+    _HAS_ALPACA_THROTTLE = True
+except ImportError:
+    _HAS_ALPACA_THROTTLE = False
+    class _NoThrottle:
+        def acquire(self): pass
+    alpaca_throttle = _NoThrottle()
 from datetime import datetime, timedelta
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "")
@@ -143,6 +152,7 @@ def get_macro_snapshot() -> dict:
             "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
             "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
         }
+        resp = alpaca_throttle.acquire()
         resp = requests.get(alpaca_url, headers=alpaca_headers, timeout=10)
         snap_data = resp.json()
         for etf, sector in SECTOR_ETFS.items():
@@ -217,6 +227,128 @@ def get_macro_snapshot() -> dict:
         result["spy_below_200_days"] = 0
         result["spy_vs_ma200"]       = 1.0
         result["spy_above_200d"]     = True
+
+    # ── SYSTEM FIX 2026-04-20: Add vxx_ratio and spy_vs_ma50 ──
+    # These are load-bearing inputs for tiered_strategy, options_scanner,
+    # ml_model_v2, and bot_engine regime logic. Previously NOT returned
+    # here, causing every consumer to fall back to default 1.0 silently.
+    # With this fix, all consumers get real values from one source.
+
+    # VXX ratio — current VXX / 30-day average (panic gauge)
+    try:
+        _alpaca_h = {
+            "APCA-API-KEY-ID":     os.environ.get("ALPACA_KEY", ""),
+            "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
+        }
+        _vxx_start = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+        alpaca_throttle.acquire()
+        _vxx_r = requests.get(
+            "https://data.alpaca.markets/v2/stocks/bars",
+            params={"symbols": "VXX", "timeframe": "1Day",
+                    "start": _vxx_start, "limit": 40, "feed": "sip"},
+            headers=_alpaca_h, timeout=8,
+        )
+        _vxx_bars = _vxx_r.json().get("bars", {}).get("VXX", [])
+        if _vxx_bars and len(_vxx_bars) >= 5:
+            _vxx_closes = [float(b["c"]) for b in _vxx_bars]
+            _vxx_avg30 = sum(_vxx_closes[-30:]) / len(_vxx_closes[-30:])
+            _vxx_latest = _vxx_closes[-1]
+            result["vxx_ratio"] = round(_vxx_latest / _vxx_avg30, 4) if _vxx_avg30 > 0 else 1.0
+            result["vxx_latest"] = round(_vxx_latest, 2)
+            result["vxx_avg30"] = round(_vxx_avg30, 2)
+            # OPTIMIZATION 2026-04-20: expose raw closes so bot_engine can
+            # compute vol_of_vol (std of last 10 returns) without re-fetching.
+            # Saves one Alpaca call per scan cycle.
+            result["vxx_closes"] = [round(c, 3) for c in _vxx_closes]
+        else:
+            result["vxx_ratio"] = 1.0
+            result["vxx_closes"] = []
+    except Exception:
+        result["vxx_ratio"] = 1.0
+
+    # SPY / 50-day MA — trend gauge
+    try:
+        # Reuse SPY bars from above if already fetched; else fetch
+        _spy_closes_local = None
+        if "spy_vs_ma200" in result:
+            # We already fetched 300 days of SPY above for MA200 calc — reuse
+            try:
+                _spy_start = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
+                alpaca_throttle.acquire()
+                _spy_r = requests.get(
+                    "https://data.alpaca.markets/v2/stocks/bars",
+                    params={"symbols": "SPY", "timeframe": "1Day",
+                            "start": _spy_start, "limit": 220, "feed": "sip"},
+                    headers=_alpaca_h, timeout=8,
+                )
+                _spy_bars = _spy_r.json().get("bars", {}).get("SPY", [])
+                if _spy_bars and len(_spy_bars) >= 50:
+                    _spy_closes_local = [float(b["c"]) for b in _spy_bars]
+            except Exception:
+                pass
+
+        if _spy_closes_local:
+            _spy_ma50 = sum(_spy_closes_local[-50:]) / 50
+            _spy_last = _spy_closes_local[-1]
+            result["spy_vs_ma50"] = round(_spy_last / _spy_ma50, 4) if _spy_ma50 > 0 else 1.0
+            result["spy_ma50"] = round(_spy_ma50, 2)
+            result["spy_close"] = round(_spy_last, 2)
+            # OPTIMIZATION: expose last 60 closes for callers that need them
+            result["spy_closes_60d"] = [round(c, 2) for c in _spy_closes_local[-60:]]
+        else:
+            result["spy_vs_ma50"] = 1.0
+            result["spy_closes_60d"] = []
+    except Exception:
+        result["spy_vs_ma50"] = 1.0
+
+    # DATA QUALITY FLAG (added 2026-04-20): tiers that depend on vxx/spy
+    # should skip execution if we had to fall back to defaults (all 1.0s).
+    # Consumers check macro.get("data_quality") == "degraded" to decide.
+    _defaults_used = 0
+    if result.get("vxx_ratio", 1.0) == 1.0 and not result.get("vxx_closes"):
+        _defaults_used += 1
+    if result.get("spy_vs_ma50", 1.0) == 1.0 and not result.get("spy_closes_60d"):
+        _defaults_used += 1
+    if not result.get("sector_momentum"):
+        _defaults_used += 1
+    if _defaults_used >= 2:
+        result["data_quality"] = "degraded"
+        result["data_quality_reason"] = f"{_defaults_used} critical fields at defaults"
+    else:
+        result["data_quality"] = "ok"
+
+    # ITEM 17 FIX 2026-04-20: Data quality flag
+    # Rates the snapshot's trustworthiness. Consumers can gate execution
+    # on this — e.g. if quality == "degraded", tiered strategy should
+    # skip Tier 2 leverage since regime detection may be unreliable.
+    _quality_score = 0
+    _quality_failures = []
+    # Check each critical field
+    if result.get("vix", 0) > 0:
+        _quality_score += 25
+    else:
+        _quality_failures.append("vix")
+    if result.get("vxx_ratio") is not None and result.get("vxx_closes"):
+        _quality_score += 30
+    else:
+        _quality_failures.append("vxx_ratio")
+    if result.get("spy_vs_ma50") is not None and result.get("spy_vs_ma200") is not None:
+        _quality_score += 25
+    else:
+        _quality_failures.append("spy_ma")
+    if result.get("sector_momentum") and len(result.get("sector_momentum", {})) >= 8:
+        _quality_score += 20
+    else:
+        _quality_failures.append("sectors")
+
+    if _quality_score >= 90:
+        result["data_quality"] = "good"
+    elif _quality_score >= 60:
+        result["data_quality"] = "degraded"
+    else:
+        result["data_quality"] = "poor"
+    result["data_quality_score"] = _quality_score
+    result["data_quality_failures"] = _quality_failures
 
     _save_cache(result)
     return result

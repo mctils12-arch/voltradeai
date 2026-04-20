@@ -48,5 +48,5 @@ if __name__ == "__main__":
     try:
         r = safe_retrain()
         print(json.dumps(r))
-    except:
+    except Exception:
         print('{"status":"fatal","error":"json.dumps failed"}')

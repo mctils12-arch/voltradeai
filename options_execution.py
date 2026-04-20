@@ -30,6 +30,13 @@ import json
 import time
 import logging
 import requests
+# Alpaca rate limiter (OPT 2026-04-20): prevents silent 429s during busy scans
+try:
+    from alpaca_rate_limiter import alpaca_throttle
+except ImportError:
+    class _NoThrottle:
+        def acquire(self): pass
+    alpaca_throttle = _NoThrottle()
 from datetime import datetime, timedelta
 
 try:
@@ -49,7 +56,7 @@ logger = logging.getLogger("options_execution")
 
 ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
-ALPACA_BASE = "https://paper-api.alpaca.markets"
+ALPACA_BASE = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")  # FIX: was hardcoded — broke paper/live switching
 ALPACA_DATA = "https://data.alpaca.markets"
 
 # Absolute ceilings (safety nets — dynamic sizing targets lower values)
@@ -210,7 +217,7 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
         options_value = sum(
             abs(float(p.get("market_value", 0)))
             for p in existing_positions
-            if p.get("asset_class") == "option" or len(p.get("symbol", "")) > 10
+            if p.get("asset_class") in ("us_option", "option") or len(p.get("symbol", "")) > 8  # FIX: was "option" only; Alpaca returns "us_option"
         )
         if options_value > equity * MAX_TOTAL_OPTIONS_PCT:
             result["reason"] = f"Options exposure already {options_value/equity:.1%} — max is {MAX_TOTAL_OPTIONS_PCT:.0%}"
@@ -398,6 +405,8 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7) -> 
         min_strike = current_price * 0.90
         max_strike = current_price * 1.10
         
+        alpaca_throttle.acquire()
+        
         resp = requests.get(
             f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
             params={
@@ -544,6 +553,7 @@ def _optimized_limit_price(contract: dict, direction: str) -> float:
 def _cancel_order(order_id: str) -> bool:
     """Cancel an open order by ID."""
     try:
+        alpaca_throttle.acquire()
         resp = requests.delete(
             f"{ALPACA_BASE}/v2/orders/{order_id}",
             headers=_alpaca_headers(),
@@ -1617,6 +1627,7 @@ def submit_options_order(contract: dict) -> dict:
         return {"status": "error", "detail": "Invalid contract data"}
     
     try:
+        alpaca_throttle.acquire()
         resp = requests.post(
             f"{ALPACA_BASE}/v2/orders",
             headers={**_alpaca_headers(), "Content-Type": "application/json"},
@@ -1691,6 +1702,7 @@ def _submit_mleg_order(legs: list, qty: int, limit_price: float, label: str) -> 
     }
 
     try:
+        alpaca_throttle.acquire()
         resp = requests.post(
             f"{ALPACA_BASE}/v2/orders",
             headers={**_alpaca_headers(), "Content-Type": "application/json"},

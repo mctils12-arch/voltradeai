@@ -25,6 +25,13 @@ for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
            "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS"):
     _os.environ.setdefault(_v, "2")
 import os, json, time, logging, requests
+# Alpaca rate limiter (OPT 2026-04-20)
+try:
+    from alpaca_rate_limiter import alpaca_throttle
+except ImportError:
+    class _NoThrottle:
+        def acquire(self): pass
+    alpaca_throttle = _NoThrottle()
 import numpy as np
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -235,6 +242,7 @@ def _stage2_score(candidates, spy_ret_10d):
     def _fetch_and_score(batch_syms):
         results = []
         try:
+            alpaca_throttle.acquire()
             r = requests.get(f"{DATA_URL}/v2/stocks/bars",
                 params={"symbols": ",".join(batch_syms), "timeframe": "1Day",
                         "start": start_date, "limit": 200, "feed": "sip"},
@@ -309,12 +317,25 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
 
     try:
         # SPY 10d return for relative weakness
-        spy_r = requests.get(f"{DATA_URL}/v2/stocks/bars",
-            params={"symbols": "SPY", "timeframe": "1Day", "limit": 12, "feed": "sip"},
-            headers=HEADERS, timeout=8)
-        spy_bars = spy_r.json().get("bars", {}).get("SPY", [])
-        spy_ret_10d = ((float(spy_bars[-1]["c"]) - float(spy_bars[-10]["c"]))
-                       / float(spy_bars[-10]["c"]) * 100) if len(spy_bars) >= 10 else 0
+        # OPTIMIZATION 2026-04-20: use macro_data (5-min cache) first,
+        # fall back to direct fetch if unavailable.
+        spy_ret_10d = 0
+        try:
+            from macro_data import get_macro_snapshot
+            _macro_snap = get_macro_snapshot()
+            _spy_closes = _macro_snap.get("spy_closes_60d") if _macro_snap else None
+            if _spy_closes and len(_spy_closes) >= 10:
+                spy_ret_10d = ((_spy_closes[-1] - _spy_closes[-10]) / _spy_closes[-10] * 100)
+        except Exception:
+            pass
+        if spy_ret_10d == 0:  # Fallback: direct fetch
+            alpaca_throttle.acquire()
+            spy_r = requests.get(f"{DATA_URL}/v2/stocks/bars",
+                params={"symbols": "SPY", "timeframe": "1Day", "limit": 12, "feed": "sip"},
+                headers=HEADERS, timeout=8)
+            spy_bars = spy_r.json().get("bars", {}).get("SPY", [])
+            spy_ret_10d = ((float(spy_bars[-1]["c"]) - float(spy_bars[-10]["c"]))
+                           / float(spy_bars[-10]["c"]) * 100) if len(spy_bars) >= 10 else 0
 
         # Stage 1: Pre-filter from snapshots
         if snapshot_data and len(snapshot_data) > 100:
@@ -322,6 +343,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
             result["stage1_source"] = "shared_snapshots"
         else:
             # Fallback: fetch most-actives
+            alpaca_throttle.acquire()
             snap_r = requests.get(f"{DATA_URL}/v1beta1/screener/stocks/most-actives",
                 params={"top": 100}, headers=HEADERS, timeout=8)
             actives = snap_r.json().get("most_actives", [])
@@ -371,6 +393,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
             pos_pct = min(0.06, base * max(0.5, strength * vol_adj))
 
             try:
+                alpaca_throttle.acquire()
                 acc = requests.get(f"{ALPACA_BASE}/v2/account", headers=HEADERS, timeout=8).json()
                 equity = float(acc.get("equity", 98000) or 98000)
             except Exception:
@@ -381,6 +404,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
             if shares <= 0: continue
 
             try:
+                alpaca_throttle.acquire()
                 order_r = requests.post(f"{ALPACA_BASE}/v2/orders",
                     json={"symbol": sym, "qty": str(shares), "side": "sell",
                           "type": "market", "time_in_force": "day"},
@@ -473,11 +497,13 @@ def close_open_shorts():
         if trade.get("status") != "open": continue
         sym = trade["symbol"]
         try:
+            alpaca_throttle.acquire()
             snap = requests.get(f"{DATA_URL}/v2/stocks/snapshots",
                 params={"symbols": sym, "feed": "sip"},
                 headers=HEADERS, timeout=8).json()
             curr = float(snap.get(sym, {}).get("latestTrade", {}).get("p", 0) or 0)
             if curr <= 0: continue
+            alpaca_throttle.acquire()
             requests.post(f"{ALPACA_BASE}/v2/orders",
                 json={"symbol": sym, "qty": str(trade["shares"]),
                       "side": "buy", "type": "market", "time_in_force": "day"},

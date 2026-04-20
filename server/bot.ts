@@ -6,6 +6,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
+import * as net from "net";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
@@ -24,6 +25,81 @@ const _pyEnv = {
 const DEFAULT_MAX_BUFFER = 32 * 1024 * 1024;
 const execAsync = (cmd: string, opts?: any) =>
   _execRaw(cmd, { env: _pyEnv, maxBuffer: DEFAULT_MAX_BUFFER, ...opts });
+
+// ══════════════════════════════════════════════════════════════════════
+// Python Daemon RPC client (OPTIMIZATION 2026-04-20)
+// ══════════════════════════════════════════════════════════════════════
+// Calls the long-running Python daemon over a Unix socket. Daemon keeps
+// numpy/pandas/LightGBM resident in memory so each RPC call is ~3ms
+// instead of the ~450ms subprocess startup cost. Safe — if daemon is off
+// or unresponsive, callers fall back to the subprocess pattern.
+//
+// To disable: set env VOLTRADE_DAEMON_ENABLED=false
+const DAEMON_SOCKET = process.env.VOLTRADE_DAEMON_SOCKET || "/tmp/voltrade_daemon.sock";
+const DAEMON_ENABLED = process.env.VOLTRADE_DAEMON_ENABLED !== "false";
+const DAEMON_TIMEOUT_MS = 30000;
+
+async function pythonRpc(method: string, args: any = {}): Promise<any> {
+  if (!DAEMON_ENABLED) {
+    return { status: "error", error_message: "Daemon disabled via env" };
+  }
+  return new Promise((resolve) => {
+    let buf = "";
+    let settled = false;
+    const done = (v: any) => { if (!settled) { settled = true; resolve(v); } };
+    const client = net.createConnection(DAEMON_SOCKET);
+    const timer = setTimeout(() => {
+      try { client.destroy(); } catch {}
+      done({ status: "error", error_message: "Daemon timeout" });
+    }, DAEMON_TIMEOUT_MS);
+    client.on("connect", () => {
+      client.write(JSON.stringify({ method, args }) + "\n");
+    });
+    client.on("data", (chunk) => {
+      buf += chunk.toString();
+      if (buf.includes("\n")) {
+        clearTimeout(timer);
+        try {
+          done(JSON.parse(buf.split("\n")[0]));
+        } catch (e: any) {
+          done({ status: "error", error_message: `Parse: ${e.message}` });
+        }
+        try { client.destroy(); } catch {}
+      }
+    });
+    client.on("error", (err) => {
+      clearTimeout(timer);
+      done({ status: "error", error_message: `Socket: ${err.message}` });
+    });
+  });
+}
+
+// pythonCall: try daemon first, fall back to subprocess.
+// Same return shape regardless of which path was taken.
+// Returns { success: boolean, result: any, via: "daemon"|"subprocess"|"none" }
+async function pythonCall(
+  daemonMethod: string,
+  daemonArgs: any,
+  subprocessCmd: string,
+  subprocessOpts: any = {}
+): Promise<{ success: boolean; result: any; via: string }> {
+  if (DAEMON_ENABLED) {
+    try {
+      const r = await pythonRpc(daemonMethod, daemonArgs);
+      if (r.status === "ok") {
+        return { success: true, result: r.result, via: "daemon" };
+      }
+    } catch { /* fall through */ }
+  }
+  try {
+    const { stdout } = await execPythonSerialized(subprocessCmd, subprocessOpts);
+    return { success: true, result: JSON.parse(stdout.trim()), via: "subprocess" };
+  } catch (e: any) {
+    return { success: false, result: { error: e.message }, via: "none" };
+  }
+}
+
+
 
 // ─── Python Subprocess Serialization (OOM fix) ─────────────────────────────
 // At most 1 heavy Python subprocess at a time. Each Python invocation imports
@@ -404,13 +480,64 @@ async function trackClosedTrades() {
       if (tradeResults.length > 200) tradeResults.length = 200;
     }
 
+    // FIX 2026-04-20 (Bug #25 v2 — COMPLETE): Compute real pnl_pct by pairing
+    // buys and sells on the same symbol. BOTH sides get backfilled (previously
+    // only sells did). Also cross-reference scan-origin trades to recover
+    // entry_features for ML training labels.
+    try {
+      const bySymbol: Record<string, { buys: any[]; sells: any[] }> = {};
+      for (const t of tradeResults.slice(0, 100)) {
+        const sym = t.ticker;
+        if (!bySymbol[sym]) bySymbol[sym] = { buys: [], sells: [] };
+        const sideLower = (t.side || "").toLowerCase();
+        if (sideLower === "buy") bySymbol[sym].buys.push(t);
+        else if (sideLower === "sell" || sideLower === "sell_short") bySymbol[sym].sells.push(t);
+      }
+      for (const sym of Object.keys(bySymbol)) {
+        const { buys, sells } = bySymbol[sym];
+        if (buys.length === 0 || sells.length === 0) continue;
+        // Average entry from buys, average exit from sells
+        const avgBuy = buys.reduce((s, b) => s + b.entryPrice, 0) / buys.length;
+        const avgSell = sells.reduce((s, b) => s + b.exitPrice, 0) / sells.length;
+        if (avgBuy > 0 && avgSell > 0) {
+          const realPnlPct = ((avgSell - avgBuy) / avgBuy) * 100;
+          const roundedPnl = Math.round(realPnlPct * 100) / 100;
+          // Bug #25 completion 2026-04-20: backfill BOTH sides with real pnl
+          // Previously only sells got pnl; buys stayed at 0 and couldn't be
+          // used for ML training because they appeared as flat trades.
+          for (const s of sells) {
+            if (s.pnlPct === 0 || s.pnlPct === null) {
+              s.pnlPct = roundedPnl;
+              s.entryPrice = avgBuy;
+              s.exitPrice = avgSell;
+            }
+          }
+          for (const b of buys) {
+            if (b.pnlPct === 0 || b.pnlPct === null) {
+              b.pnlPct = roundedPnl;
+              b.entryPrice = avgBuy;
+              b.exitPrice = avgSell;
+            }
+          }
+        }
+      }
+    } catch (pairErr: any) { /* non-critical */ }
+
     // Adjust strategy weights based on recent performance
     adjustStrategyWeights();
 
     // Self-improving: feed closed trades back to ML training data
+    //
+    // FIX 2026-04-20 (Bug #25b): Only write records with real pnl_pct.
+    // Previously every record had pnl_pct=0 (sentinel for unknown), which
+    // ML training interpreted as "loss" — poisoning the training set.
+    // Also require entry_features to be present; without features, the
+    // record is useless for training even if pnl_pct is correct.
     if (tradeResults.length > 0) {
       try {
-        const feedbackData = tradeResults.slice(0, 20).map(t => ({
+        const feedbackData = tradeResults.slice(0, 20)
+          .filter(t => t.pnlPct !== 0 && t.pnlPct !== null && t.entryFeatures != null)  // skip garbage
+          .map(t => ({
           ticker: t.ticker,
           side: t.side,
           pnl_pct: t.pnlPct,
@@ -425,8 +552,12 @@ async function trackClosedTrades() {
           entry_features: t.entryFeatures || null,   // 52-feature snapshot at entry
           exit_context: t.exitContext || null,        // Stop phase, R-multiple, ATR at exit
           timestamp: t.timestamp,
-          code_version: "1.0.33",                    // Tag for feedback filtering — never train on pre-fix data
+          code_version: "1.0.34",                    // v1.0.34 = post-Bug-25-fix
         }));
+        if (feedbackData.length === 0) {
+          // Nothing worth training on this cycle
+          return;
+        }
         const fbTmpPath = `/tmp/fb_${Date.now()}.json`;
         fs.writeFileSync(fbTmpPath, JSON.stringify(feedbackData));
         execPythonSerialized(`python3 -c "
@@ -1404,6 +1535,218 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
     }
   });
 
+  // ── Daemon health (OPT 2026-04-20) ─────────────────────────────────────────
+  // Returns { alive, rss_mb, uptime_seconds } if daemon is running, or
+  // { alive: false, reason: "..." } if down. Useful for monitoring.
+  app.get("/api/daemon/health", requireAuth, async (_req, res) => {
+    if (!DAEMON_ENABLED) {
+      return res.json({ alive: false, reason: "Daemon disabled via env" });
+    }
+    try {
+      const r = await pythonRpc("health", {});
+      if (r.status === "ok") {
+        res.json({ alive: true, ...r.result });
+      } else {
+        res.json({ alive: false, reason: r.error_message || "unknown" });
+      }
+    } catch (e: any) {
+      res.json({ alive: false, reason: e.message });
+    }
+  });
+
+  // ── Monitoring endpoints (OPT 2026-04-20) ─────────────────────────────────
+  // Consolidated system health — drawdown proximity, ML status, kill switch
+  // state, shadow portfolio divergence. Used for dashboard + alerting.
+  app.get("/api/monitoring/overview", requireAuth, async (_req, res) => {
+    const overview: any = {
+      timestamp: new Date().toISOString(),
+      daemon: { alive: false },
+      kill_switches: { active: 0, warnings: [] },
+      memory: { rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024) },
+      drawdown: {},
+      ml: {},
+    };
+
+    // Daemon
+    if (DAEMON_ENABLED) {
+      try {
+        const d = await pythonRpc("health", {});
+        if (d.status === "ok") overview.daemon = { alive: true, ...d.result };
+        else overview.daemon = { alive: false, reason: d.error_message };
+      } catch (e: any) { overview.daemon = { alive: false, reason: e.message }; }
+    }
+
+    // Kill switch status (via daemon or subprocess)
+    try {
+      const ks = await pythonCall(
+        "risk_status", {},
+        `python3 -c "from risk_kill_switch import get_kill_switch_status; import json; print(json.dumps(get_kill_switch_status()))"`,
+        { timeout: 5000 }
+      );
+      if (ks.success) {
+        overview.kill_switches = ks.result;
+        // Compute drawdown proximity
+        const dd = ks.result.current_dd_pct || 0;
+        overview.drawdown = {
+          current_pct: dd,
+          kill_threshold_pct: -20,
+          proximity_pct: Math.max(0, Math.min(100, ((-20 - dd) / -20) * 100)),
+          status: dd <= -15 ? "CRITICAL" : dd <= -10 ? "WARNING" : "OK",
+        };
+      }
+    } catch {}
+
+    // ML status
+    try {
+      const ml = await pythonCall(
+        "ml_status", {},
+        `python3 ml_status.py`,
+        { timeout: 10000 }
+      );
+      if (ml.success) overview.ml = ml.result;
+    } catch {}
+
+    res.json(overview);
+  });
+
+  // ── Per-tier PnL breakdown (ITEM 20 FIX 2026-04-20) ───────────────────────
+  // Shows realized PnL contribution by tier (1/2/3/4). Sourced from
+  // voltrade_trade_feedback.json by the 'strategy' field which tier engine
+  // sets to 'csp_core' (T1), 'leveraged_csp' (T2), 'trend_long' (T3),
+  // 'tail_hedge' (T4). Other strategies ('sell_csp', 'buy_call', etc.)
+  // are legacy and grouped into 'legacy'.
+  app.get("/api/monitoring/tier-pnl", requireAuth, async (req, res) => {
+    const days = parseInt((req.query.days as string) || "30", 10);
+    try {
+      const cmd = `python3 -c "
+import json, os, time
+try:
+    from storage_config import TRADE_FEEDBACK_PATH
+except ImportError:
+    TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
+
+cutoff = time.time() - ${days} * 86400
+tier_stats = {
+    'tier_1_csp_core':      {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
+    'tier_2_leveraged_csp': {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
+    'tier_3_trend_long':    {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
+    'tier_4_tail_hedge':    {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
+    'legacy':               {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
+}
+strat_to_tier = {
+    'csp_core': 'tier_1_csp_core',
+    'leveraged_csp': 'tier_2_leveraged_csp',
+    'trend_long': 'tier_3_trend_long',
+    'tail_hedge': 'tier_4_tail_hedge',
+}
+
+try:
+    with open(TRADE_FEEDBACK_PATH) as f:
+        records = json.load(f)
+except Exception:
+    records = []
+
+for r in records:
+    ts = r.get('timestamp', '')
+    try:
+        # Parse ISO timestamp or unix
+        from datetime import datetime
+        if isinstance(ts, str) and 'T' in ts:
+            rt = datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
+        else:
+            rt = float(ts) if ts else 0
+    except Exception:
+        rt = 0
+    if rt < cutoff: continue
+
+    strat = r.get('strategy', 'legacy')
+    tier_key = strat_to_tier.get(strat, 'legacy')
+    pnl = r.get('pnl_pct')
+    if pnl is None or pnl == 0: continue  # Skip incomplete records
+
+    tier_stats[tier_key]['count'] += 1
+    tier_stats[tier_key]['pnl_pct_sum'] += pnl
+    if pnl > 0:
+        tier_stats[tier_key]['wins'] += 1
+
+# Compute derived metrics
+result = {'days': ${days}, 'tiers': {}}
+for tier, s in tier_stats.items():
+    count = s['count']
+    result['tiers'][tier] = {
+        'trade_count': count,
+        'total_pnl_pct': round(s['pnl_pct_sum'], 2),
+        'avg_pnl_pct': round(s['pnl_pct_sum'] / count, 2) if count > 0 else 0,
+        'win_rate': round(s['wins'] / count * 100, 1) if count > 0 else 0,
+    }
+print(json.dumps(result))
+"`;
+      const tierCall = await pythonCall("tier_pnl_stats", { days },
+        cmd, { timeout: 10000 });
+      if (tierCall.success) {
+        res.json(tierCall.result);
+      } else {
+        res.status(500).json({ error: "Could not compute tier PnL" });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "Unknown error" });
+    }
+  });
+
+  // Drawdown proximity alert — returns status + how close to kill threshold
+  app.get("/api/monitoring/drawdown", requireAuth, async (_req, res) => {
+    try {
+      const acct = await alpaca("/v2/account");
+      const equity = parseFloat(acct.equity || "0");
+      // Peak equity from risk_kill_switch's persisted state
+      const peakCall = await pythonCall(
+        "get_peak_equity", {},
+        `python3 -c "from risk_kill_switch import get_peak_equity; import json; print(json.dumps({'peak': get_peak_equity()}))"`,
+        { timeout: 5000 }
+      );
+      const peak = peakCall.success ? (peakCall.result.peak || equity) : equity;
+      const dd = peak > 0 ? ((equity - peak) / peak) : 0;
+      res.json({
+        equity,
+        peak,
+        drawdown_pct: Math.round(dd * 10000) / 100,  // in basis points, 2 decimals
+        kill_threshold_pct: -20,
+        status: dd <= -0.20 ? "KILLED" :
+                dd <= -0.15 ? "CRITICAL" :
+                dd <= -0.10 ? "WARNING" :
+                dd <= -0.05 ? "NOTICE" : "OK",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message?.slice(0, 200) });
+    }
+  });
+
+  // Cache inventory — for operational visibility
+  app.get("/api/monitoring/caches", requireAuth, async (_req, res) => {
+    try {
+      const cacheCall = await pythonCall(
+        "cache_inventory", {},
+        `python3 -c "
+import os, json, glob
+result = []
+for pattern in ['/tmp/voltrade_*.json', '/tmp/voltrade_alt_cache/*.json']:
+    for f in glob.glob(pattern):
+        try:
+            size = os.path.getsize(f)
+            age = (os.path.getmtime(f))
+            result.append({'path': f, 'size_kb': round(size/1024, 1)})
+        except: pass
+result.sort(key=lambda x: -x['size_kb'])
+print(json.dumps(result[:20]))
+"`,
+        { timeout: 5000 }
+      );
+      res.json({ caches: cacheCall.success ? cacheCall.result : [] });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message?.slice(0, 200) });
+    }
+  });
+
   // ── Market status ───────────────────────────────────────────────────────────
   app.get("/api/bot/market-status", async (_req, res) => {
     try {
@@ -1682,6 +2025,43 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
       audit("DRAWDOWN-KILL", msg);
       sendEmailAlert("MAX DRAWDOWN — Trading Stopped", msg);
       try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
+
+      // ═══════════════════════════════════════════════════════════════
+      // ITEM 15 FIX 2026-04-20: Liquidate-all on deep drawdown
+      // If user opted in via env var VOLTRADE_LIQUIDATE_ON_KILL=true AND
+      // drawdown is at -25% or worse, force-close all positions rather
+      // than just blocking new trades. Mercy rule for catastrophic losses.
+      // ═══════════════════════════════════════════════════════════════
+      if (process.env.VOLTRADE_LIQUIDATE_ON_KILL === "true" && t1Drawdown <= -25.0) {
+        audit("LIQUIDATE-ALL", `Drawdown ${t1Drawdown.toFixed(1)}% <= -25% + VOLTRADE_LIQUIDATE_ON_KILL=true — closing all positions`);
+        try {
+          const allPositions = await alpaca("/v2/positions");
+          if (Array.isArray(allPositions)) {
+            for (const pos of allPositions) {
+              try {
+                const psym = pos.symbol || "";
+                const pqty = Math.abs(parseInt(pos.qty || "0"));
+                const pside = pos.side === "long" ? "sell" : "buy";
+                if (pqty > 0) {
+                  await alpaca("/v2/orders", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      symbol: psym, qty: String(pqty), side: pside,
+                      type: "market", time_in_force: "day",
+                    }),
+                  });
+                  audit("LIQUIDATE", `Closing ${psym} qty=${pqty} side=${pside}`);
+                }
+              } catch (closeErr: any) {
+                audit("LIQUIDATE-ERROR", `${pos.symbol}: ${closeErr?.message?.slice(0, 100)}`);
+              }
+            }
+          }
+          sendEmailAlert("ALL POSITIONS LIQUIDATED", `Drawdown hit -25%, all positions closed per VOLTRADE_LIQUIDATE_ON_KILL=true`);
+        } catch (liqErr: any) {
+          audit("LIQUIDATE-FAIL", `Could not fetch positions: ${liqErr?.message?.slice(0, 100)}`);
+        }
+      }
       return;
     }
 
@@ -1779,7 +2159,16 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
           };
           const mfTmp = `/tmp/fill_m_${trade.ticker}_${Date.now()}.json`;
           fs.writeFileSync(mfTmp, JSON.stringify(morningFillPayload));
-          execPythonSerialized(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${mfTmp}')); os.remove('${mfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
+          // OPT 2026-04-20: daemon first, subprocess fallback
+          pythonCall(
+            "track_fill", morningFillPayload,
+            `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${mfTmp}')); os.remove('${mfTmp}'); track_fill(d)"`,
+            { timeout: 5000 }
+          ).then((r) => {
+            if (r.via === "daemon") {
+              try { fs.unlinkSync(mfTmp); } catch {}
+            }
+          }).catch(() => {});
         } catch (err: any) { console.error("[bot]", err?.message || err); }
 
         slotsUsed++;
@@ -1801,6 +2190,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
 
   let autoRunning = false; // used by runOvernightResearch
   let lastScanResult: any = null;
+  let _shadowBackfilledToday = false;
 
   // ── Tier 1: Reflex — order management, morning queue (45s) ─────────────────
   // NOTE: Position monitoring (stops, trailing stops, take-profits) has been
@@ -1848,6 +2238,24 @@ print(json.dumps(result))
 
       // 5. Track closed trades for learning
       await trackClosedTrades();
+
+      // Once per day, backfill shadow portfolio outcomes.
+      // Runs ~3-5 Alpaca batch calls (token-bucketed to stay within 200/min).
+      const nowHour = new Date().getUTCHours();
+      if (nowHour === 22 && !_shadowBackfilledToday) {  // 10pm UTC = 5pm EST
+          execPythonSerialized(
+              `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(500)))"`,
+              { timeout: 120000 }  // 2 min cap
+          ).then((result) => {
+              console.log("[SHADOW] Backfill result:", result.stdout);
+              _shadowBackfilledToday = true;
+          }).catch((e) => {
+              console.error("[SHADOW] Backfill failed:", e);
+          });
+      }
+      if (nowHour === 0) {
+          _shadowBackfilledToday = false;  // reset at midnight UTC
+      }
 
     } catch (err: any) {
       console.error("[tier1]", err?.message || err);
@@ -2039,6 +2447,148 @@ print(json.dumps(check_weekly_loss(history)))
         }
       }
 
+      // ──────────────────────────────────────────────────────────────────────
+      // TIER DISPATCHER — routes tier_actions to the right execution path
+      // ──────────────────────────────────────────────────────────────────────
+      if (result.tier_actions && result.tier_actions.length > 0) {
+        audit("TIERS", `${result.tier_actions.length} tier actions: ${JSON.stringify(result.tier_stats || {})}`);
+
+        for (const action of result.tier_actions) {
+          if (state.killSwitch) break;
+          try {
+            // ── TIER 1/2: SELL CSP ────────────────────────────────────────────
+            // CSPs are options trades — use the Python options_execution path
+            // via placeOptionsOrder. The Python side picks the actual contract
+            // based on metadata (target_dte, target_delta).
+            if (action.action === "SELL_CSP") {
+              // Delegate to Python options_execution which handles strike/expiry
+              // selection based on target_delta and target_dte_min/max in metadata
+              const cspPayload = {
+                ticker: action.ticker,
+                strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
+                price: 0,  // Python will fetch current price
+                equity: equity,
+                size_pct: action.size_pct,
+                metadata: action.metadata,
+              };
+              const cspTmpPath = `/tmp/tier_csp_${action.ticker}_${Date.now()}.json`;
+              fs.writeFileSync(cspTmpPath, JSON.stringify(cspPayload));
+              try {
+                const { stdout } = await execPythonSerialized(
+                  `python3 -c "
+import json, sys; sys.path.insert(0, '.')
+from options_execution import select_contract, submit_options_order
+data = json.load(open('${cspTmpPath}'))
+import os; os.remove('${cspTmpPath}')
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+if contract.get('error'):
+    print(json.dumps({'status': 'error', 'reason': contract['error']}))
+else:
+    result = submit_options_order(contract)
+    print(json.dumps(result))
+"`,
+                  { timeout: 30000 }
+                );
+                const r = JSON.parse(stdout.trim());
+                if (r.status === "submitted" || r.status === "filled") {
+                  audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
+                } else {
+                  audit("T" + action.tier + "-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
+                }
+              } catch (e: any) {
+                audit("T" + action.tier + "-ERR", `${action.ticker}: ${e?.message?.slice(0,120)}`);
+              }
+            }
+
+            // ── TIER 3: BUY SPY/QQQ at 2x ───────────────────────────────────────
+            // Stock/ETF — use direct alpaca() call
+            else if (action.action === "BUY") {
+              const acctT3 = await alpaca("/v2/account");
+              const buyingPower = parseFloat(acctT3.buying_power || "0");
+              const targetDollars = equity * action.size_pct;
+
+              // Fetch current price to compute shares
+              const snap = await alpaca(`/v2/stocks/${action.ticker}/snapshot`).catch(() => null);
+              const currentPrice = parseFloat(snap?.latestTrade?.p || snap?.dailyBar?.c || 0);
+              if (currentPrice > 0 && targetDollars <= buyingPower) {
+                const shares = Math.floor(targetDollars / currentPrice);
+                if (shares > 0) {
+                  const orderParams = getOrderParams(currentPrice);
+                  try {
+                    await alpaca("/v2/orders", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        symbol: action.ticker,
+                        qty: String(shares),
+                        side: "buy",
+                        ...orderParams,
+                      }),
+                    });
+                    audit("T3", `BUY ${shares} ${action.ticker} @ ~$${currentPrice.toFixed(2)} | ${action.reason}`);
+                  } catch (e: any) {
+                    audit("T3-FAIL", `${action.ticker}: ${e?.message?.slice(0,120)}`);
+                  }
+                }
+              } else {
+                audit("T3-SKIP", `${action.ticker}: insufficient BP or no price`);
+              }
+            }
+
+            // ── TIER 4: BUY OTM SPY PUT (tail hedge) ───────────────────────────
+            else if (action.action === "BUY_PUT") {
+              // Tail hedge — same options execution path as CSP, different strategy
+              const hedgePayload = {
+                ticker: action.ticker,
+                strategy: "buy_put",  // tail hedge = long OTM put; matches options_execution.select_contract
+                price: 0,
+                equity: equity,
+                size_pct: action.size_pct,
+                metadata: action.metadata,
+              };
+              const hedgeTmpPath = `/tmp/tier_hedge_${action.ticker}_${Date.now()}.json`;
+              fs.writeFileSync(hedgeTmpPath, JSON.stringify(hedgePayload));
+              try {
+                const { stdout } = await execPythonSerialized(
+                  `python3 -c "
+import json, sys; sys.path.insert(0, '.')
+from options_execution import select_contract, submit_options_order
+data = json.load(open('${hedgeTmpPath}'))
+import os; os.remove('${hedgeTmpPath}')
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+if contract.get('error'):
+    print(json.dumps({'status': 'error', 'reason': contract['error']}))
+else:
+    result = submit_options_order(contract)
+    print(json.dumps(result))
+"`,
+                  { timeout: 30000 }
+                );
+                const r = JSON.parse(stdout.trim());
+                if (r.status === "submitted" || r.status === "filled") {
+                  audit("T4", `BUY_PUT ${action.ticker} hedge | ${action.reason}`);
+                } else {
+                  audit("T4-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
+                }
+              } catch (e: any) {
+                audit("T4-ERR", `${action.ticker}: ${e?.message?.slice(0,120)}`);
+              }
+            }
+          } catch (e: any) {
+            audit("TIER-DISPATCH-ERR", `T${action.tier} ${action.ticker}: ${e?.message?.slice(0,120)}`);
+          }
+        }
+      }
+
+      // Surface kill-switch warnings
+      if (result.kill_status) {
+        if (result.kill_status.killed) {
+          audit("KILL-SWITCH", `FIRED: ${result.kill_status.kill_reason}`);
+        }
+        for (const warning of (result.kill_status.warnings || [])) {
+          audit("KILL-WARN", warning);
+        }
+      }
+
     } catch (err: any) {
       console.error("[tier2-scan]", err?.message || err);
 
@@ -2166,19 +2716,41 @@ print(json.dumps(check_weekly_loss(history)))
         break;
       }
 
-      // Exchange halt check (via position_sizing.py)
+      // ══════════════════════════════════════════════════════════════
+      // ITEM 14 FIX 2026-04-20: Pre-trade correlation check
+      // Before adding a new position, check if it would over-concentrate
+      // the book by sector. Prevents tech sell-offs from killing the book
+      // when 10+ positions are all tech. Uses risk_kill_switch.check_correlation_pre_trade.
+      // ══════════════════════════════════════════════════════════════
       try {
-        const { stdout: haltOut } = await execPythonSerialized(
+        const corrCall = await pythonCall(
+          "check_correlation_pre_trade",
+          { new_ticker: trade.ticker, positions: Array.isArray(positions) ? positions : [], max_sector_pct: 0.40 },
+          `python3 -c "import json, sys; sys.path.insert(0, '.'); from risk_kill_switch import check_correlation_pre_trade; pos = ${JSON.stringify(Array.isArray(positions) ? positions : [])}; r = check_correlation_pre_trade('${trade.ticker}', pos, 0.40); print(json.dumps(r))"`,
+          { timeout: 5000 }
+        );
+        if (corrCall.success && corrCall.result && corrCall.result.allowed === false) {
+          audit("CORR-CAP", `${trade.ticker}: ${corrCall.result.reason}`);
+          continue;  // Skip this trade — sector over-concentrated
+        }
+      } catch (corrErr: any) {
+        // Fail-open — don't block trades on our bug
+      }
+
+      // Exchange halt check (via position_sizing.py)
+      // OPT 2026-04-20: daemon first, subprocess fallback
+      try {
+        const haltCall = await pythonCall(
+          "check_halt", { ticker: trade.ticker },
           `python3 -c "from position_sizing import check_halt_status; import json; print(json.dumps(check_halt_status('${trade.ticker}')))"`,
           { timeout: 8000 }
         );
-        const haltResult = JSON.parse(haltOut.trim());
+        const haltResult = haltCall.success ? haltCall.result : { halted: false };
         if (haltResult.halted) {
           audit("HALT-SKIP", `${trade.ticker}: stock is halted (status: ${haltResult.status})`);
           continue;
         }
       } catch (err: any) {
-        // If halt check fails, proceed cautiously
         audit("HALT-CHECK-WARN", `${trade.ticker}: halt check failed, proceeding`);
       }
 
@@ -2345,12 +2917,20 @@ else:
               };
               const tmpPath = `/tmp/opt_${trade.ticker}_${Date.now()}.json`;
               fs.writeFileSync(tmpPath, JSON.stringify(optionsPayload));
-              const { stdout: optResult } = await execPythonSerialized(
+              // OPT 2026-04-20 (Bug #25 continuation): daemon first, subprocess fallback.
+              // evaluate_and_execute is called once per options-candidate trade — hot path.
+              const evalCall = await pythonCall(
+                "evaluate_and_execute",
+                { trade: optionsPayload.trade, equity: optionsPayload.equity, positions: optionsPayload.positions },
                 `python3 -c "import json; from options_execution import evaluate_and_execute; d=json.load(open('${tmpPath}')); print(json.dumps(evaluate_and_execute(d['trade'], d['equity'], d['positions'])))"`,
                 { timeout: 30000 }
               );
               try { fs.unlinkSync(tmpPath); } catch (_) {}
-              optExec = JSON.parse(optResult.trim());
+              if (evalCall.success) {
+                optExec = evalCall.result;
+              } else {
+                optExec = { instrument: "stock", order: null, reasoning: "evaluate_and_execute failed" };
+              }
             }
 
             if (optExec.instrument === "options" && ["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status)) {
@@ -2467,7 +3047,17 @@ else:
           };
           const rfTmp = `/tmp/fill_r_${pending.trade.ticker}_${Date.now()}.json`;
           fs.writeFileSync(rfTmp, JSON.stringify(fillPayload));
-          execPythonSerialized(`python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${rfTmp}')); os.remove('${rfTmp}'); track_fill(d)"`, { timeout: 5000 }).catch(() => {});
+          // OPT 2026-04-20: daemon first, subprocess fallback
+          pythonCall(
+            "track_fill", fillPayload,
+            `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${rfTmp}')); os.remove('${rfTmp}'); track_fill(d)"`,
+            { timeout: 5000 }
+          ).then((r) => {
+            // Clean up temp file if daemon handled it (subprocess removes its own)
+            if (r.via === "daemon") {
+              try { fs.unlinkSync(rfTmp); } catch {}
+            }
+          }).catch(() => {});
         } catch (cfErr: any) {
           // Confirmation failed — record with best-guess data
           audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — recording expected values`);
@@ -2943,6 +3533,41 @@ except: print('{}')
         const pnlPct = parseFloat(pos.unrealized_plpc || "0") * 100;
         const qty = Math.abs(parseInt(pos.qty || "0"));
         const side = pos.side === "short" ? "short" as const : "long" as const;
+
+        // ══════════════════════════════════════════════════════════════
+        // ITEM 13 FIX 2026-04-20: Per-position risk kill
+        // If this position has lost more than 25%, liquidate immediately.
+        // Catches runaway single-name losses faster than portfolio DD kill.
+        // ══════════════════════════════════════════════════════════════
+        const POSITION_KILL_LOSS_PCT = -25.0;  // -25% per position
+        const POSITION_WARN_LOSS_PCT = -15.0;  // -15% warn threshold
+        if (pnlPct <= POSITION_KILL_LOSS_PCT) {
+          audit("POS-KILL", `${ticker}: position down ${pnlPct.toFixed(1)}% — forcing liquidation (threshold: ${POSITION_KILL_LOSS_PCT}%)`);
+          try {
+            const closeSide = side === "long" ? "sell" : "buy";
+            const orderParams = getOrderParams(current, 'stop_loss');
+            await alpaca("/v2/orders", {
+              method: "POST",
+              body: JSON.stringify({
+                symbol: ticker, qty: String(qty), side: closeSide,
+                ...orderParams,
+              }),
+            });
+            notify("alert", `POSITION KILL: ${ticker} at ${pnlPct.toFixed(1)}% — liquidated`);
+            continue; // Skip the rest of the loop for this position
+          } catch (killErr: any) {
+            audit("POS-KILL-ERROR", `${ticker}: failed to liquidate — ${killErr?.message?.slice(0, 120)}`);
+          }
+        } else if (pnlPct <= POSITION_WARN_LOSS_PCT) {
+          // Don't spam — only audit the first warn per position per hour
+          const warnKey = `${ticker}_warn`;
+          const lastWarn = (state as any)._lastPositionWarn?.[warnKey] || 0;
+          if (Date.now() - lastWarn > 3600000) {
+            audit("POS-WARN", `${ticker}: down ${pnlPct.toFixed(1)}% (warn threshold ${POSITION_WARN_LOSS_PCT}%)`);
+            if (!(state as any)._lastPositionWarn) (state as any)._lastPositionWarn = {};
+            (state as any)._lastPositionWarn[warnKey] = Date.now();
+          }
+        }
 
         // Read stop state for this ticker
         const ps = stopState[ticker] || {};

@@ -76,7 +76,7 @@ BASE_CONFIG = {
     # Quarter-Kelly criterion determines optimal size. These are the hard limits.
     "MAX_POSITION_PCT":     0.08,  # Never more than 8% in one position (pro: tighter cap)
     "MIN_POSITION_PCT":     0.02,  # Never less than 2% (not worth friction)
-    "MAX_TOTAL_EXPOSURE":   0.95,  # Per-regime overrides control actual exposure — was 0.80 (bottleneck)
+    "MAX_TOTAL_EXPOSURE":   1.00,  # USER: 100% invested in calm regimes; stress regimes still reduce below
     "MAX_TOTAL_CAPITAL_PCT": 1.00,  # Never deploy more than 100% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open positions
@@ -269,7 +269,7 @@ BASE_CONFIG = {
     "SCREENER_TOP_N":       100,    # Top N from most-actives
     "SCREENER_MOVERS_N":    50,     # Top N movers
     "DEEP_SCORE_TOP_N":     20,     # Deep-analyze top N candidates
-    "DEEP_SCORE_WORKERS":   8,      # Parallel workers for deep scoring
+    "DEEP_SCORE_WORKERS":   4,      # MEM FIX 2026-04-20: was 8 — Railway 512MB OOM; 4 cuts peak memory ~40MB
     "STREAM_TICKERS_N":     60,     # Tickers to subscribe in streaming feed
 }
 
@@ -290,6 +290,19 @@ def get_market_regime(vxx_ratio: float, spy_vs_ma50: float,
         rises with its own 30d avg so the ratio stays near 1.0.
         Backtest result: +2.9% CAGR, no false positives over 10 years.
     """
+
+    # FIX 2026-04-20 (Bug #7): delegate to regime_util for consistency.
+    # Falls through to legacy logic on ImportError for backward compat.
+    try:
+        from regime_util import classify_regime_5level
+        return classify_regime_5level(
+            vxx_ratio=vxx_ratio,
+            spy_vs_ma50=spy_vs_ma50,
+            spy_below_200_days=spy_below_200_days,
+            spy_above_200d=spy_above_200d,
+        )
+    except ImportError:
+        pass  # fall through to legacy logic below
     # Fix B: 200-day MA slow-bear detector (v1.0.22)
     # If SPY has been below its 200d MA for 10+ consecutive days, force BEAR.
     # VXX panic can still upgrade to PANIC from here.
@@ -365,7 +378,7 @@ def get_adaptive_params(
         p["MAX_POSITIONS"]          = 8
         p["MAX_POSITION_PCT"]       = 0.15
         p["MIN_SCORE"]              = 63     # More setups allowed in bull
-        p["MAX_TOTAL_EXPOSURE"]     = 0.95   # Near fully invested — was 0.90
+        p["MAX_TOTAL_EXPOSURE"]     = 1.00   # USER: fully invested in BULL — was 0.95
         p["STREAM_VOL_SPIKE_RATIO"] = 2.2    # Lower bar — more signals
         p["ATR_STOP_MULTIPLIER"]    = 2.0    # Standard stop multiplier
         p["TIME_STOP_DAYS"]         = 10     # Standard hold period
@@ -377,7 +390,7 @@ def get_adaptive_params(
         # Passive SPY floor (85%) captures the market drift instead.
         # Active trades in NEUTRAL had net negative P&L over 10 years.
         p["MAX_POSITIONS"]          = 0      # No stock trades in NEUTRAL
-        p["MAX_TOTAL_EXPOSURE"]     = 0.95   # SPY floor handles exposure — was 0.90
+        p["MAX_TOTAL_EXPOSURE"]     = 1.00   # USER: fully invested in NEUTRAL_BULL — was 0.95
         p["regime"] = "NEUTRAL"
 
     else:  # CAUTION

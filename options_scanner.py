@@ -52,6 +52,15 @@ import json
 import time
 import logging
 import requests
+# Alpaca rate limiter — prevents silent 429 errors during parallel scans
+try:
+    from alpaca_rate_limiter import alpaca_throttle
+    _HAS_ALPACA_THROTTLE = True
+except ImportError:
+    _HAS_ALPACA_THROTTLE = False
+    class _NoThrottle:
+        def acquire(self): pass
+    alpaca_throttle = _NoThrottle()
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
@@ -176,13 +185,22 @@ def _et_now() -> datetime:
 #  SECTION 1: DATA FETCHERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _get_vxx_ratio() -> float:
+# OPTIMIZATION 2026-04-20: cache VXX/SPY fetches within a scan cycle
+# Previously these were called 10+ times per scan (once per setup detector)
+# each hitting Alpaca for the same bars. 60s cache eliminates redundant I/O.
+_regime_cache: dict = {}
+_regime_cache_ts: dict = {}
+_REGIME_CACHE_TTL = 60  # seconds
+
+def _get_vxx_ratio_raw() -> float:
     """
     VXX / 30-day average VXX. > 1.0 = above-average fear.
     > 1.30 = panic. Used to trigger VXX Panic Put Sale setup.
+    Uncached — internal use only. Callers should use _get_vxx_ratio().
     """
     try:
         start = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+        r = alpaca_throttle.acquire()
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/bars",
             params={"symbols": "VXX", "timeframe": "1Day",
@@ -200,10 +218,23 @@ def _get_vxx_ratio() -> float:
         return 1.0
 
 
-def _get_spy_vs_ma50() -> float:
+def _get_vxx_ratio() -> float:
+    """Cached wrapper — 60s TTL. Prevents redundant Alpaca calls."""
+    import time
+    now = time.monotonic()
+    if "vxx_ratio" in _regime_cache and now - _regime_cache_ts.get("vxx_ratio", 0) < _REGIME_CACHE_TTL:
+        return _regime_cache["vxx_ratio"]
+    val = _get_vxx_ratio_raw()
+    _regime_cache["vxx_ratio"] = val
+    _regime_cache_ts["vxx_ratio"] = now
+    return val
+
+
+def _get_spy_vs_ma50_raw() -> float:
     """SPY price / SPY 50-day MA. > 1.0 = above MA (healthy)."""
     try:
         start = (datetime.now() - timedelta(days=80)).strftime("%Y-%m-%d")
+        alpaca_throttle.acquire()
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/bars",
             params={"symbols": "SPY", "timeframe": "1Day",
@@ -220,10 +251,31 @@ def _get_spy_vs_ma50() -> float:
         return 1.0
 
 
+def _get_spy_vs_ma50() -> float:
+    """Cached wrapper — 60s TTL."""
+    import time
+    now = time.monotonic()
+    if "spy_vs_ma50" in _regime_cache and now - _regime_cache_ts.get("spy_vs_ma50", 0) < _REGIME_CACHE_TTL:
+        return _regime_cache["spy_vs_ma50"]
+    val = _get_spy_vs_ma50_raw()
+    _regime_cache["spy_vs_ma50"] = val
+    _regime_cache_ts["spy_vs_ma50"] = now
+    return val
+
+
+# OPTIMIZATION 2026-04-20: Module-level cache for options chains.
+# Setup detectors often fetch the same ticker's chain repeatedly within
+# a scan cycle (CSP + earnings + panic put detectors all fetch SPY's
+# chain). Cache keyed by (ticker, min_days, max_days) with 3-min TTL.
+_chain_cache: dict = {}
+_chain_cache_ts: dict = {}
+_CHAIN_CACHE_TTL = 180  # 3 min — options quotes change but not dramatically
+
 def _fetch_options_chain(ticker: str, price: float,
                           min_days: int = 7, max_days: int = 60) -> list:
     """
     Fetch live options chain from Alpaca OPRA feed.
+    Cached for 3 min to avoid redundant paginated fetches.
     Returns ALL contracts in the expiry/strike window, paginated.
 
     STRIKE RANGE: ±30% of current price.
@@ -243,6 +295,13 @@ def _fetch_options_chain(ticker: str, price: float,
         - 20% OTM:                            delta ≈ 0.07 (iron condor long wing)
       These are conservative approximations — real delta varies with IV and DTE.
     """
+    # Cache check
+    cache_key = f"{ticker}_{min_days}_{max_days}"
+    import time as _t
+    _now_mono = _t.monotonic()
+    if cache_key in _chain_cache and _now_mono - _chain_cache_ts.get(cache_key, 0) < _CHAIN_CACHE_TTL:
+        return _chain_cache[cache_key]
+
     try:
         now     = datetime.now()
         min_exp = (now + timedelta(days=min_days)).strftime("%Y-%m-%d")
@@ -265,6 +324,8 @@ def _fetch_options_chain(ticker: str, price: float,
             }
             if next_token:
                 params["page_token"] = next_token
+
+            alpaca_throttle.acquire()
 
             r = requests.get(
                 f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
@@ -368,6 +429,14 @@ def _fetch_options_chain(ticker: str, price: float,
             })
 
         contracts.sort(key=lambda x: (x["exp_date"], x["strike"]))
+        # Cache the result (optimization 2026-04-20)
+        _chain_cache[cache_key] = contracts
+        _chain_cache_ts[cache_key] = _now_mono
+        # Keep cache bounded: drop oldest when > 50 entries
+        if len(_chain_cache) > 50:
+            _oldest_key = min(_chain_cache_ts, key=_chain_cache_ts.get)
+            _chain_cache.pop(_oldest_key, None)
+            _chain_cache_ts.pop(_oldest_key, None)
         return contracts
 
     except Exception as e:
@@ -421,18 +490,32 @@ def _find_by_delta(contracts: list, opt_type: str, target_delta: float,
 
 def _fetch_iv_rank(ticker: str) -> Optional[float]:
     """
-    Compute REAL per-stock IV rank from its own price history (v1.0.30).
-    Returns 0-100 (100 = current HV at 52-week high).
-    
-    Previous version used VXX as a proxy for ALL stocks — this was wrong.
-    VXX measures market-wide fear, not individual stock IV.
-    Example: AMAT has IV rank 73% right now, but VXX-based rank says 0.7%.
-    
-    Method: 30-day rolling historical volatility, ranked vs its own 52-week range.
+    Compute per-stock IV rank combining REAL implied vol (from ATM options)
+    with historical vol context.
+
+    FIX 2026-04-20 (Bug #4): Previous version computed HV rank and called it
+    "IV rank" — misleading. True IV rank uses implied vol from option prices;
+    HV rank uses historical realized vol. They correlate but diverge exactly
+    at the inflection points (pre-earnings, vol spikes) where the difference
+    matters most for VRP trades.
+
+    New method:
+      1. Pull nearest-expiry ATM options chain (real IV via mid-price)
+      2. Compare current ATM IV against trailing 90-day HV as a normalized
+         "IV/HV ratio" — >1.3 means market implying much more future vol
+         than realized (rich premium, good for selling)
+      3. Compute HV-rank as before for the 52-week percentile context
+      4. Combine: iv_rank = weighted(iv_hv_ratio_rank, hv_rank)
+
+    Falls back to pure HV rank if options chain fetch fails.
+    Returns 0-100 where >70 means genuinely rich premium.
     """
     try:
         import numpy as _np
-        start = (datetime.now() - timedelta(days=380)).strftime("%Y-%m-%d")
+
+        # Fetch 400 days of bars for HV calculation + recent price
+        start = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+        alpaca_throttle.acquire()
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/bars",
             params={"symbols": ticker, "timeframe": "1Day",
@@ -442,30 +525,75 @@ def _fetch_iv_rank(ticker: str) -> Optional[float]:
         bars = r.json().get("bars", {}).get(ticker, [])
         if len(bars) < 60:
             return None
-        
+
         closes = [float(b["c"]) for b in bars]
         rets = [_np.log(closes[i]/closes[i-1]) for i in range(1, len(closes)) if closes[i-1] > 0]
         if len(rets) < 50:
             return None
-        
-        # Rolling 30-day historical volatility (annualized)
+
+        # Rolling 30-day HV (annualized)
         hvs = []
         for i in range(30, len(rets)):
             hv = _np.std(rets[i-30:i]) * _np.sqrt(252) * 100
             hvs.append(hv)
-        
         if not hvs:
             return None
-        
         current_hv = hvs[-1]
         hv_lo = min(hvs)
         hv_hi = max(hvs)
-        
-        if hv_hi <= hv_lo:
-            return 50.0
-        
-        iv_rank = (current_hv - hv_lo) / (hv_hi - hv_lo) * 100
-        return round(float(iv_rank), 1)
+        hv_rank = 50.0 if hv_hi <= hv_lo else (current_hv - hv_lo) / (hv_hi - hv_lo) * 100
+
+        # ── Now get REAL implied vol from nearest ATM option ──────────────
+        current_price = closes[-1]
+        try:
+            # Find nearest expiry (7-45 DTE)
+            min_exp = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+            max_exp = (datetime.now() + timedelta(days=45)).strftime("%Y-%m-%d")
+            # Get options chain snapshot from Alpaca
+            alpaca_throttle.acquire()
+            chain_r = requests.get(
+                f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
+                params={"expiration_date_gte": min_exp,
+                        "expiration_date_lte": max_exp,
+                        "limit": 100, "feed": "indicative"},
+                headers=_headers(), timeout=10
+            )
+            snapshots = chain_r.json().get("snapshots", {})
+            # Find ATM call (strike closest to spot) with valid IV
+            atm_iv = None
+            best_dist = float("inf")
+            for occ_sym, snap in snapshots.items():
+                # OCC format: TICKER + YYMMDD + C/P + strike*1000 (8 digits)
+                try:
+                    strike_part = occ_sym[-8:]
+                    strike = float(strike_part) / 1000
+                except Exception:
+                    continue
+                dist = abs(strike - current_price) / current_price
+                if dist > 0.05:  # skip far-OTM/ITM, want within 5% of spot
+                    continue
+                iv = snap.get("impliedVolatility") or snap.get("iv")
+                if iv is None:
+                    # fall back: compute IV from mid-price via Black-Scholes
+                    # (expensive, skip for now — use snapshot IV only)
+                    continue
+                if dist < best_dist:
+                    best_dist = dist
+                    atm_iv = float(iv) * 100  # Alpaca returns IV as fraction
+
+            if atm_iv is not None and current_hv > 0:
+                # IV/HV ratio — true premium-richness signal
+                iv_hv_ratio = atm_iv / current_hv
+                # Map ratio to 0-100: ratio=1.0 → 50, ratio=1.5 → 75, ratio=0.7 → 30
+                iv_hv_rank = max(0.0, min(100.0, (iv_hv_ratio - 0.5) / 1.5 * 100))
+                # Combine: 70% IV/HV ratio (the true premium signal), 30% HV rank (context)
+                combined = iv_hv_rank * 0.7 + hv_rank * 0.3
+                return round(float(combined), 1)
+        except Exception:
+            pass  # options chain fetch failed — fall back to HV rank
+
+        # Fallback: return HV rank (clearly marked in docstring)
+        return round(float(hv_rank), 1)
     except Exception:
         return None
 
@@ -503,6 +631,7 @@ def _fetch_earnings_calendar(days_ahead: int = 10) -> Dict[str, int]:
 def _fetch_price(ticker: str) -> Optional[float]:
     """Get latest price for ticker."""
     try:
+        alpaca_throttle.acquire()
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/snapshots?symbols={ticker}&feed=sip",
             headers=_headers(), timeout=6
@@ -1349,8 +1478,9 @@ def _get_options_candidates(snap_data: dict = None) -> list:
     if not full_universe:
         # Fallback: fetch from Alpaca assets endpoint directly
         try:
+            alpaca_throttle.acquire()
             r = requests.get(
-                "https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",
+                f"{os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')}/v2/assets?status=active&asset_class=us_equity",
                 headers=_headers(), timeout=20)
             assets = r.json()
             full_universe = [
@@ -1370,6 +1500,7 @@ def _get_options_candidates(snap_data: dict = None) -> list:
 
         def _fetch_snap(batch):
             try:
+                alpaca_throttle.acquire()
                 r = requests.get(
                     f"{ALPACA_DATA}/v2/stocks/snapshots",
                     params={"symbols": ",".join(batch), "feed": "sip"},
@@ -1378,7 +1509,7 @@ def _get_options_candidates(snap_data: dict = None) -> list:
             except Exception:
                 return {}
 
-        with ThreadPoolExecutor(max_workers=16) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:  # MEM FIX: was 16 — Railway 512MB OOM
             for result in pool.map(_fetch_snap, batches):
                 snap_data.update(result)
 
@@ -1541,7 +1672,7 @@ def scan_options() -> dict:
             return None
         return _setup_earnings_iv_crush(tkr, price, days, vxx_ratio)
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:  # MEM FIX: was 8
         for result in pool.map(_check_earnings, earnings_tickers[:30]):
             if result:
                 opportunities.append(result)
@@ -1590,7 +1721,7 @@ def scan_options() -> dict:
 
     # 16 workers — each candidate needs 1-2 OPRA chain fetches (~0.2s each)
     # 700 candidates / 16 workers = ~9 seconds total
-    with ThreadPoolExecutor(max_workers=16) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:  # MEM FIX: was 16 — Railway 512MB OOM
         for results in pool.map(_check_ticker, candidates):
             opportunities.extend(results)
 

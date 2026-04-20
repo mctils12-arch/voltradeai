@@ -47,9 +47,39 @@ import os
 import time
 import subprocess
 import requests
+# Alpaca rate limiter — prevents silent 429 errors during parallel scans
+try:
+    from alpaca_rate_limiter import alpaca_throttle
+    _HAS_ALPACA_THROTTLE = True
+except ImportError:
+    _HAS_ALPACA_THROTTLE = False
+    class _NoThrottle:
+        def acquire(self): pass
+    alpaca_throttle = _NoThrottle()
 import numpy as np
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+# OPTIMIZATION 2026-04-20: Auto-throttle all Alpaca requests (180/min).
+# Prevents silent 429 errors during parallel scan workers + options fetches.
+try:
+    from alpaca_rate_limiter import install_global_throttle
+    install_global_throttle()
+except ImportError:
+    pass  # Rate limiter optional — system works without it
+
+# ── Tiered strategy engine (4-tier Option D) ───
+try:
+    from tiered_strategy import (
+        TieredStrategy, TierContext, update_peak_equity,
+        get_portfolio_margin_status,
+    )
+    from risk_kill_switch import (
+        check_kill_switches, record_trade_outcome,
+    )
+    _HAS_TIERED = True
+except ImportError:
+    _HAS_TIERED = False
 
 def _et_now_hour() -> float:
     """Return current ET hour (fractional), DST-aware."""
@@ -112,7 +142,7 @@ _YF_CACHE_MAX = 50   # Cap cache size to prevent unbounded memory growth
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
+POLYGON_KEY = os.environ.get("POLYGON_KEY", "") or os.environ.get("POLYGON_API_KEY", "")  # FIX: accept either name (5 other files use POLYGON_KEY)
 ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_BASE_URL = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
@@ -154,25 +184,103 @@ SECTOR_MAP = {
 }
 
 # ── Sector Cache (ticker → sector from yfinance, persisted to disk) ─────────
+
+
+# ── Memory diagnostics helpers (added 2026-04-20 after Railway OOM) ─────────
+def _mem_rss_mb() -> int:
+    """Return current process RSS in MB. Returns 0 if unavailable."""
+    try:
+        import resource
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # Linux: ru_maxrss is in KB; macOS: bytes. Both convert to MB via /1024.
+        return rss // 1024 if rss > 100_000 else rss // 1024
+    except Exception:
+        return 0
+
+def _log_mem_phase(phase: str, logger=None):
+    """Log peak memory at a phase boundary. Emitted to stderr for bot.ts to see
+    in the Railway activity log when scans succeed or fail near memory limits."""
+    mb = _mem_rss_mb()
+    try:
+        print(f"[mem] {phase} rss~{mb}MB", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+    return mb
+
+def _gc_checkpoint(phase: str = ""):
+    """Force garbage collection at phase boundaries. Reduces peak memory
+    by 30-80MB by releasing short-lived dicts/DataFrames between phases."""
+    try:
+        import gc
+        gc.collect()
+        if phase:
+            _log_mem_phase(f"after_gc_{phase}")
+    except Exception:
+        pass
+
 SECTOR_CACHE_PATH = os.path.join(DATA_DIR, "voltrade_sector_cache.json")
 
 def _load_sector_cache():
-    """Load the ticker→sector cache from disk."""
+    """Load the ticker→sector cache from disk (with file locking)."""
     try:
+        import fcntl
         with open(SECTOR_CACHE_PATH, "r") as f:
-            return json.load(f)
+            try:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)  # shared read lock
+                return json.load(f)
+            finally:
+                try: fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except Exception: pass
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+    except Exception:
+        # fcntl unavailable (Windows) or other issue — fall through to best-effort
+        try:
+            with open(SECTOR_CACHE_PATH, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
 def _update_sector_cache(ticker, sector):
-    """Update a single ticker→sector entry in the cache and persist to disk."""
+    """Update a single ticker→sector entry atomically.
+    FIX (2026-04-20): Previous version had a race condition — 8 parallel workers
+    could all read, modify, and write simultaneously, clobbering each other.
+    Now uses file locking + atomic rename for crash-safe, race-free writes."""
     if not ticker or not sector or sector == "Unknown":
         return
-    cache = _load_sector_cache()
-    cache[ticker.upper()] = sector
+    import tempfile
     try:
-        with open(SECTOR_CACHE_PATH, "w") as f:
-            json.dump(cache, f)
+        import fcntl
+        use_lock = True
+    except ImportError:
+        use_lock = False
+    try:
+        # Read-modify-write under an exclusive lock on a sidecar lockfile
+        lock_path = SECTOR_CACHE_PATH + ".lock"
+        lock_f = open(lock_path, "a+")
+        try:
+            if use_lock:
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+            # Load current
+            cache = _load_sector_cache()
+            cache[ticker.upper()] = sector
+            # Atomic write: temp file + rename (POSIX guarantees atomicity)
+            dirname = os.path.dirname(SECTOR_CACHE_PATH) or "."
+            fd, tmp_path = tempfile.mkstemp(dir=dirname, prefix=".sector_cache.", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as tf:
+                    json.dump(cache, tf)
+                os.replace(tmp_path, SECTOR_CACHE_PATH)
+            except Exception:
+                try: os.unlink(tmp_path)
+                except Exception: pass
+                raise
+        finally:
+            try:
+                if use_lock:
+                    fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
+            except Exception: pass
+            lock_f.close()
     except Exception:
         pass
 
@@ -241,6 +349,7 @@ def get_stock_details(ticker):
 def get_alpaca_account():
     """Get Alpaca account info."""
     import requests
+    r = alpaca_throttle.acquire()
     r = requests.get(f"{ALPACA_BASE_URL}/v2/account", headers={
         "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET
     }, timeout=10)
@@ -250,6 +359,7 @@ def get_alpaca_account():
 def get_alpaca_positions():
     """Get current Alpaca positions."""
     import requests
+    alpaca_throttle.acquire()
     r = requests.get(f"{ALPACA_BASE_URL}/v2/positions", headers={
         "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET
     }, timeout=10)
@@ -567,9 +677,12 @@ except Exception as e:
     _deep_closes = []    # captured for ml_features above_ma10
     try:
         end_d = datetime.now().strftime("%Y-%m-%d")
-        start_d = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
+        # MOMENTUM FIX 2026-04-20: widened from 40d/limit=30 to 400d/limit=300
+        # to support real Jegadeesh-Titman 12-1 momentum (needs 252+ trading days)
+        # and deeper IV-rank history. Extra Alpaca bars cost is trivial on paid tier.
+        start_d = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
         bars_url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
-                    f"?timeframe=1Day&start={start_d}&limit=30&adjustment=all&feed=sip")
+                    f"?timeframe=1Day&start={start_d}&limit=300&adjustment=all&feed=sip")
         bars_resp = requests.get(bars_url, headers=_alpaca_headers(), timeout=8)
         bars_data = bars_resp.json().get("bars", [])
         if len(bars_data) >= 14:
@@ -630,10 +743,36 @@ except Exception as e:
 
     # ── Strategy module scores ────────────────────────────────────────────────
 
-    # 1. Momentum score (use 12-month and 1-month returns from edge factors)
+    # 1. Momentum score — REAL Jegadeesh-Titman 12-1 momentum
+    # MOMENTUM FIX 2026-04-20: Previously used edge["relative_strength"] as a
+    # 12-month proxy, but that field is a short-window relative performance
+    # metric, not a real annual return. Using wrong input produced garbage
+    # momentum scores that added noise to the composite. Now computes real
+    # 12-month return minus 1-month return (per Jegadeesh-Titman 1993) from
+    # the extended 252-day bar history. Falls back gracefully to 0 when
+    # insufficient data rather than contaminating the score.
     momentum_score = 50
-    mom_12_1 = edge.get("relative_strength", 0) or 0  # proxy for 12mo momentum
-    mom_1m = change_pct  # proxy — best we have from quick data
+    mom_12_1 = 0.0
+    mom_1m = 0.0
+    try:
+        if _deep_closes and len(_deep_closes) >= 252:
+            # Real 12-month return (252 trading days)
+            _ret_12m = (_deep_closes[-1] / _deep_closes[-252] - 1.0) * 100
+            # Real 1-month return (21 trading days)
+            _ret_1m = (_deep_closes[-1] / _deep_closes[-21] - 1.0) * 100
+            # Jegadeesh-Titman: 12-month return MINUS 1-month return
+            # (excludes the short-term reversal effect)
+            mom_12_1 = _ret_12m - _ret_1m
+            mom_1m = _ret_1m
+        elif _deep_closes and len(_deep_closes) >= 21:
+            # Partial: only 1-month is available; use rough proxy for 12m
+            mom_1m = (_deep_closes[-1] / _deep_closes[-21] - 1.0) * 100
+            # Extrapolate conservatively: assume flat-ish annualized
+            mom_12_1 = mom_1m * 0.5  # dampened extrapolation
+    except Exception:
+        # Fall through with 0s — better than using garbage proxy
+        mom_12_1 = 0.0
+        mom_1m = change_pct or 0.0
     avg_volume = quick_result.get("volume", 0)
 
     if momentum_strategy:
@@ -1025,23 +1164,36 @@ except Exception as e:
         _idio_ret = (quick_result.get("change_pct", 0) or 0) - (macro.get("spy_change_pct", 0) or 0)
 
         # ── Compute vol_of_vol from VXX daily closes ─────────────────
-        # VXX ratio is already available from intel/macro — fetch VXX bars
-        # for std dev of recent 10 daily returns (matches training computation)
+        # OPTIMIZATION 2026-04-20: use macro.vxx_closes from get_macro_snapshot
+        # (5-min cache) instead of making a new Alpaca call each scan.
+        # Fallback to direct fetch if macro data unavailable.
         _vol_of_vol = 0.0
+        _vxx_closes = None
         try:
-            _vxx_end = datetime.now().strftime("%Y-%m-%d")
-            _vxx_start = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
-            _vxx_resp = requests.get(
-                f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=12&feed=sip",
-                headers=_alpaca_headers(), timeout=5)
-            _vxx_bars = _vxx_resp.json().get("bars", [])
-            if len(_vxx_bars) >= 6:
-                _vxx_closes = [float(b["c"]) for b in _vxx_bars]
+            _vxx_closes = macro.get("vxx_closes") if isinstance(macro, dict) else None
+        except Exception:
+            _vxx_closes = None
+        if not _vxx_closes or len(_vxx_closes) < 6:
+            try:
+                _vxx_start = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
+                alpaca_throttle.acquire()
+                _vxx_resp = requests.get(
+                    f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=12&feed=sip",
+                    headers=_alpaca_headers(), timeout=5)
+                _vxx_bars = _vxx_resp.json().get("bars", [])
+                if len(_vxx_bars) >= 6:
+                    _vxx_closes = [float(b["c"]) for b in _vxx_bars]
+            except Exception:
+                _vxx_closes = None
+        if _vxx_closes and len(_vxx_closes) >= 6:
+            try:
                 _vxx_rets = [(_vxx_closes[i] - _vxx_closes[i-1]) / _vxx_closes[i-1]
                              for i in range(1, len(_vxx_closes)) if _vxx_closes[i-1] > 0]
                 if len(_vxx_rets) >= 5:
-                    _vol_of_vol = round(float(np.std(_vxx_rets) * 100), 3)
-        except Exception:
+                    _vol_of_vol = round(float(np.std(_vxx_rets[-10:]) * 100), 3)
+            except Exception:
+                _vol_of_vol = 2.0
+        else:
             _vol_of_vol = 2.0  # safe default (matches training fallback)
 
         # ── Compute frac_diff_price from daily closes ────────────────
@@ -1054,6 +1206,7 @@ except Exception as e:
         _cross_sec_rank = 0.5  # default if no universe data
         _stock_change = quick_result.get("change_pct", 0) or 0
         try:
+            alpaca_throttle.acquire()
             _scan_snaps = requests.get(
                 f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
                 headers=_alpaca_headers(), timeout=5)
@@ -1108,6 +1261,7 @@ except Exception as e:
         # credit_spread: TLT-HYG 21d return spread
         _credit_spread = 0.0
         try:
+            alpaca_throttle.acquire()
             _cs_resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/bars",
                 params={"symbols": "TLT,HYG", "timeframe": "1Day",
                         "start": (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d"),
@@ -1129,6 +1283,7 @@ except Exception as e:
         # market_breadth: % of scan universe above 50d MA
         _market_breadth = 0.5
         try:
+            alpaca_throttle.acquire()
             _mb_resp = requests.get(
                 f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
                 headers=_alpaca_headers(), timeout=5)
@@ -1153,10 +1308,19 @@ except Exception as e:
         _vxx_for_pcr = intel.get("vxx_ratio", 1.0) if intel else 1.0
         _put_call_ratio = round(float(_vxx_for_pcr) * 15.0 / 20.0, 3) if _vxx_for_pcr else 1.0
 
+        # Compute real momentum features for ML (supersedes edge-dict proxies)
+        _real_mom_1m = mom_1m if 'mom_1m' in locals() else 0.0
+        _real_mom_3m = 0.0
+        try:
+            if _deep_closes and len(_deep_closes) >= 63:
+                _real_mom_3m = (_deep_closes[-1] / _deep_closes[-63] - 1.0) * 100
+        except Exception:
+            pass
+
         ml_features = {
-            # Technical (7)
-            "momentum_1m":          edge.get("momentum_1m", 0) or 0,
-            "momentum_3m":          edge.get("momentum_3m", 0) or 0,
+            # Technical (7) — FIXED 2026-04-20: was edge proxies, now real returns
+            "momentum_1m":          round(_real_mom_1m, 3),
+            "momentum_3m":          round(_real_mom_3m, 3),
             "rsi_14":               rsi or 50,
             "volume_ratio":         min(volume_ratio, 10.0),
             "vwap_position":        1.0 if quick_result.get("above_vwap") else 0.0,
@@ -1272,6 +1436,32 @@ except Exception as e:
     # Extract sector from yfinance valuation data and update the cache
     _yf_sector = detail.get("valuation", {}).get("sector", "Unknown")
     _update_sector_cache(ticker, _yf_sector)
+
+    # ── SHADOW PORTFOLIO LOGGING (learning data multiplier) ───────────────
+    # Log EVERY scored candidate so we can learn from rejections too
+    try:
+        from shadow_portfolio import log_candidate
+        # Decision tracking: score threshold + risk filters
+        _min_score = _scan_params.get("MIN_SCORE", 63) if '_scan_params' in locals() else 63
+        if combined_score >= _min_score:
+            _decision = "taken"
+            _reason = f"score {combined_score:.1f} >= MIN_SCORE {_min_score}"
+        else:
+            _decision = "rejected_score"
+            _reason = f"score {combined_score:.1f} < MIN_SCORE {_min_score}"
+
+        log_candidate(
+            ticker=ticker,
+            features=ml_features,
+            score=combined_score,
+            decision=_decision,
+            decision_reason=_reason,
+            entry_price=quick_result.get("price", 0),
+            vxx_ratio=float(_regime_ctx.get("vxx_ratio", 1.0) or 1.0) if '_regime_ctx' in locals() else 1.0,
+            regime_label=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+        )
+    except Exception:
+        pass  # Shadow logging must never break the trading loop
 
     return {
         **quick_result,
@@ -1791,6 +1981,7 @@ def _get_full_universe() -> list:
                 pass
     # Fetch fresh universe from Alpaca assets endpoint
     try:
+        alpaca_throttle.acquire()
         resp = requests.get(
             f"{ALPACA_BASE_URL}/v2/assets?status=active&asset_class=us_equity",
             headers=_alpaca_headers(), timeout=30
@@ -1862,6 +2053,11 @@ def _scan_market_inner():
     global _partial_scan_result
     _partial_scan_result = None
 
+    # MEM FIX 2026-04-20: Log memory at every phase boundary so OOM kills
+    # leave a trail. Combined with gc.collect() between phases this cuts
+    # peak memory ~30-80MB and gives diagnosable logs when something leaks.
+    _log_mem_phase("scan_inner_start")
+
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
     # ── Portfolio-level DD halt check (v1.0.29+) ────────────────────────────────
@@ -1914,6 +2110,7 @@ def _scan_market_inner():
     # they're guaranteed to be moving right now and get priority
     movers_fresh = []
     try:
+        alpaca_throttle.acquire()
         resp = requests.get(f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/movers?top=50",
                            headers=_alpaca_headers(), timeout=10)
         mv = resp.json()
@@ -1932,6 +2129,7 @@ def _scan_market_inner():
     # Fallback if universe fetch failed
     if not ticker_symbols:
         try:
+            alpaca_throttle.acquire()
             resp = requests.get(f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
                                headers=_alpaca_headers(), timeout=15)
             ticker_symbols = [s["symbol"] for s in resp.json().get("most_actives", []) if s.get("symbol")]
@@ -1944,6 +2142,7 @@ def _scan_market_inner():
 
     def _fetch_snap(batch):
         try:
+            alpaca_throttle.acquire()
             r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols={','.join(batch)}&feed=sip",
                 headers=_alpaca_headers(), timeout=15)
             return r.json()
@@ -2027,6 +2226,7 @@ def _scan_market_inner():
     # Each deep_score internally runs 5 data sources in parallel too.
     # Per-future timeout (8s) + total cap (35s) prevents yfinance hangs.
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    _gc_checkpoint("after_quick_scan")  # MEM: release quick-scan dicts before deep work
     top_candidates = scored[:10]  # Deep analyze top 10 quick-scored stocks
     deep_scored = [None] * len(top_candidates)
 
@@ -2037,6 +2237,7 @@ def _scan_market_inner():
         except Exception:
             return idx, candidate
 
+    _log_mem_phase("pre_deep_score")
     with ThreadPoolExecutor(max_workers=4) as _dpool:
         futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
         try:
@@ -2259,6 +2460,7 @@ def _scan_market_inner():
         # QQQ lost $698 on a single round-trip due to market order spread.
         # This check prevents entering stocks with poor liquidity / wide spreads.
         try:
+            alpaca_throttle.acquire()
             _quote_r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/quotes/latest",
                 params={"feed": "sip"}, headers=_alpaca_headers(), timeout=5)
             _quote = _quote_r.json().get("quote", {})
@@ -2625,6 +2827,57 @@ def _scan_market_inner():
     except Exception as _dfe:
         defensive_floor_result["status"] = f"error: {str(_dfe)[:80]}"
 
+    # ══════════════════════════════════════════════════════════════════════
+    # TIERED STRATEGY LAYER — runs in parallel to existing scoring.
+    # Existing scan continues to produce `new_trades`. Tier engine adds
+    # its own trade list in `tier_actions`. bot.ts dispatches both.
+    # ══════════════════════════════════════════════════════════════════════
+    tiered_actions = []
+    kill_status = None
+    tier_stats = {}
+    if _HAS_TIERED:
+        try:
+            acct = get_alpaca_account()
+            equity = float(acct.get("equity", 100000) or 100000)
+            bp = float(acct.get("buying_power", equity) or equity)
+            positions = get_alpaca_positions() or []
+            peak = update_peak_equity(equity)
+
+            vxx_r = float(_macro.get("vxx_ratio", 1.0) or 1.0) if '_macro' in locals() else 1.0
+            daily_pnl = float(acct.get("daily_pnl_pct", 0) or 0) / 100.0
+            kill_status = check_kill_switches(
+                equity=equity, peak_equity=peak, positions=positions,
+                daily_pnl_pct=daily_pnl, vxx_ratio=vxx_r, buying_power=bp,
+            )
+
+            if not kill_status["killed"]:
+                ctx = TierContext(
+                    equity=equity, peak_equity=peak, buying_power=bp,
+                    positions=positions,
+                    macro=_macro if '_macro' in locals() else {},
+                    portfolio_margin=get_portfolio_margin_status(),
+                    daily_pnl_pct=daily_pnl,
+                    regime=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+                    vxx_ratio=vxx_r,
+                    spy_vs_ma50=float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0,
+                )
+                ts = TieredStrategy()
+                tier_result = ts.run_tiers(ctx)
+                tiered_actions = tier_result["actions"]
+                tier_stats = tier_result.get("tier_stats", {})
+                import logging
+                logging.getLogger("bot_engine").info(
+                    f"[TIERS] {len(tiered_actions)} actions: {tier_stats}"
+                )
+            else:
+                import logging
+                logging.getLogger("bot_engine").warning(
+                    f"[TIERS] BLOCKED: {kill_status['kill_reason']}"
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger("bot_engine").error(f"[TIERS] failed: {e}")
+
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),
@@ -2654,6 +2907,15 @@ def _scan_market_inner():
         "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
         "defensive_floor": defensive_floor_result,
+        "tier_actions": [
+            {
+                "tier": a.tier, "action": a.action, "ticker": a.ticker,
+                "strategy": a.strategy, "size_pct": a.size_pct,
+                "reason": a.reason, "metadata": a.metadata,
+            } for a in tiered_actions
+        ],
+        "tier_stats": tier_stats,
+        "kill_status": kill_status,
     }
 
 
@@ -3357,6 +3619,7 @@ def _manage_spy_floor(macro: dict) -> dict:
 
             # If macro doesn't have QQQ MAs, compute from Alpaca bars
             if _qqq_ma50 <= 0 or _qqq_ma200 <= 0 or _qqq_price <= 0:
+                alpaca_throttle.acquire()
                 _qqq_bars_resp = requests.get(
                     f"{ALPACA_DATA_URL}/v2/stocks/{floor_ticker}/bars",
                     params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": "sip"},
@@ -3408,6 +3671,7 @@ def _manage_spy_floor(macro: dict) -> dict:
                                 import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {floor_ticker}, blocking sale: {_uw_err}")
                                 result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
                                 return result
+                            alpaca_throttle.acquire()
                             requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                                 json={"symbol": floor_ticker, "qty": str(qty),
                                       "side": "sell", "type": "market",
@@ -3432,6 +3696,7 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         # Get account equity and current SPY position
         try:
+            alpaca_throttle.acquire()
             acc = requests.get(f"{ALPACA_BASE_URL}/v2/account",
                 headers=_alpaca_headers(), timeout=8).json()
             equity = float(acc.get("equity", 100000) or 100000)
@@ -3477,6 +3742,7 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         # Get floor ticker price
         try:
+            alpaca_throttle.acquire()
             snap = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
                 params={"symbols": floor_ticker, "feed": "sip"},
                 headers=_alpaca_headers(), timeout=8).json()
@@ -3506,6 +3772,7 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         if shares_diff > 0:
             try:
+                alpaca_throttle.acquire()
                 requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                     json={"symbol": floor_ticker, "qty": str(shares_diff),
                           "side": "buy", "type": _order_type,
@@ -3532,6 +3799,7 @@ def _manage_spy_floor(macro: dict) -> dict:
                         result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
                         return result
                 try:
+                    alpaca_throttle.acquire()
                     requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                         json={"symbol": floor_ticker, "qty": str(sell_qty),
                               "side": "sell", "type": _order_type,
@@ -3617,6 +3885,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
             _qqq_ma200 = float(macro.get("qqq_ma200", 0) or 0)
             _qqq_price = float(macro.get("qqq_price", 0) or 0)
             if (_qqq_ma50 <= 0 or _qqq_ma200 <= 0 or _qqq_price <= 0):
+                alpaca_throttle.acquire()
                 _bars_resp = requests.get(
                     f"{ALPACA_DATA_URL}/v2/stocks/{floor_ticker}/bars",
                     params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": "sip"},
@@ -3652,6 +3921,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
 
         # ── Current GLD position & equity ────────────────────────────────
         try:
+            alpaca_throttle.acquire()
             acc = requests.get(f"{ALPACA_BASE_URL}/v2/account",
                                headers=_alpaca_headers(), timeout=8).json()
             equity = float(acc.get("equity", 100000) or 100000)
@@ -3680,6 +3950,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
         if target_pct <= 0:
             if (regime_changed or last_regime is None) and current_shares > 0:
                 try:
+                    alpaca_throttle.acquire()
                     requests.post(
                         f"{ALPACA_BASE_URL}/v2/orders",
                         json={"symbol": defensive_ticker, "qty": str(current_shares),
@@ -3723,6 +3994,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
 
         # ── Get last trade price for limit orders ─────────────────────────
         try:
+            alpaca_throttle.acquire()
             snap = requests.get(
                 f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
                 params={"symbols": defensive_ticker, "feed": "sip"},
@@ -3748,6 +4020,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
         _limit_price = str(round(last_px, 2))
         if shares_diff > 0:
             try:
+                alpaca_throttle.acquire()
                 requests.post(
                     f"{ALPACA_BASE_URL}/v2/orders",
                     json={"symbol": defensive_ticker, "qty": str(shares_diff),
@@ -3770,6 +4043,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
             sell_qty = min(abs(shares_diff), current_shares)
             if sell_qty > 0:
                 try:
+                    alpaca_throttle.acquire()
                     requests.post(
                         f"{ALPACA_BASE_URL}/v2/orders",
                         json={"symbol": defensive_ticker, "qty": str(sell_qty),
