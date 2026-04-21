@@ -853,7 +853,7 @@ def _clean_poisoned_feedback_on_startup():
     """Idempotent one-time cleanup. Safe to call multiple times."""
     try:
         import os, json, time
-        feedback_path = TRADE_FEEDBACK_PATH
+        feedback_path = FEEDBACK_PATH
         marker_path = os.path.join(DATA_DIR, "voltrade_feedback_cleaned.marker")
         if os.path.exists(marker_path):
             return  # Already cleaned

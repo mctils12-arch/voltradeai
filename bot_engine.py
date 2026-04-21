@@ -2238,7 +2238,7 @@ def _scan_market_inner():
             return idx, candidate
 
     _log_mem_phase("pre_deep_score")
-    with ThreadPoolExecutor(max_workers=4) as _dpool:
+    with ThreadPoolExecutor(max_workers=2) as _dpool:  # MEM FIX 2026-04-20: 4→2 workers to avoid OOM
         futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
         try:
             for future in as_completed(futures, timeout=35):  # 35s total hard cap
@@ -2247,6 +2247,9 @@ def _scan_market_inner():
                     deep_scored[idx] = result
                 except Exception:
                     deep_scored[futures[future]] = None
+                # MEM FIX 2026-04-20: release DataFrames/numpy arrays after each worker
+                import gc as _gc
+                _gc.collect()
         except TimeoutError:
             import logging
             logging.getLogger("bot_engine").warning("Deep scoring hit 25s cap — using partial results")
