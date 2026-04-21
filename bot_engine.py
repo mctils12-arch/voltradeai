@@ -2227,8 +2227,50 @@ def _scan_market_inner():
     # Per-future timeout (8s) + total cap (35s) prevents yfinance hangs.
     from concurrent.futures import ThreadPoolExecutor, as_completed
     _gc_checkpoint("after_quick_scan")  # MEM: release quick-scan dicts before deep work
-    top_candidates = scored[:10]  # Deep analyze top 10 quick-scored stocks
-    deep_scored = [None] * len(top_candidates)
+
+    # MEM FIX 2026-04-21: Cap deep-score candidate count and add a pre-deep-score
+    # memory guard. Railway's container was SIGKILLing bot_engine around
+    # pre_deep_score rss~234MB because ml_model_v2 (lightgbm+sklearn, ~150MB)
+    # is imported lazily inside deep_score. Reducing from 10→5 candidates
+    # roughly halves the DataFrame/ML allocations during the deep phase, and
+    # the RSS guard skips deep scoring entirely when we're already close to
+    # the OOM threshold — returning the quick-scan top 10 as partial results
+    # is strictly better than getting SIGKILLed.
+    try:
+        _deep_cap = int(os.environ.get("VOLTRADE_DEEP_SCORE_CAP", "5"))
+    except Exception:
+        _deep_cap = 5
+    _deep_cap = max(1, min(_deep_cap, 10))
+    try:
+        _mem_skip_deep_mb = int(os.environ.get("VOLTRADE_MEM_SKIP_DEEP_MB", "360"))
+    except Exception:
+        _mem_skip_deep_mb = 360
+    try:
+        _mem_trim_deep_mb = int(os.environ.get("VOLTRADE_MEM_TRIM_DEEP_MB", "300"))
+    except Exception:
+        _mem_trim_deep_mb = 300
+
+    _pre_mb = _log_mem_phase("pre_deep_score")
+    if _pre_mb and _pre_mb >= _mem_skip_deep_mb:
+        # Too close to Railway's OOM line — skip deep scoring entirely.
+        import logging as _lg
+        _lg.getLogger("bot_engine").warning(
+            f"[mem_guard] pre_deep_score rss~{_pre_mb}MB >= {_mem_skip_deep_mb}MB — "
+            f"skipping deep scoring, returning quick-scan top 10 as partial result"
+        )
+        print(f"[mem] skip_deep_score_due_to_pressure rss~{_pre_mb}MB", file=sys.stderr, flush=True)
+        deep_scored = scored[:10]
+        # Jump past the deep-score block by setting an empty top_candidates.
+        top_candidates = []
+    elif _pre_mb and _pre_mb >= _mem_trim_deep_mb:
+        # Warm but not critical — trim candidate count further to reduce peak RSS.
+        _deep_cap = max(1, min(_deep_cap, 3))
+        print(f"[mem] trim_deep_score rss~{_pre_mb}MB cap={_deep_cap}", file=sys.stderr, flush=True)
+        top_candidates = scored[:_deep_cap]
+        deep_scored = [None] * len(top_candidates)
+    else:
+        top_candidates = scored[:_deep_cap]
+        deep_scored = [None] * len(top_candidates)
 
     def _deep_one(args):
         idx, candidate = args
@@ -2237,22 +2279,24 @@ def _scan_market_inner():
         except Exception:
             return idx, candidate
 
-    _log_mem_phase("pre_deep_score")
-    with ThreadPoolExecutor(max_workers=2) as _dpool:  # MEM FIX 2026-04-20: 4→2 workers to avoid OOM
-        futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
-        try:
-            for future in as_completed(futures, timeout=35):  # 35s total hard cap
-                try:
-                    idx, result = future.result(timeout=8)  # 8s per ticker — kill slow yfinance calls
-                    deep_scored[idx] = result
-                except Exception:
-                    deep_scored[futures[future]] = None
-                # MEM FIX 2026-04-20: release DataFrames/numpy arrays after each worker
-                import gc as _gc
-                _gc.collect()
-        except TimeoutError:
-            import logging
-            logging.getLogger("bot_engine").warning("Deep scoring hit 25s cap — using partial results")
+    # If the mem guard already populated deep_scored (skip path), bypass the pool.
+    if top_candidates:
+        with ThreadPoolExecutor(max_workers=2) as _dpool:  # MEM FIX 2026-04-20: 4→2 workers to avoid OOM
+            futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
+            try:
+                for future in as_completed(futures, timeout=35):  # 35s total hard cap
+                    try:
+                        idx, result = future.result(timeout=8)  # 8s per ticker — kill slow yfinance calls
+                        deep_scored[idx] = result
+                    except Exception:
+                        deep_scored[futures[future]] = None
+                    # MEM FIX 2026-04-20: release DataFrames/numpy arrays after each worker
+                    import gc as _gc
+                    _gc.collect()
+            except TimeoutError:
+                import logging
+                logging.getLogger("bot_engine").warning("Deep scoring hit 25s cap — using partial results")
+        _gc_checkpoint("after_deep_score")  # MEM: drop ml_model_v2/DataFrames before trade gen
 
     deep_scored = [d for d in deep_scored if d is not None]
 
@@ -4096,63 +4140,63 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    # ── ML v2 Training Schedule ─────────────────────────────────────────
-    # Daily retrain at 4am (called by Tier 3 in bot.ts)
-    # Event-triggered: VXX > 1.3, 3+ consecutive stops, SPY > 3% move
-    # Research basis:
-    #   - News signals decay in 1-5 days → retrain daily captures yesterday's regime
-    #   - Momentum signals last 3-6 months → 60-day window is right
-    #   - Own trade feedback: 3x weight after 50+ trades (self-learning)
-    try:
-        from ml_model_v2 import train_model, FEEDBACK_PATH
-        model_v2_path = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
-
-        # Delete old broken model on first run (52-feature with 42 zeros)
-        old_model = os.path.join(DATA_DIR, "voltrade_ml_model.pkl")
-        if os.path.exists(old_model):
-            try:
-                import joblib as _jbl
-                _old = _jbl.load(old_model)
-                _old_features = len(_old.get("feature_names", []))
-                # Old model had 0 stored feature names (confirmed in audit)
-                # OR had 52 features with 42 zeros — delete and replace
-                if _old_features == 0 or _old_features == 52:
-                    os.remove(old_model)
-            except Exception:
-                pass  # Can't load it — leave it
-
-        # Retrain v2 if: doesn't exist, older than 24hrs, or feedback has grown significantly
-        needs_train = (
-            not os.path.exists(model_v2_path)
-            or (time.time() - os.path.getmtime(model_v2_path)) > 24 * 3600
-        )
-        # Also retrain if we have 20+ new trades since last train
-        if not needs_train and os.path.exists(FEEDBACK_PATH):
-            try:
-                with open(FEEDBACK_PATH) as _ff:
-                    _fb = json.load(_ff)
-                if os.path.exists(model_v2_path):
-                    model_age = time.time() - os.path.getmtime(model_v2_path)
-                    # Rough estimate: trades since last train
-                    recent_trades = sum(1 for t in _fb
-                        if time.time() - time.mktime(time.strptime(t.get("exit_date","2000-01-01"), "%Y-%m-%d")) < model_age)
-                    if recent_trades >= 20:
-                        needs_train = True
-            except Exception:
-                pass
-
-        if needs_train:
-            train_result = train_model()  # Returns status dict, silent output
-            # Also train the options-specific ML model if enough options trades exist
-            try:
-                from ml_model_v2 import train_options_model
-                train_options_model()  # No-op if < 30 options trades; silent otherwise
-            except Exception:
-                pass
-    except Exception:
-        pass
-
     mode = sys.argv[1] if len(sys.argv) > 1 else "full"
+
+    # MEM FIX 2026-04-21: The inline ML training block below imports lightgbm +
+    # sklearn (~150MB RSS) on EVERY bot_engine.py invocation. Tier2 calls this
+    # every minute, which pushed scan_inner_start to ~219MB and caused Railway
+    # SIGKILL/OOM before deep_score could run. Tier3 already owns retraining via
+    # ml_retrain_safe.py (server/bot.ts:3118, :3403), so skip the heavy import
+    # for scan/full/manage. Opt-in via mode=train or VOLTRADE_INLINE_ML_TRAIN=1.
+    _inline_train_ok = (
+        mode == "train"
+        or os.environ.get("VOLTRADE_INLINE_ML_TRAIN", "0") == "1"
+    )
+    if _inline_train_ok:
+        # ── ML v2 Training Schedule (opt-in path only) ──────────────────
+        # Daily retrain at 4am runs via Tier 3 / ml_retrain_safe.py; this
+        # branch is retained for manual `python3 bot_engine.py train` only.
+        try:
+            from ml_model_v2 import train_model, FEEDBACK_PATH
+            model_v2_path = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
+
+            old_model = os.path.join(DATA_DIR, "voltrade_ml_model.pkl")
+            if os.path.exists(old_model):
+                try:
+                    import joblib as _jbl
+                    _old = _jbl.load(old_model)
+                    _old_features = len(_old.get("feature_names", []))
+                    if _old_features == 0 or _old_features == 52:
+                        os.remove(old_model)
+                except Exception:
+                    pass
+
+            needs_train = (
+                not os.path.exists(model_v2_path)
+                or (time.time() - os.path.getmtime(model_v2_path)) > 24 * 3600
+            )
+            if not needs_train and os.path.exists(FEEDBACK_PATH):
+                try:
+                    with open(FEEDBACK_PATH) as _ff:
+                        _fb = json.load(_ff)
+                    if os.path.exists(model_v2_path):
+                        model_age = time.time() - os.path.getmtime(model_v2_path)
+                        recent_trades = sum(1 for t in _fb
+                            if time.time() - time.mktime(time.strptime(t.get("exit_date","2000-01-01"), "%Y-%m-%d")) < model_age)
+                        if recent_trades >= 20:
+                            needs_train = True
+                except Exception:
+                    pass
+
+            if needs_train:
+                train_result = train_model()
+                try:
+                    from ml_model_v2 import train_options_model
+                    train_options_model()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     try:
         if mode == "scan":
@@ -4161,6 +4205,9 @@ if __name__ == "__main__":
             result = manage_positions()
         elif mode == "full":
             result = scan_market()
+        elif mode == "train":
+            # Inline training ran above (gated by _inline_train_ok); return status.
+            result = {"status": "train_complete" if _inline_train_ok else "train_skipped"}
         else:
             result = {"error": f"Unknown mode: {mode}"}
     except Exception as _fatal:
