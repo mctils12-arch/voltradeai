@@ -2378,6 +2378,27 @@ print(json.dumps(get_auto_fix_params()))
           type: action.type === "take_profit" ? "sell" : "stop",
         });
       }
+
+      // ITEM 20 FIX 2026-04-21: Surface tier-engine trades in signals panel
+      // Previously, only score-based picks (>= 60) and stock trades flowed into
+      // `signals`. Tier 1 CSP core, Tier 2 leveraged CSP, Tier 3 trend longs,
+      // and Tier 4 tail hedges deployed silently — making the UI appear idle
+      // even when the bot was actively trading. Now every tier action shows up.
+      for (const action of (result.tier_actions || [])) {
+        const existing = signals.findIndex((s: any) => s.ticker === action.ticker);
+        if (existing >= 0) signals.splice(existing, 1);
+        const tierLabel = action.tier ? `T${action.tier}` : "TIER";
+        const actionLabel = (action.action || "DEPLOY").toUpperCase();
+        signals.unshift({
+          ticker: action.ticker,
+          action: `${tierLabel}: ${actionLabel}`,
+          reason: action.reason || action.strategy || `${tierLabel} tier engine action`,
+          confidence: Math.min(95, Math.max(60, action.confidence || action.score || 75)),
+          timestamp: new Date().toISOString(),
+          type: action.side === "sell" || action.side === "short" || actionLabel.includes("SELL") || actionLabel.includes("SHORT") || actionLabel.includes("CSP") ? "sell" : "buy",
+        });
+      }
+
       if (signals.length > 30) signals.length = 30;
       // OOM fix: expire stale signals older than 1 hour
       const signalCutoff = Date.now() - 3600000;
