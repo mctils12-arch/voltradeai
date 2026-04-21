@@ -1419,6 +1419,7 @@ export default function BotDashboard() {
   const isKilled = status?.killSwitch ?? false;
   const isActive = status?.active ?? false;
   const notifList = Array.isArray(notifData) ? notifData : [];
+  const [copyFeedback, setCopyFeedback] = useState<string>("");
   const unreadCount = notifList.filter((n: any) => !n.read).length;
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -1673,14 +1674,60 @@ export default function BotDashboard() {
         </div>
       </div>
 
-      {/* ── Audit Log ── */}
+      {/* ── Audit Log (UX 2026-04-20: taller panel + copy button) ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
           <Clock size={14} style={{ color: "#00e5ff" }} />
           <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>Activity Log</span>
-          <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>Every trade and decision is logged</span>
+          <button
+            onClick={() => {
+              const entries = Array.isArray(audit) ? audit.slice(0, 50) : [];
+              const text = entries
+                .map((a: any) => `${new Date(a.time).toLocaleString()}\t${a.action}\t${a.detail}`)
+                .join("\n");
+              const showCopied = () => {
+                setCopyFeedback("Copied!");
+                setTimeout(() => setCopyFeedback(""), 1500);
+              };
+              const fallback = () => {
+                try {
+                  const ta = document.createElement("textarea");
+                  ta.value = text;
+                  ta.style.position = "fixed";
+                  ta.style.opacity = "0";
+                  document.body.appendChild(ta);
+                  ta.select();
+                  document.execCommand("copy");
+                  document.body.removeChild(ta);
+                  showCopied();
+                } catch {
+                  setCopyFeedback("Copy failed");
+                  setTimeout(() => setCopyFeedback(""), 1500);
+                }
+              };
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(showCopied).catch(fallback);
+              } else {
+                fallback();
+              }
+            }}
+            style={{
+              marginLeft: "auto",
+              padding: "4px 10px",
+              borderRadius: "4px",
+              fontSize: "11px",
+              fontWeight: 600,
+              background: "rgba(0,229,255,0.1)",
+              color: "#00e5ff",
+              border: "1px solid rgba(0,229,255,0.3)",
+              cursor: "pointer",
+            }}
+          >
+            {copyFeedback || "Copy last 50"}
+          </button>
+          <span style={{ fontSize: "11px", color: "#4a5c70" }}>Every trade and decision is logged</span>
         </div>
-        <div style={{ maxHeight: "250px", overflowY: "auto" }}>
+        <div style={{ maxHeight: "600px", overflowY: "auto" }}>
           {Array.isArray(audit) && audit.length > 0 ? (
             audit.map((a: any, i: number) => (
               <div key={i} style={{ display: "flex", gap: "10px", padding: "6px 0", borderBottom: "1px solid rgba(0, 15, 30, 0.4)", fontSize: "12px", flexWrap: "wrap" }}>
