@@ -76,6 +76,15 @@ SOCKET_PATH = os.environ.get("VOLTRADE_DAEMON_SOCKET", "/tmp/voltrade_daemon.soc
 MAX_RSS_MB = int(os.environ.get("VOLTRADE_DAEMON_MAX_RSS_MB", "1024"))  # 1 GB
 REQUEST_TIMEOUT_SEC = 60  # Hard timeout per request
 
+# Cap in-flight RPC dispatches. Each handler spawns its own worker thread for
+# timeout enforcement, and heavy methods (run_full_scan) internally spawn their
+# own thread pools. Without a cap the daemon can hit the container's thread
+# limit ("RuntimeError: can't start new thread") when many requests pile up.
+# Requests beyond the cap wait on the semaphore rather than failing fast —
+# preferable to cascading thread-exhaustion across callers.
+MAX_INFLIGHT_REQUESTS = int(os.environ.get("VOLTRADE_DAEMON_MAX_INFLIGHT", "8"))
+_inflight_sem = threading.BoundedSemaphore(MAX_INFLIGHT_REQUESTS)
+
 
 # ── Heavy imports happen ONCE at daemon startup ──────────────────────────────
 # This is the entire reason the daemon exists. Re-importing numpy/pandas/
@@ -320,33 +329,65 @@ class RPCHandler(socketserver.StreamRequestHandler):
             method = request.get("method", "")
             args = request.get("args", {})
 
-            # Dispatch with timeout
-            result_holder = {"done": False, "response": None}
-
-            def _run():
-                try:
-                    result_holder["response"] = _dispatcher.dispatch(method, args)
-                except Exception as e:
-                    result_holder["response"] = {
-                        "status": "error",
-                        "error_message": str(e)[:500],
-                    }
-                finally:
-                    result_holder["done"] = True
-
-            t = threading.Thread(target=_run, daemon=True)
-            t.start()
-            t.join(REQUEST_TIMEOUT_SEC)
-
-            if not result_holder["done"]:
+            # Cap concurrent dispatches so we don't blow past the container's
+            # thread limit under burst load. Fail fast with a clear error if we
+            # can't acquire within a short window — caller should back off.
+            acquired = _inflight_sem.acquire(timeout=REQUEST_TIMEOUT_SEC)
+            if not acquired:
                 response = {
                     "status": "error",
-                    "error_message": f"Request timed out after {REQUEST_TIMEOUT_SEC}s",
+                    "error_message": f"Daemon busy: >{MAX_INFLIGHT_REQUESTS} in-flight requests",
                 }
-            else:
-                response = result_holder["response"]
+                try:
+                    self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+                except Exception:
+                    pass
+                return
 
-            self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+            try:
+                # Dispatch with timeout
+                result_holder = {"done": False, "response": None}
+
+                def _run():
+                    try:
+                        result_holder["response"] = _dispatcher.dispatch(method, args)
+                    except Exception as e:
+                        result_holder["response"] = {
+                            "status": "error",
+                            "error_message": str(e)[:500],
+                        }
+                    finally:
+                        result_holder["done"] = True
+
+                try:
+                    t = threading.Thread(target=_run, daemon=True)
+                    t.start()
+                    t.join(REQUEST_TIMEOUT_SEC)
+                except RuntimeError as thread_err:
+                    # "can't start new thread" — return a structured error so
+                    # the client can back off rather than loop.
+                    log.error(f"Thread creation failed: {thread_err}")
+                    response = {
+                        "status": "error",
+                        "error_message": f"Daemon thread creation failed: {thread_err}",
+                    }
+                    try:
+                        self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+                    except Exception:
+                        pass
+                    return
+
+                if not result_holder["done"]:
+                    response = {
+                        "status": "error",
+                        "error_message": f"Request timed out after {REQUEST_TIMEOUT_SEC}s",
+                    }
+                else:
+                    response = result_holder["response"]
+
+                self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+            finally:
+                _inflight_sem.release()
 
         except Exception as e:
             log.error(f"Handler error: {e}")

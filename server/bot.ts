@@ -2264,7 +2264,13 @@ print(json.dumps(result))
 
   // ── Tier 2: Intelligence — find and execute trades (5 min) ────────────────
 
+  // Set by tier2Intelligence when the Python scan subprocess returns an error
+  // or throws (e.g., "RuntimeError: can't start new thread"). The scheduler
+  // reads this to apply an exponential back-off after repeated failures.
+  let tier2LastScanFailed = false;
+
   async function tier2Intelligence(isMarketOpen: boolean, etHour: number) {
+    tier2LastScanFailed = false;
     audit("TIER2", "Starting intelligence scan...");
 
     // 1. Alpaca health check
@@ -2327,6 +2333,7 @@ print(json.dumps(get_auto_fix_params()))
       const result = JSON.parse(cleanStdout.slice(jsonStart));
 
       if (!result || result.error) {
+        tier2LastScanFailed = true;
         audit("TIER2", `Scan returned error: ${result?.error || "unknown"}`);
         return;
       }
@@ -2611,6 +2618,7 @@ else:
       }
 
     } catch (err: any) {
+      tier2LastScanFailed = true;
       console.error("[tier2-scan]", err?.message || err);
 
       // Gather everything useful: stderr, stdout tail (in case Python wrote
@@ -4302,6 +4310,11 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;
   let tier3Running = false;
+  // Cooldown after Tier 2 scan failures — prevents rapid-fire retries when
+  // Python subprocess returns errors like "RuntimeError: can't start new thread".
+  // Cleared on successful scan. Grows with consecutive failures (60s → 120s → 240s,
+  // capped at 600s) so a thread-exhaustion crash loop can't hammer the daemon.
+  let tier2ConsecutiveFailures = 0;
 
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
   setInterval(async () => {
@@ -4348,6 +4361,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     }
 
     let hitMutexTimeout = false;
+    let schedulerThrew = false;
     try {
       const clock = await alpaca("/v2/clock");
       const etH = getETHour();
@@ -4362,6 +4376,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       audit("TIER2", `Starting scan (interval: ${Math.round(interval / 60000)}min based on market time)`);
       await tier2Intelligence(clock.is_open, etH);
     } catch (err: any) {
+      schedulerThrew = true;
       const msg = String(err?.message || err);
       hitMutexTimeout = msg.includes("mutex timeout");
       if (!hitMutexTimeout) {
@@ -4372,7 +4387,31 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       }
     } finally {
       tier2Running = false;
-      const delay = hitMutexTimeout ? Math.max(60000, getTier2Interval()) : getTier2Interval();
+      // Track consecutive failures for back-off. Anything that reached the scan
+      // and errored (scheduler throw, Python scan JSON error, subprocess crash)
+      // contributes; a clean run resets the counter.
+      const failed = schedulerThrew || tier2LastScanFailed;
+      if (failed) {
+        tier2ConsecutiveFailures += 1;
+      } else {
+        tier2ConsecutiveFailures = 0;
+      }
+
+      let delay: number;
+      if (hitMutexTimeout) {
+        delay = Math.max(60000, getTier2Interval());
+      } else if (failed) {
+        // Exponential back-off after scan failure: 60s, 120s, 240s, 480s,
+        // capped at 600s. Prevents a rapid-fire retry loop when Python can't
+        // spawn new threads or the container is OOM-thrashing. Always at least
+        // as long as the normal cadence so we never scan *more* often on failure.
+        const n = Math.min(tier2ConsecutiveFailures, 5);
+        const backoff = Math.min(600000, 60000 * Math.pow(2, n - 1));
+        delay = Math.max(backoff, getTier2Interval());
+        audit("TIER2-BACKOFF", `failure #${tier2ConsecutiveFailures}, next scan in ${Math.round(delay/1000)}s`);
+      } else {
+        delay = getTier2Interval();
+      }
       setTimeout(scheduleTier2, delay);
     }
   }
