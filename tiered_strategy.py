@@ -75,11 +75,15 @@ except ImportError:
 logger = logging.getLogger("voltrade.tiers")
 
 # ── Tier enable flags (can be toggled live via this file's config) ───────────
+# STRATEGY 2026-04-22: T4 tail hedge disabled per user preference.
+# User rejects paying 1.5% annual insurance premium for tail protection.
+# Predictive stress index (stress_index.py, Commit F) replaces this
+# with dynamic sizing reduction when leading indicators fire.
 TIERS_ENABLED = {
     1: True,   # CSP core — always leave enabled
     2: True,   # Leverage multiplier (auto-disabled without PM)
     3: True,   # Trend capture
-    4: True,   # Tail hedge
+    4: False,  # Tail hedge DISABLED — replaced by stress_index predictive de-risking
 }
 
 # ── Risk limits ──────────────────────────────────────────────────────────────
