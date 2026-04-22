@@ -1694,13 +1694,11 @@ def scan_options() -> dict:
             return []
         found = []
         # Setup 3: High-IV premium sale
-        # Prioritize high_iv and anchor candidates — skip low_iv ones for this setup
         if setup_hint in ("high_iv", "anchor", "any"):
             r3 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
             if r3:
                 found.append(r3)
         # Setup 4: Low-IV breakout buy
-        # Prioritize low_iv and anchor candidates — skip high_iv for this setup
         if setup_hint in ("low_iv", "anchor", "any"):
             r4 = _setup_low_iv_breakout_buy(tkr, price, vxx_ratio)
             if r4:
@@ -1709,6 +1707,25 @@ def scan_options() -> dict:
         r5 = _setup_gamma_pin(tkr, price)
         if r5:
             found.append(r5)
+        # Setup 7 (ALPHA-TUNE 2026-04-21): VRP-driven iron condor on high-IV
+        # names without earnings. Uses vol_surface VRP/skew signals to identify
+        # names where options are chronically overpriced. Defined-risk condor
+        # (not short strangle) so single-name gaps don't destroy the book.
+        if setup_hint in ("high_iv", "anchor"):
+            try:
+                from vol_surface import get_surface_score
+                srf = get_surface_score(tkr)
+                vrp_val = srf.get("vrp", {}).get("vrp_20d", 0)
+                surf_score = srf.get("surface_score", 0)
+                days_to_earn = earnings_cal.get(tkr, 99)
+                if vrp_val > 0.05 and surf_score > 65 and days_to_earn > 10:
+                    r7 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
+                    if r7 and not any(o.get("ticker") == tkr for o in found):
+                        r7["setup"] = "vrp_condor"
+                        r7["reasoning"] = f"VRP condor: vrp_20d={vrp_val*100:.1f}%, surface={surf_score:.0f}. " + r7.get("reasoning", "")
+                        found.append(r7)
+            except Exception:
+                pass  # Surface is advisory — don't block scanning
         # Setup 6: Cash-secured put in normal markets — DISABLED (v1.0.34)
         # Backtest: CSP filler strategy at IVR 20-50 had negative P&L.
         # Premium too small to overcome spread cost + assignment risk.

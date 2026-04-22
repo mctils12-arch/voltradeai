@@ -152,7 +152,7 @@ def _alpaca_headers():
     return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
 MAX_POSITIONS = 5          # Max stocks to hold at once
-MAX_OPTIONS_POSITIONS = 3  # Max options positions — separate from stock slots
+MAX_OPTIONS_POSITIONS = 8  # ALPHA-TUNE 2026-04-21: bump to allow more simultaneous options exposure
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
 STOP_LOSS_PCT = 0.02       # 2% stop loss
 TAKE_PROFIT_PCT = 0.06     # 6% take profit (3:1 reward/risk)
@@ -2780,7 +2780,7 @@ def _scan_market_inner():
             equity=portfolio_value,
             current_tickers=current_tickers + [t["ticker"] for t in trades],
             max_new=max(1, options_slots),
-            min_score=65.0,
+            min_score=60.0,  # ALPHA-TUNE 2026-04-21: 65→60 to surface more options candidates
         )
         for ot in options_trades:
             if options_trade_count >= options_slots:
