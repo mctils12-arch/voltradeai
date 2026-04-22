@@ -151,7 +151,7 @@ ALPACA_DATA_URL = "https://data.alpaca.markets"
 def _alpaca_headers():
     return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
-MAX_POSITIONS = 5          # Max stocks to hold at once
+MAX_POSITIONS = 8          # SIZING-FIX 2026-04-22: was 5, shadowed regime-adaptive value from system_config. Now matches ABSOLUTE_MAX_POSITIONS in position_sizing.py and BULL regime cap.
 MAX_OPTIONS_POSITIONS = 8  # ALPHA-TUNE 2026-04-21: bump to allow more simultaneous options exposure
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
 STOP_LOSS_PCT = 0.02       # 2% stop loss
@@ -2362,7 +2362,22 @@ def _scan_market_inner():
 
     # Step 6: Generate trade recommendations using DYNAMIC POSITION SIZING
     trades = []
-    slots_available = MAX_POSITIONS - num_positions
+    # SIZING-FIX 2026-04-22: use regime-adaptive MAX_POSITIONS rather than
+    # the module-level constant. NEUTRAL regime returns 0 (no new stock
+    # longs), BULL returns 8, BEAR/PANIC return 0.
+    try:
+        from system_config import get_adaptive_params as _gap_slots
+        _vxx_r_slots = float(_macro.get("vxx_ratio", 1.0) or 1.0) if '_macro' in locals() else 1.0
+        _spy_ma_slots = float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0
+        _slots_params = _gap_slots(
+            vxx_ratio=_vxx_r_slots,
+            spy_vs_ma50=_spy_ma_slots,
+            account_equity=portfolio_value,
+        )
+        _max_positions_adaptive = _slots_params.get("MAX_POSITIONS", MAX_POSITIONS)
+    except Exception:
+        _max_positions_adaptive = MAX_POSITIONS
+    slots_available = max(0, _max_positions_adaptive - num_positions)
 
     # Get macro context for position sizing
     try:
