@@ -1450,12 +1450,44 @@ export default function BotDashboard() {
             </Tip>
           </div>
         </div>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           {/* Notifications Bell */}
           <NotificationBell
             notifications={notifList}
             onMarkRead={() => markAllRead.mutate()}
           />
+          {/* OBSERVABILITY 2026-04-22 */}
+          <button
+            onClick={async () => {
+              try {
+                const r = await fetch("/api/system/snapshot", { credentials: "include" });
+                if (!r.ok) { alert("Snapshot failed: " + r.status); return; }
+                const blob = await r.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+                a.download = `voltrade_snapshot_${ts}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (e: any) {
+                alert("Snapshot error: " + (e?.message || e));
+              }
+            }}
+            style={{
+              display: "flex", alignItems: "center", gap: "6px",
+              padding: "8px 12px", borderRadius: "4px",
+              border: "1px solid rgba(0,229,255,0.3)",
+              background: "rgba(0,229,255,0.08)",
+              color: "#00e5ff", fontSize: "12px", fontWeight: 600,
+              cursor: "pointer",
+            }}
+            title="Download system state snapshot as JSON"
+          >
+            📥 Snapshot
+          </button>
 
           {!isActive ? (
             <button onClick={() => startBot.mutate()} disabled={isKilled} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: "none", background: isKilled ? "#0d1a28" : "#30d158", color: isKilled ? "#4a5c70" : "#0a1420", fontSize: "13px", fontWeight: 600, cursor: isKilled ? "not-allowed" : "pointer" }}>

@@ -1349,6 +1349,274 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
     }
   });
 
+  // ═════════════════════════════════════════════════════════════════
+  // OBSERVABILITY — 2026-04-22
+  // Read-only snapshot/health endpoints. Zero trading impact.
+  // ═════════════════════════════════════════════════════════════════
+
+  app.get("/api/system/snapshot", requireAuth, async (_req, res) => {
+    const snapshot: any = {
+      snapshot_version: "1.1",
+      generated_at: new Date().toISOString(),
+      git_head_expected: "5d2add3 or later",
+      server: {
+        uptime_seconds: Math.round(process.uptime()),
+        node_version: process.version,
+        memory_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        heap_used_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        heap_total_mb: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      },
+      bot_state: {
+        active: state.active,
+        kill_switch: state.killSwitch,
+        daily_pnl: state.dailyPnL,
+        daily_loss_limit: state.dailyLossLimit,
+        position_size_multiplier: state.positionSizeMultiplier,
+        min_score_threshold: state.minScoreThreshold,
+        max_drawdown_pct: state.maxDrawdownPct,
+        equity_peak: state.equityPeak,
+        consecutive_stop_losses: state.consecutiveStopLosses,
+        circuit_breaker_until: state.circuitBreakerUntil,
+      },
+      daemon: { enabled: DAEMON_ENABLED, alive: false },
+      audit_log: {
+        total_entries: 0,
+        recent_errors: [] as any[],
+        recent_backoffs: 0,
+        last_scan_success: null as string | null,
+        last_scan_failure: null as string | null,
+      },
+      scan_stats: { success: 0, error: 0, sigkill: 0, last_24h: 0 },
+      positions: { count: 0, deployment_pct: 0, by_ticker: {} as any },
+      kill_switches: {},
+      ml: {},
+      config_files: {},
+      stress_index: {},
+      floor_state: {},
+      tier_engine: {},
+      probability_engine: {},
+    };
+
+    if (DAEMON_ENABLED) {
+      try {
+        const r = await pythonRpc("health", {});
+        if (r.status === "ok") snapshot.daemon = { enabled: true, alive: true, ...r.result };
+        else snapshot.daemon = { enabled: true, alive: false, reason: r.error_message };
+      } catch (e: any) { snapshot.daemon = { enabled: true, alive: false, reason: e.message }; }
+    }
+
+    try {
+      const persisted = getPersistedAuditLog(500);
+      snapshot.audit_log.total_entries = getAuditLogCount();
+      let lastSuccess = null, lastFailure = null;
+      let backoffCount = 0;
+      const cutoff24h = Date.now() - 86400000;
+      let last24h = 0;
+      for (const e of persisted) {
+        const t = new Date(e.time).getTime();
+        if (t > cutoff24h) last24h++;
+        if (e.type === "TIER2-ERROR" || e.type === "TIER2-BACKOFF") {
+          if (e.type === "TIER2-BACKOFF") backoffCount++;
+          if (!lastFailure) lastFailure = e.time;
+        }
+        if (e.type === "TIER2" && typeof e.message === "string" && e.message.includes("complete")) {
+          if (!lastSuccess) lastSuccess = e.time;
+        }
+      }
+      snapshot.audit_log.recent_errors = persisted.filter((e: any) => e.type?.includes("ERROR")).slice(0, 10);
+      snapshot.audit_log.recent_backoffs = backoffCount;
+      snapshot.audit_log.last_scan_success = lastSuccess;
+      snapshot.audit_log.last_scan_failure = lastFailure;
+      snapshot.scan_stats.success = persisted.filter((e: any) => e.type === "TIER2" && e.message?.includes("complete")).length;
+      snapshot.scan_stats.error = persisted.filter((e: any) => e.type === "TIER2-ERROR").length;
+      snapshot.scan_stats.sigkill = persisted.filter((e: any) => e.message?.includes("SIGKILL")).length;
+      snapshot.scan_stats.last_24h = last24h;
+    } catch (e: any) { snapshot.audit_log.error = e.message; }
+
+    try {
+      const positions = await alpaca("/v2/positions");
+      if (Array.isArray(positions)) {
+        snapshot.positions.count = positions.length;
+        let totalValue = 0;
+        const byTicker: Record<string, number> = {};
+        for (const p of positions) {
+          const mv = Math.abs(parseFloat(p.market_value || "0"));
+          totalValue += mv;
+          byTicker[p.symbol || ""] = (byTicker[p.symbol || ""] || 0) + mv;
+        }
+        const acct = await alpaca("/v2/account");
+        const equity = parseFloat(acct.equity || "0");
+        snapshot.positions.deployment_pct = equity > 0 ? Math.round((totalValue / equity) * 10000) / 100 : 0;
+        snapshot.positions.by_ticker = byTicker;
+        snapshot.positions.equity = equity;
+        snapshot.positions.cash = parseFloat(acct.cash || "0");
+        snapshot.positions.buying_power = parseFloat(acct.buying_power || "0");
+      }
+    } catch (e: any) { snapshot.positions.error = e.message; }
+
+    try {
+      const mlCall = await pythonCall(
+        "snapshot_python_state", {},
+        `python3 -c "
+import json, os
+result = {}
+try:
+    from ml_model_v2 import FEEDBACK_PATH, MODEL_PATH, MIN_FEEDBACK_VERSION
+    result['feedback_path'] = FEEDBACK_PATH
+    result['model_path'] = MODEL_PATH
+    result['min_feedback_version'] = MIN_FEEDBACK_VERSION
+    if os.path.exists(FEEDBACK_PATH):
+        with open(FEEDBACK_PATH) as f: fb = json.load(f)
+        result['feedback_count'] = len(fb) if isinstance(fb, list) else 0
+        clean = [r for r in fb if r.get('pnl_pct') not in (None, 0) and r.get('code_version')]
+        result['feedback_clean_count'] = len(clean)
+        with_fp = [r for r in fb if r.get('config_fingerprint')]
+        result['feedback_with_fingerprint'] = len(with_fp)
+    else:
+        result['feedback_count'] = 0
+    if os.path.exists(MODEL_PATH):
+        import time
+        result['model_age_hours'] = round((time.time() - os.path.getmtime(MODEL_PATH)) / 3600, 1)
+    else:
+        result['model_age_hours'] = None
+except Exception as e:
+    result['error'] = str(e)[:200]
+try:
+    from risk_kill_switch import get_kill_switch_status
+    result['kill_switches'] = get_kill_switch_status()
+except Exception as e:
+    result['kill_switches_error'] = str(e)[:200]
+try:
+    from system_config import BASE_CONFIG, get_adaptive_params
+    from macro_data import get_macro_snapshot
+    m = get_macro_snapshot()
+    result['base_config'] = BASE_CONFIG
+    result['current_adaptive_params'] = get_adaptive_params(
+        vxx_ratio=float(m.get('vxx_ratio', 1.0)),
+        spy_vs_ma50=float(m.get('spy_vs_ma50', 1.0)),
+        account_equity=100000,
+    )
+    result['macro'] = {
+        'regime': m.get('regime'),
+        'vxx_ratio': m.get('vxx_ratio'),
+        'spy_vs_ma50': m.get('spy_vs_ma50'),
+        'vix': m.get('vix'),
+        'data_quality': m.get('data_quality'),
+    }
+except Exception as e:
+    result['config_error'] = str(e)[:200]
+try:
+    from stress_index import compute_stress_index
+    result['stress_index'] = compute_stress_index()
+except Exception as e:
+    result['stress_index_error'] = str(e)[:200]
+try:
+    from probability_engine import compute_all_dimensions
+    result['probability_engine'] = compute_all_dimensions()
+except Exception as e:
+    result['probability_engine_error'] = str(e)[:200]
+try:
+    from storage_config import DATA_DIR as _DD
+    floor_path = os.path.join(_DD, 'voltrade_floor_state.json')
+    if os.path.exists(floor_path):
+        with open(floor_path) as f: result['floor_state'] = json.load(f)
+except Exception as e:
+    result['floor_state_error'] = str(e)[:200]
+try:
+    from tiered_strategy import TIERS_ENABLED
+    result['tiers_enabled'] = TIERS_ENABLED
+except Exception as e:
+    result['tiers_enabled_error'] = str(e)[:200]
+print(json.dumps(result, default=str))
+"`,
+        { timeout: 20000 }
+      );
+      if (mlCall.success) {
+        snapshot.ml = { status: "ok", ...mlCall.result };
+        if (mlCall.result.kill_switches) snapshot.kill_switches = mlCall.result.kill_switches;
+        if (mlCall.result.base_config) snapshot.config_files.base_config = mlCall.result.base_config;
+        if (mlCall.result.current_adaptive_params) snapshot.config_files.current_adaptive = mlCall.result.current_adaptive_params;
+        if (mlCall.result.macro) snapshot.config_files.macro = mlCall.result.macro;
+        if (mlCall.result.stress_index) snapshot.stress_index = mlCall.result.stress_index;
+        if (mlCall.result.probability_engine) snapshot.probability_engine = mlCall.result.probability_engine;
+        if (mlCall.result.floor_state) snapshot.floor_state = mlCall.result.floor_state;
+        if (mlCall.result.tiers_enabled) snapshot.tier_engine.tiers_enabled = mlCall.result.tiers_enabled;
+      } else {
+        snapshot.ml = { status: "failed", error: mlCall.result?.error };
+      }
+    } catch (e: any) { snapshot.ml = { status: "error", error: e.message }; }
+
+    const filename = `voltrade_snapshot_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.json`;
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.json(snapshot);
+  });
+
+  app.get("/api/system/health-check", requireAuth, async (_req, res) => {
+    const issues: any[] = [];
+    const warnings: any[] = [];
+    const now = Date.now();
+    try {
+      const persisted = getPersistedAuditLog(200);
+      const recentFailures = persisted.filter((e: any) =>
+        e.type === "TIER2-ERROR" || e.type === "TIER2-BACKOFF"
+      );
+      const recentSuccess = persisted.find((e: any) =>
+        e.type === "TIER2" && typeof e.message === "string" && e.message.includes("complete")
+      );
+      if (recentFailures.length >= 5) issues.push({ severity: "critical", category: "scan_failures", detail: `${recentFailures.length} scan errors/backoffs in recent history` });
+      if (!recentSuccess) issues.push({ severity: "critical", category: "no_successful_scans", detail: "No TIER2 scan complete in last 200 audit entries" });
+      else {
+        const lastSuccessAge = (now - new Date(recentSuccess.time).getTime()) / 60000;
+        if (lastSuccessAge > 60) warnings.push({ severity: "warning", category: "stale_scans", detail: `Last successful scan was ${Math.round(lastSuccessAge)} minutes ago` });
+      }
+      const rssMb = process.memoryUsage().rss / 1024 / 1024;
+      if (rssMb > 450) issues.push({ severity: "critical", category: "memory_pressure", detail: `Node RSS at ${Math.round(rssMb)}MB` });
+      else if (rssMb > 380) warnings.push({ severity: "warning", category: "memory_pressure", detail: `Node RSS at ${Math.round(rssMb)}MB` });
+      if (DAEMON_ENABLED) {
+        try {
+          const d = await pythonRpc("health", {});
+          if (d.status !== "ok") issues.push({ severity: "critical", category: "daemon_down", detail: `Daemon: ${d.error_message}` });
+        } catch {
+          issues.push({ severity: "critical", category: "daemon_down", detail: "Daemon RPC failed" });
+        }
+      }
+    } catch (e: any) {
+      issues.push({ severity: "error", category: "health_check_failed", detail: e.message });
+    }
+    res.json({
+      timestamp: new Date().toISOString(),
+      overall: issues.length > 0 ? "critical" : warnings.length > 0 ? "warning" : "healthy",
+      issues_count: issues.length,
+      warnings_count: warnings.length,
+      issues, warnings,
+    });
+  });
+
+  app.post("/api/system/verify-change", requireAuth, async (req, res) => {
+    const expected = req.body?.changes || [];
+    if (!Array.isArray(expected)) return res.status(400).json({ error: "Body must be {changes: string[]}" });
+    const checks: any = { verified: [], missing: [], checked_at: new Date().toISOString() };
+    try {
+      const files = [
+        "./bot_engine.py", "./options_scanner.py", "./ml_model_v2.py",
+        "./server/bot.ts", "./tiered_strategy.py", "./risk_kill_switch.py",
+        "./position_sizing.py", "./macro_data.py", "./system_config.py",
+        "./alt_data.py", "./options_execution.py", "./stress_index.py",
+        "./probability_engine.py",
+      ];
+      let haystack = "";
+      for (const f of files) {
+        try { haystack += fs.readFileSync(f, "utf8") + "\n"; } catch {}
+      }
+      for (const exp of expected) {
+        if (typeof exp === "string" && haystack.includes(exp)) checks.verified.push(exp);
+        else checks.missing.push(exp);
+      }
+    } catch (e: any) { checks.error = e.message; }
+    res.json(checks);
+  });
+
   // Bot status
   app.get("/api/bot/status", requireAuth, (_req, res) => {
     res.json({
