@@ -1103,6 +1103,23 @@ def _train_single_lgbm(X_tr, X_te, y_tr, y_te, label="", sample_weight=None):
 
 
 def train_model(fast_mode: bool = False) -> dict:
+    """Wrapper that surfaces retrain errors instead of swallowing them."""
+    try:
+        return _train_model_impl(fast_mode=fast_mode)
+    except Exception as e:
+        # MEM FIX 2026-04-21: surface actual error instead of swallowing it
+        import traceback
+        err_msg = str(e)[:200]
+        err_tb = traceback.format_exc()[-500:]
+        try:
+            import logging
+            logging.getLogger("voltrade.ml").error(f"Retrain failed: {err_msg}\n{err_tb}")
+        except Exception:
+            pass
+        return {"status": f"error: {err_msg}", "accuracy": None, "features": None, "samples": None, "error_detail": err_msg}
+
+
+def _train_model_impl(fast_mode: bool = False) -> dict:
     """
     Train the regime-conditional ensemble.
 
@@ -1527,6 +1544,23 @@ def _rule_based_fallback(features: dict) -> dict:
 # ══════════════════════════════════════════════════════════════════
 
 def train_meta_model() -> dict:
+    """Wrapper that surfaces meta retrain errors instead of swallowing them."""
+    try:
+        return _train_meta_model_impl()
+    except Exception as e:
+        # MEM FIX 2026-04-21: surface actual error instead of swallowing it
+        import traceback
+        err_msg = str(e)[:200]
+        err_tb = traceback.format_exc()[-500:]
+        try:
+            import logging
+            logging.getLogger("voltrade.ml").error(f"Retrain failed: {err_msg}\n{err_tb}")
+        except Exception:
+            pass
+        return {"status": f"error: {err_msg}", "accuracy": None, "features": None, "samples": None, "error_detail": err_msg}
+
+
+def _train_meta_model_impl() -> dict:
     """
     Train a secondary model to filter false positives from the primary model.
 
@@ -1898,6 +1932,23 @@ def options_ml_score(features: dict) -> float:
 
 
 def train_options_model() -> dict:
+    """Wrapper that surfaces options retrain errors instead of swallowing them."""
+    try:
+        return _train_options_model_impl()
+    except Exception as e:
+        # MEM FIX 2026-04-21: surface actual error instead of swallowing it
+        import traceback
+        err_msg = str(e)[:200]
+        err_tb = traceback.format_exc()[-500:]
+        try:
+            import logging
+            logging.getLogger("voltrade.ml").error(f"Retrain failed: {err_msg}\n{err_tb}")
+        except Exception:
+            pass
+        return {"status": f"error: {err_msg}", "accuracy": None, "features": None, "samples": None, "error_detail": err_msg}
+
+
+def _train_options_model_impl() -> dict:
     """Train the options ML model with the same pro-architecture improvements."""
     t0 = time.time()
     if not HAS_SKLEARN:

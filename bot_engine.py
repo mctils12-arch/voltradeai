@@ -2279,23 +2279,42 @@ def _scan_market_inner():
         except Exception:
             return idx, candidate
 
-    # If the mem guard already populated deep_scored (skip path), bypass the pool.
+    # MEM FIX 2026-04-21: cap top_candidates to 15 before deep_score as a
+    # safeguard. The deep_cap path above normally holds it lower (≤5), but if
+    # env overrides raise it, 15 is a hard ceiling — the quick-scan phase
+    # already pre-ranked by quick_score so we keep the highest-potential names.
+    if len(top_candidates) > 15:
+        top_candidates = top_candidates[:15]
+        deep_scored = deep_scored[:15]
+
+    # MEM FIX 2026-04-21: switch from ThreadPool to serial execution.
+    # Previous max_workers=2 fix still SIGKILL'd because the 100MB memory
+    # jump happens during top_candidates prep, not per-worker. Serial loop
+    # with gc.collect() between candidates stays under container limit.
     if top_candidates:
-        with ThreadPoolExecutor(max_workers=2) as _dpool:  # MEM FIX 2026-04-20: 4→2 workers to avoid OOM
-            futures = {_dpool.submit(_deep_one, (i, c)): i for i, c in enumerate(top_candidates)}
-            try:
-                for future in as_completed(futures, timeout=35):  # 35s total hard cap
-                    try:
-                        idx, result = future.result(timeout=8)  # 8s per ticker — kill slow yfinance calls
-                        deep_scored[idx] = result
-                    except Exception:
-                        deep_scored[futures[future]] = None
-                    # MEM FIX 2026-04-20: release DataFrames/numpy arrays after each worker
-                    import gc as _gc
-                    _gc.collect()
-            except TimeoutError:
+        import gc as _gc
+        import time as _time
+        _deep_start = _time.time()
+        for _idx, _candidate in enumerate(top_candidates):
+            if _time.time() - _deep_start > 35:  # 35s hard cap preserved
                 import logging
-                logging.getLogger("bot_engine").warning("Deep scoring hit 25s cap — using partial results")
+                logging.getLogger("bot_engine").warning(
+                    f"Deep scoring hit 35s cap at candidate {_idx}/{len(top_candidates)} — using partial results"
+                )
+                break
+            try:
+                _i, _result = _deep_one((_idx, _candidate))
+                deep_scored[_i] = _result
+            except Exception:
+                deep_scored[_idx] = None
+            _gc.collect()
+        # DEAD CODE — legacy ThreadPool replaced by serial loop above
+        with ThreadPoolExecutor(max_workers=1) as _dpool:
+            futures = {}  # DEAD CODE — serial loop above handles deep scoring
+            try:
+                pass
+            except TimeoutError:
+                pass
         _gc_checkpoint("after_deep_score")  # MEM: drop ml_model_v2/DataFrames before trade gen
 
     deep_scored = [d for d in deep_scored if d is not None]
