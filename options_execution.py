@@ -1280,6 +1280,89 @@ def _select_calendar_spread(contracts: list, price: float, equity: float, ticker
     }
 
 
+def _select_diagonal_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
+    """
+    DIAGONAL SPREAD 2026-04-22 (Poor Man's Covered Call)
+    ====================================================
+    Buy long-dated ITM call (replaces 100 shares of stock).
+    Sell short-dated OTM call (collects premium, caps upside).
+
+    Capital efficiency: uses ~25-35% of covered call capital for similar
+    income stream. Max loss = net debit paid.
+    """
+    calls = [c for c in contracts if c["option_type"] == "call"]
+    if len(calls) < 2:
+        return {"error": "Not enough call contracts for diagonal"}
+
+    # Long leg: 60-120 DTE, ITM by 5-15%
+    long_candidates = [
+        c for c in calls
+        if 60 <= c.get("days_to_expiry", 0) <= 120
+        and c["strike"] <= price * 0.92
+        and c["strike"] >= price * 0.80
+    ]
+    if not long_candidates:
+        return {"error": "No suitable ITM long-dated calls for diagonal"}
+
+    # Short leg: 21-35 DTE, OTM by 3-7%
+    short_candidates = [
+        c for c in calls
+        if 21 <= c.get("days_to_expiry", 0) <= 35
+        and c["strike"] >= price * 1.02
+        and c["strike"] <= price * 1.08
+    ]
+    if not short_candidates:
+        return {"error": "No suitable OTM short-dated calls for diagonal"}
+
+    # Pick best pair: long closest to 90 DTE @ ~5% ITM, short closest to 30 DTE @ ~5% OTM
+    long_leg = min(long_candidates, key=lambda c: abs(c.get("days_to_expiry", 90) - 90) + abs(c["strike"] - price * 0.95) * 2)
+    short_leg = min(short_candidates, key=lambda c: abs(c.get("days_to_expiry", 30) - 30) + abs(c["strike"] - price * 1.05) * 2)
+
+    long_ask = long_leg.get("ask", 0)
+    short_bid = short_leg.get("bid", 0)
+    if long_ask <= 0 or short_bid <= 0:
+        return {"error": "Diagonal legs missing quote data"}
+
+    net_debit = round(long_ask - short_bid, 2)
+    if net_debit <= 0:
+        return {"error": "Diagonal requires net debit > 0 (long leg cost > short leg premium)"}
+
+    # Liquidity check
+    if long_leg.get("oi", 0) < 50 or short_leg.get("oi", 0) < 100:
+        return {"error": "Diagonal legs lack liquidity"}
+
+    max_loss_per = round(net_debit * 100, 2)
+    max_contracts = max(1, int(equity * size_pct / max_loss_per)) if max_loss_per > 0 else 1
+    qty = min(max_contracts, 3)
+
+    # Long delta (approximates stock-equivalent exposure)
+    long_delta = abs(long_leg.get("delta", 0.8))
+    short_delta = abs(short_leg.get("delta", 0.3))
+    net_delta = long_delta - short_delta
+
+    return {
+        "strategy": "diagonal_spread",
+        "long_leg": long_leg["occ_symbol"],
+        "short_leg": short_leg["occ_symbol"],
+        "long_strike": long_leg["strike"],
+        "short_strike": short_leg["strike"],
+        "long_expiry": long_leg["expiry"],
+        "short_expiry": short_leg["expiry"],
+        "qty": qty,
+        "net_debit": net_debit,
+        "limit_price": net_debit,
+        "max_cost": round(net_debit * 100 * qty, 2),
+        "max_loss": round(max_loss_per * qty, 2),
+        "long_delta": round(long_delta, 3),
+        "short_delta": round(short_delta, 3),
+        "net_delta": round(net_delta, 3),
+        "days_long": long_leg.get("days_to_expiry"),
+        "days_short": short_leg.get("days_to_expiry"),
+        "short_premium_collected": round(short_bid * 100 * qty, 2),
+        "error": None,
+    }
+
+
 def _select_bear_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Bear put spread: buy higher strike put, sell lower strike put. Defined risk."""
     puts = [c for c in contracts if c["option_type"] == "put"]
