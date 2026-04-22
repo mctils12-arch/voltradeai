@@ -2137,7 +2137,15 @@ def _scan_market_inner():
             return {"error": "Could not fetch market universe", "trades": []}
 
     # Step 2: Fetch ALL snapshots in parallel (16 workers = ~4 seconds for 11K stocks)
-    batches = [ticker_symbols[i:i+1000] for i in range(0, len(ticker_symbols), 1000)]
+    # HOTFIX 2026-04-22: memory spike in quick_scan. Snapshot logs showed
+    # pre_deep_score RSS at 91-152MB, hitting Railway container OOM (~180MB cap).
+    # Root cause: 6 parallel batch workers each holding a 1000-ticker JSON
+    # response = 50-65MB. On first-scan numpy import spike that becomes
+    # 130-150MB. Halving the batch size and worker count, plus an explicit
+    # gc.collect() after each parse, trades ~2s of scan time for ~40MB less
+    # peak RSS.
+    import gc as _gc_snap
+    batches = [ticker_symbols[i:i+500] for i in range(0, len(ticker_symbols), 500)]
     snap_all = {}
 
     def _fetch_snap(batch):
@@ -2149,10 +2157,11 @@ def _scan_market_inner():
         except Exception:
             return {}
 
-    # 6 workers balances speed vs Railway thread limits (was 16 — caused EAGAIN)
-    with _TPE(max_workers=6) as pool:
+    # HOTFIX 2026-04-22: 6 → 2 workers to cut concurrent JSON buffer RSS.
+    with _TPE(max_workers=2) as pool:
         for snap_data in pool.map(_fetch_snap, batches):
             snap_all.update(snap_data)
+            _gc_snap.collect()
 
     quick_results = []
     _et_now = datetime.now(ZoneInfo("America/New_York"))
@@ -2241,21 +2250,26 @@ def _scan_market_inner():
     except Exception:
         _deep_cap = 5
     _deep_cap = max(1, min(_deep_cap, 10))
+    # HOTFIX 2026-04-22: lower mem guard thresholds from 250/210 → 130/100.
+    # Railway containers have been SIGKILLing around 150-180MB, so the previous
+    # 250/210 (and later 360/300) ceilings never actually tripped before OOM.
+    # 130MB critical / 100MB trim matches the observed RSS range and keeps the
+    # scan alive by returning quick-scan top 10 when pressure is real.
     try:
-        _mem_skip_deep_mb = int(os.environ.get("VOLTRADE_MEM_SKIP_DEEP_MB", "360"))
+        _mem_skip_deep_mb = int(os.environ.get("VOLTRADE_MEM_SKIP_DEEP_MB", "130"))
     except Exception:
-        _mem_skip_deep_mb = 360
+        _mem_skip_deep_mb = 130
     try:
-        _mem_trim_deep_mb = int(os.environ.get("VOLTRADE_MEM_TRIM_DEEP_MB", "300"))
+        _mem_trim_deep_mb = int(os.environ.get("VOLTRADE_MEM_TRIM_DEEP_MB", "100"))
     except Exception:
-        _mem_trim_deep_mb = 300
+        _mem_trim_deep_mb = 100
 
     _pre_mb = _log_mem_phase("pre_deep_score")
     if _pre_mb and _pre_mb >= _mem_skip_deep_mb:
         # Too close to Railway's OOM line — skip deep scoring entirely.
         import logging as _lg
         _lg.getLogger("bot_engine").warning(
-            f"[mem_guard] pre_deep_score rss~{_pre_mb}MB >= {_mem_skip_deep_mb}MB — "
+            f"[mem_guard HOTFIX 2026-04-22] pre_deep_score rss~{_pre_mb}MB >= {_mem_skip_deep_mb}MB — "
             f"skipping deep scoring, returning quick-scan top 10 as partial result"
         )
         print(f"[mem] skip_deep_score_due_to_pressure rss~{_pre_mb}MB", file=sys.stderr, flush=True)

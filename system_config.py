@@ -292,8 +292,8 @@ BASE_CONFIG = {
     # ── SCAN UNIVERSE SIZE ────────────────────────────────────────────────────
     "SCREENER_TOP_N":       100,    # Top N from most-actives
     "SCREENER_MOVERS_N":    50,     # Top N movers
-    "DEEP_SCORE_TOP_N":     20,     # Deep-analyze top N candidates
-    "DEEP_SCORE_WORKERS":   4,      # MEM FIX 2026-04-20: was 8 — Railway 512MB OOM; 4 cuts peak memory ~40MB
+    "DEEP_SCORE_TOP_N":     5,      # HOTFIX 2026-04-22: was 20 — memory pressure, containers capped ~180MB
+    "DEEP_SCORE_WORKERS":   1,      # HOTFIX 2026-04-22: was 4 — serial deep score in bot_engine
     "STREAM_TICKERS_N":     60,     # Tickers to subscribe in streaming feed
 }
 
