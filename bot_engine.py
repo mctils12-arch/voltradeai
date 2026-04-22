@@ -2271,6 +2271,66 @@ def _scan_market_inner():
     from concurrent.futures import ThreadPoolExecutor, as_completed
     _gc_checkpoint("after_quick_scan")  # MEM: release quick-scan dicts before deep work
 
+    # ── SURVIVAL MODE 2026-04-22 ───────────────────────────────────────────
+    # Railway SIGKILLs bot_engine "full" around 150-180MB even though
+    # pre_deep_score logs rss~88MB. The jump happens inside deep_score's
+    # lazy import of ml_model_v2 (lightgbm+sklearn ≈ 150MB) before the
+    # next _log_mem_phase checkpoint can flush. To keep Tier2 scans
+    # completing instead of dying mid-phase, skip deep scoring and all
+    # downstream heavy work (options_scanner, covered-call sweep,
+    # manage_options_positions, macro/stress passes) and return a valid
+    # quick-scan partial result. CSP/order paths that look at result.top_10
+    # and result.new_trades keep working — they just won't get ML-enriched
+    # scores this cycle.
+    #
+    # Default ON when running under Railway (any RAILWAY_* env var set) or
+    # whenever VOLTRADE_TIER2_SURVIVAL_MODE is not explicitly "0". Disable
+    # locally with VOLTRADE_TIER2_SURVIVAL_MODE=0.
+    _survival_env = os.environ.get("VOLTRADE_TIER2_SURVIVAL_MODE", "").strip()
+    _on_railway = any(k.startswith("RAILWAY_") for k in os.environ.keys())
+    if _survival_env == "0":
+        _survival_mode = False
+    elif _survival_env == "1":
+        _survival_mode = True
+    else:
+        # Default: ON in production (Railway), OFF in local dev.
+        _survival_mode = _on_railway
+    if _survival_mode:
+        _surv_mb = _mem_rss_mb()
+        print(
+            f"[mem] SURVIVAL_MODE skip_deep_score rss~{_surv_mb}MB candidates={len(scored)}",
+            file=sys.stderr, flush=True,
+        )
+        import logging as _lg_surv
+        _lg_surv.getLogger("bot_engine").warning(
+            f"[SURVIVAL_MODE 2026-04-22] returning quick-scan partial result "
+            f"rss~{_surv_mb}MB candidates={len(scored)} — deep/options skipped"
+        )
+        _surv_top = scored[:10]
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "scanned": len(all_tickers) if 'all_tickers' in dir() else len(scored),
+            "filtered": len(scored),
+            "deep_analyzed": 0,
+            "top_10": [
+                {
+                    "ticker": s["ticker"],
+                    "price": s.get("price", 0),
+                    "score": s.get("quick_score", 0),
+                    "change_pct": s.get("change_pct", 0),
+                    "side": s.get("side", "buy"),
+                    "action_label": "WATCH",
+                    "reasons": s.get("reasons", [])[:2],
+                }
+                for s in _surv_top
+            ],
+            "new_trades": [],
+            "trades": [],
+            "position_actions": [],
+            "partial": True,
+            "survival_mode": True,
+        }
+
     # MEM FIX 2026-04-21: Cap deep-score candidate count and add a pre-deep-score
     # memory guard. Railway's container was SIGKILLing bot_engine around
     # pre_deep_score rss~234MB because ml_model_v2 (lightgbm+sklearn, ~150MB)
