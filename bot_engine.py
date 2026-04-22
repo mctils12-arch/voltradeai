@@ -2136,32 +2136,60 @@ def _scan_market_inner():
         except Exception:
             return {"error": "Could not fetch market universe", "trades": []}
 
-    # Step 2: Fetch ALL snapshots in parallel (16 workers = ~4 seconds for 11K stocks)
-    # HOTFIX 2026-04-22: memory spike in quick_scan. Snapshot logs showed
-    # pre_deep_score RSS at 91-152MB, hitting Railway container OOM (~180MB cap).
-    # Root cause: 6 parallel batch workers each holding a 1000-ticker JSON
-    # response = 50-65MB. On first-scan numpy import spike that becomes
-    # 130-150MB. Halving the batch size and worker count, plus an explicit
-    # gc.collect() after each parse, trades ~2s of scan time for ~40MB less
-    # peak RSS.
+    # Step 2: Fetch ALL snapshots sequentially, extracting only the 4 fields we
+    # need per symbol (c, o, v, prev_c). Keeps raw JSON alive for at most one
+    # batch at a time and caps accumulated state to ~40 bytes/symbol instead
+    # of ~8-15 KB/symbol.
+    #
+    # HOTFIX 2026-04-22 (follow-up to b7f53d5): previous fix dropped batch
+    # size to 500 / 2 workers but still accumulated the full parsed JSON for
+    # all ~11,600 symbols in `snap_all`. At ~10 KB/entry that's ~115 MB of
+    # Python dict overhead on top of numpy+requests baseline — Railway kept
+    # SIGKILLing during quick_scan before the pre_deep_score guard could
+    # trip. Parsing inside the worker and dropping non-essential fields cuts
+    # steady-state quick_scan RSS by ~80-100 MB.
     import gc as _gc_snap
-    batches = [ticker_symbols[i:i+500] for i in range(0, len(ticker_symbols), 500)]
-    snap_all = {}
+    batches = [ticker_symbols[i:i+400] for i in range(0, len(ticker_symbols), 400)]
+    # snap_all now maps sym -> (c, o, v, pc) tuple (4 floats/ints only).
+    snap_all: dict = {}
 
     def _fetch_snap(batch):
         try:
             alpaca_throttle.acquire()
             r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols={','.join(batch)}&feed=sip",
                 headers=_alpaca_headers(), timeout=15)
-            return r.json()
+            raw = r.json()
+            # Extract only fields needed by quick-score. Drops latestTrade,
+            # latestQuote, minuteBar and any other heavy sub-objects before
+            # the raw response is retained across batches.
+            out = {}
+            if isinstance(raw, dict):
+                for sym, snap in raw.items():
+                    if not isinstance(snap, dict):
+                        continue
+                    bar = snap.get("dailyBar") or {}
+                    prev = snap.get("prevDailyBar") or {}
+                    try:
+                        c = float(bar.get("c", 0) or 0)
+                        o = float(bar.get("o", c) or c)
+                        v = int(bar.get("v", 0) or 0)
+                        pc = float(prev.get("c", c) or c)
+                    except (TypeError, ValueError):
+                        continue
+                    if c <= 0:
+                        continue
+                    out[sym] = (c, o, v, pc)
+            return out
         except Exception:
             return {}
 
-    # HOTFIX 2026-04-22: 6 → 2 workers to cut concurrent JSON buffer RSS.
-    with _TPE(max_workers=2) as pool:
-        for snap_data in pool.map(_fetch_snap, batches):
-            snap_all.update(snap_data)
-            _gc_snap.collect()
+    # Sequential fetch: only one raw JSON response is alive at a time, and it
+    # is released as soon as _fetch_snap returns its trimmed dict.
+    for _b in batches:
+        snap_all.update(_fetch_snap(_b))
+        _gc_snap.collect()
+
+    _log_mem_phase("after_snapshots")
 
     quick_results = []
     _et_now = datetime.now(ZoneInfo("America/New_York"))
@@ -2177,15 +2205,21 @@ def _scan_market_inner():
 
     all_tickers = list(snap_all.keys())  # For scanned count
 
-    # Step 3: Quick-score all stocks that pass price+volume filters
+    # Step 3: Quick-score all stocks that pass price+volume filters.
+    # snap_all values are (c, o, v, pc) tuples produced by _fetch_snap.
     for sym, snap in snap_all.items():
         try:
-            bar = snap.get("dailyBar", {})
-            prev = snap.get("prevDailyBar", {})
-            c = float(bar.get("c", 0))
-            o = float(bar.get("o", c))
-            pc = float(prev.get("c", c))
-            v = int(bar.get("v", 0))
+            if isinstance(snap, tuple) and len(snap) == 4:
+                c, o, v, pc = snap
+                c = float(c); o = float(o); v = int(v); pc = float(pc)
+            else:
+                # Defensive fallback for any legacy dict-shaped entry.
+                bar = snap.get("dailyBar", {}) if isinstance(snap, dict) else {}
+                prev = snap.get("prevDailyBar", {}) if isinstance(snap, dict) else {}
+                c = float(bar.get("c", 0))
+                o = float(bar.get("o", c))
+                pc = float(prev.get("c", c))
+                v = int(bar.get("v", 0))
             if c < MIN_PRICE or v < _min_vol:
                 continue
             if "." in sym or len(sym) > 5:
