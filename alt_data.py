@@ -154,8 +154,9 @@ def get_fred_macro() -> dict:
                     if len(parts) >= 2 and parts[1].strip() and parts[1].strip() != ".":
                         result[name] = float(parts[1].strip())
                         break
-        except Exception:
-            pass
+        except Exception as _fred_err:
+            import logging
+            logging.getLogger("voltrade.alt_data").debug(f"FRED fetch failed for {series_id}: {_fred_err}")
 
     # Derived signals
     yc = result.get("yield_curve")

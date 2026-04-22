@@ -121,7 +121,9 @@ def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
             account_equity=equity,
             spy_below_200_days=0,
         )
-    except Exception:
+    except Exception as _gcap_err:
+        import logging
+        logging.getLogger("voltrade.tiers").warning(f"get_regime_caps fallback: {_gcap_err}")
         # Conservative fallback matching system_config BASE_CONFIG defaults
         return {
             "MAX_POSITION_PCT":    0.08,

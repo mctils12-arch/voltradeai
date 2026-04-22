@@ -263,7 +263,9 @@ def get_macro_snapshot() -> dict:
         else:
             result["vxx_ratio"] = 1.0
             result["vxx_closes"] = []
-    except Exception:
+    except Exception as _regime_err:
+        import logging
+        logging.getLogger("voltrade.macro").debug(f"regime detection failed: {_regime_err}")
         result["vxx_ratio"] = 1.0
 
     # SPY / 50-day MA — trend gauge
