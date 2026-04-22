@@ -360,6 +360,12 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             result = _select_qqq_iron_condor(liquid, price, equity, ticker)
         elif strategy == "covered_call":
             result = _select_covered_call(liquid, price, equity, ticker, trade.get("shares_held", 0))
+        elif strategy == "calendar_spread":
+            # CALENDAR 2026-04-22: term-structure mean reversion
+            result = _select_calendar_spread(liquid, price, equity, ticker, size_pct)
+        elif strategy == "diagonal_spread":
+            # DIAGONAL 2026-04-22: poor man's covered call
+            result = _select_diagonal_spread(liquid, price, equity, ticker, size_pct)
         else:
             return {"error": f"Unknown strategy: {strategy}"}
 
@@ -1172,6 +1178,108 @@ def _select_bull_spread(contracts: list, price: float, equity: float, ticker: st
     return result
 
 
+def _select_calendar_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
+    """
+    CALENDAR SPREAD 2026-04-22
+    ==========================
+    Buy long-dated option + sell short-dated option at SAME strike.
+    Profits from:
+      - Time decay (short leg decays faster)
+      - IV mean reversion (front-month IV > back-month IV = contango breakdown)
+
+    Target: sell 14-28 DTE, buy 60-90 DTE, both ATM or slightly OTM calls.
+    Max loss = net debit paid. Max profit = roughly half the net debit at
+    short expiry if stock stays near strike.
+    """
+    calls = [c for c in contracts if c["option_type"] == "call"]
+    if len(calls) < 2:
+        return {"error": "Not enough call contracts for calendar spread"}
+
+    # Group by strike
+    from collections import defaultdict
+    by_strike: dict = defaultdict(list)
+    for c in calls:
+        by_strike[c["strike"]].append(c)
+
+    # Need at least one strike with calls at 2+ different expirations
+    valid_strikes = []
+    for strike, strike_calls in by_strike.items():
+        expiries = set(c["expiry"] for c in strike_calls)
+        if len(expiries) >= 2:
+            # Separate into short (14-28 DTE) and long (50-90 DTE) buckets
+            short_leg = [c for c in strike_calls if 14 <= c.get("days_to_expiry", 0) <= 30]
+            long_leg = [c for c in strike_calls if 50 <= c.get("days_to_expiry", 0) <= 90]
+            if short_leg and long_leg:
+                valid_strikes.append((strike, short_leg[0], long_leg[0]))
+
+    if not valid_strikes:
+        return {"error": "No strike has suitable short+long DTE calls for calendar"}
+
+    # Prefer strike closest to ATM
+    valid_strikes.sort(key=lambda x: abs(x[0] - price))
+    strike, short_call, long_call = valid_strikes[0]
+
+    # Calendar is DEBIT trade: buy long, sell short
+    # Net debit = long_ask - short_bid
+    long_ask = long_call.get("ask", 0)
+    short_bid = short_call.get("bid", 0)
+    if long_ask <= 0 or short_bid <= 0:
+        return {"error": "Missing quote data for calendar legs"}
+    net_debit = round(long_ask - short_bid, 2)
+    if net_debit <= 0:
+        return {"error": "Calendar spread requires net debit > 0"}
+
+    # Liquidity check
+    if short_call.get("oi", 0) < 100 or long_call.get("oi", 0) < 50:
+        return {"error": "Calendar spread legs lack liquidity (OI < threshold)"}
+
+    # IV differential — core edge
+    short_iv = short_call.get("iv", 0)
+    long_iv = long_call.get("iv", 0)
+    iv_diff = short_iv - long_iv  # positive = backwardation, good for calendar
+
+    # Score: favor strikes where short IV > long IV
+    # Base score + IV differential bonus
+    if iv_diff > 0.05:
+        iv_bonus = 15
+    elif iv_diff > 0.02:
+        iv_bonus = 8
+    elif iv_diff > 0:
+        iv_bonus = 3
+    else:
+        return {"error": f"Calendar requires short IV > long IV; diff={iv_diff:.3f}"}
+
+    max_loss_per = round(net_debit * 100, 2)
+    max_contracts = max(1, int(equity * size_pct / max_loss_per)) if max_loss_per > 0 else 1
+    qty = min(max_contracts, 3)
+
+    # Expected profit estimation: calendars typically capture 20-40% of net debit
+    # at short leg expiry if stock near strike.
+    expected_profit = round(net_debit * 0.25 * 100, 2)
+
+    return {
+        "strategy": "calendar_spread",
+        "long_leg": long_call["occ_symbol"],
+        "short_leg": short_call["occ_symbol"],
+        "strike": strike,
+        "long_expiry": long_call["expiry"],
+        "short_expiry": short_call["expiry"],
+        "qty": qty,
+        "net_debit": net_debit,
+        "limit_price": net_debit,
+        "max_cost": round(net_debit * 100 * qty, 2),
+        "max_profit_estimate": round(expected_profit * qty, 2),
+        "max_loss": round(max_loss_per * qty, 2),
+        "short_iv": round(short_iv * 100, 1),
+        "long_iv": round(long_iv * 100, 1),
+        "iv_differential": round(iv_diff * 100, 2),
+        "iv_bonus_score": iv_bonus,
+        "days_short": short_call.get("days_to_expiry"),
+        "days_long": long_call.get("days_to_expiry"),
+        "error": None,
+    }
+
+
 def _select_bear_spread(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
     """Bear put spread: buy higher strike put, sell lower strike put. Defined risk."""
     puts = [c for c in contracts if c["option_type"] == "put"]
@@ -1613,6 +1721,12 @@ def submit_options_order(contract: dict) -> dict:
         return _submit_straddle_order(contract)
     elif strategy in ("iron_condor", "qqq_iron_condor"):
         return _submit_condor_order(contract)
+    elif strategy == "calendar_spread":
+        # CALENDAR 2026-04-22: submit via mleg
+        return _submit_calendar_order(contract)
+    elif strategy == "diagonal_spread":
+        # DIAGONAL 2026-04-22: submit via mleg
+        return _submit_diagonal_order(contract)
     elif strategy == "covered_call":
         # Covered call is a single-leg sell (stock is already held)
         pass  # Falls through to single-leg order below
@@ -1801,6 +1915,41 @@ def _submit_condor_order(contract: dict) -> dict:
         ],
         qty=qty, limit_price=net_credit,
         label=f"Iron condor x{qty}",
+    )
+
+def _submit_calendar_order(contract: dict) -> dict:
+    """Submit calendar spread via Alpaca native mleg order (2 legs, different expiries)."""
+    long_sym = contract.get("long_leg", "")
+    short_sym = contract.get("short_leg", "")
+    qty = contract.get("qty", 1)
+    net_debit = contract.get("net_debit", 0) or contract.get("limit_price", 0)
+    if not long_sym or not short_sym:
+        return {"status": "error", "detail": "Calendar spread missing leg symbols"}
+    return _submit_mleg_order(
+        legs=[
+            {"symbol": long_sym, "side": "buy", "ratio_qty": 1},
+            {"symbol": short_sym, "side": "sell", "ratio_qty": 1},
+        ],
+        qty=qty, limit_price=net_debit,
+        label=f"Calendar {long_sym}/{short_sym} x{qty}",
+    )
+
+
+def _submit_diagonal_order(contract: dict) -> dict:
+    """Submit diagonal spread via Alpaca native mleg order (2 legs, different strikes+expiries)."""
+    long_sym = contract.get("long_leg", "")
+    short_sym = contract.get("short_leg", "")
+    qty = contract.get("qty", 1)
+    net_debit = contract.get("net_debit", 0) or contract.get("limit_price", 0)
+    if not long_sym or not short_sym:
+        return {"status": "error", "detail": "Diagonal spread missing leg symbols"}
+    return _submit_mleg_order(
+        legs=[
+            {"symbol": long_sym, "side": "buy", "ratio_qty": 1},
+            {"symbol": short_sym, "side": "sell", "ratio_qty": 1},
+        ],
+        qty=qty, limit_price=net_debit,
+        label=f"Diagonal {long_sym}/{short_sym} x{qty}",
     )
 
 
