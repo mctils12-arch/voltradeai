@@ -3832,6 +3832,37 @@ except: print('{}')
         const side = pos.side === "short" ? "short" as const : "long" as const;
 
         // ══════════════════════════════════════════════════════════════
+        // TIME-EXIT 2026-04-22: close positions older than 14 days with
+        // pnl in [-5%, +2%]. Stale + not working = opportunity cost.
+        // Skips ETF floor holdings.
+        // ══════════════════════════════════════════════════════════════
+        try {
+          const floorTickers = new Set(["QQQ", "SPY", "GLD", "VTI", "VXUS", "IWM", "TLT", "IEF", "SCHP", "SMH", "KWEB"]);
+          if (!floorTickers.has(ticker)) {
+            const entryTime = pos.created_at || pos.submitted_at;
+            if (entryTime) {
+              const ageDays = (Date.now() - new Date(entryTime).getTime()) / (1000 * 60 * 60 * 24);
+              if (ageDays > 14 && pnlPct >= -5.0 && pnlPct <= 2.0) {
+                audit("TIME-EXIT", `${ticker}: ${Math.round(ageDays)}d old, pnl ${pnlPct.toFixed(1)}% — closing stale`);
+                try {
+                  const closeSide = side === "long" ? "sell" : "buy";
+                  await alpaca("/v2/orders", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      symbol: ticker, qty: String(qty), side: closeSide,
+                      type: "market", time_in_force: "day",
+                    }),
+                  });
+                  continue;
+                } catch (e: any) {
+                  audit("TIME-EXIT-ERROR", `${ticker}: ${e?.message?.slice(0, 80)}`);
+                }
+              }
+            }
+          }
+        } catch { /* non-critical */ }
+
+        // ══════════════════════════════════════════════════════════════
         // ITEM 13 FIX 2026-04-20: Per-position risk kill
         // If this position has lost more than 25%, liquidate immediately.
         // Catches runaway single-name losses faster than portfolio DD kill.
