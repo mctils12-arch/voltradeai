@@ -1788,7 +1788,10 @@ HIGH_EDGE_SETUPS = {
 }
 # Minimum score for options trades — higher bar than stocks (65)
 # because options have built-in time decay + spread cost headwinds.
-MIN_OPTIONS_SCORE = 70.0
+# REAL-ALPHA-TUNE 2026-04-22: 70→60. Prior Commit C edit in bot_engine
+# was silently overridden by this floor. Lowering here actually surfaces
+# more options candidates.
+MIN_OPTIONS_SCORE = 60.0
 
 
 def get_options_trades(
