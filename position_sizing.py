@@ -752,15 +752,69 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
     
     # ── Step 3: Combine into final percentage ─────────────────────────────
     
-    final_pct = (kelly_base 
-                 * s_volatility 
-                 * s_confidence 
-                 * s_regime 
-                 * s_earnings 
-                 * s_time 
-                 * s_heat 
+    final_pct = (kelly_base
+                 * s_volatility
+                 * s_confidence
+                 * s_regime
+                 * s_earnings
+                 * s_time
+                 * s_heat
                  * s_liquidity)
-    
+
+    # DD-SIZING 2026-04-22: drawdown-conditional scaling.
+    # As account drawdown grows, shrink new positions predictively.
+    # DD 0-5%: full. 5-10%: 80%. 10-15%: 60%. 15-20%: 40%.
+    try:
+        import os as _osdd, json as _jsdd
+        _equity_peak_path = os.path.join(DATA_DIR, "voltrade_equity_peak.json")
+        if _osdd.path.exists(_equity_peak_path):
+            with open(_equity_peak_path) as _fdd:
+                _peak_data = _jsdd.load(_fdd)
+            _peak = _peak_data.get("peak_equity", equity)
+            if _peak > equity:
+                _dd_pct = (equity - _peak) / _peak
+                if _dd_pct <= -0.15:
+                    _dd_scalar = 0.4
+                elif _dd_pct <= -0.10:
+                    _dd_scalar = 0.6
+                elif _dd_pct <= -0.05:
+                    _dd_scalar = 0.8
+                else:
+                    _dd_scalar = 1.0
+                final_pct = final_pct * _dd_scalar
+                s_dd = _dd_scalar
+                _dd_applied_pct = _dd_pct
+            else:
+                s_dd = 1.0
+                _dd_applied_pct = 0.0
+        else:
+            s_dd = 1.0
+            _dd_applied_pct = 0.0
+    except Exception:
+        s_dd = 1.0
+        _dd_applied_pct = 0.0
+
+    # STRESS-INDEX 2026-04-22: apply predictive stress multiplier.
+    # Replaces passive tail-hedge with active de-risking based on
+    # leading macro indicators. Applied AFTER DD scaling so both stack.
+    try:
+        from stress_index import get_stress_multiplier, compute_stress_index
+        _stress_mult = get_stress_multiplier()
+        if _stress_mult < 1.0:
+            final_pct = final_pct * _stress_mult
+            _si = compute_stress_index()
+            s_stress = _stress_mult
+            _stress_level = _si.get('level', 'unknown')
+            _stress_value = _si.get('index', 0)
+        else:
+            s_stress = 1.0
+            _stress_level = "calm"
+            _stress_value = 0
+    except Exception:
+        s_stress = 1.0
+        _stress_level = "unavailable"
+        _stress_value = 0
+
     # Clamp to absolute limits
     final_pct = max(ABSOLUTE_MIN_POSITION_PCT, min(final_pct, ABSOLUTE_MAX_POSITION_PCT))
     
@@ -815,6 +869,11 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
         "time_of_day": round(s_time, 3),
         "portfolio_heat": round(s_heat, 3),
         "liquidity": round(s_liquidity, 3),
+        "drawdown_scalar": round(s_dd, 3) if 's_dd' in dir() else 1.0,
+        "drawdown_pct": round(_dd_applied_pct * 100, 2) if '_dd_applied_pct' in dir() else 0,
+        "stress": round(s_stress, 3) if 's_stress' in dir() else 1.0,
+        "stress_level": _stress_level if '_stress_level' in dir() else "unknown",
+        "stress_value": _stress_value if '_stress_value' in dir() else 0,
         "combined": round(final_pct, 4),
     }
     
