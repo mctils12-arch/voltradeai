@@ -624,11 +624,11 @@ def get_kill_switch_status() -> dict:
     return {
         "peak_equity": peak,
         "consecutive_losses": consec,
-        "consecutive_loss_limit": CONSECUTIVE_LOSS_LIMIT,
+        "consecutive_loss_limit": CONSECUTIVE_LOSS_KILL,  # HOTFIX 2026-04-22: was undefined CONSECUTIVE_LOSS_LIMIT
         "daily_pnl_pct": round(daily_pnl * 100, 2),
-        "daily_loss_limit_pct": round(DAILY_LOSS_KILL * 100, 2),
+        "daily_loss_limit_pct": round(DAILY_LOSS_LIMIT * 100, 2),  # HOTFIX 2026-04-22: was undefined DAILY_LOSS_KILL
         "portfolio_dd_kill_pct": round(PORTFOLIO_DD_KILL * 100, 2),
-        "vxx_regime_kill_threshold": VXX_REGIME_KILL,
+        "vxx_regime_kill_threshold": REGIME_KILL_VXX,  # HOTFIX 2026-04-22: was undefined VXX_REGIME_KILL
         "min_free_bp": MIN_FREE_BP,
     }
 
