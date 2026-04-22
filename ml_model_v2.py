@@ -841,6 +841,47 @@ def _build_training_data(all_bars: dict,
 # poison the model with outcomes caused by bugs, not bad signals.
 MIN_FEEDBACK_VERSION = "1.0.33"
 
+# VERSION-AWARE-ML 2026-04-22: config similarity weighting for training
+def _get_current_config_fingerprint() -> str:
+    """Return current config fingerprint. Used to weight training records."""
+    try:
+        import hashlib as _ha
+        from system_config import BASE_CONFIG as _bc
+        from position_sizing import ABSOLUTE_MAX_POSITION_PCT as _amp, ABSOLUTE_MAX_POSITIONS as _amp2
+        _cfg = {
+            "max_position_pct": _bc.get("MAX_POSITION_PCT"),
+            "max_positions":    _bc.get("MAX_POSITIONS"),
+            "max_total_exposure": _bc.get("MAX_TOTAL_EXPOSURE"),
+            "spy_floor_neutral": _bc.get("SPY_FLOOR_NEUTRAL"),
+            "spy_floor_bull":    _bc.get("SPY_FLOOR_BULL"),
+            "defensive_floor_bull":    _bc.get("DEFENSIVE_FLOOR_BULL"),
+            "defensive_floor_neutral": _bc.get("DEFENSIVE_FLOOR_NEUTRAL"),
+            "absolute_max_position_pct": _amp,
+            "absolute_max_positions":    _amp2,
+            "min_options_score": None,
+        }
+        try:
+            from options_scanner import MIN_OPTIONS_SCORE as _mos
+            _cfg["min_options_score"] = _mos
+        except Exception:
+            pass
+        _cfg_str = json.dumps(_cfg, sort_keys=True)
+        return _ha.sha256(_cfg_str.encode()).hexdigest()[:16]
+    except Exception:
+        return "unknown"
+
+
+def _config_similarity_weight(record_fingerprint: str, current_fingerprint: str) -> float:
+    """
+    Return training weight in [0.2, 1.0] based on config match.
+    Same fingerprint = 1.0. Different (but known) = 0.5. Unknown = 0.2.
+    """
+    if not record_fingerprint or record_fingerprint == "unknown":
+        return 0.2
+    if record_fingerprint == current_fingerprint:
+        return 1.0
+    return 0.5
+
 # ──────────────────────────────────────────────────────────────────────────
 # ITEM 18 FIX 2026-04-20: Auto-clean poisoned feedback on first post-deploy run
 # Bug #13 was writing every trade as `pnl_pct=0`. After the fix, these records
@@ -2287,10 +2328,37 @@ def track_fill(order_data: dict) -> None:
                     "time_filled":    str(order_data.get("time_filled", datetime.now().isoformat())),
                     "score":          float(order_data.get("score", 0) or 0),
                     "entry_features": order_data.get("entry_features", {}),
-                    "outcome":        None,   # backfilled on matching exit fill
+                    "outcome":        None,
                     "pnl_pct":        None,
                     "code_version":   "1.0.34",
                 }
+                # VERSION-AWARE-ML 2026-04-22: capture config fingerprint
+                try:
+                    import hashlib as _ha
+                    from system_config import BASE_CONFIG as _bc
+                    from position_sizing import ABSOLUTE_MAX_POSITION_PCT as _amp, ABSOLUTE_MAX_POSITIONS as _amp2
+                    _cfg = {
+                        "max_position_pct": _bc.get("MAX_POSITION_PCT"),
+                        "max_positions":    _bc.get("MAX_POSITIONS"),
+                        "max_total_exposure": _bc.get("MAX_TOTAL_EXPOSURE"),
+                        "spy_floor_neutral": _bc.get("SPY_FLOOR_NEUTRAL"),
+                        "spy_floor_bull":    _bc.get("SPY_FLOOR_BULL"),
+                        "defensive_floor_bull":    _bc.get("DEFENSIVE_FLOOR_BULL"),
+                        "defensive_floor_neutral": _bc.get("DEFENSIVE_FLOOR_NEUTRAL"),
+                        "absolute_max_position_pct": _amp,
+                        "absolute_max_positions":    _amp2,
+                        "min_options_score": None,
+                    }
+                    try:
+                        from options_scanner import MIN_OPTIONS_SCORE as _mos
+                        _cfg["min_options_score"] = _mos
+                    except Exception:
+                        pass
+                    _cfg_str = json.dumps(_cfg, sort_keys=True)
+                    record["config_fingerprint"] = _ha.sha256(_cfg_str.encode()).hexdigest()[:16]
+                    record["config_snapshot"]    = _cfg
+                except Exception:
+                    record["config_fingerprint"] = "unknown"
                 raw_feedback.append(record)
 
             # Rotate: keep last 5000 records
