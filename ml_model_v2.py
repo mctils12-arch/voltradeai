@@ -2195,22 +2195,25 @@ def _is_exit_fill(order_data: dict) -> bool:
     return False
 
 
-def _find_entry_record(records: list, ticker: str) -> int:
-    """Find the index of the most recent entry record for this ticker that
-    still has outcome=None (meaning it hasn't been closed yet).
-
-    Returns -1 if not found.
-    Searches backwards for efficiency (entries are usually recent).
+def _find_entry_record(feedback: list, ticker: str) -> int:
     """
-    for i in range(len(records) - 1, -1, -1):
-        r = records[i]
-        if r.get("ticker") != ticker:
+    Find the most recent matching ENTRY record (outcome=None) for given ticker.
+    Returns index or -1 if not found.
+
+    HOTFIX 2026-04-22: normalize ticker comparison consistently and
+    walk feedback in REVERSE order (most recent first).
+    """
+    if not feedback or not ticker:
+        return -1
+    target = str(ticker).strip().upper()
+    # Walk backwards — exit should match most recent entry
+    for i in range(len(feedback) - 1, -1, -1):
+        record = feedback[i]
+        if not isinstance(record, dict):
             continue
-        if r.get("outcome") is not None:
-            continue  # already closed
-        if r.get("pnl_pct") is not None:
-            continue  # already labeled
-        return i
+        rec_ticker = str(record.get("ticker", "")).strip().upper()
+        if rec_ticker == target and record.get("outcome") is None:
+            return i
     return -1
 
 
@@ -2304,7 +2307,13 @@ def track_fill(order_data: dict) -> None:
                         })
                 else:
                     # No matching entry — might be manual trade or pre-existing position
-                    # Log it anyway so the record exists
+                    # HOTFIX 2026-04-22: log this so orphan rate is visible.
+                    # If >30% of exits are orphans, entry/exit matching is broken.
+                    import logging as _orphan_log
+                    _orphan_log.getLogger("voltrade.ml").warning(
+                        f"ORPHAN EXIT: {ticker} fill_price={fill_price} — no matching open entry "
+                        f"(feedback size={len(raw_feedback)})"
+                    )
                     raw_feedback.append({
                         "ticker": ticker, "side": str(order_data.get("side", "sell")),
                         "qty": qty, "fill_price": fill_price,

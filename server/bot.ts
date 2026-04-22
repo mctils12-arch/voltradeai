@@ -1468,7 +1468,7 @@ try:
     if os.path.exists(FEEDBACK_PATH):
         with open(FEEDBACK_PATH) as f: fb = json.load(f)
         result['feedback_count'] = len(fb) if isinstance(fb, list) else 0
-        clean = [r for r in fb if r.get('pnl_pct') not in (None, 0) and r.get('code_version')]
+        clean = [r for r in fb if r.get('pnl_pct') is not None and r.get('code_version')]
         result['feedback_clean_count'] = len(clean)
         with_fp = [r for r in fb if r.get('config_fingerprint')]
         result['feedback_with_fingerprint'] = len(with_fp)
