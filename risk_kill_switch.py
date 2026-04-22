@@ -624,7 +624,7 @@ def get_kill_switch_status() -> dict:
     return {
         "peak_equity": peak,
         "consecutive_losses": consec,
-        "consecutive_loss_limit": CONSECUTIVE_LOSS_KILL,  # HOTFIX 2026-04-22: was undefined CONSECUTIVE_LOSS_LIMIT
+        "consecutive_loss_limit": CONSECUTIVE_LOSS_KILL,  # HOTFIX 2026-04-22 R2: fixed undefined constant reference
         "daily_pnl_pct": round(daily_pnl * 100, 2),
         "daily_loss_limit_pct": round(DAILY_LOSS_LIMIT * 100, 2),  # HOTFIX 2026-04-22: was undefined DAILY_LOSS_KILL
         "portfolio_dd_kill_pct": round(PORTFOLIO_DD_KILL * 100, 2),
