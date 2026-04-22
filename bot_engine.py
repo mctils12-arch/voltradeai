@@ -2028,13 +2028,26 @@ def scan_market():
     4. Deep-analyze top 5 candidates (capped for timeout safety)
     5. Return top positions with full trade recommendations
     """
+    # DAEMON FIX 2026-04-22: signal.signal() / signal.alarm() only work in the
+    # main thread. When scan_market runs inside voltrade_daemon worker threads
+    # (route: run_full_scan → scan_market), the SIGALRM call raises ValueError
+    # and the whole scan aborts before doing any work. Detect main-thread vs
+    # worker-thread and skip the per-call alarm when we can't set it.
+    # Outer guards still apply: daemon REQUEST_TIMEOUT_SEC=60 and Node's
+    # per-call timeout (300s) bound runtime in the worker-thread path.
     import signal as _sig
+    import threading as _thr
+
+    _in_main_thread = _thr.current_thread() is _thr.main_thread()
 
     def _scan_timeout_handler(signum, frame):
         raise TimeoutError("scan_market exceeded 50-second hard cap")
 
-    _old_handler = _sig.signal(_sig.SIGALRM, _scan_timeout_handler)
-    _sig.alarm(55)  # 55s hard cap — Node kills at 90s
+    _old_handler = None
+    if _in_main_thread:
+        _old_handler = _sig.signal(_sig.SIGALRM, _scan_timeout_handler)
+        _sig.alarm(55)  # 55s hard cap — Node kills at 90s
+
     try:
         return _scan_market_inner()
     except TimeoutError as _te:
@@ -2045,8 +2058,9 @@ def scan_market():
             return _partial_scan_result  # No "error" key — Node will process it
         return {"error": "scan_market timed out with no partial results", "trades": [], "new_trades": []}
     finally:
-        _sig.alarm(0)
-        _sig.signal(_sig.SIGALRM, _old_handler)
+        if _in_main_thread and _old_handler is not None:
+            _sig.alarm(0)
+            _sig.signal(_sig.SIGALRM, _old_handler)
 
 
 def _scan_market_inner():
@@ -2059,26 +2073,31 @@ def _scan_market_inner():
     _log_mem_phase("scan_inner_start")
 
     # ── ULTRA SURVIVAL MODE 2026-04-22 ─────────────────────────────────────
-    # Railway keeps SIGKILLing "full" scans between scan_inner_start and
-    # the quick_scan body even though rss logs ~50MB on entry — the spike
-    # comes from _get_full_universe() + Alpaca snapshot fetching with
-    # requests retaining ~10KB/symbol across ~11,600 symbols (~115MB) on
-    # top of numpy/pandas baseline. The previous SURVIVAL_MODE branch sits
-    # after quick_scan completes, so it never runs. This branch returns a
-    # valid minimal scan result BEFORE any heavy network/parse work.
+    # Railway was SIGKILLing "full" scans between scan_inner_start and
+    # the quick_scan body. Root cause was _get_full_universe() + Alpaca
+    # snapshot fetching retaining ~10KB/symbol across ~11,600 symbols
+    # (~115MB) on top of numpy/pandas baseline. The hotfix at line ~2194
+    # now trims each snapshot to a 4-tuple (c,o,v,pc) before the next batch
+    # arrives — peak RSS during quick_scan dropped by ~80-100 MB, which is
+    # what was actually causing the kills.
     #
-    # Default ON for mode=full unless VOLTRADE_ULTRA_SURVIVAL_MODE is
-    # explicitly "0"/"false"/"no". Disable locally with
-    # VOLTRADE_ULTRA_SURVIVAL_MODE=0.
+    # DEFAULT FLIPPED 2026-04-22 (follow-up): with the memory hotfix live
+    # AND daemon-routed scans (run_full_scan → scan_market) bypassing the
+    # per-scan numpy/lightgbm cold-start, ULTRA default-ON is no longer
+    # needed. Leaving it ON makes "scanned 0, 0 trade candidates" the
+    # steady state — the bot runs but finds nothing, which looks healthy
+    # to health checks but means zero new entries.
+    #
+    # Behavior:
+    #   VOLTRADE_ULTRA_SURVIVAL_MODE unset / "" / "0" / "false" / "no" → OFF (default)
+    #   VOLTRADE_ULTRA_SURVIVAL_MODE "1" / "true" / "yes"              → ON
+    # Flip to "1" in the Railway env if memory pressure returns; no code
+    # change required to re-enable the escape hatch.
     _ultra_env = os.environ.get("VOLTRADE_ULTRA_SURVIVAL_MODE", "").strip().lower()
-    _ultra_mode_on_full = (len(sys.argv) > 1 and sys.argv[1] == "full")
-    if _ultra_env in ("0", "false", "no"):
-        _ultra_mode = False
-    elif _ultra_env in ("1", "true", "yes"):
+    if _ultra_env in ("1", "true", "yes"):
         _ultra_mode = True
     else:
-        # Default: ON for full scans (emergency stability hotfix).
-        _ultra_mode = _ultra_mode_on_full
+        _ultra_mode = False
     if _ultra_mode:
         _ultra_mb = _mem_rss_mb()
         print(

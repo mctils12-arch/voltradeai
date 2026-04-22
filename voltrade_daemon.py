@@ -156,8 +156,10 @@ class RPCDispatcher:
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),
 
-            # Scan
-            "run_full_scan": ("bot_engine", "main_scan"),
+            # Scan — route to bot_engine.scan_market (fixed 2026-04-22,
+            # previously pointed at non-existent "main_scan" which made
+            # every daemon-routed scan return "Method main_scan not found"
+            "run_full_scan": ("bot_engine", "scan_market"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:

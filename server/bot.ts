@@ -39,10 +39,14 @@ const DAEMON_SOCKET = process.env.VOLTRADE_DAEMON_SOCKET || "/tmp/voltrade_daemo
 const DAEMON_ENABLED = process.env.VOLTRADE_DAEMON_ENABLED !== "false";
 const DAEMON_TIMEOUT_MS = 30000;
 
-async function pythonRpc(method: string, args: any = {}): Promise<any> {
+async function pythonRpc(method: string, args: any = {}, timeoutMs?: number): Promise<any> {
   if (!DAEMON_ENABLED) {
     return { status: "error", error_message: "Daemon disabled via env" };
   }
+  // Per-call timeout override — heavy methods like run_full_scan need more
+  // than the default 30s (full scans run up to ~55s under the Python-side
+  // SIGALRM cap). Caller passes timeoutMs; falls back to DAEMON_TIMEOUT_MS.
+  const effectiveTimeout = timeoutMs && timeoutMs > 0 ? timeoutMs : DAEMON_TIMEOUT_MS;
   return new Promise((resolve) => {
     let buf = "";
     let settled = false;
@@ -51,7 +55,7 @@ async function pythonRpc(method: string, args: any = {}): Promise<any> {
     const timer = setTimeout(() => {
       try { client.destroy(); } catch {}
       done({ status: "error", error_message: "Daemon timeout" });
-    }, DAEMON_TIMEOUT_MS);
+    }, effectiveTimeout);
     client.on("connect", () => {
       client.write(JSON.stringify({ method, args }) + "\n");
     });
@@ -76,16 +80,20 @@ async function pythonRpc(method: string, args: any = {}): Promise<any> {
 
 // pythonCall: try daemon first, fall back to subprocess.
 // Same return shape regardless of which path was taken.
-// Returns { success: boolean, result: any, via: "daemon"|"subprocess"|"none" }
+// Returns { success: boolean, result: any, via: "daemon"|"subprocess"|"none", error?: any }
+// On subprocess failure the raw exec error (with .stderr/.stdout/.signal/.code)
+// is attached as `error` so callers can preserve the existing diagnostic
+// classification instead of getting only an error message string.
 async function pythonCall(
   daemonMethod: string,
   daemonArgs: any,
   subprocessCmd: string,
-  subprocessOpts: any = {}
-): Promise<{ success: boolean; result: any; via: string }> {
+  subprocessOpts: any = {},
+  daemonTimeoutMs?: number
+): Promise<{ success: boolean; result: any; via: string; error?: any }> {
   if (DAEMON_ENABLED) {
     try {
-      const r = await pythonRpc(daemonMethod, daemonArgs);
+      const r = await pythonRpc(daemonMethod, daemonArgs, daemonTimeoutMs);
       if (r.status === "ok") {
         return { success: true, result: r.result, via: "daemon" };
       }
@@ -95,7 +103,7 @@ async function pythonCall(
     const { stdout } = await execPythonSerialized(subprocessCmd, subprocessOpts);
     return { success: true, result: JSON.parse(stdout.trim()), via: "subprocess" };
   } catch (e: any) {
-    return { success: false, result: { error: e.message }, via: "none" };
+    return { success: false, result: { error: e.message }, via: "none", error: e };
   }
 }
 
@@ -2593,20 +2601,47 @@ print(json.dumps(get_auto_fix_params()))
 
     try {
       const enginePath = require("path").resolve(process.cwd(), "bot_engine.py");
-      const { stdout, stderr } = await execPythonSerialized(`python3 -W ignore "${enginePath}" full`, { timeout: 300000 }); // 5 min timeout
-      // Robust JSON extraction: find the first '{' to skip any warning/debug text before JSON
-      const cleanStdout = stdout.replace(/\r/g, '').trim();
-      const jsonStart = cleanStdout.indexOf('{');
-      if (jsonStart === -1) throw new Error(`No JSON in output. stdout: ${cleanStdout.slice(0, 200)} stderr: ${(stderr || '').slice(0, 200)}`);
-      const result = JSON.parse(cleanStdout.slice(jsonStart));
+
+      // DAEMON ROUTING 2026-04-22: Route through voltrade_daemon when alive
+      // (daemon holds numpy/pandas/lightgbm/ml_model_v2 resident, so scan
+      // runs in-process without the ~300 MB subprocess cold-start that was
+      // getting SIGKILLed by Railway's cgroup OOM killer). Falls back to
+      // spawning `python3 bot_engine.py full` if the daemon is down, disabled,
+      // or returns a non-ok status.
+      //
+      // Daemon timeout: 90s (bot_engine.scan_market caps itself at 55s via
+      // SIGALRM in main thread; in daemon worker thread it relies on this
+      // outer bound). Subprocess timeout unchanged at 300s.
+      const callResult = await pythonCall(
+        "run_full_scan",
+        {},
+        `python3 -W ignore "${enginePath}" full`,
+        { timeout: 300000 },
+        90000
+      );
+
+      if (!callResult.success) {
+        tier2LastScanFailed = true;
+        // If subprocess fallback ran and failed, rethrow its raw error object
+        // so the existing catch block below can extract stderr/stdout/signal/
+        // code and classify (SIGKILL/OOM/timeout/buffer) the same way it did
+        // when scans went straight to execPythonSerialized. Otherwise surface
+        // whatever error string we have.
+        if (callResult.error) throw callResult.error;
+        throw new Error(callResult.result?.error || "scan call failed (no daemon, no subprocess)");
+      }
+
+      // Daemon path returns the parsed dict directly; subprocess path also
+      // returns a parsed dict (pythonCall does JSON.parse on stdout).
+      const result = callResult.result;
 
       if (!result || result.error) {
         tier2LastScanFailed = true;
-        audit("TIER2", `Scan returned error: ${result?.error || "unknown"}`);
+        audit("TIER2", `Scan returned error: ${result?.error || "unknown"} (via ${callResult.via})`);
         return;
       }
 
-      audit("TIER2", `Scanned ${result.scanned || 0} stocks, ${(result.new_trades || []).length} trade candidates`);
+      audit("TIER2", `Scanned ${result.scanned || 0} stocks, ${(result.new_trades || []).length} trade candidates (via ${callResult.via})`);
 
       lastScanResult = result;
 
@@ -3387,7 +3422,34 @@ else:
           const trainResult = JSON.parse(trainOut.trim());
           audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
         } catch (trainErr: any) {
-          audit("TIER3-ML-ERROR", `ML retrain failed: ${trainErr?.message?.slice(0, 200) || trainErr}`);
+          // DIAGNOSTIC FIX 2026-04-22: previously logged only err.message
+          // which produced useless entries like "Command failed: python3
+          // ml_retrain_safe.py" with no signal/stderr/stdout context — so
+          // OOM kills, import failures, and silent Python crashes all
+          // looked identical. Mirror the Tier 2 scan classifier: grab
+          // stderr (Python traceback), stdout tail (ml_retrain_safe.py
+          // writes its JSON error payload here on caught exceptions),
+          // exit code and kill signal.
+          const _stderr = String(trainErr?.stderr || "");
+          const _stdout = String(trainErr?.stdout || "");
+          const _rawCode = trainErr?.code;
+          const _code: string | number =
+            _rawCode === undefined || _rawCode === null || _rawCode === "" ? "?" : _rawCode;
+          const _signal = trainErr?.signal || "none";
+          // Prefer stderr (Python traceback), fall back to stdout
+          // (ml_retrain_safe prints structured JSON errors there).
+          const _primary = _stderr.trim() ? _stderr : _stdout;
+          const _tail = _primary.length > 500 ? "…" + _primary.slice(-500) : _primary;
+          let _cls = "";
+          if (_signal === "SIGKILL" && !_stderr.trim()) {
+            _cls = " [likely OOM kill during import lightgbm/ml_model_v2]";
+          } else if (_signal === "SIGTERM") {
+            _cls = " [timed out or killed externally]";
+          } else if (_rawCode === "ETIMEDOUT") {
+            _cls = " [exec timeout exceeded]";
+          }
+          const _detail = _tail.trim() || String(trainErr?.message || trainErr);
+          audit("TIER3-ML-ERROR", `ML retrain failed (code=${_code} signal=${_signal})${_cls}: ${_detail}`);
         }
       } else {
         audit("TIER3", `ML model fresh (${modelStatus.age_hours}h old) — skipping retrain`);
