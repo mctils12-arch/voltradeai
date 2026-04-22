@@ -303,6 +303,33 @@ def get_macro_snapshot() -> dict:
     except Exception:
         result["spy_vs_ma50"] = 1.0
 
+    # HOTFIX 2026-04-22: compute and set "regime" key that downstream
+    # consumers expect (probability_engine, stress_index, UI). Previously
+    # only vix_regime and market_regime were set — regime was left as None.
+    _vxx_r = float(result.get("vxx_ratio", 1.0) or 1.0)
+    try:
+        from system_config import get_market_regime as _gmr_macro
+        _spy_ma = float(result.get("spy_vs_ma50", 1.0) or 1.0)
+        _spy_b200 = int(result.get("spy_below_200_days", 0) or 0)
+        _spy_above = bool(result.get("spy_above_200d", True))
+        result["regime"] = _gmr_macro(_vxx_r, _spy_ma,
+                                      spy_below_200_days=_spy_b200,
+                                      spy_above_200d=_spy_above)
+    except Exception as _reg_err:
+        import logging
+        logging.getLogger("voltrade.macro").debug(f"regime derivation failed: {_reg_err}")
+        # Fallback: map VXX ratio to canonical regime labels
+        if _vxx_r >= 1.30:
+            result["regime"] = "PANIC"
+        elif _vxx_r >= 1.15:
+            result["regime"] = "BEAR"
+        elif _vxx_r >= 1.05:
+            result["regime"] = "CAUTION"
+        elif _vxx_r <= 0.90:
+            result["regime"] = "BULL"
+        else:
+            result["regime"] = "NEUTRAL"
+
     # DATA QUALITY FLAG (added 2026-04-20): tiers that depend on vxx/spy
     # should skip execution if we had to fall back to defaults (all 1.0s).
     # Consumers check macro.get("data_quality") == "degraded" to decide.
