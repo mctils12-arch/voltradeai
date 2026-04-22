@@ -135,13 +135,16 @@ BASE_CONFIG = {
     # into QQQ. The allocations below are total equity, not of-the-floor.
     "DEFENSIVE_FLOOR_ENABLED":  True,
     "DEFENSIVE_FLOOR_TICKER":   "GLD",
-    "DEFENSIVE_FLOOR_BULL":     0.00,   # Full QQQ exposure
-    "DEFENSIVE_FLOOR_NEUTRAL":  0.00,
-    "DEFENSIVE_FLOOR_CAUTION":  0.10,   # Start rotating in (10%)
-    "DEFENSIVE_FLOOR_BEAR":     0.30,   # Heavy GLD (was 0% third leg)
-    "DEFENSIVE_FLOOR_PANIC":    0.40,   # All-out crisis rotation
-    # If death cross fires on QQQ, force at least this much GLD regardless
-    # of regime (catches bear markets faster than VXX alone).
+    # INFLATION-HEDGE 2026-04-22: GLD always-on.
+    # Per user thesis (structural inflation, US fiscal pressure, geopolitical
+    # fragmentation), GLD should be permanent ~5-8% allocation rather than
+    # regime-triggered. Historically correlates near zero with SPY (+0.07)
+    # and has positive expected return in both bull and bear regimes.
+    "DEFENSIVE_FLOOR_BULL":     0.08,   # ALWAYS-ON 8% GLD in bull
+    "DEFENSIVE_FLOOR_NEUTRAL":  0.08,   # ALWAYS-ON 8% GLD in neutral
+    "DEFENSIVE_FLOOR_CAUTION":  0.15,   # 15% when regime tilts risk-off
+    "DEFENSIVE_FLOOR_BEAR":     0.30,   # Heavy GLD in bear
+    "DEFENSIVE_FLOOR_PANIC":    0.40,   # Crisis rotation
     "DEFENSIVE_FLOOR_DEATHCROSS_MIN": 0.25,
 
     # ── THIRD LEG (v1.0.25) ────────────────────────────────────────────
