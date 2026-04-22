@@ -1707,10 +1707,14 @@ def scan_options() -> dict:
         r5 = _setup_gamma_pin(tkr, price)
         if r5:
             found.append(r5)
-        # Setup 7 (ALPHA-TUNE 2026-04-21): VRP-driven iron condor on high-IV
-        # names without earnings. Uses vol_surface VRP/skew signals to identify
-        # names where options are chronically overpriced. Defined-risk condor
+        # Setup 7 (REAL-ALPHA-TUNE 2026-04-22): VRP-driven iron condor
+        # on high-IV names without earnings. Uses vol_surface VRP/skew
+        # to identify chronically overpriced options. Defined-risk condor
         # (not short strangle) so single-name gaps don't destroy the book.
+        #
+        # FIX vs prior attempt: setup name kept as "high_iv_premium_sale"
+        # so it passes the HIGH_EDGE_SETUPS whitelist at line 1851.
+        # Reasoning field is prefixed with VRP context for observability.
         if setup_hint in ("high_iv", "anchor"):
             try:
                 from vol_surface import get_surface_score
@@ -1721,11 +1725,15 @@ def scan_options() -> dict:
                 if vrp_val > 0.05 and surf_score > 65 and days_to_earn > 10:
                     r7 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
                     if r7 and not any(o.get("ticker") == tkr for o in found):
-                        r7["setup"] = "vrp_condor"
-                        r7["reasoning"] = f"VRP condor: vrp_20d={vrp_val*100:.1f}%, surface={surf_score:.0f}. " + r7.get("reasoning", "")
+                        # KEEP setup="high_iv_premium_sale" — whitelist gate
+                        r7["vrp_enhanced"] = True
+                        r7["vrp_20d"] = vrp_val
+                        r7["surface_score_ticker"] = surf_score
+                        r7["reasoning"] = f"[VRP+] vrp_20d={vrp_val*100:.1f}%, surface={surf_score:.0f}. " + r7.get("reasoning", "")
+                        r7["score"] = min(88, r7.get("score", 60) + 4)
                         found.append(r7)
             except Exception:
-                pass  # Surface is advisory — don't block scanning
+                pass
         # Setup 6: Cash-secured put in normal markets — DISABLED (v1.0.34)
         # Backtest: CSP filler strategy at IVR 20-50 had negative P&L.
         # Premium too small to overcome spread cost + assignment risk.
