@@ -2058,6 +2058,56 @@ def _scan_market_inner():
     # peak memory ~30-80MB and gives diagnosable logs when something leaks.
     _log_mem_phase("scan_inner_start")
 
+    # ── ULTRA SURVIVAL MODE 2026-04-22 ─────────────────────────────────────
+    # Railway keeps SIGKILLing "full" scans between scan_inner_start and
+    # the quick_scan body even though rss logs ~50MB on entry — the spike
+    # comes from _get_full_universe() + Alpaca snapshot fetching with
+    # requests retaining ~10KB/symbol across ~11,600 symbols (~115MB) on
+    # top of numpy/pandas baseline. The previous SURVIVAL_MODE branch sits
+    # after quick_scan completes, so it never runs. This branch returns a
+    # valid minimal scan result BEFORE any heavy network/parse work.
+    #
+    # Default ON for mode=full unless VOLTRADE_ULTRA_SURVIVAL_MODE is
+    # explicitly "0"/"false"/"no". Disable locally with
+    # VOLTRADE_ULTRA_SURVIVAL_MODE=0.
+    _ultra_env = os.environ.get("VOLTRADE_ULTRA_SURVIVAL_MODE", "").strip().lower()
+    _ultra_mode_on_full = (len(sys.argv) > 1 and sys.argv[1] == "full")
+    if _ultra_env in ("0", "false", "no"):
+        _ultra_mode = False
+    elif _ultra_env in ("1", "true", "yes"):
+        _ultra_mode = True
+    else:
+        # Default: ON for full scans (emergency stability hotfix).
+        _ultra_mode = _ultra_mode_on_full
+    if _ultra_mode:
+        _ultra_mb = _mem_rss_mb()
+        print(
+            f"[mem] ULTRA_SURVIVAL_MODE early_return rss~{_ultra_mb}MB reason=pre_quick_scan",
+            file=sys.stderr, flush=True,
+        )
+        try:
+            import logging as _lg_ultra
+            _lg_ultra.getLogger("bot_engine").warning(
+                f"[ULTRA_SURVIVAL_MODE 2026-04-22] early return rss~{_ultra_mb}MB "
+                f"— quick_scan/snapshots/deep_score all skipped"
+            )
+        except Exception:
+            pass
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "scanned": 0,
+            "filtered": 0,
+            "deep_analyzed": 0,
+            "top_10": [],
+            "new_trades": [],
+            "trades": [],
+            "position_actions": [],
+            "tier_actions": [],
+            "partial": True,
+            "survival_mode": True,
+            "ultra_survival_mode": True,
+        }
+
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
     # ── Portfolio-level DD halt check (v1.0.29+) ────────────────────────────────
