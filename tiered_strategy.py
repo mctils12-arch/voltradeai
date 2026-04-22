@@ -134,12 +134,49 @@ def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
         }
 
 # ── Tier 1: CSP core settings ────────────────────────────────────────────────
-T1_TICKERS = [
-    # Liquid, high-IV, proven CSP names (research: tastytrade CSP universe)
+# ── T1 Universe (DYNAMIC 2026-04-22) ────────────────────────────────────────
+# Hardcoded list kept as FALLBACK only. Active universe comes from
+# csp_universe.get_top_csp_candidates() which ranks ~400 candidates
+# by 7-factor CSP score and returns top 200 per 15-min cycle.
+T1_TICKERS_FALLBACK = [
     "AMD", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA",
-    "SPY", "QQQ", "IWM",  # index ETFs — lower IV but lower risk
+    "SPY", "QQQ", "IWM",
     "AVGO", "CRM", "ORCL", "INTC", "CAT", "GE",
 ]
+
+def _get_t1_universe() -> list:
+    """
+    Returns active T1 universe — dynamic if available and enabled,
+    fallback otherwise.
+    """
+    try:
+        from system_config import BASE_CONFIG
+        if not BASE_CONFIG.get("T1_DYNAMIC_UNIVERSE_ENABLED", True):
+            logger.debug("T1 dynamic universe disabled via config")
+            return T1_TICKERS_FALLBACK
+        max_size = BASE_CONFIG.get("T1_UNIVERSE_MAX_SIZE", 200)
+    except Exception:
+        max_size = 200
+
+    try:
+        from csp_universe import get_top_csp_candidates
+        dynamic = get_top_csp_candidates(n=max_size)
+        if dynamic and len(dynamic) >= len(T1_TICKERS_FALLBACK):
+            return dynamic
+        logger.warning(
+            f"T1 dynamic universe small ({len(dynamic)} tickers) — using fallback"
+        )
+        return T1_TICKERS_FALLBACK
+    except ImportError:
+        logger.debug("csp_universe module not installed, using T1_TICKERS_FALLBACK")
+        return T1_TICKERS_FALLBACK
+    except Exception as e:
+        logger.warning(f"T1 universe fetch failed ({e}) — using fallback")
+        return T1_TICKERS_FALLBACK
+
+# Backward compat: T1_TICKERS still referenced elsewhere in this file.
+# Use the dynamic universe by default.
+T1_TICKERS = T1_TICKERS_FALLBACK  # placeholder; tier1_csp_core calls _get_t1_universe()
 T1_MIN_IV_RANK = 40          # IVR > 40 means elevated premium worth selling
 T1_TARGET_DTE_MIN = 30       # 30-45 DTE is the sweet spot for VRP harvest
 T1_TARGET_DTE_MAX = 45
@@ -297,8 +334,13 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
                                    if p.get("asset_class") in ("us_option", "option")])
     slots_available = max(0, max_positions - current_position_count)
 
+    # DYNAMIC-UNIVERSE 2026-04-22: pull ranked top 200 per scan.
+    # If Layer 1/2 fails, falls back to T1_TICKERS_FALLBACK.
+    active_universe = _get_t1_universe()
+    logger.debug(f"T1 scanning {len(active_universe)} tickers (dynamic)")
+
     # Candidates: liquid, high-IV names we don't already own
-    for ticker in T1_TICKERS:
+    for ticker in active_universe:
         if ticker in held_tickers:
             continue
         if slots_available <= 0:

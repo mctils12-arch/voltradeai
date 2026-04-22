@@ -1524,6 +1524,11 @@ try:
 except Exception as e:
     result['probability_engine_error'] = str(e)[:200]
 try:
+    from csp_universe import get_universe_snapshot
+    result['csp_universe'] = get_universe_snapshot()
+except Exception as e:
+    result['csp_universe_error'] = str(e)[:200]
+try:
     from storage_config import DATA_DIR as _DD
     floor_path = os.path.join(_DD, 'voltrade_floor_state.json')
     if os.path.exists(floor_path):

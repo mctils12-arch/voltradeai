@@ -295,6 +295,13 @@ BASE_CONFIG = {
     "DEEP_SCORE_TOP_N":     5,      # HOTFIX 2026-04-22: was 20 — memory pressure, containers capped ~180MB
     "DEEP_SCORE_WORKERS":   1,      # HOTFIX 2026-04-22: was 4 — serial deep score in bot_engine
     "STREAM_TICKERS_N":     60,     # Tickers to subscribe in streaming feed
+
+    # ── DYNAMIC T1 UNIVERSE 2026-04-22 ──────────────────────────────
+    # Master switch for csp_universe module. If False, T1 reverts to
+    # hardcoded T1_TICKERS_FALLBACK (17 liquid anchor names).
+    "T1_DYNAMIC_UNIVERSE_ENABLED": True,
+    # Target universe size — top N scored candidates per cycle
+    "T1_UNIVERSE_MAX_SIZE": 200,
 }
 
 # ── Adaptive Parameter Logic ──────────────────────────────────────────────────
