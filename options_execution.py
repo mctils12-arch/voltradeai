@@ -312,6 +312,12 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         _weekly_strategies = ("qqq_iron_condor", "covered_call")
         _min_dte = 3 if strategy in _weekly_strategies else 7
         contracts = _fetch_option_chain(ticker, price, min_dte=_min_dte)
+        # HOTFIX R2 2026-04-22: surface empty chain issues
+        if not contracts:
+            import logging
+            logging.getLogger("voltrade.options_execution").warning(
+                f"EMPTY CHAIN: {ticker} returned 0 contracts (min_dte={_min_dte}, strategy={strategy})"
+            )
         if not contracts:
             return {"error": "No options contracts available for this ticker"}
         
@@ -653,15 +659,53 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     Slightly OTM, delta ~-0.30 (70% probability of expiring worthless = profit).
     Must have enough cash to cover assignment.
     """
-    puts = [c for c in contracts if c["option_type"] == "put" and c["strike"] <= price]
+    # HOTFIX R2 2026-04-22: tolerant option_type matching + diagnostic logging
+    # Earlier version filtered strictly on option_type=="put" which fails if
+    # chain returns "PUT" or "p". Also logs why the list is empty so we can
+    # diagnose whether it's empty chain, wrong type format, or strike filter.
+    all_puts_any_type = [
+        c for c in contracts
+        if str(c.get("option_type", "")).lower().startswith("p")
+    ]
+    # Standard filter: put below current price (OTM for sell-side)
+    puts = [c for c in all_puts_any_type if c.get("strike", 0) <= price]
+
     if not puts:
-        return {"error": "No suitable puts found for selling"}
-    
-    # Target delta -0.30 (OTM, high probability of profit)
+        # Diagnostic info for debugging
+        import logging
+        logger_csp = logging.getLogger("voltrade.options_execution")
+        total_contracts = len(contracts)
+        calls_count = sum(1 for c in contracts if str(c.get("option_type", "")).lower().startswith("c"))
+        puts_count = len(all_puts_any_type)
+        sample = contracts[0] if contracts else None
+        sample_type = sample.get("option_type") if sample else None
+        sample_strike = sample.get("strike") if sample else None
+        logger_csp.warning(
+            f"CSP FAIL {ticker}: contracts={total_contracts}, calls={calls_count}, "
+            f"puts_any_type={puts_count}, strike<=price_puts={len(puts)}, "
+            f"price={price}, sample_type={sample_type}, sample_strike={sample_strike}"
+        )
+        return {"error": f"No suitable puts found for selling (chain={total_contracts}, puts={puts_count}, filtered={len(puts)}, price={price})"}
+
+    # HOTFIX R2 2026-04-22: prefer delta-based selection, fall back to
+    # strike-distance if delta data not populated (some feeds return
+    # puts without delta). Target: strike ~5% below current price.
     target_delta = -0.30
-    puts.sort(key=lambda c: abs(c.get("delta", 0) - target_delta))
-    
-    best = puts[0]
+    puts_with_delta = [p for p in puts if p.get("delta") is not None and p.get("delta") != 0]
+
+    if puts_with_delta:
+        # Normal path: sort by delta distance
+        puts_with_delta.sort(key=lambda c: abs(c.get("delta", 0) - target_delta))
+        best = puts_with_delta[0]
+    else:
+        # Fallback: pick strike ~5% below current price
+        target_strike = price * 0.95
+        puts.sort(key=lambda c: abs(c.get("strike", 0) - target_strike))
+        best = puts[0]
+        import logging
+        logging.getLogger("voltrade.options_execution").info(
+            f"CSP {ticker}: no delta data; using strike-distance fallback (target=${target_strike:.2f}, picked=${best.get('strike')})"
+        )
     limit_price = _optimized_limit_price(best, "sell")
     
     # Cash required to secure: strike * 100 per contract
