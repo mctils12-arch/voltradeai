@@ -95,12 +95,33 @@ BASE_CONFIG = {
     #   QQQ outperforms SPY by ~5.6%/yr — captures tech/growth outperformance
     #   $100K → $578K in 10yr (SPY: $327K). Beats SPY in 7/11 years.
     #   2017: -27.7% → +20.2% | 2019: -32.5% → +49.1% | 2023: -46.7% → +52.4%
-    "FLOOR_TICKER":         "QQQ", # QQQ instead of SPY — 5.6%/yr more return
-    "SPY_FLOOR_BULL":       0.70,  # 70% passive QQQ in BULL
-    "SPY_FLOOR_NEUTRAL":    0.90,  # 90% passive QQQ in NEUTRAL (signals = noise here)
-    "SPY_FLOOR_CAUTION":    0.35,  # 35% passive QQQ in CAUTION
+    "FLOOR_TICKER":         "QQQ", # Kept for legacy callers; see FLOOR_BASKET below
+    "SPY_FLOOR_BULL":       0.70,  # 70% passive floor in BULL
+    "SPY_FLOOR_NEUTRAL":    0.90,  # 90% passive floor in NEUTRAL (signals = noise)
+    "SPY_FLOOR_CAUTION":    0.35,  # 35% passive floor in CAUTION
     "SPY_FLOOR_BEAR":       0.00,  # 0% in BEAR (defensive floor takes over)
     "SPY_FLOOR_PANIC":      0.00,  # 0% in PANIC (all defensive)
+
+    # ── FLOOR BASKET 2026-04-22 ─────────────────────────────────────────
+    # Multi-ETF floor replaces single QQQ exposure. Preserves user's
+    # tech-dominance thesis (50% QQQ + 15% SMH = 65% tech exposure) while
+    # diversifying geographically (10% KWEB for China tech, 15% VXUS for
+    # developed intl). 10% CASH reserve is dynamic — can shift between
+    # basket members based on probability engine signals.
+    #
+    # Allocations sum to 100% of the active floor amount. For example:
+    # in NEUTRAL (90% floor), 45% of equity → QQQ, 13.5% → SMH, 9% → KWEB,
+    # 13.5% → VXUS, 9% → reserved cash.
+    "FLOOR_BASKET": {
+        "QQQ":  0.50,   # Core US tech (primary thesis)
+        "SMH":  0.15,   # Global semiconductors (TSMC, ASML, Samsung)
+        "KWEB": 0.10,   # Chinese internet (hedge if China catches up)
+        "VXUS": 0.15,   # Developed ex-US (EU, Japan, Asia-Pac)
+        "CASH": 0.10,   # Tactical dry powder
+    },
+    "FLOOR_BASKET_ENABLED": True,  # Set False to revert to single-QQQ
+    # Rebalance drift threshold — only rebalance when drift > this pct
+    "FLOOR_BASKET_DRIFT_THRESHOLD": 0.03,  # 3% drift triggers rebalance
 
     # ── DEFENSIVE FLOOR: BEAR-REGIME ROTATION (P1-1) ──────────────────
     # User ask: "switch from qqq to something in bear — not hold permanently".

@@ -3680,6 +3680,13 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         # Use configurable floor ticker (QQQ by default — 5.6%/yr more than SPY)
         floor_ticker = BASE_CONFIG.get("FLOOR_TICKER", "QQQ")
+        # FLOOR-BASKET 2026-04-22: multi-ETF floor distribution.
+        # If FLOOR_BASKET_ENABLED, distribute target across basket members.
+        # Otherwise fall through to single-ticker logic.
+        basket_enabled = BASE_CONFIG.get("FLOOR_BASKET_ENABLED", False)
+        basket = BASE_CONFIG.get("FLOOR_BASKET", {}) if basket_enabled else {}
+        # Basket members excluding CASH (CASH is a virtual allocation)
+        basket_tickers = {k: v for k, v in basket.items() if k != "CASH"}
         floor_key = f"SPY_FLOOR_{regime}"
         target_pct = BASE_CONFIG.get(floor_key, 0)
 
@@ -3734,6 +3741,106 @@ def _manage_spy_floor(macro: dict) -> dict:
         result["floor_ticker"] = floor_ticker
         if trend_override:
             result["trend_override"] = trend_override
+
+        # FLOOR-BASKET 2026-04-22: if basket enabled, dispatch to basket logic
+        if basket_enabled and basket_tickers and target_pct > 0 and (regime_changed or last_regime is None):
+            # Basket rebalance: allocate target_pct across basket members
+            basket_result = {"actions": [], "basket_enabled": True}
+            try:
+                _acct_b = get_alpaca_account()
+                _equity_b = float(_acct_b.get("equity", 0) or 0)
+                positions_b = get_alpaca_positions() or []
+                current_by_ticker = {p.get("symbol", ""): abs(float(p.get("market_value", 0) or 0)) for p in positions_b}
+
+                drift_threshold = BASE_CONFIG.get("FLOOR_BASKET_DRIFT_THRESHOLD", 0.03)
+
+                for b_ticker, b_weight in basket_tickers.items():
+                    target_dollars = _equity_b * target_pct * b_weight
+                    current_dollars = current_by_ticker.get(b_ticker, 0)
+                    drift_pct = abs(current_dollars - target_dollars) / max(_equity_b, 1)
+
+                    if drift_pct < drift_threshold:
+                        basket_result["actions"].append({
+                            "ticker": b_ticker, "action": "hold",
+                            "current": current_dollars, "target": target_dollars,
+                            "drift_pct": round(drift_pct, 4),
+                        })
+                        continue
+
+                    if target_dollars > current_dollars:
+                        delta_dollars = target_dollars - current_dollars
+                        try:
+                            alpaca_throttle.acquire()
+                            _price_resp = requests.get(
+                                f"{ALPACA_DATA_URL}/v2/stocks/{b_ticker}/snapshot",
+                                headers=_alpaca_headers(), timeout=10)
+                            _snap = _price_resp.json()
+                            _px = float(_snap.get("latestTrade", {}).get("p", 0) or 0)
+                            if _px > 0:
+                                _shares = int(delta_dollars / _px)
+                                if _shares > 0:
+                                    alpaca_throttle.acquire()
+                                    requests.post(
+                                        f"{ALPACA_BASE_URL}/v2/orders",
+                                        headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                                        json={
+                                            "symbol": b_ticker, "qty": str(_shares),
+                                            "side": "buy", "type": "market",
+                                            "time_in_force": "day",
+                                        }, timeout=10)
+                                    basket_result["actions"].append({
+                                        "ticker": b_ticker, "action": "buy",
+                                        "shares": _shares, "price": _px,
+                                        "delta_dollars": delta_dollars,
+                                    })
+                        except Exception as _be:
+                            basket_result["actions"].append({
+                                "ticker": b_ticker, "action": "buy_failed",
+                                "error": str(_be)[:80],
+                            })
+                    else:
+                        delta_dollars = current_dollars - target_dollars
+                        try:
+                            alpaca_throttle.acquire()
+                            _price_resp = requests.get(
+                                f"{ALPACA_DATA_URL}/v2/stocks/{b_ticker}/snapshot",
+                                headers=_alpaca_headers(), timeout=10)
+                            _px = float(_price_resp.json().get("latestTrade", {}).get("p", 0) or 0)
+                            if _px > 0:
+                                _shares = int(delta_dollars / _px)
+                                if _shares > 0:
+                                    alpaca_throttle.acquire()
+                                    requests.post(
+                                        f"{ALPACA_BASE_URL}/v2/orders",
+                                        headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                                        json={
+                                            "symbol": b_ticker, "qty": str(_shares),
+                                            "side": "sell", "type": "market",
+                                            "time_in_force": "day",
+                                        }, timeout=10)
+                                    basket_result["actions"].append({
+                                        "ticker": b_ticker, "action": "sell",
+                                        "shares": _shares, "price": _px,
+                                        "delta_dollars": delta_dollars,
+                                    })
+                        except Exception as _be:
+                            basket_result["actions"].append({
+                                "ticker": b_ticker, "action": "sell_failed",
+                                "error": str(_be)[:80],
+                            })
+            except Exception as _be_outer:
+                basket_result["error"] = str(_be_outer)[:200]
+
+            result["basket"] = basket_result
+            result["target_pct"] = target_pct
+            result["regime"] = regime
+            _floor_state["last_regime"] = regime
+            try:
+                with open(_floor_state_path, "w") as f:
+                    json.dump(_floor_state, f)
+            except Exception:
+                pass
+            return result
 
         if target_pct <= 0:
             # No floor — sell any existing position (only on regime change to 0%)
