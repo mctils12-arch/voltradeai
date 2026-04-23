@@ -2362,15 +2362,19 @@ def _scan_market_inner():
     # Default ON when running under Railway (any RAILWAY_* env var set) or
     # whenever VOLTRADE_TIER2_SURVIVAL_MODE is not explicitly "0". Disable
     # locally with VOLTRADE_TIER2_SURVIVAL_MODE=0.
+    # SURVIVAL-FIX 2026-04-23: previous default was "ON for all Railway
+    # deploys" which skipped deep score every scan, disabling CSP/ML
+    # evaluation entirely. Now only triggers on actual memory pressure.
     _survival_env = os.environ.get("VOLTRADE_TIER2_SURVIVAL_MODE", "").strip()
-    _on_railway = any(k.startswith("RAILWAY_") for k in os.environ.keys())
+    _survival_threshold_mb = int(os.environ.get("VOLTRADE_SURVIVAL_THRESHOLD_MB", "700"))
+    _current_rss_mb = _mem_rss_mb()
     if _survival_env == "0":
         _survival_mode = False
     elif _survival_env == "1":
         _survival_mode = True
     else:
-        # Default: ON in production (Railway), OFF in local dev.
-        _survival_mode = _on_railway
+        # Default: only engage at actual memory pressure (>=700MB)
+        _survival_mode = _current_rss_mb >= _survival_threshold_mb
     if _survival_mode:
         _surv_mb = _mem_rss_mb()
         print(
