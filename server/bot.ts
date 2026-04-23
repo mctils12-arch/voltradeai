@@ -1544,14 +1544,6 @@ try:
 except Exception as e:
     result['probability_engine_error'] = str(e)[:200]
 try:
-    import json as _tj
-    timing_path = os.path.join(_DD, 'voltrade_scan_timings.json') if '_DD' in dir() else '/tmp/voltrade_scan_timings.json'
-    if os.path.exists(timing_path):
-        with open(timing_path) as _tf:
-            result['last_scan_timings'] = _tj.load(_tf)
-except Exception as e:
-    result['last_scan_timings_error'] = str(e)[:200]
-try:
     from csp_universe import get_universe_snapshot
     result['csp_universe'] = get_universe_snapshot()
 except Exception as e:
@@ -1586,6 +1578,24 @@ print(json.dumps(result, default=str))
         snapshot.ml = { status: "failed", error: mlCall.result?.error };
       }
     } catch (e: any) { snapshot.ml = { status: "error", error: e.message }; }
+
+    // TIMING-FILE-DIRECT 2026-04-23: read timing JSON from Node side
+    // directly so it works even when the Python subprocess fails.
+    try {
+      const timingPaths = [
+        "/data/voltrade/voltrade_scan_timings.json",
+        "/tmp/voltrade_scan_timings.json"
+      ];
+      for (const tpath of timingPaths) {
+        if (fs.existsSync(tpath)) {
+          const raw = fs.readFileSync(tpath, "utf8");
+          snapshot.last_scan_timings = JSON.parse(raw);
+          break;
+        }
+      }
+    } catch (e: any) {
+      snapshot.last_scan_timings_error = e.message;
+    }
 
     const filename = `voltrade_snapshot_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.json`;
     res.setHeader("Content-Type", "application/json");
