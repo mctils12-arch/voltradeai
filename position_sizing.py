@@ -834,7 +834,16 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
     
     # ATR-based stops (same logic as manage_positions but at ENTRY time)
     if atr_pct and atr_pct > 0:
-        stop_distance_pct = max(1.5, min(atr_pct * 1.5, 8.0))
+        # REGIME-STOPS 2026-04-22: apply regime scalar to initial stop
+        try:
+            from system_config import BASE_CONFIG as _bc_ps
+            from macro_data import get_macro_snapshot as _gms_ps
+            _m_ps = _gms_ps() if callable(_gms_ps) else {}
+            _regime_label = _m_ps.get("regime", "NEUTRAL") if isinstance(_m_ps, dict) else "NEUTRAL"
+            _stop_scalar = _bc_ps.get(f"STOP_SCALAR_{_regime_label}", 1.0)
+        except Exception:
+            _stop_scalar = 1.0
+        stop_distance_pct = max(1.5, min(atr_pct * 1.5 * _stop_scalar, 10.0))
         tp_distance_pct = max(4.0, min(atr_pct * 3.0, 15.0))
     else:
         stop_distance_pct = 2.5  # Default

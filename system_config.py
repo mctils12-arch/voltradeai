@@ -302,6 +302,14 @@ BASE_CONFIG = {
     "T1_DYNAMIC_UNIVERSE_ENABLED": True,
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
+    # REGIME-SPECIFIC STOP SCALARS 2026-04-22
+    # Scale ATR-based stops by regime. Tighter stops in calm bull,
+    # wider in bear (noise). PANIC = tightest (exit fast, no hope).
+    "STOP_SCALAR_BULL":    0.90,
+    "STOP_SCALAR_NEUTRAL": 1.00,
+    "STOP_SCALAR_CAUTION": 1.10,
+    "STOP_SCALAR_BEAR":    1.20,
+    "STOP_SCALAR_PANIC":   0.70,
 }
 
 # ── Adaptive Parameter Logic ──────────────────────────────────────────────────

@@ -1719,24 +1719,31 @@ def manage_positions():
                     "exit_context": {"scale": 2, "r_at_scale": round(r_multiple, 2), "pnl_pct": round(pnl_pct, 2)},
                 })
 
+        # REGIME-STOPS 2026-04-22: apply regime scalar to stop width
+        try:
+            from system_config import BASE_CONFIG as _bc_stops
+            _regime_stop_scalar = _bc_stops.get(f"STOP_SCALAR_{regime}", 1.0)
+        except Exception:
+            _regime_stop_scalar = 1.0
+
         # Determine current phase and stop level
         if peak_r >= 3.0:
-            # Phase 4: ATR-based trailing from highest PRICE (not 50% of peak P&L)
-            stop_pct = atr_pct * trail_atr_mult
+            # Phase 4: ATR-based trailing from highest PRICE
+            stop_pct = atr_pct * trail_atr_mult * _regime_stop_scalar
             phase = 4
-            stop_reason = f"Phase 4: {trail_atr_mult:.0f}×ATR trailing from high ${highest_price:.2f} (regime={regime})"
+            stop_reason = f"Phase 4: {trail_atr_mult:.0f}xATR x{_regime_stop_scalar:.2f} trailing from high ${highest_price:.2f} (regime={regime})"
         elif peak_r >= 2.0:
-            stop_pct = max(1.0, atr_pct * 1.0)
+            stop_pct = max(1.0, atr_pct * 1.0 * _regime_stop_scalar)
             phase = 3
-            stop_reason = f"Phase 3 (2R+): 1.0x ATR trailing"
+            stop_reason = f"Phase 3 (2R+): 1.0x ATR x{_regime_stop_scalar:.2f} trailing"
         elif peak_r >= 1.0:
-            stop_pct = max(1.5, atr_pct * 1.5)
+            stop_pct = max(1.5, atr_pct * 1.5 * _regime_stop_scalar)
             phase = 2
-            stop_reason = f"Phase 2 (1R+): 1.5x ATR trailing"
+            stop_reason = f"Phase 2 (1R+): 1.5x ATR x{_regime_stop_scalar:.2f} trailing"
         else:
-            stop_pct = max(1.5, min(atr_pct * 2.0, 8.0))
+            stop_pct = max(1.5, min(atr_pct * 2.0 * _regime_stop_scalar, 10.0))
             phase = 1
-            stop_reason = f"Phase 1: 2.0x ATR initial stop"
+            stop_reason = f"Phase 1: 2.0x ATR x{_regime_stop_scalar:.2f} initial stop"
 
         # For phases 2-4, stop is relative to the HIGH WATER MARK, not entry
         should_stop = False
