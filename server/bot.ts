@@ -91,14 +91,34 @@ async function pythonCall(
   subprocessOpts: any = {},
   daemonTimeoutMs?: number
 ): Promise<{ success: boolean; result: any; via: string; error?: any }> {
+  // DAEMON-DIAG 2026-04-23: explicit logging of daemon RPC outcomes
+  // so we can see why fallthrough happens instead of silent subprocess.
+  // Heavy scan methods (run_full_scan) are daemon-ONLY — subprocess
+  // path OOMs at ~300MB cold-start on Railway's tight container cap.
+  const HEAVY_DAEMON_ONLY = new Set([
+    "run_full_scan", "scan_market", "manage_positions",
+  ]);
   if (DAEMON_ENABLED) {
     try {
       const r = await pythonRpc(daemonMethod, daemonArgs, daemonTimeoutMs);
       if (r.status === "ok") {
         return { success: true, result: r.result, via: "daemon" };
       }
-    } catch { /* fall through */ }
+      // Daemon responded but with non-ok status — log it
+      console.warn(`[pythonCall] daemon ${daemonMethod} status=${r.status} ` +
+        `error=${(r.error_message || "").slice(0, 200)}`);
+      if (HEAVY_DAEMON_ONLY.has(daemonMethod)) {
+        // Don't fall back to subprocess for heavy methods — will OOM
+        return { success: false, result: { error: `daemon ${daemonMethod} failed: ${r.error_message}` }, via: "daemon-failed" };
+      }
+    } catch (rpcErr: any) {
+      console.warn(`[pythonCall] daemon ${daemonMethod} threw: ${(rpcErr?.message || "").slice(0, 200)}`);
+      if (HEAVY_DAEMON_ONLY.has(daemonMethod)) {
+        return { success: false, result: { error: `daemon RPC threw: ${rpcErr?.message}` }, via: "daemon-error" };
+      }
+    }
   }
+  // Subprocess fallback for LIGHT methods only (kill_switches, ml_status, etc.)
   try {
     const { stdout } = await execPythonSerialized(subprocessCmd, subprocessOpts);
     return { success: true, result: JSON.parse(stdout.trim()), via: "subprocess" };
