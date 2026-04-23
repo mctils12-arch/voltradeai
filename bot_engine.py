@@ -2074,6 +2074,17 @@ def _scan_market_inner():
     global _partial_scan_result
     _partial_scan_result = None
 
+    # Cheap phase-by-phase timing diagnostics for daemon run_full_scan path.
+    import time as _timing
+    _phase_times = []
+    _last_t = [_timing.time()]
+    def _timing_log(phase):
+        now = _timing.time()
+        elapsed = round(now - _last_t[0], 2)
+        _phase_times.append((phase, elapsed))
+        print(f"[timing] {phase} took {elapsed:.2f}s", file=sys.stderr, flush=True)
+        _last_t[0] = now
+
     # MEM FIX 2026-04-20: Log memory at every phase boundary so OOM kills
     # leave a trail. Combined with gc.collect() between phases this cuts
     # peak memory ~30-80MB and gives diagnosable logs when something leaks.
@@ -2210,7 +2221,9 @@ def _scan_market_inner():
                                headers=_alpaca_headers(), timeout=15)
             ticker_symbols = [s["symbol"] for s in resp.json().get("most_actives", []) if s.get("symbol")]
         except Exception:
-            return {"error": "Could not fetch market universe", "trades": []}
+            return {"error": "Could not fetch market universe", "trades": [], "scan_phase_times": _phase_times}
+
+    _timing_log("universe_load")
 
     # Step 2: Fetch ALL snapshots sequentially, extracting only the 4 fields we
     # need per symbol (c, o, v, prev_c). Keeps raw JSON alive for at most one
@@ -2266,6 +2279,7 @@ def _scan_market_inner():
         _gc_snap.collect()
 
     _log_mem_phase("after_snapshots")
+    _timing_log("snapshot_fetch")
 
     quick_results = []
     _et_now = datetime.now(ZoneInfo("America/New_York"))
@@ -2346,6 +2360,7 @@ def _scan_market_inner():
     # Per-future timeout (8s) + total cap (35s) prevents yfinance hangs.
     from concurrent.futures import ThreadPoolExecutor, as_completed
     _gc_checkpoint("after_quick_scan")  # MEM: release quick-scan dicts before deep work
+    _timing_log("quick_scan")
 
     # ── SURVIVAL MODE 2026-04-22 ───────────────────────────────────────────
     # Railway SIGKILLs bot_engine "full" around 150-180MB even though
@@ -2505,6 +2520,7 @@ def _scan_market_inner():
                 pass
         _gc_checkpoint("after_deep_score")  # MEM: drop ml_model_v2/DataFrames before trade gen
 
+    _timing_log("deep_score")
     deep_scored = [d for d in deep_scored if d is not None]
 
     # Sort by deep score (or quick score if no deep)
@@ -3147,6 +3163,7 @@ def _scan_market_inner():
             import logging
             logging.getLogger("bot_engine").error(f"[TIERS] failed: {e}")
 
+    _timing_log("tier_engine")
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),
@@ -3185,6 +3202,7 @@ def _scan_market_inner():
         ],
         "tier_stats": tier_stats,
         "kill_status": kill_status,
+        "scan_phase_times": _phase_times,
     }
 
 
