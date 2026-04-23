@@ -74,7 +74,7 @@ log = logging.getLogger("voltrade_daemon")
 # ── Constants ────────────────────────────────────────────────────────────────
 SOCKET_PATH = os.environ.get("VOLTRADE_DAEMON_SOCKET", "/tmp/voltrade_daemon.sock")
 MAX_RSS_MB = int(os.environ.get("VOLTRADE_DAEMON_MAX_RSS_MB", "1024"))  # 1 GB
-REQUEST_TIMEOUT_SEC = 60  # Hard timeout per request
+REQUEST_TIMEOUT_SEC = 300  # DAEMON-TIMEOUT 2026-04-23: was 60s, too tight for full scan. scan_market can legitimately take 90-180s on 11,400 tickers.
 
 # Cap in-flight RPC dispatches. Each handler spawns its own worker thread for
 # timeout enforcement, and heavy methods (run_full_scan) internally spawn their
@@ -334,7 +334,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
             # Cap concurrent dispatches so we don't blow past the container's
             # thread limit under burst load. Fail fast with a clear error if we
             # can't acquire within a short window — caller should back off.
-            acquired = _inflight_sem.acquire(timeout=REQUEST_TIMEOUT_SEC)
+            acquired = _inflight_sem.acquire(timeout=REQUEST_TIMEOUT_SEC)  # DAEMON-TIMEOUT 2026-04-23
             if not acquired:
                 response = {
                     "status": "error",
@@ -364,7 +364,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
                 try:
                     t = threading.Thread(target=_run, daemon=True)
                     t.start()
-                    t.join(REQUEST_TIMEOUT_SEC)
+                    t.join(REQUEST_TIMEOUT_SEC)  # DAEMON-TIMEOUT 2026-04-23
                 except RuntimeError as thread_err:
                     # "can't start new thread" — return a structured error so
                     # the client can back off rather than loop.
