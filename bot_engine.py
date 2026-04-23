@@ -2074,16 +2074,48 @@ def _scan_market_inner():
     global _partial_scan_result
     _partial_scan_result = None
 
-    # Cheap phase-by-phase timing diagnostics for daemon run_full_scan path.
+    # TIMING-DISK 2026-04-23: persist phase timings to disk so they
+    # survive daemon timeout kills. Read via cat /tmp/voltrade_scan_timings.json
+    # or snapshot endpoint.
     import time as _timing
+    import json as _timing_json
+    import os as _timing_os
+    try:
+        from storage_config import DATA_DIR as _TIMING_DIR
+    except Exception:
+        _TIMING_DIR = "/tmp"
+    _TIMING_PATH = _timing_os.path.join(_TIMING_DIR, "voltrade_scan_timings.json")
+    _scan_start = _timing.time()
+    _last_t = [_scan_start]
     _phase_times = []
-    _last_t = [_timing.time()]
+    # Clear any prior timing file at scan start
+    try:
+        _timing_json.dump({
+            "scan_started": _timing.time(),
+            "phases": [],
+            "status": "in_progress",
+        }, open(_TIMING_PATH, "w"))
+    except Exception:
+        pass
+
     def _timing_log(phase):
         now = _timing.time()
         elapsed = round(now - _last_t[0], 2)
-        _phase_times.append((phase, elapsed))
-        print(f"[timing] {phase} took {elapsed:.2f}s", file=sys.stderr, flush=True)
+        total = round(now - _scan_start, 2)
+        _phase_times.append({"phase": phase, "duration_sec": elapsed, "total_sec": total})
+        print(f"[timing] {phase} took {elapsed:.2f}s (total {total:.2f}s)", file=sys.stderr, flush=True)
         _last_t[0] = now
+        # Persist after every phase so timeout kills don't lose data
+        try:
+            _timing_json.dump({
+                "scan_started": _scan_start,
+                "phases": _phase_times,
+                "status": "in_progress",
+                "last_phase_completed": phase,
+                "last_phase_at": now,
+            }, open(_TIMING_PATH, "w"))
+        except Exception:
+            pass
 
     # MEM FIX 2026-04-20: Log memory at every phase boundary so OOM kills
     # leave a trail. Combined with gc.collect() between phases this cuts
@@ -3164,6 +3196,16 @@ def _scan_market_inner():
             logging.getLogger("bot_engine").error(f"[TIERS] failed: {e}")
 
     _timing_log("tier_engine")
+    # Mark timing file complete
+    try:
+        _timing_json.dump({
+            "scan_started": _scan_start,
+            "phases": _phase_times,
+            "status": "completed",
+            "total_sec": round(_timing.time() - _scan_start, 2),
+        }, open(_TIMING_PATH, "w"))
+    except Exception:
+        pass
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),

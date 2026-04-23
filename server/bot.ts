@@ -1544,6 +1544,14 @@ try:
 except Exception as e:
     result['probability_engine_error'] = str(e)[:200]
 try:
+    import json as _tj
+    timing_path = os.path.join(_DD, 'voltrade_scan_timings.json') if '_DD' in dir() else '/tmp/voltrade_scan_timings.json'
+    if os.path.exists(timing_path):
+        with open(timing_path) as _tf:
+            result['last_scan_timings'] = _tj.load(_tf)
+except Exception as e:
+    result['last_scan_timings_error'] = str(e)[:200]
+try:
     from csp_universe import get_universe_snapshot
     result['csp_universe'] = get_universe_snapshot()
 except Exception as e:
