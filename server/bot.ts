@@ -2637,12 +2637,15 @@ print(json.dumps(get_auto_fix_params()))
       // Daemon timeout: 90s (bot_engine.scan_market caps itself at 55s via
       // SIGALRM in main thread; in daemon worker thread it relies on this
       // outer bound). Subprocess timeout unchanged at 300s.
+      // DAEMON-TIMEOUT-DIAG 2026-04-23: bump daemon timeout to 300s
+      // temporarily so we can see full scan completion time in logs.
+      // Previous 90s (or 60s if middleware overrode) was too tight.
       const callResult = await pythonCall(
         "run_full_scan",
         {},
         `python3 -W ignore "${enginePath}" full`,
         { timeout: 300000 },
-        90000
+        300000
       );
 
       if (!callResult.success) {
