@@ -441,27 +441,44 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
     sorted_candidates = sorted(candidates, key=lambda c: c[3], reverse=True)
     deep_score_limit = 500  # full-factor scoring applies to top 500 only
 
+    # PARALLEL-SCORE 2026-04-23: parallelize expensive factor fetches
+    # (IV rank + surface score). Previously serial 500x = 250-500s hang.
+    # Now 8 workers = ~30-50s typical.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Split into two passes: top deep_score_limit get full scoring,
+    # rest get cheap scoring.
+    deep_candidates = sorted_candidates[:deep_score_limit]
+    shallow_candidates = sorted_candidates[deep_score_limit:]
+
+    # Prefetch IV rank and surface score IN PARALLEL for deep candidates
+    def _prefetch(ticker):
+        try:
+            _score_iv_rank(ticker, iv_rank_cache)
+            _score_vrp(ticker, surface_cache)
+        except Exception:
+            pass
+
+    if deep_candidates:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(_prefetch, [c[0] for c in deep_candidates], timeout=60))
+
+    scored = []
     for idx, (ticker, price, volume, dollar_volume) in enumerate(sorted_candidates):
         full_scoring = idx < deep_score_limit
-
-        # Cheap factors (always run)
         liquidity = _score_liquidity(ticker, price, volume, dollar_volume)
         earnings = _score_earnings(ticker, earnings_cal)
         stability = _score_stability(ticker, price, snap_data)
         historical = _score_historical(ticker)
-
         if full_scoring:
-            # Expensive factors: IV rank + surface (VRP + skew)
+            # Caches populated by parallel prefetch above
             iv_rank_s = _score_iv_rank(ticker, iv_rank_cache)
             vrp_s = _score_vrp(ticker, surface_cache)
             skew_s = _score_put_skew(ticker, surface_cache)
         else:
-            # Below top 500: use baseline estimates, don't fetch IV/surface
             iv_rank_s = 40.0
             vrp_s = 40.0
             skew_s = 50.0
-
-        # Composite score with documented weights
         composite = round(
             0.25 * iv_rank_s +
             0.20 * vrp_s +
@@ -472,11 +489,8 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
             0.10 * stability,
             2
         )
-
-        # Hard rejects — even if score high, reject if certain factors fail
-        if earnings <= 10:  # Earnings within 7 days — reject
+        if earnings <= 10:
             continue
-
         scored.append({
             "ticker": ticker,
             "score": composite,

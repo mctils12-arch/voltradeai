@@ -3149,6 +3149,7 @@ def _scan_market_inner():
     # Existing scan continues to produce `new_trades`. Tier engine adds
     # its own trade list in `tier_actions`. bot.ts dispatches both.
     # ══════════════════════════════════════════════════════════════════════
+    _timing_log("tier_engine_start")
     tiered_actions = []
     kill_status = None
     tier_stats = {}
@@ -3195,7 +3196,8 @@ def _scan_market_inner():
             import logging
             logging.getLogger("bot_engine").error(f"[TIERS] failed: {e}")
 
-    _timing_log("tier_engine")
+    _timing_log("tier_engine_complete")
+    _timing_log("scan_complete")
     # Mark timing file complete
     try:
         _timing_json.dump({
