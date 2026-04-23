@@ -164,6 +164,29 @@ class RPCDispatcher:
 
     def dispatch(self, method: str, args: dict) -> dict:
         """Dispatch a method call and return JSON-serializable result."""
+        # DAEMON-TRACE 2026-04-23: write heartbeat files at each phase
+        # of daemon dispatch so we can see exactly where hang occurs.
+        _dstate = {}
+        _dpath = "/tmp/voltrade_daemon_trace.json"
+        if method == "run_full_scan":
+            try:
+                import json as _dtj
+                import os as _dto
+                import time as _dtt
+                if _dto.path.exists(_dpath):
+                    try:
+                        with open(_dpath) as _df:
+                            _dstate = _dtj.load(_df)
+                    except Exception:
+                        _dstate = {}
+                _dstate["last_request_received"] = _dtt.time()
+                _dstate["last_method"] = "run_full_scan"
+                _dstate["last_status"] = "received"
+                with open(_dpath, "w") as _df:
+                    _dtj.dump(_dstate, _df)
+            except Exception:
+                pass
+
         if method not in self._routes:
             return {"status": "error",
                     "error_message": f"Unknown method: {method}"}
@@ -195,6 +218,18 @@ class RPCDispatcher:
                             "error_message":
                             f"Method {attr_name} not found in {module_name}"}
 
+                if method == "run_full_scan":
+                    # DAEMON-TRACE 2026-04-23: phase = calling_scan_market
+                    try:
+                        import json as _dtj
+                        import time as _dtt
+                        _dstate["last_status"] = "calling_scan_market"
+                        _dstate["call_start"] = _dtt.time()
+                        with open(_dpath, "w") as _df:
+                            _dtj.dump(_dstate, _df)
+                    except Exception:
+                        pass
+
                 # Call with args dict as kwargs or positional depending on
                 # the method's signature. Try kwargs first.
                 try:
@@ -202,6 +237,19 @@ class RPCDispatcher:
                 except TypeError:
                     # Some methods take a single positional dict
                     result = fn(args)
+
+                if method == "run_full_scan":
+                    # DAEMON-TRACE 2026-04-23: phase = scan_market_returned
+                    try:
+                        import json as _dtj
+                        import time as _dtt
+                        _dstate["last_status"] = "scan_market_returned"
+                        _dstate["call_end"] = _dtt.time()
+                        _dstate["call_duration"] = _dtt.time() - _dstate.get("call_start", _dtt.time())
+                        with open(_dpath, "w") as _df:
+                            _dtj.dump(_dstate, _df)
+                    except Exception:
+                        pass
 
             # Ensure result is JSON-serializable
             return {"status": "ok", "result": result}

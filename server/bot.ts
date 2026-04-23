@@ -1597,6 +1597,16 @@ print(json.dumps(result, default=str))
       snapshot.last_scan_timings_error = e.message;
     }
 
+    // DAEMON-TRACE 2026-04-23: read daemon dispatch trace file
+    try {
+      if (fs.existsSync("/tmp/voltrade_daemon_trace.json")) {
+        const raw = fs.readFileSync("/tmp/voltrade_daemon_trace.json", "utf8");
+        snapshot.daemon_trace = JSON.parse(raw);
+      }
+    } catch (e: any) {
+      snapshot.daemon_trace_error = e.message;
+    }
+
     const filename = `voltrade_snapshot_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.json`;
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
