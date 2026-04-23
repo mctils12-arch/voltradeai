@@ -659,6 +659,30 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     Slightly OTM, delta ~-0.30 (70% probability of expiring worthless = profit).
     Must have enough cash to cover assignment.
     """
+    # PRICE-GUARD 2026-04-23: reject if price is invalid
+    if not price or price <= 0:
+        # Try to recover from last known snapshot
+        try:
+            import requests as _pg_req
+            import os as _pg_os
+            _key = _pg_os.environ.get("ALPACA_KEY", "")
+            _sec = _pg_os.environ.get("ALPACA_SECRET", "")
+            if _key:
+                _r = _pg_req.get(
+                    f"https://data.alpaca.markets/v2/stocks/{ticker}/snapshot",
+                    headers={"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec},
+                    timeout=5,
+                )
+                _snap = _r.json()
+                _p = float(_snap.get("latestTrade", {}).get("p", 0)
+                          or _snap.get("dailyBar", {}).get("c", 0) or 0)
+                if _p > 0:
+                    price = _p
+        except Exception:
+            pass
+        if not price or price <= 0:
+            return {"error": f"Invalid price for {ticker}: got {price}, cannot select put"}
+
     # HOTFIX R2 2026-04-22: tolerant option_type matching + diagnostic logging
     # Earlier version filtered strictly on option_type=="put" which fails if
     # chain returns "PUT" or "p". Also logs why the list is empty so we can
