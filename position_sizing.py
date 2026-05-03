@@ -993,17 +993,64 @@ def _blocked(ticker: str, price: float, reason: str) -> dict:
 
 
 def _infer_strategy(trade: dict) -> str:
-    """Infer the dominant strategy from scores."""
+    """
+    Infer strategy bucket for historical-stats lookup. Returns one of:
+      "stocks"      — directional stock/ETF trade (any non-VRP signal)
+      "csp_options" — CSP / covered-call / premium-selling options
+      "vrp"         — VRP-dominant trade
+
+    BUG #12 FIX 2026-05-03 (post-deploy audit): previous version returned
+    "momentum" / "mean_reversion" / "vrp" / "squeeze" / "volume" / "unknown"
+    — only "vrp" matched any key in _get_historical_stats()["by_strategy"].
+    Stock trades silently fell through to the optimistic +EV "overall"
+    defaults (WR=0.55, win=loss=$2 → Kelly +3.3%), which BYPASSED Patch
+    #2's negative-Kelly halt for the "stocks" bucket entirely. The audit
+    expected Patch #2 to halt stock entries (45% WR, -EV per real-trade
+    analysis); production was still placing them at 1/3-Kelly = 3.3%.
+
+    Now returns keys aligned with by_strategy, so:
+      - VRP-dominant trades → "vrp" bucket (-EV) → HALTED by Patch #2
+      - Other stock signals → "stocks" bucket (-EV) → HALTED by Patch #2
+      - CSP/covered call → "csp_options" bucket (+EV) → continues to trade
+
+    This is what the audit intended. The system will now actually stop
+    placing stock trades until live data shows positive expectancy, and
+    capital will concentrate on the strategies that work (CSPs, +0.37%
+    avg over 1,226 trades in the 10-yr backtest).
+    """
+    # ── Direct routing from explicit fields if present ──────────────────
+    options_strategy = (trade.get("options_strategy") or "").lower()
+    instrument = (trade.get("instrument") or trade.get("trade_type") or "").lower()
+
+    # CSP / covered call / premium-selling options → csp_options bucket
+    if any(k in options_strategy for k in
+           ("csp", "cash_secured_put", "sell_csp", "covered_call",
+            "iron_condor", "bull_put_credit", "short_straddle",
+            "qqq_iron_condor")):
+        return "csp_options"
+
+    # ── Score-based inference ──────────────────────────────────────────
     scores = {
-        "momentum": trade.get("momentum_score", 0) or 0,
+        "momentum":       trade.get("momentum_score", 0) or 0,
         "mean_reversion": trade.get("mean_reversion_score", 0) or 0,
-        "vrp": trade.get("vrp_score", 0) or 0,
-        "squeeze": trade.get("squeeze_score", 0) or 0,
-        "volume": trade.get("volume_score", 0) or 0,
+        "vrp":            trade.get("vrp_score", 0) or 0,
+        "squeeze":        trade.get("squeeze_score", 0) or 0,
+        "volume":         trade.get("volume_score", 0) or 0,
     }
-    if not any(scores.values()):
-        return "unknown"
-    return max(scores, key=scores.get)
+    if any(scores.values()):
+        dominant = max(scores, key=scores.get)
+        if dominant == "vrp":
+            return "vrp"
+        # All other dominant signals are stock-direction trades
+        return "stocks"
+
+    # ── No score signals — infer from instrument type ──────────────────
+    if instrument in ("options", "option"):
+        # Generic options trade with no scoring signal — treat as csp/income
+        return "csp_options"
+
+    # Default: stock trade (most conservative, matches production reality)
+    return "stocks"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
