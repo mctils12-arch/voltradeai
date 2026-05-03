@@ -61,13 +61,22 @@ class TestRegimeDetection(unittest.TestCase):
 
     def test_system_config_regime_panic(self):
         from system_config import get_market_regime
-        self.assertEqual(get_market_regime(1.35, 1.0), "PANIC")
-        self.assertEqual(get_market_regime(1.0, 0.93), "PANIC")
+        # PATCH 5 RECONCILIATION 2026-05-03: panic threshold moved to 1.40
+        # to match regime_util.PANIC_VXX_THRESHOLD (canonical source).
+        # 1.35 is now BEAR; full panic requires VXX >= 1.40.
+        self.assertEqual(get_market_regime(1.45, 1.0), "PANIC")
+        # SPY >6% below 50d MA alone is BEAR not PANIC under reconciled
+        # logic — only VXX panic qualifies for the 30%-cap regime.
+        self.assertEqual(get_market_regime(1.0, 0.93), "BEAR")
 
     def test_system_config_regime_bear(self):
         from system_config import get_market_regime
+        # VXX above BEAR_VXX_THRESHOLD (1.15) → BEAR
         self.assertEqual(get_market_regime(1.20, 1.0), "BEAR")
-        self.assertEqual(get_market_regime(1.0, 0.95), "BEAR")
+        # SPY below BEAR_SPY_THRESHOLD (0.94) → BEAR
+        # NOTE: this assertion was wrong pre-patch too — 0.95 is above the
+        # 0.94 threshold so it correctly returns NEUTRAL, not BEAR.
+        self.assertEqual(get_market_regime(1.0, 0.93), "BEAR")
 
     def test_system_config_regime_caution(self):
         from system_config import get_market_regime
@@ -84,10 +93,10 @@ class TestRegimeDetection(unittest.TestCase):
 
     def test_system_config_200d_slow_bear(self):
         from system_config import get_market_regime
-        # 10+ days below 200d MA forces BEAR
+        # 10+ days below 200d MA forces BEAR (audit Finding #5b: now actually fires)
         self.assertEqual(get_market_regime(1.0, 1.0, spy_below_200_days=15), "BEAR")
-        # With panic VXX on top of slow bear -> PANIC
-        self.assertEqual(get_market_regime(1.35, 1.0, spy_below_200_days=15), "PANIC")
+        # With panic VXX on top of slow bear -> PANIC (threshold raised to 1.40)
+        self.assertEqual(get_market_regime(1.45, 1.0, spy_below_200_days=15), "PANIC")
 
     def test_neutral_regime_blocks_stock_trades(self):
         from system_config import get_adaptive_params
