@@ -65,7 +65,17 @@ def _kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
     Modified Kelly Criterion:
       f* = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
 
-    Returns fraction of portfolio to risk (0.0 to 1.0).
+    Returns fraction of portfolio to risk.
+      0.0           → negative-EV, DO NOT TRADE (caller must handle)
+      0.01..MAX_PCT → positive-EV, sized fractionally
+
+    NEGATIVE-KELLY FIX 2026-05-03 (audit Finding #3):
+      Previous code: `return max(0.01, min(fractional_kelly, MAX))`.
+      The max(0.01, ...) clamp meant negative-EV trades were sized at 1%.
+      That puts capital into trades the math says will lose money. Now
+      negative-EV explicitly returns 0 — the caller (calculate_position)
+      treats 0 as a hard skip via the existing `_blocked()` path.
+
     We use THIRD-Kelly (f*/3) by default because:
     - Full Kelly has brutal drawdowns in practice
     - Half-Kelly is still too aggressive for correlated positions
@@ -74,15 +84,19 @@ def _kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
     The kelly_divisor parameter controls the fraction (3.0 = third, 4.0 = quarter, 2.0 = half).
     """
     if avg_win <= 0 or avg_loss <= 0:
-        return 0.03  # Default 3% when no data
+        return 0.03  # Default 3% when no data — neutral prior, not "no trade"
 
     loss_rate = 1.0 - win_rate
     kelly = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
 
+    # NEGATIVE-EV GATE: refuse to size at all if expectancy is negative.
+    if kelly <= 0:
+        return 0.0
+
     # Third-Kelly for safety (configurable via kelly_divisor)
     fractional_kelly = kelly / kelly_divisor
 
-    # Clamp to reasonable range
+    # Clamp positive-EV fraction to [0.01, MAX]
     return max(0.01, min(fractional_kelly, ABSOLUTE_MAX_POSITION_PCT))
 
 
@@ -721,6 +735,16 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
         kelly_base = _kelly_fraction(
             overall["win_rate"], overall["avg_win"], overall["avg_loss"]
         )
+
+    # NEGATIVE-EV HALT 2026-05-03 (audit Finding #3): _kelly_fraction now
+    # returns 0.0 when expectancy is negative. Don't trade. The previous
+    # behavior (clamp to 1%) silently routed capital into trades the math
+    # said would lose money.
+    if kelly_base <= 0:
+        return _blocked(ticker, price,
+                        f"Negative expectancy for strategy '{strategy}' "
+                        f"(WR={hist_stats['by_strategy'].get(strategy, hist_stats['overall'])['win_rate']:.0%}); "
+                        f"refusing to size")
     
     # ── Step 2: Apply all scalars ─────────────────────────────────────────
     
@@ -843,8 +867,16 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
             _stop_scalar = _bc_ps.get(f"STOP_SCALAR_{_regime_label}", 1.0)
         except Exception:
             _stop_scalar = 1.0
-        stop_distance_pct = max(1.5, min(atr_pct * 1.5 * _stop_scalar, 10.0))
-        tp_distance_pct = max(4.0, min(atr_pct * 3.0, 15.0))
+        # UNIT FIX 2026-05-03: atr_pct here is annualized vol × 100 (e.g. 22)
+        # because bot_engine.ewma_vol() returns annualized × 100 and is the
+        # source for `ewma_rv` passed in. Multiplying by 1.5 and clamping at
+        # 10% pinned EVERY entry stop at 10% (audit Finding #1). Normalize
+        # to daily % first — same helper that _volatility_scalar uses.
+        _daily_atr = _normalize_vol_to_daily_pct(atr_pct)
+        if _daily_atr is None or _daily_atr <= 0:
+            _daily_atr = 2.0
+        stop_distance_pct = max(1.5, min(_daily_atr * 1.5 * _stop_scalar, 8.0))
+        tp_distance_pct = max(4.0, min(_daily_atr * 3.0, 12.0))
     else:
         stop_distance_pct = 2.5  # Default
         tp_distance_pct = 7.5
