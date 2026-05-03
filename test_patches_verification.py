@@ -378,6 +378,93 @@ class TestPatch10_PathDependentLabeling(unittest.TestCase):
         self.assertEqual(exit_date, "2026-04-07")
 
 
+class TestPatch12_StrategyKeyAlignment(unittest.TestCase):
+    """BUG #12 (post-deploy audit): _infer_strategy returned keys that didn't
+    match by_strategy dict, so Patch 2's negative-Kelly halt was BYPASSED for
+    stock trades. Fix realigns keys so halt actually fires."""
+
+    def test_stock_momentum_routes_to_stocks_bucket(self):
+        """Momentum-driven stock trade must route to 'stocks' bucket so
+        Patch 2's halt actually applies (was falling through to 'overall')."""
+        from position_sizing import _infer_strategy
+        trade = {"ticker": "AAPL", "momentum_score": 80, "mean_reversion_score": 30}
+        self.assertEqual(_infer_strategy(trade), "stocks",
+            "Momentum stock trade must bucket as 'stocks' for Patch 2 to halt")
+
+    def test_mean_reversion_routes_to_stocks(self):
+        from position_sizing import _infer_strategy
+        trade = {"ticker": "AAPL", "mean_reversion_score": 75, "momentum_score": 20}
+        self.assertEqual(_infer_strategy(trade), "stocks")
+
+    def test_squeeze_routes_to_stocks(self):
+        from position_sizing import _infer_strategy
+        trade = {"ticker": "GME", "squeeze_score": 80, "volume_score": 40}
+        self.assertEqual(_infer_strategy(trade), "stocks")
+
+    def test_vrp_routes_to_vrp_bucket(self):
+        """VRP-dominant trade routes to 'vrp' bucket (-EV → halt)."""
+        from position_sizing import _infer_strategy
+        trade = {"ticker": "AAPL", "vrp_score": 80, "momentum_score": 30}
+        self.assertEqual(_infer_strategy(trade), "vrp")
+
+    def test_csp_routes_to_csp_options(self):
+        """CSP options trade routes to 'csp_options' bucket (+EV → trade)."""
+        from position_sizing import _infer_strategy
+        trade = {"ticker": "AAPL", "options_strategy": "sell_cash_secured_put"}
+        self.assertEqual(_infer_strategy(trade), "csp_options")
+
+    def test_iron_condor_routes_to_csp_options(self):
+        """Premium-selling structures route to 'csp_options' bucket."""
+        from position_sizing import _infer_strategy
+        trade = {"ticker": "QQQ", "options_strategy": "qqq_iron_condor"}
+        self.assertEqual(_infer_strategy(trade), "csp_options")
+
+    def test_unscored_trade_defaults_to_stocks(self):
+        """No-signal trade defaults to 'stocks' (conservative)."""
+        from position_sizing import _infer_strategy
+        self.assertEqual(_infer_strategy({"ticker": "AAPL"}), "stocks")
+
+    def test_returned_keys_all_exist_in_by_strategy(self):
+        """Every possible return value of _infer_strategy must be a key in
+        by_strategy. Without this, Kelly looks up the wrong stats."""
+        from position_sizing import _infer_strategy, _get_historical_stats
+        valid_keys = set(_get_historical_stats()["by_strategy"].keys())
+        # Sample many trade shapes to cover all branches
+        test_trades = [
+            {"momentum_score": 80},
+            {"mean_reversion_score": 80},
+            {"vrp_score": 80},
+            {"squeeze_score": 80},
+            {"volume_score": 80},
+            {"options_strategy": "sell_csp"},
+            {"options_strategy": "covered_call"},
+            {"options_strategy": "iron_condor"},
+            {"instrument": "options"},
+            {},  # no signals
+        ]
+        for trade in test_trades:
+            inferred = _infer_strategy(trade)
+            self.assertIn(inferred, valid_keys,
+                f"_infer_strategy returned '{inferred}' which is not a key "
+                f"in by_strategy {valid_keys}. Stat lookup will fall through "
+                f"to 'overall' defaults — this is the bug Patch 12 fixes.")
+
+    def test_patch2_halt_now_fires_for_stocks(self):
+        """End-to-end: a stock trade should now produce kelly=0 due to
+        the chain: _infer_strategy → 'stocks' → -EV defaults → halt."""
+        from position_sizing import _infer_strategy, _get_historical_stats, _kelly_fraction
+        trade = {"ticker": "AAPL", "momentum_score": 80}
+        strategy = _infer_strategy(trade)
+        self.assertEqual(strategy, "stocks")
+        stats = _get_historical_stats()
+        s = stats["by_strategy"][strategy]
+        kelly = _kelly_fraction(s["win_rate"], s["avg_win"], s["avg_loss"])
+        self.assertEqual(kelly, 0.0,
+            f"With strategy='stocks' (WR={s['win_rate']}, win=${s['avg_win']}, "
+            f"loss=${s['avg_loss']}), Kelly must be 0.0 (negative-EV). "
+            f"Got {kelly}. Patch 2 is now connected end-to-end.")
+
+
 # ── Standalone runner ──────────────────────────────────────────────────────
 if __name__ == "__main__":
     unittest.main(verbosity=2)
