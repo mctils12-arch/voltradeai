@@ -103,6 +103,15 @@ def classify_regime_5level(vxx_ratio: float, spy_vs_ma50: float,
     # spy_below_200_days >= 5 means persistent breakdown, not noise
     if vxx >= BEAR_VXX_THRESHOLD or spy < BEAR_SPY_THRESHOLD:
         return "BEAR"
+    # SLOW-BEAR FIX 2026-05-03 (audit Finding #5b): docstring of
+    # get_market_regime says ">= 10 days forces BEAR regardless of VXX".
+    # The previous condition `not spy_above_200d and spy_below_200_days >= 5`
+    # required BOTH conditions, but every caller passes spy_above_200d=True
+    # (the default), so this branch never fired. Fix: 10+ consecutive days
+    # below 200d MA alone triggers BEAR — the detector that catches slow
+    # 2022-style grinds where VXX rises with its own 30d avg.
+    if spy_below_200_days >= 10:
+        return "BEAR"
     if not spy_above_200d and spy_below_200_days >= 5:
         return "BEAR"
 
