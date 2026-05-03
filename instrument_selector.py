@@ -42,6 +42,28 @@ except ImportError:
 from datetime import datetime, timezone
 from typing import Optional
 
+# UNIT FIX 2026-05-03: Stops were broken because ewma_rv (annualized × 100)
+# was multiplied by 1.5 and clamped at 8% — every stop pinned at 8%.
+# Reuse position_sizing's normalizer to convert annualized → daily %.
+try:
+    from position_sizing import _normalize_vol_to_daily_pct
+except Exception:
+    # Local fallback if circular import; same heuristic as position_sizing.
+    def _normalize_vol_to_daily_pct(v):
+        if v is None or v <= 0:
+            return None
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return None
+        if x <= 0.0:
+            return None
+        if x <= 0.6:
+            return (x * 100.0) / 15.874
+        if x <= 12.0:
+            return x
+        return x / 15.874
+
 # Alpaca constants (used for VXX fetch and ETF volume check)
 _ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 _ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
@@ -1039,13 +1061,18 @@ def _build_stop_config(trade: dict, chosen: str, sizing: dict) -> dict:
         }
 
     # ATR-based stops
-    stop_distance_pct  = max(1.5, min(ewma_rv * 1.5, 8.0))
-    tp_distance_pct    = max(4.0, min(ewma_rv * 3.0, 15.0))
+    # UNIT FIX 2026-05-03: ewma_rv is annualized vol × 100 (audit Finding #1).
+    # Multiplying raw by 1.5 and clamping at 8% pinned every stop at 8%.
+    _daily_atr = _normalize_vol_to_daily_pct(ewma_rv)
+    if _daily_atr is None or _daily_atr <= 0:
+        _daily_atr = 2.0
+    stop_distance_pct  = max(1.5, min(_daily_atr * 1.5, 8.0))
+    tp_distance_pct    = max(4.0, min(_daily_atr * 3.0, 15.0))
 
     if chosen == "etf":
         # Leveraged ETF: tighter stop (moves 2× as fast)
-        stop_distance_pct  = max(2.0, min(ewma_rv * 1.0, 6.0))
-        tp_distance_pct    = max(5.0, min(ewma_rv * 2.0, 12.0))
+        stop_distance_pct  = max(2.0, min(_daily_atr * 1.0, 6.0))
+        tp_distance_pct    = max(5.0, min(_daily_atr * 2.0, 12.0))
 
     if side in ("short", "sell"):
         stop_price  = round(price * (1 + stop_distance_pct / 100), 2)
