@@ -126,7 +126,17 @@ def get_reddit_sentiment(ticker: str) -> dict:
                 title = title_el.text
                 
                 # Only count if ticker is actually mentioned
-                if ticker.upper() not in title.upper() and f"${ticker.upper()}" not in title.upper():
+                # SUBSTRING-FIX 2026-05-03 (audit Finding #50): plain
+                # `ticker.upper() in title.upper()` matched "T" in "THE",
+                # "F" in "FORM", "T-MOBILE", etc. Use word-boundary regex
+                # that excludes alphanumeric, underscore, AND hyphens —
+                # so "T-MOBILE" doesn't match "T", but "(T)" still does.
+                import re as _re_sd
+                _t_upper = ticker.upper()
+                _t_pat = _re_sd.compile(
+                    rf"(?<![A-Za-z0-9_\-])\$?{_re_sd.escape(_t_upper)}(?![A-Za-z0-9_\-])"
+                )
+                if not _t_pat.search(title.upper()):
                     continue
 
                 # Score sentiment
