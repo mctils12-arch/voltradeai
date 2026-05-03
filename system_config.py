@@ -239,7 +239,15 @@ BASE_CONFIG = {
     "REGIME_VXX_BULL":         0.90, # VXX below 90% of avg = bull confirmed (no Markov needed)
     "REGIME_VXX_CAUTION":     1.05, # VXX 5%+ above avg = caution zone
     "REGIME_VXX_ELEVATED":    1.15, # VXX 15%+ above 30-day avg = elevated fear (was 1.10)
-    "REGIME_VXX_PANIC":       1.30, # VXX 30%+ above avg = panic mode
+    # REGIME RECONCILIATION 2026-05-03 (audit Finding #5):
+    # Was 1.30. regime_util.PANIC_VXX_THRESHOLD is 1.40 and self-declares as
+    # the canonical source. At VXX 1.30-1.40 the two files disagreed: this
+    # module said PANIC (30% max exposure cap), regime_util said BEAR (50%
+    # cap). System applied BEAR caps but tier_strategy + tests assumed
+    # PANIC — silent risk-budget delta of ~20pp in moderate-vol regimes.
+    # Aligned to 1.40 here. Tests in test_audit_critical / test_full_system
+    # that hard-coded 1.30 will need their expected_regime updated.
+    "REGIME_VXX_PANIC":       1.40, # VXX 40%+ above avg = panic mode (was 1.30)
     "MARKOV_STATES":          3,    # Bull / Neutral / Bear
     "MARKOV_LOOKBACK_DAYS":   3,    # Order-3 Markov (last 3 days)
 
