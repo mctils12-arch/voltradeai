@@ -327,19 +327,88 @@ def _fetch_historical_bars_batch(
 
 def _label_from_return(pct_return: float) -> int:
     """
-    Apply the bot's normal exit rules to a forward return.
-    Returns:
-        1 = win (hit +2% take-profit before -4% stop)
-        0 = loss (hit -4% stop first OR timeout below +2%)
-    Note: with only daily bars, we can't know which hit first intraday.
-    Conservative rule: label 1 only if return >= WIN_THRESHOLD_PCT.
+    LEGACY: close-only labeling. Kept for backward compat.
+
+    DEPRECATED 2026-05-03 (audit Finding #10): this function only looks at
+    the close at horizon day, not the bot's actual stop (-4%) / target (+2%)
+    rules. Use _label_from_path() below for new labeling.
     """
     if pct_return is None:
         return -1  # unknown
     if pct_return >= WIN_THRESHOLD_PCT:
         return 1
     else:
-        return 0  # anything below threshold counts as non-win (conservative)
+        return 0
+
+
+def _label_from_path(entry_price: float, bars: List[dict],
+                     win_pct: float = WIN_THRESHOLD_PCT,
+                     stop_pct: float = LOSS_THRESHOLD_PCT,
+                     max_bars: int = 5) -> tuple:
+    """
+    PATH-DEPENDENT LABELING 2026-05-03 (audit Finding #10).
+
+    Walks daily OHLC bars from entry forward and determines the outcome
+    using the bot's ACTUAL exit rules, not just the close at day N:
+
+      win_pct:   take-profit threshold (+2.0% default)
+      stop_pct:  stop-loss threshold   (-4.0% default, NEGATIVE)
+      max_bars:  hold for at most this many TRADING DAYS (not calendar)
+
+    On each trading day:
+      - If HIGH crosses entry*(1+win_pct/100)  → label = 1 (win)
+      - If LOW  crosses entry*(1+stop_pct/100) → label = 0 (loss)
+      - If both on same day: conservative — label as 0 (we can't know
+        intraday order from daily bars, so assume worst case)
+
+    If neither threshold is hit within max_bars, label by the close price
+    of the last bar:
+      - close > entry*(1+win_pct/100) → 1
+      - else                          → 0
+
+    Returns (label, exit_price, exit_reason, exit_bar_date)
+      label:     1 / 0 / -1
+      exit_reason: "target" / "stop" / "timeout" / "ambiguous"
+
+    This matches what manage_positions() actually does in production —
+    so labels can train ML on signals the live bot can actually capture.
+    """
+    if not bars or entry_price <= 0:
+        return (-1, None, "no_data", None)
+
+    target_price = entry_price * (1 + win_pct / 100.0)
+    stop_price = entry_price * (1 + stop_pct / 100.0)  # stop_pct is negative
+
+    # Walk at most max_bars trading days (each bar = 1 trading day)
+    for i, bar in enumerate(bars[:max_bars]):
+        high = float(bar.get("h", 0) or 0)
+        low = float(bar.get("l", 0) or 0)
+        close = float(bar.get("c", 0) or 0)
+        bar_date = (bar.get("t") or "")[:10]
+
+        if high <= 0 or low <= 0:
+            continue
+
+        hit_target = high >= target_price
+        hit_stop = low <= stop_price
+
+        if hit_target and hit_stop:
+            # Ambiguous — both touched on same day. Conservative: stop first.
+            return (0, stop_price, "ambiguous", bar_date)
+        if hit_stop:
+            return (0, stop_price, "stop", bar_date)
+        if hit_target:
+            return (1, target_price, "target", bar_date)
+
+    # Neither hit within max_bars → label by close of last bar (timeout)
+    last_bar = bars[max_bars - 1] if len(bars) >= max_bars else bars[-1]
+    last_close = float(last_bar.get("c", 0) or 0)
+    last_date = (last_bar.get("t") or "")[:10]
+    if last_close <= 0:
+        return (-1, None, "no_close", last_date)
+    pct_at_close = (last_close - entry_price) / entry_price * 100
+    label = 1 if pct_at_close >= win_pct else 0
+    return (label, last_close, "timeout", last_date)  # anything below threshold counts as non-win (conservative)
 
 
 def backfill_outcomes(max_records: int = 500) -> dict:
@@ -369,11 +438,20 @@ def backfill_outcomes(max_records: int = 500) -> dict:
 
     now_utc = datetime.now(timezone.utc)
 
-    # Group records that need backfill by their target lookup date
-    # Key = date_string, Value = list of (record_idx, horizon_key, ticker, entry_price)
-    lookup_tasks: Dict[str, List[tuple]] = defaultdict(list)
+    # ── BUFFER MULTIPLIER 2026-05-03 (audit Finding #54) ───────────────────
+    # Old code used calendar-day arithmetic for horizon (timedelta(days=N)).
+    # That makes "5-day forward" mean 5 calendar days = 3-5 trading days
+    # depending on weekends. ML feature horizons drifted ~25-30% through
+    # the year. Now we fetch a wider window and walk by *trading days*
+    # (i.e. just consecutive bars) using _label_from_path.
+    #
+    # Window: from entry to entry + horizon_calendar_days * 2 (cushion for
+    # weekends + holidays). Then we feed the first `horizon` bars to the
+    # path labeler, which is now horizon-in-TRADING-DAYS as intended.
+    HORIZON_CALENDAR_BUFFER = 2.5  # trading days × this = calendar days to fetch
 
     processed = 0
+    backfill_jobs = []  # list of (idx, horizon_key, horizon_trading_days, ticker, entry_price, ts)
     for idx, rec in enumerate(records):
         if processed >= max_records:
             break
@@ -393,78 +471,86 @@ def backfill_outcomes(max_records: int = 500) -> dict:
                 stats["already_filled"] += 1
                 continue
 
-            # Target date for lookup
-            target_date = rec_time + timedelta(days=horizon)
-
-            # Only process if enough time has passed (add 1 day buffer for settlement)
-            if (now_utc - target_date).days < 1:
+            # We need at least horizon_trading_days * ~1.4 calendar days
+            # to have observed the full window. Skip if too recent.
+            min_observable = rec_time + timedelta(
+                days=int(horizon * HORIZON_CALENDAR_BUFFER) + 1
+            )
+            if now_utc < min_observable:
                 stats["skipped"] += 1
                 continue
 
-            date_key = target_date.strftime("%Y-%m-%d")
             ticker = rec.get("ticker", "")
-            entry_price = rec.get("entry_price", 0)
-            if not ticker or not entry_price:
+            entry_price = float(rec.get("entry_price", 0) or 0)
+            if not ticker or entry_price <= 0:
                 continue
 
-            lookup_tasks[date_key].append((idx, horizon_key, ticker, entry_price))
+            backfill_jobs.append((idx, horizon_key, horizon, ticker, entry_price, rec_time))
             processed += 1
 
-    if not lookup_tasks:
+    if not backfill_jobs:
         return stats
 
-    # For each target date, batch-fetch bars for all unique tickers
-    # We look up a small window (target_date -3 to target_date +3) to handle
-    # weekends/holidays — pick the closest actual trading day.
-    for date_key, tasks in lookup_tasks.items():
-        unique_tickers = list({t[2] for t in tasks})
-        target = datetime.strptime(date_key, "%Y-%m-%d")
-        window_start = (target - timedelta(days=5)).strftime("%Y-%m-%d")
-        window_end = (target + timedelta(days=3)).strftime("%Y-%m-%d")
+    # Group by ticker so we batch-fetch one window per ticker (covers all
+    # horizons for that ticker in one Alpaca call).
+    jobs_by_ticker: Dict[str, List[tuple]] = defaultdict(list)
+    for job in backfill_jobs:
+        jobs_by_ticker[job[3]].append(job)
+
+    for ticker, jobs in jobs_by_ticker.items():
+        # Fetch one wide window covering the longest horizon needed
+        max_horizon = max(j[2] for j in jobs)
+        earliest_entry = min(j[5] for j in jobs)
+        latest_entry = max(j[5] for j in jobs)
+        window_start = (earliest_entry - timedelta(days=2)).strftime("%Y-%m-%d")
+        window_end = (latest_entry + timedelta(
+            days=int(max_horizon * HORIZON_CALENDAR_BUFFER) + 3
+        )).strftime("%Y-%m-%d")
 
         bars_by_ticker = _fetch_historical_bars_batch(
-            unique_tickers, window_start, window_end
+            [ticker], window_start, window_end
         )
+        all_bars = bars_by_ticker.get(ticker, [])
+        if not all_bars:
+            for job in jobs:
+                stats["missing_price"] += 1
+            continue
 
-        # For each task, find the bar closest to the target date
-        for idx, horizon_key, ticker, entry_price in tasks:
-            bars = bars_by_ticker.get(ticker, [])
-            if not bars:
+        for idx, horizon_key, horizon, _, entry_price, rec_time in jobs:
+            entry_date_str = rec_time.strftime("%Y-%m-%d")
+            # Bars at or after entry date — we want trading-day forward window
+            forward_bars = [
+                b for b in all_bars
+                if (b.get("t") or "")[:10] > entry_date_str
+            ]
+            if not forward_bars:
                 stats["missing_price"] += 1
                 continue
 
-            # Find bar closest to (but not after) target_date
-            target_str = target.strftime("%Y-%m-%d")
-            best_bar = None
-            for bar in bars:
-                bar_date = bar.get("t", "")[:10]
-                if bar_date <= target_str:
-                    best_bar = bar
-            # If no bar on/before, take earliest available
-            if best_bar is None and bars:
-                best_bar = bars[0]
-            if best_bar is None:
+            label, exit_price, exit_reason, exit_date = _label_from_path(
+                entry_price=entry_price,
+                bars=forward_bars,
+                win_pct=WIN_THRESHOLD_PCT,
+                stop_pct=LOSS_THRESHOLD_PCT,
+                max_bars=horizon,  # trading days, not calendar
+            )
+
+            if label == -1:
                 stats["missing_price"] += 1
                 continue
 
-            exit_price = float(best_bar.get("c", 0) or 0)
-            if exit_price <= 0:
-                stats["missing_price"] += 1
-                continue
+            # Compute return (entry → exit)
+            pct_return = ((exit_price - entry_price) / entry_price * 100
+                          if exit_price else 0.0)
 
-            # Compute return
-            try:
-                pct_return = (exit_price - entry_price) / entry_price * 100
-            except Exception:
-                continue
-
-            # Update the record
             records[idx].setdefault("outcomes", {})
             records[idx]["outcomes"][horizon_key] = {
-                "return_pct": round(pct_return, 3),
-                "label":      _label_from_return(pct_return),
-                "exit_price": exit_price,
-                "exit_date":  best_bar.get("t", "")[:10],
+                "return_pct":  round(pct_return, 3),
+                "label":       label,
+                "exit_price":  round(float(exit_price), 4) if exit_price else None,
+                "exit_date":   exit_date,
+                "exit_reason": exit_reason,  # "target" / "stop" / "timeout" / "ambiguous"
+                "label_method": "path_dependent_v2",  # vs legacy "close_only"
             }
             stats["updated"] += 1
 
