@@ -210,9 +210,16 @@ def _filing_mentions_ticker(accession: str, cik: str, ticker: str) -> bool:
                 )
                 doc_resp = requests.get(doc_url, headers=headers, timeout=12)
                 if doc_resp.status_code == 200:
-                    # Simple text search — ticker appears in <nameOfIssuer> tags
+                    # SUBSTRING-FIX 2026-05-03 (audit Finding #51): word-boundary
+                    # regex excluding alphanumeric, underscore AND hyphens, so
+                    # short tickers don't match every company starting with
+                    # those letters. "T" no longer matches "THERMO" or "T-MOBILE".
+                    import re as _re_id
                     content = doc_resp.text.upper()
-                    return ticker.upper() in content
+                    _t_pat = _re_id.compile(
+                        rf"(?<![A-Z0-9_\-]){_re_id.escape(ticker.upper())}(?![A-Z0-9_\-])"
+                    )
+                    return bool(_t_pat.search(content))
     except Exception:
         pass
     return False
