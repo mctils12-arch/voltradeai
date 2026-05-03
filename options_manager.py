@@ -450,9 +450,15 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         return actions
 
     # Calculate COMBINED P&L across all legs
-    total_entry_cost = 0
+    total_entry_cost = 0           # gross sum (legacy — kept for non-credit paths)
     total_current_value = 0
     total_unrealized_pnl = 0
+    # NET-CREDIT FIX 2026-05-03 (audit Finding #2):
+    # For credit strategies (verticals, condors), max_profit = net credit
+    # received = sum(short_premiums) - sum(long_premiums). The previous
+    # denominator (gross entry cost summing both sides) made the 50% target
+    # fire at 75% of max profit on 4-leg structures.
+    net_credit = 0.0               # positive when we received cash at entry
     min_dte = 999
     all_occ_symbols = []
 
@@ -468,6 +474,16 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         total_entry_cost += entry * qty * 100
         total_current_value += current * qty * 100
         total_unrealized_pnl += pnl
+
+        # Net credit: short legs add, long legs subtract.
+        # For pure credit structures (CSP, naked put, short straddle) all
+        # legs are short, so net_credit == total_entry_cost (no behavior
+        # change). For spreads/condors the long-leg debit nets against
+        # short-leg credit, giving the true max profit.
+        if side == "short":
+            net_credit += entry * qty * 100
+        else:
+            net_credit -= entry * qty * 100
 
         # Parse DTE from OCC symbol
         parsed = _parse_occ_symbol(occ)
@@ -534,16 +550,16 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
     )
     is_debit_strategy = strategy in ("buy_straddle", "bull_call_spread", "bear_put_spread")
 
-    if is_credit_strategy and total_entry_cost > 0:
-        # P0-8 FIX: Sign was inverted. For a credit strategy, Alpaca's
-        # `unrealized_pl` is POSITIVE when the sold options decay (which is
-        # profit). `combined_pnl_pct = total_unrealized_pnl / total_entry_cost`
-        # is therefore already positive when winning. The prior line
-        # `profit_pct = -combined_pnl_pct` made it negative — the 50%
-        # target could never fire. Tastytrade research shows managing at
-        # 50% of max profit is the single biggest WR+Sortino lever for
-        # short-premium strategies.
-        profit_pct = combined_pnl_pct
+    if is_credit_strategy and net_credit > 0:
+        # NET-CREDIT FIX 2026-05-03 (audit Finding #2):
+        # For credit strategies, max_profit = net_credit received. The
+        # legacy denominator (total_entry_cost = sum of |entry|*qty across
+        # all legs) overcounted on spreads/condors because long legs were
+        # added in instead of subtracted. With $1.00 short legs and $0.20
+        # long legs on a 4-leg condor, entry_cost = $240 but max profit =
+        # net credit = $160. The 50% gate was firing at $120 (75% of max).
+        # Now using net_credit as denominator, the gate fires at $80 = 50%.
+        profit_pct = total_unrealized_pnl / net_credit
         if profit_pct >= PROFIT_TARGET_PCT:
             result = _close_strategy_mleg(legs, ticker)
             actions.append({
@@ -551,9 +567,10 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                 "ticker": ticker,
                 "strategy": strategy,
                 "legs": all_occ_symbols,
-                "reason": f"PROFIT TARGET: {profit_pct:.0%} of max profit — closing {strategy}",
+                "reason": f"PROFIT TARGET: {profit_pct:.0%} of max profit (net credit ${net_credit:.0f}) — closing {strategy}",
                 "type": "strategy_profit_target",
                 "combined_pnl": round(total_unrealized_pnl, 2),
+                "net_credit": round(net_credit, 2),
                 "order": result,
             })
             for occ in all_occ_symbols:
