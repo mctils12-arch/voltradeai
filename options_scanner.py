@@ -401,8 +401,26 @@ def _fetch_options_chain(ticker: str, price: float,
                     else:                   delta = -0.04
 
             iv     = float(greeks.get("iv", 0) or 0)
-            oi     = int(snap.get("openInterest", 0) or 0)
-            volume = int(snap.get("volume", 0) or 0)
+            # FIELD FIX 2026-05-03 (audit Finding #4): Alpaca OPRA snapshot
+            # does NOT return openInterest at the top level, and "volume" at
+            # top level is the LAST trade size (1-2 contracts), not daily volume.
+            # Real volume lives in dailyBar.v. OI is unavailable from snapshot
+            # — fall back to bid/ask sizes (market-maker depth) as a liquidity
+            # proxy, same approach used in options_execution.py.
+            #
+            # Old code:   oi=snap.get("openInterest", 0)  → always 0
+            #             volume=snap.get("volume", 0)    → trade size, not daily vol
+            # Effect:     high_iv_premium_sale and gamma_pin scanners always
+            #             failed their OI>=300 gate. Two of four edges dead.
+            daily_bar = snap.get("dailyBar", {}) or {}
+            volume = int(daily_bar.get("v", 0) or 0)
+            oi_raw = int(snap.get("openInterest", 0) or 0)
+            bid_size = int(quote.get("bs", 0) or 0)
+            ask_size = int(quote.get("as", 0) or 0)
+            # If OI not exposed, use max(bid_size, ask_size) * 10 as proxy.
+            # Rule of thumb: a market maker quoting N contracts implies open
+            # interest is at least 10× that to support quoting depth.
+            oi = oi_raw if oi_raw > 0 else max(bid_size, ask_size) * 10
 
             try:
                 days_out = (datetime.strptime(exp_date, "%Y-%m-%d") - datetime.now()).days
