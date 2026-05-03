@@ -895,7 +895,15 @@ def _select_bull_put_credit_spread(contracts: list, price: float, equity: float,
         result["ev"] = round(ev, 2)
         result["win_probability"] = round(p_win * 100, 1)
         if ev < 0:
+            # EV-HALT 2026-05-03 (audit Finding #6): negative-EV options
+            # trades were silently flagged but still placed. Now refuse.
+            # Tail hedges (buy_put) bypass this — they have their own
+            # selection logic and do not run this EV check.
             result["ev_warning"] = "Negative expected value"
+            result["error"] = (
+                f"Negative expected value (EV=${ev:.2f} per contract); "
+                f"refusing to place trade"
+            )
 
     return result
 
@@ -1055,7 +1063,15 @@ def _select_qqq_iron_condor(contracts: list, price: float, equity: float, ticker
         result["ev"] = round(ev, 2)
         result["win_probability"] = round(p_win * 100, 1)
         if ev < 0:
+            # EV-HALT 2026-05-03 (audit Finding #6): negative-EV options
+            # trades were silently flagged but still placed. Now refuse.
+            # Tail hedges (buy_put) bypass this — they have their own
+            # selection logic and do not run this EV check.
             result["ev_warning"] = "Negative expected value"
+            result["error"] = (
+                f"Negative expected value (EV=${ev:.2f} per contract); "
+                f"refusing to place trade"
+            )
 
     return result
 
@@ -1241,7 +1257,15 @@ def _select_bull_spread(contracts: list, price: float, equity: float, ticker: st
         result["ev"] = round(ev, 2)
         result["win_probability"] = round(p_win * 100, 1)
         if ev < 0:
+            # EV-HALT 2026-05-03 (audit Finding #6): negative-EV options
+            # trades were silently flagged but still placed. Now refuse.
+            # Tail hedges (buy_put) bypass this — they have their own
+            # selection logic and do not run this EV check.
             result["ev_warning"] = "Negative expected value"
+            result["error"] = (
+                f"Negative expected value (EV=${ev:.2f} per contract); "
+                f"refusing to place trade"
+            )
 
     return result
 
@@ -1298,7 +1322,10 @@ def _select_calendar_spread(contracts: list, price: float, equity: float, ticker
         return {"error": "Calendar spread requires net debit > 0"}
 
     # Liquidity check
-    if short_call.get("oi", 0) < 100 or long_call.get("oi", 0) < 50:
+    # FIELD FIX 2026-05-03 (audit Finding #8): Was c.get("oi", 0) but the
+    # contract dict uses key "open_interest" (set in _fetch_options_chain).
+    # The wrong key always returned 0, blocking every calendar trade.
+    if short_call.get("open_interest", 0) < 100 or long_call.get("open_interest", 0) < 50:
         return {"error": "Calendar spread legs lack liquidity (OI < threshold)"}
 
     # IV differential — core edge
@@ -1396,7 +1423,8 @@ def _select_diagonal_spread(contracts: list, price: float, equity: float, ticker
         return {"error": "Diagonal requires net debit > 0 (long leg cost > short leg premium)"}
 
     # Liquidity check
-    if long_leg.get("oi", 0) < 50 or short_leg.get("oi", 0) < 100:
+    # FIELD FIX 2026-05-03 (audit Finding #8): same key bug as calendar above.
+    if long_leg.get("open_interest", 0) < 50 or short_leg.get("open_interest", 0) < 100:
         return {"error": "Diagonal legs lack liquidity"}
 
     max_loss_per = round(net_debit * 100, 2)
@@ -1517,7 +1545,15 @@ def _select_bear_spread(contracts: list, price: float, equity: float, ticker: st
         result["ev"] = round(ev, 2)
         result["win_probability"] = round(p_win * 100, 1)
         if ev < 0:
+            # EV-HALT 2026-05-03 (audit Finding #6): negative-EV options
+            # trades were silently flagged but still placed. Now refuse.
+            # Tail hedges (buy_put) bypass this — they have their own
+            # selection logic and do not run this EV check.
             result["ev_warning"] = "Negative expected value"
+            result["error"] = (
+                f"Negative expected value (EV=${ev:.2f} per contract); "
+                f"refusing to place trade"
+            )
 
     return result
 
@@ -1619,7 +1655,15 @@ def _select_buy_straddle(contracts: list, price: float, equity: float, ticker: s
         result["win_probability"] = round(p_win * 100, 1)
         result["risk_reward"] = 1.0  # Unlimited upside, but 1:1 is the proxy target
         if ev < 0:
+            # EV-HALT 2026-05-03 (audit Finding #6): negative-EV options
+            # trades were silently flagged but still placed. Now refuse.
+            # Tail hedges (buy_put) bypass this — they have their own
+            # selection logic and do not run this EV check.
             result["ev_warning"] = "Negative expected value"
+            result["error"] = (
+                f"Negative expected value (EV=${ev:.2f} per contract); "
+                f"refusing to place trade"
+            )
 
     return result
 
@@ -1707,7 +1751,15 @@ def _select_straddle(contracts: list, price: float, equity: float, ticker: str, 
         result["win_probability"] = round(p_win * 100, 1)
         result["risk_reward"] = round(max_profit_per / max_loss_proxy, 2) if max_loss_proxy > 0 else 0
         if ev < 0:
+            # EV-HALT 2026-05-03 (audit Finding #6): negative-EV options
+            # trades were silently flagged but still placed. Now refuse.
+            # Tail hedges (buy_put) bypass this — they have their own
+            # selection logic and do not run this EV check.
             result["ev_warning"] = "Negative expected value"
+            result["error"] = (
+                f"Negative expected value (EV=${ev:.2f} per contract); "
+                f"refusing to place trade"
+            )
 
     return result
 
@@ -1847,7 +1899,15 @@ def _select_condor(contracts: list, price: float, equity: float, ticker: str, si
         result["ev"] = round(ev, 2)
         result["win_probability"] = round(p_win * 100, 1)
         if ev < 0:
+            # EV-HALT 2026-05-03 (audit Finding #6): negative-EV options
+            # trades were silently flagged but still placed. Now refuse.
+            # Tail hedges (buy_put) bypass this — they have their own
+            # selection logic and do not run this EV check.
             result["ev_warning"] = "Negative expected value"
+            result["error"] = (
+                f"Negative expected value (EV=${ev:.2f} per contract); "
+                f"refusing to place trade"
+            )
 
     return result
 
