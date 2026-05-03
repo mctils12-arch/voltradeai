@@ -603,6 +603,66 @@ def liquidation_reason(dd_pct: float) -> str:
     return f"LIQUIDATE_ALL: portfolio DD {dd_pct*100:.1f}% <= -25% with opt-in active"
 
 
+# ── PEAK EQUITY HELPERS 2026-05-03 (audit Finding #7) ──────────────────────
+# get_kill_switch_status() at line 613 calls get_peak_equity() which was
+# never defined. The bare-except caught the NameError silently and returned
+# peak_equity=0.0 every time, which made the drawdown halt unable to fire
+# (dd = (equity - 0) / max(0, 1) = always positive).
+# voltrade_daemon.py:146 also routes the "get_peak_equity" RPC here, so
+# external monitoring was getting RPC errors too.
+#
+# Implementation mirrors tiered_strategy.update_peak_equity (atomic write
+# with rename) but is a thin wrapper to avoid a circular import.
+_PEAK_EQUITY_FILENAME = "voltrade_peak_equity.json"
+
+
+def get_peak_equity() -> float:
+    """
+    Read all-time peak equity from disk.
+    Returns 0.0 if file is missing or corrupt — caller should ratchet up
+    on the next observation via set_peak_equity().
+    """
+    try:
+        import json
+        path = _state_path(_PEAK_EQUITY_FILENAME)
+        if os.path.exists(path):
+            with open(path) as f:
+                data = json.load(f)
+            return float(data.get("peak_equity", 0.0))
+    except Exception:
+        pass
+    return 0.0
+
+
+def set_peak_equity(equity: float) -> float:
+    """
+    Ratchet peak equity to max(current_peak, equity) and persist.
+    Atomic via tempfile + rename.
+    """
+    try:
+        import json
+        import tempfile
+        from datetime import datetime as _dt
+        peak = max(float(equity), get_peak_equity())
+        path = _state_path(_PEAK_EQUITY_FILENAME)
+        dirname = os.path.dirname(path) or "."
+        try:
+            os.makedirs(dirname, exist_ok=True)
+        except Exception:
+            pass
+        fd, tmp = tempfile.mkstemp(dir=dirname, prefix=".peak.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump({"peak_equity": peak,
+                           "last_updated": _dt.utcnow().isoformat()}, f)
+            os.replace(tmp, path)
+        except Exception:
+            try: os.unlink(tmp)
+            except Exception: pass
+        return peak
+    except Exception:
+        return float(equity)
+
 
 def get_kill_switch_status() -> dict:
     """
