@@ -2504,19 +2504,37 @@ print(json.dumps(result[:20]))
         trade.side = "buy";
       }
 
+      // ALPHA AUDIT 2026-05-04 batch 5: guard against qty=0 orders.
+      // When trade.position_value is small (e.g. $50) and currentPrice is
+      // high (e.g. QQQ at $500+), Math.floor produces 0 shares. Submitting
+      // qty:0 to Alpaca returns 422 "qty must be > 0" and trashes the
+      // morning queue. This morning at 13:30:28Z we hit:
+      //   MORNING-ERROR — Failed: QQQ — Alpaca 422: {"code":40010001,
+      //                  "message":"qty must be > 0"}
+      // Skip the trade gracefully instead of attempting an invalid order.
+      const _qtyToSubmit = Math.floor(trade.shares);
+      if (_qtyToSubmit < 1) {
+        audit("MORNING-SKIP",
+          `${trade.ticker}: skipped — computed qty=${_qtyToSubmit} ` +
+          `(position_value=$${trade.position_value?.toFixed(2) ?? "?"}, ` +
+          `price=$${trade.price?.toFixed(2) ?? "?"}). ` +
+          `Position too small to buy a single share.`);
+        continue;
+      }
+
       try {
         const order = await alpaca("/v2/orders", {
           method: "POST",
           body: JSON.stringify({
             symbol: trade.ticker,
-            qty: String(Math.floor(trade.shares)),
+            qty: String(_qtyToSubmit),
             side: trade.side || "buy",
             ...getOrderParams(trade.price || 0), // Market during regular hours, limit during extended
           }),
         });
 
-        audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
-        notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${Math.floor(trade.shares)} ${trade.ticker} (score: ${trade.score})`);
+        audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${_qtyToSubmit} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
+        notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${_qtyToSubmit} ${trade.ticker} (score: ${trade.score})`);
 
         // Track fill with realistic slippage (morning queue = market open = wider slippage)
         try {

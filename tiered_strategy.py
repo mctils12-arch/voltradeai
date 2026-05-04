@@ -634,9 +634,20 @@ class TieredStrategy:
                 "kill_reason": str,
                 "actions": [TierAction, ...],
                 "tier_stats": {1: count, 2: count, 3: count, 4: count},
+                "tier_timings": {"tier1_sec": float, "tier2_sec": float, ...},
                 "diagnostics": {...},
             }
         """
+        # ALPHA AUDIT 2026-05-04 batch 5: per-tier timing for bottleneck
+        # diagnosis. Production scans are timing out at 300s with the
+        # tier_engine_complete phase as the culprit, but we don't know
+        # WHICH tier inside the engine is slow. Capturing per-tier wall
+        # time so the next snapshot shows e.g. "tier1: 250s" or
+        # "tier3: 280s" and we can target the actual hot path.
+        import time as _t
+        tier_timings = {}
+        _t_start = _t.time()
+
         # Run master kill-switch first
         killed, reason = master_kill_switch(ctx)
         if killed:
@@ -646,28 +657,37 @@ class TieredStrategy:
                 "kill_reason": reason,
                 "actions": [],
                 "tier_stats": {},
+                "tier_timings": {"killed_at_sec": round(_t.time() - _t_start, 2)},
                 "diagnostics": self._diagnostics(ctx),
             }
 
         all_actions = []
 
         # Tier 1 — CSP core (always runs)
+        _t_phase = _t.time()
         t1_actions = tier1_csp_core(ctx)
-        logger.info(f"T1 CSP: {len(t1_actions)} candidates")
+        tier_timings["tier1_sec"] = round(_t.time() - _t_phase, 2)
+        logger.info(f"T1 CSP: {len(t1_actions)} candidates [{tier_timings['tier1_sec']}s]")
 
         # Tier 2 — multiply T1 sizing (if PM approved)
+        _t_phase = _t.time()
         t1_after_t2 = tier2_leverage_multiplier(ctx, t1_actions)
+        tier_timings["tier2_sec"] = round(_t.time() - _t_phase, 2)
         all_actions.extend(t1_after_t2)
 
         # Tier 3 — trend capture (independent of T1)
+        _t_phase = _t.time()
         t3_actions = tier3_trend_capture(ctx)
+        tier_timings["tier3_sec"] = round(_t.time() - _t_phase, 2)
         all_actions.extend(t3_actions)
-        logger.info(f"T3 trend: {len(t3_actions)} candidates")
+        logger.info(f"T3 trend: {len(t3_actions)} candidates [{tier_timings['tier3_sec']}s]")
 
         # Tier 4 — tail hedge (always on, small size)
+        _t_phase = _t.time()
         t4_actions = tier4_tail_hedge(ctx)
+        tier_timings["tier4_sec"] = round(_t.time() - _t_phase, 2)
         all_actions.extend(t4_actions)
-        logger.info(f"T4 hedge: {len(t4_actions)} candidates")
+        logger.info(f"T4 hedge: {len(t4_actions)} candidates [{tier_timings['tier4_sec']}s]")
 
         # ── MASTER ALLOCATOR ──────────────────────────────────────────────
         # Tiers run independently and don't know about each other's
@@ -676,16 +696,32 @@ class TieredStrategy:
         # positions would exceed the cap, scale down proportionally.
         # T4 (tail hedge) is protected from scale-down — it's small and
         # load-bearing for the overall system safety.
+        _t_phase = _t.time()
         all_actions = _enforce_exposure_cap(ctx, all_actions)
+        tier_timings["allocator_sec"] = round(_t.time() - _t_phase, 2)
+
+        tier_timings["total_sec"] = round(_t.time() - _t_start, 2)
 
         # Tier stats
         stats = {i: sum(1 for a in all_actions if a.tier == i) for i in (1, 2, 3, 4)}
+
+        # Log a summary of where time went so it shows up in stderr/logs
+        # even before the diagnostics dict reaches the snapshot endpoint.
+        logger.info(
+            f"[TIER-TIMING] total={tier_timings['total_sec']}s "
+            f"t1={tier_timings.get('tier1_sec')}s "
+            f"t2={tier_timings.get('tier2_sec')}s "
+            f"t3={tier_timings.get('tier3_sec')}s "
+            f"t4={tier_timings.get('tier4_sec')}s "
+            f"alloc={tier_timings.get('allocator_sec')}s"
+        )
 
         return {
             "killed": False,
             "kill_reason": "",
             "actions": all_actions,
             "tier_stats": stats,
+            "tier_timings": tier_timings,
             "diagnostics": self._diagnostics(ctx),
         }
 

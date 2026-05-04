@@ -3230,9 +3230,19 @@ def _scan_market_inner():
                 tier_result = ts.run_tiers(ctx)
                 tiered_actions = tier_result["actions"]
                 tier_stats = tier_result.get("tier_stats", {})
+                # ALPHA AUDIT 2026-05-04 batch 5: capture per-tier timing
+                # so we can see which tier is the bottleneck. Production
+                # scans timing out at 300s — need to know if it's tier1
+                # CSP core, tier3 trend capture, or somewhere else.
+                tier_timings = tier_result.get("tier_timings", {})
+                if tier_timings:
+                    _phase_times.append({
+                        "phase": "tier_engine_breakdown",
+                        "tier_timings": tier_timings,
+                    })
                 import logging
                 logging.getLogger("bot_engine").info(
-                    f"[TIERS] {len(tiered_actions)} actions: {tier_stats}"
+                    f"[TIERS] {len(tiered_actions)} actions: {tier_stats} timings: {tier_timings}"
                 )
             else:
                 import logging
