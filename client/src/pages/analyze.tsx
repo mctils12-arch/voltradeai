@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
 const DataWorldMap = lazy(() => import("@/components/DataWorldMap"));
+import InsightsView from "./InsightsView";
 import {
   Search, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown,
   Activity, BarChart2, Zap, Moon, Sun, RefreshCw, Target, Volume2,
@@ -2019,6 +2020,11 @@ function LoadingSkeleton() {
 export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
   const [input, setInput] = useState(initialTicker ?? "");
   const [ticker, setTicker] = useState<string | null>(initialTicker ?? null);
+  // SUB-TAB 2026-05-03: 'options' = the original options-volatility view,
+  // 'insights' = smart-money / structure / S-R view (powered by InsightsView).
+  // Defaults to 'options' to preserve existing behavior. The sub-tab only
+  // shows after a ticker has been analyzed.
+  const [subTab, setSubTab] = useState<"options" | "insights">("options");
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -2179,6 +2185,71 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                 </span>
               </div>
             </div>
+
+            {/* SUB-TAB SWITCHER 2026-05-03: Options view (existing) vs Insights view (new) */}
+            <div style={{
+              display: "flex",
+              gap: "0.25rem",
+              marginTop: "1rem",
+              marginBottom: "0.5rem",
+              padding: "0.25rem",
+              background: "rgba(15, 23, 42, 0.6)",
+              border: "1px solid rgba(148, 163, 184, 0.15)",
+              borderRadius: "0.5rem",
+              width: "fit-content",
+            }} data-testid="subtab-switcher">
+              <button
+                onClick={() => setSubTab("options")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.375rem",
+                  padding: "0.5rem 1rem",
+                  background: subTab === "options" ? "rgba(0, 229, 255, 0.12)" : "transparent",
+                  border: subTab === "options" ? "1px solid rgba(0, 229, 255, 0.3)" : "1px solid transparent",
+                  borderRadius: "0.375rem",
+                  color: subTab === "options" ? "#00e5ff" : "#94a3b8",
+                  fontSize: 12,
+                  fontWeight: subTab === "options" ? 600 : 500,
+                  cursor: "pointer",
+                  transition: "all 150ms ease",
+                  fontFamily: "inherit",
+                }}
+                data-testid="subtab-options"
+              >
+                <BarChart2 size={14} />
+                Options &amp; Volatility
+              </button>
+              <button
+                onClick={() => setSubTab("insights")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.375rem",
+                  padding: "0.5rem 1rem",
+                  background: subTab === "insights" ? "rgba(212, 160, 23, 0.12)" : "transparent",
+                  border: subTab === "insights" ? "1px solid rgba(212, 160, 23, 0.3)" : "1px solid transparent",
+                  borderRadius: "0.375rem",
+                  color: subTab === "insights" ? "#d4a017" : "#94a3b8",
+                  fontSize: 12,
+                  fontWeight: subTab === "insights" ? 600 : 500,
+                  cursor: "pointer",
+                  transition: "all 150ms ease",
+                  fontFamily: "inherit",
+                }}
+                data-testid="subtab-insights"
+              >
+                <Eye size={14} />
+                Smart Money &amp; Structure
+              </button>
+            </div>
+
+            {/* Sub-tab content: Insights view */}
+            {subTab === "insights" && <InsightsView ticker={ticker} />}
+
+            {/* Sub-tab content: Options view (everything below was the
+                original analyze view, now conditional on subTab) */}
+            {subTab === "options" && <>
 
             {/* Live price bar */}
             {data.fundamentals && (
@@ -2408,6 +2479,8 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
             <p className="disclaimer">
               For educational purposes only. Not financial advice. Options trading involves substantial risk of loss. Always consult a licensed financial professional before trading.
             </p>
+
+            </>}{/* end subTab === "options" */}
           </div>
         )}
 

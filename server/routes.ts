@@ -542,6 +542,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Single-ticker INSIGHTS view (insider + institutional + float + S/R + options) ──
+  // ALPHA AUDIT 2026-05-03 batch 3: smart-money / structure data
+  // surfaced from the bot's existing data layer in a single payload.
+  // Backend: insights.py. Has its own timeout because it touches more
+  // sources (Finnhub, SEC EDGAR, yfinance) than /api/analyze.
+  app.get("/api/insights/:ticker", async (req, res) => {
+    const { ticker } = req.params;
+
+    if (!ticker || !/^[A-Za-z.]{1,10}$/.test(ticker)) {
+      return res.status(400).json({ error: "Invalid ticker symbol. Please use letters only (e.g. AAPL, SPY, TSLA)." });
+    }
+
+    const scriptPath = path.resolve(process.cwd(), "insights.py");
+
+    try {
+      const { stdout } = await execAsync(
+        `python3 "${scriptPath}" "${ticker.toUpperCase()}"`,
+        { timeout: 90000, maxBuffer: 1024 * 1024 * 2 }
+      );
+
+      const output = stdout.trim();
+      if (!output) {
+        return res.status(500).json({ error: "No output from insights engine. Try again." });
+      }
+
+      const data = JSON.parse(output);
+      return res.json(data);
+    } catch (err: any) {
+      if (err.stdout) {
+        try {
+          const data = JSON.parse(err.stdout.trim());
+          return res.status(400).json(data);
+        } catch {}
+      }
+      return res.status(500).json({ error: "Insights fetch failed. Please check the ticker and try again." });
+    }
+  });
+
   // ── Market scanner ────────────────────────────────────────────────────────
   app.get("/api/scan", async (req, res) => {
     const now = Date.now();

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Moon, Sun, BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info } from "lucide-react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AnalyzePage from "./analyze";
 import ScannerPage from "./scanner";
@@ -52,7 +52,12 @@ function getInitialTab(): TabId {
 
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
   const [activeTab, setActiveTab] = useState<TabId>(getInitialTab);
-  const [dark, setDark] = useState(() => localStorage.getItem("theme") !== "light");
+  // DARK-ONLY 2026-05-03: light theme removed because several components
+  // didn't render cleanly in light mode. The `dark` variable is kept as
+  // a constant `true` so per-theme conditional code throughout this file
+  // and child components remains valid without rewriting it. localStorage
+  // theme key is no longer read or written.
+  const [dark] = useState(true);
   const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
   const [showLogin, setShowLogin] = useState(false);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
@@ -62,10 +67,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     window.location.hash = "#/" + activeTab;
   }, [activeTab]);
 
-  // Persist dark mode (Bug 16)
-  useEffect(() => {
-    localStorage.setItem("theme", dark ? "dark" : "light");
-  }, [dark]);
+  // Dark-only 2026-05-03: theme persistence effect removed (always dark).
 
   const handleSelectTicker = (ticker: string) => {
     setAnalyzeTarget(ticker);
@@ -162,14 +164,11 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
           >
             <Info size={15} />
           </a>
-          <button
-            className="theme-toggle-btn"
-            onClick={() => setDark(!dark)}
-            aria-label="Toggle light/dark mode"
-            title={dark ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {dark ? <Sun size={15} /> : <Moon size={15} />}
-          </button>
+          {/* Light/dark theme toggle removed 2026-05-03: dark-only UI to
+              eliminate per-theme styling drift. The light variant had
+              several components that didn't render cleanly. Keeping the
+              `dark` state variable as a constant `true` so per-theme
+              conditional code below remains valid without rewriting it. */}
           {authenticated ? (
             <button
               className="theme-toggle-btn"
@@ -209,13 +208,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
           >
             <Info size={15} />
           </a>
-          <button
-            className="theme-toggle-btn"
-            onClick={() => setDark(!dark)}
-            aria-label="Toggle light/dark mode"
-          >
-            {dark ? <Sun size={15} /> : <Moon size={15} />}
-          </button>
+          {/* Light/dark toggle removed 2026-05-03 — dark-only UI */}
           {authenticated ? (
             <button className="theme-toggle-btn" onClick={handleLogout} aria-label="Sign out">
               <LogOut size={15} />
