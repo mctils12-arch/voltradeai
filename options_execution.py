@@ -63,8 +63,12 @@ ALPACA_DATA = "https://data.alpaca.markets"
 # FIX (2026-04-10): Capped per-trade from 10% to 8%, total from 20% to 8%.
 # Options straddles were losing $400-500/day to spread. Reducing allocation
 # limits the damage from low-edge setups until the strategy proves itself.
+# ALPHA AUDIT 2026-05-03 (batch 2): per-year backtest analysis confirmed
+# CSPs are positive every year (11/11). Total cap doubled to 16% to let
+# the proven strategy scale. Per-trade cap stays at 8%. Mirrors the change
+# in instrument_selector.py.
 MAX_OPTIONS_PCT_CEILING = 0.08   # Absolute max 8% per options trade
-MAX_TOTAL_OPTIONS_PCT = 0.08     # Absolute max 8% total options exposure
+MAX_TOTAL_OPTIONS_PCT = 0.16     # was 0.08 — see audit note above
 # v1.0.33: Lowered from vol>100/OI>500 to match scanner thresholds.
 # Mid-cap stocks (KMI, DIS, WMB) have 10-80 daily volume on ATM options
 # but 300+ OI — perfectly tradeable with limit orders.

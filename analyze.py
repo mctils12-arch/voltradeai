@@ -22,7 +22,7 @@ import math
 import warnings
 warnings.filterwarnings('ignore')
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 import os
 import requests
@@ -87,7 +87,7 @@ def _fetch_alpaca_bars(symbol, days=180):
     if not api_key or not secret:
         return pd.DataFrame()
 
-    end   = datetime.utcnow()
+    end   = datetime.now(timezone.utc)  # was datetime.utcnow() (deprecated in 3.12)
     start = end - timedelta(days=days)
     url   = f"{_ALPACA_BASE}/{symbol}/bars"
     params = {

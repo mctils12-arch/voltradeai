@@ -1095,9 +1095,19 @@ fills = []
 if os.path.exists(FILLS_PATH):
     with open(FILLS_PATH) as f: fills = json.load(f)
 
-feedback = []
+feedback_raw = []
 if os.path.exists(TRADE_FEEDBACK_PATH):
-    with open(TRADE_FEEDBACK_PATH) as f: feedback = json.load(f)
+    with open(TRADE_FEEDBACK_PATH) as f: feedback_raw = json.load(f)
+
+# DASHBOARD-FIX 2026-05-03 (alpha audit batch 3): filter out backtest-seeded
+# records before computing PERFORMANCE numbers. Seeded records exist purely
+# to give the Kelly gate a real per-bucket prior on day one — they are NOT
+# trades the bot actually placed. Including them in the dashboard would
+# tell users 'you have 1326 trades, +700% PnL' as soon as the daemon
+# auto-seeds, which is dramatically misleading. Seeded records have
+# _seed: True set by seed_feedback_from_backtest.py.
+seeded_count = sum(1 for t in feedback_raw if t.get('_seed'))
+feedback = [t for t in feedback_raw if not t.get('_seed')]
 
 # Filter out corrupt records: require non-empty ticker
 feedback = [t for t in feedback if t.get('ticker', '').strip() and not (t.get('pnl_pct', 0) == 0 and t.get('outcome') is None)]
@@ -1148,6 +1158,7 @@ worst_trade = min(feedback, key=lambda t: t.get('pnl_pct', 0)) if feedback else 
 print(json.dumps({
     'totalTrades': len(feedback),
     'totalFills': len(fills),
+    'seededTrades': seeded_count,
     'winRate': round(win_rate, 1),
     'avgGain': round(avg_win, 2),
     'avgLoss': round(avg_loss, 2),
@@ -1496,12 +1507,20 @@ try:
     if os.path.exists(FEEDBACK_PATH):
         with open(FEEDBACK_PATH) as f: fb = json.load(f)
         result['feedback_count'] = len(fb) if isinstance(fb, list) else 0
+        # ALPHA AUDIT 2026-05-03 batch 3: distinguish seeded backtest records
+        # from live records. Seeded records lack code_version + entry_features
+        # so they don't pass ML training filters anyway, but counting them
+        # together as 'feedback_count' obscures how much LIVE data exists.
+        result['feedback_seeded_count'] = sum(1 for r in fb if r.get('_seed'))
+        result['feedback_live_count'] = result['feedback_count'] - result['feedback_seeded_count']
         clean = [r for r in fb if r.get('pnl_pct') is not None and r.get('code_version')]
         result['feedback_clean_count'] = len(clean)
         with_fp = [r for r in fb if r.get('config_fingerprint')]
         result['feedback_with_fingerprint'] = len(with_fp)
     else:
         result['feedback_count'] = 0
+        result['feedback_seeded_count'] = 0
+        result['feedback_live_count'] = 0
     if os.path.exists(MODEL_PATH):
         import time
         result['model_age_hours'] = round((time.time() - os.path.getmtime(MODEL_PATH)) / 3600, 1)
@@ -1938,12 +1957,19 @@ print(json.dumps(result, default=str))
     res.json(overview);
   });
 
-  // ── Per-tier PnL breakdown (ITEM 20 FIX 2026-04-20) ───────────────────────
-  // Shows realized PnL contribution by tier (1/2/3/4). Sourced from
-  // voltrade_trade_feedback.json by the 'strategy' field which tier engine
-  // sets to 'csp_core' (T1), 'leveraged_csp' (T2), 'trend_long' (T3),
-  // 'tail_hedge' (T4). Other strategies ('sell_csp', 'buy_call', etc.)
-  // are legacy and grouped into 'legacy'.
+  // ── Per-strategy PnL breakdown ─────────────────────────────────────────────
+  // ALPHA AUDIT 2026-05-03 BATCH 3: rewritten to match the new bucket names
+  // produced by position_sizing._infer_strategy() and the seeded backtest
+  // records. Original implementation looked for strategies named csp_core,
+  // leveraged_csp, trend_long, tail_hedge — none of which the bot has ever
+  // written. Result: dashboard tier-pnl tab showed zeros for everything
+  // legitimate and dumped all real activity into 'legacy' (which the UI
+  // probably hides). This was broken from day one — most visible now that
+  // the trade_feedback seeder loads 1326 records.
+  //
+  // Also fixes the timestamp field — original code looked for r.timestamp
+  // which neither the seeder NOR track_fill writes. Now reads time_filled
+  // (which both write) with timestamp as a fallback for any legacy records.
   app.get("/api/monitoring/tier-pnl", requireAuth, async (req, res) => {
     const days = parseInt((req.query.days as string) || "30", 10);
     try {
@@ -1955,18 +1981,19 @@ except ImportError:
     TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
 
 cutoff = time.time() - ${days} * 86400
-tier_stats = {
-    'tier_1_csp_core':      {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
-    'tier_2_leveraged_csp': {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
-    'tier_3_trend_long':    {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
-    'tier_4_tail_hedge':    {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
-    'legacy':               {'count': 0, 'pnl_pct_sum': 0, 'wins': 0},
-}
-strat_to_tier = {
-    'csp_core': 'tier_1_csp_core',
-    'leveraged_csp': 'tier_2_leveraged_csp',
-    'trend_long': 'tier_3_trend_long',
-    'tail_hedge': 'tier_4_tail_hedge',
+
+# Buckets aligned with position_sizing._infer_strategy():
+#   csp_options — CSPs and other premium-selling structures
+#   etf         — leveraged ETF trades (the alpha generator)
+#   stocks      — single-name directional stocks
+#   vrp         — VRP-dominant trades
+#   other       — anything that doesn't match (data quality bucket)
+bucket_stats = {
+    'csp_options': {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
+    'etf':         {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
+    'stocks':      {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
+    'vrp':         {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
+    'other':       {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
 }
 
 try:
@@ -1975,47 +2002,72 @@ try:
 except Exception:
     records = []
 
-for r in records:
-    ts = r.get('timestamp', '')
+from datetime import datetime
+def to_unix(ts):
+    if not ts: return 0
+    if isinstance(ts, (int, float)): return float(ts)
+    s = str(ts)
     try:
-        # Parse ISO timestamp or unix
-        from datetime import datetime
-        if isinstance(ts, str) and 'T' in ts:
-            rt = datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
-        else:
-            rt = float(ts) if ts else 0
+        if 'T' in s:
+            return datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+        # Bare YYYY-MM-DD from seeded records
+        return datetime.fromisoformat(s).timestamp()
     except Exception:
-        rt = 0
+        return 0
+
+for r in records:
+    # Try multiple time field names — seeder writes time_filled,
+    # track_fill writes time_filled, legacy code may have written timestamp.
+    rt = to_unix(r.get('time_filled') or r.get('timestamp') or r.get('time_placed'))
     if rt < cutoff: continue
-
-    strat = r.get('strategy', 'legacy')
-    tier_key = strat_to_tier.get(strat, 'legacy')
     pnl = r.get('pnl_pct')
-    if pnl is None or pnl == 0: continue  # Skip incomplete records
+    if pnl is None: continue  # incomplete trade — exit hasn't filled
 
-    tier_stats[tier_key]['count'] += 1
-    tier_stats[tier_key]['pnl_pct_sum'] += pnl
-    if pnl > 0:
-        tier_stats[tier_key]['wins'] += 1
+    strat = r.get('strategy', 'other')
+    if strat not in bucket_stats:
+        strat = 'other'
+    is_seed = bool(r.get('_seed'))
+    if is_seed:
+        bucket_stats[strat]['seeded'] += 1
+        # Track seeded PnL separately so we can show it for context
+        bucket_stats[strat].setdefault('seeded_pnl_sum', 0)
+        bucket_stats[strat].setdefault('seeded_wins', 0)
+        bucket_stats[strat]['seeded_pnl_sum'] += float(pnl)
+        if pnl > 0:
+            bucket_stats[strat]['seeded_wins'] += 1
+    else:
+        bucket_stats[strat]['count'] += 1
+        bucket_stats[strat]['pnl_pct_sum'] += float(pnl)
+        if pnl > 0:
+            bucket_stats[strat]['wins'] += 1
 
 # Compute derived metrics
+# DASHBOARD-FIX 2026-05-03: primary trade_count and total_pnl_pct are
+# LIVE-only (seeded backtest records aren't real trades). Seeded numbers
+# exposed as a separate object so the UI can show 'live: X | seeded: Y'.
 result = {'days': ${days}, 'tiers': {}}
-for tier, s in tier_stats.items():
+for bucket, s in bucket_stats.items():
     count = s['count']
-    result['tiers'][tier] = {
-        'trade_count': count,
-        'total_pnl_pct': round(s['pnl_pct_sum'], 2),
-        'avg_pnl_pct': round(s['pnl_pct_sum'] / count, 2) if count > 0 else 0,
-        'win_rate': round(s['wins'] / count * 100, 1) if count > 0 else 0,
+    seed_count = s['seeded']
+    result['tiers'][bucket] = {
+        'trade_count':       count,                # LIVE only
+        'total_pnl_pct':     round(s['pnl_pct_sum'], 2),
+        'avg_pnl_pct':       round(s['pnl_pct_sum'] / count, 3) if count > 0 else 0,
+        'win_rate':          round(s['wins'] / count * 100, 1) if count > 0 else 0,
+        'seeded': {
+            'count':         seed_count,
+            'total_pnl_pct': round(s.get('seeded_pnl_sum', 0), 2),
+            'win_rate':      round(s.get('seeded_wins', 0) / seed_count * 100, 1) if seed_count > 0 else 0,
+        },
     }
 print(json.dumps(result))
 "`;
-      const tierCall = await pythonCall("tier_pnl_stats", { days },
+      const tierCall = await pythonCall("strategy_pnl_stats", { days },
         cmd, { timeout: 10000 });
       if (tierCall.success) {
         res.json(tierCall.result);
       } else {
-        res.status(500).json({ error: "Could not compute tier PnL" });
+        res.status(500).json({ error: "Could not compute strategy PnL" });
       }
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "Unknown error" });

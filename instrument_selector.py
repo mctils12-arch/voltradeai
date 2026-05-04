@@ -125,7 +125,16 @@ except ImportError:
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 MAX_OPTIONS_PCT_CEILING = 0.08   # Absolute max 8% per options trade (v1.0.34: was 10%)
-MAX_TOTAL_OPTIONS_PCT   = 0.08   # Absolute max 8% total options exposure (v1.0.34: was 20%)
+# ALPHA AUDIT 2026-05-03 (batch 2): per-year backtest segmentation showed
+# CSPs were the ONLY strategy positive in every year (11/11), with 65-83% WR
+# across all years and steady +0.27% to +0.55% per trade. The 8% total cap
+# was set conservatively in v1.0.34 to limit per-trade blow-up risk, but
+# CSPs do NOT have that risk profile (they're collateralized premium
+# selling). The 8% cap was the binding constraint on the only consistently-
+# profitable strategy. Doubled to 16% to let CSP income scale without
+# changing per-trade risk. Per-trade ceiling stays at 8% so a single
+# blow-up still can't exceed that. Revisit at 30 days of live data.
+MAX_TOTAL_OPTIONS_PCT   = 0.16   # was 0.08 — cap binding on profitable CSP strategy
 ETF_LEVERAGE_DISCOUNT   = 0.50   # ETF sized at 50% of stock (2× leverage)
 MIN_OPTIONS_SCORE       = 65     # Minimum deep_score to consider options (lowered from 70)
 MIN_ETF_VOLUME          = 100_000  # Minimum ETF daily volume
@@ -574,6 +583,34 @@ def _score_etf(trade: dict, intelligence: dict, equity: float) -> Optional[dict]
                 "blocked": True,
                 "reason": "Above 200d MA — bear leveraged ETFs avoid above-trend entries",
             }
+
+    # PANIC-REGIME BLOCK 2026-05-03 (alpha audit batch 2): per-year backtest
+    # analysis showed leveraged ETFs lost -95% cumulative in 2022 (45.7% WR,
+    # avg -1.18%/trade) and the YTD 2026 stub is -33%. Both 2022 and recent
+    # 2026 had elevated VXX/VIX. Leveraged ETFs amplify chop into losses
+    # via daily rebalancing decay (drag is *quadratic* in vol, not linear).
+    # Block ETF entries when VXX_RATIO indicates panic regime — the trend-
+    # capture upside is dwarfed by drag in those conditions. The 200d MA
+    # filter alone misses this because high-vol can persist while price
+    # bounces around the MA.
+    macro = trade.get("macro") or {}
+    vxx_ratio = macro.get("vxx_ratio", 1.0) or 1.0
+    regime_label = (macro.get("regime") or "").upper()
+    if vxx_ratio >= 1.40 or regime_label == "PANIC":
+        return {
+            "etf_ticker": etf_ticker,
+            "score": 0.0,
+            "strategy": "etf_blocked",
+            "reasoning": (
+                f"PANIC regime block: VXX_RATIO {vxx_ratio:.2f} "
+                f"(threshold 1.40)"
+            ),
+            "blocked": True,
+            "reason": (
+                f"PANIC regime — leveraged ETFs decay rapidly when vol is "
+                f"elevated (backtest 2022 = -95% cumulative)"
+            ),
+        }
 
     # Spread cost (from backtest_instruments.py empirical data)
     major_etfs = {"SSO", "QLD", "TNA", "UPRO", "TQQQ", "SPXL"}
@@ -1253,8 +1290,8 @@ def select_instrument(trade: dict, equity: float,
     except Exception:
         # Fallback: direct Alpaca fetch (original behavior)
         try:
-            from datetime import timedelta as _td
-            _vxx_start = (datetime.utcnow() - _td(days=45)).strftime("%Y-%m-%d")
+            from datetime import timedelta as _td, timezone as _tz
+            _vxx_start = (datetime.now(_tz.utc) - _td(days=45)).strftime("%Y-%m-%d")
             _vxx_resp = alpaca_throttle.acquire()
             _vxx_resp = requests.get(
                 f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed=sip",

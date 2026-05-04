@@ -244,6 +244,14 @@ def check_model_health() -> dict:
             with open(feedback_path) as f:
                 trades = json.load(f)
             if trades:
+                # DASHBOARD-FIX 2026-05-03 (alpha audit batch 3): filter out
+                # backtest-seeded records (_seed flag) before computing
+                # diagnostic stats. Seeded records are for the Kelly gate
+                # prior, not for live performance evaluation. Including
+                # them in the degradation detector would compare live
+                # results against historical backtest baselines and could
+                # spuriously flag healthy live trading as degraded.
+                trades = [t for t in trades if not t.get("_seed")]
                 # Filter out corrupt records: require non-empty ticker and non-null pnl_pct
                 trades = [t for t in trades if t.get("ticker", "").strip() and t.get("pnl_pct") is not None and not (t.get("pnl_pct") == 0 and t.get("outcome") is None)]
                 winners = [t for t in trades if t.get("pnl_pct", 0) > 0]

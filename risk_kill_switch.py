@@ -710,12 +710,12 @@ def _get_daily_pnl() -> float:
     """Best-effort read of today's P&L percent from state file."""
     try:
         import json
-        from datetime import datetime
+        from datetime import datetime, timezone
         path = _state_path("daily_pnl.json")
         if os.path.exists(path):
             with open(path) as f:
                 data = json.load(f)
-            today = datetime.utcnow().strftime("%Y-%m-%d")
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if data.get("date") == today:
                 return float(data.get("pnl_pct", 0))
     except Exception:

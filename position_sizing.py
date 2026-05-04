@@ -190,7 +190,16 @@ def _get_historical_stats() -> dict:
             "avg_loss": round(avg_loss, 2),
             "total_trades": len(trades),
         },
-        "by_strategy": {},
+        # ALPHA AUDIT 2026-05-03 FIX-UP: start by_strategy with the defaults
+        # so that any bucket WITHOUT enough live data still has an entry. The
+        # original Patch 12 bug was that `_infer_strategy` could return a key
+        # that wasn't in `by_strategy`, causing fall-through to overall. With
+        # bucket-specific seeding we reintroduced that bug for any unseeded
+        # bucket (e.g. "vrp") because this dict starts empty and only fills in
+        # buckets with ≥5 records. Merging from defaults below means every
+        # bucket _infer_strategy can return is guaranteed to be a key here,
+        # while real per-bucket data still overrides the default when present.
+        "by_strategy": dict(default["by_strategy"]),
     }
     
     # Stats by strategy/setup type (momentum, mean_reversion, etc.)

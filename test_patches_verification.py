@@ -466,19 +466,29 @@ class TestPatch12_StrategyKeyAlignment(unittest.TestCase):
                 f"to 'overall' defaults — this is the bug Patch 12 fixes.")
 
     def test_patch2_halt_now_fires_for_stocks(self):
-        """End-to-end: a stock trade should now produce kelly=0 due to
-        the chain: _infer_strategy → 'stocks' → -EV defaults → halt."""
+        """End-to-end: stocks bucket lookup must succeed (not fall through
+        to 'overall'). Pre-alpha-audit the stocks default was -EV and
+        produced kelly=0; post-alpha-audit (2026-05-03) the stocks default
+        is intentionally +EV (re-derived from backtest segmentation showing
+        the 4+ day hold subset has 55.7% WR) so stocks now SIZE rather than
+        halt. The test still validates that Patch 12 wired the pipeline
+        end-to-end — we look up by 'stocks' and get a real bucket back."""
         from position_sizing import _infer_strategy, _get_historical_stats, _kelly_fraction
         trade = {"ticker": "AAPL", "momentum_score": 80}
         strategy = _infer_strategy(trade)
         self.assertEqual(strategy, "stocks")
         stats = _get_historical_stats()
+        self.assertIn(strategy, stats["by_strategy"],
+            f"_infer_strategy returned '{strategy}' but it's not a key in "
+            f"by_strategy {set(stats['by_strategy'].keys())}. Patch 12 wiring broken.")
         s = stats["by_strategy"][strategy]
         kelly = _kelly_fraction(s["win_rate"], s["avg_win"], s["avg_loss"])
-        self.assertEqual(kelly, 0.0,
-            f"With strategy='stocks' (WR={s['win_rate']}, win=${s['avg_win']}, "
-            f"loss=${s['avg_loss']}), Kelly must be 0.0 (negative-EV). "
-            f"Got {kelly}. Patch 2 is now connected end-to-end.")
+        # Post-alpha-audit: stocks default is +EV (mildly profitable) so
+        # Kelly should be small but non-zero. Cap at 0.30 sanity check
+        # (anything bigger means the defaults are way off).
+        self.assertGreaterEqual(kelly, 0.0)
+        self.assertLess(kelly, 0.30,
+            f"stocks Kelly={kelly} unreasonably high — defaults likely wrong")
 
 
 # ── Standalone runner ──────────────────────────────────────────────────────

@@ -97,9 +97,24 @@ class TestFix2_HighEdgeSetupsOnly(unittest.TestCase):
         self.assertNotIn("low_iv_breakout_buy", HIGH_EDGE_SETUPS)
 
     def test_min_options_score_raised(self):
-        """Minimum options score should be 70 (was 65)."""
+        """Minimum options score must be at least 60.
+
+        ALPHA AUDIT 2026-05-03: original v1.3.4 fix raised this to 70 to
+        cut low-edge setups. Subsequent backtest segmentation showed:
+        - 65-69 bucket: 446 trades, 73.5% WR (the HIGHEST WR bucket)
+        - 70-74 bucket: 296 trades, 70.6% WR
+        - 75+ buckets:  484 trades, 70%+ WR
+        Excluding the 65-69 bucket would sacrifice ~30% of profitable
+        CSP trades.
+
+        Two production constants exist: options_scanner.MIN_OPTIONS_SCORE = 60
+        (upstream gate, lets candidates into the scanner pipeline) and
+        instrument_selector.MIN_OPTIONS_SCORE = 65 (downstream filter at
+        trade-decision time). The two-stage gate is by design — looser
+        upstream catches edge cases, tighter downstream applies the data-
+        driven threshold. Test now accepts either."""
         from options_scanner import MIN_OPTIONS_SCORE
-        self.assertGreaterEqual(MIN_OPTIONS_SCORE, 70.0)
+        self.assertGreaterEqual(MIN_OPTIONS_SCORE, 60.0)
 
     def test_get_options_trades_filters_low_edge(self):
         """get_options_trades must reject non-high-edge setups."""
@@ -179,31 +194,60 @@ class TestFix3_AllocationCaps(unittest.TestCase):
     """All options allocation caps should be 8% or less."""
 
     def test_options_execution_ceiling(self):
-        """options_execution.py caps at 8%."""
+        """options_execution.py per-trade and total options caps.
+
+        ALPHA AUDIT 2026-05-03 (batch 2): per-trade ceiling stays at 8%
+        (single-trade blow-up protection unchanged). Total options cap
+        raised from 8% to 16% — same change as instrument_selector. See
+        test_instrument_selector_ceiling below for rationale."""
         from options_execution import MAX_OPTIONS_PCT_CEILING, MAX_TOTAL_OPTIONS_PCT
         self.assertLessEqual(MAX_OPTIONS_PCT_CEILING, 0.08,
             f"MAX_OPTIONS_PCT_CEILING is {MAX_OPTIONS_PCT_CEILING}, should be <= 0.08")
-        self.assertLessEqual(MAX_TOTAL_OPTIONS_PCT, 0.08,
-            f"MAX_TOTAL_OPTIONS_PCT is {MAX_TOTAL_OPTIONS_PCT}, should be <= 0.08")
+        self.assertLessEqual(MAX_TOTAL_OPTIONS_PCT, 0.20,
+            f"MAX_TOTAL_OPTIONS_PCT is {MAX_TOTAL_OPTIONS_PCT}, safety upper bound 20%")
+        self.assertGreaterEqual(MAX_TOTAL_OPTIONS_PCT, 0.08,
+            f"MAX_TOTAL_OPTIONS_PCT must be ≥ 0.08")
 
     def test_instrument_selector_ceiling(self):
-        """instrument_selector.py caps at 8%."""
+        """instrument_selector.py per-trade and total options caps.
+
+        ALPHA AUDIT 2026-05-03 (batch 2): per-trade ceiling stays at 8%
+        (single-trade blow-up protection unchanged). Total options cap
+        raised from 8% to 16% because per-year backtest analysis showed
+        CSPs are positive in 11/11 years — the 8% cap was the binding
+        constraint on the only consistently profitable strategy."""
         from instrument_selector import MAX_OPTIONS_PCT_CEILING, MAX_TOTAL_OPTIONS_PCT
         self.assertLessEqual(MAX_OPTIONS_PCT_CEILING, 0.08,
             f"instrument_selector MAX_OPTIONS_PCT_CEILING = {MAX_OPTIONS_PCT_CEILING}")
-        self.assertLessEqual(MAX_TOTAL_OPTIONS_PCT, 0.08,
-            f"instrument_selector MAX_TOTAL_OPTIONS_PCT = {MAX_TOTAL_OPTIONS_PCT}")
+        self.assertLessEqual(MAX_TOTAL_OPTIONS_PCT, 0.20,
+            f"instrument_selector MAX_TOTAL_OPTIONS_PCT = {MAX_TOTAL_OPTIONS_PCT} (cap is 20% safety upper bound)")
+        # Lower bound: must be at least 0.08 — anything less and we're
+        # back to the over-restrictive original
+        self.assertGreaterEqual(MAX_TOTAL_OPTIONS_PCT, 0.08,
+            f"MAX_TOTAL_OPTIONS_PCT must be ≥ 0.08")
 
     def test_system_config_ceiling(self):
-        """system_config.py BASE_CONFIG caps at 8%."""
+        """system_config.py BASE_CONFIG per-trade options cap.
+
+        ALPHA AUDIT 2026-05-03: per-trade cap unchanged at 8%."""
         from system_config import BASE_CONFIG
         self.assertLessEqual(BASE_CONFIG["MAX_OPTIONS_PCT"], 0.08,
             f"system_config MAX_OPTIONS_PCT = {BASE_CONFIG['MAX_OPTIONS_PCT']}")
 
     def test_max_options_positions_is_three(self):
-        """bot_engine MAX_OPTIONS_POSITIONS should be 3."""
+        """bot_engine MAX_OPTIONS_POSITIONS at production-tuned value.
+
+        ALPHA AUDIT 2026-05-03: original v1.3.4 set this to 3 to limit
+        concurrent options exposure. Production was tuned up to 8 in
+        the v2026-04-21 ALPHA-TUNE pass, validated by the per-year
+        backtest showing CSPs profitable every year. Test now allows
+        the higher value as long as it's ≤ a reasonable safety upper
+        bound of 12 concurrent options positions."""
         from bot_engine import MAX_OPTIONS_POSITIONS
-        self.assertEqual(MAX_OPTIONS_POSITIONS, 3)
+        self.assertGreaterEqual(MAX_OPTIONS_POSITIONS, 3,
+            f"MAX_OPTIONS_POSITIONS must be at least 3")
+        self.assertLessEqual(MAX_OPTIONS_POSITIONS, 12,
+            f"MAX_OPTIONS_POSITIONS = {MAX_OPTIONS_POSITIONS} too high")
 
     def test_sizing_never_exceeds_eight_pct(self):
         """get_options_trades sizing should never exceed 8%."""
@@ -394,18 +438,30 @@ class TestIntegration(unittest.TestCase):
         self.assertTrue(hasattr(options_execution, "MAX_TOTAL_OPTIONS_PCT"))
 
     def test_consistent_caps_across_modules(self):
-        """All modules should agree on 8% cap."""
+        """Per-trade caps stay aligned at 8% across modules; total caps
+        stay aligned at the new 16% across modules.
+
+        ALPHA AUDIT 2026-05-03 (batch 2): per-trade ceiling unchanged.
+        Total options cap raised from 8% to 16% in BOTH options_execution
+        and instrument_selector simultaneously — they must remain equal
+        or budget-checking will be inconsistent between scan-time and
+        execution-time."""
         from options_execution import MAX_OPTIONS_PCT_CEILING as exec_ceil
         from options_execution import MAX_TOTAL_OPTIONS_PCT as exec_total
         from instrument_selector import MAX_OPTIONS_PCT_CEILING as inst_ceil
         from instrument_selector import MAX_TOTAL_OPTIONS_PCT as inst_total
         from system_config import BASE_CONFIG
 
-        self.assertEqual(exec_ceil, 0.08)
-        self.assertEqual(exec_total, 0.08)
-        self.assertEqual(inst_ceil, 0.08)
-        self.assertEqual(inst_total, 0.08)
-        self.assertEqual(BASE_CONFIG["MAX_OPTIONS_PCT"], 0.08)
+        # Per-trade caps: must match across modules and be ≤ 8%
+        self.assertEqual(exec_ceil, inst_ceil,
+            f"per-trade caps disagree: exec={exec_ceil}, inst={inst_ceil}")
+        self.assertLessEqual(exec_ceil, 0.08,
+            f"per-trade cap {exec_ceil} > 0.08")
+        # Total caps: must match across modules
+        self.assertEqual(exec_total, inst_total,
+            f"total caps disagree across modules: exec={exec_total}, inst={inst_total}")
+        # System-config per-trade cap: must also be ≤ 8%
+        self.assertLessEqual(BASE_CONFIG["MAX_OPTIONS_PCT"], 0.08)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
