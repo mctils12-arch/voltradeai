@@ -1148,16 +1148,35 @@ def train_model(fast_mode: bool = False) -> dict:
     try:
         return _train_model_impl(fast_mode=fast_mode)
     except Exception as e:
-        # MEM FIX 2026-04-21: surface actual error instead of swallowing it
+        # MEM FIX 2026-04-21: surface actual error instead of swallowing it.
+        # ALPHA AUDIT 2026-05-03 batch 4: also capture full traceback location
+        # so we can diagnose 'NoneType is not subscriptable' style errors that
+        # don't tell us which line failed. Production logs were just showing
+        # "error: 'NoneType' object is not subscriptable" with no file/line —
+        # making it impossible to know which sub-function returned None.
         import traceback
         err_msg = str(e)[:200]
-        err_tb = traceback.format_exc()[-500:]
+        err_tb = traceback.format_exc()
+        # Extract the deepest line that's in OUR code (skip site-packages)
+        our_frames = [
+            line for line in err_tb.split("\n")
+            if 'File "' in line and "/site-packages/" not in line
+            and "/lib/python" not in line
+        ]
+        err_location = our_frames[-1].strip() if our_frames else "unknown location"
         try:
             import logging
-            logging.getLogger("voltrade.ml").error(f"Retrain failed: {err_msg}\n{err_tb}")
+            logging.getLogger("voltrade.ml").error(
+                f"Retrain failed at {err_location}: {err_msg}\n{err_tb[-1000:]}")
         except Exception:
             pass
-        return {"status": f"error: {err_msg}", "accuracy": None, "features": None, "samples": None, "error_detail": err_msg}
+        return {
+            "status": f"error: {err_msg}",
+            "error_location": err_location,
+            "accuracy": None, "features": None, "samples": None,
+            "error_detail": err_msg,
+            "traceback_tail": err_tb[-500:],
+        }
 
 
 def _train_model_impl(fast_mode: bool = False) -> dict:

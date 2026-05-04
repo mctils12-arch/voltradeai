@@ -61,6 +61,8 @@ def _insider_section(ticker: str) -> dict:
 
     Output:
         {
+            'available':       True if real data, False if API/data unavailable
+            'reason':          Why unavailable (when available=False)
             'mspr':            -100..+100 (Monthly Share Purchase Ratio)
             'change':          net change in latest month
             'signal':          'bullish' | 'bearish' | 'neutral'
@@ -72,13 +74,41 @@ def _insider_section(ticker: str) -> dict:
     try:
         from finnhub_data import get_insider_sentiment
         data = get_insider_sentiment(ticker) or {}
-    except Exception:
-        return {"available": False}
+    except Exception as e:
+        return {"available": False, "reason": f"insider lookup failed: {str(e)[:120]}"}
+
+    # FIX 2026-05-03 batch 4: distinguish three states explicitly:
+    #   1. API/key/network error  → available=False, reason=<error>
+    #   2. API responded but ticker has no insider activity → available=True, no_data=True
+    #   3. Real insider data → available=True, fully populated
+    # Previously a missing FINNHUB_KEY would silently return zeros that
+    # looked identical to "this stock has no insider activity".
+    if "error" in data:
+        return {
+            "available": False,
+            "reason": str(data.get("error", "unknown error"))[:200],
+        }
 
     mspr = data.get("mspr")
     signal = data.get("signal", "neutral")
     buys = data.get("total_buys", 0)
     sells = data.get("total_sells", 0)
+
+    # If everything is zero, that's "no data" not "neutral signal"
+    has_any_activity = (buys > 0 or sells > 0 or (mspr is not None and abs(mspr) > 0.01))
+    if not has_any_activity:
+        return {
+            "available": True,
+            "no_data": True,
+            "mspr": 0.0,
+            "signal": "no_data",
+            "total_buys": 0,
+            "total_sells": 0,
+            "plain_english": (
+                "No insider transactions reported in the last 12 months. "
+                "Common for small-caps and tickers with low insider holdings."
+            ),
+        }
 
     # Plain-english label
     if signal == "bullish":
@@ -110,7 +140,13 @@ def _insider_section(ticker: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _institutional_section(ticker: str) -> dict:
-    """13F-derived signal from institutional_data."""
+    """13F-derived signal from institutional_data.
+
+    FIX 2026-05-03 batch 4: distinguish API/network errors from genuine
+    'no institutional holders found'. Both used to render as 'STABLE 30/100,
+    No major institutional activity' which is misleading. Now if the
+    underlying call sets `error`, we report that. If it succeeds but
+    returns 0 holders / 0 added / 0 reduced, we report no-data."""
     try:
         from institutional_data import (
             get_institutional_signal,
@@ -118,13 +154,39 @@ def _institutional_section(ticker: str) -> dict:
         )
         inst = get_institutional_signal(ticker) or {}
         whale = get_whale_activity(ticker) or {}
-    except Exception:
-        return {"available": False}
+    except Exception as e:
+        return {"available": False, "reason": f"13F lookup failed: {str(e)[:120]}"}
+
+    # If the 13F module ran but reported an error, surface it
+    if inst.get("error"):
+        return {
+            "available": False,
+            "reason": str(inst.get("error"))[:200],
+        }
 
     direction = inst.get("institutional_interest", "stable")
     strength = inst.get("signal_strength", 0)
-    holders = inst.get("top_holders", [])
-    whales = whale.get("whales", [])
+    holders = inst.get("top_holders", []) or []
+    whales = whale.get("whales", []) or []
+
+    # Empty results from a successful query — small-cap or unrecognized ticker.
+    # Distinguish this from the API failing.
+    has_data = bool(holders or whales or inst.get("major_holders_added", 0)
+                    or inst.get("major_holders_reduced", 0))
+    if not has_data:
+        return {
+            "available": True,
+            "no_data": True,
+            "direction": "stable",
+            "signal_strength": 0,
+            "major_holders": [],
+            "whales": [],
+            "plain_english": (
+                "No major 13F holders detected for this ticker. "
+                "Common for small-caps below the 13F reporting threshold "
+                "or for newer/illiquid names."
+            ),
+        }
 
     # Plain-english
     if direction == "increasing" and strength >= 60:

@@ -11,9 +11,11 @@ import {
 
 interface InsiderSection {
   available: boolean;
+  reason?: string;       // populated when available=false (API/network error)
+  no_data?: boolean;     // populated when available=true but ticker has no insider activity
   mspr?: number;
   change?: number;
-  signal?: "bullish" | "bearish" | "neutral";
+  signal?: "bullish" | "bearish" | "neutral" | "no_data";
   total_buys?: number;
   total_sells?: number;
   plain_english?: string;
@@ -21,6 +23,8 @@ interface InsiderSection {
 
 interface InstitutionalSection {
   available: boolean;
+  reason?: string;
+  no_data?: boolean;
   direction?: "increasing" | "decreasing" | "stable";
   signal_strength?: number;
   major_holders?: string[];
@@ -252,11 +256,47 @@ function Callout({ text, signal }: { text: string; signal?: string }) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function InsiderCard({ data }: { data: InsiderSection }) {
+  // State 1: API/network error — show what's wrong, don't pretend it's "neutral"
   if (!data?.available) {
-    return <Section icon={<Eye size={16} />} title="Insider Activity" subtitle="Form 4 filings, last 12 months">
-      <div style={{ color: "#64748b", fontSize: 12 }}>No insider data available for this ticker.</div>
-    </Section>;
+    return (
+      <Section icon={<Eye size={16} />} title="Insider Activity" subtitle="Form 4 filings, last 12 months">
+        <div style={{
+          padding: "0.75rem", fontSize: 12, color: "#fda4af",
+          background: "rgba(255, 69, 58, 0.06)",
+          border: "1px solid rgba(255, 69, 58, 0.2)",
+          borderRadius: "0.375rem",
+        }}>
+          <strong style={{ display: "block", marginBottom: "0.25rem", color: "#ff453a" }}>
+            Insider data unavailable
+          </strong>
+          <span style={{ color: "#cbd5e1" }}>
+            {data?.reason || "Source did not respond. May indicate FINNHUB_KEY env var is not set on server."}
+          </span>
+        </div>
+      </Section>
+    );
   }
+
+  // State 2: API succeeded but ticker has no insider activity (small caps, etc.)
+  if (data.no_data) {
+    return (
+      <Section icon={<Eye size={16} />} title="Insider Activity" subtitle="Form 4 filings, last 12 months">
+        <div style={{
+          padding: "0.75rem", fontSize: 12, color: "#94a3b8",
+          background: "rgba(148, 163, 184, 0.05)",
+          border: "1px solid rgba(148, 163, 184, 0.15)",
+          borderRadius: "0.375rem",
+        }}>
+          <strong style={{ display: "block", marginBottom: "0.25rem", color: "#cbd5e1" }}>
+            No insider transactions this period
+          </strong>
+          <span>{data.plain_english}</span>
+        </div>
+      </Section>
+    );
+  }
+
+  // State 3: Real data
   const mspr = data.mspr ?? 0;
   return (
     <Section
@@ -292,11 +332,47 @@ function InsiderCard({ data }: { data: InsiderSection }) {
 }
 
 function InstitutionalCard({ data }: { data: InstitutionalSection }) {
+  // State 1: API/network error
   if (!data?.available) {
-    return <Section icon={<Building2 size={16} />} title="Institutional Positioning" subtitle="13F filings via SEC EDGAR">
-      <div style={{ color: "#64748b", fontSize: 12 }}>No 13F data available.</div>
-    </Section>;
+    return (
+      <Section icon={<Building2 size={16} />} title="Institutional Positioning" subtitle="13F filings via SEC EDGAR">
+        <div style={{
+          padding: "0.75rem", fontSize: 12, color: "#fda4af",
+          background: "rgba(255, 69, 58, 0.06)",
+          border: "1px solid rgba(255, 69, 58, 0.2)",
+          borderRadius: "0.375rem",
+        }}>
+          <strong style={{ display: "block", marginBottom: "0.25rem", color: "#ff453a" }}>
+            Institutional data unavailable
+          </strong>
+          <span style={{ color: "#cbd5e1" }}>
+            {data?.reason || "SEC EDGAR did not respond. Try again in a moment."}
+          </span>
+        </div>
+      </Section>
+    );
   }
+
+  // State 2: Successful query but no major holders found
+  if (data.no_data) {
+    return (
+      <Section icon={<Building2 size={16} />} title="Institutional Positioning" subtitle="13F filings via SEC EDGAR">
+        <div style={{
+          padding: "0.75rem", fontSize: 12, color: "#94a3b8",
+          background: "rgba(148, 163, 184, 0.05)",
+          border: "1px solid rgba(148, 163, 184, 0.15)",
+          borderRadius: "0.375rem",
+        }}>
+          <strong style={{ display: "block", marginBottom: "0.25rem", color: "#cbd5e1" }}>
+            No major 13F holders found
+          </strong>
+          <span>{data.plain_english}</span>
+        </div>
+      </Section>
+    );
+  }
+
+  // State 3: Real data
   return (
     <Section
       icon={<Building2 size={16} />}
