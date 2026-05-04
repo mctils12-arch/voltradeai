@@ -580,6 +580,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── DEBUG: raw Finnhub insider response ──────────────────────────────────
+  // ALPHA AUDIT 2026-05-03 batch 5: diagnostic endpoint to figure out why
+  // some tickers (e.g. NVDA) show empty insider data despite Finnhub
+  // having Form 4 filings. Returns BOTH the raw API response and the
+  // parsed result our production pipeline produces, so we can see whether
+  // the issue is in the API (premium-gated, empty response) or in our
+  // parser. Gated by DEBUG_ENABLED env var — should be 'true' on Railway
+  // only while diagnosing, then unset.
+  app.get("/api/debug/finnhub-insider/:ticker", async (req, res) => {
+    if (process.env.DEBUG_ENABLED !== "true") {
+      return res.status(403).json({
+        error: "Debug endpoint disabled. Set DEBUG_ENABLED=true to enable.",
+      });
+    }
+
+    const { ticker } = req.params;
+    if (!ticker || !/^[A-Za-z.]{1,10}$/.test(ticker)) {
+      return res.status(400).json({ error: "Invalid ticker symbol." });
+    }
+
+    const scriptPath = path.resolve(process.cwd(), "finnhub_data.py");
+
+    try {
+      const { stdout } = await execAsync(
+        `python3 "${scriptPath}" "${ticker.toUpperCase()}" --raw insider`,
+        { timeout: 30000, maxBuffer: 1024 * 1024 }
+      );
+      const output = stdout.trim();
+      if (!output) {
+        return res.status(500).json({ error: "No output from finnhub_data.py" });
+      }
+      const data = JSON.parse(output);
+      return res.json(data);
+    } catch (err: any) {
+      if (err.stdout) {
+        try {
+          return res.status(400).json(JSON.parse(err.stdout.trim()));
+        } catch {}
+      }
+      return res.status(500).json({
+        error: "Debug fetch failed.",
+        detail: String(err?.message || err).slice(0, 200),
+      });
+    }
+  });
+
   // ── Market scanner ────────────────────────────────────────────────────────
   app.get("/api/scan", async (req, res) => {
     const now = Date.now();

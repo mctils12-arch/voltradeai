@@ -207,6 +207,74 @@ def get_insider_sentiment(ticker: str) -> dict:
     return result
 
 
+# ── 1b. Insider Sentiment RAW (debug helper) ──────────────────────────────────
+
+def get_insider_raw(ticker: str, days: int = 365) -> dict:
+    """
+    DEBUG HELPER 2026-05-03 batch 5: returns the RAW Finnhub API response
+    for /stock/insider-sentiment, plus the parsed result our production
+    pipeline produces. Used by /api/debug/finnhub-insider to diagnose
+    why some tickers show empty insider data despite Finnhub having data.
+
+    Returns:
+        {
+            "ticker":         <ticker>,
+            "endpoint":       "/stock/insider-sentiment",
+            "params":         {symbol, from, to},
+            "key_configured": bool,
+            "raw_response":   <whatever Finnhub returned, unmerged>,
+            "raw_keys":       <list of top-level keys, helps diagnose schema>,
+            "raw_item_count": <how many entries in data[] if applicable>,
+            "parsed":         <output of get_insider_sentiment(ticker)>,
+        }
+
+    No caching — always hits the live API. This is a debug tool, not a
+    hot path. Should be removed (or kept gated by DEBUG_ENABLED) before
+    long-term deployment.
+    """
+    today = datetime.now()
+    date_from = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+    date_to = today.strftime("%Y-%m-%d")
+
+    out = {
+        "ticker":          ticker.upper(),
+        "endpoint":        "/stock/insider-sentiment",
+        "params":          {"symbol": ticker.upper(), "from": date_from, "to": date_to},
+        "key_configured":  bool(FINNHUB_KEY) and FINNHUB_KEY != "YOUR_FINNHUB_KEY_HERE",
+        "raw_response":    None,
+        "raw_keys":        None,
+        "raw_item_count":  None,
+        "parsed":          None,
+    }
+
+    # Hit the API directly without going through get_insider_sentiment's
+    # default-merging logic — we want to see exactly what came back.
+    try:
+        raw = _finnhub_get(
+            "/stock/insider-sentiment",
+            {"symbol": ticker.upper(), "from": date_from, "to": date_to},
+        )
+        out["raw_response"] = raw
+        if isinstance(raw, dict):
+            out["raw_keys"] = list(raw.keys())
+            data_list = raw.get("data")
+            if isinstance(data_list, list):
+                out["raw_item_count"] = len(data_list)
+        elif isinstance(raw, list):
+            out["raw_keys"] = ["(response is a list, not a dict)"]
+            out["raw_item_count"] = len(raw)
+    except Exception as e:
+        out["raw_response"] = {"_fetch_exception": str(e)[:200]}
+
+    # Now also call the production parser so we can compare
+    try:
+        out["parsed"] = get_insider_sentiment(ticker)
+    except Exception as e:
+        out["parsed"] = {"_parser_exception": str(e)[:200]}
+
+    return out
+
+
 # ── 2. Earnings Calendar ──────────────────────────────────────────────────────
 
 def get_earnings_calendar(ticker: str = None) -> list:
@@ -434,6 +502,22 @@ def get_company_peers(ticker: str) -> list:
 
 if __name__ == "__main__":
     import sys
+
+    # DEBUG MODE 2026-05-03 batch 5: --raw flag for diagnosing data issues.
+    # Usage: python3 finnhub_data.py NVDA --raw insider
+    # Output: JSON-only on stdout (so the route handler JSON.parses it).
+    if len(sys.argv) >= 4 and sys.argv[2] == "--raw":
+        ticker = sys.argv[1].upper()
+        kind = sys.argv[3].lower()
+        try:
+            if kind == "insider":
+                result = get_insider_raw(ticker)
+            else:
+                result = {"error": f"Unknown raw kind: {kind}. Supported: insider"}
+        except Exception as e:
+            result = {"error": str(e)[:200], "ticker": ticker}
+        print(json.dumps(result, default=str))
+        sys.exit(0)
 
     ticker = sys.argv[1].upper() if len(sys.argv) > 1 else "AAPL"
     print(f"=== Finnhub Data Report for {ticker} ===\n")
