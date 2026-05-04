@@ -1156,6 +1156,23 @@ except Exception as e:
         if len(_deep_closes) >= 10:
             _ma10 = sum(_deep_closes[-10:]) / 10
             _above_ma10 = 1.0 if (_deep_closes[-1] > _ma10) else 0.0
+        # 200-DAY SMA GATE 2026-05-03 (alpha audit): the AAPU/AMU leveraged
+        # ETF strategy is the alpha generator (+386% over 10 years per
+        # backtest_10yr_results.json). Pro literature on leveraged ETF
+        # momentum (Gayed et al. 2018, CXO Advisory SACEMS, QuantConnect
+        # SSO+200MA strategies) is unanimous: hold long only when the
+        # underlying is above its 200-day MA, exit when it breaks below.
+        # This single filter cut max drawdown roughly in half in published
+        # studies without sacrificing trend capture. We compute it here for
+        # the underlying and let _score_etf in instrument_selector consume
+        # it as a hard gate for ETF entry.
+        _above_ma200 = None  # None = unknown (insufficient history)
+        _ma200_pct_above = 0.0
+        if len(_deep_closes) >= 200:
+            _ma200 = sum(_deep_closes[-200:]) / 200
+            if _ma200 > 0:
+                _above_ma200 = 1.0 if (_deep_closes[-1] > _ma200) else 0.0
+                _ma200_pct_above = (_deep_closes[-1] / _ma200 - 1.0) * 100
         _atr_pct = 3.0  # default
         if _deep_atr14 is not None and _price > 0:
             _atr_pct = round(_deep_atr14 / _price * 100, 2)
@@ -1491,6 +1508,9 @@ except Exception as e:
         "rules_only_score": rules_only_score,  # Pre-ML-blend score captured above
         "ml_only_score": ml_s if 'ml_s' in locals() else None,
         "sector": _yf_sector,
+        # 200d MA fields for ETF gate (alpha audit 2026-05-03)
+        "above_ma200":      _above_ma200 if '_above_ma200' in locals() else None,
+        "ma200_pct_above":  round(_ma200_pct_above, 2) if '_ma200_pct_above' in locals() else 0.0,
     }
 
 # ── Correlation / Sector Check ───────────────────────────────────────────────
@@ -1831,6 +1851,33 @@ def manage_positions():
         # Skip exits if position held < 1 hour, UNLESS it's a catastrophic loss (>10%)
         _is_catastrophic = pnl_pct <= -10.0
         if _equity_held_minutes < _MIN_EQUITY_HOLD_MINUTES and not _is_catastrophic:
+            should_stop = False
+            time_stop = False
+
+        # ── SHORT-HOLD GRACE PERIOD 2026-05-03 (alpha audit) ───────────────
+        # Backtest segmentation showed stock trades held 1-3 days had 0-5%
+        # win rate and -293% cumulative drag. Stocks held 4+ days had 55.7%
+        # WR and +276% cumulative. The stop-loss was firing on normal 2-day
+        # noise pullbacks before the trend could develop.
+        #
+        # Suppress phase-1 stops in the first 4 trading days. Trailing stops
+        # (phase ≥ 2) and breakeven stops still fire — those only activate
+        # once the position is already in profit. Hard catastrophe stop
+        # (>=20% loss) and the existing -15% deep-loss override still fire
+        # so a true blow-up can still close.
+        #
+        # This applies to stocks and ETFs (options were filtered earlier).
+        SHORT_HOLD_DEEP_LOSS_OVERRIDE_PCT = 15.0
+        _in_short_hold_window = days_held < 4
+        _deep_loss_override   = pnl_pct <= -SHORT_HOLD_DEEP_LOSS_OVERRIDE_PCT
+        if (_in_short_hold_window and phase < 2 and not breakeven_triggered
+                and not hard_stop_triggered and not _deep_loss_override):
+            if should_stop:
+                # Log that we're suppressing — useful in the diagnostics feed
+                stop_state[ticker]["short_hold_suppression"] = (
+                    f"Stop suppressed: held {days_held}d, awaiting 4d minimum "
+                    f"(loss {pnl_pct:.1f}% < override {SHORT_HOLD_DEEP_LOSS_OVERRIDE_PCT}%)"
+                )
             should_stop = False
             time_stop = False
 

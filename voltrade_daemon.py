@@ -488,6 +488,48 @@ def main():
             log.error(f"Cannot remove stale socket {SOCKET_PATH}: {e}")
             sys.exit(1)
 
+    # ── ONE-SHOT FEEDBACK SEED 2026-05-03 (alpha audit) ───────────────────
+    # If trade_feedback.json doesn't exist or is empty, seed it from the
+    # 10-year backtest so the Kelly gate has real per-bucket data on day
+    # one. Without this, the gate falls back to hardcoded defaults that
+    # may be wrong/stale, and bucket statistics need 10 live trades to
+    # take over — which can be weeks of trading.
+    #
+    # Seeding is IDEMPOTENT — the seeder uses (ticker, time_placed, exit_time,
+    # raw_strategy) as record id and skips records already present, so this
+    # runs every startup safely.
+    try:
+        from storage_config import TRADE_FEEDBACK_PATH as _TFP
+    except Exception:
+        _TFP = "/tmp/voltrade_trade_feedback.json"
+    _seed_needed = False
+    try:
+        if not os.path.exists(_TFP):
+            _seed_needed = True
+        else:
+            with open(_TFP) as _ff:
+                _existing = json.load(_ff)
+            _seed_needed = len(_existing) < 100  # treat near-empty as needs seeding
+    except Exception:
+        _seed_needed = True
+    if _seed_needed and os.environ.get("VOLTRADE_AUTOSEED", "true").lower() != "false":
+        log.info(f"trade_feedback.json missing or sparse → auto-seeding from backtest")
+        try:
+            import subprocess
+            _seed_script = os.path.join(os.path.dirname(__file__),
+                                         "seed_feedback_from_backtest.py")
+            if os.path.exists(_seed_script):
+                _r = subprocess.run([sys.executable, _seed_script], capture_output=True,
+                                    text=True, timeout=120)
+                if _r.returncode == 0:
+                    log.info(f"  seed succeeded: {_r.stdout.strip().splitlines()[-1] if _r.stdout else 'ok'}")
+                else:
+                    log.warning(f"  seed script returned {_r.returncode}: {_r.stderr[:300]}")
+            else:
+                log.warning(f"  seed script not found at {_seed_script}")
+        except Exception as _seed_err:
+            log.warning(f"  auto-seed failed (non-fatal): {_seed_err}")
+
     # Start memory watchdog
     watchdog = threading.Thread(target=_memory_watchdog, daemon=True)
     watchdog.start()

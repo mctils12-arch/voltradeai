@@ -83,8 +83,25 @@ def _kelly_fraction(win_rate: float, avg_win: float, avg_loss: float,
 
     The kelly_divisor parameter controls the fraction (3.0 = third, 4.0 = quarter, 2.0 = half).
     """
-    if avg_win <= 0 or avg_loss <= 0:
-        return 0.03  # Default 3% when no data — neutral prior, not "no trade"
+    # NO-DATA / NO-WINS HANDLING 2026-05-03 (alpha audit):
+    #   avg_win  <= 0  → strategy has had ZERO winning trades historically.
+    #                    This is a strong negative signal, not a "no data"
+    #                    signal — return 0 to BLOCK the trade.
+    #   avg_loss <= 0  → strategy has had no losing trades. Almost
+    #                    certainly because we have no trade data at all
+    #                    (a real strategy with positive expectancy will
+    #                    still show some losers in any meaningful sample).
+    #                    Treat as "no data" — return a small starter size
+    #                    (0.5%) so we can gather data without risking much,
+    #                    rather than blocking forever.
+    #
+    # Previous behavior collapsed both to a 3% default which (a) blocked
+    # zero-win strategies softly instead of hard-blocking them, and
+    # (b) over-sized brand-new strategies as if they were proven.
+    if avg_win <= 0:
+        return 0.0  # No wins ever → strong block
+    if avg_loss <= 0:
+        return 0.005  # No data → starter size to collect feedback
 
     loss_rate = 1.0 - win_rate
     kelly = (win_rate * avg_win - loss_rate * avg_loss) / avg_win
@@ -114,24 +131,37 @@ def _get_historical_stats() -> dict:
     # DEFAULTS FIX 2026-04-20 (Bug #6): Previous defaults were derived from the
     # overfit 10-year backtest that underperformed SPY by 14%/yr. Using those
     # numbers as a Kelly prior means "I'm losing to the benchmark, so bet big."
-    # New defaults are pessimistic and derived from HONEST per-strategy analysis
-    # (trade_analysis/strategy_edges_NEW_CSP_ONLY.csv from real trade records):
-    #   - stocks: 44.6% WR with negative expectancy → use 45% WR, tighter risk
-    #   - csp_options: 71.6% WR with profit factor 3.81 (real edge confirmed)
-    #   - vrp: hold CSP numbers until real feedback accumulates
-    # These defaults apply ONLY when live trade count < 10. Once real feedback
-    # builds up, _get_historical_stats() uses actual measurements.
+    #
+    # ALPHA AUDIT 2026-05-03: re-derived defaults from PER-INSTRUMENT
+    # backtest segmentation (backtest_10yr_results.json, 1551 trades 2016-2026):
+    #   - etfs (AAPU/AMU style): 879 trades, 54.7% WR, +0.44% avg → +EV
+    #   - stocks (single-name):  344 trades, 48.5% WR, -0.05% avg → ~breakeven
+    #   - csp_options (sell):    151 trades, 68.9% WR, +0.44% avg → +EV
+    #   - vrp:                   no clear edge in real data
+    # The "stocks" prior stays mildly pessimistic to discourage over-trading
+    # the bucket that's roughly breakeven, but is no longer hard-blocking
+    # because the ETF and CSP buckets now have +EV priors that actually
+    # generate alpha. These defaults apply ONLY when live trade count < 10
+    # for the bucket; once real feedback builds up, _get_historical_stats()
+    # uses actual measurements.
+    #
+    # Conversion of backtest "avg %" to Kelly inputs (avg_win / avg_loss in pnl_pct units):
+    #   etf:         WR ≈ 0.547, avg_win ≈ +4.0%, avg_loss ≈ -3.9%  → Kelly +0.06 → 2% size
+    #   csp_options: WR ≈ 0.70,  avg_win ≈ +0.5%, avg_loss ≈ -1.5%  → Kelly +0.20 → 6.7% size
+    #   stocks:      WR ≈ 0.48,  avg_win ≈ +4.3%, avg_loss ≈ -4.2%  → Kelly -0.05 → BLOCKED
+    #   vrp:         no edge      → blocked until live data shows positive
     default = {
         "overall": {"win_rate": 0.55, "avg_win": 2.0, "avg_loss": 2.0, "total_trades": 0},
         "by_strategy": {
-            # Stocks: negative expectancy in honest analysis — use pessimistic defaults
-            # that force quarter-Kelly or smaller until real data proves otherwise
-            "stocks":      {"win_rate": 0.45, "avg_win": 2.0, "avg_loss": 2.5, "trades": 0},
-            # CSP: real edge confirmed in 1,226-trade analysis (71.6% WR, PF 3.81)
-            # Use slightly conservative defaults that match the real numbers
-            "csp_options": {"win_rate": 0.70, "avg_win": 1.0, "avg_loss": 2.0, "trades": 0},
-            # VRP: same as CSP until options feedback builds up separately
-            "vrp":         {"win_rate": 0.65, "avg_win": 1.5, "avg_loss": 3.5, "trades": 0},
+            # ETF (leveraged single-name): the alpha generator per backtest
+            "etf":         {"win_rate": 0.547, "avg_win": 4.0, "avg_loss": 3.9, "trades": 0},
+            # Stocks: roughly breakeven in backtest. Kept mildly pessimistic
+            # so the bucket size stays small until live data proves a setup.
+            "stocks":      {"win_rate": 0.48,  "avg_win": 4.3, "avg_loss": 4.2, "trades": 0},
+            # CSP: real edge confirmed (151 trades, 68.9% WR per CSP-only config).
+            "csp_options": {"win_rate": 0.70,  "avg_win": 0.5, "avg_loss": 1.5, "trades": 0},
+            # VRP: no proven edge yet — pessimistic prior until data shows otherwise.
+            "vrp":         {"win_rate": 0.55,  "avg_win": 1.0, "avg_loss": 2.0, "trades": 0},
         },
     }
     
@@ -875,11 +905,30 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
         _daily_atr = _normalize_vol_to_daily_pct(atr_pct)
         if _daily_atr is None or _daily_atr <= 0:
             _daily_atr = 2.0
-        stop_distance_pct = max(1.5, min(_daily_atr * 1.5 * _stop_scalar, 8.0))
-        tp_distance_pct = max(4.0, min(_daily_atr * 3.0, 12.0))
+        # SHORT-HOLD FIX 2026-05-03 (alpha audit): backtest data showed
+        # stocks held 1-3 days had 0-5% WR, -293% drag. Stocks held 4+
+        # days had 55.7% WR, +276%. The 1.5x ATR stop was triggering
+        # on noise pullbacks before trends could develop. Widened to
+        # 2.5x ATR with 5% floor / 12% ceiling, matched in
+        # instrument_selector._build_stop_config. Stop is dormant for
+        # the first 4 trading days (see min_hold_days below) so noise
+        # stop-outs in the 1-3 day window are mechanically prevented.
+        if trade_type in ("stock", "etf"):
+            _atr_mult = 2.5 if trade_type == "stock" else 1.5
+            _floor    = 5.0 if trade_type == "stock" else 4.0
+            _ceiling  = 12.0 if trade_type == "stock" else 9.0
+            stop_distance_pct = max(_floor, min(_daily_atr * _atr_mult * _stop_scalar, _ceiling))
+            tp_distance_pct   = max(6.0, min(_daily_atr * 4.0, 18.0))
+        else:
+            # Options / unknown: keep historical sizing (options stops
+            # are managed in options_manager, not here)
+            stop_distance_pct = max(1.5, min(_daily_atr * 1.5 * _stop_scalar, 8.0))
+            tp_distance_pct = max(4.0, min(_daily_atr * 3.0, 12.0))
     else:
-        stop_distance_pct = 2.5  # Default
-        tp_distance_pct = 7.5
+        # No vol data fallback: use the wider defaults too — better to
+        # be loose than be the tight-stop disaster from the audit.
+        stop_distance_pct = 6.0
+        tp_distance_pct = 10.0
     
     if side in ("short", "sell"):
         stop_loss = round(price * (1 + stop_distance_pct / 100), 2)
@@ -995,32 +1044,30 @@ def _blocked(ticker: str, price: float, reason: str) -> dict:
 def _infer_strategy(trade: dict) -> str:
     """
     Infer strategy bucket for historical-stats lookup. Returns one of:
-      "stocks"      — directional stock/ETF trade (any non-VRP signal)
+      "stocks"      — directional single-name stock trade
+      "etf"         — leveraged ETF trade (separate bucket: backtest shows +EV)
       "csp_options" — CSP / covered-call / premium-selling options
       "vrp"         — VRP-dominant trade
 
-    BUG #12 FIX 2026-05-03 (post-deploy audit): previous version returned
-    "momentum" / "mean_reversion" / "vrp" / "squeeze" / "volume" / "unknown"
-    — only "vrp" matched any key in _get_historical_stats()["by_strategy"].
-    Stock trades silently fell through to the optimistic +EV "overall"
-    defaults (WR=0.55, win=loss=$2 → Kelly +3.3%), which BYPASSED Patch
-    #2's negative-Kelly halt for the "stocks" bucket entirely. The audit
-    expected Patch #2 to halt stock entries (45% WR, -EV per real-trade
-    analysis); production was still placing them at 1/3-Kelly = 3.3%.
+    BUG #12 FIX 2026-05-03: aligned bucket keys with _get_historical_stats.
+    ALPHA AUDIT 2026-05-03: split "etf" out of "stocks" because the 10-year
+    backtest segmentation showed:
+      - stocks: 344 trades, 48.5% WR, -0.05% avg, -16.7% total
+      - etfs:   879 trades, 54.7% WR, +0.44% avg, +386.5% total
+    Mixing them in one bucket masks the ETF edge and lets the stock drag
+    block the leveraged-ETF strategy that's actually generating alpha.
 
-    Now returns keys aligned with by_strategy, so:
-      - VRP-dominant trades → "vrp" bucket (-EV) → HALTED by Patch #2
-      - Other stock signals → "stocks" bucket (-EV) → HALTED by Patch #2
-      - CSP/covered call → "csp_options" bucket (+EV) → continues to trade
-
-    This is what the audit intended. The system will now actually stop
-    placing stock trades until live data shows positive expectancy, and
-    capital will concentrate on the strategies that work (CSPs, +0.37%
-    avg over 1,226 trades in the 10-yr backtest).
+    Routing:
+      - Options sell-side → "csp_options" bucket (+EV, trades)
+      - Trades flagged as ETF (instrument="etf" or trade_type="etf"
+        or has chosen=="etf" from instrument_selector) → "etf" bucket
+      - VRP-dominant signal → "vrp" bucket
+      - Single-name stock → "stocks" bucket
     """
     # ── Direct routing from explicit fields if present ──────────────────
     options_strategy = (trade.get("options_strategy") or "").lower()
     instrument = (trade.get("instrument") or trade.get("trade_type") or "").lower()
+    chosen     = (trade.get("chosen") or "").lower()
 
     # CSP / covered call / premium-selling options → csp_options bucket
     if any(k in options_strategy for k in
@@ -1028,6 +1075,23 @@ def _infer_strategy(trade: dict) -> str:
             "iron_condor", "bull_put_credit", "short_straddle",
             "qqq_iron_condor")):
         return "csp_options"
+
+    # ETF: leveraged ETF trade (the alpha generator per backtest)
+    # Detect via instrument or chosen field set by instrument_selector
+    if instrument == "etf" or chosen == "etf":
+        return "etf"
+    # Also detect via leveraged-ETF ticker pattern (fallback if upstream
+    # didn't set the instrument flag)
+    _t = str(trade.get("ticker") or "").upper()
+    _LETF_SUFFIXES = ("U", "L", "S")  # AAPU, TQQQ, SQQQ, SOXL, SOXS, etc.
+    _KNOWN_LETFS = {
+        "TQQQ", "SQQQ", "UPRO", "SPXU", "SPXL", "SPXS",
+        "SOXL", "SOXS", "TNA", "TZA", "FAS", "FAZ",
+        "AAPU", "AAPD", "NVDU", "NVDD", "TSLL", "TSLS",
+        "MSFU", "MSFD", "AMZU", "AMZD", "GGLL", "GGLS",
+    }
+    if _t in _KNOWN_LETFS:
+        return "etf"
 
     # ── Score-based inference ──────────────────────────────────────────
     scores = {

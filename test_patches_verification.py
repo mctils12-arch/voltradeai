@@ -73,11 +73,27 @@ class TestPatch2_NegativeKellyHalt(unittest.TestCase):
         self.assertGreater(f, 0.01)
         self.assertLess(f, 0.10)
 
-    def test_zero_avg_win_returns_default(self):
-        """No-data case still returns the 3% prior."""
+    def test_zero_avg_win_returns_block(self):
+        """ALPHA AUDIT 2026-05-03: avg_win == 0 means strategy has had ZERO
+        winning trades historically — that's a strong negative signal, not
+        a 'no data' signal. Must hard-block (return 0.0). The old behavior
+        of returning 0.03 (3% size) silently kept money flowing into
+        strategies with no recorded wins."""
         from position_sizing import _kelly_fraction
         f = _kelly_fraction(0.5, 0.0, 1.0)
-        self.assertEqual(f, 0.03)
+        self.assertEqual(f, 0.0,
+            "avg_win==0 must hard-block (return 0.0), not size at the prior")
+
+    def test_zero_avg_loss_returns_starter_size(self):
+        """ALPHA AUDIT 2026-05-03: avg_loss == 0 with avg_win > 0 indicates
+        no losing trades in history — almost certainly because we have no
+        data at all (a real positive-EV strategy still shows some losses
+        in any meaningful sample). Return a small starter size (0.5%) so
+        the strategy can gather data instead of being blocked forever."""
+        from position_sizing import _kelly_fraction
+        f = _kelly_fraction(0.5, 1.0, 0.0)
+        self.assertEqual(f, 0.005,
+            "avg_loss==0 must return small starter size (0.005) to gather data")
 
 
 class TestPatch3_NetCreditDenominator(unittest.TestCase):

@@ -642,7 +642,7 @@ def set_peak_equity(equity: float) -> float:
     try:
         import json
         import tempfile
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, timezone as _tz
         peak = max(float(equity), get_peak_equity())
         path = _state_path(_PEAK_EQUITY_FILENAME)
         dirname = os.path.dirname(path) or "."
@@ -654,7 +654,7 @@ def set_peak_equity(equity: float) -> float:
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump({"peak_equity": peak,
-                           "last_updated": _dt.utcnow().isoformat()}, f)
+                           "last_updated": _dt.now(_tz.utc).isoformat()}, f)
             os.replace(tmp, path)
         except Exception:
             try: os.unlink(tmp)

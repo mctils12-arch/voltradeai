@@ -59,6 +59,12 @@ COPY --from=builder /app/landing ./landing
 COPY *.py ./
 COPY strategies/ ./strategies/
 
+# ── Copy backtest data needed for trade_feedback seeding ────────
+# (alpha audit 2026-05-03: voltrade_daemon auto-seeds the Kelly
+# bucket stats from this file on first startup if trade_feedback.json
+# is missing or sparse)
+COPY backtest_10yr_results.json ./
+
 # ── Copy daemon supervisor script (used by Railway startCommand) ─
 COPY run_with_daemon.sh ./
 RUN chmod +x run_with_daemon.sh
