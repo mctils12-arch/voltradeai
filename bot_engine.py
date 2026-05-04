@@ -3133,11 +3133,19 @@ def _scan_market_inner():
     except Exception as _oe2:
         pass  # Options scan failed — stock trades still execute normally
 
+    # ALPHA AUDIT 2026-05-04 batch 6: granular timing between deep_score and
+    # tier_engine_start. Production snapshots show this gap eats 507s but
+    # the tier engine itself is only 66s. Instrumenting each step so the
+    # next snapshot pinpoints the actual slow caller.
+    _timing_log("step6_trade_loop_and_options")
+
     # Step 7: Check position management
     try:
         mgmt = manage_positions()
     except Exception:
         mgmt = {"actions": [], "error": "manage_positions crashed", "upgrade_candidates": []}
+
+    _timing_log("step7_manage_positions")
 
     # Step 8: Intraday Shorts — DISABLED (pro-level overhaul)
     # Backtest: -$419K total P&L, 28.5% WR, 419% max DD. Permanently disabled.
@@ -3153,6 +3161,8 @@ def _scan_market_inner():
     except Exception as _ome:
         options_mgmt_result["error"] = str(_ome)[:200]
 
+    _timing_log("step8b_options_manager")
+
     # Step 9: Third Leg (v1.0.25) ─────────────────────────────────────────────
     # Runs alongside stock scan in every cycle.
     # Backtest: ALL 64 combinations beat SPY. Winner: VRP=15% + Sector=12%.
@@ -3162,6 +3172,8 @@ def _scan_market_inner():
     except Exception:
         third_leg_result = {"actions": [], "status": "error"}
 
+    _timing_log("step9_third_leg")
+
     # Step 9b: Convexity Overlay (pro-level overhaul) ────────────────────────
     # Permanent tail hedge replacing sector rotation. Budget: 1-2% of equity
     # annually on QQQ protective puts (30-45 DTE far OTM). Increases to 3-4% in PANIC/BEAR.
@@ -3170,6 +3182,8 @@ def _scan_market_inner():
         convexity_result = _run_convexity_overlay(_macro)
     except Exception as _ce:
         convexity_result["status"] = f"error: {str(_ce)[:80]}"
+
+    _timing_log("step9b_convexity_overlay")
 
     # Step 10: Passive SPY Floor (v1.0.29) ──────────────────────────────────
     # Hold passive SPY allocation based on regime. Captures market drift
@@ -3181,6 +3195,8 @@ def _scan_market_inner():
     except Exception as _sfe:
         spy_floor_result["status"] = f"error: {str(_sfe)[:80]}"
 
+    _timing_log("step10_spy_floor")
+
     # Step 10b: Defensive Floor (P1-1, GLD bear-regime rotation) ──────────
     # Rotate INTO GLD when regime goes bearish / death cross fires, and
     # OUT of GLD when regime recovers. Sized by DEFENSIVE_FLOOR_* config.
@@ -3190,6 +3206,8 @@ def _scan_market_inner():
         defensive_floor_result = _manage_defensive_floor(_macro)
     except Exception as _dfe:
         defensive_floor_result["status"] = f"error: {str(_dfe)[:80]}"
+
+    _timing_log("step10b_defensive_floor")
 
     # ══════════════════════════════════════════════════════════════════════
     # TIERED STRATEGY LAYER — runs in parallel to existing scoring.
