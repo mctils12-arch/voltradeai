@@ -4941,16 +4941,24 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       const holidays: Array<{date: string; name: string}> = [];
       const earlyCloses: Array<{date: string; close: string}> = [];
 
+      // ALPHA AUDIT 2026-05-04 batch 6: holiday name lookup updated for 2026.
+      // Previous values were 2025 dates (MLK Jan 20, Presidents Feb 17,
+      // Memorial May 26, Labor Sep 1, etc.) which never matched in 2026 —
+      // so detected holidays from Alpaca's calendar fell through to the
+      // default "Market Holiday" name. The DATES themselves come from
+      // Alpaca's /v2/calendar so trading-day detection was correct; just
+      // the human-readable name was generic.
       const holidayNames: Record<string, string> = {
         "01-01": "New Year's Day",
-        "01-20": "Martin Luther King Jr. Day",
-        "02-17": "Presidents' Day",
-        "04-18": "Good Friday",
-        "05-26": "Memorial Day",
-        "06-19": "Juneteenth",
-        "07-04": "Independence Day",
-        "09-01": "Labor Day",
-        "11-27": "Thanksgiving Day",
+        "01-19": "Martin Luther King Jr. Day",     // 2026: 3rd Monday of January
+        "02-16": "Presidents' Day",                // 2026: 3rd Monday of February
+        "04-03": "Good Friday",                    // 2026: April 3
+        "05-25": "Memorial Day",                   // 2026: last Monday of May
+        "06-19": "Juneteenth",                     // Fixed date
+        "07-03": "Independence Day (observed)",    // 2026: July 4 = Saturday → observed Friday
+        "07-04": "Independence Day",               // Fixed (in case observed differently)
+        "09-07": "Labor Day",                      // 2026: 1st Monday of September
+        "11-26": "Thanksgiving Day",               // 2026: 4th Thursday of November
         "12-25": "Christmas Day",
       };
 

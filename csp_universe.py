@@ -214,7 +214,13 @@ def _fetch_snap_data_for_universe() -> Dict[str, Dict]:
 
 def _score_iv_rank(ticker: str, iv_rank_cache: Dict[str, Optional[float]]) -> float:
     """IV rank score: higher IVR = more premium to collect.
-    0-100 scale, sweet spot at IVR 60-80."""
+    0-100 scale, sweet spot at IVR 60-80.
+
+    NOTE: this function CAN do a synchronous network call when the cache
+    misses. It's used by the parallel prefetch (where we WANT the network
+    call). The main scoring loop uses _score_iv_rank_from_cached() instead,
+    which never hits the network — see batch 7 audit comment in _layer2_score.
+    """
     if ticker in iv_rank_cache:
         ivr = iv_rank_cache[ticker]
     else:
@@ -225,6 +231,14 @@ def _score_iv_rank(ticker: str, iv_rank_cache: Dict[str, Optional[float]]) -> fl
             ivr = None
         iv_rank_cache[ticker] = ivr
 
+    return _score_iv_rank_from_cached(ivr)
+
+
+def _score_iv_rank_from_cached(ivr: Optional[float]) -> float:
+    """Pure scoring from a cached IV-rank value. No network calls.
+    ALPHA AUDIT 2026-05-04 batch 7: extracted from _score_iv_rank so
+    the main scoring loop can never accidentally trigger a network
+    fetch when the parallel prefetch was cancelled by its time budget."""
     if ivr is None:
         return 30.0  # Unknown — give modest baseline so we don't fully skip
     # Scoring curve: target IVR 60-80 as sweet spot, penalize extremes
@@ -242,7 +256,11 @@ def _score_iv_rank(ticker: str, iv_rank_cache: Dict[str, Optional[float]]) -> fl
 
 def _score_vrp(ticker: str, surface_cache: Dict[str, Optional[Dict]]) -> float:
     """VRP score: higher VRP = more structural edge for premium selling.
-    0-100 scale based on vrp_20d from vol_surface."""
+    0-100 scale based on vrp_20d from vol_surface.
+
+    NOTE: same caveat as _score_iv_rank — network-capable. Main scoring
+    loop uses _score_vrp_from_cached() instead.
+    """
     if ticker in surface_cache:
         surface = surface_cache[ticker]
     else:
@@ -253,6 +271,12 @@ def _score_vrp(ticker: str, surface_cache: Dict[str, Optional[Dict]]) -> float:
             surface = None
         surface_cache[ticker] = surface
 
+    return _score_vrp_from_cached(surface)
+
+
+def _score_vrp_from_cached(surface: Optional[Dict]) -> float:
+    """Pure scoring from a cached surface dict. No network calls.
+    ALPHA AUDIT 2026-05-04 batch 7: extracted from _score_vrp."""
     if not surface or "error" in (surface or {}):
         return 40.0  # Unknown — modest baseline
     vrp = surface.get("vrp", {}).get("vrp_20d", 0)
@@ -270,6 +294,26 @@ def _score_vrp(ticker: str, surface_cache: Dict[str, Optional[Dict]]) -> float:
         return 25.0
     else:
         return 10.0  # Negative VRP — options cheap, don't sell
+
+
+def _score_put_skew_from_cached(surface: Optional[Dict]) -> float:
+    """Pure scoring from a cached surface dict. No network calls.
+    ALPHA AUDIT 2026-05-04 batch 7: cache-only twin of _score_put_skew."""
+    if not surface or "error" in (surface or {}):
+        return 50.0
+    skew_data = surface.get("skew", {})
+    put_call_skew = abs(skew_data.get("put_call_skew", 0))
+    if put_call_skew >= 0.10:
+        return 95.0
+    elif put_call_skew >= 0.06:
+        return 80.0
+    elif put_call_skew >= 0.03:
+        return 65.0
+    elif put_call_skew >= 0.01:
+        return 50.0
+    else:
+        return 35.0
+
 
 
 def _score_liquidity(ticker: str, price: float, volume: int, dollar_volume: float) -> float:
@@ -418,7 +462,13 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
     if not candidates:
         return []
 
-    # Per-scan caches for expensive factors (avoid duplicate API calls)
+    # Per-scan caches for expensive factors (avoid duplicate API calls).
+    # ALPHA AUDIT 2026-05-04 batch 7: these caches must be POPULATED ONLY
+    # by the parallel prefetch below. If a ticker is missing from the
+    # cache after prefetch (because prefetch timed out or failed), the
+    # main scoring loop must NOT fall through to a synchronous network
+    # call — that's how scans were taking 500+ seconds. Sentinel value
+    # `None` means "we tried and got no data, use baseline score".
     iv_rank_cache: Dict[str, Optional[float]] = {}
     surface_cache: Dict[str, Optional[Dict]] = {}
 
@@ -435,24 +485,38 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
 
     scored = []
     # LIMIT expensive factor fetches to top N (by dollar_volume). We
-    # sort candidates by dollar_volume descending, score top 500 with
+    # sort candidates by dollar_volume descending, score top N with
     # full factor stack (IVR + surface), rest get lighter scoring.
-    # This prevents 11,600 IVR fetches per cycle.
+    # ALPHA AUDIT 2026-05-04 batch 7: reduced from 500 to 150. With 8
+    # workers and a 60s budget, 500 was unrealistic — best case ~30s/8w
+    # but worst case (10s timeout × 500/8 = 625s) was eating scan budget.
+    # Top 150 by dollar volume covers every name that matters for CSP.
     sorted_candidates = sorted(candidates, key=lambda c: c[3], reverse=True)
-    deep_score_limit = 500  # full-factor scoring applies to top 500 only
+    deep_score_limit = 150  # full-factor scoring applies to top N only
 
     # PARALLEL-SCORE 2026-04-23: parallelize expensive factor fetches
     # (IV rank + surface score). Previously serial 500x = 250-500s hang.
     # Now 8 workers = ~30-50s typical.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FutTimeout
 
     # Split into two passes: top deep_score_limit get full scoring,
     # rest get cheap scoring.
     deep_candidates = sorted_candidates[:deep_score_limit]
     shallow_candidates = sorted_candidates[deep_score_limit:]
 
-    # Prefetch IV rank and surface score IN PARALLEL for deep candidates
+    # Prefetch IV rank and surface score IN PARALLEL for deep candidates.
+    # ALPHA AUDIT 2026-05-04 batch 7: switched from pool.map(timeout=60)
+    # to as_completed with explicit per-future cancellation. pool.map's
+    # timeout only interrupts iteration — pool.__exit__ then waits for
+    # all running futures, blocking the main thread for the full network
+    # latency × n_calls / n_workers. Now we cancel unfinished futures
+    # when the wall budget expires.
+    PREFETCH_BUDGET_S = 45.0  # hard wall-clock cap for the entire prefetch
+
     def _prefetch(ticker):
+        # Each call into _score_iv_rank/_score_vrp populates the per-scan
+        # cache. The cache write happens before return, so even if the
+        # wall budget cancels OTHER tickers, this ticker's data is saved.
         try:
             _score_iv_rank(ticker, iv_rank_cache)
             _score_vrp(ticker, surface_cache)
@@ -460,8 +524,31 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
             pass
 
     if deep_candidates:
+        prefetch_start = time.time()
+        completed_count = 0
         with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(_prefetch, [c[0] for c in deep_candidates], timeout=60))
+            futures = {pool.submit(_prefetch, c[0]): c[0] for c in deep_candidates}
+            try:
+                for fut in as_completed(futures, timeout=PREFETCH_BUDGET_S):
+                    completed_count += 1
+            except _FutTimeout:
+                # Wall budget exceeded — cancel all unfinished futures so
+                # __exit__ doesn't block waiting for them
+                cancelled = 0
+                for fut in futures:
+                    if not fut.done():
+                        if fut.cancel():
+                            cancelled += 1
+                logger.warning(
+                    f"Layer 2 prefetch budget exceeded after "
+                    f"{time.time() - prefetch_start:.1f}s — completed "
+                    f"{completed_count}/{len(deep_candidates)}, cancelled {cancelled}. "
+                    f"Remaining tickers will use baseline scores."
+                )
+        logger.info(
+            f"Layer 2 prefetch: {completed_count}/{len(deep_candidates)} "
+            f"deep candidates in {time.time() - prefetch_start:.1f}s"
+        )
 
     scored = []
     for idx, (ticker, price, volume, dollar_volume) in enumerate(sorted_candidates):
@@ -471,10 +558,15 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
         stability = _score_stability(ticker, price, snap_data)
         historical = _score_historical(ticker)
         if full_scoring:
-            # Caches populated by parallel prefetch above
-            iv_rank_s = _score_iv_rank(ticker, iv_rank_cache)
-            vrp_s = _score_vrp(ticker, surface_cache)
-            skew_s = _score_put_skew(ticker, surface_cache)
+            # ALPHA AUDIT 2026-05-04 batch 7: read-only from cache. If the
+            # ticker isn't in the cache (prefetch was cancelled), use the
+            # baseline score — DO NOT fall through to a sync network call.
+            # That fallthrough is what caused 500+ second scan hangs.
+            ivr = iv_rank_cache.get(ticker)
+            iv_rank_s = _score_iv_rank_from_cached(ivr)
+            surface = surface_cache.get(ticker)
+            vrp_s = _score_vrp_from_cached(surface)
+            skew_s = _score_put_skew_from_cached(surface)
         else:
             iv_rank_s = 40.0
             vrp_s = 40.0
