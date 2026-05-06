@@ -4934,13 +4934,34 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     return 1800000;
   }
 
+  // BUG FIX 2026-05-06 batch 10: scheduleTier2 spawned PARALLEL timer chains
+  // when its callsites raced with the tier2Running lock. Each defer-on-lock
+  // (line "if (tier2Running) { setTimeout(scheduleTier2, ...); return; }")
+  // started a NEW chain, while the in-progress scan ALSO scheduled a new
+  // chain when it finished. Result: after enough lock contention there were
+  // 5-10 chains all firing every 3 minutes, staggered so scans actually ran
+  // every 15-30 seconds. Audit log showed scans firing constantly with
+  // "interval: 3min" labels.
+  //
+  // Fix: track whether a tier2 timer is already armed. Refuse to arm a
+  // second one. Anywhere we reschedule, go through this single helper.
+  let tier2TimerArmed = false;
+  function armTier2Timer(delayMs: number) {
+    if (tier2TimerArmed) return; // a chain is already pending
+    tier2TimerArmed = true;
+    setTimeout(() => {
+      tier2TimerArmed = false;
+      scheduleTier2().catch(() => {});
+    }, delayMs);
+  }
+
   async function scheduleTier2() {
     if (!state.active || state.killSwitch || tier2Running) {
-      setTimeout(scheduleTier2, getTier2Interval());
+      armTier2Timer(getTier2Interval());
       return;
     }
     if (state.circuitBreakerUntil > Date.now()) {
-      setTimeout(scheduleTier2, getTier2Interval());
+      armTier2Timer(getTier2Interval());
       return;
     }
 
@@ -4951,7 +4972,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       const etH = getETHour();
       const isAnyWindow = clock.is_open || (etH >= 4 && etH < 20);
       if (!isAnyWindow) {
-        setTimeout(scheduleTier2, getTier2Interval());
+        armTier2Timer(getTier2Interval());
         return;
       }
 
@@ -4996,12 +5017,12 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       } else {
         delay = getTier2Interval();
       }
-      setTimeout(scheduleTier2, delay);
+      armTier2Timer(delay);
     }
   }
 
   // Start Tier 2 with adaptive scheduling
-  setTimeout(scheduleTier2, 10000); // First run after 10 seconds
+  armTier2Timer(10000); // First run after 10 seconds
 
   // TIER 3: Strategic (every 1 hour) — ML retrain, macro, manipulation scan
   setInterval(async () => {
