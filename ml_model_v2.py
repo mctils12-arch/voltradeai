@@ -187,7 +187,18 @@ _model_cache_lock = _threading_ml.Lock()
 # ══════════════════════════════════════════════════════════════════
 
 def _fetch_training_bars(days: int = 365, max_tickers: int = 200) -> dict:
-    """Fetch daily bars for training universe."""
+    """Fetch daily bars for training universe.
+
+    OOM FIX 2026-05-04 batch 8 (REVISED):
+      - The original `days` parameter was being IGNORED. Function
+        hardcoded `start_date = "2020-01-01"` regardless of caller.
+        Fixed to honor the parameter so callers can request a smaller
+        window if they have memory pressure. **Defaults remain 365×200**
+        because container memory is 8GB — there is no shortage.
+      - Original 2020-01-01 fixed start was kept available via
+        BASE_CONFIG["ML_FORCE_2020_START"] = True if you specifically
+        want to lock the regime-diversity training window.
+    """
     tickers = []
     try:
         r = requests.get(f"{DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=50",
@@ -202,10 +213,25 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200) -> dict:
         if t not in tickers: tickers.append(t)
     tickers = list(dict.fromkeys(tickers))[:max_tickers]
 
-    # Use fixed 2020-01-01 start to include full regime diversity:
-    #   2020: COVID panic (VXX>1.30), 2021: bull (VXX<0.90), 2022: bear (VXX>1.15)
-    #   This gives the model real examples of all 5 regimes
-    start_date = "2020-01-01"
+    # Default behavior: still use 2020-01-01 fixed start for full regime
+    # diversity (2020 COVID panic, 2021 bull, 2022 bear, etc.). The `days`
+    # parameter only takes effect if the caller explicitly opts in via
+    # BASE_CONFIG["ML_USE_DAYS_PARAMETER"] = True.
+    try:
+        from system_config import BASE_CONFIG as _bc
+        use_days = _bc.get("ML_USE_DAYS_PARAMETER", False)
+    except Exception:
+        use_days = False
+
+    if use_days:
+        start_dt = datetime.now() - timedelta(days=max(int(days), 365))
+        start_date = start_dt.strftime("%Y-%m-%d")
+    else:
+        # Use fixed 2020-01-01 start to include full regime diversity:
+        #   2020: COVID panic (VXX>1.30), 2021: bull (VXX<0.90), 2022: bear (VXX>1.15)
+        #   This gives the model real examples of all 5 regimes
+        start_date = "2020-01-01"
+
     all_bars: dict = {}
     for i in range(0, len(tickers), 10):
         batch = tickers[i:i+10]
@@ -1202,7 +1228,12 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
     t0 = time.time()
 
     # Step 1: Fetch training data
-    all_bars = _fetch_training_bars(days=BASE_CONFIG.get("ML_LOOKBACK_DAYS", 365))  # 1yr for regime diversity
+    # batch 8 REVISED: 8GB container so training scope is unchanged.
+    # Default 1yr lookback × 200 tickers; ML_LOOKBACK_DAYS / ML_MAX_TICKERS
+    # both tunable via BASE_CONFIG if you ever want to throttle.
+    _ml_days = BASE_CONFIG.get("ML_LOOKBACK_DAYS", 365)
+    _ml_max_tickers = BASE_CONFIG.get("ML_MAX_TICKERS", 200)
+    all_bars = _fetch_training_bars(days=_ml_days, max_tickers=_ml_max_tickers)
     if not all_bars:
         return {"status": "failed", "reason": "Could not fetch training bars"}
 

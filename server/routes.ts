@@ -626,6 +626,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── DEBUG: comprehensive ML pipeline diagnostics ──────────────────────────
+  // ALPHA AUDIT 2026-05-04 batch 8: one-shot inspector for the full ML
+  // process state. Returns environment (RSS, env vars, container memory),
+  // filesystem state (model/feedback files), library versions, last
+  // retrain status, and a static smoke test that walks through what a
+  // retrain would do without actually retraining.
+  //
+  // Use case: ML retrain has been failing for 90+ hours with various
+  // errors (NoneType, SIGKILL). Hitting this endpoint once gives us
+  // every piece of state we need to diagnose without round-trips.
+  //
+  // Gated by DEBUG_ENABLED=true env var. Runs in a child process with
+  // a 90-second timeout — the smoke test includes a tiny lightgbm fit
+  // and a small bars fetch which can take 5-30s combined.
+  app.get("/api/debug/ml-diagnostics", async (_req, res) => {
+    if (process.env.DEBUG_ENABLED !== "true") {
+      return res.status(403).json({
+        error: "Debug endpoint disabled. Set DEBUG_ENABLED=true to enable.",
+      });
+    }
+
+    const scriptPath = path.resolve(process.cwd(), "ml_diagnostics.py");
+
+    try {
+      const { stdout } = await execAsync(
+        `python3 "${scriptPath}"`,
+        { timeout: 90000, maxBuffer: 1024 * 1024 * 4 }
+      );
+      const output = stdout.trim();
+      if (!output) {
+        return res.status(500).json({ error: "No output from ml_diagnostics.py" });
+      }
+      const data = JSON.parse(output);
+      return res.json(data);
+    } catch (err: any) {
+      // ml_diagnostics.py is designed to never raise — but if execAsync
+      // itself fails (timeout, signal, etc.), surface the details so we
+      // know what killed it. Mirror the fingerprint pattern from the
+      // TIER3-ML-ERROR classifier.
+      const _stderr = String(err?.stderr || "").slice(-400);
+      const _stdout = String(err?.stdout || "").slice(-400);
+      const _signal = err?.signal || "none";
+      const _code = err?.code === undefined ? "?" : err.code;
+      return res.status(500).json({
+        error: "Diagnostics script failed at the process level.",
+        process_state: {
+          exit_code: _code,
+          kill_signal: _signal,
+          stderr_tail: _stderr,
+          stdout_tail: _stdout,
+        },
+        hint:
+          _signal === "SIGKILL"
+            ? "Process was SIGKILL'd. With 8GB available this is likely the exec timeout (90s) firing — the diagnostics smoke test (lightgbm fit + bars fetch) ran longer than expected."
+            : "See exit_code and stderr_tail for the cause.",
+      });
+    }
+  });
+
   // ── Market scanner ────────────────────────────────────────────────────────
   app.get("/api/scan", async (req, res) => {
     const now = Date.now();

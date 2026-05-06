@@ -3544,7 +3544,19 @@ else:
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model stale or missing — triggering retrain...");
         try {
-          const { stdout: trainOut } = await execPythonSerialized("python3 ml_retrain_safe.py", { timeout: 300000 });
+          // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
+          // Production SIGKILL events were classified as "likely OOM"
+          // by the heuristic below, but with 8GB available and only
+          // ~280MB used by the daemon, OOM is unlikely. Far more likely
+          // cause is THIS timeout firing on the heavy retrain (200
+          // tickers × 6 years of bars + 4 regime-conditional models +
+          // LightGBM training). Node.js sends SIGTERM then SIGKILL on
+          // exec timeout — looks identical to an OS OOM kill from
+          // outside the process. 15 minutes gives the retrain real
+          // headroom; if it still times out we'll get the new
+          // steps_completed diagnostic from ml_retrain_safe to tell us
+          // which step is actually slow.
+          const { stdout: trainOut } = await execPythonSerialized("python3 ml_retrain_safe.py", { timeout: 900000 });
           const trainResult = JSON.parse(trainOut.trim());
           audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
         } catch (trainErr: any) {
@@ -3855,9 +3867,11 @@ print('cleared')
         audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
+          // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
+          // Same as the TIER3 retrain call earlier — see comment there.
           const { stdout: trainOut } = await execPythonSerialized(
             `python3 ml_retrain_safe.py`,
-            { timeout: 300000 }
+            { timeout: 900000 }
           );
           const trainResult = JSON.parse(trainOut.trim());
           audit("RETRAIN", `Daily retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
