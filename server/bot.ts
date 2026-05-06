@@ -416,7 +416,46 @@ interface TradeResult {
 const tradeResults: TradeResult[] = [];
 
 // In-memory equity curve (keeps up to 1 year of daily data)
-const equityCurve: Array<{ date: string; value: number; pnl: number }> = [];
+// UI FIX 2026-05-05 batch 9: equity curve was in-memory only. Every Railway
+// redeploy wiped it, so the dashboard chart only ever showed "today" or
+// at most 1-2 days of history. Now load from disk on startup, persist
+// after each daily snapshot. Stays in /data/voltrade so it survives.
+const EQUITY_CURVE_PATH = "/data/voltrade/voltrade_equity_curve.json";
+const EQUITY_CURVE_FALLBACK = "/tmp/voltrade_equity_curve.json";
+const equityCurve: Array<{ date: string; value: number; pnl: number }> = (() => {
+  for (const p of [EQUITY_CURVE_PATH, EQUITY_CURVE_FALLBACK]) {
+    try {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, "utf8");
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // Sanity-check shape — only keep records that look like equity points
+          return parsed.filter((d: any) =>
+            d && typeof d.date === "string" && typeof d.value === "number"
+          ).slice(0, 365);
+        }
+      }
+    } catch (e: any) {
+      console.error(`[equity-curve] could not load ${p}:`, e?.message || e);
+    }
+  }
+  return [];
+})();
+
+function saveEquityCurve() {
+  for (const p of [EQUITY_CURVE_PATH, EQUITY_CURVE_FALLBACK]) {
+    try {
+      // Make sure parent dir exists; ignore if already there
+      const dir = p.substring(0, p.lastIndexOf("/"));
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      fs.writeFileSync(p, JSON.stringify(equityCurve));
+      return; // Stop on first successful write
+    } catch (e: any) {
+      // Try fallback path
+      console.error(`[equity-curve] could not save to ${p}:`, e?.message || e);
+    }
+  }
+}
 
 // ─── Email Alerts (Resend) ────────────────────────────────────────────────────
 const RESEND_KEY = process.env.RESEND_KEY || "";
@@ -664,6 +703,9 @@ function recordDailyEquity() {
       equityCurve.unshift({ date, value, pnl });
       if (equityCurve.length > 365) equityCurve.shift();
     }
+    // UI FIX batch 9: persist after every update so we don't lose history
+    // on the next redeploy.
+    saveEquityCurve();
   }).catch(() => {});
 }
 
@@ -1210,8 +1252,22 @@ print(json.dumps({
           }
 
           // Pair buys/sells by symbol to compute P/L
-          const buysBySymbol: Record<string, number[]> = {};
-          const trades: Array<{ ticker: string; side: string; pnl_pct: number; pnl: number }> = [];
+          // UI FIX 2026-05-05 batch 9: include filled_at timestamp so the
+          // recent-trades panel shows real dates instead of dashes. Strategy
+          // is harder — Alpaca doesn't store our strategy tag, but we can
+          // backfill from in-memory tradeResults if we have it.
+          const buysBySymbol: Record<string, Array<{ price: number; ts: string }>> = {};
+          const trades: Array<{ ticker: string; side: string; pnl_pct: number; pnl: number; timestamp?: string; strategy?: string }> = [];
+
+          // Build a strategy lookup from in-memory tradeResults: ticker → strategy
+          // (most recent trade for that ticker wins). Only includes strategies
+          // recorded by the scan loop, not generic "auto" fallbacks.
+          const stratByTicker: Record<string, string> = {};
+          for (const tr of tradeResults) {
+            if (tr.strategy && tr.strategy !== "auto" && tr.ticker) {
+              stratByTicker[tr.ticker] = tr.strategy;
+            }
+          }
 
           // Process chronologically (oldest first)
           for (const o of [...filled].reverse()) {
@@ -1219,18 +1275,27 @@ print(json.dumps({
             const side = (o.side || "").toLowerCase();
             const fillPrice = parseFloat(o.filled_avg_price) || 0;
             const qty = parseFloat(o.filled_qty || o.qty) || 0;
+            const filledAt = o.filled_at || o.created_at || "";
 
             if (side === "buy") {
               if (!buysBySymbol[sym]) buysBySymbol[sym] = [];
-              buysBySymbol[sym].push(fillPrice);
+              buysBySymbol[sym].push({ price: fillPrice, ts: filledAt });
             } else if (side === "sell") {
-              const entryPrice = (buysBySymbol[sym] && buysBySymbol[sym].length > 0)
+              const buyEntry = (buysBySymbol[sym] && buysBySymbol[sym].length > 0)
                 ? buysBySymbol[sym].shift()!
-                : posMap[sym] || 0;
+                : { price: posMap[sym] || 0, ts: "" };
+              const entryPrice = buyEntry.price;
               if (entryPrice > 0) {
                 const pnlDollar = (fillPrice - entryPrice) * qty;
                 const pnlPct = ((fillPrice - entryPrice) / entryPrice) * 100;
-                trades.push({ ticker: sym, side: "sell", pnl_pct: pnlPct, pnl: pnlDollar });
+                trades.push({
+                  ticker: sym,
+                  side: "sell",
+                  pnl_pct: pnlPct,
+                  pnl: pnlDollar,
+                  timestamp: filledAt,                       // exit timestamp
+                  strategy: stratByTicker[sym] || "stock",   // best-effort backfill
+                });
               }
             }
           }
@@ -1241,7 +1306,17 @@ print(json.dumps({
             const unrealizedPl = parseFloat(pos.unrealized_pl) || 0;
             const unrealizedPlPct = (parseFloat(pos.unrealized_plpc) || 0) * 100;
             const side = (pos.side || "long").toLowerCase();
-            trades.push({ ticker: sym, side, pnl_pct: unrealizedPlPct, pnl: unrealizedPl });
+            // UI FIX batch 9: even open positions get a marker so the date
+            // column doesn't show "—". Use today's date since the position
+            // is current.
+            trades.push({
+              ticker: sym,
+              side,
+              pnl_pct: unrealizedPlPct,
+              pnl: unrealizedPl,
+              timestamp: new Date().toISOString(),
+              strategy: stratByTicker[sym] || "open_position",
+            });
           }
 
           // Account-level daily P/L from Alpaca (most accurate headline number)
@@ -1273,7 +1348,15 @@ print(json.dumps({
             totalPnlDollar: Math.round(accountPnlDollar * 100) / 100,
             profitFactor: profitFactor === Infinity ? "inf" : Math.round(profitFactor * 100) / 100,
             byStrategy: {},
-            recentTrades: trades.slice(-20).reverse().map(t => ({ ticker: t.ticker, side: t.side, pnl_pct: Math.round(t.pnl_pct * 100) / 100 })),
+            recentTrades: trades.slice(-20).reverse().map(t => ({
+              ticker: t.ticker,
+              side: t.side,
+              pnl_pct: Math.round(t.pnl_pct * 100) / 100,
+              // UI FIX batch 9: include timestamp + strategy so the recent
+              // trades panel shows real values instead of dashes.
+              timestamp: t.timestamp || null,
+              strategy: t.strategy || null,
+            })),
             realisticPnlPct: Math.round(accountPnlPct * 100) / 100,
             avgSlippagePct: 0,
             totalSlippageCost: 0,

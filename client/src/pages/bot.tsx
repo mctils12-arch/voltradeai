@@ -529,13 +529,32 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             </div>
 
             {/* Profit Factor */}
+            {/*
+              UI FIX 2026-05-05 batch 9: when there are wins but no losses,
+              profit_factor is mathematically infinite. Showing "—" / "No data"
+              looked like the bot wasn't tracking it. Now we show "∞" with
+              "Wins only" subtext so the user knows it's a real condition,
+              not a missing-data condition.
+            */}
             <div style={{ ...metricBox, borderColor: `${pfColor}22` }}>
               <div style={label}>Profit Factor</div>
               <div style={{ ...bigNum, color: pfColor }}>
-                {profitFactor > 0 ? (profitFactor ?? 0).toFixed(2) : "—"}
+                {profitFactor === "inf" || profitFactor === Infinity
+                  ? "∞"
+                  : profitFactor > 0
+                    ? (profitFactor ?? 0).toFixed(2)
+                    : "—"}
               </div>
               <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "4px" }}>
-                {profitFactor >= 1.5 ? "Excellent" : profitFactor >= 1.0 ? "Acceptable" : profitFactor > 0 ? "Below 1.0" : "No data"}
+                {profitFactor === "inf" || profitFactor === Infinity
+                  ? "Wins only (no losses yet)"
+                  : profitFactor >= 1.5
+                    ? "Excellent"
+                    : profitFactor >= 1.0
+                      ? "Acceptable"
+                      : profitFactor > 0
+                        ? "Below 1.0"
+                        : "No data"}
               </div>
             </div>
 
@@ -548,10 +567,19 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             </div>
 
             {/* Avg Loss */}
+            {/*
+              UI FIX 2026-05-05 batch 9: same as profit factor — distinguish
+              "no losses yet" from "no data". If we have wins but zero losses,
+              that's a known condition, not missing data.
+            */}
             <div style={metricBox}>
               <div style={label}>Avg Loss</div>
-              <div style={{ ...bigNum, color: "#ff453a" }}>
-                {avgLoss !== 0 ? `${avgLoss > 0 ? "-" : ""}${Math.abs(avgLoss).toFixed(2)}%` : "—"}
+              <div style={{ ...bigNum, color: avgLoss === 0 && winRate === 100 ? "#30d158" : "#ff453a" }}>
+                {avgLoss !== 0
+                  ? `${avgLoss > 0 ? "-" : ""}${Math.abs(avgLoss).toFixed(2)}%`
+                  : winRate === 100 && totalTrades > 0
+                    ? "None yet"
+                    : "—"}
               </div>
             </div>
 
@@ -668,12 +696,28 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
                             {isProfit ? "+" : ""}{Number(pnlPct).toFixed(2)}%
                           </td>
                           <td style={{ padding: "7px 6px", color: "#a1a1a6", fontSize: "11px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {/*
+                              UI FIX 2026-05-05 batch 9: also read t.strategy
+                              after Alpaca-fallback strategy backfill (was
+                              empty before — fallback path didn't include it).
+                            */}
                             {t.strategy ?? t.signal ?? "—"}
                           </td>
                           <td style={{ padding: "7px 6px", color: "#4a5c70", fontFamily: "monospace", fontSize: "11px", whiteSpace: "nowrap" }}>
-                            {t.date ?? t.exitDate ?? t.time
-                              ? new Date(t.date ?? t.exitDate ?? t.time).toLocaleDateString()
-                              : "—"}
+                            {/*
+                              UI FIX 2026-05-05 batch 9: also read t.timestamp.
+                              Live trade records use `timestamp` (filled_at);
+                              seeded records use `time_placed` / `exit_time`.
+                              Original UI only checked `date`/`exitDate`/`time`
+                              which neither schema sets — so date column was
+                              always blank.
+                            */}
+                            {(() => {
+                              const raw = t.timestamp ?? t.exit_time ?? t.time_placed ?? t.date ?? t.exitDate ?? t.time;
+                              if (!raw) return "—";
+                              const d = new Date(raw);
+                              return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+                            })()}
                           </td>
                         </tr>
                       );
