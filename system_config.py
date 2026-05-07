@@ -462,16 +462,73 @@ def get_adaptive_params(
     else:
         p["TIER2_INTERVAL_MS"]      = p["TIER2_MIDMORNING_MS"]
 
-    # ── Account size adjustments ──────────────────────────────────────────────
-    # Larger accounts need more diversification, smaller can concentrate
-    if account_equity < 25_000:
-        # PDT rule: max 3 day trades per 5 days. Fewer positions needed.
-        p["MAX_POSITIONS"]      = min(p["MAX_POSITIONS"], 3)
-        p["MAX_POSITION_PCT"]   = min(p["MAX_POSITION_PCT"], 0.30)
-    elif account_equity > 500_000:
-        # Scale down per-position % to avoid market impact
-        p["MAX_POSITION_PCT"]   = min(p["MAX_POSITION_PCT"], 0.08)
-        p["MAX_POSITIONS"]      = min(p["MAX_POSITIONS"] + 2, 12)
+    # ── Account size adjustments (BATCH 11 2026-05-06) ────────────────────────
+    # Replaced ad-hoc thresholds (<$25K and >$500K only) with full size-tier
+    # table from position_sizing.get_size_tier(). Now scales smoothly across
+    # 10 equity tiers from $0 to $25M+. Each tier sets:
+    #   - max_positions       : grows with $ but logarithmically
+    #   - max_single_pct      : shrinks with $ to limit single-name risk
+    #   - max_sector_positions: stays at 2 until $500K, then 3, then 4-5
+    #   - max_volume_share    : NEW — prevents large accounts from buying
+    #                           illiquid names that they can't exit cleanly
+    #
+    # The regime engine above already set strict caps for stress regimes
+    # (PANIC=0, BEAR=0, NEUTRAL=0). Those WIN against size-tier — we never
+    # let size-tier RAISE position limits when the regime says zero.
+    # In ACTIVE regimes (BULL, CAUTION), size-tier wins and we use the full
+    # account-appropriate count.
+    try:
+        from position_sizing import get_size_tier
+        _tier = get_size_tier(account_equity)
+
+        # Stash the size-tier metadata for the UI / diagnostics — never
+        # consumed by trading logic, only displayed.
+        p["SIZE_TIER"] = {
+            "label":               _tier["tier_label"],
+            "max_positions":       _tier["max_positions"],
+            "max_single_pct":      _tier["max_single_pct"],
+            "max_sector_positions":_tier["max_sector_positions"],
+            "max_volume_share_pct":_tier["max_volume_share_pct"],
+            "min_position_dollar": _tier["min_position_dollar"],
+            "account_equity":      _tier["account_equity"],
+            "next_tier_at":        _tier["next_tier_at"],
+        }
+
+        # Apply tier limits BUT respect regime stops.
+        # Rule: in stress regimes (PANIC=0, BEAR=0, NEUTRAL=0) the regime
+        # wins and we deploy zero new stock positions. In active regimes
+        # (BULL, CAUTION) the size-tier wins and we use the full account-
+        # appropriate count. This way, BULL at $1M = 15 positions, not 8.
+        if p.get("MAX_POSITIONS", 0) == 0:
+            # Regime forced 0 (PANIC/BEAR/NEUTRAL) — leave at 0
+            pass
+        else:
+            # Active regime — use tier's max_positions outright
+            p["MAX_POSITIONS"] = _tier["max_positions"]
+
+        # MAX_POSITION_PCT: take whichever is tighter (lower)
+        p["MAX_POSITION_PCT"] = min(p.get("MAX_POSITION_PCT", 0.20), _tier["max_single_pct"])
+
+        # MAX_SECTOR_POSITIONS: tier wins — small accounts get 2,
+        # large get 3-5. Regime doesn't override this.
+        p["MAX_SECTOR_POSITIONS"] = _tier["max_sector_positions"]
+
+        # New keys exposed for downstream consumers
+        p["MAX_VOLUME_SHARE_PCT"] = _tier["max_volume_share_pct"]
+        p["MIN_POSITION_DOLLAR"]  = _tier["min_position_dollar"]
+    except Exception as _e:
+        # Defensive: if anything goes wrong, fall back to original ad-hoc rules
+        # so the bot keeps trading even if position_sizing import breaks.
+        import logging
+        logging.getLogger("system_config").warning(
+            f"size-tier integration failed, using legacy rules: {_e}"
+        )
+        if account_equity < 25_000:
+            p["MAX_POSITIONS"]      = min(p["MAX_POSITIONS"], 3)
+            p["MAX_POSITION_PCT"]   = min(p["MAX_POSITION_PCT"], 0.30)
+        elif account_equity > 500_000:
+            p["MAX_POSITION_PCT"]   = min(p["MAX_POSITION_PCT"], 0.08)
+            p["MAX_POSITIONS"]      = min(p["MAX_POSITIONS"] + 2, 12)
 
     return p
 

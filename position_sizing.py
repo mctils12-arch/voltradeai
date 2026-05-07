@@ -46,6 +46,97 @@ ABSOLUTE_MAX_PORTFOLIO_HEAT = 1.00 # USER: 100% invested — was 0.95; regime en
 DEFAULT_COMMISSION_PER_SHARE = 0.0 # Alpaca paper = $0. Change for live.
 OPTIONS_FEE_PER_CONTRACT = 0.65    # Standard options fee
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SIZE TIERS — auto-scaling sizing rules by account equity
+#  ALPHA AUDIT 2026-05-06 batch 11
+# ═══════════════════════════════════════════════════════════════════════════════
+# Position count grows logarithmically with equity (NOT linearly). At small
+# accounts, transaction friction caps you at 4-7 positions. At larger accounts,
+# liquidity caps force you wider. Below is the standard quant scaling curve:
+#
+#   $25K-100K     : 4-7 positions  | 15-20% each | sector cap 2 | vol_share 5%
+#   $100K-500K    : 7-10 positions | 10-13% each | sector cap 2 | vol_share 3%
+#   $500K-2M      : 10-15          | 6-8% each   | sector cap 3 | vol_share 2%
+#   $2M-10M       : 15-25          | 4-6% each   | sector cap 3 | vol_share 1.5%
+#   $10M+         : 25+            | 2-4% each   | sector cap 4 | vol_share 1%
+#
+# vol_share = max % of stock's 30-day average dollar volume the position can
+# represent. Auto-restricts large accounts from buying illiquid names.
+#
+# This function is the AUTHORITY for size-tier limits. Regime engine
+# (system_config.get_adaptive_params) overlays its own constraints ON TOP of
+# these — regime can REDUCE limits (PANIC = 0 positions wins), never raise
+# them above the size-tier ceiling.
+
+# Tier boundaries chosen so the math works cleanly at common account sizes
+# and so each tier represents roughly 5x equity growth from the previous.
+SIZE_TIER_TABLE = [
+    # (equity_threshold_usd, label, max_positions, max_single_pct,
+    #  max_sector_positions, max_volume_share_pct, min_position_dollar)
+    (0,          "starter",      4,  0.20, 2, 0.05, 1_000),
+    (50_000,     "small",        6,  0.15, 2, 0.04, 2_500),
+    (100_000,    "growing",      8,  0.12, 2, 0.03, 5_000),
+    (250_000,    "mid",          10, 0.10, 2, 0.025, 10_000),
+    (500_000,    "large",        12, 0.08, 3, 0.02, 15_000),
+    (1_000_000,  "established",  15, 0.07, 3, 0.018, 25_000),
+    (2_500_000,  "institutional",18, 0.06, 3, 0.015, 40_000),
+    (5_000_000,  "macro",        22, 0.05, 4, 0.012, 75_000),
+    (10_000_000, "fund",         28, 0.04, 4, 0.010, 150_000),
+    (25_000_000, "mega",         35, 0.03, 5, 0.008, 300_000),
+]
+
+
+def get_size_tier(account_equity: float) -> dict:
+    """
+    Return sizing rules for the given account equity.
+
+    Output (dict):
+      tier_label              : str  — human-readable name
+      max_positions           : int  — hard ceiling on simultaneous positions
+      max_single_pct          : float — max % of equity in any one position
+      max_sector_positions    : int  — max simultaneous positions in same sector
+      max_volume_share_pct    : float — max % of stock's avg daily $-volume
+      min_position_dollar     : float — minimum absolute position size in $
+      account_equity          : float — equity that produced this tier (echo)
+      next_tier_at            : float | None — equity that would unlock next tier
+
+    This is the single source of truth for size-tier limits.
+    Callers MUST NOT add their own scaling — extend this table instead.
+    """
+    if not isinstance(account_equity, (int, float)) or account_equity < 0:
+        # Defensive: if equity is missing/garbage, default to starter tier.
+        # Better to under-deploy than blow up on bad input.
+        account_equity = 25_000
+
+    matched = SIZE_TIER_TABLE[0]
+    next_threshold = None
+    for i, row in enumerate(SIZE_TIER_TABLE):
+        threshold, *_ = row
+        if account_equity >= threshold:
+            matched = row
+            # Find the NEXT row's threshold for UI ("you're $X away from tier...")
+            if i + 1 < len(SIZE_TIER_TABLE):
+                next_threshold = SIZE_TIER_TABLE[i + 1][0]
+            else:
+                next_threshold = None
+        else:
+            break
+
+    threshold, label, max_pos, max_single, max_sector, max_vol_share, min_dollar = matched
+    return {
+        "tier_label":            label,
+        "max_positions":         max_pos,
+        "max_single_pct":        max_single,
+        "max_sector_positions":  max_sector,
+        "max_volume_share_pct":  max_vol_share,
+        "min_position_dollar":   min_dollar,
+        "account_equity":        round(account_equity, 2),
+        "tier_min_equity":       threshold,
+        "next_tier_at":          next_threshold,
+    }
+
+
 # Alpaca API (same keys used everywhere)
 ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
@@ -1135,35 +1226,42 @@ def size_portfolio(trades: list, equity: float, current_positions: list = None,
     """
     Size a batch of trades together, ensuring total deployment stays safe.
     Redistributes leftover cash from rounding to the highest-conviction trade.
-    
+
     Returns list of sized trades (same order, with shares/values filled in).
     """
     if not trades:
         return []
-    
+
+    # ALPHA AUDIT 2026-05-06 batch 11: respect size-tier max_positions instead
+    # of the hardcoded ABSOLUTE_MAX_POSITIONS=8. At $1M+ accounts the user
+    # should be able to hold 12-28 positions, not stuck at 8.
+    _tier = get_size_tier(equity)
+    _max_positions = _tier["max_positions"]
+    _max_single_pct = _tier["max_single_pct"]
+
     # Sort by score descending — best trades get priority
     indexed = [(i, t) for i, t in enumerate(trades)]
     indexed.sort(key=lambda x: x[1].get("deep_score", x[1].get("score", 0)), reverse=True)
-    
+
     sized = [None] * len(trades)
     total_deployed = 0
     max_deploy = equity * ABSOLUTE_MAX_PORTFOLIO_HEAT
-    
+
     # Account for already-deployed capital (exclude passive QQQ floor)
     if current_positions and isinstance(current_positions, list):
-        active_pos = [p for p in current_positions 
+        active_pos = [p for p in current_positions
                       if p.get("symbol", "") != _FLOOR_TICKER]
         total_deployed = sum(abs(float(p.get("market_value", 0))) for p in active_pos)
     else:
         active_pos = []
-    
+
     positions_used = len(active_pos)
-    
+
     for orig_idx, trade in indexed:
-        if positions_used >= ABSOLUTE_MAX_POSITIONS:
-            sized[orig_idx] = _blocked(trade.get("ticker", "?"), 
+        if positions_used >= _max_positions:
+            sized[orig_idx] = _blocked(trade.get("ticker", "?"),
                                         float(trade.get("price", 0)),
-                                        f"Max positions ({ABSOLUTE_MAX_POSITIONS}) reached")
+                                        f"Max positions ({_max_positions}, tier={_tier['tier_label']}) reached")
             continue
         
         remaining_budget = max_deploy - total_deployed

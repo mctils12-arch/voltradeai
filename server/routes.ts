@@ -685,6 +685,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── System self-test (batch 11) ─────────────────────────────────────────────
+  // ALPHA AUDIT 2026-05-06 batch 11: when you push new code, this endpoint
+  // tells you whether each subsystem is wired up correctly. Verifies:
+  //   - size-tier module produces expected values across equity tiers
+  //   - get_adaptive_params overlays size-tier on top of regime correctly
+  //   - size_portfolio uses tier max_positions (not hardcoded 8)
+  //   - check_sector_correlation accepts the override kwarg
+  //   - bot_engine top_10 includes the new factor breakdown / rank fields
+  //   - tie-breaking refinement block is present in source
+  //   - scan timings cache is reachable
+  //
+  // Returns 'overall: ok' if everything passes, 'degraded' if some warns,
+  // 'broken' if any fails. Hit this after a deploy to confirm the new code
+  // is actually running (vs the old version still cached).
+  //
+  // Unlike ml-diagnostics, this endpoint is NOT gated by DEBUG_ENABLED
+  // because it exposes no secrets — just describes which code is running.
+  app.get("/api/bot/system-status", async (_req, res) => {
+    const scriptPath = path.resolve(process.cwd(), "system_status.py");
+    try {
+      const { stdout } = await execAsync(
+        `python3 "${scriptPath}"`,
+        { timeout: 15000, maxBuffer: 1024 * 1024 * 2 }
+      );
+      const output = stdout.trim();
+      if (!output) {
+        return res.status(500).json({ error: "No output from system_status.py" });
+      }
+      return res.json(JSON.parse(output));
+    } catch (err: any) {
+      return res.status(500).json({
+        error: "system-status script failed",
+        detail: String(err?.message || err).slice(0, 200),
+        stderr_tail: String(err?.stderr || "").slice(-300),
+      });
+    }
+  });
+
   // ── Market scanner ────────────────────────────────────────────────────────
   app.get("/api/scan", async (req, res) => {
     const now = Date.now();

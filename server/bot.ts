@@ -2862,6 +2862,10 @@ print(json.dumps(get_auto_fix_params()))
           if (existing >= 0) signals.splice(existing, 1);
           const side = pick.side || "buy";
           const actionLabel = pick.action_label || (pick.score >= 75 ? "STRONG BUY" : pick.score >= 65 ? "BUY" : "WATCH");
+          // ALPHA AUDIT 2026-05-06 batch 11: pass through enriched fields so
+          // the UI can show rank #1/#2/#3, per-factor breakdown, and sector
+          // clash warnings. Lets the user verify the ranking is real, not
+          // noise.
           signals.unshift({
             ticker: pick.ticker,
             action: actionLabel,
@@ -2869,6 +2873,12 @@ print(json.dumps(get_auto_fix_params()))
             confidence: Math.min(95, pick.score),
             timestamp: new Date().toISOString(),
             type: side === "short" ? "sell" : side === "sell" ? "sell" : "buy",
+            rank: pick.rank,
+            factors: pick.factors,
+            factor_strength: pick.factor_strength,
+            sector_clash: pick.sector_clash,
+            sector: pick.sector,
+            tiebreak_score: pick.tiebreak_score,
           });
         }
       }

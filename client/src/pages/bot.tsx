@@ -539,14 +539,14 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             <div style={{ ...metricBox, borderColor: `${pfColor}22` }}>
               <div style={label}>Profit Factor</div>
               <div style={{ ...bigNum, color: pfColor }}>
-                {profitFactor === "inf" || profitFactor === Infinity
+                {(profitFactor as unknown) === "inf" || profitFactor === Infinity
                   ? "∞"
                   : profitFactor > 0
                     ? (profitFactor ?? 0).toFixed(2)
                     : "—"}
               </div>
               <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "4px" }}>
-                {profitFactor === "inf" || profitFactor === Infinity
+                {(profitFactor as unknown) === "inf" || profitFactor === Infinity
                   ? "Wins only (no losses yet)"
                   : profitFactor >= 1.5
                     ? "Excellent"
@@ -1425,6 +1425,15 @@ export default function BotDashboard() {
     queryFn: async () => { const r = await apiRequest("GET", "/api/bot/performance"); return r.json(); },
     refetchInterval: 60000,
   });
+  // UI batch 11 2026-05-06: pull last-scan result so we can display
+  // size-tier metadata (max positions, sector cap, single-name cap) in
+  // the Position Rules card. Refresh every 60s — these change rarely
+  // (only when account equity crosses a tier boundary or regime shifts).
+  const { data: lastScan } = useQuery({
+    queryKey: ["/api/bot/last-scan"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/bot/last-scan"); return r.json(); },
+    refetchInterval: 60000,
+  });
   const { data: notifData, refetch: refetchNotifs } = useQuery({
     queryKey: ["/api/bot/notifications"],
     queryFn: async () => { const r = await apiRequest("GET", "/api/bot/notifications"); return r.json(); },
@@ -1594,6 +1603,104 @@ export default function BotDashboard() {
       {/* ── Trade History Panel ── */}
       <TradeHistoryPanel />
 
+      {/* ── Position Rules / Size Tier (batch 11 2026-05-06) ─────────────── */}
+      {/*
+        Auto-scaling sizing rules card. Reads from lastScan.size_tier which
+        is set by bot_engine and reflects:
+          - Current account equity tier (starter / growing / established / fund / etc.)
+          - Active regime cap on max_positions (PANIC=0 wins over tier)
+          - Sector concentration cap (2-5 depending on tier)
+          - Single-name cap (3-20% depending on tier)
+          - Volume-share cap (1-5% depending on tier — auto-restricts large
+            accounts from buying illiquid names)
+        Lets the user verify the bot is sizing for their actual account size.
+      */}
+      {lastScan?.size_tier && lastScan.size_tier.label ? (
+        <div style={{ ...card, marginBottom: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+            <Shield size={14} style={{ color: "#00e5ff" }} />
+            <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
+              Position Rules
+            </span>
+            <span style={{
+              marginLeft: "8px", padding: "2px 8px", borderRadius: "4px",
+              fontSize: "10px", fontWeight: 700,
+              background: "rgba(0, 229, 255, 0.12)", color: "#00e5ff",
+              textTransform: "uppercase",
+            }}>
+              {lastScan.size_tier.label}
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>
+              auto-scales with account size
+            </span>
+          </div>
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+            gap: "10px",
+          }}>
+            <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "10px 12px" }}>
+              <div style={{ ...label, marginBottom: "6px" }}>Max Positions</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>
+                {lastScan.size_tier.max_positions ?? "—"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "2px" }}>simultaneously open</div>
+            </div>
+
+            <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "10px 12px" }}>
+              <div style={{ ...label, marginBottom: "6px" }}>Sector Cap</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>
+                {lastScan.size_tier.max_sector_positions ?? "—"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "2px" }}>per sector max</div>
+            </div>
+
+            <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "10px 12px" }}>
+              <div style={{ ...label, marginBottom: "6px" }}>Single Name</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>
+                {lastScan.size_tier.max_single_pct != null
+                  ? `${(lastScan.size_tier.max_single_pct * 100).toFixed(0)}%`
+                  : "—"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "2px" }}>max per position</div>
+            </div>
+
+            <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "10px 12px" }}>
+              <div style={{ ...label, marginBottom: "6px" }}>Liquidity Cap</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>
+                {lastScan.size_tier.max_volume_share_pct != null
+                  ? `${(lastScan.size_tier.max_volume_share_pct * 100).toFixed(1)}%`
+                  : "—"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "2px" }}>of avg daily volume</div>
+            </div>
+
+            <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "10px 12px" }}>
+              <div style={{ ...label, marginBottom: "6px" }}>Min Position</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, color: "#c8d6e5", fontFamily: "monospace" }}>
+                {lastScan.size_tier.min_position_dollar != null
+                  ? `$${(lastScan.size_tier.min_position_dollar / 1000).toFixed(0)}K`
+                  : "—"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#4a5c70", marginTop: "2px" }}>min worth trading</div>
+            </div>
+          </div>
+
+          {lastScan.size_tier.next_tier_at ? (
+            <div style={{
+              marginTop: "10px", padding: "8px 12px",
+              background: "rgba(0, 229, 255, 0.04)", borderRadius: "3px",
+              fontSize: "11px", color: "#a1a1a6",
+            }}>
+              Next tier unlocks at <strong style={{ color: "#00e5ff" }}>
+                ${lastScan.size_tier.next_tier_at.toLocaleString()}
+              </strong> equity. Bot will automatically adjust to use more positions at smaller sizes.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* ── AI Signals Panel ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
@@ -1614,18 +1721,94 @@ export default function BotDashboard() {
                 borderLeft: `3px solid ${signalColor(sig.type)}`,
                 borderRadius: "4px", padding: "12px 14px",
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px", flexWrap: "wrap" }}>
+                  {/*
+                    UI batch 11 2026-05-06: rank badge so user sees #1/#2/#3.
+                    sig.rank comes from bot_engine top_10 and reflects the
+                    final rank AFTER tie-breaking has re-ordered within
+                    score-tied groups. Lets the user verify the system
+                    isn't just stack-ranking by raw score.
+                  */}
+                  {sig.rank ? (
+                    <span style={{
+                      padding: "2px 7px", borderRadius: "4px", fontSize: "10px",
+                      fontWeight: 700, fontFamily: "monospace",
+                      background: sig.rank === 1 ? "rgba(48,209,88,0.2)" : sig.rank <= 3 ? "rgba(212,160,23,0.18)" : "rgba(74,92,112,0.15)",
+                      color: sig.rank === 1 ? "#30d158" : sig.rank <= 3 ? "#d4a017" : "#a1a1a6",
+                    }}>#{sig.rank}</span>
+                  ) : null}
                   <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "15px", color: "#c8d6e5" }}>{sig.ticker}</span>
                   <span style={{
                     padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700,
                     background: sig.type === "buy" ? "rgba(0,255,65,0.15)" : sig.type === "sell" ? "rgba(255,51,51,0.15)" : "rgba(212,160,23,0.15)",
                     color: signalColor(sig.type),
                   }}>{sig.action}</span>
+                  {/* Sector clash warning — user wanted to see when bot is buying same-sector */}
+                  {sig.sector_clash ? (
+                    <span style={{
+                      padding: "2px 7px", borderRadius: "4px", fontSize: "10px",
+                      background: "rgba(255,151,0,0.15)", color: "#ff9500",
+                      fontWeight: 600,
+                    }} title="Same sector as a current holding">
+                      ⚠ {sig.sector || "sector"}
+                    </span>
+                  ) : sig.sector ? (
+                    <span style={{
+                      padding: "2px 7px", borderRadius: "4px", fontSize: "10px",
+                      background: "rgba(74,92,112,0.15)", color: "#4a5c70",
+                    }}>{sig.sector}</span>
+                  ) : null}
                   <span style={{ marginLeft: "auto", fontSize: "11px", color: "#4a5c70" }}>
                     {new Date(sig.timestamp).toLocaleTimeString()}
                   </span>
                 </div>
                 <p style={{ color: "#a1a1a6", fontSize: "12px", margin: "0 0 8px 0", lineHeight: 1.5 }}>{sig.reason}</p>
+
+                {/*
+                  UI batch 11 2026-05-06: factor breakdown so the user can
+                  verify "the score of 80 came from 4 strong factors, not 1
+                  factor at 95 carrying it." Mini-bars for each factor.
+                */}
+                {sig.factors && (sig.factors.momentum != null || sig.factors.vrp != null) ? (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))",
+                    gap: "4px",
+                    marginBottom: "8px",
+                    padding: "6px 8px",
+                    background: "rgba(0, 15, 30, 0.4)",
+                    borderRadius: "3px",
+                  }}>
+                    {[
+                      { key: "momentum",       label: "Mom"   },
+                      { key: "mean_reversion", label: "MR"    },
+                      { key: "vrp",            label: "VRP"   },
+                      { key: "squeeze",        label: "Squz"  },
+                      { key: "volume",         label: "Vol"   },
+                    ].map(f => {
+                      const val = sig.factors?.[f.key];
+                      if (val == null) return null;
+                      const v = Number(val);
+                      const color = v >= 70 ? "#30d158" : v >= 50 ? "#d4a017" : "#4a5c70";
+                      return (
+                        <div key={f.key} style={{ fontSize: "10px", textAlign: "center" }}>
+                          <div style={{ color: "#4a5c70", fontWeight: 600, marginBottom: "2px" }}>{f.label}</div>
+                          <div style={{ color, fontFamily: "monospace", fontWeight: 700 }}>{Math.round(v)}</div>
+                        </div>
+                      );
+                    })}
+                    {typeof sig.factor_strength === "number" ? (
+                      <div style={{ fontSize: "10px", textAlign: "center" }} title="Number of factors above 70 — multi-factor signals are more robust">
+                        <div style={{ color: "#4a5c70", fontWeight: 600, marginBottom: "2px" }}>Strong</div>
+                        <div style={{
+                          color: sig.factor_strength >= 3 ? "#30d158" : sig.factor_strength >= 2 ? "#d4a017" : "#a1a1a6",
+                          fontFamily: "monospace", fontWeight: 700,
+                        }}>{sig.factor_strength}/5</div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <span style={{ fontSize: "11px", color: "#4a5c70", flexShrink: 0 }}>
                     <Tip id="confidence">Confidence</Tip>

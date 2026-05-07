@@ -1516,7 +1516,8 @@ except Exception as e:
 # ── Correlation / Sector Check ───────────────────────────────────────────────
 
 def check_sector_correlation(ticker, existing_tickers, sector=None,
-                             existing_positions=None):
+                             existing_positions=None,
+                             max_sector_positions=None):
     """
     Returns True if adding this ticker would create dangerous concentration.
     Checks both sector limits AND portfolio beta correlation.
@@ -1526,6 +1527,10 @@ def check_sector_correlation(ticker, existing_tickers, sector=None,
     existing_positions: optional list of position dicts from Alpaca — used to
         exclude options positions from the sector count (options have separate
         slots and should NOT count toward the stock sector limit).
+    max_sector_positions: optional override for MAX_SECTOR_POSITIONS. BATCH 11
+        2026-05-06: callers can pass the size-tier-adjusted value so larger
+        accounts get a larger sector cap (e.g. 3 at $500K+, 4 at $5M+).
+        If None, falls back to the module constant (= 2).
     """
     # Check 1: Sector concentration (stocks only)
     new_sector = _get_sector(ticker, sector)
@@ -1549,7 +1554,9 @@ def check_sector_correlation(ticker, existing_tickers, sector=None,
         1 for t in all_stock_tickers
         if _get_sector(t) == new_sector
     )
-    if count >= MAX_SECTOR_POSITIONS:
+    # ALPHA AUDIT 2026-05-06 batch 11: respect size-tier sector cap if provided
+    _sector_cap = max_sector_positions if max_sector_positions is not None else MAX_SECTOR_POSITIONS
+    if count >= _sector_cap:
         return True
 
     # Check 2: High-beta concentration — don't load up on all volatile names
@@ -2405,6 +2412,12 @@ def _scan_market_inner():
                 "open": o,
                 "prev_close": pc,
                 "volume": v,
+                # ALPHA AUDIT 2026-05-06 batch 11: precompute dollar_volume
+                # so downstream code (tie-breaking, volume-share enforcement)
+                # doesn't have to recompute. This is single-day dollar volume.
+                # Better proxy than nothing; ideally would be 30-day average but
+                # that requires extra Alpaca calls — defer to a future batch.
+                "dollar_volume": round(c * v, 2),
                 "change_pct": round(change_pct, 2),
                 "quick_score": _capped_change * 3 + _vol_score + _direction_bonus + _extreme_penalty,
                 "above_vwap": c > o,
@@ -2605,6 +2618,100 @@ def _scan_market_inner():
     # Sort by deep score (or quick score if no deep)
     deep_scored.sort(key=lambda x: x.get("deep_score", x.get("quick_score", 0)), reverse=True)
 
+    # ── TIE-BREAKING REFINEMENT (BATCH 11 2026-05-06) ─────────────────────────
+    # When 2+ stocks score within 3 points of each other, the score itself is
+    # below the model's noise floor — we can't tell which is actually better.
+    # Apply a composite tiebreaker that improves expected execution quality:
+    #   1. liquidity (dollar_volume / spread_pct) — better fills, lower slippage
+    #   2. multi-factor robustness — score from 4 factors > score from 1 factor
+    #   3. sector diversity vs current holdings — prefer uncorrelated names
+    #
+    # This only re-orders WITHIN tie-groups. Top pick stays top if it scored
+    # alone. Below-threshold picks stay below.
+    try:
+        _existing_sectors = set()
+        if isinstance(current_positions, list):
+            for _p in current_positions:
+                _sym = str(_p.get("symbol", ""))
+                if _sym and len(_sym) <= 8:
+                    _existing_sectors.add(_get_sector(_sym))
+
+        # Group by score buckets of 3 points
+        _grouped = []
+        _i = 0
+        while _i < len(deep_scored):
+            _bucket = [deep_scored[_i]]
+            _bucket_score = deep_scored[_i].get("deep_score", deep_scored[_i].get("quick_score", 0))
+            _j = _i + 1
+            while _j < len(deep_scored):
+                _next = deep_scored[_j].get("deep_score", deep_scored[_j].get("quick_score", 0))
+                if (_bucket_score - _next) > 3.0:
+                    break
+                _bucket.append(deep_scored[_j])
+                _j += 1
+            _grouped.append(_bucket)
+            _i = _j
+
+        def _tiebreak_score(s):
+            # Liquidity: dollar volume divided by spread (proxy: change_pct as
+            # a stand-in if no spread data — wider intraday range correlates with
+            # wider spreads). Higher = better.
+            _dv = float(s.get("dollar_volume", 0) or 0)
+            _spread = float(s.get("spread_pct", 0) or s.get("change_pct", 1) or 1)
+            _spread = max(abs(_spread), 0.01)  # avoid div-by-zero
+            _liquidity = _dv / _spread
+
+            # Multi-factor robustness: how many factor sub-scores are >= 70?
+            # A score built from 4 strong factors is more robust than one
+            # carried by a single factor at 95.
+            _factor_strength = 0
+            for _f in ("momentum_score", "mean_reversion_score", "vrp_score",
+                       "squeeze_score", "volume_score"):
+                _v = s.get(_f)
+                if _v is not None and float(_v) >= 70:
+                    _factor_strength += 1
+
+            # Sector clash: penalize if our portfolio is already in this sector
+            _sec = _get_sector(s["ticker"], s.get("sector"))
+            _sector_clash = (_sec in _existing_sectors)
+
+            # Composite tiebreak score (higher = better, used to re-rank
+            # within the score group):
+            #   - Liquidity normalized roughly to a 0-100 range via log
+            #   - Each strong factor adds 5 points
+            #   - Sector clash deducts 15 points
+            import math
+            _liq_score = math.log10(max(_liquidity, 1)) * 5  # ~0-50 typically
+            return _liq_score + _factor_strength * 5 - (15 if _sector_clash else 0)
+
+        # Re-sort within each tie-group by tiebreak score
+        _reordered = []
+        for _bucket in _grouped:
+            if len(_bucket) > 1:
+                _bucket.sort(key=_tiebreak_score, reverse=True)
+            _reordered.extend(_bucket)
+        deep_scored = _reordered
+
+        # Stash the tiebreak score for UI inspection — never used by trading
+        # logic, just shown in /api/bot/last-scan output
+        for _rank, _s in enumerate(deep_scored[:20], start=1):
+            try:
+                _s["_rank"] = _rank
+                _s["_tiebreak"] = round(_tiebreak_score(_s), 1)
+                _s["_factor_strength"] = sum(
+                    1 for _f in ("momentum_score", "mean_reversion_score",
+                                  "vrp_score", "squeeze_score", "volume_score")
+                    if _s.get(_f) is not None and float(_s.get(_f, 0)) >= 70
+                )
+                _s["_sector_clash"] = (_get_sector(_s["ticker"], _s.get("sector")) in _existing_sectors)
+            except Exception:
+                pass
+    except Exception as _tb_err:
+        # If tie-breaking itself fails, fall back to score-only sort
+        import logging
+        logging.getLogger("bot_engine").warning(f"tie-breaking failed: {_tb_err}")
+    # ── END TIE-BREAKING ──────────────────────────────────────────────────────
+
     # Save partial results after deep scoring — survives SIGALRM timeout
     _partial_scan_result = {
         "timestamp": datetime.now().isoformat(),
@@ -2756,12 +2863,17 @@ def _scan_market_inner():
 
         # Correlation / sector check — don't over-concentrate
         # Pass dynamic sector from yfinance and raw positions so options are excluded
+        # ALPHA AUDIT 2026-05-06 batch 11: also pass the regime-and-tier-aware
+        # MAX_SECTOR_POSITIONS so larger accounts can hold 3-5 per sector.
         _pos_list = current_positions if isinstance(current_positions, list) else []
+        _max_sec = _slots_params.get("MAX_SECTOR_POSITIONS", MAX_SECTOR_POSITIONS) \
+            if '_slots_params' in dir() else MAX_SECTOR_POSITIONS
         if check_sector_correlation(
             ticker,
             current_tickers + [t["ticker"] for t in trades],
             sector=stock.get("sector"),
             existing_positions=_pos_list,
+            max_sector_positions=_max_sec,
         ):
             continue
 
@@ -2904,6 +3016,40 @@ def _scan_market_inner():
 
         if shares <= 0:
             continue
+
+        # ALPHA AUDIT 2026-05-06 batch 11: VOLUME-SHARE CAP ENFORCEMENT
+        # Auto-restricts large accounts from buying illiquid names.
+        # At $5M+ accounts, owning 1.5%+ of a stock's daily volume is a
+        # market-impact disaster on entry AND exit. Cap is from size-tier:
+        #   $0-100K     : 4-5% (lenient, small dollars don't move markets)
+        #   $100K-500K  : 2.5-3%
+        #   $500K-2M    : 1.8-2%
+        #   $2M-10M     : 1-1.5%
+        #   $10M+       : 0.8-1%
+        # Skip the check if size_tier or dollar_volume isn't available (graceful
+        # degradation — don't block trades on missing data).
+        try:
+            _vol_cap_pct = _slots_params.get("MAX_VOLUME_SHARE_PCT") if '_slots_params' in dir() else None
+            _stock_dollar_vol = float(stock.get("dollar_volume", 0) or 0)
+            if _vol_cap_pct and _stock_dollar_vol > 0 and position_value > 0:
+                _share_pct = position_value / _stock_dollar_vol
+                if _share_pct > _vol_cap_pct:
+                    # This position would be too large relative to the stock's
+                    # daily volume. Log and skip so we don't end up with a
+                    # position we can't exit during stress.
+                    _liquid_log = (
+                        f"VOL_SHARE_BLOCK {ticker}: position ${position_value:,.0f} = "
+                        f"{_share_pct*100:.2f}% of avg dollar volume ${_stock_dollar_vol:,.0f} "
+                        f"(cap {_vol_cap_pct*100:.1f}% at tier "
+                        f"{_slots_params.get('SIZE_TIER',{}).get('label','?')})"
+                    )
+                    import logging as _vl
+                    _vl.getLogger("bot_engine").info(_liquid_log)
+                    continue
+        except Exception as _vol_err:
+            # Defensive: never block trades on volume-share calc errors
+            import logging as _vl2
+            _vl2.getLogger("bot_engine").warning(f"vol_share check failed for {ticker}: {_vol_err}")
 
         trades.append({
             "action": action_label,
@@ -3297,6 +3443,12 @@ def _scan_market_inner():
         "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
         "upgrade_candidates": mgmt.get("upgrade_candidates", []),
+        # ALPHA AUDIT 2026-05-06 batch 11: enriched top_10 with rank,
+        # per-factor breakdown, and tiebreak metadata so the UI can
+        # explain WHY each pick is at #1, #2, etc. Lets the user verify
+        # the system is picking based on multi-factor robustness, not
+        # noise. _rank, _tiebreak, _factor_strength, _sector_clash were
+        # set during the tie-breaking pass above (line ~2606).
         "top_10": [{
             "ticker": s["ticker"],
             "price": s["price"],
@@ -3304,8 +3456,22 @@ def _scan_market_inner():
             "change_pct": s["change_pct"],
             "side": s.get("side", "buy"),
             "action_label": s.get("action_label", "BUY"),
-            "reasons": s.get("reasons", [])[:2],
-        } for s in deep_scored[:10]],
+            "reasons": s.get("reasons", [])[:3],
+            "rank": s.get("_rank", _rank_idx + 1),
+            "tiebreak_score": s.get("_tiebreak"),
+            "factor_strength": s.get("_factor_strength"),
+            "sector_clash": s.get("_sector_clash", False),
+            "sector": s.get("sector"),
+            # Per-factor breakdown so the UI can show "momentum 80,
+            # mean-reversion 65, vrp 90, squeeze 50, volume 75"
+            "factors": {
+                "momentum":      s.get("momentum_score"),
+                "mean_reversion":s.get("mean_reversion_score"),
+                "vrp":           s.get("vrp_score"),
+                "squeeze":       s.get("squeeze_score"),
+                "volume":        s.get("volume_score"),
+            },
+        } for _rank_idx, s in enumerate(deep_scored[:10])],
         "third_leg": third_leg_result,
         "convexity_overlay": convexity_result,
         "intraday_shorts": intraday_short_result,
@@ -3322,6 +3488,10 @@ def _scan_market_inner():
         "tier_stats": tier_stats,
         "kill_status": kill_status,
         "scan_phase_times": _phase_times,
+        # ALPHA AUDIT 2026-05-06 batch 11: surface the size-tier metadata
+        # so the UI can show "POSITION RULES" card. Read from _slots_params
+        # which got the tier overlay from system_config.get_adaptive_params.
+        "size_tier": _slots_params.get("SIZE_TIER", {}) if '_slots_params' in dir() else {},
     }
 
 
