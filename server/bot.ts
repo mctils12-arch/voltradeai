@@ -3651,7 +3651,22 @@ else:
           // which step is actually slow.
           const { stdout: trainOut } = await execPythonSerialized("python3 ml_retrain_safe.py", { timeout: 900000 });
           const trainResult = JSON.parse(trainOut.trim());
-          audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+          // ALPHA AUDIT 2026-05-07 batch 12: when the retrain returns a
+          // status that starts with "error:", append error_location and
+          // traceback tail so we can actually diagnose the failure. The
+          // Python wrapper at ml_model_v2._train_model_impl already
+          // captures these fields — they were just being dropped on the
+          // floor at the audit boundary. Production logs were stuck
+          // showing "error: 'NoneType' object is not subscriptable"
+          // every hour with no file/line.
+          const _statusStr = String(trainResult.status || "");
+          if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed")) {
+            const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
+            const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
+            audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_loc}${_tbTail}`);
+          } else {
+            audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+          }
         } catch (trainErr: any) {
           // DIAGNOSTIC FIX 2026-04-22: previously logged only err.message
           // which produced useless entries like "Command failed: python3

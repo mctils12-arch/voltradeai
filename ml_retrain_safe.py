@@ -95,6 +95,21 @@ def safe_retrain():
 if __name__ == "__main__":
     try:
         r = safe_retrain()
-        print(json.dumps(r))
+        # ALPHA AUDIT 2026-05-07 batch 12: persist last retrain result to disk
+        # so we can inspect it without watching audit logs in real time. Used
+        # by /api/debug/ml-diagnostics. Fail silently if write fails — the
+        # main return path on stdout is what bot.ts reads.
+        try:
+            import time as _t
+            _data_dir = "/data/voltrade" if os.path.isdir("/data/voltrade") else "/tmp"
+            _status_path = os.path.join(_data_dir, "voltrade_last_retrain.json")
+            _r = dict(r)
+            _r["completed_at"] = _t.time()
+            _r["completed_at_iso"] = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime())
+            with open(_status_path, "w") as _sf:
+                json.dump(_r, _sf, default=str)
+        except Exception:
+            pass
+        print(json.dumps(r, default=str))
     except Exception:
         print('{"status":"fatal","error":"json.dumps failed"}')

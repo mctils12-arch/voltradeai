@@ -372,19 +372,42 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
     p_52h  = (c - hi52) / hi52 * 100
 
     # ── Regime features (VXX + SPY) ───────────────────────────────
+    # ALPHA AUDIT 2026-05-07 batch 12: aligned_vxx/aligned_spy can contain
+    # None entries when an early stock date has no matching reference bar
+    # (see _aligned() in _build_training_data line 784-786). Previous code
+    # checked "if vxx_bars and _vxx_idx < len(vxx_bars)" which only verifies
+    # the list is non-empty and the index is in range — NOT that the entry
+    # at that index is non-None. When vxx_bars[_vxx_idx] is None, calling
+    # ["c"] on it gives "'NoneType' object is not subscriptable" — the
+    # exact error that has been blocking ML retrain every hour for days.
+    # New helper short-circuits to a safe default if the bar is missing.
+    def _safe_close(bars_list, idx_val, default):
+        if not bars_list or idx_val < 0 or idx_val >= len(bars_list):
+            return default
+        bar = bars_list[idx_val]
+        if not bar or not isinstance(bar, dict):
+            return default
+        try:
+            return float(bar.get("c", default))
+        except (TypeError, ValueError):
+            return default
+
     _vxx_idx = min(idx, len(vxx_bars)-1) if vxx_bars else 0
-    vxx_close = float(vxx_bars[_vxx_idx]["c"]) if vxx_bars and _vxx_idx < len(vxx_bars) else 15.0
-    vxx_hist30 = [float(vxx_bars[min(max(0,_vxx_idx-j-1),len(vxx_bars)-1)]["c"]) for j in range(30) if vxx_bars and min(max(0,_vxx_idx-j-1),len(vxx_bars)-1) >= 0]
+    vxx_close = _safe_close(vxx_bars, _vxx_idx, 15.0)
+    vxx_hist30 = [_safe_close(vxx_bars, min(max(0,_vxx_idx-j-1),len(vxx_bars)-1), None) for j in range(30) if vxx_bars and min(max(0,_vxx_idx-j-1),len(vxx_bars)-1) >= 0]
+    vxx_hist30 = [v for v in vxx_hist30 if v is not None]
     vxx_avg30  = sum(vxx_hist30)/len(vxx_hist30) if vxx_hist30 else 15.0
     vxx_ratio  = vxx_close / vxx_avg30 if vxx_avg30 > 0 else 1.0
 
     _spy_idx = min(idx, len(spy_bars)-1) if spy_bars else 0
-    spy_close = float(spy_bars[_spy_idx]["c"]) if spy_bars and _spy_idx < len(spy_bars) else 500.0
-    spy_hist50 = [float(spy_bars[min(max(0,_spy_idx-j-1),len(spy_bars)-1)]["c"]) for j in range(50) if spy_bars and min(max(0,_spy_idx-j-1),len(spy_bars)-1) >= 0]
+    spy_close = _safe_close(spy_bars, _spy_idx, 500.0)
+    spy_hist50 = [_safe_close(spy_bars, min(max(0,_spy_idx-j-1),len(spy_bars)-1), None) for j in range(50) if spy_bars and min(max(0,_spy_idx-j-1),len(spy_bars)-1) >= 0]
+    spy_hist50 = [v for v in spy_hist50 if v is not None]
     spy_ma50   = sum(spy_hist50)/len(spy_hist50) if spy_hist50 else spy_close
     spy_vs_ma50= spy_close / spy_ma50 if spy_ma50 > 0 else 1.0
 
-    vxx_52 = [float(vxx_bars[min(max(0,_vxx_idx-j-1),len(vxx_bars)-1)]["c"]) for j in range(252) if vxx_bars and min(max(0,_vxx_idx-j-1),len(vxx_bars)-1) >= 0]
+    vxx_52 = [_safe_close(vxx_bars, min(max(0,_vxx_idx-j-1),len(vxx_bars)-1), None) for j in range(252) if vxx_bars and min(max(0,_vxx_idx-j-1),len(vxx_bars)-1) >= 0]
+    vxx_52 = [v for v in vxx_52 if v is not None]
     vxx_lo = min(vxx_52) if vxx_52 else 10
     vxx_hi = max(vxx_52) if vxx_52 else 50
     iv_rank= (vxx_close-vxx_lo)/(vxx_hi-vxx_lo)*100 if vxx_hi > vxx_lo else 50.0
@@ -393,13 +416,22 @@ def _compute_features(bars: list, idx: int, all_bars: dict,
     regime_score = max(0, min(100, (spy_vs_ma50-0.94)/0.12*50 + (1.3-vxx_ratio)/0.6*30 + 20))
 
     # Markov state proxy (simplified — real Markov runs separately)
-    spy_rets_5 = [(float(spy_bars[min(_spy_idx-j,len(spy_bars)-1)]["c"])-float(spy_bars[min(max(0,_spy_idx-j-1),len(spy_bars)-1)]["c"]))/float(spy_bars[min(max(0,_spy_idx-j-1),len(spy_bars)-1)]["c"])
-                  for j in range(5) if spy_bars and _spy_idx-j > 0 and _spy_idx-j < len(spy_bars)]
+    # batch 12: use _safe_close to handle None bars
+    spy_rets_5 = []
+    for j in range(5):
+        if spy_bars and _spy_idx-j > 0 and _spy_idx-j < len(spy_bars):
+            curr = _safe_close(spy_bars, min(_spy_idx-j,len(spy_bars)-1), None)
+            prev = _safe_close(spy_bars, min(max(0,_spy_idx-j-1),len(spy_bars)-1), None)
+            if curr is not None and prev is not None and prev > 0:
+                spy_rets_5.append((curr - prev) / prev)
     markov_state = 2.0 if (len(spy_rets_5) >= 3 and sum(spy_rets_5)/len(spy_rets_5) > 0.002) else \
                    0.0 if (len(spy_rets_5) >= 3 and sum(spy_rets_5)/len(spy_rets_5) < -0.002) else 1.0
 
     # Sector momentum: simplified (stock vs SPY 5d return)
-    spy_5d = (spy_close - float(spy_bars[min(max(0,idx-5), len(spy_bars)-1)]["c"])) / float(spy_bars[min(max(0,idx-5), len(spy_bars)-1)]["c"]) * 100 if idx >= 5 and len(spy_bars) > idx-5 and spy_bars[min(max(0,idx-5),len(spy_bars)-1)] else 0
+    # batch 12: handle None bars safely
+    _spy_5d_idx = min(max(0,idx-5), len(spy_bars)-1) if spy_bars else 0
+    _spy_5d_close = _safe_close(spy_bars, _spy_5d_idx, None)
+    spy_5d = ((spy_close - _spy_5d_close) / _spy_5d_close * 100) if (idx >= 5 and _spy_5d_close and _spy_5d_close > 0) else 0
     stock_5d = (c - closes[max(0,idx-5)]) / closes[max(0,idx-5)] * 100 if idx >= 5 else 0
     sector_momentum = stock_5d - spy_5d  # outperformance vs market
 
