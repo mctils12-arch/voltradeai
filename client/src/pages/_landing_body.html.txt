@@ -25,8 +25,8 @@
     <svg class="arcs-svg" id="arcs-svg" preserveAspectRatio="none"></svg>
   </div>
   <div class="hero-vignette"></div>
-  <div class="container hero-grid">
-    <div class="hero-text">
+  <div class="container">
+    <div class="hero-text-centered">
       <h1 class="headline">
         You're missing<br/>
         <span class="accent">information</span>.<br/>
@@ -41,9 +41,15 @@
         <a href="/login" class="btn btn-primary btn-xl" data-route="/login">Sign up free <span class="arrow">→</span></a>
       </div>
     </div>
+  </div>
+</section>
 
-    <!-- Real product mockup: a fuller "decision read" interface -->
-    <div class="hero-mockup">
+<!-- ============== PRODUCT SHOWCASE — full-width product mockup below the hero ============== -->
+<section class="s product-showcase">
+  <div class="container">
+    <div class="showcase-eyebrow-text">The read</div>
+    <h2 class="showcase-title">Look up any ticker. Get the verdict — <span class="accent">with the math behind it</span>.</h2>
+    <div class="showcase-mockup-wrap">
       <div class="mockup-window">
         <div class="mockup-bar">
           <div class="mockup-dots"><span></span><span></span><span></span></div>
@@ -161,7 +167,7 @@
           <li class="coming">News &amp; earnings impact analysis</li>
           <li class="coming">Tax-aware sell suggestions</li>
         </ul>
-        <a href="#cta" class="btn btn-ghost">Start free <span class="arrow">→</span></a>
+        <a href="/login" class="btn btn-ghost" data-route="/login">Start free <span class="arrow">→</span></a>
       </div>
 
       <div class="price-card featured">
@@ -180,23 +186,54 @@
           <li class="coming">Multi-account portfolio aggregation</li>
           <li class="coming">Custom strategy builder</li>
         </ul>
-        <a href="#cta" class="btn btn-primary">Join early access <span class="arrow">→</span></a>
+        <a href="/login" class="btn btn-primary" data-route="/login">Join early access <span class="arrow">→</span></a>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CTA -->
-<section class="s" id="cta">
+<!-- NEWSLETTER SIGNUP — top of marketing funnel back to the product -->
+<section class="s" id="newsletter">
   <div class="container">
     <div class="cta-wrap">
-      <h2>See your portfolio<br/>the way <span class="accent">pros see theirs</span>.</h2>
-      <p>Start free. Connect read-only. Get the variables you've been missing.<br/>Upgrade when you're ready to automate.</p>
-      <form class="waitlist" onsubmit="event.preventDefault(); alert('Wire to your backend.');">
-        <input type="email" placeholder="you@email.com" required />
-        <button class="btn btn-primary" type="submit">Get started <span class="arrow">→</span></button>
+      <div class="newsletter-eyebrow">
+        <span class="newsletter-day-pill">SUNDAY · 7PM ET</span>
+      </div>
+      <h2>Prep for the week ahead.<br/><span class="accent">Free, every Sunday.</span></h2>
+      <p>
+        One short read. Three names worth watching. The variables we're weighing.
+        Built to keep you a step ahead — no fluff, no spam, unsubscribe in one click.
+      </p>
+
+      <!--
+        Newsletter form posts directly to Beehiiv's hosted subscribe page.
+        This works on every Beehiiv tier (no API key required).
+        When the user clicks Subscribe:
+          1. We capture the email from the form
+          2. Redirect to: https://voltradeai.beehiiv.com/subscribe?email=...
+          3. Beehiiv shows their confirmation page and handles the rest
+        Future upgrade: once you complete Stripe Identity Verification on Beehiiv
+        and get an API key, swap this to a real /api/newsletter/subscribe POST
+        that calls Beehiiv's /v2/publications/{id}/subscriptions endpoint with
+        the API key — keeps users on your site, no redirect.
+      -->
+      <form class="waitlist" id="newsletter-form" onsubmit="
+        event.preventDefault();
+        const email = encodeURIComponent(this.email.value.trim());
+        if (!email) return;
+        window.location.href = 'https://voltradeai.beehiiv.com/subscribe?email=' + email;
+      ">
+        <input type="email" placeholder="you@email.com" required name="email" />
+        <button class="btn btn-primary" type="submit">Subscribe <span class="arrow">→</span></button>
       </form>
-      <div class="cta-meta">FREE FOREVER · NO CARD · NO SPAM</div>
+      <div class="cta-meta">FREE · NO CARD · UNSUBSCRIBE ANY TIME</div>
+
+      <!-- Past issues link -->
+      <div style="margin-top: 24px; font-size: 13px;">
+        <a href="https://voltradeai.beehiiv.com" target="_blank" rel="noopener" style="color: var(--alpha); text-decoration: none;">
+          Read past issues →
+        </a>
+      </div>
     </div>
   </div>
 </section>

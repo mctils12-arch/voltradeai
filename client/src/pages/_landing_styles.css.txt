@@ -133,15 +133,34 @@
   .hero-grid {
     position: relative;
     z-index: 5;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-    gap: 56px;
-    align-items: center;
+    display: block;
   }
-  @media (max-width: 980px) {
-    .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+  /* Hero text: left-aligned, max-width contained, sits on top of the world map */
+  .hero-text-centered {
+    position: relative;
+    z-index: 5;
+    max-width: 720px;
+    margin: 0;
   }
-  .hero-text { max-width: 560px; }
+
+  /* ============== PRODUCT SHOWCASE: NVDA mockup, full-width below hero ============== */
+  .product-showcase { padding: 80px 0 100px; }
+  .showcase-eyebrow-text {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--muted);
+    padding-top: 12px; border-top: 1px solid var(--hairline-2);
+    width: max-content; margin-bottom: 24px;
+  }
+  .showcase-title {
+    font-weight: 700; font-size: clamp(34px, 4.5vw, 56px);
+    line-height: 1.05; letter-spacing: -0.035em;
+    margin-bottom: 56px; max-width: 900px;
+  }
+  .showcase-title .accent { color: var(--alpha); }
+  .showcase-mockup-wrap {
+    max-width: 900px;
+    margin: 0 auto;
+  }
 
   /* ============== HERO PRODUCT MOCKUP ============== */
   .hero-mockup {
@@ -766,6 +785,24 @@
   .cta-meta {
     margin-top: 20px; font-family: var(--mono); font-size: 11px;
     color: var(--muted); letter-spacing: 0.08em; position: relative;
+  }
+
+  /* Newsletter section eyebrow — small "SUNDAY · 7PM ET" pill above the headline */
+  .newsletter-eyebrow {
+    margin-bottom: 24px;
+    position: relative;
+  }
+  .newsletter-day-pill {
+    display: inline-block;
+    padding: 6px 12px;
+    background: rgba(74, 222, 128, 0.10);
+    border: 1px solid rgba(74, 222, 128, 0.30);
+    border-radius: 100px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    color: #4ade80;
   }
 
   /* FOOTER */
