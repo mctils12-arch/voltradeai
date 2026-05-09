@@ -49,11 +49,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY package.json ./
 
 # ── Copy built artifacts from builder stage ─────────────────────
-# dist/ contains both server bundle (index.cjs) and client (public/)
+# dist/ contains both server bundle (index.cjs) and client (public/).
+# The landing page is now part of the React app (no separate landing/ folder).
 COPY --from=builder /app/dist ./dist
-
-# ── Copy landing page (static files served at /) ────────────────
-COPY --from=builder /app/landing ./landing
 
 # ── Copy Python source (needed at runtime) ──────────────────────
 COPY *.py ./
