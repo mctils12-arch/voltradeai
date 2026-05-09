@@ -95,9 +95,9 @@ export default function SectorHeatmap() {
           style={{
             padding: "0.4rem 1rem",
             background: "rgba(0, 8, 20, 0.8)",
-            border: "1px solid rgba(0, 229, 255, 0.2)",
+            border: "1px solid rgba(77, 159, 255, 0.2)",
             borderRadius: "6px",
-            color: "#00e5ff",
+            color: "#4d9fff",
             fontSize: "0.82rem",
             fontFamily: "'JetBrains Mono', monospace",
             cursor: "pointer",
@@ -133,7 +133,7 @@ export default function SectorHeatmap() {
       <div style={{
         display: "flex", flexWrap: "wrap", gap: 2,
         borderRadius: 6, overflow: "hidden",
-        border: "1px solid rgba(0, 229, 255, 0.08)",
+        border: "1px solid rgba(77, 159, 255, 0.08)",
       }}>
         {sectors.map(sector => {
           const widthPct = (sector.marketCap / totalWeight) * 100;
@@ -145,7 +145,7 @@ export default function SectorHeatmap() {
                 minWidth: "80px",
                 height: widthPct > 10 ? "90px" : "70px",
                 background: getHeatColor(sector.change),
-                border: "1px solid rgba(0, 229, 255, 0.06)",
+                border: "1px solid rgba(77, 159, 255, 0.06)",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -157,7 +157,7 @@ export default function SectorHeatmap() {
               }}
               onMouseOver={e => {
                 (e.currentTarget as HTMLElement).style.transform = "scale(1.02)";
-                (e.currentTarget as HTMLElement).style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.15)";
+                (e.currentTarget as HTMLElement).style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.15)";
                 (e.currentTarget as HTMLElement).style.zIndex = "10";
               }}
               onMouseOut={e => {

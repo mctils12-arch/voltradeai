@@ -138,13 +138,13 @@ function signalColor(signal?: string): string {
   if (s.includes("bull") || s.includes("accumulat") || s.includes("increas")) return "#30d158";
   if (s.includes("bear") || s.includes("distribut") || s.includes("decreas")) return "#ff453a";
   if (s.includes("greed")) return "#ff9f0a";  // contrarian sell
-  if (s.includes("fear")) return "#00e5ff";   // contrarian buy
+  if (s.includes("fear")) return "#4d9fff";   // contrarian buy
   return "#94a3b8";
 }
 
 // Section card shell — matches existing analyze.tsx aesthetic
 function Section({
-  icon, title, subtitle, children, accent = "#00e5ff",
+  icon, title, subtitle, children, accent = "#4d9fff",
 }: {
   icon: React.ReactNode;
   title: string;
@@ -395,8 +395,8 @@ function InstitutionalCard({ data }: { data: InstitutionalSection }) {
             {data.major_holders.slice(0, 8).map((h, i) => (
               <span key={i} style={{
                 fontSize: 11, padding: "2px 8px", borderRadius: 3,
-                background: "rgba(0, 229, 255, 0.08)", color: "#00e5ff",
-                border: "1px solid rgba(0, 229, 255, 0.2)",
+                background: "rgba(77, 159, 255, 0.08)", color: "#4d9fff",
+                border: "1px solid rgba(77, 159, 255, 0.2)",
               }}>{h}</span>
             ))}
           </div>
@@ -409,8 +409,8 @@ function InstitutionalCard({ data }: { data: InstitutionalSection }) {
             {data.whales.map((w, i) => (
               <span key={i} style={{
                 fontSize: 11, padding: "2px 8px", borderRadius: 3,
-                background: "rgba(212, 160, 23, 0.08)", color: "#d4a017",
-                border: "1px solid rgba(212, 160, 23, 0.2)",
+                background: "rgba(251, 178, 76, 0.08)", color: "#fbb24c",
+                border: "1px solid rgba(251, 178, 76, 0.2)",
               }}>{w}</span>
             ))}
           </div>
@@ -703,14 +703,14 @@ export default function InsightsView({ ticker }: InsightsViewProps) {
       <div style={{
         marginTop: "1rem",
         padding: "0.75rem 1rem",
-        background: "rgba(0, 229, 255, 0.04)",
-        border: "1px solid rgba(0, 229, 255, 0.15)",
+        background: "rgba(77, 159, 255, 0.04)",
+        border: "1px solid rgba(77, 159, 255, 0.15)",
         borderRadius: "0.375rem",
         fontSize: 11,
         color: "#94a3b8",
         lineHeight: 1.5,
       }}>
-        <strong style={{ color: "#00e5ff" }}>Sources:</strong>{" "}
+        <strong style={{ color: "#4d9fff" }}>Sources:</strong>{" "}
         Insider data — Finnhub (Form 4 filings).{" "}
         Institutional — SEC EDGAR (13F filings, current quarter).{" "}
         Float / short — Yahoo Finance.{" "}

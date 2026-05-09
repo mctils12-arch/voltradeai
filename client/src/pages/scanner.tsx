@@ -143,8 +143,8 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
             </h1>
             <span style={{
               fontSize: 9, padding: "3px 8px", borderRadius: 3,
-              background: "rgba(0, 229, 255, 0.1)", border: "1px solid rgba(0, 229, 255, 0.2)",
-              color: "#00e5ff", fontFamily: "'JetBrains Mono', monospace",
+              background: "rgba(77, 159, 255, 0.1)", border: "1px solid rgba(77, 159, 255, 0.2)",
+              color: "#4d9fff", fontFamily: "'JetBrains Mono', monospace",
               letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
             }}>
               TERMINAL
@@ -181,7 +181,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
       <div style={{
         marginBottom: "1.5rem",
         background: "rgba(0, 8, 20, 0.6)",
-        border: "1px solid rgba(0, 229, 255, 0.1)",
+        border: "1px solid rgba(77, 159, 255, 0.1)",
         borderRadius: 8,
         padding: "1rem",
       }}>
@@ -200,9 +200,9 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
             padding: "6px 14px", borderRadius: 4, fontSize: 11, fontWeight: 600,
             fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.08em",
             textTransform: "uppercase", cursor: "pointer",
-            background: viewMode === "table" ? "rgba(0, 229, 255, 0.15)" : "transparent",
-            border: `1px solid ${viewMode === "table" ? "#00e5ff" : "rgba(0, 229, 255, 0.15)"}`,
-            color: viewMode === "table" ? "#00e5ff" : "#4a5c70",
+            background: viewMode === "table" ? "rgba(77, 159, 255, 0.15)" : "transparent",
+            border: `1px solid ${viewMode === "table" ? "#4d9fff" : "rgba(77, 159, 255, 0.15)"}`,
+            color: viewMode === "table" ? "#4d9fff" : "#4a5c70",
             transition: "all 150ms ease",
           }}
         >
@@ -214,9 +214,9 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
             padding: "6px 14px", borderRadius: 4, fontSize: 11, fontWeight: 600,
             fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.08em",
             textTransform: "uppercase", cursor: "pointer",
-            background: viewMode === "heatmap" ? "rgba(0, 229, 255, 0.15)" : "transparent",
-            border: `1px solid ${viewMode === "heatmap" ? "#00e5ff" : "rgba(0, 229, 255, 0.15)"}`,
-            color: viewMode === "heatmap" ? "#00e5ff" : "#4a5c70",
+            background: viewMode === "heatmap" ? "rgba(77, 159, 255, 0.15)" : "transparent",
+            border: `1px solid ${viewMode === "heatmap" ? "#4d9fff" : "rgba(77, 159, 255, 0.15)"}`,
+            color: viewMode === "heatmap" ? "#4d9fff" : "#4a5c70",
             transition: "all 150ms ease",
           }}
         >
@@ -248,7 +248,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
               height: '40px',
               padding: '0 0.875rem 0 2.25rem',
               background: 'rgba(0, 8, 20, 0.8)',
-              border: '1px solid rgba(0, 229, 255, 0.15)',
+              border: '1px solid rgba(77, 159, 255, 0.15)',
               borderRadius: '6px',
               color: 'var(--text-primary)',
               fontSize: '0.85rem',
@@ -277,9 +277,9 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
                   cursor: "pointer",
-                  background: active ? "rgba(0, 229, 255, 0.12)" : "transparent",
-                  border: `1px solid ${active ? "rgba(0, 229, 255, 0.5)" : "rgba(0, 229, 255, 0.12)"}`,
-                  color: active ? "#00e5ff" : "#4a5c70",
+                  background: active ? "rgba(77, 159, 255, 0.12)" : "transparent",
+                  border: `1px solid ${active ? "rgba(77, 159, 255, 0.5)" : "rgba(77, 159, 255, 0.12)"}`,
+                  color: active ? "#4d9fff" : "#4a5c70",
                   transition: "all 150ms ease",
                 }}
               >
@@ -294,7 +294,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
       {viewMode === "heatmap" && (
         <div style={{
           background: "rgba(0, 8, 20, 0.6)",
-          border: "1px solid rgba(0, 229, 255, 0.1)",
+          border: "1px solid rgba(77, 159, 255, 0.1)",
           borderRadius: 8,
           padding: "1rem",
         }}>
@@ -327,9 +327,9 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                 style={{
                   padding: "0.4rem 1rem",
                   background: "rgba(0, 8, 20, 0.8)",
-                  border: "1px solid rgba(0, 229, 255, 0.2)",
+                  border: "1px solid rgba(77, 159, 255, 0.2)",
                   borderRadius: "6px",
-                  color: "#00e5ff",
+                  color: "#4d9fff",
                   fontSize: "0.82rem",
                   fontFamily: "'JetBrains Mono', monospace",
                   cursor: "pointer",
@@ -352,7 +352,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                     minWidth: "64px",
                     height: "60px",
                     background: getHeatColor(stock.change_pct),
-                    border: "1px solid rgba(0, 229, 255, 0.06)",
+                    border: "1px solid rgba(77, 159, 255, 0.06)",
                     borderRadius: 4,
                     display: "flex",
                     flexDirection: "column",
@@ -364,7 +364,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                   }}
                   onMouseOver={e => {
                     (e.currentTarget as HTMLElement).style.transform = "scale(1.06)";
-                    (e.currentTarget as HTMLElement).style.boxShadow = "0 0 10px rgba(0, 229, 255, 0.2)";
+                    (e.currentTarget as HTMLElement).style.boxShadow = "0 0 10px rgba(77, 159, 255, 0.2)";
                     (e.currentTarget as HTMLElement).style.zIndex = "10";
                   }}
                   onMouseOut={e => {
@@ -399,7 +399,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
       {viewMode === "table" && (
         <div style={{
           background: 'rgba(0, 8, 20, 0.6)',
-          border: '1px solid rgba(0, 229, 255, 0.1)',
+          border: '1px solid rgba(77, 159, 255, 0.1)',
           borderRadius: '8px',
           overflow: 'hidden',
           backdropFilter: 'blur(20px)',
@@ -422,9 +422,9 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                 style={{
                   padding: '0.4rem 1rem',
                   background: 'rgba(0, 8, 20, 0.8)',
-                  border: '1px solid rgba(0, 229, 255, 0.2)',
+                  border: '1px solid rgba(77, 159, 255, 0.2)',
                   borderRadius: '6px',
-                  color: '#00e5ff',
+                  color: '#4d9fff',
                   fontSize: '0.82rem',
                   fontFamily: "'JetBrains Mono', monospace",
                   cursor: 'pointer',
@@ -446,7 +446,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                 fontFamily: "'JetBrains Mono', monospace",
               }}>
                 <thead>
-                  <tr style={{ borderBottom: "1px solid rgba(0, 229, 255, 0.12)" }}>
+                  <tr style={{ borderBottom: "1px solid rgba(77, 159, 255, 0.12)" }}>
                     {([
                       { key: "ticker", label: "TICKER" },
                       { key: "close", label: "PRICE" },
@@ -462,13 +462,13 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                           textAlign: "left",
                           fontSize: 10,
                           fontWeight: 700,
-                          color: sortKey === col.key ? "#00e5ff" : "#4a5c70",
+                          color: sortKey === col.key ? "#4d9fff" : "#4a5c70",
                           letterSpacing: "0.1em",
                           cursor: "pointer",
                           userSelect: "none",
-                          background: sortKey === col.key ? "rgba(0, 229, 255, 0.04)" : "transparent",
+                          background: sortKey === col.key ? "rgba(77, 159, 255, 0.04)" : "transparent",
                           whiteSpace: "nowrap",
-                          borderBottom: sortKey === col.key ? "2px solid rgba(0, 229, 255, 0.3)" : "2px solid transparent",
+                          borderBottom: sortKey === col.key ? "2px solid rgba(77, 159, 255, 0.3)" : "2px solid transparent",
                         }}
                       >
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -497,11 +497,11 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                         onClick={() => onSelectTicker(row.ticker)}
                         style={{
                           cursor: 'pointer',
-                          borderBottom: "1px solid rgba(0, 229, 255, 0.04)",
+                          borderBottom: "1px solid rgba(77, 159, 255, 0.04)",
                           transition: "background 120ms ease",
                         }}
                         onMouseOver={e => {
-                          (e.currentTarget as HTMLElement).style.background = "rgba(0, 229, 255, 0.04)";
+                          (e.currentTarget as HTMLElement).style.background = "rgba(77, 159, 255, 0.04)";
                         }}
                         onMouseOut={e => {
                           (e.currentTarget as HTMLElement).style.background = "transparent";
@@ -512,7 +512,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                             fontFamily: "'JetBrains Mono', monospace",
                             fontWeight: 700,
                             fontSize: '0.88rem',
-                            color: '#00e5ff',
+                            color: '#4d9fff',
                             letterSpacing: "0.04em",
                           }}>
                             {row.ticker}
@@ -581,7 +581,7 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                   textAlign: 'center',
                   fontSize: '0.72rem',
                   color: '#4a5c70',
-                  borderTop: '1px solid rgba(0, 229, 255, 0.06)',
+                  borderTop: '1px solid rgba(77, 159, 255, 0.06)',
                   fontFamily: "'JetBrains Mono', monospace",
                   letterSpacing: "0.04em",
                 }}>

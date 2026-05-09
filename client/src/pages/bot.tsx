@@ -46,7 +46,7 @@ function Tip({ id, children }: { id: string; children: React.ReactNode }) {
   const tip = TIPS[id];
   if (!tip) return <>{children}</>;
   return (
-    <span ref={tipRef} style={{ position: "relative", cursor: "help", borderBottom: "1px dotted rgba(0, 229, 255, 0.3)" }}
+    <span ref={tipRef} style={{ position: "relative", cursor: "help", borderBottom: "1px dotted rgba(77, 159, 255, 0.3)" }}
       onMouseEnter={() => {
         if (tipRef.current) {
           const rect = tipRef.current.getBoundingClientRect();
@@ -62,7 +62,7 @@ function Tip({ id, children }: { id: string; children: React.ReactNode }) {
             ? { bottom: "calc(100% + 8px)" }
             : { top: "calc(100% + 8px)" }),
           left: "50%", transform: "translateX(-50%)",
-          background: "rgba(3, 8, 15, 0.95)", border: "1px solid rgba(0, 229, 255, 0.15)", borderRadius: "4px",
+          background: "rgba(3, 8, 15, 0.95)", border: "1px solid rgba(77, 159, 255, 0.15)", borderRadius: "4px",
           padding: "10px 14px", fontSize: "12px", color: "#c8d6e5", lineHeight: 1.5, width: "260px", zIndex: 100,
           backdropFilter: "blur(12px)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
           {tip}
@@ -73,7 +73,7 @@ function Tip({ id, children }: { id: string; children: React.ReactNode }) {
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
-const card: React.CSSProperties = { background: "rgba(0, 20, 40, 0.5)", border: "1px solid rgba(0, 229, 255, 0.1)", borderRadius: "6px", padding: "20px", backdropFilter: "blur(20px)" };
+const card: React.CSSProperties = { background: "rgba(0, 20, 40, 0.5)", border: "1px solid rgba(77, 159, 255, 0.1)", borderRadius: "6px", padding: "20px", backdropFilter: "blur(20px)" };
 const label: React.CSSProperties = { fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px", fontFamily: "'JetBrains Mono', monospace" };
 const bigNum: React.CSSProperties = { fontSize: "clamp(18px, 3.5vw, 28px)", fontWeight: 700, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", color: "#c8d6e5", wordBreak: "break-word", overflow: "hidden", textOverflow: "ellipsis" };
 
@@ -114,17 +114,17 @@ function getStrategyLabel(p: any): string | null {
 }
 
 function strategyColor(strategy: string): string {
-  if (strategy.includes("Credit Spread") || strategy.includes("Iron Condor")) return "#d4a017";
+  if (strategy.includes("Credit Spread") || strategy.includes("Iron Condor")) return "#fbb24c";
   if (strategy.includes("Cash-Secured")) return "#30d158";
   if (strategy.includes("Covered Call")) return "#64d2ff";
   if (strategy.includes("Long")) return "#bf5af2";
-  return "#00e5ff";
+  return "#4d9fff";
 }
 
 // ─── Sharpe color helper ──────────────────────────────────────────────────────
 function sharpeColor(v: number) {
   if (v >= 1) return "#30d158";
-  if (v >= 0.5) return "#d4a017";
+  if (v >= 0.5) return "#fbb24c";
   return "#ff453a";
 }
 
@@ -132,7 +132,7 @@ function sharpeColor(v: number) {
 function signalColor(type: string) {
   if (type === "buy") return "#30d158";
   if (type === "sell") return "#ff453a";
-  return "#d4a017";
+  return "#fbb24c";
 }
 
 
@@ -158,8 +158,8 @@ function NotificationBell({ notifications, onMarkRead }: {
   const typeColor = (type: string) => {
     if (type === "alert" || type === "stop_loss") return "#ff453a";
     if (type === "profit" || type === "trade") return "#30d158";
-    if (type === "earnings") return "#d4a017";
-    return "#00e5ff";
+    if (type === "earnings") return "#fbb24c";
+    return "#4d9fff";
   };
 
   const typeIcon = (type: string) => {
@@ -181,7 +181,7 @@ function NotificationBell({ notifications, onMarkRead }: {
         style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           width: "36px", height: "36px", borderRadius: "4px",
-          border: "1px solid rgba(0, 229, 255, 0.12)", background: "rgba(0, 229, 255, 0.08)",
+          border: "1px solid rgba(77, 159, 255, 0.12)", background: "rgba(77, 159, 255, 0.08)",
           cursor: "pointer", position: "relative", color: "#a1a1a6",
         }}
         title="Notifications"
@@ -204,12 +204,12 @@ function NotificationBell({ notifications, onMarkRead }: {
         <div style={{
           position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 200,
           width: "320px", maxHeight: "400px", overflowY: "auto",
-          background: "rgba(3, 8, 15, 0.97)", border: "1px solid rgba(0, 229, 255, 0.12)",
+          background: "rgba(3, 8, 15, 0.97)", border: "1px solid rgba(77, 159, 255, 0.12)",
           borderRadius: "6px", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
           backdropFilter: "blur(20px)",
         }}>
           <div style={{
-            padding: "12px 16px", borderBottom: "1px solid rgba(0, 229, 255, 0.1)",
+            padding: "12px 16px", borderBottom: "1px solid rgba(77, 159, 255, 0.1)",
             display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
             <span style={{ fontSize: "13px", fontWeight: 600, color: "#c8d6e5" }}>
@@ -217,7 +217,7 @@ function NotificationBell({ notifications, onMarkRead }: {
             </span>
             {notifications.length > 0 && (
               <button onClick={onMarkRead} style={{
-                fontSize: "11px", color: "#00e5ff", background: "none", border: "none", cursor: "pointer",
+                fontSize: "11px", color: "#4d9fff", background: "none", border: "none", cursor: "pointer",
               }}>
                 Mark all read
               </button>
@@ -231,7 +231,7 @@ function NotificationBell({ notifications, onMarkRead }: {
             notifications.map((n, i) => (
               <div key={i} style={{
                 padding: "10px 16px", borderBottom: "1px solid rgba(0, 15, 30, 0.4)",
-                background: n.read ? "transparent" : "rgba(0,229,255,0.05)",
+                background: n.read ? "transparent" : "rgba(77,159,255,0.05)",
                 display: "flex", gap: "10px", alignItems: "flex-start",
               }}>
                 <span style={{ fontSize: "14px", marginTop: "1px" }}>{typeIcon(n.type)}</span>
@@ -244,7 +244,7 @@ function NotificationBell({ notifications, onMarkRead }: {
                   </div>
                 </div>
                 {!n.read && (
-                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#00e5ff", flexShrink: 0, marginTop: "5px" }} />
+                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4d9fff", flexShrink: 0, marginTop: "5px" }} />
                 )}
               </div>
             ))
@@ -267,9 +267,9 @@ function CalendarBanner() {
 
   const { tomorrow, holidays } = data;
   const isAlert = tomorrow.status === "holiday" || tomorrow.status === "early_close";
-  const bgColor = isAlert ? "rgba(212,160,23,0.1)" : "rgba(0,255,65,0.06)";
-  const borderColor = isAlert ? "rgba(212,160,23,0.2)" : "rgba(0,255,65,0.1)";
-  const textColor = isAlert ? "#d4a017" : "#4a5c70";
+  const bgColor = isAlert ? "rgba(251,178,76,0.1)" : "rgba(74,222,128,0.06)";
+  const borderColor = isAlert ? "rgba(251,178,76,0.2)" : "rgba(74,222,128,0.1)";
+  const textColor = isAlert ? "#fbb24c" : "#4a5c70";
 
   return (
     <div style={{ padding: "10px 14px", background: bgColor, border: `1px solid ${borderColor}`, borderRadius: "4px", marginBottom: "16px", fontSize: "12px" }}>
@@ -313,11 +313,11 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
   const pnlColor = totalPnlPct >= 0 ? "#30d158" : "#ff453a";
 
   // Win rate color
-  const winRateColor = winRate > 55 ? "#30d158" : winRate < 45 ? "#ff453a" : "#d4a017";
+  const winRateColor = winRate > 55 ? "#30d158" : winRate < 45 ? "#ff453a" : "#fbb24c";
   // Profit factor color
-  const pfColor = profitFactor > 1.5 ? "#30d158" : profitFactor < 1.0 ? "#ff453a" : "#d4a017";
+  const pfColor = profitFactor > 1.5 ? "#30d158" : profitFactor < 1.0 ? "#ff453a" : "#fbb24c";
   // Drawdown color (negative = bad)
-  const ddColor = drawdown <= -10 ? "#ff453a" : drawdown <= -5 ? "#d4a017" : "#30d158";
+  const ddColor = drawdown <= -10 ? "#ff453a" : drawdown <= -5 ? "#fbb24c" : "#30d158";
 
   // ── Canvas equity curve ──
   const drawChart = useCallback(() => {
@@ -363,7 +363,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
     // Grid lines
     const gridLines = 4;
     ctx.setLineDash([2, 4]);
-    ctx.strokeStyle = "rgba(0,229,255,0.07)";
+    ctx.strokeStyle = "rgba(77,159,255,0.07)";
     ctx.lineWidth = 1;
     for (let i = 0; i <= gridLines; i++) {
       const y = PAD_TOP + (i / gridLines) * chartH;
@@ -383,7 +383,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
         y + 3
       );
       ctx.setLineDash([2, 4]);
-      ctx.strokeStyle = "rgba(0,229,255,0.07)";
+      ctx.strokeStyle = "rgba(77,159,255,0.07)";
     }
     ctx.setLineDash([]);
 
@@ -466,7 +466,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
 
   const metricBox: React.CSSProperties = {
     background: "rgba(0, 15, 30, 0.5)",
-    border: "1px solid rgba(0, 229, 255, 0.08)",
+    border: "1px solid rgba(77, 159, 255, 0.08)",
     borderRadius: "4px",
     padding: "14px 16px",
   };
@@ -523,7 +523,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
               <div style={{ ...bigNum, color: winRateColor }}>
                 {(winRate ?? 0).toFixed(1)}%
               </div>
-              <div style={{ marginTop: "6px", height: "3px", background: "rgba(0,229,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
+              <div style={{ marginTop: "6px", height: "3px", background: "rgba(77,159,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${Math.min(winRate, 100)}%`, background: winRateColor, borderRadius: "2px", transition: "width 0.5s ease" }} />
               </div>
             </div>
@@ -584,7 +584,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             </div>
 
             {/* Drawdown */}
-            <div style={{ ...metricBox, borderColor: drawdown < -5 ? "rgba(255,68,68,0.2)" : "rgba(0,229,255,0.08)" }}>
+            <div style={{ ...metricBox, borderColor: drawdown < -5 ? "rgba(255,68,68,0.2)" : "rgba(77,159,255,0.08)" }}>
               <div style={label}><Tip id="drawdown">Drawdown</Tip></div>
               <div style={{ ...bigNum, color: ddColor }}>
                 {drawdown !== 0 ? `${(drawdown ?? 0).toFixed(2)}%` : "0.00%"}
@@ -597,7 +597,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
           {(bestTrade || worstTrade) && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "20px" }}>
               {bestTrade && (
-                <div style={{ background: "rgba(0,255,65,0.06)", border: "1px solid rgba(0,255,65,0.15)", borderRadius: "4px", padding: "10px" }}>
+                <div style={{ background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: "4px", padding: "10px" }}>
                   <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
                     Best Trade
                   </div>
@@ -613,7 +613,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
                 </div>
               )}
               {worstTrade && (
-                <div style={{ background: "rgba(255,51,51,0.06)", border: "1px solid rgba(255,51,51,0.15)", borderRadius: "4px", padding: "10px" }}>
+                <div style={{ background: "rgba(255,90,110,0.06)", border: "1px solid rgba(255,90,110,0.15)", borderRadius: "4px", padding: "10px" }}>
                   <div style={{ fontSize: "10px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
                     Worst Trade
                   </div>
@@ -646,7 +646,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
             </div>
             <div style={{
               background: "rgba(0, 10, 20, 0.6)",
-              border: "1px solid rgba(0, 229, 255, 0.08)",
+              border: "1px solid rgba(77, 159, 255, 0.08)",
               borderRadius: "4px",
               overflow: "hidden",
             }}>
@@ -664,7 +664,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
               <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", minWidth: "420px" }}>
                   <thead>
-                    <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                    <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(77, 159, 255, 0.1)" }}>
                       <th style={{ padding: "7px 10px", fontWeight: 500 }}>Ticker</th>
                       <th style={{ padding: "7px 6px", fontWeight: 500 }}>Side</th>
                       <th style={{ padding: "7px 6px", textAlign: "right", fontWeight: 500 }}>P&L %</th>
@@ -763,10 +763,10 @@ function MLModelPanel() {
   const modelExists = s?.model_exists ?? false;
 
   return (
-    <div style={{ background: "rgba(0, 20, 40, 0.5)", border: "1px solid rgba(0, 229, 255, 0.1)", borderRadius: "6px", padding: "20px", backdropFilter: "blur(20px)", marginTop: "1.5rem" }}>
+    <div style={{ background: "rgba(0, 20, 40, 0.5)", border: "1px solid rgba(77, 159, 255, 0.1)", borderRadius: "6px", padding: "20px", backdropFilter: "blur(20px)", marginTop: "1.5rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Zap size={18} color="#00e5ff" />
+          <Zap size={18} color="#4d9fff" />
           <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5", letterSpacing: "0.5px" }}>ML MODEL</span>
           <span style={{
             fontSize: "10px", padding: "2px 8px", borderRadius: "3px",
@@ -808,7 +808,7 @@ function MLModelPanel() {
         </div>
         <div>
           <div style={{ fontSize: "11px", color: "#4a5c70", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Model Age</div>
-          <div style={{ fontSize: "14px", fontWeight: 600, color: ageHours && ageHours > 48 ? "#d4a017" : "#c8d6e5" }}>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: ageHours && ageHours > 48 ? "#fbb24c" : "#c8d6e5" }}>
             {ageHours ? `${ageHours}h` : "\u2014"}
           </div>
         </div>
@@ -879,7 +879,7 @@ function EnhancedPositions({
   return (
     <div style={{ ...card, marginBottom: "20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-        <Activity size={14} style={{ color: "#00e5ff" }} />
+        <Activity size={14} style={{ color: "#4d9fff" }} />
         <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
           <Tip id="position">Open Positions</Tip>
         </span>
@@ -887,8 +887,8 @@ function EnhancedPositions({
           <span
             style={{
               fontSize: "10px", padding: "2px 7px", borderRadius: "3px",
-              background: "rgba(212,160,23,0.12)", color: "#d4a017",
-              border: "1px solid rgba(212,160,23,0.25)", fontWeight: 600,
+              background: "rgba(251,178,76,0.12)", color: "#fbb24c",
+              border: "1px solid rgba(251,178,76,0.25)", fontWeight: 600,
               letterSpacing: "0.3px",
             }}
           >
@@ -965,7 +965,7 @@ function EnhancedPositions({
                     onClick={() => legs.forEach(l => closePos(l.ticker))}
                     style={{
                       marginLeft: "auto", padding: "4px 10px", borderRadius: "4px",
-                      border: "1px solid rgba(255,51,51,0.3)", background: "transparent",
+                      border: "1px solid rgba(255,90,110,0.3)", background: "transparent",
                       color: "#ff453a", fontSize: "11px", cursor: "pointer",
                     }}
                   >
@@ -1057,7 +1057,7 @@ function EnhancedPositions({
                 data-testid={`position-row-${p.ticker}`}
                 style={{
                   background: "rgba(0, 15, 30, 0.4)",
-                  border: "1px solid rgba(0, 229, 255, 0.08)",
+                  border: "1px solid rgba(77, 159, 255, 0.08)",
                   borderRadius: "4px",
                   padding: "12px 14px",
                 }}
@@ -1080,9 +1080,9 @@ function EnhancedPositions({
                   {isStockShort && (
                     <span style={{
                       fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
-                      color: "#d4a017",
-                      background: "rgba(212,160,23,0.12)",
-                      border: "1px solid rgba(212,160,23,0.3)",
+                      color: "#fbb24c",
+                      background: "rgba(251,178,76,0.12)",
+                      border: "1px solid rgba(251,178,76,0.3)",
                       letterSpacing: "0.4px",
                     }}>
                       STOCK SHORT
@@ -1145,8 +1145,8 @@ function EnhancedPositions({
                       data-testid={`ah-badge-${p.ticker}`}
                       style={{
                         fontSize: "9px", padding: "1px 5px", borderRadius: "2px",
-                        background: "rgba(212,160,23,0.15)", color: "#d4a017",
-                        border: "1px solid rgba(212,160,23,0.3)", fontWeight: 700, letterSpacing: "0.5px",
+                        background: "rgba(251,178,76,0.15)", color: "#fbb24c",
+                        border: "1px solid rgba(251,178,76,0.3)", fontWeight: 700, letterSpacing: "0.5px",
                       }}
                     >
                       AH
@@ -1157,7 +1157,7 @@ function EnhancedPositions({
                     onClick={() => closePos(p.ticker)}
                     style={{
                       marginLeft: "auto", padding: "4px 10px", borderRadius: "4px",
-                      border: "1px solid rgba(255,51,51,0.3)", background: "transparent",
+                      border: "1px solid rgba(255,90,110,0.3)", background: "transparent",
                       color: "#ff453a", fontSize: "11px", cursor: "pointer",
                     }}
                   >
@@ -1253,7 +1253,7 @@ function EnhancedPositions({
                   )}
                   <span style={{ color: "#2a3a4c", fontSize: "10px" }}>(tap to toggle)</span>
                   {showAH && changeTodayPct !== 0 && (
-                    <span style={{ color: "#d4a017", fontSize: "10px", marginLeft: "4px" }}>
+                    <span style={{ color: "#fbb24c", fontSize: "10px", marginLeft: "4px" }}>
                       \u00b7 AH price reflects extended hours
                     </span>
                   )}
@@ -1288,7 +1288,7 @@ function TradeHistoryPanel() {
   return (
     <div style={{ ...card, marginBottom: "20px" }} data-testid="trade-history-panel">
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-        <History size={14} style={{ color: "#00e5ff" }} />
+        <History size={14} style={{ color: "#4d9fff" }} />
         <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
           TRADE HISTORY
         </span>
@@ -1313,7 +1313,7 @@ function TradeHistoryPanel() {
         <div style={{ maxHeight: "300px", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", minWidth: "560px" }}>
             <thead style={{ position: "sticky", top: 0, background: "rgba(0, 10, 20, 0.95)", zIndex: 1 }}>
-              <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+              <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(77, 159, 255, 0.1)" }}>
                 <th style={{ padding: "7px 10px", fontWeight: 500 }}>Symbol</th>
                 <th style={{ padding: "7px 6px", fontWeight: 500 }}>Strategy</th>
                 <th style={{ padding: "7px 6px", fontWeight: 500 }}>Side</th>
@@ -1354,9 +1354,9 @@ function TradeHistoryPanel() {
                     <td style={{ padding: "7px 6px" }}>
                       <span style={{
                         fontSize: "10px", fontWeight: 600, padding: "2px 5px", borderRadius: "3px",
-                        color: isOptionTrade ? "#bf5af2" : "#00e5ff",
-                        background: isOptionTrade ? "rgba(191,90,242,0.12)" : "rgba(0,229,255,0.08)",
-                        border: `1px solid ${isOptionTrade ? "rgba(191,90,242,0.3)" : "rgba(0,229,255,0.15)"}`,
+                        color: isOptionTrade ? "#bf5af2" : "#4d9fff",
+                        background: isOptionTrade ? "rgba(191,90,242,0.12)" : "rgba(77,159,255,0.08)",
+                        border: `1px solid ${isOptionTrade ? "rgba(191,90,242,0.3)" : "rgba(77,159,255,0.15)"}`,
                       }}>
                         {strategyTag}
                       </span>
@@ -1489,15 +1489,15 @@ export default function BotDashboard() {
           <div style={{ display: "flex", gap: "8px", marginTop: "6px", alignItems: "center" }}>
             <span style={{
               padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 600,
-              background: isKilled ? "rgba(255,51,51,0.15)" : isActive ? "rgba(0,255,65,0.15)" : "rgba(212,160,23,0.15)",
-              color: isKilled ? "#ff453a" : isActive ? "#30d158" : "#d4a017",
-              border: `1px solid ${isKilled ? "rgba(255,51,51,0.3)" : isActive ? "rgba(0,255,65,0.3)" : "rgba(212,160,23,0.3)"}`,
+              background: isKilled ? "rgba(255,90,110,0.15)" : isActive ? "rgba(74,222,128,0.15)" : "rgba(251,178,76,0.15)",
+              color: isKilled ? "#ff453a" : isActive ? "#30d158" : "#fbb24c",
+              border: `1px solid ${isKilled ? "rgba(255,90,110,0.3)" : isActive ? "rgba(74,222,128,0.3)" : "rgba(251,178,76,0.3)"}`,
 
             }}>
               {isKilled ? "KILLED" : isActive ? "ACTIVE" : "PAUSED"}
             </span>
             <Tip id="paperTrading">
-              <span style={{ padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,229,255,0.15)", color: "#00e5ff", border: "1px solid rgba(0,229,255,0.3)" }}>
+              <span style={{ padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(77,159,255,0.15)", color: "#4d9fff", border: "1px solid rgba(77,159,255,0.3)" }}>
                 PAPER TRADING
               </span>
             </Tip>
@@ -1532,9 +1532,9 @@ export default function BotDashboard() {
             style={{
               display: "flex", alignItems: "center", gap: "6px",
               padding: "8px 12px", borderRadius: "4px",
-              border: "1px solid rgba(0,229,255,0.3)",
-              background: "rgba(0,229,255,0.08)",
-              color: "#00e5ff", fontSize: "12px", fontWeight: 600,
+              border: "1px solid rgba(77,159,255,0.3)",
+              background: "rgba(77,159,255,0.08)",
+              color: "#4d9fff", fontSize: "12px", fontWeight: 600,
               cursor: "pointer",
             }}
             title="Download system state snapshot as JSON"
@@ -1547,12 +1547,12 @@ export default function BotDashboard() {
               <Play size={14} /> Start
             </button>
           ) : (
-            <button onClick={() => stopBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: "none", background: "#d4a017", color: "black", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+            <button onClick={() => stopBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: "none", background: "#fbb24c", color: "black", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
               <Square size={14} /> Pause
             </button>
           )}
           <Tip id="killSwitch">
-            <button onClick={() => killBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: isKilled ? "2px solid #ff453a" : "2px solid rgba(255,69,58,0.3)", background: isKilled ? "rgba(255,51,51,0.2)" : "transparent", color: "#ff453a", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
+            <button onClick={() => killBot.mutate()} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "4px", border: isKilled ? "2px solid #ff453a" : "2px solid rgba(255,69,58,0.3)", background: isKilled ? "rgba(255,90,110,0.2)" : "transparent", color: "#ff453a", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
               <ShieldAlert size={14} /> {isKilled ? "Unkill" : "Kill Switch"}
             </button>
           </Tip>
@@ -1618,14 +1618,14 @@ export default function BotDashboard() {
       {lastScan?.size_tier && lastScan.size_tier.label ? (
         <div style={{ ...card, marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <Shield size={14} style={{ color: "#00e5ff" }} />
+            <Shield size={14} style={{ color: "#4d9fff" }} />
             <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
               Position Rules
             </span>
             <span style={{
               marginLeft: "8px", padding: "2px 8px", borderRadius: "4px",
               fontSize: "10px", fontWeight: 700,
-              background: "rgba(0, 229, 255, 0.12)", color: "#00e5ff",
+              background: "rgba(77, 159, 255, 0.12)", color: "#4d9fff",
               textTransform: "uppercase",
             }}>
               {lastScan.size_tier.label}
@@ -1690,10 +1690,10 @@ export default function BotDashboard() {
           {lastScan.size_tier.next_tier_at ? (
             <div style={{
               marginTop: "10px", padding: "8px 12px",
-              background: "rgba(0, 229, 255, 0.04)", borderRadius: "3px",
+              background: "rgba(77, 159, 255, 0.04)", borderRadius: "3px",
               fontSize: "11px", color: "#a1a1a6",
             }}>
-              Next tier unlocks at <strong style={{ color: "#00e5ff" }}>
+              Next tier unlocks at <strong style={{ color: "#4d9fff" }}>
                 ${lastScan.size_tier.next_tier_at.toLocaleString()}
               </strong> equity. Bot will automatically adjust to use more positions at smaller sizes.
             </div>
@@ -1704,7 +1704,7 @@ export default function BotDashboard() {
       {/* ── AI Signals Panel ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-          <Zap size={14} style={{ color: "#d4a017" }} />
+          <Zap size={14} style={{ color: "#fbb24c" }} />
           <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>
             <Tip id="confidence">AI Trade Signals</Tip>
           </span>
@@ -1717,7 +1717,7 @@ export default function BotDashboard() {
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {signals.map((sig: any, i: number) => (
               <div key={i} style={{
-                background: "rgba(0, 20, 40, 0.4)", border: `1px solid rgba(0, 229, 255, 0.08)`,
+                background: "rgba(0, 20, 40, 0.4)", border: `1px solid rgba(77, 159, 255, 0.08)`,
                 borderLeft: `3px solid ${signalColor(sig.type)}`,
                 borderRadius: "4px", padding: "12px 14px",
               }}>
@@ -1733,14 +1733,14 @@ export default function BotDashboard() {
                     <span style={{
                       padding: "2px 7px", borderRadius: "4px", fontSize: "10px",
                       fontWeight: 700, fontFamily: "monospace",
-                      background: sig.rank === 1 ? "rgba(48,209,88,0.2)" : sig.rank <= 3 ? "rgba(212,160,23,0.18)" : "rgba(74,92,112,0.15)",
-                      color: sig.rank === 1 ? "#30d158" : sig.rank <= 3 ? "#d4a017" : "#a1a1a6",
+                      background: sig.rank === 1 ? "rgba(48,209,88,0.2)" : sig.rank <= 3 ? "rgba(251,178,76,0.18)" : "rgba(74,92,112,0.15)",
+                      color: sig.rank === 1 ? "#30d158" : sig.rank <= 3 ? "#fbb24c" : "#a1a1a6",
                     }}>#{sig.rank}</span>
                   ) : null}
                   <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "15px", color: "#c8d6e5" }}>{sig.ticker}</span>
                   <span style={{
                     padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700,
-                    background: sig.type === "buy" ? "rgba(0,255,65,0.15)" : sig.type === "sell" ? "rgba(255,51,51,0.15)" : "rgba(212,160,23,0.15)",
+                    background: sig.type === "buy" ? "rgba(74,222,128,0.15)" : sig.type === "sell" ? "rgba(255,90,110,0.15)" : "rgba(251,178,76,0.15)",
                     color: signalColor(sig.type),
                   }}>{sig.action}</span>
                   {/* Sector clash warning — user wanted to see when bot is buying same-sector */}
@@ -1789,7 +1789,7 @@ export default function BotDashboard() {
                       const val = sig.factors?.[f.key];
                       if (val == null) return null;
                       const v = Number(val);
-                      const color = v >= 70 ? "#30d158" : v >= 50 ? "#d4a017" : "#4a5c70";
+                      const color = v >= 70 ? "#30d158" : v >= 50 ? "#fbb24c" : "#4a5c70";
                       return (
                         <div key={f.key} style={{ fontSize: "10px", textAlign: "center" }}>
                           <div style={{ color: "#4a5c70", fontWeight: 600, marginBottom: "2px" }}>{f.label}</div>
@@ -1801,7 +1801,7 @@ export default function BotDashboard() {
                       <div style={{ fontSize: "10px", textAlign: "center" }} title="Number of factors above 70 — multi-factor signals are more robust">
                         <div style={{ color: "#4a5c70", fontWeight: 600, marginBottom: "2px" }}>Strong</div>
                         <div style={{
-                          color: sig.factor_strength >= 3 ? "#30d158" : sig.factor_strength >= 2 ? "#d4a017" : "#a1a1a6",
+                          color: sig.factor_strength >= 3 ? "#30d158" : sig.factor_strength >= 2 ? "#fbb24c" : "#a1a1a6",
                           fontFamily: "monospace", fontWeight: 700,
                         }}>{sig.factor_strength}/5</div>
                       </div>
@@ -1813,10 +1813,10 @@ export default function BotDashboard() {
                   <span style={{ fontSize: "11px", color: "#4a5c70", flexShrink: 0 }}>
                     <Tip id="confidence">Confidence</Tip>
                   </span>
-                  <div style={{ flex: 1, height: "4px", background: "rgba(0, 229, 255, 0.1)", borderRadius: "2px", overflow: "hidden" }}>
+                  <div style={{ flex: 1, height: "4px", background: "rgba(77, 159, 255, 0.1)", borderRadius: "2px", overflow: "hidden" }}>
                     <div style={{
                       height: "100%", width: `${sig.confidence}%`, borderRadius: "2px",
-                      background: sig.confidence >= 70 ? "#30d158" : sig.confidence >= 50 ? "#d4a017" : "#ff453a",
+                      background: sig.confidence >= 70 ? "#30d158" : sig.confidence >= 50 ? "#fbb24c" : "#ff453a",
                       transition: "width 0.5s ease",
                     }} />
                   </div>
@@ -1846,12 +1846,12 @@ export default function BotDashboard() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "16px" }}>
           {/* Kill Switch status */}
-          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: `1px solid ${isKilled ? "rgba(255,51,51,0.3)" : "rgba(0, 229, 255, 0.08)"}` }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: `1px solid ${isKilled ? "rgba(255,90,110,0.3)" : "rgba(77, 159, 255, 0.08)"}` }}>
             <div style={{ ...label, marginBottom: "8px" }}><Tip id="killSwitch">Kill Switch</Tip></div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <div style={{
                 width: "44px", height: "24px", borderRadius: "6px", position: "relative", cursor: "pointer",
-                background: isKilled ? "#ff453a" : "rgba(0, 229, 255, 0.12)",
+                background: isKilled ? "#ff453a" : "rgba(77, 159, 255, 0.12)",
                 transition: "background 0.2s",
               }} onClick={() => killBot.mutate()}>
                 <div style={{
@@ -1867,23 +1867,23 @@ export default function BotDashboard() {
           </div>
 
           {/* Daily loss limit */}
-          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(77, 159, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="dailyLossLimit">Daily Loss Limit</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#d4a017" }}>−{status?.dailyLossLimitPct ?? 5}%</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#fbb24c" }}>−{status?.dailyLossLimitPct ?? 5}%</div>
             <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Auto-halts trading if exceeded</div>
           </div>
 
           {/* Max position size */}
-          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(77, 159, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="positionSize">Max Position Size</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#00e5ff" }}>{status?.maxPositionPct ?? 8}%</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#4d9fff" }}>{status?.maxPositionPct ?? 8}%</div>
             <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Per trade, of portfolio (Kelly hard cap)</div>
           </div>
 
           {/* Max exposure */}
-          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(0, 229, 255, 0.08)" }}>
+          <div style={{ background: "rgba(0, 15, 30, 0.4)", borderRadius: "4px", padding: "14px", border: "1px solid rgba(77, 159, 255, 0.08)" }}>
             <div style={{ ...label, marginBottom: "4px" }}><Tip id="totalExposure">Max Exposure</Tip></div>
-            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#a855f7" }}>{status?.maxExposurePct ?? 95}%</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, fontFamily: "monospace", color: "#c084fc" }}>{status?.maxExposurePct ?? 95}%</div>
             <div style={{ fontSize: "11px", color: "#4a5c70", marginTop: "4px" }}>Max portfolio invested</div>
           </div>
         </div>
@@ -1918,16 +1918,16 @@ export default function BotDashboard() {
 
         {/* Mode & security badges */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,229,255,0.15)", color: "#00e5ff", border: "1px solid rgba(0,229,255,0.2)" }}>
+          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(77,159,255,0.15)", color: "#4d9fff", border: "1px solid rgba(77,159,255,0.2)" }}>
             Paper Trading Mode
           </span>
-          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0,255,65,0.1)", color: "#30d158", border: "1px solid rgba(0,255,65,0.2)" }}>
+          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(74,222,128,0.1)", color: "#30d158", border: "1px solid rgba(74,222,128,0.2)" }}>
             {status?.auditLogCount ?? 0} Audit Entries
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: "5px", padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0, 20, 40, 0.5)", color: "#c8d6e5", border: "1px solid rgba(0, 229, 255, 0.1)" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: "5px", padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(0, 20, 40, 0.5)", color: "#c8d6e5", border: "1px solid rgba(77, 159, 255, 0.1)" }}>
             <Lock size={10} /> API keys encrypted
           </span>
-          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(168,85,247,0.1)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.2)" }}>
+          <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "rgba(192,132,252,0.1)", color: "#c084fc", border: "1px solid rgba(192,132,252,0.2)" }}>
             {unreadCount} unread alerts
           </span>
         </div>
@@ -1936,7 +1936,7 @@ export default function BotDashboard() {
       {/* ── Audit Log (UX 2026-04-20: taller panel + copy button) ── */}
       <div style={{ ...card, marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-          <Clock size={14} style={{ color: "#00e5ff" }} />
+          <Clock size={14} style={{ color: "#4d9fff" }} />
           <span style={{ fontSize: "14px", fontWeight: 600, color: "#c8d6e5" }}>Activity Log</span>
           <button
             onClick={() => {
@@ -1976,9 +1976,9 @@ export default function BotDashboard() {
               borderRadius: "4px",
               fontSize: "11px",
               fontWeight: 600,
-              background: "rgba(0,229,255,0.1)",
-              color: "#00e5ff",
-              border: "1px solid rgba(0,229,255,0.3)",
+              background: "rgba(77,159,255,0.1)",
+              color: "#4d9fff",
+              border: "1px solid rgba(77,159,255,0.3)",
               cursor: "pointer",
             }}
           >
@@ -1991,7 +1991,7 @@ export default function BotDashboard() {
             audit.map((a: any, i: number) => (
               <div key={i} style={{ display: "flex", gap: "10px", padding: "6px 0", borderBottom: "1px solid rgba(0, 15, 30, 0.4)", fontSize: "12px", flexWrap: "wrap" }}>
                 <span style={{ color: "#4a5c70", fontFamily: "monospace", flexShrink: 0, width: "130px" }}>{new Date(a.time).toLocaleString()}</span>
-                <span style={{ color: "#00e5ff", fontWeight: 600, flexShrink: 0, width: "80px" }}>{a.action}</span>
+                <span style={{ color: "#4d9fff", fontWeight: 600, flexShrink: 0, width: "80px" }}>{a.action}</span>
                 <span style={{ color: "#a1a1a6" }}>{a.detail}</span>
               </div>
             ))

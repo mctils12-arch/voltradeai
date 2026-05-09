@@ -30,6 +30,14 @@ try {
   db.prepare("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'").run();
 } catch {} // Column already exists
 
+// ─── Billing columns (Stripe subscription support) ──────────────────────────
+// Idempotent — wrapped in try/catch so existing DBs upgrade cleanly.
+try { db.prepare("ALTER TABLE users ADD COLUMN tier TEXT DEFAULT 'free'").run(); } catch {}
+try { db.prepare("ALTER TABLE users ADD COLUMN stripe_customer_id TEXT").run(); } catch {}
+try { db.prepare("ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT").run(); } catch {}
+try { db.prepare("ALTER TABLE users ADD COLUMN subscription_status TEXT").run(); } catch {}
+try { db.prepare("ALTER TABLE users ADD COLUMN subscription_period_end INTEGER").run(); } catch {}
+
 db.prepare(`
   CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -75,6 +83,84 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: "Session expired" });
   }
 
+  (req as any).userId = session.user_id;
+  next();
+}
+
+/**
+ * Middleware: only the owner (configured via OWNER_EMAIL) can access.
+ * Used to lock the trading bot/engine to a single account while we
+ * cannot legally offer auto-trading to customers (pre-RIA registration).
+ */
+export function requireOwner(req: Request, res: Response, next: NextFunction) {
+  const token = (req as any).cookies?.session;
+  if (!token) return res.status(401).json({ error: "Not authenticated" });
+
+  const session = db.prepare("SELECT user_id, created_at FROM sessions WHERE token = ?").get(token) as any;
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
+
+  if (Date.now() - session.created_at > 24 * 3600 * 1000) {
+    db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    return res.status(401).json({ error: "Session expired" });
+  }
+
+  const user = db.prepare("SELECT email FROM users WHERE id = ?").get(session.user_id) as any;
+  if (!user || user.email !== OWNER_EMAIL) {
+    return res.status(403).json({
+      error: "Owner only",
+      message: "Automated trading is currently restricted to the platform owner.",
+    });
+  }
+
+  (req as any).userId = session.user_id;
+  (req as any).userEmail = user.email;
+  next();
+}
+
+/**
+ * Middleware: requires user to be on the 'pro' tier OR be the owner.
+ * Use to gate Pro-only features (analyzer Pro variants, advanced research, etc).
+ * The owner is always treated as Pro.
+ */
+export function requirePro(req: Request, res: Response, next: NextFunction) {
+  const token = (req as any).cookies?.session;
+  if (!token) return res.status(401).json({ error: "Not authenticated" });
+
+  const session = db.prepare("SELECT user_id, created_at FROM sessions WHERE token = ?").get(token) as any;
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
+
+  if (Date.now() - session.created_at > 24 * 3600 * 1000) {
+    db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    return res.status(401).json({ error: "Session expired" });
+  }
+
+  const user = db.prepare(
+    "SELECT email, tier, subscription_status FROM users WHERE id = ?"
+  ).get(session.user_id) as any;
+  if (!user) return res.status(401).json({ error: "User not found" });
+
+  // Owner always counts as Pro
+  if (user.email === OWNER_EMAIL) {
+    (req as any).userId = session.user_id;
+    (req as any).userEmail = user.email;
+    return next();
+  }
+
+  // Pro requires both tier=pro AND an active subscription status
+  const isActivePro = user.tier === "pro" && (
+    user.subscription_status === "active" ||
+    user.subscription_status === "trialing"
+  );
+  if (!isActivePro) {
+    return res.status(402).json({  // 402 Payment Required
+      error: "Pro tier required",
+      message: "This feature requires a Pro subscription.",
+      upgradeUrl: "/pricing",
+    });
+  }
+
+  (req as any).userId = session.user_id;
+  (req as any).userEmail = user.email;
   next();
 }
 
@@ -223,14 +309,23 @@ export function registerAuthRoutes(app: Express) {
       return res.json({ authenticated: false });
     }
 
-    const user = db.prepare("SELECT email, role FROM users WHERE id = ?").get(session.user_id) as any;
+    const user = db.prepare(
+      "SELECT email, role, tier, subscription_status, subscription_period_end FROM users WHERE id = ?"
+    ).get(session.user_id) as any;
     if (!user) return res.json({ authenticated: false });
+
+    // Owner is implicitly Pro — no Stripe customer needed for the owner.
+    const isOwner = user.email === OWNER_EMAIL;
+    const effectiveTier = isOwner ? "pro" : (user.tier || "free");
 
     res.json({
       authenticated: true,
       email: user.email,
       role: user.role || "user",
-      isOwner: user.email === OWNER_EMAIL,
+      isOwner,
+      tier: effectiveTier,
+      subscriptionStatus: user.subscription_status || null,
+      subscriptionPeriodEnd: user.subscription_period_end || null,
     });
   });
 

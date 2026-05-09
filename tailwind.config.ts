@@ -9,8 +9,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", "Helvetica Neue", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "monospace"],
+        sans: ["Geist", "Inter", "Helvetica Neue", "sans-serif"],
+        mono: ["Geist Mono", "JetBrains Mono", "Fira Code", "monospace"],
       },
       borderRadius: {
         lg: "var(--radius)",

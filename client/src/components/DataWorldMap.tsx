@@ -31,9 +31,9 @@ type LandPolygon = number[][][]; // polygon[ring][point][lon,lat]
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const ACCENT = "#00e5ff";
-const USER_COLOR = "#ff3333";
-const BG_R = 5, BG_G = 10, BG_B = 18; // #050a12 decomposed
+const ACCENT = "#4d9fff";
+const USER_COLOR = "#ff5a6e";
+const BG_R = 5, BG_G = 10, BG_B = 18; // #050a13 decomposed
 const MAX_PARTICLES = 200;
 
 const LAT_MAX = 85;
@@ -241,7 +241,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Continent fills
-      lctx.fillStyle = "rgba(0, 229, 255, 0.08)";
+      lctx.fillStyle = "rgba(77, 159, 255, 0.08)";
       for (const poly of polys) {
         const ring = poly[0];
         if (!ring || ring.length < 3) continue;
@@ -268,7 +268,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       }
 
       // Coastline strokes
-      lctx.strokeStyle = "rgba(0, 229, 255, 0.25)";
+      lctx.strokeStyle = "rgba(77, 159, 255, 0.25)";
       lctx.lineWidth = Math.max(0.8, Math.max(w, h) / 1200);
 
       for (const poly of polys) {
@@ -485,7 +485,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const lineAlpha = state === "loading" ? 0.35
           : (state === "loaded" && inBurst) ? 0.35
           : 0.25;
-        ctx!.strokeStyle = `rgba(0, 229, 255, ${lineAlpha})`;
+        ctx!.strokeStyle = `rgba(77, 159, 255, ${lineAlpha})`;
         ctx!.lineWidth = 1.2;
         // Batch all arcs into a single path for fewer draw calls
         ctx!.beginPath();
@@ -553,7 +553,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         const alpha = Math.max(0, 0.3 * (1 - burstAge / 1.5));
         ctx!.beginPath();
         ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx!.strokeStyle = `rgba(255, 51, 51, ${alpha})`;
+        ctx!.strokeStyle = `rgba(255, 90, 110, ${alpha})`;
         ctx!.lineWidth = 2;
         ctx!.stroke();
       }
@@ -676,8 +676,8 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
           ? `bold ${lr.fs}px 'JetBrains Mono', monospace`
           : `${lr.fs}px 'JetBrains Mono', monospace`;
         ctx!.fillStyle = lr.isUser
-          ? `rgba(255, 51, 51, 0.85)`
-          : `rgba(0, 229, 255, 0.6)`;
+          ? `rgba(255, 90, 110, 0.85)`
+          : `rgba(77, 159, 255, 0.6)`;
         ctx!.textAlign = "left";
         ctx!.fillText(lr.label, lr.x, lr.y + lr.fs);
       }

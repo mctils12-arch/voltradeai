@@ -10,19 +10,10 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // Landing page at /bot
-  const landingPath = path.resolve(__dirname, "..", "landing");
-  if (fs.existsSync(landingPath)) {
-    app.use("/bot", express.static(landingPath));
-    app.get("/bot", (_req, res) => {
-      res.sendFile(path.resolve(landingPath, "index.html"));
-    });
-  }
-
-  // Main app served at root and all sub-routes
+  // React app serves everything — including the landing page (now part of the React routes)
   app.use(express.static(distPath));
 
-  // fall through to app index.html for any unmatched route
+  // SPA fallback: any unmatched route returns index.html so React router handles it
   app.use("/{*path}", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });

@@ -222,8 +222,8 @@ export default function WatchlistPage({ onSelectTicker, authenticated }: { onSel
         <div style={{
           padding: '12px 16px',
           marginBottom: '1rem',
-          background: 'rgba(0, 229, 255, 0.06)',
-          border: '1px solid rgba(0, 229, 255, 0.15)',
+          background: 'rgba(77, 159, 255, 0.06)',
+          border: '1px solid rgba(77, 159, 255, 0.15)',
           borderRadius: 6,
           display: 'flex',
           alignItems: 'center',

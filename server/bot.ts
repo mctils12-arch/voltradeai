@@ -1,5 +1,5 @@
 import { Express } from "express";
-import { requireAuth } from "./auth";
+import { requireAuth, requireOwner } from "./auth";
 import { exec, execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
@@ -838,7 +838,7 @@ function getAuditLogCount(): number {
 export function registerBotRoutes(app: Express) {
 
   // SSE for live bot audit log updates
-  app.get("/api/bot/stream", requireAuth, (req, res) => {
+  app.get("/api/bot/stream", requireOwner, (req, res) => {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -849,7 +849,7 @@ export function registerBotRoutes(app: Express) {
   });
 
   // Account info from Alpaca
-  app.get("/api/bot/account", requireAuth, async (_req, res) => {
+  app.get("/api/bot/account", requireOwner, async (_req, res) => {
     try {
       const acct = await alpaca("/v2/account");
       const equity = parseFloat(acct.equity);
@@ -891,7 +891,7 @@ export function registerBotRoutes(app: Express) {
   });
 
   // Current positions from Alpaca
-  app.get("/api/bot/positions", requireAuth, async (_req, res) => {
+  app.get("/api/bot/positions", requireOwner, async (_req, res) => {
     try {
       const positions = await alpaca("/v2/positions");
       if (!Array.isArray(positions)) {
@@ -1031,7 +1031,7 @@ print(json.dumps(data))
 
   // Candlestick bars for trade charts
   // Trade history from Alpaca
-  app.get("/api/bot/history", requireAuth, async (_req, res) => {
+  app.get("/api/bot/history", requireOwner, async (_req, res) => {
     try {
       const orders = await alpaca("/v2/orders?status=closed&limit=50");
       if (!Array.isArray(orders)) return res.json([]);
@@ -1055,11 +1055,11 @@ print(json.dumps(data))
   // Removed: duplicate performance endpoint (empty handler shadowed real one)
 
   // ── Notifications endpoints ───────────────────────────────────────────────
-  app.get("/api/bot/notifications", requireAuth, (_req, res) => {
+  app.get("/api/bot/notifications", requireOwner, (_req, res) => {
     res.json(notifications);
   });
 
-  app.post("/api/bot/notifications/read", requireAuth, (_req, res) => {
+  app.post("/api/bot/notifications/read", requireOwner, (_req, res) => {
     notifications.forEach(n => (n.read = true));
     res.json({ ok: true });
   });
@@ -1119,7 +1119,7 @@ print(json.dumps(data))
   });
 
   // ── Performance Dashboard Data ────────────────────────────────────────────
-  app.get("/api/bot/performance", requireAuth, async (_req, res) => {
+  app.get("/api/bot/performance", requireOwner, async (_req, res) => {
     try {
       let perf: any = { totalTrades: 0, totalFills: 0, winRate: 0, avgGain: 0, avgLoss: 0, totalPnlPct: 0, profitFactor: 0, byStrategy: {}, recentTrades: [], realisticPnlPct: 0, avgSlippagePct: 0, totalSlippageCost: 0, slippageGapPct: 0, bestTrade: null, worstTrade: null };
 
@@ -1389,7 +1389,7 @@ print(json.dumps({
   });
 
   // ── Trade History CSV Export ─────────────────────────────────────────────
-  app.get("/api/bot/export-trades", requireAuth, async (_req, res) => {
+  app.get("/api/bot/export-trades", requireOwner, async (_req, res) => {
     try {
       const { stdout } = await execPythonSerialized(`python3 -c "
 import json, os, csv, io
@@ -1432,7 +1432,7 @@ print(out.getvalue())
   });
 
   // ── Data Backup Endpoint (manual trigger or cron) ──────────────────────────
-  app.post("/api/bot/backup", requireAuth, async (_req, res) => {
+  app.post("/api/bot/backup", requireOwner, async (_req, res) => {
     try {
       const { stdout } = await execPythonSerialized(`python3 -c "
 import json, os, shutil, time
@@ -1476,7 +1476,7 @@ print(json.dumps({'backed_up': len(files_backed), 'files': files_backed, 'path':
   // Read-only snapshot/health endpoints. Zero trading impact.
   // ═════════════════════════════════════════════════════════════════
 
-  app.get("/api/system/snapshot", requireAuth, async (_req, res) => {
+  app.get("/api/system/snapshot", requireOwner, async (_req, res) => {
     const snapshot: any = {
       snapshot_version: "1.1",
       generated_at: new Date().toISOString(),
@@ -1715,7 +1715,7 @@ print(json.dumps(result, default=str))
     res.json(snapshot);
   });
 
-  app.get("/api/system/health-check", requireAuth, async (_req, res) => {
+  app.get("/api/system/health-check", requireOwner, async (_req, res) => {
     const issues: any[] = [];
     const warnings: any[] = [];
     const now = Date.now();
@@ -1756,7 +1756,7 @@ print(json.dumps(result, default=str))
     });
   });
 
-  app.post("/api/system/verify-change", requireAuth, async (req, res) => {
+  app.post("/api/system/verify-change", requireOwner, async (req, res) => {
     const expected = req.body?.changes || [];
     if (!Array.isArray(expected)) return res.status(400).json({ error: "Body must be {changes: string[]}" });
     const checks: any = { verified: [], missing: [], checked_at: new Date().toISOString() };
@@ -1781,7 +1781,7 @@ print(json.dumps(result, default=str))
   });
 
   // Bot status
-  app.get("/api/bot/status", requireAuth, (_req, res) => {
+  app.get("/api/bot/status", requireOwner, (_req, res) => {
     res.json({
       active: state.active,
       killSwitch: state.killSwitch,
@@ -1803,7 +1803,7 @@ print(json.dumps(result, default=str))
   });
 
   // Start bot
-  app.post("/api/bot/start", requireAuth, (_req, res) => {
+  app.post("/api/bot/start", requireOwner, (_req, res) => {
     if (state.killSwitch) return res.status(400).json({ error: "Kill switch is ON. Disable it first." });
     state.active = true;
     audit("START", "Bot activated");
@@ -1814,7 +1814,7 @@ print(json.dumps(result, default=str))
   });
 
   // Stop bot
-  app.post("/api/bot/stop", requireAuth, (_req, res) => {
+  app.post("/api/bot/stop", requireOwner, (_req, res) => {
     state.active = false;
     stopStreaming();
     audit("STOP", "Bot deactivated");
@@ -1823,7 +1823,7 @@ print(json.dumps(result, default=str))
   });
 
   // Kill switch
-  app.post("/api/bot/kill", requireAuth, async (_req, res) => {
+  app.post("/api/bot/kill", requireOwner, async (_req, res) => {
     state.killSwitch = !state.killSwitch;
     if (state.killSwitch) {
       sendEmailAlert("Kill Switch Activated", "Kill switch manually activated. All trading stopped. Open orders cancelled.");
@@ -1839,7 +1839,7 @@ print(json.dumps(result, default=str))
   });
 
   // Reset circuit breaker
-  app.post("/api/bot/circuit-breaker/reset", requireAuth, async (_req, res) => {
+  app.post("/api/bot/circuit-breaker/reset", requireOwner, async (_req, res) => {
     state.circuitBreakerUntil = 0;
     state.consecutiveStopLosses = 0;
     audit("CIRCUIT-BREAKER-RESET", "Manual reset by owner");
@@ -1849,13 +1849,13 @@ print(json.dumps(result, default=str))
 
   // Audit log
   // OOM fix: always read from SQLite instead of in-memory array
-  app.get("/api/bot/audit", requireAuth, (_req, res) => {
+  app.get("/api/bot/audit", requireOwner, (_req, res) => {
     const persisted = getPersistedAuditLog(100);
     res.json(persisted.map((e: any) => ({ time: e.time, action: e.type, type: e.type, detail: e.message, message: e.message })));
   });
 
   // Place a trade (manual or from bot signals)
-  app.post("/api/bot/trade", requireAuth, async (req, res) => {
+  app.post("/api/bot/trade", requireOwner, async (req, res) => {
     if (state.killSwitch) return res.status(400).json({ error: "Kill switch is ON" });
     const { ticker, side, qty, type = "market" } = req.body || {};
     if (!ticker || !side || !qty) return res.status(400).json({ error: "ticker, side, qty required" });
@@ -1909,7 +1909,7 @@ print(json.dumps(result, default=str))
   });
 
   // Close a position
-  app.post("/api/bot/close", requireAuth, async (req, res) => {
+  app.post("/api/bot/close", requireOwner, async (req, res) => {
     const { ticker } = req.body || {};
     if (!ticker) return res.status(400).json({ error: "ticker required" });
     try {
@@ -1924,7 +1924,7 @@ print(json.dumps(result, default=str))
   });
 
   // ── Chart data from Alpaca ──────────────────────────────────────────────────
-  app.get("/api/bot/bars/:ticker", requireAuth, async (req, res) => {
+  app.get("/api/bot/bars/:ticker", requireOwner, async (req, res) => {
     const { ticker } = req.params;
 
     // Detect OCC option symbols (e.g., XLK260424P00149000) and return empty bars
@@ -1969,7 +1969,7 @@ print(json.dumps(result, default=str))
   // ── Daemon health (OPT 2026-04-20) ─────────────────────────────────────────
   // Returns { alive, rss_mb, uptime_seconds } if daemon is running, or
   // { alive: false, reason: "..." } if down. Useful for monitoring.
-  app.get("/api/daemon/health", requireAuth, async (_req, res) => {
+  app.get("/api/daemon/health", requireOwner, async (_req, res) => {
     if (!DAEMON_ENABLED) {
       return res.json({ alive: false, reason: "Daemon disabled via env" });
     }
@@ -1988,7 +1988,7 @@ print(json.dumps(result, default=str))
   // ── Monitoring endpoints (OPT 2026-04-20) ─────────────────────────────────
   // Consolidated system health — drawdown proximity, ML status, kill switch
   // state, shadow portfolio divergence. Used for dashboard + alerting.
-  app.get("/api/monitoring/overview", requireAuth, async (_req, res) => {
+  app.get("/api/monitoring/overview", requireOwner, async (_req, res) => {
     const overview: any = {
       timestamp: new Date().toISOString(),
       daemon: { alive: false },
@@ -2053,7 +2053,7 @@ print(json.dumps(result, default=str))
   // Also fixes the timestamp field — original code looked for r.timestamp
   // which neither the seeder NOR track_fill writes. Now reads time_filled
   // (which both write) with timestamp as a fallback for any legacy records.
-  app.get("/api/monitoring/tier-pnl", requireAuth, async (req, res) => {
+  app.get("/api/monitoring/tier-pnl", requireOwner, async (req, res) => {
     const days = parseInt((req.query.days as string) || "30", 10);
     try {
       const cmd = `python3 -c "
@@ -2158,7 +2158,7 @@ print(json.dumps(result))
   });
 
   // Drawdown proximity alert — returns status + how close to kill threshold
-  app.get("/api/monitoring/drawdown", requireAuth, async (_req, res) => {
+  app.get("/api/monitoring/drawdown", requireOwner, async (_req, res) => {
     try {
       const acct = await alpaca("/v2/account");
       const equity = parseFloat(acct.equity || "0");
@@ -2186,7 +2186,7 @@ print(json.dumps(result))
   });
 
   // Cache inventory — for operational visibility
-  app.get("/api/monitoring/caches", requireAuth, async (_req, res) => {
+  app.get("/api/monitoring/caches", requireOwner, async (_req, res) => {
     try {
       const cacheCall = await pythonCall(
         "cache_inventory", {},
@@ -2305,12 +2305,12 @@ print(json.dumps(result[:20]))
   }
 
   // Signals endpoint
-  app.get("/api/bot/signals", requireAuth, (_req, res) => {
+  app.get("/api/bot/signals", requireOwner, (_req, res) => {
     res.json(signals);
   });
 
   // Manual signal refresh
-  app.post("/api/bot/refresh-signals", requireAuth, async (_req, res) => {
+  app.post("/api/bot/refresh-signals", requireOwner, async (_req, res) => {
     const topTickers = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "META", "AMD", "GOOGL"];
     audit("REFRESH", "Generating fresh signals for top 10 tickers...");
     await generateSignals(topTickers);
@@ -2318,7 +2318,7 @@ print(json.dumps(result[:20]))
   });
 
   // ── Backtesting ───────────────────────────────────────────────────────────
-  app.post("/api/bot/backtest", requireAuth, async (req, res) => {
+  app.post("/api/bot/backtest", requireOwner, async (req, res) => {
     const { ticker = "SPY", strategy = "all", years = 3 } = req.body || {};
     const scriptPath = path.resolve("backtest.py");
 
@@ -5068,12 +5068,12 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
 
   // Route: Get last scan result
-  app.get("/api/bot/last-scan", requireAuth, (_req, res) => {
+  app.get("/api/bot/last-scan", requireOwner, (_req, res) => {
     res.json(lastScanResult || { message: "No scan run yet. Activate the bot to start." });
   });
 
   // Route: Market calendar — holidays and early closes
-  app.get("/api/bot/calendar", requireAuth, async (_req, res) => {
+  app.get("/api/bot/calendar", requireOwner, async (_req, res) => {
     try {
       const today = new Date().toISOString().split("T")[0];
       const future = new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
@@ -5248,7 +5248,7 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
   }, 5000);
 
   // Route: Force immediate scan (respects the concurrency lock)
-  app.post("/api/bot/run-now", requireAuth, async (_req, res) => {
+  app.post("/api/bot/run-now", requireOwner, async (_req, res) => {
     if (tier2Running) return res.json({ message: "Tier 2 scan already running..." });
     tier2Running = true;  // Lock BEFORE responding to prevent double-triggers
     res.json({ message: "Tier 2 intelligence scan starting..." });
@@ -5261,7 +5261,7 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
   });
 
   // ── Self-Diagnostic Status ───────────────────────────────────────
-  app.get("/api/bot/diagnostics", requireAuth, async (_req, res) => {
+  app.get("/api/bot/diagnostics", requireOwner, async (_req, res) => {
     try {
       const { stdout } = await execPythonSerialized(`python3 -c "
 from diagnostics import run_diagnostics, get_auto_fix_params
@@ -5278,7 +5278,7 @@ print(json.dumps({'report': report, 'auto_fix': params}))
 
 
   // ── ML Model Status ───────────────────────────────────────────────────────
-  app.get("/api/bot/ml-status", requireAuth, async (_req, res) => {
+  app.get("/api/bot/ml-status", requireOwner, async (_req, res) => {
     try {
       const { stdout } = await execPythonSerialized(
         `python3 -c "

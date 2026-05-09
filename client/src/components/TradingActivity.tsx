@@ -104,7 +104,7 @@ function formatTime(isoStr: string | undefined) {
 
 const card: React.CSSProperties = {
   background: "rgba(0, 20, 40, 0.5)",
-  border: "1px solid rgba(0, 229, 255, 0.1)",
+  border: "1px solid rgba(77, 159, 255, 0.1)",
   borderRadius: "6px",
   padding: "20px",
   backdropFilter: "blur(20px)",
@@ -191,11 +191,11 @@ const badgeColors: Record<string, { bg: string; color: string; border: string }>
   "type-long":        { bg: "rgba(48,209,88,0.12)",   color: "#30d158", border: "rgba(48,209,88,0.25)" },
   "type-short":       { bg: "rgba(255,69,58,0.12)",   color: "#ff453a", border: "rgba(255,69,58,0.25)" },
   "type-short-etf":   { bg: "rgba(255,69,58,0.12)",   color: "#ff453a", border: "rgba(255,69,58,0.25)" },
-  "type-etf":         { bg: "rgba(0,229,255,0.12)",   color: "#00e5ff", border: "rgba(0,229,255,0.25)" },
+  "type-etf":         { bg: "rgba(77,159,255,0.12)",   color: "#4d9fff", border: "rgba(77,159,255,0.25)" },
   "type-put":         { bg: "rgba(255,69,58,0.12)",   color: "#ff453a", border: "rgba(255,69,58,0.3)" },
   "type-call":        { bg: "rgba(48,209,88,0.12)",   color: "#30d158", border: "rgba(48,209,88,0.3)" },
   "type-iron-condor": { bg: "rgba(191,90,242,0.12)",  color: "#bf5af2", border: "rgba(191,90,242,0.3)" },
-  "type-option":      { bg: "rgba(212,160,23,0.12)",  color: "#d4a017", border: "rgba(212,160,23,0.25)" },
+  "type-option":      { bg: "rgba(251,178,76,0.12)",  color: "#fbb24c", border: "rgba(251,178,76,0.25)" },
 };
 
 function Badge({ type }: { type: TradeType }) {
@@ -261,7 +261,7 @@ export default function TradingActivity() {
       {/* ── Today's Trades ── */}
       <div style={card} data-testid="todays-trades-panel">
         <div style={headerRow}>
-          <ArrowUpDown size={14} style={{ color: "#00e5ff" }} />
+          <ArrowUpDown size={14} style={{ color: "#4d9fff" }} />
           <span style={titleStyle}>TODAY'S TRADES</span>
           <span style={countStyle}>{trades.length} fills</span>
         </div>
@@ -272,7 +272,7 @@ export default function TradingActivity() {
           <div style={{ maxHeight: "300px", overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch" as any }}>
             <table style={tableStyle}>
               <thead style={stickyHead}>
-                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(77, 159, 255, 0.1)" }}>
                   <th style={thStyle}>Time</th>
                   <th style={thStyle}>Symbol</th>
                   <th style={thStyle}>Side</th>
@@ -329,7 +329,7 @@ export default function TradingActivity() {
       {/* ── Open Orders ── */}
       <div style={card} data-testid="open-orders-panel">
         <div style={headerRow}>
-          <BookOpen size={14} style={{ color: "#00e5ff" }} />
+          <BookOpen size={14} style={{ color: "#4d9fff" }} />
           <span style={titleStyle}>OPEN ORDERS</span>
           <span style={countStyle}>{orders.length} pending</span>
         </div>
@@ -340,7 +340,7 @@ export default function TradingActivity() {
           <div style={{ maxHeight: "250px", overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch" as any }}>
             <table style={tableStyle}>
               <thead style={stickyHead}>
-                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(0, 229, 255, 0.1)" }}>
+                <tr style={{ color: "#4a5c70", textAlign: "left", borderBottom: "1px solid rgba(77, 159, 255, 0.1)" }}>
                   <th style={thStyle}>Time</th>
                   <th style={thStyle}>Symbol</th>
                   <th style={thStyle}>Side</th>
@@ -371,8 +371,8 @@ export default function TradingActivity() {
                         <span style={{
                           display: "inline-block", fontSize: "10px", fontWeight: 700,
                           padding: "2px 6px", borderRadius: "3px",
-                          background: "rgba(0, 229, 255, 0.12)", color: "#00e5ff",
-                          border: "1px solid rgba(0, 229, 255, 0.25)",
+                          background: "rgba(77, 159, 255, 0.12)", color: "#4d9fff",
+                          border: "1px solid rgba(77, 159, 255, 0.25)",
                           textTransform: "capitalize" as const, letterSpacing: "0.3px",
                         }}>
                           {status.replace("_", " ")}

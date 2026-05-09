@@ -677,7 +677,7 @@ function ScoreBar({ score }: { score: number }) {
         <div className={`h-full rounded-full ${color} transition-all duration-700`} style={{ width: `${score}%` }} />
       </div>
       <span className="text-xs font-mono font-semibold w-8 text-right"
-        style={{ color: score >= 70 ? '#10b981' : score >= 45 ? '#f59e0b' : '#f43f5e' }}>
+        style={{ color: score >= 70 ? '#10b981' : score >= 45 ? '#fbb24c' : '#f43f5e' }}>
         {score.toFixed(0)}
       </span>
     </div>
@@ -765,7 +765,7 @@ function VolSurfaceChart({ data }: { data: VolSurface[] }) {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '56px' }}>
         {data.map((d, i) => {
           const h = Math.max(6, (d.atm_iv / maxIv) * 56);
-          const vrpColor = d.vrp > 3 ? '#10b981' : d.vrp < -2 ? '#f43f5e' : '#f59e0b';
+          const vrpColor = d.vrp > 3 ? '#10b981' : d.vrp < -2 ? '#f43f5e' : '#fbb24c';
           return (
             <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '56px' }}
               title={`${d.expiry}: IV=${d.atm_iv}%, VRP=${d.vrp > 0 ? '+' : ''}${d.vrp}%`}>
@@ -2089,8 +2089,8 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
           <span style={{
             fontSize: 9, padding: "3px 8px", borderRadius: 3,
-            background: "rgba(0, 229, 255, 0.1)", border: "1px solid rgba(0, 229, 255, 0.2)",
-            color: "#00e5ff", fontFamily: "'JetBrains Mono', monospace",
+            background: "rgba(77, 159, 255, 0.1)", border: "1px solid rgba(77, 159, 255, 0.2)",
+            color: "#4d9fff", fontFamily: "'JetBrains Mono', monospace",
             letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
           }}>
             MARKET INTEL
@@ -2205,10 +2205,10 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                   alignItems: "center",
                   gap: "0.375rem",
                   padding: "0.5rem 1rem",
-                  background: subTab === "options" ? "rgba(0, 229, 255, 0.12)" : "transparent",
-                  border: subTab === "options" ? "1px solid rgba(0, 229, 255, 0.3)" : "1px solid transparent",
+                  background: subTab === "options" ? "rgba(77, 159, 255, 0.12)" : "transparent",
+                  border: subTab === "options" ? "1px solid rgba(77, 159, 255, 0.3)" : "1px solid transparent",
                   borderRadius: "0.375rem",
-                  color: subTab === "options" ? "#00e5ff" : "#94a3b8",
+                  color: subTab === "options" ? "#4d9fff" : "#94a3b8",
                   fontSize: 12,
                   fontWeight: subTab === "options" ? 600 : 500,
                   cursor: "pointer",
@@ -2227,10 +2227,10 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                   alignItems: "center",
                   gap: "0.375rem",
                   padding: "0.5rem 1rem",
-                  background: subTab === "insights" ? "rgba(212, 160, 23, 0.12)" : "transparent",
-                  border: subTab === "insights" ? "1px solid rgba(212, 160, 23, 0.3)" : "1px solid transparent",
+                  background: subTab === "insights" ? "rgba(251, 178, 76, 0.12)" : "transparent",
+                  border: subTab === "insights" ? "1px solid rgba(251, 178, 76, 0.3)" : "1px solid transparent",
                   borderRadius: "0.375rem",
-                  color: subTab === "insights" ? "#d4a017" : "#94a3b8",
+                  color: subTab === "insights" ? "#fbb24c" : "#94a3b8",
                   fontSize: 12,
                   fontWeight: subTab === "insights" ? 600 : 500,
                   cursor: "pointer",
@@ -2380,7 +2380,7 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                   <b>ATM IV</b> = At-the-Money Implied Vol — IV of the option closest to the current stock price<br/>
                   <b>VRP</b> = Volatility Risk Premium — IV minus RV. Positive = options are overpriced vs real moves<br/>
                   <b>Term Structure</b> = IV across different expiry dates. Rising = normal (calm market). Flat/inverted = stress<br/>
-                  <b>Bars color:</b> <span style={{color:'#10b981'}}>Green</span> = high VRP (sell options edge) · <span style={{color:'#f43f5e'}}>Red</span> = negative VRP (buy options edge) · <span style={{color:'#f59e0b'}}>Amber</span> = neutral
+                  <b>Bars color:</b> <span style={{color:'#10b981'}}>Green</span> = high VRP (sell options edge) · <span style={{color:'#f43f5e'}}>Red</span> = negative VRP (buy options edge) · <span style={{color:'#fbb24c'}}>Amber</span> = neutral
                 </div>
               </div>
 

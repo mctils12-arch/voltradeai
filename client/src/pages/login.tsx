@@ -316,7 +316,7 @@ function CityMatrixCanvas() {
         c.fillStyle = `rgba(100, 160, 200, ${0.06 * layerAlpha})`;
         c.fillRect(b.x, bTop, 1.2, b.h);
 
-        c.strokeStyle = `rgba(0, 229, 255, ${0.14 * layerAlpha})`;
+        c.strokeStyle = `rgba(77, 159, 255, ${0.14 * layerAlpha})`;
         c.lineWidth = 1.2;
         c.beginPath();
         c.moveTo(b.x, bTop);
@@ -348,7 +348,7 @@ function CityMatrixCanvas() {
               const ty = bTop - (t + 1) * tierH;
               c.fillStyle = `rgba(12, 24, 42, ${0.9 * layerAlpha})`;
               c.fillRect(tx, ty, tierW, tierH);
-              c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
+              c.strokeStyle = `rgba(77, 159, 255, ${0.1 * layerAlpha})`;
               c.lineWidth = 0.5;
               c.strokeRect(tx, ty, tierW, tierH);
             }
@@ -368,7 +368,7 @@ function CityMatrixCanvas() {
             }
             c.closePath();
             c.fill();
-            c.strokeStyle = `rgba(0, 229, 255, ${0.1 * layerAlpha})`;
+            c.strokeStyle = `rgba(77, 159, 255, ${0.1 * layerAlpha})`;
             c.lineWidth = 0.5;
             c.stroke();
           } else if (rd.type === "stepped-crown") {
@@ -412,12 +412,12 @@ function CityMatrixCanvas() {
           } else if (rd.type === "helipad") {
             const hx = b.x + rd.xOff;
             const hr = rd.params.radius;
-            c.strokeStyle = `rgba(0, 229, 255, ${0.12 * layerAlpha})`;
+            c.strokeStyle = `rgba(77, 159, 255, ${0.12 * layerAlpha})`;
             c.lineWidth = 0.8;
             c.beginPath();
             c.arc(hx, bTop - 2, hr, 0, Math.PI * 2);
             c.stroke();
-            c.strokeStyle = `rgba(0, 229, 255, ${0.08 * layerAlpha})`;
+            c.strokeStyle = `rgba(77, 159, 255, ${0.08 * layerAlpha})`;
             c.lineWidth = 1;
             c.beginPath();
             c.moveTo(hx - hr * 0.3, bTop - 2 - hr * 0.35);
@@ -487,7 +487,7 @@ function CityMatrixCanvas() {
       c.fillRect(0, groundY - H * 0.4, W, H * 0.42);
 
       // Ground line
-      c.strokeStyle = "rgba(0, 229, 255, 0.08)";
+      c.strokeStyle = "rgba(77, 159, 255, 0.08)";
       c.lineWidth = 1;
       c.beginPath();
       c.moveTo(0, groundY);
@@ -497,8 +497,8 @@ function CityMatrixCanvas() {
       // Ground fog
       const fogGrad = c.createLinearGradient(0, groundY - 30, 0, groundY + 10);
       fogGrad.addColorStop(0, "transparent");
-      fogGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.015)");
-      fogGrad.addColorStop(1, "rgba(0, 229, 255, 0.008)");
+      fogGrad.addColorStop(0.5, "rgba(77, 159, 255, 0.015)");
+      fogGrad.addColorStop(1, "rgba(77, 159, 255, 0.008)");
       c.fillStyle = fogGrad;
       c.fillRect(0, groundY - 30, W, 40);
 
@@ -590,7 +590,7 @@ function CityMatrixCanvas() {
           const alpha = s.opacity * fade;
           c.fillStyle = i === 0
             ? `rgba(180, 255, 255, ${Math.min(alpha * 1.8, 0.6)})`
-            : `rgba(0, 229, 255, ${alpha})`;
+            : `rgba(77, 159, 255, ${alpha})`;
           c.fillText(s.chars[i % s.chars.length], s.x, cy);
           if (Math.random() < 0.04) s.chars[i % s.chars.length] = CHARS[Math.floor(Math.random() * 2)];
         }
@@ -600,7 +600,7 @@ function CityMatrixCanvas() {
       const scanY = (t * 1.2) % (H * 2) - H * 0.3;
       const scanGrad = c.createLinearGradient(0, scanY - 15, 0, scanY + 15);
       scanGrad.addColorStop(0, "transparent");
-      scanGrad.addColorStop(0.5, "rgba(0, 229, 255, 0.025)");
+      scanGrad.addColorStop(0.5, "rgba(77, 159, 255, 0.025)");
       scanGrad.addColorStop(1, "transparent");
       c.fillStyle = scanGrad;
       c.fillRect(0, scanY - 15, W, 30);
@@ -784,7 +784,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
   const inputStyle: React.CSSProperties = {
     width: "100%", padding: "12px 14px", marginBottom: 12,
     background: "rgba(0, 15, 30, 0.7)",
-    border: "1px solid rgba(0, 229, 255, 0.15)",
+    border: "1px solid rgba(77, 159, 255, 0.15)",
     borderRadius: 4, color: "#c8d6e5", fontSize: 13,
     fontFamily: "'JetBrains Mono', monospace",
     outline: "none", boxSizing: "border-box",
@@ -813,7 +813,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
             top: "-100%",
             width: "1px",
             height: "200%",
-            background: "linear-gradient(180deg, transparent 0%, #00e5ff 30%, #00e5ff 50%, transparent 100%)",
+            background: "linear-gradient(180deg, transparent 0%, #4d9fff 30%, #4d9fff 50%, transparent 100%)",
             animation: `matrixFall ${3 + (i % 4) * 2}s linear infinite`,
             animationDelay: `${(i * 0.7) % 5}s`,
             willChange: "transform",
@@ -827,14 +827,14 @@ export default function LoginPage({ onLogin }: LoginProps) {
       }}>
         <div style={{
           position: "absolute", top: 0, left: 0, right: 0, height: "1px",
-          background: "rgba(0, 229, 255, 0.06)",
+          background: "rgba(77, 159, 255, 0.06)",
           animation: "scanLine 6s linear infinite",
           willChange: "transform",
         }} />
       </div>
 
       {/* Corner HUD markers */}
-      <div className="hud-label-tl" style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 12, color: "#00e5ff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em", fontWeight: 600 }}>
+      <div className="hud-label-tl" style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 12, color: "#4d9fff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em", fontWeight: 600 }}>
         VOLTRADEAI
       </div>
       <div className="hud-status-bl" style={{ position: "absolute", bottom: 16, left: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
@@ -884,14 +884,14 @@ export default function LoginPage({ onLogin }: LoginProps) {
         maxWidth: 380,
         padding: "2.5rem 2rem",
         background: "rgba(3, 5, 10, 0.92)",
-        border: "1px solid rgba(0, 229, 255, 0.12)",
+        border: "1px solid rgba(77, 159, 255, 0.12)",
         borderRadius: 6,
-        boxShadow: "0 0 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 229, 255, 0.03)",
+        boxShadow: "0 0 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(77, 159, 255, 0.03)",
         backdropFilter: "blur(12px)",
         margin: "0 1rem",
       }}>
         <div style={{ textAlign: "center", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: 9, letterSpacing: "0.2em", color: "#00e5ff", opacity: 0.4, fontFamily: "'JetBrains Mono', monospace" }}>
+          <span style={{ fontSize: 9, letterSpacing: "0.2em", color: "#4d9fff", opacity: 0.4, fontFamily: "'JetBrains Mono', monospace" }}>
             TOP SECRET // AUTHORIZED PERSONNEL ONLY
           </span>
         </div>
@@ -899,7 +899,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
         <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
           <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "0.08em", fontFamily: "'Inter', 'JetBrains Mono', sans-serif" }}>
             <span style={{ color: "#ffffff" }}>VolTrade</span>
-            <span style={{ color: "#00e5ff" }}>AI</span>
+            <span style={{ color: "#4d9fff" }}>AI</span>
           </div>
           <div style={{ fontSize: 11, color: "#4a5c70", letterSpacing: "0.15em", marginTop: 6, textTransform: "uppercase", fontFamily: "'JetBrains Mono', monospace" }}>
             {mode === "login" ? "SIGN IN TO YOUR ACCOUNT" : mode === "signup" ? "CREATE AN ACCOUNT" : mode === "reset-confirm" ? "SET NEW PASSWORD" : "RESET YOUR PASSWORD"}
@@ -918,28 +918,28 @@ export default function LoginPage({ onLogin }: LoginProps) {
               type="email" placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)} required
               style={inputStyle}
-              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
-              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+              onFocus={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
             />
             <input
               type="password" placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)} required
               style={{ ...inputStyle, marginBottom: 16 }}
-              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
-              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+              onFocus={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
             />
-            {error && <div style={{ color: "#ff3333", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
+            {error && <div style={{ color: "#ff5a6e", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
             <button type="submit" disabled={loading} style={{
               width: "100%", padding: "12px",
-              background: "rgba(0, 229, 255, 0.08)",
-              border: "1px solid rgba(0, 229, 255, 0.3)",
-              borderRadius: 4, color: "#00e5ff", fontSize: 12,
+              background: "rgba(77, 159, 255, 0.08)",
+              border: "1px solid rgba(77, 159, 255, 0.3)",
+              borderRadius: 4, color: "#4d9fff", fontSize: 12,
               fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
               fontFamily: "'JetBrains Mono', monospace",
               cursor: "pointer", transition: "all 200ms ease",
             }}
-              onMouseOver={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.15)"; (e.target as HTMLElement).style.boxShadow = "0 0 20px rgba(0, 229, 255, 0.1)"; }}
-              onMouseOut={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.08)"; (e.target as HTMLElement).style.boxShadow = "none"; }}
+              onMouseOver={e => { (e.target as HTMLElement).style.background = "rgba(77, 159, 255, 0.15)"; (e.target as HTMLElement).style.boxShadow = "0 0 20px rgba(77, 159, 255, 0.1)"; }}
+              onMouseOut={e => { (e.target as HTMLElement).style.background = "rgba(77, 159, 255, 0.08)"; (e.target as HTMLElement).style.boxShadow = "none"; }}
             >
               {loading ? "AUTHENTICATING..." : "SIGN IN"}
             </button>
@@ -950,35 +950,35 @@ export default function LoginPage({ onLogin }: LoginProps) {
               type="email" placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)} required
               style={inputStyle}
-              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
-              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+              onFocus={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
             />
             <input
               type="password" placeholder="Password (min 6 chars)" value={password}
               onChange={e => setPassword(e.target.value)} required
               style={inputStyle}
-              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
-              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+              onFocus={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
             />
             <input
               type="password" placeholder="Confirm Password" value={confirmPassword}
               onChange={e => setConfirmPassword(e.target.value)} required
               style={{ ...inputStyle, marginBottom: 16 }}
-              onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
-              onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+              onFocus={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.08)"; }}
+              onBlur={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
             />
-            {error && <div style={{ color: "#ff3333", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
+            {error && <div style={{ color: "#ff5a6e", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
             <button type="submit" disabled={loading} style={{
               width: "100%", padding: "12px",
-              background: "rgba(0, 229, 255, 0.08)",
-              border: "1px solid rgba(0, 229, 255, 0.3)",
-              borderRadius: 4, color: "#00e5ff", fontSize: 12,
+              background: "rgba(77, 159, 255, 0.08)",
+              border: "1px solid rgba(77, 159, 255, 0.3)",
+              borderRadius: 4, color: "#4d9fff", fontSize: 12,
               fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
               fontFamily: "'JetBrains Mono', monospace",
               cursor: "pointer", transition: "all 200ms ease",
             }}
-              onMouseOver={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.15)"; (e.target as HTMLElement).style.boxShadow = "0 0 20px rgba(0, 229, 255, 0.1)"; }}
-              onMouseOut={e => { (e.target as HTMLElement).style.background = "rgba(0, 229, 255, 0.08)"; (e.target as HTMLElement).style.boxShadow = "none"; }}
+              onMouseOver={e => { (e.target as HTMLElement).style.background = "rgba(77, 159, 255, 0.15)"; (e.target as HTMLElement).style.boxShadow = "0 0 20px rgba(77, 159, 255, 0.1)"; }}
+              onMouseOut={e => { (e.target as HTMLElement).style.background = "rgba(77, 159, 255, 0.08)"; (e.target as HTMLElement).style.boxShadow = "none"; }}
             >
               {loading ? "CREATING ACCOUNT..." : "CREATE ACCOUNT"}
             </button>
@@ -994,9 +994,9 @@ export default function LoginPage({ onLogin }: LoginProps) {
                   onClick={() => { setMode("login"); setResetComplete(false); setNewPassword(""); setConfirmNewPassword(""); }}
                   style={{
                     width: "100%", padding: "12px",
-                    background: "rgba(0, 229, 255, 0.08)",
-                    border: "1px solid rgba(0, 229, 255, 0.3)",
-                    borderRadius: 4, color: "#00e5ff", fontSize: 12,
+                    background: "rgba(77, 159, 255, 0.08)",
+                    border: "1px solid rgba(77, 159, 255, 0.3)",
+                    borderRadius: 4, color: "#4d9fff", fontSize: 12,
                     fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
                     fontFamily: "'JetBrains Mono', monospace", cursor: "pointer",
                   }}
@@ -1010,22 +1010,22 @@ export default function LoginPage({ onLogin }: LoginProps) {
                   type="password" placeholder="New Password" value={newPassword}
                   onChange={e => setNewPassword(e.target.value)} required
                   style={inputStyle}
-                  onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
-                  onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+                  onFocus={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.08)"; }}
+                  onBlur={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
                 />
                 <input
                   type="password" placeholder="Confirm New Password" value={confirmNewPassword}
                   onChange={e => setConfirmNewPassword(e.target.value)} required
                   style={{ ...inputStyle, marginBottom: 16 }}
-                  onFocus={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(0, 229, 255, 0.08)"; }}
-                  onBlur={e => { e.target.style.borderColor = "rgba(0, 229, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
+                  onFocus={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.4)"; e.target.style.boxShadow = "0 0 12px rgba(77, 159, 255, 0.08)"; }}
+                  onBlur={e => { e.target.style.borderColor = "rgba(77, 159, 255, 0.15)"; e.target.style.boxShadow = "none"; }}
                 />
                 {error && <div style={{ color: "#ff453a", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>{error}</div>}
                 <button type="submit" disabled={loading} style={{
                   width: "100%", padding: "12px",
-                  background: "rgba(0, 229, 255, 0.08)",
-                  border: "1px solid rgba(0, 229, 255, 0.3)",
-                  borderRadius: 4, color: "#00e5ff", fontSize: 12,
+                  background: "rgba(77, 159, 255, 0.08)",
+                  border: "1px solid rgba(77, 159, 255, 0.3)",
+                  borderRadius: 4, color: "#4d9fff", fontSize: 12,
                   fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
                   fontFamily: "'JetBrains Mono', monospace", cursor: "pointer",
                 }}>
@@ -1037,7 +1037,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
         ) :
           <form onSubmit={handleReset}>
             {resetSent ? (
-              <div style={{ textAlign: "center", color: "#00e5ff", fontSize: 13, padding: "1rem 0", fontFamily: "'JetBrains Mono', monospace" }}>
+              <div style={{ textAlign: "center", color: "#4d9fff", fontSize: 13, padding: "1rem 0", fontFamily: "'JetBrains Mono', monospace" }}>
                 Reset link sent to {email}
               </div>
             ) : (
@@ -1046,12 +1046,12 @@ export default function LoginPage({ onLogin }: LoginProps) {
                   onChange={e => setEmail(e.target.value)} required
                   style={{ ...inputStyle, marginBottom: 16 }}
                 />
-                {error && <div style={{ color: "#ff3333", fontSize: 12, marginBottom: 12, textAlign: "center" }}>{error}</div>}
+                {error && <div style={{ color: "#ff5a6e", fontSize: 12, marginBottom: 12, textAlign: "center" }}>{error}</div>}
                 <button type="submit" disabled={loading} style={{
                   width: "100%", padding: "12px",
-                  background: "rgba(0, 229, 255, 0.08)",
-                  border: "1px solid rgba(0, 229, 255, 0.3)",
-                  borderRadius: 4, color: "#00e5ff", fontSize: 12,
+                  background: "rgba(77, 159, 255, 0.08)",
+                  border: "1px solid rgba(77, 159, 255, 0.3)",
+                  borderRadius: 4, color: "#4d9fff", fontSize: 12,
                   fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
                   fontFamily: "'JetBrains Mono', monospace", cursor: "pointer",
                 }}>
@@ -1066,7 +1066,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
           <button
             onClick={() => { setMode(mode === "login" ? "reset" : "login"); setError(""); setResetSent(false); setEmail(""); setPassword(""); }}
             style={{
-              background: "none", border: "none", color: "#d4a017",
+              background: "none", border: "none", color: "#fbb24c",
               fontSize: 11, cursor: "pointer", letterSpacing: "0.1em",
               fontFamily: "'JetBrains Mono', monospace", opacity: 0.7,
             }}
@@ -1079,7 +1079,7 @@ export default function LoginPage({ onLogin }: LoginProps) {
           <button
             onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); setConfirmPassword(""); setEmail(""); setPassword(""); }}
             style={{
-              background: "none", border: "none", color: "#00e5ff",
+              background: "none", border: "none", color: "#4d9fff",
               fontSize: 11, cursor: "pointer", letterSpacing: "0.08em",
               fontFamily: "'JetBrains Mono', monospace", opacity: 0.6,
             }}

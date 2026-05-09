@@ -1,0 +1,406 @@
+(function() {
+  const CITIES = [
+    { name: 'NYC', lat: 40.71,  lng: -74.01, major: true  },
+    { name: 'CHI', lat: 41.88,  lng: -87.63, major: false },
+    { name: 'SFO', lat: 37.77,  lng: -122.42,major: true  },
+    { name: 'TOR', lat: 43.65,  lng: -79.38, major: false },
+    { name: 'LDN', lat: 51.51,  lng: -0.13,  major: true  },
+    { name: 'FRA', lat: 50.11,  lng: 8.68,   major: false },
+    { name: 'PAR', lat: 48.86,  lng: 2.35,   major: false },
+    { name: 'ZUR', lat: 47.37,  lng: 8.55,   major: false },
+    { name: 'DXB', lat: 25.20,  lng: 55.27,  major: false },
+    { name: 'MUM', lat: 19.08,  lng: 72.88,  major: false },
+    { name: 'SIN', lat: 1.35,   lng: 103.82, major: false },
+    { name: 'HKG', lat: 22.32,  lng: 114.17, major: true  },
+    { name: 'SHA', lat: 31.23,  lng: 121.47, major: true  },
+    { name: 'TKY', lat: 35.68,  lng: 139.65, major: true  },
+    { name: 'SEO', lat: 37.57,  lng: 126.98, major: false },
+    { name: 'SYD', lat: -33.87, lng: 151.21, major: true  },
+    { name: 'SAO', lat: -23.55, lng: -46.63, major: false },
+    { name: 'JNB', lat: -26.20, lng: 28.04,  major: false },
+  ];
+
+  const ARC_PAIRS = [
+    // Trans-atlantic
+    ['NYC','LDN'], ['NYC','FRA'], ['NYC','PAR'], ['LDN','SAO'],
+    // Trans-pacific
+    ['SFO','TKY'], ['SFO','HKG'], ['SFO','SHA'], ['TKY','SFO'],
+    // Asia-Pacific
+    ['HKG','SYD'], ['SHA','TKY'], ['SIN','HKG'], ['MUM','SIN'],
+    // Europe-Asia
+    ['LDN','HKG'], ['FRA','MUM'], ['LDN','DXB'], ['ZUR','SHA'],
+    // Americas
+    ['NYC','TOR'], ['CHI','NYC'], ['NYC','SAO'], ['SFO','CHI'],
+    // Middle-East / Africa
+    ['DXB','SIN'], ['LDN','JNB'], ['DXB','MUM'], ['JNB','SAO']
+  ];
+
+  const canvas = document.getElementById('world-canvas');
+  const arcsSvg = document.getElementById('arcs-svg');
+  const citiesEl = document.getElementById('cities');
+  const ctx = canvas.getContext('2d');
+
+  let projection, W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let cityMap = {};
+  let landFeature = null;
+  let countriesFeature = null;
+  let userLocation = { lat: 35.2271, lng: -80.8431, name: 'Charlotte' }; // fallback default
+
+  function sizeCanvas() {
+    W = canvas.clientWidth;
+    H = canvas.clientHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    arcsSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  }
+
+  function renderWorldDots() {
+    if (!landFeature || W === 0 || H === 0) return;
+    ctx.clearRect(0, 0, W, H);
+
+    const path = d3.geoPath(projection, ctx);
+
+    // Graticule (latitude/longitude grid lines) — very subtle warm white
+    if (typeof d3.geoGraticule === 'function') {
+      const graticule = d3.geoGraticule().step([15, 15])();
+      ctx.strokeStyle = 'rgba(77, 159, 255, 0.06)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      path(graticule);
+      ctx.stroke();
+    }
+
+    // Soft outer glow / halo behind continents — amber tint
+    ctx.save();
+    ctx.shadowColor = 'rgba(77, 159, 255, 0.18)';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(20, 50, 90, 0.55)';
+    ctx.beginPath();
+    path(landFeature);
+    ctx.fill();
+    ctx.restore();
+
+    // Solid continent fill — warm dark
+    ctx.fillStyle = 'rgba(15, 45, 80, 0.9)';
+    ctx.beginPath();
+    path(landFeature);
+    ctx.fill();
+
+    // Country borders — faint amber
+    if (countriesFeature) {
+      ctx.strokeStyle = 'rgba(77, 159, 255, 0.18)';
+      ctx.lineWidth = 0.4;
+      ctx.beginPath();
+      path(countriesFeature);
+      ctx.stroke();
+    }
+
+    // Coastline outline — amber
+    ctx.strokeStyle = 'rgba(77, 159, 255, 0.45)';
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    path(landFeature);
+    ctx.stroke();
+
+    // Inner bright coastline — bright gold highlight
+    ctx.strokeStyle = 'rgba(124, 196, 255, 0.3)';
+    ctx.lineWidth = 0.3;
+    ctx.beginPath();
+    path(landFeature);
+    ctx.stroke();
+  }
+
+  function renderCities() {
+    citiesEl.innerHTML = '';
+    cityMap = {};
+
+    // First pass: project all cities and store screen positions
+    const projected = [];
+    CITIES.forEach(c => {
+      const xy = projection([c.lng, c.lat]);
+      if (!xy) return;
+      cityMap[c.name] = xy;
+      projected.push({ city: c, xy: xy });
+    });
+
+    // Candidate label positions, each as an offset from the dot (dx, dy in pixels)
+    // Used to score how much space each direction has around a given city.
+    const POSITIONS = [
+      { cls: 'pos-tr', dx:  60, dy: -22 },
+      { cls: 'pos-tl', dx: -60, dy: -22 },
+      { cls: 'pos-br', dx:  60, dy:  22 },
+      { cls: 'pos-bl', dx: -60, dy:  22 },
+      { cls: 'pos-r',  dx:  70, dy:   0 },
+      { cls: 'pos-l',  dx: -70, dy:   0 },
+      { cls: 'pos-t',  dx:   0, dy: -22 },
+      { cls: 'pos-b',  dx:   0, dy:  22 },
+    ];
+
+    // For each city, choose the position whose label center is farthest from
+    // every other city's dot. This automatically spreads labels around clusters
+    // (e.g. London / Paris / Frankfurt) without manual placement.
+    projected.forEach(({ city, xy }) => {
+      let bestPos = POSITIONS[0];
+      let bestScore = -Infinity;
+
+      for (const pos of POSITIONS) {
+        const labelX = xy[0] + pos.dx;
+        const labelY = xy[1] + pos.dy;
+        // Score = minimum distance to any other city's dot (bigger = better)
+        let minDist = Infinity;
+        for (const other of projected) {
+          if (other.city === city) continue;
+          const dx = labelX - other.xy[0];
+          const dy = labelY - other.xy[1];
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < minDist) minDist = d;
+        }
+        if (minDist > bestScore) {
+          bestScore = minDist;
+          bestPos = pos;
+        }
+      }
+
+      const el = document.createElement('div');
+      el.className = 'city' + (city.major ? ' major' : '');
+      el.style.left = xy[0] + 'px';
+      el.style.top  = xy[1] + 'px';
+      el.innerHTML = `
+        <div class="city-dot"></div>
+        <div class="city-label ${bestPos.cls}">${city.name}</div>
+        <div class="city-building"></div>
+      `;
+      citiesEl.appendChild(el);
+    });
+  }
+
+  // Static arcs between major cities — no animation, no particles
+  // ============== ARCS + PARTICLE STREAMS ==============
+  // Multi-color finance palette: cyan brand + semantic colors for data types.
+  const STREAM_TYPES = [
+    { type: 'quote',   color: '#7cc4ff', speed: 0.018, rate: 0.055, size: 1.5 },  // cyan — quotes (brand, highest frequency)
+    { type: 'buy',     color: '#4ade80', speed: 0.014, rate: 0.040, size: 1.6 },  // green — buy flow / gains
+    { type: 'sell',    color: '#ff5a6e', speed: 0.013, rate: 0.020, size: 1.6 },  // red — sell flow / losses
+    { type: 'ai',      color: '#c084fc', speed: 0.011, rate: 0.025, size: 1.6 },  // purple — AI signals / macro
+    { type: 'options', color: '#fbb24c', speed: 0.016, rate: 0.045, size: 1.5 },  // amber — options flow / highlights
+  ];
+
+  let arcStreams = [];   // each arc's curve + assigned stream type
+  let particles = [];    // active particles flying along arcs
+
+  function renderArcs() {
+    arcsSvg.innerHTML = '';
+    arcStreams = [];
+    particles = [];
+    const ns = 'http://www.w3.org/2000/svg';
+
+    ARC_PAIRS.forEach((pair, i) => {
+      const a = cityMap[pair[0]];
+      const b = cityMap[pair[1]];
+      if (!a || !b) return;
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Curve variation: every 3rd arc gets a deeper / different curve
+      // Some arcs lift higher, some bend asymmetrically, gives a more organic look
+      const variation = i % 3;
+      let ctl;
+      if (variation === 0) {
+        // Symmetric arc — control point centered, lift varies
+        const lift = Math.min(dist * 0.45, 220);
+        ctl = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - lift];
+      } else if (variation === 1) {
+        // Asymmetric arc — control point biased toward source
+        const lift = Math.min(dist * 0.35, 180);
+        ctl = [a[0] + dx * 0.35, (a[1] + b[1]) / 2 - lift];
+      } else {
+        // Asymmetric arc — control point biased toward destination
+        const lift = Math.min(dist * 0.55, 260);
+        ctl = [a[0] + dx * 0.65, (a[1] + b[1]) / 2 - lift];
+      }
+
+      const d = `M ${a[0]} ${a[1]} Q ${ctl[0]} ${ctl[1]} ${b[0]} ${b[1]}`;
+      const p = document.createElementNS(ns, 'path');
+      p.setAttribute('d', d);
+      p.setAttribute('class', i % 2 === 0 ? 'arc-path' : 'arc-path faint');
+      arcsSvg.appendChild(p);
+
+      // Assign a stream type — cycle through the types
+      const t = STREAM_TYPES[i % STREAM_TYPES.length];
+      arcStreams.push({
+        from: a, to: b, ctl: ctl,
+        type: t.type,
+        color: t.color,
+        // Per-arc speed/rate jitter so adjacent arcs aren't synchronized
+        speed: t.speed * (0.85 + Math.random() * 0.3),
+        rate: t.rate * (0.8 + Math.random() * 0.4),
+        size: t.size,
+        spawnTimer: Math.random() * 30,
+      });
+    });
+
+    // Group container for particles (drawn on top of arcs)
+    const particleGroup = document.createElementNS(ns, 'g');
+    particleGroup.setAttribute('id', 'particle-group');
+    arcsSvg.appendChild(particleGroup);
+  }
+
+  // Quadratic bezier point at t in [0,1]
+  function pointOnQuadratic(p0, p1, p2, t) {
+    const u = 1 - t;
+    return [
+      u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0],
+      u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1],
+    ];
+  }
+
+  function spawnParticle(stream) {
+    particles.push({
+      stream: stream,
+      t: 0,
+      // Slight per-particle speed jitter so they don't move in lockstep
+      speed: stream.speed * (0.85 + Math.random() * 0.3),
+      size: stream.size * (0.85 + Math.random() * 0.3),
+      trailLength: 0.16 + Math.random() * 0.06,
+    });
+  }
+
+  function animateParticles() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const particleGroup = document.getElementById('particle-group');
+    if (!particleGroup) {
+      requestAnimationFrame(animateParticles);
+      return;
+    }
+
+    // Spawn new particles on each arc according to its rate
+    arcStreams.forEach(s => {
+      s.spawnTimer -= s.rate;
+      if (s.spawnTimer <= 0) {
+        s.spawnTimer = 1 + Math.random() * 0.6;
+        spawnParticle(s);
+      }
+    });
+
+    // Move + redraw all particles
+    particleGroup.innerHTML = '';
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.t += p.speed;
+      if (p.t >= 1) {
+        particles.splice(i, 1);
+        continue;
+      }
+
+      const pos = pointOnQuadratic(p.stream.from, p.stream.ctl, p.stream.to, p.t);
+      const trailEnd = Math.max(0, p.t - p.trailLength);
+      const trailMid = Math.max(0, p.t - p.trailLength * 0.5);
+      const posTrailEnd = pointOnQuadratic(p.stream.from, p.stream.ctl, p.stream.to, trailEnd);
+      const posTrailMid = pointOnQuadratic(p.stream.from, p.stream.ctl, p.stream.to, trailMid);
+
+      // Trail — colored faded curve from trail start to particle head
+      const trail = document.createElementNS(ns, 'path');
+      trail.setAttribute('d', `M ${posTrailEnd[0]} ${posTrailEnd[1]} Q ${posTrailMid[0]} ${posTrailMid[1]} ${pos[0]} ${pos[1]}`);
+      trail.setAttribute('class', 'particle-trail');
+      trail.setAttribute('stroke', p.stream.color);
+      trail.setAttribute('stroke-width', p.size * 0.7);
+      particleGroup.appendChild(trail);
+
+      // Particle dot at head
+      const dot = document.createElementNS(ns, 'circle');
+      dot.setAttribute('cx', pos[0]);
+      dot.setAttribute('cy', pos[1]);
+      dot.setAttribute('r', p.size);
+      dot.setAttribute('fill', p.stream.color);
+      dot.setAttribute('class', 'data-particle');
+      dot.style.filter = `drop-shadow(0 0 4px ${p.stream.color}) drop-shadow(0 0 8px ${p.stream.color})`;
+      particleGroup.appendChild(dot);
+    }
+
+    requestAnimationFrame(animateParticles);
+  }
+
+  function init() {
+    sizeCanvas();
+    if (W === 0 || H === 0) { setTimeout(init, 100); return; }
+    projection = d3.geoNaturalEarth1().fitSize([W, H], landFeature);
+    renderWorldDots();
+    renderCities();
+    renderArcs();
+  }
+
+  // Try to detect user location (geolocation API) — falls back to Charlotte default
+  function detectUserLocation() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, name: 'Your city' }),
+        () => resolve(null),
+        { timeout: 4000, maximumAge: 600000 }
+      );
+    });
+  }
+
+  // Load world data, then render
+  Promise.all([
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json').then(r => r.json()).catch(() => null),
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then(r => r.json()).catch(() => null),
+    detectUserLocation()
+  ]).then(([landData, countriesData, userLoc]) => {
+    if (landData) landFeature = topojson.feature(landData, landData.objects.land);
+    if (countriesData) {
+      countriesFeature = topojson.mesh(countriesData, countriesData.objects.countries, (a, b) => a !== b);
+    }
+    if (userLoc) userLocation = userLoc;
+    if (landFeature) {
+      init();
+      requestAnimationFrame(animateParticles);
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (!landFeature) return;
+    sizeCanvas();
+    projection = d3.geoNaturalEarth1().fitSize([W, H], landFeature);
+    renderWorldDots();
+    renderCities();
+    renderArcs();
+  });
+
+})();
+
+// ===== second script block =====
+
+const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 8) nav.classList.add('scrolled');
+    else nav.classList.remove('scrolled');
+  });
+
+  const tickerData = [
+    {sym: 'SPY', pct: '+0.42%', up: true}, {sym: 'QQQ', pct: '+0.78%', up: true},
+    {sym: 'VIX', pct: '−2.14%', up: false}, {sym: 'NVDA', pct: '+1.93%', up: true},
+    {sym: 'AAPL', pct: '+0.31%', up: true}, {sym: 'TSLA', pct: '−0.86%', up: false},
+    {sym: 'MSFT', pct: '+0.55%', up: true}, {sym: 'GLD', pct: '−0.12%', up: false},
+    {sym: 'IWM', pct: '+0.91%', up: true}, {sym: 'TLT', pct: '−0.34%', up: false},
+    {sym: 'AMD', pct: '+1.21%', up: true}, {sym: 'META', pct: '+0.58%', up: true},
+    {sym: 'GOOGL', pct: '+0.67%', up: true}, {sym: 'AMZN', pct: '+0.44%', up: true},
+  ];
+  const tickerEl = document.getElementById('ticker');
+  if (tickerEl) {
+    const html = tickerData.map(d =>
+      `<div class="ticker-item"><span class="sym">${d.sym}</span><span class="pct ${d.up ? 'up' : 'down'}">${d.pct}</span></div>`
+    ).join('');
+    tickerEl.innerHTML = html + html;
+  }
+
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.s').forEach(el => {
+    el.classList.add('reveal');
+    io.observe(el);
+  });

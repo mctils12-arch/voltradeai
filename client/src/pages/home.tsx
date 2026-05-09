@@ -16,6 +16,8 @@ interface Tab {
   icon: React.ReactNode;
   mobileIcon: React.ReactNode;
   requiresAuth: boolean;
+  /** Tab is owner-only (e.g. live trading is restricted to platform owner pre-RIA). */
+  requiresOwner?: boolean;
 }
 
 const TABS: Tab[] = [
@@ -23,17 +25,16 @@ const TABS: Tab[] = [
   { id: "scanner",   label: "Scanner",   icon: <ScanLine size={14} />,  mobileIcon: <ScanLine size={20} />,  requiresAuth: false },
   { id: "news",      label: "News",      icon: <Newspaper size={14} />, mobileIcon: <Newspaper size={20} />, requiresAuth: false },
   { id: "watchlist", label: "Watchlist", icon: <Bookmark size={14} />,  mobileIcon: <Bookmark size={20} />,  requiresAuth: false },
-  { id: "bot",       label: "AI Engine",  icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true },
+  { id: "bot",       label: "AI Engine", icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true, requiresOwner: true },
 ];
 
 function Logo() {
   return (
-    <svg aria-label="VolTradeAI" width="28" height="28" viewBox="0 0 32 32" fill="none">
-      <rect width="32" height="32" rx="2" fill="#00e5ff" fillOpacity="0.1" />
-      <rect width="32" height="32" rx="2" stroke="#00e5ff" strokeWidth="1" fill="none" strokeOpacity="0.5" />
-      <polyline points="4,22 10,14 16,18 22,8 28,12" stroke="#00e5ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <circle cx="22" cy="8" r="2.5" fill="#00e5ff" />
-    </svg>
+    <a href="/" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", letterSpacing: "-0.02em" }} aria-label="VolTradeAI home">
+      <span style={{ color: "#eef3fb", fontWeight: 700, fontSize: 16 }}>vol</span>
+      <span style={{ color: "#b3c2d8", fontWeight: 500, fontSize: 16 }}>trade</span>
+      <span style={{ color: "#4d9fff", fontWeight: 600, fontSize: 13, marginLeft: 4, fontFamily: "Geist Mono, monospace" }}>/AI</span>
+    </a>
   );
 }
 
@@ -100,7 +101,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   // Login overlay
   if (showLogin) {
     return (
-      <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: dark ? "#050a12" : "#e8ecf1" }}>
+      <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: dark ? "#050a13" : "#e8ecf1" }}>
         <div style={{ position: "fixed", top: 16, left: 16, zIndex: 9990 }}>
           <button
             onClick={() => setShowLogin(false)}
@@ -108,11 +109,11 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
               display: "flex", alignItems: "center", gap: 6,
               padding: "8px 16px", borderRadius: 3,
               background: dark ? "rgba(0, 20, 40, 0.9)" : "rgba(255, 255, 255, 0.9)",
-              border: dark ? "1px solid rgba(0, 229, 255, 0.3)" : "1px solid rgba(0, 80, 120, 0.3)",
-              color: dark ? "#00e5ff" : "#0a1628", fontSize: 12, fontWeight: 500,
+              border: dark ? "1px solid rgba(77, 159, 255, 0.3)" : "1px solid rgba(0, 80, 120, 0.3)",
+              color: dark ? "#4d9fff" : "#0a1628", fontSize: 12, fontWeight: 500,
               fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
               textTransform: "uppercase", cursor: "pointer",
-              boxShadow: "0 0 12px rgba(0, 229, 255, 0.1)",
+              boxShadow: "0 0 12px rgba(77, 159, 255, 0.1)",
             }}
           >
             <X size={14} /> BACK
@@ -126,7 +127,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   return (
     <div className={dark ? "dark" : "light"} style={{
       minHeight: "100dvh",
-      background: dark ? "#050a12" : "#e8ecf1",
+      background: dark ? "#050a13" : "#e8ecf1",
       color: dark ? "#c8d6e5" : "#0a1628",
     }}>
 
@@ -134,11 +135,11 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       <nav className="tab-nav desktop-nav" style={dark ? {} : { background: 'rgba(232, 236, 241, 0.92)' }}>
         <div className="tab-nav-logo">
           <Logo />
-          <span className="tab-nav-logo-text"><span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span></span>
+          <span className="tab-nav-logo-text"><span style={{ color: "#fbb24c" }}>VolTrade</span><span style={{ color: "#4d9fff" }}>AI</span></span>
         </div>
 
         <div className="tab-nav-tabs">
-          {TABS.map(tab => (
+          {TABS.filter(tab => !tab.requiresOwner || isOwner).map(tab => (
             <button
               key={tab.id}
               className={`tab-btn ${activeTab === tab.id ? "active" : ""}`}
@@ -156,11 +157,11 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <a
-            href="/bot"
+            href="/#bot"
             className="theme-toggle-btn"
             aria-label="About the Bot"
             title="About the Bot — performance, strategy, mechanics"
-            style={{ color: "#00e5ff", display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
+            style={{ color: "#4d9fff", display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
           >
             <Info size={15} />
           </a>
@@ -184,7 +185,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
               onClick={() => setShowLogin(true)}
               aria-label="Sign in"
               title="Sign in"
-              style={{ color: "#00e5ff" }}
+              style={{ color: "#4d9fff" }}
             >
               <LogIn size={15} />
             </button>
@@ -196,7 +197,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       <nav className="mobile-top-bar" style={dark ? {} : { background: 'rgba(232, 236, 241, 0.92)', borderBottomColor: 'rgba(0, 80, 120, 0.12)' }}>
         <div className="tab-nav-logo">
           <Logo />
-          <span className="tab-nav-logo-text"><span style={{ color: "#d4a017" }}>VolTrade</span><span style={{ color: "#00e5ff" }}>AI</span></span>
+          <span className="tab-nav-logo-text"><span style={{ color: "#fbb24c" }}>VolTrade</span><span style={{ color: "#4d9fff" }}>AI</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
           <a
@@ -204,7 +205,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             className="theme-toggle-btn"
             aria-label="About the Bot"
             title="About the Bot"
-            style={{ color: "#00e5ff", display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
+            style={{ color: "#4d9fff", display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
           >
             <Info size={15} />
           </a>
@@ -214,7 +215,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
               <LogOut size={15} />
             </button>
           ) : (
-            <button className="theme-toggle-btn" onClick={() => setShowLogin(true)} aria-label="Sign in" style={{ color: "#00e5ff" }}>
+            <button className="theme-toggle-btn" onClick={() => setShowLogin(true)} aria-label="Sign in" style={{ color: "#4d9fff" }}>
               <LogIn size={15} />
             </button>
           )}
@@ -247,7 +248,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
                   <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>The AI engine scans the market, finds opportunities, and trades automatically.</p>
                   <button
                     onClick={() => setShowLogin(true)}
-                    style={{ marginTop: "1.5rem", padding: "10px 24px", background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.3)", color: "#00e5ff", borderRadius: 4, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase" }}
+                    style={{ marginTop: "1.5rem", padding: "10px 24px", background: "rgba(77,159,255,0.08)", border: "1px solid rgba(77,159,255,0.3)", color: "#4d9fff", borderRadius: 4, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase" }}
                   >
                     Sign In
                   </button>
@@ -260,7 +261,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
 
       {/* ── Mobile bottom tab bar (shown only on mobile) ── */}
       <nav className="mobile-bottom-bar">
-        {TABS.map(tab => (
+        {TABS.filter(tab => !tab.requiresOwner || isOwner).map(tab => (
           <button
             key={tab.id}
             className={`mobile-tab-btn ${activeTab === tab.id ? "active" : ""}`}

@@ -1,0 +1,250 @@
+<!-- ============== NAV ============== -->
+<nav id="nav">
+  <div class="nav-inner">
+    <a href="/" data-route="/" class="logo">
+      <span class="vol">vol</span><span class="trade">trade</span><span class="ai">/AI</span>
+    </a>
+    <div class="nav-links">
+      <a href="#analyze">How it works</a>
+      <a href="#bot">The Bot</a>
+      <a href="/pricing" data-route="/pricing">Pricing</a>
+      <a href="#">Docs</a>
+    </div>
+    <div class="nav-cta">
+      <a href="/login" class="btn-login" data-route="/login">Log in</a>
+      <a href="/login" class="btn btn-primary" data-route="/login">Sign up <span class="arrow">→</span></a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============== HERO ============== -->
+<section class="hero" id="hero">
+  <div class="hero-bg">
+    <canvas id="world-canvas"></canvas>
+    <div class="cities" id="cities"></div>
+    <svg class="arcs-svg" id="arcs-svg" preserveAspectRatio="none"></svg>
+  </div>
+  <div class="hero-vignette"></div>
+  <div class="container hero-grid">
+    <div class="hero-text">
+      <h1 class="headline">
+        You're missing<br/>
+        <span class="accent">information</span>.<br/>
+        We're not.
+      </h1>
+      <p class="stage-sub">
+        Finance sites show you the price. Brokerages let you trade it.
+        Neither tells you whether you should — or what you're really risking.
+        The analyzer that gives you the read. And an algo that makes trades for you, automatically.
+      </p>
+      <div class="stage-cta">
+        <a href="/login" class="btn btn-primary btn-xl" data-route="/login">Sign up free <span class="arrow">→</span></a>
+      </div>
+    </div>
+
+    <!-- Real product mockup: a fuller "decision read" interface -->
+    <div class="hero-mockup">
+      <div class="mockup-window">
+        <div class="mockup-bar">
+          <div class="mockup-dots"><span></span><span></span><span></span></div>
+          <div class="mockup-url">voltrade.ai/analyze/<strong>NVDA</strong></div>
+        </div>
+        <div class="mockup-body">
+          <div class="mockup-head">
+            <div class="mockup-sym">
+              <div class="sym-mark">NVDA</div>
+              <div>
+                <div class="sym-name">Nvidia Corp</div>
+                <div class="sym-price">$887.42 <span class="up">+12.84 (+1.47%)</span></div>
+              </div>
+            </div>
+            <div class="mockup-verdict">
+              <div class="vlabel">Our read</div>
+              <div class="vval">Cautious buy</div>
+              <div class="vsize">Size: 2.4% NAV</div>
+            </div>
+          </div>
+
+          <div class="mockup-spark">
+            <svg viewBox="0 0 320 60" preserveAspectRatio="none">
+              <path class="spark-line" d="M0,42 L20,38 L40,40 L60,32 L80,28 L100,30 L120,22 L140,25 L160,18 L180,22 L200,15 L220,18 L240,10 L260,14 L280,8 L300,12 L320,5"
+                stroke="var(--alpha)" stroke-width="1.5" fill="none"/>
+              <path class="spark-fill" d="M0,42 L20,38 L40,40 L60,32 L80,28 L100,30 L120,22 L140,25 L160,18 L180,22 L200,15 L220,18 L240,10 L260,14 L280,8 L300,12 L320,5 L320,60 L0,60 Z"
+                fill="url(#spark-grad)"/>
+              <defs>
+                <linearGradient id="spark-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--alpha)" stop-opacity="0.35"/>
+                  <stop offset="100%" stop-color="var(--alpha)" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+
+          <div class="mockup-vars">
+            <div class="mvar"><span class="mvar-l">Momentum</span><div class="mvar-track"><div class="mvar-fill" style="width:82%"></div></div><span class="mvar-v up">strong</span></div>
+            <div class="mvar"><span class="mvar-l">Valuation</span><div class="mvar-track"><div class="mvar-fill warn" style="width:38%"></div></div><span class="mvar-v warn">stretched</span></div>
+            <div class="mvar"><span class="mvar-l">Risk</span><div class="mvar-track"><div class="mvar-fill warn" style="width:56%"></div></div><span class="mvar-v warn">elevated</span></div>
+            <div class="mvar"><span class="mvar-l">Sector</span><div class="mvar-track"><div class="mvar-fill" style="width:71%"></div></div><span class="mvar-v up">tailwind</span></div>
+            <div class="mvar"><span class="mvar-l">Tax read</span><div class="mvar-track"><div class="mvar-fill" style="width:88%"></div></div><span class="mvar-v up">long-term ok</span></div>
+          </div>
+
+          <div class="mockup-foot">
+            <span class="foot-l"><strong>14 variables</strong> weighed · refreshed 14:32 ET</span>
+            <span class="foot-r">Click any row →</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TICKER -->
+<div class="ticker">
+  <div class="ticker-track" id="ticker"></div>
+</div>
+
+<!-- PROBLEM -->
+<!-- ============== HOW IT WORKS — single asymmetric block ============== -->
+<section class="s" id="analyze">
+  <div class="container">
+    <div class="prose-grid">
+      <div class="prose-eyebrow-text">How it works</div>
+      <h2 class="section-title">Pull up a ticker.<br/>Get the read in <span class="accent">one screen</span>.</h2>
+      <div class="prose-body">
+        <p>VolTradeAI scores every trade across <strong>14 variables</strong> &mdash; momentum, valuation, regime, options flow, retail sentiment, tax exposure, and more. Each variable is a model. Each model has its own answer. We weight them, surface the verdict, and show you exactly which variables swung the call.</p>
+        <p>Disagree with the read? Click any variable to see the math behind it. Override the call and we&rsquo;ll learn from your judgment over time.</p>
+        <p class="prose-note">The same engine runs against your portfolio in real time. So you always know what you&rsquo;re holding &mdash; not just what you&rsquo;re looking at.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== THE BOT — single asymmetric block ============== -->
+<section class="s" id="bot">
+  <div class="container">
+    <div class="prose-grid">
+      <div class="prose-eyebrow-text">The Bot</div>
+      <h2 class="section-title">Strategies that run<br/><span class="accent">while you don&rsquo;t</span>.</h2>
+      <div class="prose-body">
+        <p>Connect your brokerage. Pick a strategy &mdash; <strong>VIX Sentinel</strong> for vol-aware equity allocation, <strong>Velocity Core</strong> for momentum + mean reversion, or <strong>Theta Engine</strong> for defined-risk options income. The bot sizes positions, manages risk, and rebalances on your schedule.</p>
+        <p>Every trade is logged with the variable read that triggered it. Every position is auditable. You can pause, override, or pull back to read-only at any time.</p>
+        <p class="prose-note">Pro tier &mdash; available alongside the free analyzer.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="s" id="pricing">
+  <div class="container">
+    <div class="section-eyebrow">Pricing</div>
+    <h2 class="section-title">Start free.<br/><span class="accent">Go deeper when you want to.</span></h2>
+    <p class="section-lede">
+      The variables, the context, and the decision support are free forever. The automated execution and
+      deep portfolio analytics are where the paid tier lives.
+    </p>
+
+    <div class="pricing">
+      <div class="price-card">
+        <div class="price-tag">Free</div>
+        <h3>Starter</h3>
+        <p class="sub">Everything you need to make better decisions on your own. No card required.</p>
+        <div class="price">
+          <span class="num">$0</span>
+          <span class="unit">/ forever</span>
+        </div>
+        <ul class="feat-list">
+          <li>Decision read on any ticker</li>
+          <li>Portfolio risk &amp; tax read (read-only)</li>
+          <li>Whole-market context dashboard</li>
+          <li>Watchlist alerts on regime changes</li>
+          <li class="coming">News &amp; earnings impact analysis</li>
+          <li class="coming">Tax-aware sell suggestions</li>
+        </ul>
+        <a href="#cta" class="btn btn-ghost">Start free <span class="arrow">→</span></a>
+      </div>
+
+      <div class="price-card featured">
+        <div class="price-tag">Pro · early access</div>
+        <h3>Pro</h3>
+        <p class="sub">Everything in Starter plus the bot. Systematic strategies running on your account.</p>
+        <div class="price">
+          <span class="num">TBD</span>
+          <span class="unit">monthly · founder pricing</span>
+        </div>
+        <ul class="feat-list">
+          <li>Everything in Starter</li>
+          <li>The bot — automated strategies</li>
+          <li>AI decision engine on every position</li>
+          <li>Real-time risk &amp; rebalance alerts</li>
+          <li class="coming">Multi-account portfolio aggregation</li>
+          <li class="coming">Custom strategy builder</li>
+        </ul>
+        <a href="#cta" class="btn btn-primary">Join early access <span class="arrow">→</span></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="s" id="cta">
+  <div class="container">
+    <div class="cta-wrap">
+      <h2>See your portfolio<br/>the way <span class="accent">pros see theirs</span>.</h2>
+      <p>Start free. Connect read-only. Get the variables you've been missing.<br/>Upgrade when you're ready to automate.</p>
+      <form class="waitlist" onsubmit="event.preventDefault(); alert('Wire to your backend.');">
+        <input type="email" placeholder="you@email.com" required />
+        <button class="btn btn-primary" type="submit">Get started <span class="arrow">→</span></button>
+      </form>
+      <div class="cta-meta">FREE FOREVER · NO CARD · NO SPAM</div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <a href="#" class="logo" style="margin-bottom: 16px;">
+          <span class="vol">vol</span><span class="trade">trade</span><span class="ai">/AI</span>
+        </a>
+        <p style="color: var(--muted); font-size: 13px; line-height: 1.6; max-width: 300px; margin-top: 12px;">
+          The investing copilot that shows you every variable —
+          and helps you decide what to do about it.
+        </p>
+      </div>
+      <div class="foot-col">
+        <h4>Product</h4>
+        <a href="#analyze">How it works</a>
+        <a href="#bot">The Bot</a>
+        <a href="/pricing" data-route="/pricing">Pricing</a>
+      </div>
+      <div class="foot-col">
+        <h4>Company</h4>
+        <a href="#">About</a>
+        <a href="#">Blog</a>
+        <a href="#">Careers</a>
+        <a href="#">Contact</a>
+      </div>
+      <div class="foot-col">
+        <h4>Legal</h4>
+        <a href="#">Terms</a>
+        <a href="#">Privacy</a>
+        <a href="#">Disclosures</a>
+        <a href="#">Security</a>
+      </div>
+    </div>
+
+    <div class="disclaimer">
+      Not investment advice. Past performance is not indicative of future results. Trading involves risk of loss.
+      VolTradeAI provides decision support and analytics; you remain solely responsible for your trading decisions.
+      Strategy and performance figures shown on this page are placeholders for layout purposes — replace with audited live or paper-traded results before launch.
+    </div>
+
+    <div class="foot-bottom">
+      <div>© 2026 VolTradeAI</div>
+      <div>Built with care · Toronto / NYC</div>
+    </div>
+  </div>
+</footer>

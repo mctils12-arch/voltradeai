@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { registerBillingRoutes } from "./billing";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -12,6 +13,11 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// CRITICAL: Stripe webhook is registered FIRST, before express.json(),
+// because Stripe signature verification needs the raw request body.
+// registerBillingRoutes registers the webhook with its own raw-body parser.
+registerBillingRoutes(app);
 
 app.use(
   express.json({ limit: "1mb" }), // Bug 27: body size limit
