@@ -34,6 +34,8 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Annual selected by default — pushes higher LTV plan first (industry standard)
+  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("annual");
 
   useEffect(() => {
     apiRequest("GET", "/api/auth/me")
@@ -61,7 +63,7 @@ export default function PricingPage() {
     setCheckoutLoading(true);
     setError(null);
     try {
-      const r = await apiRequest("POST", "/api/billing/checkout", {});
+      const r = await apiRequest("POST", "/api/billing/checkout", { plan: billingPeriod });
       const data = await r.json();
       if (data.url) {
         window.location.href = data.url;
@@ -128,6 +130,65 @@ export default function PricingPage() {
           </p>
         </div>
 
+        {/* Monthly / Annual toggle */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 32 }}>
+          <div style={{
+            display: "inline-flex",
+            padding: 4,
+            background: "rgba(15,29,51,0.6)",
+            border: "1px solid rgba(120,165,220,0.16)",
+            borderRadius: 100,
+            gap: 4,
+          }}>
+            <button
+              onClick={() => setBillingPeriod("monthly")}
+              style={{
+                padding: "8px 18px",
+                borderRadius: 100,
+                border: "none",
+                background: billingPeriod === "monthly" ? "#4d9fff" : "transparent",
+                color: billingPeriod === "monthly" ? "#0a1628" : "#b3c2d8",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer",
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setBillingPeriod("annual")}
+              style={{
+                padding: "8px 18px",
+                borderRadius: 100,
+                border: "none",
+                background: billingPeriod === "annual" ? "#4d9fff" : "transparent",
+                color: billingPeriod === "annual" ? "#0a1628" : "#b3c2d8",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              Annual
+              <span style={{
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: billingPeriod === "annual" ? "rgba(10,22,40,0.25)" : "rgba(74,222,128,0.15)",
+                color: billingPeriod === "annual" ? "#0a1628" : "#4ade80",
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+              }}>
+                2 MONTHS FREE
+              </span>
+            </button>
+          </div>
+        </div>
+
         {/* Two-tier grid */}
         <div style={{
           display: "grid",
@@ -152,11 +213,12 @@ export default function PricingPage() {
             }}
           />
 
-          {/* Pro tier */}
+          {/* Pro tier — price + period flip based on billing toggle */}
           <Tier
             name="Pro"
-            price="$29"
+            price={billingPeriod === "annual" ? "$25" : "$30"}
             period="/ month"
+            subPrice={billingPeriod === "annual" ? "$300 billed annually · save $60" : undefined}
             tagline="Full decision intelligence on every trade."
             features={FEATURES_PRO}
             highlighted
@@ -164,7 +226,7 @@ export default function PricingPage() {
               isOwner ? "Owner — auto-Pro" :
               isPro ? "Manage subscription →" :
               checkoutLoading ? "Opening Stripe…" :
-              "Upgrade to Pro →"
+              billingPeriod === "annual" ? "Get Pro — annual →" : "Get Pro — monthly →"
             }
             ctaDisabled={checkoutLoading || isOwner}
             ctaLoading={checkoutLoading}
@@ -231,6 +293,8 @@ interface TierProps {
   name: string;
   price: string;
   period: string;
+  /** Optional small line under the big price ("$300 billed annually · save $60") */
+  subPrice?: string;
   tagline: string;
   features: string[];
   highlighted?: boolean;
@@ -241,7 +305,7 @@ interface TierProps {
   onCta: () => void;
 }
 
-function Tier({ name, price, period, tagline, features, highlighted, ctaLabel, ctaDisabled, ctaLoading, ctaSecondary, onCta }: TierProps) {
+function Tier({ name, price, period, subPrice, tagline, features, highlighted, ctaLabel, ctaDisabled, ctaLoading, ctaSecondary, onCta }: TierProps) {
   return (
     <div style={{
       padding: 32,
@@ -278,6 +342,17 @@ function Tier({ name, price, period, tagline, features, highlighted, ctaLabel, c
           <span style={{ fontSize: 48, fontWeight: 800, letterSpacing: "-0.03em", color: "#eef3fb" }}>{price}</span>
           <span style={{ fontSize: 14, color: "#6680a0" }}>{period}</span>
         </div>
+        {subPrice && (
+          <div style={{
+            marginTop: 6,
+            fontSize: 12,
+            fontFamily: "var(--font-mono)",
+            color: "#4ade80",
+            letterSpacing: "0.04em",
+          }}>
+            {subPrice}
+          </div>
+        )}
         <p style={{ marginTop: 12, fontSize: 14, color: "#b3c2d8" }}>{tagline}</p>
       </div>
 

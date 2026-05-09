@@ -1,6 +1,6 @@
 # Stripe Billing Setup
 
-This walkthrough gets your $29/mo Pro tier live on production.
+This walkthrough gets your $30/mo Pro tier live on production.
 
 ## 0. What's already wired
 
@@ -29,7 +29,7 @@ This walkthrough gets your $29/mo Pro tier live on production.
 5. Description: `Full decision intelligence — every variable on every trade`
 6. **Pricing**:
    - Type: **Recurring**
-   - Amount: `$29.00`
+   - Amount: `$30.00`
    - Billing period: **Monthly**
    - Tax behavior: leave default
 7. Click **Add product**
@@ -68,6 +68,7 @@ Open Railway → your project → **Variables** tab → add:
 |----------------------------|--------------------------------------|
 | `STRIPE_SECRET_KEY`        | `sk_test_...` (or `sk_live_...`)     |
 | `STRIPE_PRICE_ID_MONTHLY`  | `price_1AbCdEf...` from step 1       |
+| `STRIPE_PRICE_ID_ANNUAL`   | `price_1AbCdEf...` (annual price ID) |
 | `STRIPE_WEBHOOK_SECRET`    | `whsec_...` from step 3              |
 | `APP_URL`                  | `https://voltradeai.com`             |
 | `OWNER_EMAIL`              | (already set: `mctils12@gmail.com`)  |

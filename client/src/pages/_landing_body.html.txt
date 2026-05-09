@@ -171,22 +171,22 @@
       </div>
 
       <div class="price-card featured">
-        <div class="price-tag">Pro · early access</div>
+        <div class="price-tag">Pro</div>
         <h3>Pro</h3>
-        <p class="sub">Everything in Starter plus the bot. Systematic strategies running on your account.</p>
+        <p class="sub">Everything in Starter plus the algo. Systematic strategies running on your account.</p>
         <div class="price">
-          <span class="num">TBD</span>
-          <span class="unit">monthly · founder pricing</span>
+          <span class="num">$30</span>
+          <span class="unit">/ month</span>
         </div>
         <ul class="feat-list">
           <li>Everything in Starter</li>
-          <li>The bot — automated strategies</li>
+          <li>The algo — automated trading</li>
           <li>AI decision engine on every position</li>
           <li>Real-time risk &amp; rebalance alerts</li>
           <li class="coming">Multi-account portfolio aggregation</li>
           <li class="coming">Custom strategy builder</li>
         </ul>
-        <a href="/login" class="btn btn-primary" data-route="/login">Join early access <span class="arrow">→</span></a>
+        <a href="/login" data-route="/login" class="btn btn-primary">Sign up <span class="arrow">→</span></a>
       </div>
     </div>
   </div>
@@ -226,7 +226,7 @@
         <input type="email" placeholder="you@email.com" required name="email" />
         <button class="btn btn-primary" type="submit">Subscribe <span class="arrow">→</span></button>
       </form>
-      <div class="cta-meta">FREE · NO CARD · UNSUBSCRIBE ANY TIME</div>
+      <div class="cta-meta">UNSUBSCRIBE ANY TIME</div>
 
       <!-- Past issues link -->
       <div style="margin-top: 24px; font-size: 13px;">
@@ -259,10 +259,10 @@
       </div>
       <div class="foot-col">
         <h4>Company</h4>
-        <a href="#">About</a>
-        <a href="#">Blog</a>
-        <a href="#">Careers</a>
-        <a href="#">Contact</a>
+        <a href="/about" data-route="/about">About</a>
+        <a href="/newsletter" data-route="/newsletter">Newsletter</a>
+        <a href="/careers" data-route="/careers">Careers</a>
+        <a href="/contact" data-route="/contact">Contact</a>
       </div>
       <div class="foot-col">
         <h4>Legal</h4>

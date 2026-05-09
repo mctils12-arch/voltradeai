@@ -17,7 +17,8 @@ import { requireAuth } from "./auth";
  * Required environment variables (set on Railway):
  *   STRIPE_SECRET_KEY        sk_live_... or sk_test_...
  *   STRIPE_WEBHOOK_SECRET    whsec_... (set after webhook endpoint is created)
- *   STRIPE_PRICE_ID_MONTHLY  price_... (the $29/mo recurring price ID)
+ *   STRIPE_PRICE_ID_MONTHLY  price_... (the $30/mo recurring price ID)
+ *   STRIPE_PRICE_ID_ANNUAL   price_... (the $300/yr recurring price ID — optional)
  *   APP_URL                  https://voltradeai.com (for checkout redirects)
  *
  * If STRIPE_SECRET_KEY is missing the module logs a warning at startup and
@@ -27,6 +28,7 @@ import { requireAuth } from "./auth";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const STRIPE_PRICE_ID_MONTHLY = process.env.STRIPE_PRICE_ID_MONTHLY || "";
+const STRIPE_PRICE_ID_ANNUAL = process.env.STRIPE_PRICE_ID_ANNUAL || "";
 const APP_URL = process.env.APP_URL || "https://voltradeai.com";
 
 const dbPath = path.resolve(process.cwd(), "voltradeai.db");
@@ -202,12 +204,26 @@ export function registerBillingRoutes(app: Express) {
   /**
    * POST /api/billing/checkout — create a Stripe Checkout session for the
    * authenticated user and return its URL. Frontend redirects to it.
+   *
+   * Body or query: { plan: "monthly" | "annual" }   (default: monthly)
    */
   app.post("/api/billing/checkout", requireAuth, requireStripe, async (req: Request, res: Response) => {
     try {
-      if (!STRIPE_PRICE_ID_MONTHLY) {
-        return res.status(500).json({ error: "STRIPE_PRICE_ID_MONTHLY not configured" });
+      // Pick price based on plan param (defaults to monthly)
+      const plan = String(req.body?.plan || req.query?.plan || "monthly").toLowerCase();
+      let priceId: string;
+      if (plan === "annual" || plan === "yearly" || plan === "year") {
+        if (!STRIPE_PRICE_ID_ANNUAL) {
+          return res.status(500).json({ error: "STRIPE_PRICE_ID_ANNUAL not configured" });
+        }
+        priceId = STRIPE_PRICE_ID_ANNUAL;
+      } else {
+        if (!STRIPE_PRICE_ID_MONTHLY) {
+          return res.status(500).json({ error: "STRIPE_PRICE_ID_MONTHLY not configured" });
+        }
+        priceId = STRIPE_PRICE_ID_MONTHLY;
       }
+
       const user = getCurrentUser(req);
       if (!user) return res.status(401).json({ error: "Not authenticated" });
 
@@ -224,13 +240,12 @@ export function registerBillingRoutes(app: Express) {
       const session = await stripe!.checkout.sessions.create({
         mode: "subscription",
         customer: customerId,
-        line_items: [{ price: STRIPE_PRICE_ID_MONTHLY, quantity: 1 }],
+        line_items: [{ price: priceId, quantity: 1 }],
         success_url: `${APP_URL}/app?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${APP_URL}/pricing?checkout=cancel`,
         allow_promotion_codes: true,
         billing_address_collection: "auto",
-        // No trial — per product decision (charge on day one).
-        metadata: { user_id: String(user.id), email: user.email },
+        metadata: { user_id: String(user.id), email: user.email, plan },
       });
 
       res.json({ url: session.url });

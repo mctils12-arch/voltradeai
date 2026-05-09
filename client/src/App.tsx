@@ -6,6 +6,10 @@ import Home from "@/pages/home";
 import LoginPage from "@/pages/login";
 import LandingPage from "@/pages/landing";
 import PricingPage from "@/pages/pricing";
+import AboutPage from "@/pages/about";
+import NewsletterPage from "@/pages/newsletter";
+import CareersPage from "@/pages/careers";
+import ContactPage from "@/pages/contact";
 import { Component, ReactNode, useState, useEffect } from "react";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
@@ -84,6 +88,10 @@ function AppShell() {
       <Route path="/" component={LandingPage} />
       <Route path="/login" component={LoginRoute} />
       <Route path="/pricing" component={PricingPage} />
+      <Route path="/about" component={AboutPage} />
+      <Route path="/newsletter" component={NewsletterPage} />
+      <Route path="/careers" component={CareersPage} />
+      <Route path="/contact" component={ContactPage} />
       <Route path="/app" component={AppDashboard} />
       <Route path="/app/:rest*" component={AppDashboard} />
       {/* Fallback — anything else returns to landing */}
