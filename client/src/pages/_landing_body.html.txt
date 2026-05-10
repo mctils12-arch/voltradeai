@@ -12,7 +12,7 @@
     </div>
     <div class="nav-cta">
       <a href="/login" class="btn-login" data-route="/login">Log in</a>
-      <a href="/login" class="btn btn-primary" data-route="/login">Sign up <span class="arrow">→</span></a>
+      <a href="/pricing" data-route="/pricing" class="btn btn-primary">Sign up <span class="arrow">→</span></a>
     </div>
   </div>
 </nav>
@@ -38,7 +38,7 @@
         The analyzer that gives you the read. And an algo that makes trades for you, automatically.
       </p>
       <div class="stage-cta">
-        <a href="/login" class="btn btn-primary btn-xl" data-route="/login">Sign up free <span class="arrow">→</span></a>
+        <a href="/login" data-route="/login" class="btn btn-primary btn-xl">Sign up free <span class="arrow">→</span></a>
       </div>
     </div>
   </div>
@@ -167,7 +167,7 @@
           <li class="coming">News &amp; earnings impact analysis</li>
           <li class="coming">Tax-aware sell suggestions</li>
         </ul>
-        <a href="/login" class="btn btn-ghost" data-route="/login">Start free <span class="arrow">→</span></a>
+        <a href="/login" data-route="/login" class="btn btn-ghost">Start free <span class="arrow">→</span></a>
       </div>
 
       <div class="price-card featured">

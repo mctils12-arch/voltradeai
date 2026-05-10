@@ -34,8 +34,14 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Annual selected by default — pushes higher LTV plan first (industry standard)
-  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("annual");
+  // Annual selected by default — pushes higher LTV plan first (industry standard).
+  // Can be overridden via ?upgrade=monthly or ?upgrade=annual in the URL.
+  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">(() => {
+    const params = new URLSearchParams(window.location.search);
+    const u = params.get("upgrade");
+    if (u === "monthly") return "monthly";
+    return "annual";
+  });
 
   useEffect(() => {
     apiRequest("GET", "/api/auth/me")
@@ -45,15 +51,37 @@ export default function PricingPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // If user just came back from a successful checkout, refresh auth
+  // If user came back from a successful Stripe checkout, refresh auth + bounce to app
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      // Give Stripe webhook a moment to update tier, then bounce to app
+      // Give Stripe webhook a moment to update tier, then route into the app
       setTimeout(() => navigate("/app?welcome=pro"), 1500);
     }
   }, [navigate]);
+
+  // Auto-trigger upgrade flow if URL has ?upgrade=<plan> AND user is authenticated.
+  // This makes "Sign up free → Pro upgrade" deep-linkable from the landing page.
+  useEffect(() => {
+    if (loading || !me) return;
+    const params = new URLSearchParams(window.location.search);
+    const upgrade = params.get("upgrade");
+    if (!upgrade) return;
+    if (!me.authenticated) {
+      // Not logged in yet — stash the upgrade intent and route to login.
+      // After login, ?next=/pricing?upgrade=... brings them back here and we re-fire.
+      navigate(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      return;
+    }
+    if (me.tier === "pro" || me.isOwner) return;  // already Pro, nothing to do
+    // Logged in, free tier — go straight to Stripe.
+    handleUpgrade();
+    // Strip ?upgrade= from URL so a refresh doesn't re-fire
+    const newUrl = window.location.pathname;
+    window.history.replaceState({}, "", newUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, me?.authenticated, me?.tier]);
 
   async function handleUpgrade() {
     if (!me?.authenticated) {

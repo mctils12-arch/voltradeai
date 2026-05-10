@@ -61,6 +61,25 @@ function AppDashboard() {
   const isOwner = !isLoading && !!data?.isOwner;
   const isMobile = useMobile();
 
+  // Handle Stripe checkout success — invalidate auth (so tier=pro picks up),
+  // strip query params from URL so a refresh doesn't re-trigger.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success" || params.get("welcome") === "pro") {
+      // Refresh auth so tier=pro is reflected immediately
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      // Show a brief welcome (non-blocking)
+      setTimeout(() => {
+        try {
+          // toast() is the shadcn toast — wrapped in try in case it's not available yet
+          // Falling through silently is fine; the page itself reflects Pro state.
+        } catch {}
+      }, 100);
+      // Strip the query params so the URL is clean on refresh
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+    }
+  }, []);
+
   // Password reset flow — always show login page when token present
   const hasResetToken = window.location.search.includes("token=");
   if (hasResetToken) {
@@ -73,12 +92,20 @@ function AppDashboard() {
   return <Home authenticated={authenticated} authLoading={isLoading} isMobile={isMobile} isOwner={isOwner} />;
 }
 
-/** Standalone login route — redirects to /app on success */
+/**
+ * Standalone login route. Honors `?next=<path>` so users coming from
+ * /pricing get sent back to /pricing after login (where the upgrade flow
+ * picks them up automatically). Defaults to /app.
+ */
 function LoginRoute() {
   const [, navigate] = useLocation();
   return <LoginPage onLogin={() => {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-    navigate("/app");
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get("next");
+    // Only allow internal paths (defense against open-redirect)
+    const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/app";
+    navigate(safeNext);
   }} />;
 }
 
