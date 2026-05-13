@@ -53,6 +53,10 @@ COPY package.json ./
 # The landing page is now part of the React app (no separate landing/ folder).
 COPY --from=builder /app/dist ./dist
 
+# ── Newsletter content (markdown archive read by server/newsletter.ts) ─
+# Files live at /app/content/newsletter/*.md at runtime.
+COPY content/ ./content/
+
 # ── Copy Python source (needed at runtime) ──────────────────────
 COPY *.py ./
 COPY strategies/ ./strategies/

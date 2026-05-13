@@ -8,6 +8,7 @@ import LandingPage from "@/pages/landing";
 import PricingPage from "@/pages/pricing";
 import AboutPage from "@/pages/about";
 import NewsletterPage from "@/pages/newsletter";
+import NewsletterIssuePage from "@/pages/newsletter-issue";
 import CareersPage from "@/pages/careers";
 import ContactPage from "@/pages/contact";
 import { Component, ReactNode, useState, useEffect } from "react";
@@ -22,11 +23,36 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
   }
   render() {
     if (this.state.error) {
+      // Detect a stale-chunk error (post-deploy, browser cached old HTML)
+      const isChunkError =
+        this.state.error.includes("Failed to fetch dynamically imported module") ||
+        this.state.error.includes("Importing a module script failed") ||
+        this.state.error.includes("error loading dynamically imported module") ||
+        this.state.error.includes("ChunkLoadError");
+
       return (
         <div style={{ padding: 32, color: '#ff5a6e', fontFamily: 'Geist Mono, monospace', background: '#050a13', minHeight: '100vh' }}>
-          <h2>Something went wrong.</h2>
-          <pre style={{ fontSize: 12, opacity: 0.7, whiteSpace: 'pre-wrap' }}>{this.state.error}</pre>
-          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 16, padding: '8px 16px', background: '#4d9fff', color: '#050a13', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>Try Again</button>
+          <h2 style={{ marginBottom: 16 }}>{isChunkError ? "App was updated." : "Something went wrong."}</h2>
+          <p style={{ color: '#b3c2d8', fontFamily: 'Geist, sans-serif', fontSize: 14, marginBottom: 16 }}>
+            {isChunkError
+              ? "A new version is available. Reload to get the latest."
+              : "An unexpected error occurred."}
+          </p>
+          <pre style={{ fontSize: 11, opacity: 0.5, whiteSpace: 'pre-wrap', maxWidth: 720 }}>{this.state.error}</pre>
+          <button
+            onClick={() => {
+              if (isChunkError) {
+                // Hard reload — bypasses cache, forces fresh HTML + JS
+                sessionStorage.removeItem("__chunk_reloaded");
+                window.location.reload();
+              } else {
+                this.setState({ error: null });
+              }
+            }}
+            style={{ marginTop: 16, padding: '10px 20px', background: '#4d9fff', color: '#050a13', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+          >
+            {isChunkError ? "Reload now" : "Try Again"}
+          </button>
         </div>
       );
     }
@@ -116,6 +142,7 @@ function AppShell() {
       <Route path="/login" component={LoginRoute} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/about" component={AboutPage} />
+      <Route path="/newsletter/:slug" component={NewsletterIssuePage} />
       <Route path="/newsletter" component={NewsletterPage} />
       <Route path="/careers" component={CareersPage} />
       <Route path="/contact" component={ContactPage} />
@@ -128,6 +155,13 @@ function AppShell() {
 }
 
 function App() {
+  // Clear the chunk-error retry flag once the app loads successfully.
+  // This lets future stale-chunk failures (after another deploy) trigger a
+  // fresh reload instead of being suppressed.
+  useEffect(() => {
+    sessionStorage.removeItem("__chunk_reloaded");
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>

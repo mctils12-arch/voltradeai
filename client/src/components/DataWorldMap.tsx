@@ -352,8 +352,12 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
 
     // -- Build node list & connections --
     function rebuild() {
+      // User node has no visible label (intentionally empty) — connections still
+      // emanate from the user's location, but we don't paint a "YOU" tag over
+      // wherever they live. Avoids the floating-label clutter and the awkward
+      // "YOU" overlapping nearby city labels (e.g. CHI for Charlotte-area users).
       const user: CityNode = {
-        label: "YOU",
+        label: "",
         lat: userLocRef.current.lat,
         lon: userLocRef.current.lon,
         primary: true,
@@ -607,14 +611,18 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
         ctx!.font = isUser
           ? `bold ${fs}px 'JetBrains Mono', monospace`
           : `${fs}px 'JetBrains Mono', monospace`;
-        const tw = ctx!.measureText(nd.label).width;
-        // Default position: below the dot, centered
-        const lx = nx - tw / 2;
-        const ly = ny + r + fs + 2;
-        labelRects.push({
-          idx: n, nx, ny, r, fs, label: nd.label, isUser,
-          x: lx, y: ly - fs, w: tw, h: fs + 4,
-        });
+        // Skip empty labels — the user node uses label="" so we never paint
+        // a tag over their location.
+        if (nd.label && nd.label.length > 0) {
+          const tw = ctx!.measureText(nd.label).width;
+          // Default position: below the dot, centered
+          const lx = nx - tw / 2;
+          const ly = ny + r + fs + 2;
+          labelRects.push({
+            idx: n, nx, ny, r, fs, label: nd.label, isUser,
+            x: lx, y: ly - fs, w: tw, h: fs + 4,
+          });
+        }
       }
 
       // ── Label collision detection & resolution ─────────────────────

@@ -10,11 +10,39 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // React app serves everything — including the landing page (now part of the React routes)
-  app.use(express.static(distPath));
+  /**
+   * Cache strategy:
+   *   - Hashed assets (e.g. /assets/*.js, *.css with content hash in filename)
+   *     → cache aggressively forever (1 year, immutable)
+   *   - index.html → never cache; always fetch fresh so users get the latest
+   *     bundle references after a deploy. Without this, returning users see
+   *     stale HTML pointing at JS chunks that no longer exist on the server,
+   *     which produces "Failed to fetch dynamically imported module" errors.
+   */
+  app.use(
+    express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        // Vite emits hashed filenames under /assets/ — they're immutable
+        if (filePath.includes(`${path.sep}assets${path.sep}`) ||
+            filePath.includes("/assets/")) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+        // index.html (and any HTML at root) must never be cached
+        else if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        }
+      },
+    })
+  );
 
-  // SPA fallback: any unmatched route returns index.html so React router handles it
+  // SPA fallback: any unmatched route returns a fresh index.html.
+  // No-cache headers ensure the user always gets the latest bundle references.
   app.use("/{*path}", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

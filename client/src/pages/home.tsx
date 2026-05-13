@@ -135,7 +135,6 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       <nav className="tab-nav desktop-nav" style={dark ? {} : { background: 'rgba(232, 236, 241, 0.92)' }}>
         <div className="tab-nav-logo">
           <Logo />
-          <span className="tab-nav-logo-text"><span style={{ color: "#fbb24c" }}>VolTrade</span><span style={{ color: "#4d9fff" }}>AI</span></span>
         </div>
 
         <div className="tab-nav-tabs">
@@ -197,7 +196,6 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       <nav className="mobile-top-bar" style={dark ? {} : { background: 'rgba(232, 236, 241, 0.92)', borderBottomColor: 'rgba(0, 80, 120, 0.12)' }}>
         <div className="tab-nav-logo">
           <Logo />
-          <span className="tab-nav-logo-text"><span style={{ color: "#fbb24c" }}>VolTrade</span><span style={{ color: "#4d9fff" }}>AI</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
           <a

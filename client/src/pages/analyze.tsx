@@ -2,7 +2,32 @@ import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react"
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
-const DataWorldMap = lazy(() => import("@/components/DataWorldMap"));
+/**
+ * Lazy-loaded DataWorldMap with chunk-error recovery.
+ * If a deploy renames the bundle while a user has a stale tab open,
+ * the dynamic import would normally fail with "Failed to fetch dynamically
+ * imported module". We catch that, do a one-shot full page reload, and let
+ * the new bundle load fresh.
+ */
+const DataWorldMap = lazy(() =>
+  import("@/components/DataWorldMap").catch((err) => {
+    // Detect stale-chunk failure (the post-deploy 404 case)
+    const msg = String(err?.message || err);
+    const isStaleChunk =
+      msg.includes("Failed to fetch dynamically imported module") ||
+      msg.includes("Importing a module script failed") ||
+      msg.includes("error loading dynamically imported module");
+
+    if (isStaleChunk && !sessionStorage.getItem("__chunk_reloaded")) {
+      sessionStorage.setItem("__chunk_reloaded", "1");
+      window.location.reload();
+      // Return a stub so React doesn't render until the reload kicks in
+      return { default: () => null } as any;
+    }
+    // Already retried, or different error — re-throw so the boundary catches
+    throw err;
+  })
+);
 import InsightsView from "./InsightsView";
 import {
   Search, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown,
