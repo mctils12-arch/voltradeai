@@ -140,6 +140,13 @@ _yf_cache_time: dict = {}
 _YF_CACHE_TTL = 300  # 5 minutes
 _YF_CACHE_MAX = 50   # Cap cache size to prevent unbounded memory growth
 
+# FIX 2026-05-18: scan-level cache for most-actives endpoint. Used by
+# deep_score's cross_sec_rank — was hitting Alpaca once PER TICKER per
+# scan (50-100x per cycle), causing 429s and slow scans. 60s TTL is
+# safe because the ranking doesn't materially shift in under a minute.
+_MOST_ACTIVES_CACHE: list = []
+_MOST_ACTIVES_CACHE_TIME: float = 0.0
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "") or os.environ.get("POLYGON_API_KEY", "")  # FIX: accept either name (5 other files use POLYGON_KEY)
@@ -786,7 +793,17 @@ except Exception as e:
 
     # 2. Mean reversion score
     mean_reversion_score = 50
-    change_5d = -(abs(change_pct) * 3) if change_pct < -1 else change_pct  # rough proxy
+    # CRITICAL FIX 2026-05-18: previous proxy `change_5d = -(abs(change_pct) * 3)`
+    # fabricated false strong mean-reversion signals on every single-day drop ≥-3.4%
+    # (a -4% day became change_5d=-12%, triggering the strongest +30 score bonus).
+    # _deep_closes already has 252+ daily bars in scope from the ADX/OBV block above
+    # — use the REAL 5-day return.
+    change_5d = change_pct  # default to today's change as last-resort fallback
+    try:
+        if _deep_closes and len(_deep_closes) >= 6 and _deep_closes[-6] > 0:
+            change_5d = (_deep_closes[-1] / _deep_closes[-6] - 1.0) * 100
+    except Exception:
+        pass
     if mean_reversion_strategy and rsi is not None:
         try:
             mr_result = mean_reversion_strategy.score(rsi, change_5d, volume_ratio)
@@ -1220,14 +1237,24 @@ except Exception as e:
 
         # ── Compute cross_sec_rank from scan universe ────────────────
         # Rank this stock's daily return against all stocks in current scan batch
+        # FIX 2026-05-18: cache the most-actives response with 60s TTL — this is
+        # scan-level data (same value for every ticker in a scan cycle). Previously
+        # called per-ticker, doubling Alpaca API load and contributing to 429s.
         _cross_sec_rank = 0.5  # default if no universe data
         _stock_change = quick_result.get("change_pct", 0) or 0
         try:
-            alpaca_throttle.acquire()
-            _scan_snaps = requests.get(
-                f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
-                headers=_alpaca_headers(), timeout=5)
-            _actives = _scan_snaps.json().get("most_actives", [])
+            global _MOST_ACTIVES_CACHE, _MOST_ACTIVES_CACHE_TIME
+            _ma_cached = (time.time() - _MOST_ACTIVES_CACHE_TIME) < 60 if '_MOST_ACTIVES_CACHE_TIME' in globals() else False
+            if _ma_cached and '_MOST_ACTIVES_CACHE' in globals():
+                _actives = _MOST_ACTIVES_CACHE
+            else:
+                alpaca_throttle.acquire()
+                _scan_snaps = requests.get(
+                    f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
+                    headers=_alpaca_headers(), timeout=5)
+                _actives = _scan_snaps.json().get("most_actives", [])
+                _MOST_ACTIVES_CACHE = _actives
+                _MOST_ACTIVES_CACHE_TIME = time.time()
             _all_changes = [float(s.get("change", 0) or 0) for s in _actives if s.get("change") is not None]
             if len(_all_changes) >= 10:
                 _cross_sec_rank = round(sum(1 for x in _all_changes if x <= _stock_change) / len(_all_changes), 3)
@@ -1262,6 +1289,13 @@ except Exception as e:
         _iv_rank_stock = _compute_stock_iv_rank(ticker, _deep_closes) if _deep_closes else 50.0
 
         # days_to_earnings: normalized 0-1
+        # FIX 2026-05-18: previous encoding collapsed post-earnings days (-1, -7) to 0.0,
+        # same as earnings-today (0). Pre/post earnings are OPPOSITE trade setups
+        # (pre = vol expansion, post = vol crush). Map both halves of the line:
+        #   days = -30..0     → 0.0..0.5 (post-earnings, 0 = day-of, 0.5 = far-past/none)
+        #   days = 0..+30     → 0.5..1.0 (pre-earnings, 0.5 = no nearby earnings, 1.0 = far-future)
+        # This feature is currently zeroed at inference (matches training constant)
+        # but the calc is fixed here so the next retrain can pick it up correctly.
         _days_to_earnings = 0.5
         try:
             from options_scanner import _get_next_earnings_date
@@ -1271,7 +1305,12 @@ except Exception as e:
                 if isinstance(earn_date, str):
                     earn_date = _dt.datetime.strptime(earn_date[:10], "%Y-%m-%d").date()
                 days_away = (earn_date - _dt.date.today()).days
-                _days_to_earnings = min(days_away, 60) / 60.0 if days_away >= 0 else 0.0
+                if days_away >= 0:
+                    # Pre-earnings: 0.5 .. 1.0 (day-of through far-future)
+                    _days_to_earnings = 0.5 + min(days_away, 30) / 60.0
+                else:
+                    # Post-earnings: 0.0 .. 0.5 (day-of through far-past)
+                    _days_to_earnings = max(0.0, 0.5 + days_away / 60.0)
         except Exception:
             pass
 
@@ -1298,32 +1337,38 @@ except Exception as e:
             pass
 
         # market_breadth: % of scan universe above 50d MA
-        _market_breadth = 0.5
+        # CRITICAL FIX 2026-05-18: training uses ACTUAL % of universe above 50d
+        # MA computed per date (ml_model_v2 line 770-786). Inference was using
+        # advance/decline ratio (price > prev_close among most-actives) which is
+        # a completely different feature (intraday breadth vs trend breadth).
+        # Model was trained on one distribution and fed another → noise.
+        # Switch to a TRAINING-COMPATIBLE proxy: derive from cached scan-level
+        # market_breadth if present; otherwise estimate from SPY's position
+        # relative to its 50d MA (proxy for index breadth — when SPY is well
+        # above its 50d, most stocks usually are too). This is a reasonable
+        # approximation until we plumb a per-ticker MA50 calc.
+        _market_breadth = 0.5  # default
         try:
-            alpaca_throttle.acquire()
-            _mb_resp = requests.get(
-                f"{ALPACA_DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=100",
-                headers=_alpaca_headers(), timeout=5)
-            _mb_actives = _mb_resp.json().get("most_actives", [])
-            if _mb_actives:
-                _above_50ma_count = 0
-                _total_checked = 0
-                for _mb_s in _mb_actives[:50]:
-                    _mb_price = float(_mb_s.get("price", 0) or 0)
-                    _mb_prev = float(_mb_s.get("prev_close", _mb_price) or _mb_price)
-                    if _mb_price > 0 and _mb_prev > 0:
-                        _total_checked += 1
-                        # Approximate: if price > prev_close, count as above MA proxy
-                        if _mb_price > _mb_prev:
-                            _above_50ma_count += 1
-                if _total_checked > 10:
-                    _market_breadth = round(_above_50ma_count / _total_checked, 3)
+            # Best: scan-level cached breadth (populated by scan_market once)
+            _sl_bd = macro.get("market_breadth_ma50") if isinstance(macro, dict) else None
+            if _sl_bd is not None and 0.0 <= float(_sl_bd) <= 1.0:
+                _market_breadth = float(_sl_bd)
+            else:
+                # Proxy from SPY/MA50: linear 0.2..0.8 range
+                _spy_pos = float(macro.get("spy_vs_ma50", 1.0) or 1.0) if isinstance(macro, dict) else 1.0
+                # spy_vs_ma50 typically 0.94..1.06; map to 0.2..0.8 breadth proxy
+                _market_breadth = max(0.0, min(1.0, 0.5 + (_spy_pos - 1.0) * 6.0))
+                _market_breadth = round(_market_breadth, 3)
         except Exception:
-            pass
+            _market_breadth = 0.5
 
         # put_call_ratio: VIX proxy
-        _vxx_for_pcr = intel.get("vxx_ratio", 1.0) if intel else 1.0
-        _put_call_ratio = round(float(_vxx_for_pcr) * 15.0 / 20.0, 3) if _vxx_for_pcr else 1.0
+        # CRITICAL FIX 2026-05-18: training uses `vxx_close / 20.0` (raw VXX
+        # price divided by 20). Inference was using `vxx_RATIO * 15.0 / 20.0`
+        # — completely different scale (ratio is ~0.8-1.4; raw VXX is ~15-50).
+        # Aligned with training: use raw VXX price / 20.
+        _vxx_price_pcr = float(macro.get("vxx_latest", 25.0) or 25.0) if isinstance(macro, dict) else 25.0
+        _put_call_ratio = round(_vxx_price_pcr / 20.0, 3) if _vxx_price_pcr else 1.0
 
         # Compute real momentum features for ML (supersedes edge-dict proxies)
         _real_mom_1m = mom_1m if 'mom_1m' in locals() else 0.0
@@ -1367,12 +1412,22 @@ except Exception as e:
             "above_ma10":           _above_ma10,
             "trend_strength":       min(abs(quick_result.get("change_pct", 0) or 0) / max(vol_metrics.get("ewma_vol", 2) or 2, 0.1), 5.0) if vol_metrics else 1.0,
             # Intel features (3) — re-added with real data
-            "intel_score":          round(_intel_score_feat, 3),
-            "news_sentiment":       round(_news_sentiment, 3),
-            "insider_signal":       round(_insider_signal, 3),
+            # FIX 2026-05-18: training pipeline (ml_model_v2._compute_features)
+            # uses these as parameters with defaults news_sentiment=0.0,
+            # insider_signal=0.0 — and `_build_training_data` NEVER overrides
+            # those defaults. So the model was trained with constant zeros and
+            # learned to ignore these features. Feeding real values at inference
+            # drops the model into leaves it was never trained on → noise.
+            # Set to training defaults until the training pipeline is updated
+            # to use real values too. Once retrained, restore real values here.
+            "intel_score":          0.0,
+            "news_sentiment":       0.0,
+            "insider_signal":       0.0,
             # New professional features (5)
             "iv_rank_stock":        round(_iv_rank_stock, 2),
-            "days_to_earnings":     round(_days_to_earnings, 3),
+            # FIX 2026-05-18: training default is 0.5 (constant). Match it
+            # until training pipeline is enriched with real earnings calendar.
+            "days_to_earnings":     0.5,
             "credit_spread":        round(_credit_spread, 4),
             "market_breadth":       round(_market_breadth, 3),
             "put_call_ratio":       round(_put_call_ratio, 3),
@@ -1506,7 +1561,7 @@ except Exception as e:
         "entry_features": ml_features if 'ml_features' in locals() else None,
         # Score attribution (exposed at scan level via stock.get())
         "rules_only_score": rules_only_score,  # Pre-ML-blend score captured above
-        "ml_only_score": ml_s if 'ml_s' in locals() else None,
+        "ml_only_score": ml_only_score if ml_only_score is not None else None,  # FIX 2026-05-18: use rounded var
         "sector": _yf_sector,
         # 200d MA fields for ETF gate (alpha audit 2026-05-03)
         "above_ma200":      _above_ma200 if '_above_ma200' in locals() else None,
@@ -2752,13 +2807,24 @@ def _scan_market_inner():
 
     # Step 6: Generate trade recommendations using DYNAMIC POSITION SIZING
     trades = []
+
+    # FIX 2026-05-18: fetch _macro BEFORE slot calc (was fetched AFTER, causing
+    # the slot calc below to use whatever stale _macro was in scope from earlier
+    # phases — or default 1.0 if none). Single source of truth, consistent regime
+    # across all downstream calls in this scan cycle.
+    try:
+        from macro_data import get_macro_snapshot
+        _macro = get_macro_snapshot()
+    except Exception:
+        _macro = {}
+
     # SIZING-FIX 2026-04-22: use regime-adaptive MAX_POSITIONS rather than
     # the module-level constant. NEUTRAL regime returns 0 (no new stock
     # longs), BULL returns 8, BEAR/PANIC return 0.
     try:
         from system_config import get_adaptive_params as _gap_slots
-        _vxx_r_slots = float(_macro.get("vxx_ratio", 1.0) or 1.0) if '_macro' in locals() else 1.0
-        _spy_ma_slots = float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0
+        _vxx_r_slots = float(_macro.get("vxx_ratio", 1.0) or 1.0)
+        _spy_ma_slots = float(_macro.get("spy_vs_ma50", 1.0) or 1.0)
         _slots_params = _gap_slots(
             vxx_ratio=_vxx_r_slots,
             spy_vs_ma50=_spy_ma_slots,
@@ -2768,13 +2834,6 @@ def _scan_market_inner():
     except Exception:
         _max_positions_adaptive = MAX_POSITIONS
     slots_available = max(0, _max_positions_adaptive - num_positions)
-
-    # Get macro context for position sizing
-    try:
-        from macro_data import get_macro_snapshot
-        _macro = get_macro_snapshot()
-    except Exception:
-        _macro = {}
 
     # Import dynamic sizing engine
     try:
@@ -2804,6 +2863,10 @@ def _scan_market_inner():
         #   CAUTION (VXX > 105%):           2.5 hours — cautious market, extra buffer
         #   NEUTRAL (VXX near avg):         2 hours — baseline (was always 2h)
         #   BULL   (VXX < 90% of avg):      1.5 hours — calm/rising mkt = faster mean revert
+        #
+        # How regime is detected at this point: uses the most recent macro snapshot's VXX
+        # ratio. Falls back to 2h (neutral) if data unavailable. No API call — uses
+        # _macro dict already loaded above.
         #
         # How regime is detected at this point: uses the most recent macro snapshot's VXX
         # ratio. Falls back to 2h (neutral) if data unavailable. No API call — uses
@@ -4237,8 +4300,18 @@ def _manage_spy_floor(macro: dict) -> dict:
         if trend_override:
             result["trend_override"] = trend_override
 
-        # FLOOR-BASKET 2026-04-22: if basket enabled, dispatch to basket logic
-        if basket_enabled and basket_tickers and target_pct > 0 and (regime_changed or last_regime is None):
+        # FLOOR-BASKET 2026-04-22 (FIX 2026-05-18):
+        # Removed the (regime_changed or last_regime is None) guard. Previously
+        # the basket logic only fired on regime transitions; between transitions,
+        # this function fell through to LEGACY single-ticker QQQ rebalancing,
+        # which pumped QQQ to 100% of the floor target (70% of equity) while
+        # the basket members (SMH/KWEB/VXUS) sat unchanged from the last
+        # rebalance. Net effect: production snapshot showed QQQ at 69.55% of
+        # equity (legacy floor) PLUS SMH+KWEB+VXUS at ~33% (stale basket) =
+        # 102.58% total deployment. The basket's own drift_threshold check
+        # (inside the block below) already prevents unnecessary churn on
+        # quiet days, so it's safe to run every call.
+        if basket_enabled and basket_tickers and target_pct > 0:
             # Basket rebalance: allocate target_pct across basket members
             basket_result = {"actions": [], "basket_enabled": True}
             try:

@@ -311,6 +311,39 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
     }
     """
     try:
+        # CRITICAL FIX 2026-05-18: tier dispatcher passes price=0 with a
+        # comment "Python will fetch current price". That fetch never
+        # happened — price=0 propagated to _fetch_option_chain where
+        # min_strike = price*0.90 = 0 and max_strike = price*1.10 = 0,
+        # so the Alpaca call requested strike_price_gte=0 / lte=0 and
+        # returned junk. EVERY Tier 1/2 CSP and Tier 4 hedge silently
+        # failed at contract selection. This block makes the function
+        # self-healing — if price is missing or invalid, fetch it.
+        if not price or price <= 0:
+            try:
+                _snap_resp = requests.get(
+                    f"{ALPACA_DATA}/v2/stocks/{ticker}/snapshot",
+                    headers=_alpaca_headers(), timeout=5,
+                )
+                if _snap_resp.status_code == 200:
+                    _snap = _snap_resp.json() or {}
+                    _latest_trade = _snap.get("latestTrade") or {}
+                    _daily_bar    = _snap.get("dailyBar") or {}
+                    _latest_quote = _snap.get("latestQuote") or {}
+                    price = float(
+                        _latest_trade.get("p")
+                        or _daily_bar.get("c")
+                        or ((_latest_quote.get("bp", 0) + _latest_quote.get("ap", 0)) / 2 if _latest_quote else 0)
+                        or 0
+                    )
+            except Exception as _snap_e:
+                import logging
+                logging.getLogger("voltrade.options_execution").warning(
+                    f"snapshot fetch failed for {ticker}: {_snap_e}"
+                )
+            if not price or price <= 0:
+                return {"error": f"Could not determine current price for {ticker} (snapshot fetch failed)"}
+
         # Fetch available options contracts from Alpaca
         # Weekly strategies (QQQ iron condor, covered call) need short-dated contracts
         _weekly_strategies = ("qqq_iron_condor", "covered_call")

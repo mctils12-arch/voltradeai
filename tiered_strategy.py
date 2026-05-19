@@ -192,12 +192,33 @@ T2_REQUIRES_PM = True        # Hard gate on portfolio margin approval
 # (T2 leverage multiplies contracts-per-dollar-equity, NOT total equity deployed)
 
 # ── Tier 3: Trend capture settings ───────────────────────────────────────────
-T3_TICKERS = ["SPY", "QQQ"]
-T3_LEVERAGE_FACTOR = 2.0     # 2x via margin (Reg-T works, PM better)
-T3_MIN_TREND_DAYS = 10       # 50d>200d MA for at least 10 consecutive days
-T3_MAX_ALLOCATION_PCT = 0.40 # Max 40% of equity in T3 positions
-T3_EXIT_ON_MA_BREAK = True   # Exit immediately if SPY crosses below 50d MA
-T3_VXX_MAX = 0.95            # Require VXX ratio below this
+# AUDIT 2026-05-18: I initially proposed switching T3 to SSO/QLD for "real
+# leverage" but researched leveraged-ETF behavior shows volatility decay makes
+# SSO/QLD WORSE for any holding period over a few days. Per research (multiple
+# 2025-2026 sources): "Leveraged ETFs are designed for tactical, short-term
+# trading. Their daily reset turns market volatility into a persistent drag."
+# T3's typical hold is days-to-weeks with T3_EXIT_ON_MA_BREAK as the exit
+# gate — that's enough exposure to volatility decay to hurt.
+#
+# The original SPY/QQQ design at 40% allocation gives 40% beta-1 exposure
+# without decay. Math: 20% in SSO vs 40% in SPY produces ~equivalent EXPECTED
+# return on quiet days, but in chop SSO underperforms by the decay amount.
+# Keep T3 as direct SPY/QQQ. The "2x leverage" framing in the variable name
+# is misleading (it's just a 40% beta-1 cash position) but the BEHAVIOR is
+# correct given the holding pattern.
+#
+# Note: this DOES overlap with the QQQ floor (basket has 50% QQQ * 70% floor
+# = 35% QQQ from floor + up to 40% from T3 = potentially 75% QQQ). The
+# original code's _enforce_exposure_cap is supposed to handle that overlap;
+# audit shows it only enforces within tier actions, not across subsystems.
+# Real fix would be a unified allocator — flagged for follow-up. For now,
+# T3 stays direct because the leveraged alternative is empirically worse.
+T3_TICKERS = ["SPY", "QQQ"]   # direct, not leveraged (decay hurts)
+T3_LEVERAGE_FACTOR = 2.0      # multiplier on size_pct — 20% allocation × 2 = 40% (cash beta-1 exposure)
+T3_MIN_TREND_DAYS = 10        # 50d>200d MA for at least 10 consecutive days
+T3_MAX_ALLOCATION_PCT = 0.40  # Max 40% of equity in T3 positions
+T3_EXIT_ON_MA_BREAK = True    # Exit immediately if SPY crosses below 50d MA
+T3_VXX_MAX = 0.95             # Require VXX ratio below this
 
 # ── Tier 4: Tail hedge settings ──────────────────────────────────────────────
 T4_HEDGE_TICKER = "SPY"

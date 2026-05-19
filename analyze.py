@@ -1260,36 +1260,39 @@ def get_earnings_intelligence(ticker, ticker_obj, spot, atm_iv):
 
 # Leveraged ETF mapping
 LEVERAGED_ETFS = {
-    'TSLA': {'bull': 'TSLL',  'bear': 'TSLS'},
-    'NVDA': {'bull': 'NVDL',  'bear': 'NVDS'},
-    'SPY':  {'bull': 'SSO',   'bear': 'SDS'},
-    'QQQ':  {'bull': 'QLD',   'bear': 'QID'},
-    'AAPL': {'bull': 'AAPU',  'bear': 'AAPD'},
-    'AMZN': {'bull': 'AMZU',  'bear': 'AMZD'},
-    'MSFT': {'bull': 'MSFU',  'bear': 'MSFD'},
-    'META': {'bull': 'METU',  'bear': 'METD'},
-    'GOOGL':{'bull': 'GGLL',  'bear': 'GGLS'},
-    'AMD':  {'bull': 'AMDU',  'bear': 'AMDS'},
-    'RKLB': {'bull': 'RKLZ',  'bear': 'RKLX'},
-    'COIN': {'bull': 'CONL',  'bear': 'CONS'},
-    'PLTR': {'bull': 'PTIR',  'bear': None},
-    'MSTR': {'bull': 'MSTX',  'bear': 'MSTS'},
-    'SOXL': {'bull': 'SOXL',  'bear': 'SOXS'},
-    'IWM':  {'bull': 'TNA',   'bear': 'TZA'},
-    'GLD':  {'bull': 'UGL',   'bear': 'GLL'},
-    'TLT':  {'bull': 'UBT',   'bear': 'TBT'},
-    'XLE':  {'bull': 'ERX',   'bear': 'ERY'},
-    'XLF':  {'bull': 'FAS',   'bear': 'FAZ'},
-    'BITI': {'bull': 'BITX',  'bear': 'BITI'},
-    'MARA': {'bull': 'MARU',  'bear': None},
-    'RIOT': {'bull': None,    'bear': None},
-    'SMCI': {'bull': 'SMCU',  'bear': 'SMCD'},
-    'BABA': {'bull': 'BABAF', 'bear': None},
-    'NIO':  {'bull': 'NIOL',  'bear': None},
-    'SOFI': {'bull': 'SOFL',  'bear': None},
-    'HOOD': {'bull': 'HOODL', 'bear': None},
-    'GME':  {'bull': 'GMBL',  'bear': None},
-    'AMC':  {'bull': None,    'bear': None},
+    # CRITICAL FIX 2026-05-18: removed unverified/incorrect mappings.
+    # The previous map had several entries that would have caused the bot to
+    # buy the WRONG instrument believing it was leveraged:
+    #   BABA → BABAF: BABAF is OTC ADR for Alibaba ordinary shares, NOT leveraged
+    #   GME  → GMBL:  GMBL is "Esports Entertainment Group", an entirely different company
+    #   SOXL → SOXL:  CIRCULAR — SOXL is itself the 3x bull SOX ETF, not derived from another underlying
+    #   BITI → BITX:  BITI is the inverse Bitcoin ETF, can't be "bull" entry
+    #   PLTR → PTIR:  No verified leveraged PLTR ETF exists with that ticker
+    #   NIO  → NIOL:  No verified leveraged NIO ETF exists with that ticker
+    #   HOOD → HOODL: No verified leveraged HOOD ETF exists with that ticker
+    #   SMCI → SMCU/SMCD: No verified leveraged SMCI ETFs exist
+    #   COIN → CONL/CONS: Inverse-ETF naming pair not verified for COIN
+    #   MARA → MARU:  Single-name MARA leveraged ETF not verified
+    #   RKLB → RKLZ/RKLX: Not verified
+    # Keeping only mappings that are confirmed-real leveraged single-stock ETFs
+    # or confirmed-real 2x/3x index ETFs. Direct LETFs (TQQQ, SOXL etc.) are
+    # detected separately by ticker name in _KNOWN_LETFS in position_sizing.
+    'TSLA': {'bull': 'TSLL',  'bear': 'TSLS'},     # GraniteShares 2x TSLA
+    'NVDA': {'bull': 'NVDL',  'bear': 'NVDS'},     # GraniteShares 2x NVDA
+    'SPY':  {'bull': 'SSO',   'bear': 'SDS'},      # ProShares 2x S&P
+    'QQQ':  {'bull': 'QLD',   'bear': 'QID'},      # ProShares 2x QQQ
+    'AAPL': {'bull': 'AAPU',  'bear': 'AAPD'},     # Direxion 2x AAPL (verify still live)
+    'AMZN': {'bull': 'AMZU',  'bear': 'AMZD'},     # Direxion 2x AMZN (verify still live)
+    'MSFT': {'bull': 'MSFU',  'bear': 'MSFD'},     # Direxion 2x MSFT (verify still live)
+    'META': {'bull': 'METU',  'bear': 'METD'},     # Direxion 2x META (verify still live)
+    'GOOGL':{'bull': 'GGLL',  'bear': 'GGLS'},     # Direxion 2x GOOGL (verify still live)
+    'AMD':  {'bull': 'AMDU',  'bear': 'AMDS'},     # Direxion 2x AMD (verify still live)
+    'MSTR': {'bull': 'MSTX',  'bear': 'MSTS'},     # T-Rex 2x MSTR
+    'IWM':  {'bull': 'TNA',   'bear': 'TZA'},      # Direxion 3x IWM
+    'GLD':  {'bull': 'UGL',   'bear': 'GLL'},      # ProShares 2x Gold
+    'TLT':  {'bull': 'UBT',   'bear': 'TBT'},      # ProShares 2x 20+ Treasury
+    'XLE':  {'bull': 'ERX',   'bear': 'ERY'},      # Direxion 2x Energy
+    'XLF':  {'bull': 'FAS',   'bear': 'FAZ'},      # Direxion 3x Financials
 }
 
 

@@ -1072,7 +1072,24 @@ def _build_sizing(trade: dict, equity: float, positions: list, macro: dict,
 
     if chosen == "etf":
         if _HAS_SIZER:
-            stock_sizing = calculate_position(trade, equity, positions, macro)
+            # CRITICAL FIX 2026-05-18: previously passed `trade` unchanged, so
+            # _infer_strategy in position_sizing.py looked at trade.ticker (still
+            # the underlying like "AAPL") and trade.instrument (still "stock"),
+            # then fell through to the "stocks" Kelly bucket. With the previous
+            # −EV "stocks" prior this BLOCKED every ETF trade — locking out the
+            # +386% backtest alpha bucket. Inject the etf tags so _infer_strategy
+            # routes to the "etf" bucket. Also set ticker to the actual ETF
+            # ticker so halt checks, sector lookups, and feedback logging all
+            # reference the right instrument.
+            etf_trade = {
+                **trade,
+                "instrument":   "etf",
+                "trade_type":   "etf",
+                "chosen":       "etf",
+                "ticker":       etf_ticker or trade.get("ticker"),
+                "underlying":   trade.get("ticker"),  # preserve for downstream attribution
+            }
+            stock_sizing = calculate_position(etf_trade, equity, positions, macro)
             if stock_sizing.get("blocked"):
                 return {
                     "type":          "etf",

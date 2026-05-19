@@ -52,7 +52,15 @@ PORTFOLIO_DD_KILL = -0.20           # -20% from peak
 DAILY_LOSS_LIMIT = -0.03            # -3% in one day
 CONSECUTIVE_LOSS_KILL = 5           # 5 losers in a row
 CORRELATION_CAP = 0.60              # max 60% BP in correlated names
-MIN_FREE_BP = 0.00                  # USER: 100% invested — no BP buffer; margin calls have no cushion
+MIN_FREE_BP = 0.10                  # CRITICAL FIX 2026-05-18: restored from 0.00.
+                                    # Previous setting (100% utilization, no buffer)
+                                    # guaranteed forced liquidation on any 20%+ drawdown
+                                    # — Alpaca maintenance call fires below maintenance
+                                    # margin, dumps positions at the worst time, locks in
+                                    # the loss the system was designed to recover from.
+                                    # 10% buffer costs ~10% expected return in calm
+                                    # markets but prevents tail catastrophe. 25-30% DD
+                                    # tolerance (user goal) requires this cushion.
 REGIME_KILL_VXX = 1.40              # VXX ratio above this
 
 # Recovery gates (must ALL pass to auto-resume after kill)

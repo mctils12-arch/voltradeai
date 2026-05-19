@@ -76,8 +76,11 @@ BASE_CONFIG = {
     # Quarter-Kelly criterion determines optimal size. These are the hard limits.
     "MAX_POSITION_PCT":     0.08,  # Never more than 8% in one position (pro: tighter cap)
     "MIN_POSITION_PCT":     0.02,  # Never less than 2% (not worth friction)
-    "MAX_TOTAL_EXPOSURE":   1.00,  # USER: 100% invested in calm regimes; stress regimes still reduce below
-    "MAX_TOTAL_CAPITAL_PCT": 1.00,  # Never deploy more than 100% of equity across all components
+    # MAX_TOTAL_EXPOSURE FIX 2026-05-18: 1.00 → 0.95 to leave 5% cushion for
+    # the MIN_FREE_BP=0.10 target. Total deployment ceiling stays below buying
+    # power. Stress regimes still reduce below this.
+    "MAX_TOTAL_EXPOSURE":   0.95,  # 95% deployment ceiling (was 1.00)
+    "MAX_TOTAL_CAPITAL_PCT": 0.95,  # Never deploy more than 95% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open positions
     "MAX_OPTIONS_PCT":      0.08,  # Max 8% per options position (v1.0.34: was 10%)
@@ -96,6 +99,14 @@ BASE_CONFIG = {
     #   $100K → $578K in 10yr (SPY: $327K). Beats SPY in 7/11 years.
     #   2017: -27.7% → +20.2% | 2019: -32.5% → +49.1% | 2023: -46.7% → +52.4%
     "FLOOR_TICKER":         "QQQ", # Kept for legacy callers; see FLOOR_BASKET below
+    # AUDIT NOTE 2026-05-18: I initially considered reducing this to 35% to
+    # "open room for active alpha", but the backtest data (backtest_10yr_results.json)
+    # shows the active system's best config (NEW_CSP_ONLY) returned only 5.68% CAGR
+    # over the 10-year backtest period — well below SPY's 13.97% CAGR. So reducing
+    # the floor would REDUCE total returns, not increase them, given current measured
+    # edges. The 70% floor stays. To beat SPY meaningfully, the user needs to find
+    # NEW alpha sources (per the user's own note: "need to find logic that beats this
+    # significantly before porting"). Floor sizing is downstream of that work.
     "SPY_FLOOR_BULL":       0.70,  # 70% passive floor in BULL
     "SPY_FLOOR_NEUTRAL":    0.90,  # 90% passive floor in NEUTRAL (signals = noise)
     "SPY_FLOOR_CAUTION":    0.35,  # 35% passive floor in CAUTION
@@ -425,19 +436,23 @@ def get_adaptive_params(
         p["MAX_POSITIONS"]          = 8
         p["MAX_POSITION_PCT"]       = 0.15
         p["MIN_SCORE"]              = 63     # More setups allowed in bull
-        p["MAX_TOTAL_EXPOSURE"]     = 1.00   # USER: fully invested in BULL — was 0.95
+        p["MAX_TOTAL_EXPOSURE"]     = 0.95   # FIX 2026-05-18: 1.00→0.95 (5% cash cushion, prevents margin calls)
         p["STREAM_VOL_SPIKE_RATIO"] = 2.2    # Lower bar — more signals
         p["ATR_STOP_MULTIPLIER"]    = 2.0    # Standard stop multiplier
         p["TIME_STOP_DAYS"]         = 10     # Standard hold period
         p["regime"]                 = "BULL"
 
     elif regime == "NEUTRAL":
-        # v1.0.29: NO active stock trades in NEUTRAL.
-        # 10-year backtest: momentum signals are noise in calm markets.
-        # Passive SPY floor (85%) captures the market drift instead.
-        # Active trades in NEUTRAL had net negative P&L over 10 years.
+        # v1.0.29 (RESTORED 2026-05-18): NO active stock trades in NEUTRAL.
+        # 10-year backtest data: momentum signals are noise in calm markets.
+        # Backtest_10yr_results.json shows stock_win_rate=44.6%, -EV bucket.
+        # Passive SPY floor (90%) captures the market drift instead.
+        # IMPORTANT: this only blocks STOCK longs from scan_market.
+        # CSP/options trades still fire via the tier engine (separate code
+        # path) — and tastytrade research shows premium-selling thrives in
+        # NEUTRAL regimes (IVR-based theta decay > realized vol).
         p["MAX_POSITIONS"]          = 0      # No stock trades in NEUTRAL
-        p["MAX_TOTAL_EXPOSURE"]     = 1.00   # USER: fully invested in NEUTRAL_BULL — was 0.95
+        p["MAX_TOTAL_EXPOSURE"]     = 0.95   # 5% cash cushion (the only change here)
         p["regime"] = "NEUTRAL"
 
     else:  # CAUTION
@@ -503,7 +518,7 @@ def get_adaptive_params(
             # Regime forced 0 (PANIC/BEAR/NEUTRAL) — leave at 0
             pass
         else:
-            # Active regime — use tier's max_positions outright
+            # Active regime (BULL/CAUTION) — use tier's max_positions outright
             p["MAX_POSITIONS"] = _tier["max_positions"]
 
         # MAX_POSITION_PCT: take whichever is tighter (lower)
