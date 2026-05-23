@@ -653,11 +653,21 @@ function InsightsSkeleton() {
 // Main view component
 // ────────────────────────────────────────────────────────────────────────────
 
+// FILTER 2026-05-23: original InsightsView rendered all cards together as
+// one combined "Smart Money & Structure" sub-tab. The new top-nav dropdown
+// splits that into two separate sections, so InsightsView now accepts a
+// `filter` prop:
+//   - undefined / "all" → render every card (back-compat)
+//   - "smart-money"     → Insider, Institutional, Flow, Options
+//   - "structure"       → Float, Support & Resistance
+export type InsightsFilter = "all" | "smart-money" | "structure";
+
 interface InsightsViewProps {
   ticker: string | null;
+  filter?: InsightsFilter;
 }
 
-export default function InsightsView({ ticker }: InsightsViewProps) {
+export default function InsightsView({ ticker, filter = "all" }: InsightsViewProps) {
   const { data, isLoading, isError, error } = useQuery<InsightsResult>({
     queryKey: ["/api/insights", ticker],
     queryFn: async () => {
@@ -697,6 +707,9 @@ export default function InsightsView({ ticker }: InsightsViewProps) {
 
   if (!data) return null;
 
+  const showSmartMoney = filter === "all" || filter === "smart-money";
+  const showStructure = filter === "all" || filter === "structure";
+
   return (
     <div data-testid="section-insights">
       {/* Page header note about source */}
@@ -719,12 +732,12 @@ export default function InsightsView({ ticker }: InsightsViewProps) {
         Cached 1-24h depending on source. Not real-time.
       </div>
 
-      <InsiderCard data={data.insider} />
-      <InstitutionalCard data={data.institutional} />
-      <FloatCard data={data.float} />
-      <FlowCard data={data.flow} />
-      <SRCard data={data.support_resistance} spot={data.spot} />
-      <OptionsCard data={data.options} />
+      {showSmartMoney && <InsiderCard data={data.insider} />}
+      {showSmartMoney && <InstitutionalCard data={data.institutional} />}
+      {showStructure && <FloatCard data={data.float} />}
+      {showSmartMoney && <FlowCard data={data.flow} />}
+      {showStructure && <SRCard data={data.support_resistance} spot={data.spot} />}
+      {showSmartMoney && <OptionsCard data={data.options} />}
     </div>
   );
 }

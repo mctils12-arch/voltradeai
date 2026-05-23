@@ -580,6 +580,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── ETF BUILDER / ANALYZER ────────────────────────────────────────────────
+  // Pulls ETF metadata (expense ratio, holdings, sector breakdown, active vs
+  // passive heuristic, typical rebalance schedule) plus rich per-holding data
+  // for the ETF Builder view. Backed by etf_analyzer.py which threads the
+  // per-holding yfinance calls. Heavier than /api/analyze — give it 3min.
+  app.get("/api/etf/:ticker", async (req, res) => {
+    const { ticker } = req.params;
+
+    if (!ticker || !/^[A-Za-z.]{1,10}$/.test(ticker)) {
+      return res.status(400).json({ error: "Invalid ticker symbol. Use letters only (e.g. SPY, QQQ, VTI)." });
+    }
+
+    const scriptPath = path.resolve(process.cwd(), "etf_analyzer.py");
+
+    try {
+      const { stdout } = await execAsync(
+        `python3 "${scriptPath}" "${ticker.toUpperCase()}"`,
+        { timeout: 180000, maxBuffer: 1024 * 1024 * 4 }
+      );
+
+      const output = stdout.trim();
+      if (!output) {
+        return res.status(500).json({ error: "No output from ETF analyzer. Try again." });
+      }
+
+      const data = JSON.parse(output);
+      return res.json(data);
+    } catch (err: any) {
+      if (err.stdout) {
+        try {
+          const data = JSON.parse(err.stdout.trim());
+          return res.status(400).json(data);
+        } catch {}
+      }
+      return res.status(500).json({ error: "ETF analysis failed. Please check the ticker (must be an ETF, not a stock) and try again." });
+    }
+  });
+
   // ── DEBUG: raw Finnhub insider response ──────────────────────────────────
   // ALPHA AUDIT 2026-05-03 batch 5: diagnostic endpoint to figure out why
   // some tickers (e.g. NVDA) show empty insider data despite Finnhub

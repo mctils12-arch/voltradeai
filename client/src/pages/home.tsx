@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
-import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import AnalyzePage from "./analyze";
+import AnalyzePage, { AnalyzeSection } from "./analyze";
 import ScannerPage from "./scanner";
 import NewsPage from "./news";
 import WatchlistPage from "./watchlist";
@@ -47,12 +47,53 @@ interface HomeProps {
 
 function getInitialTab(): TabId {
   const hash = window.location.hash.replace("#/", "");
-  if (hash && TABS.some(t => t.id === hash)) return hash as TabId;
+  // The hash can be either "analyze" or "analyze/<section>" — strip the
+  // subpath when matching against TabIds.
+  const root = hash.split("/")[0];
+  if (root && TABS.some(t => t.id === root)) return root as TabId;
   return "analyze";
 }
 
+function getInitialAnalyzeSection(): AnalyzeSection {
+  const hash = window.location.hash.replace("#/", "");
+  const parts = hash.split("/");
+  if (parts[0] === "analyze" && parts[1]) {
+    const sec = parts[1];
+    if (sec === "options" || sec === "smart-money" || sec === "structure" || sec === "etf-builder") {
+      return sec;
+    }
+  }
+  return "options";
+}
+
+// Top-nav dropdown items for the Analyze section. Defined here so the
+// component and the mobile bottom-bar can both reference them.
+const ANALYZE_SECTIONS: { id: AnalyzeSection; label: string; icon: React.ReactNode; description: string; accent: string }[] = [
+  { id: "options",     label: "Options & Volatility", icon: <BarChart2 size={14} />, description: "IV/HV, VRP, spreads, vol cone", accent: "#4d9fff" },
+  { id: "smart-money", label: "Smart Money",          icon: <Eye size={14} />,       description: "Insiders, institutions, flow",   accent: "#fbb24c" },
+  { id: "structure",   label: "Structure",            icon: <Layers size={14} />,    description: "Float, short, S/R levels",       accent: "#c084fc" },
+  { id: "etf-builder", label: "ETF Builder",          icon: <Briefcase size={14} />, description: "Holdings, drag, replicate",      accent: "#4ade80" },
+];
+
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
   const [activeTab, setActiveTab] = useState<TabId>(getInitialTab);
+  const [analyzeSection, setAnalyzeSection] = useState<AnalyzeSection>(getInitialAnalyzeSection);
+  // Desktop hover dropdown — open/close state with a small close delay so
+  // the user can move from button → menu without it snapping shut.
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownCloseTimer = useRef<number | null>(null);
+
+  const openDropdown = () => {
+    if (dropdownCloseTimer.current) {
+      window.clearTimeout(dropdownCloseTimer.current);
+      dropdownCloseTimer.current = null;
+    }
+    setDropdownOpen(true);
+  };
+  const closeDropdown = (delay = 120) => {
+    if (dropdownCloseTimer.current) window.clearTimeout(dropdownCloseTimer.current);
+    dropdownCloseTimer.current = window.setTimeout(() => setDropdownOpen(false), delay);
+  };
   // DARK-ONLY 2026-05-03: light theme removed because several components
   // didn't render cleanly in light mode. The `dark` variable is kept as
   // a constant `true` so per-theme conditional code throughout this file
@@ -64,9 +105,15 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
 
   // Sync hash with active tab (Bug 1)
+  // 2026-05-23: when on the analyze tab, also encode the active section so
+  // links like /app#/analyze/etf-builder restore the dropdown selection.
   useEffect(() => {
-    window.location.hash = "#/" + activeTab;
-  }, [activeTab]);
+    if (activeTab === "analyze") {
+      window.location.hash = `#/analyze/${analyzeSection}`;
+    } else {
+      window.location.hash = "#/" + activeTab;
+    }
+  }, [activeTab, analyzeSection]);
 
   // Dark-only 2026-05-03: theme persistence effect removed (always dark).
 
@@ -138,20 +185,90 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         </div>
 
         <div className="tab-nav-tabs">
-          {TABS.filter(tab => !tab.requiresOwner || isOwner).map(tab => (
-            <button
-              key={tab.id}
-              className={`tab-btn ${activeTab === tab.id ? "active" : ""}`}
-              onClick={() => handleTabClick(tab.id)}
-              aria-current={activeTab === tab.id ? "page" : undefined}
-            >
-              {tab.icon}
-              {tab.label}
-              {tab.requiresAuth && !authenticated && (
-                <span style={{ fontSize: 9, opacity: 0.5, marginLeft: 2 }}>🔒</span>
-              )}
-            </button>
-          ))}
+          {TABS.filter(tab => !tab.requiresOwner || isOwner).map(tab => {
+            // ANALYZE DROPDOWN 2026-05-23: the Analyze tab is now a hover
+            // dropdown exposing four sections (Options, Smart Money,
+            // Structure, ETF Builder). Other tabs render as before.
+            if (tab.id === "analyze") {
+              return (
+                <div
+                  key={tab.id}
+                  className="analyze-dropdown-wrapper"
+                  onMouseEnter={openDropdown}
+                  onMouseLeave={() => closeDropdown(120)}
+                >
+                  <button
+                    className={`tab-btn ${activeTab === tab.id ? "active" : ""}`}
+                    onClick={() => handleTabClick(tab.id)}
+                    aria-current={activeTab === tab.id ? "page" : undefined}
+                    aria-haspopup="menu"
+                    aria-expanded={dropdownOpen}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                    <ChevronDown
+                      size={12}
+                      style={{
+                        opacity: 0.6,
+                        marginLeft: 2,
+                        transform: dropdownOpen ? "rotate(180deg)" : "rotate(0)",
+                        transition: "transform 150ms ease",
+                      }}
+                    />
+                  </button>
+                  {dropdownOpen && (
+                    <div
+                      className="analyze-dropdown-menu"
+                      role="menu"
+                      onMouseEnter={openDropdown}
+                      onMouseLeave={() => closeDropdown(80)}
+                    >
+                      {ANALYZE_SECTIONS.map(s => {
+                        const isActive = activeTab === "analyze" && analyzeSection === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            role="menuitem"
+                            className={`analyze-dropdown-item ${isActive ? "active" : ""}`}
+                            onClick={() => {
+                              setAnalyzeSection(s.id);
+                              setActiveTab("analyze");
+                              setDropdownOpen(false);
+                            }}
+                            style={{ ["--item-accent" as any]: s.accent }}
+                          >
+                            <span className="analyze-dropdown-icon" style={{ color: s.accent }}>
+                              {s.icon}
+                            </span>
+                            <span className="analyze-dropdown-text">
+                              <span className="analyze-dropdown-label">{s.label}</span>
+                              <span className="analyze-dropdown-description">{s.description}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            // Default tab button
+            return (
+              <button
+                key={tab.id}
+                className={`tab-btn ${activeTab === tab.id ? "active" : ""}`}
+                onClick={() => handleTabClick(tab.id)}
+                aria-current={activeTab === tab.id ? "page" : undefined}
+              >
+                {tab.icon}
+                {tab.label}
+                {tab.requiresAuth && !authenticated && (
+                  <span style={{ fontSize: 9, opacity: 0.5, marginLeft: 2 }}>🔒</span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -223,7 +340,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       {/* ── Page content ── */}
       <main className="page-container tab-page">
         {activeTab === "analyze" && (
-          <AnalyzePage key={analyzeTarget} initialTicker={analyzeTarget} />
+          <AnalyzePage key={analyzeTarget} initialTicker={analyzeTarget} section={analyzeSection} />
         )}
         {activeTab === "scanner" && (
           <ScannerPage onSelectTicker={handleSelectTicker} />

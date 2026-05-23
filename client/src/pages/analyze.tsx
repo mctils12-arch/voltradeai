@@ -29,6 +29,7 @@ const DataWorldMap = lazy(() =>
   })
 );
 import InsightsView from "./InsightsView";
+import ETFBuilderView from "./ETFBuilderView";
 import {
   Search, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown,
   Activity, BarChart2, Zap, Moon, Sun, RefreshCw, Target, Volume2,
@@ -38,8 +39,18 @@ import {
 } from "lucide-react";
 
 // Props interface for AnalyzePage
+// SECTION 2026-05-23: split the original two-way "options" vs "insights"
+// sub-tab into four sections to match the new top-nav dropdown:
+//   - "options"     → Options & Volatility (original options view)
+//   - "smart-money" → Insider, Institutional, Flow, Options Smart Money
+//   - "structure"   → Float & Share Structure, Support & Resistance
+//   - "etf-builder" → ETF Builder / Analyzer (new)
+// Defaults to "options" to preserve the prior single-prop entry point.
+export type AnalyzeSection = "options" | "smart-money" | "structure" | "etf-builder";
+
 export interface AnalyzePageProps {
   initialTicker?: string;
+  section?: AnalyzeSection;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -2042,16 +2053,23 @@ function LoadingSkeleton() {
 // Main page
 // ────────────────────────────────────────────────────────────────────────────
 
-export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
+export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps = {}) {
   const [input, setInput] = useState(initialTicker ?? "");
   const [ticker, setTicker] = useState<string | null>(initialTicker ?? null);
-  // SUB-TAB 2026-05-03: 'options' = the original options-volatility view,
-  // 'insights' = smart-money / structure / S-R view (powered by InsightsView).
-  // Defaults to 'options' to preserve existing behavior. The sub-tab only
-  // shows after a ticker has been analyzed.
-  const [subTab, setSubTab] = useState<"options" | "insights">("options");
+  // SECTION 2026-05-23: was a two-way switcher ("options" vs "insights").
+  // Now driven primarily by the `section` prop set by the top-nav dropdown.
+  // Local state still allows in-page sub-tab switching on mobile (where the
+  // hover dropdown doesn't work).
+  const [subTab, setSubTab] = useState<AnalyzeSection>(section ?? "options");
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Sync the in-page sub-tab when the parent prop changes (desktop dropdown
+  // click) so navigation from the header drives the active section.
+  useEffect(() => {
+    if (section && section !== subTab) setSubTab(section);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section]);
 
   const { data, isLoading, isError, error } = useQuery<AnalysisResult>({
     queryKey: ["/api/analyze", ticker],
@@ -2102,6 +2120,29 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
     : data?.vrp_regime === "low" ? "text-rose-400" : "text-amber-400";
 
   const priceUp = data && data.price_change >= 0;
+
+  // SECTION 2026-05-23: ETF Builder is its own self-contained view (own search,
+  // own data source, own layout). Render it directly without the analyze
+  // page's stock-ticker chrome, world-map background, or single-stock UI.
+  if (subTab === "etf-builder") {
+    return (
+      <div style={{ position: "relative", minHeight: "100vh" }}>
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+            <span style={{
+              fontSize: 9, padding: "3px 8px", borderRadius: 3,
+              background: "rgba(192, 132, 252, 0.1)", border: "1px solid rgba(192, 132, 252, 0.25)",
+              color: "#c084fc", fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
+            }}>
+              ETF BUILDER
+            </span>
+          </div>
+          <ETFBuilderView />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "relative", minHeight: "100vh" }}>
@@ -2211,7 +2252,12 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
               </div>
             </div>
 
-            {/* SUB-TAB SWITCHER 2026-05-03: Options view (existing) vs Insights view (new) */}
+            {/* SUB-TAB SWITCHER 2026-05-23: was a 2-way switcher
+                ("Options & Volatility" vs "Smart Money & Structure"). Now a
+                3-way switcher matching the top-nav dropdown sections:
+                Options · Smart Money · Structure. (ETF Builder is reached
+                from the top-nav dropdown, not in-page — it's a different
+                kind of view that doesn't share the single-ticker model.) */}
             <div style={{
               display: "flex",
               gap: "0.25rem",
@@ -2222,6 +2268,7 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
               border: "1px solid rgba(148, 163, 184, 0.15)",
               borderRadius: "0.5rem",
               width: "fit-content",
+              flexWrap: "wrap",
             }} data-testid="subtab-switcher">
               <button
                 onClick={() => setSubTab("options")}
@@ -2246,31 +2293,56 @@ export default function AnalyzePage({ initialTicker }: AnalyzePageProps = {}) {
                 Options &amp; Volatility
               </button>
               <button
-                onClick={() => setSubTab("insights")}
+                onClick={() => setSubTab("smart-money")}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "0.375rem",
                   padding: "0.5rem 1rem",
-                  background: subTab === "insights" ? "rgba(251, 178, 76, 0.12)" : "transparent",
-                  border: subTab === "insights" ? "1px solid rgba(251, 178, 76, 0.3)" : "1px solid transparent",
+                  background: subTab === "smart-money" ? "rgba(251, 178, 76, 0.12)" : "transparent",
+                  border: subTab === "smart-money" ? "1px solid rgba(251, 178, 76, 0.3)" : "1px solid transparent",
                   borderRadius: "0.375rem",
-                  color: subTab === "insights" ? "#fbb24c" : "#94a3b8",
+                  color: subTab === "smart-money" ? "#fbb24c" : "#94a3b8",
                   fontSize: 12,
-                  fontWeight: subTab === "insights" ? 600 : 500,
+                  fontWeight: subTab === "smart-money" ? 600 : 500,
                   cursor: "pointer",
                   transition: "all 150ms ease",
                   fontFamily: "inherit",
                 }}
-                data-testid="subtab-insights"
+                data-testid="subtab-smart-money"
               >
                 <Eye size={14} />
-                Smart Money &amp; Structure
+                Smart Money
+              </button>
+              <button
+                onClick={() => setSubTab("structure")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.375rem",
+                  padding: "0.5rem 1rem",
+                  background: subTab === "structure" ? "rgba(192, 132, 252, 0.12)" : "transparent",
+                  border: subTab === "structure" ? "1px solid rgba(192, 132, 252, 0.3)" : "1px solid transparent",
+                  borderRadius: "0.375rem",
+                  color: subTab === "structure" ? "#c084fc" : "#94a3b8",
+                  fontSize: 12,
+                  fontWeight: subTab === "structure" ? 600 : 500,
+                  cursor: "pointer",
+                  transition: "all 150ms ease",
+                  fontFamily: "inherit",
+                }}
+                data-testid="subtab-structure"
+              >
+                <Layers size={14} />
+                Structure
               </button>
             </div>
 
-            {/* Sub-tab content: Insights view */}
-            {subTab === "insights" && <InsightsView ticker={ticker} />}
+            {/* Sub-tab content: Smart Money (insider + institutional + flow + options) */}
+            {subTab === "smart-money" && <InsightsView ticker={ticker} filter="smart-money" />}
+
+            {/* Sub-tab content: Structure (float, share structure, support/resistance) */}
+            {subTab === "structure" && <InsightsView ticker={ticker} filter="structure" />}
 
             {/* Sub-tab content: Options view (everything below was the
                 original analyze view, now conditional on subTab) */}
