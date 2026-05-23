@@ -2121,48 +2121,83 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
 
   const priceUp = data && data.price_change >= 0;
 
-  // SECTION 2026-05-23: ETF Builder is its own self-contained view (own search,
-  // own data source, own layout). Render it directly without the analyze
-  // page's stock-ticker chrome, world-map background, or single-stock UI.
-  if (subTab === "etf-builder") {
-    return (
-      <div style={{ position: "relative", minHeight: "100vh" }}>
-        <div style={{ position: "relative", zIndex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
-            <span style={{
-              fontSize: 9, padding: "3px 8px", borderRadius: 3,
-              background: "rgba(192, 132, 252, 0.1)", border: "1px solid rgba(192, 132, 252, 0.25)",
-              color: "#c084fc", fontFamily: "'JetBrains Mono', monospace",
-              letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
-            }}>
-              ETF BUILDER
-            </span>
-          </div>
-          <ETFBuilderView />
-        </div>
-      </div>
-    );
-  }
+  // SECTION CHROME 2026-05-23: pulled out of the data-loaded results block
+  // so the section switcher and badge are ALWAYS visible — the canonical
+  // way to navigate sections on mobile (where the desktop hover dropdown
+  // doesn't work) and a useful "you are here" anchor on desktop too.
+  // Color/label config matches home.tsx ANALYZE_SECTIONS so the dropdown
+  // and in-page switcher stay in sync.
+  const SECTION_META: Record<AnalyzeSection, { badge: string; button: string; accent: string; icon: React.ReactNode }> = {
+    "options":     { badge: "OPTIONS & VOLATILITY", button: "Options & Volatility", accent: "#4d9fff", icon: <BarChart2 size={14} /> },
+    "smart-money": { badge: "SMART MONEY",          button: "Smart Money",          accent: "#fbb24c", icon: <Eye size={14} /> },
+    "structure":   { badge: "STRUCTURE",            button: "Structure",            accent: "#c084fc", icon: <Layers size={14} /> },
+    "etf-builder": { badge: "ETF BUILDER",          button: "ETF Builder",          accent: "#4ade80", icon: <Briefcase size={14} /> },
+  };
+  const currentMeta = SECTION_META[subTab];
+
+  // Reusable section switcher — rendered above the search/content. Always
+  // visible. 4 buttons: Options · Smart Money · Structure · ETF Builder.
+  // CSS handles narrow-phone sizing (see .analyze-section-switcher in
+  // index.css) — horizontal scroll on <480px so all 4 stay on one row.
+  const sectionSwitcher = (
+    <div className="analyze-section-switcher" data-testid="section-switcher">
+      {(Object.keys(SECTION_META) as AnalyzeSection[]).map(sec => {
+        const meta = SECTION_META[sec];
+        const isActive = subTab === sec;
+        return (
+          <button
+            key={sec}
+            onClick={() => setSubTab(sec)}
+            className={`analyze-section-btn ${isActive ? "active" : ""}`}
+            style={{
+              ["--section-accent" as any]: meta.accent,
+            }}
+            data-testid={`section-${sec}`}
+          >
+            {meta.icon}
+            <span>{meta.button}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div style={{ position: "relative", minHeight: "100vh" }}>
-      <Suspense fallback={null}>
-        <DataWorldMap isLoading={isLoading} hasData={!!data && !data.error} ticker={ticker} />
-      </Suspense>
+      {/* DataWorldMap background only for stock-ticker sections — ETF Builder
+          has its own model and the world-map chrome doesn't apply. */}
+      {subTab !== "etf-builder" && (
+        <Suspense fallback={null}>
+          <DataWorldMap isLoading={isLoading} hasData={!!data && !data.error} ticker={ticker} />
+        </Suspense>
+      )}
       <div style={{ position: "relative", zIndex: 1 }}>
 
-        {/* Page heading badge */}
+        {/* Page heading badge — changes color/text per section */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
           <span style={{
             fontSize: 9, padding: "3px 8px", borderRadius: 3,
-            background: "rgba(77, 159, 255, 0.1)", border: "1px solid rgba(77, 159, 255, 0.2)",
-            color: "#4d9fff", fontFamily: "'JetBrains Mono', monospace",
+            background: `color-mix(in srgb, ${currentMeta.accent} 10%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${currentMeta.accent} 25%, transparent)`,
+            color: currentMeta.accent,
+            fontFamily: "'JetBrains Mono', monospace",
             letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
           }}>
-            MARKET INTEL
+            {currentMeta.badge}
           </span>
         </div>
 
+        {/* Always-visible section switcher — the canonical mobile nav and a
+            handy "you are here" anchor on desktop. */}
+        {sectionSwitcher}
+
+        {/* ETF Builder is a self-contained view (its own search, own data).
+            Render it in place of the regular search/analyze flow. */}
+        {subTab === "etf-builder" && <ETFBuilderView />}
+
+        {/* Regular stock-ticker flow for Options / Smart Money / Structure */}
+        {subTab !== "etf-builder" && (
+        <>
         {/* Search */}
         <form onSubmit={handleSubmit} className="search-form" data-testid="form-ticker">
           <div className="search-wrapper">
@@ -2252,91 +2287,11 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
               </div>
             </div>
 
-            {/* SUB-TAB SWITCHER 2026-05-23: was a 2-way switcher
-                ("Options & Volatility" vs "Smart Money & Structure"). Now a
-                3-way switcher matching the top-nav dropdown sections:
-                Options · Smart Money · Structure. (ETF Builder is reached
-                from the top-nav dropdown, not in-page — it's a different
-                kind of view that doesn't share the single-ticker model.) */}
-            <div style={{
-              display: "flex",
-              gap: "0.25rem",
-              marginTop: "1rem",
-              marginBottom: "0.5rem",
-              padding: "0.25rem",
-              background: "rgba(15, 23, 42, 0.6)",
-              border: "1px solid rgba(148, 163, 184, 0.15)",
-              borderRadius: "0.5rem",
-              width: "fit-content",
-              flexWrap: "wrap",
-            }} data-testid="subtab-switcher">
-              <button
-                onClick={() => setSubTab("options")}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.375rem",
-                  padding: "0.5rem 1rem",
-                  background: subTab === "options" ? "rgba(77, 159, 255, 0.12)" : "transparent",
-                  border: subTab === "options" ? "1px solid rgba(77, 159, 255, 0.3)" : "1px solid transparent",
-                  borderRadius: "0.375rem",
-                  color: subTab === "options" ? "#4d9fff" : "#94a3b8",
-                  fontSize: 12,
-                  fontWeight: subTab === "options" ? 600 : 500,
-                  cursor: "pointer",
-                  transition: "all 150ms ease",
-                  fontFamily: "inherit",
-                }}
-                data-testid="subtab-options"
-              >
-                <BarChart2 size={14} />
-                Options &amp; Volatility
-              </button>
-              <button
-                onClick={() => setSubTab("smart-money")}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.375rem",
-                  padding: "0.5rem 1rem",
-                  background: subTab === "smart-money" ? "rgba(251, 178, 76, 0.12)" : "transparent",
-                  border: subTab === "smart-money" ? "1px solid rgba(251, 178, 76, 0.3)" : "1px solid transparent",
-                  borderRadius: "0.375rem",
-                  color: subTab === "smart-money" ? "#fbb24c" : "#94a3b8",
-                  fontSize: 12,
-                  fontWeight: subTab === "smart-money" ? 600 : 500,
-                  cursor: "pointer",
-                  transition: "all 150ms ease",
-                  fontFamily: "inherit",
-                }}
-                data-testid="subtab-smart-money"
-              >
-                <Eye size={14} />
-                Smart Money
-              </button>
-              <button
-                onClick={() => setSubTab("structure")}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.375rem",
-                  padding: "0.5rem 1rem",
-                  background: subTab === "structure" ? "rgba(192, 132, 252, 0.12)" : "transparent",
-                  border: subTab === "structure" ? "1px solid rgba(192, 132, 252, 0.3)" : "1px solid transparent",
-                  borderRadius: "0.375rem",
-                  color: subTab === "structure" ? "#c084fc" : "#94a3b8",
-                  fontSize: 12,
-                  fontWeight: subTab === "structure" ? 600 : 500,
-                  cursor: "pointer",
-                  transition: "all 150ms ease",
-                  fontFamily: "inherit",
-                }}
-                data-testid="subtab-structure"
-              >
-                <Layers size={14} />
-                Structure
-              </button>
-            </div>
+            {/* SECTION CHROME MOVED 2026-05-23: the section switcher used to
+                live here, inside the data-loaded results block. It's now at
+                the top of the page (always visible) so it works as canonical
+                navigation on mobile and as a "you are here" anchor on
+                desktop. The conditional render below is unchanged. */}
 
             {/* Sub-tab content: Smart Money (insider + institutional + flow + options) */}
             {subTab === "smart-money" && <InsightsView ticker={ticker} filter="smart-money" />}
@@ -2602,6 +2557,8 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
             </div>
           </div>
         )}
+        </>
+        )}{/* end subTab !== "etf-builder" (stock-ticker flow) */}
       </div>
     </div>
   );
