@@ -110,11 +110,36 @@
 </div>
 
 <!-- PROBLEM -->
+<!-- ============== HOW IT WORKS — three-step (compact, visual) ============== -->
+<section class="s steps-section" id="analyze">
+  <div class="container">
+    <div class="steps-eyebrow">How it works</div>
+    <h2 class="steps-title">From ticker to read in <span class="accent">five seconds</span>.</h2>
+    <div class="steps-grid">
+      <div class="step-card">
+        <div class="step-num">01</div>
+        <div class="step-headline">Enter a ticker</div>
+        <p class="step-body">Type AAPL, SPY, NVDA — any U.S. listed name. The engine starts immediately. No setup, no questionnaire.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">02</div>
+        <div class="step-headline">14 variables, weighed</div>
+        <p class="step-body">Momentum, valuation, regime, vol surface, options flow, sentiment, sector exposure, tax position, and more. Each is its own model.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">03</div>
+        <div class="step-headline">Get the read</div>
+        <p class="step-body">One verdict. The numbers behind it. Click any variable to see its math. Disagree? Override the call — the engine learns.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============== HOW IT WORKS — single asymmetric block ============== -->
-<section class="s" id="analyze">
+<section class="s">
   <div class="container">
     <div class="prose-grid">
-      <div class="prose-eyebrow-text">How it works</div>
+      <div class="prose-eyebrow-text">Under the hood</div>
       <h2 class="section-title">Pull up a ticker.<br/>Get the read in <span class="accent">one screen</span>.</h2>
       <div class="prose-body">
         <p>VolTradeAI scores every trade across <strong>14 variables</strong> &mdash; momentum, valuation, regime, options flow, retail sentiment, tax exposure, and more. Each variable is a model. Each model has its own answer. We weight them, surface the verdict, and show you exactly which variables swung the call.</p>

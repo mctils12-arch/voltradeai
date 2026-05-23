@@ -112,6 +112,15 @@
     padding: 120px 0 80px;
     z-index: 1;
   }
+  /* Mobile: hero shouldn't be a full viewport. The headline must be near the top
+     so it lands above the fold instead of getting flex-centered into a giant void. */
+  @media (max-width: 720px) {
+    .hero {
+      min-height: auto;
+      align-items: flex-start;
+      padding: 96px 0 56px;
+    }
+  }
   /* Faint world map background — kept very subtle so the mockup is the centerpiece */
   .hero-bg {
     position: absolute;
@@ -443,6 +452,14 @@
     max-width: 720px;
   }
   h1.headline .accent { color: var(--alpha); }
+  @media (max-width: 720px) {
+    h1.headline {
+      font-size: clamp(40px, 11vw, 56px);
+      line-height: 1;
+      letter-spacing: -0.035em;
+      margin-bottom: 20px;
+    }
+  }
 
   .stage-sub {
     font-size: 19px; line-height: 1.55; color: var(--ink-2);
@@ -536,6 +553,82 @@
   }
   section.s:last-of-type { border-bottom: none; }
   @media (max-width: 720px) { section.s { padding: 80px 0; } }
+
+  /* ============== HOW IT WORKS — three-step (compact, three-column) ============== */
+  .steps-section { background: var(--bg); }
+  .steps-eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--alpha);
+    margin-bottom: 20px;
+    padding: 6px 10px; background: var(--alpha-soft);
+    border-radius: 4px;
+    display: inline-block;
+  }
+  .steps-title {
+    font-weight: 700;
+    font-size: clamp(32px, 4.4vw, 56px);
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    color: var(--ink);
+    margin-bottom: 56px;
+    max-width: 720px;
+  }
+  .steps-title .accent { color: var(--alpha); }
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .step-card {
+    padding: 32px 28px;
+    border: 1px solid var(--hairline-2);
+    border-radius: 14px;
+    background: rgba(15,29,51,0.35);
+    position: relative;
+    transition: border-color .2s ease, transform .2s ease;
+  }
+  .step-card:hover {
+    border-color: rgba(77,159,255,0.45);
+    transform: translateY(-2px);
+  }
+  .step-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    color: var(--alpha);
+    margin-bottom: 20px;
+  }
+  .step-headline {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    margin-bottom: 12px;
+    line-height: 1.2;
+  }
+  .step-body {
+    font-size: 15px;
+    color: var(--ink-2);
+    line-height: 1.6;
+    margin: 0;
+  }
+  /* Mobile: stack the three cards vertically, tighten spacing */
+  @media (max-width: 880px) {
+    .steps-grid {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .steps-title { margin-bottom: 36px; }
+    .step-card { padding: 24px 22px; }
+    .step-headline { font-size: 19px; }
+    .step-body { font-size: 14.5px; }
+  }
+  /* Tablet: 2 columns is awkward for a 3-step; jump to 1 column under desktop width */
+  @media (min-width: 881px) and (max-width: 1024px) {
+    .steps-grid { gap: 18px; }
+    .step-card { padding: 28px 24px; }
+  }
 
   .section-eyebrow {
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
