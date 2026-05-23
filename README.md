@@ -1,129 +1,226 @@
-# ETF Builder + Analyze Dropdown — install guide
+# ETF Builder — Production Data Source Edition
 
-## What you got
+This drop replaces the prior `yfinance + Stooq` data layer with the **same
+sources the trading bot uses for live decisions**: Alpaca SIP, Polygon, and
+Finnhub. yfinance is kept only for the ETF-specific fund_data accessors it's
+genuinely good at (expense ratio, sector weightings). Everything else now
+runs on the institutional-grade feeds you're already paying for.
 
-### New files (drop in)
-| File | Goes to |
-|---|---|
-| `etf_analyzer.py` | repo root (next to `analyze.py`, `insights.py`) |
-| `ETFBuilderView.tsx` | `client/src/pages/ETFBuilderView.tsx` |
+## What changed since the last drop
 
-### Modified files (replace existing)
-| File | Goes to |
-|---|---|
-| `home.tsx` | `client/src/pages/home.tsx` |
-| `analyze.tsx` | `client/src/pages/analyze.tsx` |
-| `InsightsView.tsx` | `client/src/pages/InsightsView.tsx` |
-| `routes.ts` | `server/routes.ts` |
-| `index.css` | `client/src/index.css` |
+Previously I added a multi-source layer using NASDAQ + Stooq + yfinance. After
+auditing the rest of the codebase I realised the bot already uses:
 
-No new dependencies — `yfinance` is already in `requirements.txt`.
+- **Alpaca Market Data API** (`data.alpaca.markets/v2/stocks/bars` with
+  `feed=sip&adjustment=all`) — used in `bot_engine.py`, `intraday_shorts.py`,
+  `csp_universe.py`, etc. The existing `_fetch_alpaca_bars` helper in
+  `analyze.py` handled this for individual stocks but the ETF Builder
+  was still on yfinance for some reason.
+- **Polygon `/v3/reference/tickers/{T}`** — already used in `alt_data.py` and
+  `macro_data.py` for shares outstanding. Returns full company reference data
+  including a clean `type` field (ETF / CS / REIT / FUND / ETN / etc).
+- **Finnhub `/stock/metric`** via the existing `finnhub_data.py` wrapper —
+  P/E, beta, dividend yield, 52w range.
 
-## What it does
+Stooq was an OK free fallback but it's no longer needed when Alpaca's SIP
+feed is available. NASDAQ is still the holdings-list source (Polygon's ETF
+holdings is on their premium tier).
 
-### 1. Top-nav "Analyze" hover dropdown
-Hovering the **Analyze** tab now opens a menu with four sections, each routing
-to the right view:
-- **Options & Volatility** — original options view (IV/HV, VRP, spreads, vol cone)
-- **Smart Money** — Insider + Institutional + Flow + Options Smart Money cards
-- **Structure** — Float/Short + Support & Resistance cards
-- **ETF Builder** — the new view
+## Files
 
-Deep-linkable: `/app#/analyze/etf-builder` etc.
-
-Mobile: dropdown doesn't fire on touch, so mobile still uses the in-page
-sub-tab switcher (which is now 3-way: Options · Smart Money · Structure). The
-ETF Builder is currently desktop-dropdown-only on mobile — see "Known
-limitations" below if you want it added to the mobile bottom bar too.
-
-### 2. ETF Builder / Analyzer
-Enter an ETF ticker (SPY, QQQ, VOO, ARKK, etc.). You get:
-
-- **Header card** — long name, family, expense ratio (bps), AUM, yield,
-  inception, **active vs passive** badge, **tracks index**, **rebalance
-  schedule** (typical-by-family — Yahoo doesn't publish actual dates).
-- **Performance & Contribution** — switch between 1M/3M/6M/YTD/1Y/5Y.
-  Top contributors and biggest drags are called out. Sortable table with
-  per-holding return, vs-ETF, and contribution-to-return (in bps).
-- **Replication Calculator** — slider ($100–$1M) + numeric input. Side-by-side
-  card: "Buy the ETF (one fund)" vs "Replicate with N holdings". Per-holding
-  table shows weight, $ allocation, price, share count, actual cost.
-  Fractional shares toggle.
-- **Sector Breakdown** — bar chart.
-- **Holdings Explorer** — expandable row per holding with the full
-  Yahoo Finance dump: sector, industry, country, exchange, currency,
-  **first trade date**, **years listed**, **SPAC heuristic flag**,
-  headquarters, employees, market cap, shares outstanding, trailing/forward
-  P/E, beta, dividend yield, 52-week high/low with position bar, full business
-  summary, and website link.
-
-## Data sources & honest limits
-
-- **All data from Yahoo Finance via `yfinance`**. Backend caches 1h per
-  holding, 15 min per full ETF payload.
-- **Holdings**: Yahoo returns top-N (typically 10) per ETF. Full holdings
-  require scraping the issuer (SSGA/iShares/Vanguard) — not implemented. UI
-  surfaces "Partial holdings: covers X% of fund weight" when truncated.
-- **Rebalance dates**: Yahoo doesn't publish actual rebalance dates. Backend
-  returns a *typical schedule by family* (S&P quarterly, Russell annual,
-  CRSP quarterly, etc.) and labels it as such. Active funds get
-  "discretionary, no fixed schedule".
-- **Active vs passive**: heuristic combining a known-actives list (ARK
-  family, JEPI/JEPQ, AVUV, etc.) with name pattern matching.
-- **SPAC flag**: name-pattern heuristic only (matches "Acquisition Corp"
-  etc.). For real SPAC detection you'd need SEC filing analysis. UI labels
-  the flag as "flagged by name pattern" so users know it's not definitive.
-- **Listing date**: `firstTradeDateEpochUtc`. For de-SPAC'd companies this is
-  the original SPAC IPO date, NOT the operating company's public debut. UI
-  labels it "First trade date" accurately rather than "IPO date".
-
-## First-run perf
-
-Per-holding `yfinance.info` calls are ~1–2s each. Backend parallelizes 6 at
-a time, so a 10-holding ETF takes ~3–5s on the first uncached request,
-~instant after. The frontend shows "10–30 seconds on first run" to set
-expectations.
-
-## Known limitations / possible follow-ups
-
-1. **Mobile ETF Builder access** — there's no mobile bottom-bar entry for
-   it; mobile users can only reach it via deep link
-   (`/app#/analyze/etf-builder`) or by editing the URL hash. If you want a
-   mobile affordance, the cleanest options are: (a) add it as a 4th button
-   in the in-page sub-tab switcher (but the model is different — ETF
-   ticker not stock ticker — so behavior is jarring); (b) add a 6th icon
-   to the mobile bottom bar; (c) use a long-press menu on the mobile
-   Analyze button.
-2. **Full holdings** — if you want all 500 SPY holdings, the path is
-   per-issuer scraping (SSGA CSV download for SPY, iShares JSON for IVV
-   etc.). Brittle but doable as a follow-up.
-3. **Real rebalance dates** — also per-issuer scraping (SSGA discloses,
-   iShares doesn't always).
-4. **Authoritative SPAC detection** — requires SEC EDGAR filings analysis
-   (S-1A filings, 8-K with item 2.01 for business combination). Out of scope
-   here.
-
-## Code quality notes
-
-- Python matches the project's existing pattern (`analyze.py`, `insights.py`,
-  `finnhub_data.py`): JSON-to-stdout, atomic cache writes via
-  `tempfile + os.replace`, `_clean_nan` traversal before serialization,
-  `_safe_float`/`_safe_int` coercion for numpy types.
-- React matches the project's inline-style + design-token approach.
-- yfinance schema drift is handled with multiple fallback paths
-  (`top_holdings` as DataFrame OR dict, weights as 0-1 OR 0-100,
-  `fund_operations` row names varying by version, etc.) — should survive a
-  yfinance version bump or two.
-
-## How to test
-
-```bash
-# Backend smoke test (from repo root, after `pip install -r requirements.txt`)
-python3 etf_analyzer.py SPY | python3 -m json.tool | less
-
-# Should return an ETF result with `info`, `holdings`, `sector_weights`,
-# `etf_performance`. AAPL (not an ETF) should return
-# {"error": "AAPL is a Equity, not an ETF..."}
+```
+etf_data_sources.py     REWRITE — Alpaca + Polygon + Finnhub + NASDAQ
+etf_analyzer.py         REWRITE — uses batch endpoints, much faster
+ETFBuilderView.tsx      UPDATED — classification panel, full-holdings UI
+analyze.tsx             UPDATED — unified search
+home.tsx                UPDATED — hover dropdown
+InsightsView.tsx        UPDATED — filter prop
+routes.ts               UPDATED — /api/etf/:ticker endpoint
+index.css               UPDATED — dropdown + section switcher
 ```
 
-Frontend just builds normally — no new packages.
+## How data flows now
+
+Single ETF request (e.g. `GET /api/etf/QQQ`):
+
+1. **Classify the ticker** via Polygon `/v3/reference/tickers/QQQ`. The `type`
+   field is authoritative (`ETF`, `CS`, `REIT`, `FUND`, `ETN`, `ADRC`, `PFD`,
+   `WARRANT`, etc.). If type ≠ ETF/ETN/ETV, return a friendly classified
+   error immediately. No yfinance call needed for the rejection.
+
+2. **Get full holdings list** from NASDAQ's public API
+   (`api.nasdaq.com/api/quote/QQQ/etfdetail/holdings?limit=9999`). Returns
+   all 100 holdings of QQQ, all 500 of SPY. Falls back to yfinance top-10
+   only if NASDAQ fails.
+
+3. **ONE batch Alpaca call** for daily bars on `[ETF_ticker] + [all 100
+   holdings]`. Up to 50 symbols per HTTP request, paginated, parallelized.
+   For QQQ: ~3 HTTP requests total covers the ETF + all 100 holdings with
+   5 years of daily SIP-adjusted closes. Then slice in code for all six
+   periods (1M/3M/6M/YTD/1Y/5Y) and current price.
+
+4. **Polygon ticker details** for the top 30 holdings (parallel,
+   ThreadPoolExecutor with 8 workers). Sector via SIC code mapping
+   (full table in `_SIC_RANGE_OVERRIDES`), industry from SIC description,
+   `list_date` for first trade date, market cap, shares outstanding,
+   description, exchange, country, employees, website.
+
+5. **Finnhub metrics** for the same top 30 (also parallel). Trailing P/E,
+   forward P/E, beta, dividend yield, 52w high/low. Fills the gaps Polygon
+   doesn't have in its reference endpoint.
+
+6. **yfinance** for the ETF-level fund data only: expense ratio
+   (`fund_operations`), sector weightings (`sector_weightings`), total AUM
+   (`info.totalAssets`), 30D SEC yield (`info.yield`), category, family.
+   These are the fund-specific things yfinance's `funds_data` accessor
+   actually does well.
+
+7. **Long-tail holdings** (positions 31 through N) get a slim record:
+   symbol, name, weight, current price, multi-period returns from the
+   Alpaca batch. No Polygon or Finnhub call — keeps SPY-sized funds fast.
+
+End result for QQQ: ~6 HTTP requests total (1 NASDAQ + 3 Alpaca bars batches
++ 30 Polygon details + 30 Finnhub metrics, with Polygon/Finnhub running
+concurrently). With caching, repeat calls are near-instant.
+
+## Data source priority per concern
+
+| Concern                    | Primary       | Fallback        | Notes |
+|---------------------------|---------------|------------------|-------|
+| Ticker classification      | Polygon `type` field | yfinance heuristic | Polygon is authoritative |
+| Full holdings list         | NASDAQ public API | yfinance top-10 | Polygon ETF holdings is paid tier |
+| Daily price history        | Alpaca SIP    | (none — Alpaca is reliable) | Adjusted for splits + divs |
+| Current price              | Alpaca latest bar | yfinance.info | |
+| Per-holding company data   | Polygon reference | (slim record if unavailable) | sector via SIC mapping |
+| P/E, beta, dividend yield  | Finnhub metrics | (omitted if unavailable) | |
+| ETF expense ratio          | yfinance `fund_operations` | yfinance `info` | |
+| ETF sector weightings      | yfinance `sector_weightings` | (omitted) | |
+| ETF AUM                    | yfinance `totalAssets` | (omitted) | |
+| ETF inception date         | Polygon `list_date` | Static table → yfinance `firstTradeDate` | |
+
+## Graceful degradation
+
+The data layer checks for API keys at startup (`have_alpaca()`,
+`have_polygon()`, `have_finnhub()`). Each source is independently optional:
+
+- **No `ALPACA_KEY`?** → No price history, no current prices.
+  Performance returns will all be None. (Set the env vars on Railway and
+  this fills in.)
+- **No `POLYGON_KEY`?** → No rich per-holding metadata. Classification
+  falls back to yfinance heuristic. Slim records still work via Alpaca.
+- **No `FINNHUB_KEY`?** → No P/E / beta / dividend yield. Everything else
+  still works.
+- **All three missing?** → Backend still serves a response but most fields
+  are None. The UI will show the holdings list (from NASDAQ + yfinance)
+  with a lot of dashes. Same as the old yfinance-only behavior.
+
+The response includes `data_sources_used: {alpaca, polygon, finnhub}`
+booleans so you can verify the env vars are loaded on Railway.
+
+## SIC → GICS-style sector mapping
+
+Polygon returns the SEC's SIC code on every company. The new
+`_sic_to_sector()` function maps SIC ranges to coarse GICS-style sectors:
+
+- 1311-1389, 2900-2999 → Energy
+- 2800-2829, 2837-2899 → Basic Materials
+- 2830-2836 → Healthcare (pharma)
+- 4812-4899 → Communication Services
+- 4911-4961 → Utilities
+- 5411-5499 → Consumer Defensive
+- 5810-5829 → Consumer Cyclical
+- 6020-6411 → Financial Services
+- 6500-6799 → Real Estate (incl. REITs at 6798-6799)
+- 7370-7389 → Technology
+- 8000-8099 → Healthcare
+- Fallback: first-digit bucket (3xxx → Industrials, etc.)
+
+Tested against 15 sample SIC codes spanning all sectors — all map correctly.
+Order matters: narrow ranges (pharma 2830-2836) are checked before wider
+ones (chemicals 2800-2899) so they don't get shadowed.
+
+## Classification IDs returned on rejection
+
+When a ticker isn't an ETF, the backend returns `error_classification`
+which the frontend renders with a coloured badge + suggested alternative
+ETF where applicable:
+
+| ID            | Source                       | Suggested ETF |
+|---------------|------------------------------|---------------|
+| `etf`         | Polygon type=ETF/ETN/ETV     | — (proceeds)  |
+| `stock`       | Polygon type=CS              | —             |
+| `reit`        | Polygon type=REIT or SIC 6798| VNQ           |
+| `mreit`       | mortgage in SIC desc or name | REM           |
+| `mutual_fund` | Polygon type=FUND            | —             |
+| `adr`         | Polygon type=ADRC/ADRP       | —             |
+| `preferred`   | Polygon type=PFD             | —             |
+| `warrant`     | Polygon type=WARRANT         | —             |
+| `index`       | symbol starts with `^`       | SPY           |
+| `crypto`      | symbol ends with `-USD`      | —             |
+| `unknown`     | nothing matched              | —             |
+
+## Required env vars on Railway
+
+Your bot is already using all three but verify these are set in your
+Railway service:
+
+```
+ALPACA_KEY=...            # Alpaca account key
+ALPACA_SECRET=...         # Alpaca secret
+POLYGON_KEY=...           # or POLYGON_API_KEY — both checked
+FINNHUB_KEY=...           # already in use for insights
+```
+
+If any are missing the data layer degrades silently rather than crashing.
+
+## Cache strategy
+
+- ETF payload: 15min
+- NASDAQ holdings: 6h
+- Polygon ticker details: 24h (reference data changes slowly)
+- Finnhub metrics: 6h
+- Per-holding combined record (Polygon + Finnhub merged): 1h
+
+Cache key prefix is `etf_v3_*` — old `etf_v2_*` and `etf_*` entries are
+ignored, so deploying invalidates the prior cache automatically.
+
+## Verifying after deploy
+
+`GET /api/etf/QQQ` should return:
+- `holdings_source: "nasdaq"` not `"yfinance_top_n"`
+- `holdings_returned: 100` not 10
+- `holdings_coverage: ~0.99`
+- `holdings_truncated: false`
+- `etf_performance` filled in (all six periods)
+- `info.inception_date: "1999-03-10"` (from Polygon's list_date)
+- `data_sources_used: {alpaca: true, polygon: true, finnhub: true}`
+- Each holding has `data_level: "full"` (top 30) or `"slim"` (rest)
+- Top 30 holdings have non-null `sector`, `industry`, `market_cap`,
+  `trailing_pe`, `beta`, etc.
+
+`GET /api/etf/ORC`:
+- `error_classification: "mreit"` (mortgage REIT)
+- `suggested_ticker: "REM"`
+- Friendly message explaining what ORC actually is
+
+`GET /api/etf/AAPL`:
+- `error_classification: "stock"`
+- Message points user to the regular Analyze view
+
+## A note on the rest of the site
+
+You mentioned the bot uses better sources than the public-facing analyze
+views. Quick audit: `analyze.py` already calls `_fetch_alpaca_bars()` for
+price history (good), but `insights.py` and some others still fall back
+to yfinance for per-ticker metadata. The same `fetch_ticker_details_polygon()`
++ `fetch_metrics_finnhub()` helpers in `etf_data_sources.py` could be
+imported and used to upgrade those too — happy to do that as a follow-up
+pass if you want the whole site moved off yfinance for per-ticker data.
+
+Most likely candidates for migration:
+- `insights.py` — uses yfinance.info for company sector/industry/employees;
+  Polygon reference would be faster + more reliable
+- `analyze.py` lines 1902-1920 — yfinance.info for company fundamentals;
+  could mostly move to Polygon + Finnhub
+- Any place using `yf.Ticker(x).info` for sector / industry / marketcap /
+  shares_outstanding / business summary

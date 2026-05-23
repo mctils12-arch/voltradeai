@@ -1,26 +1,21 @@
 #!/usr/bin/env python3
 """
-VolTradeAI — ETF Builder / Analyzer
+VolTradeAI — ETF Builder (production-source edition)
 
-Pulls ETF metadata, holdings, sector breakdown, expense ratio, and
-multi-period performance from Yahoo Finance (via yfinance). For each
-holding it surfaces a rich snapshot — listing date, market cap, sector,
-valuation multiples, beta, 52w range, plus an IPO/SPAC heuristic — and
-computes contribution to ETF return so callers can highlight drags.
+Uses the same data infrastructure as the bot:
+  - Alpaca SIP for all price history & current prices (BATCH endpoint —
+    pulls 5y daily bars for ALL holdings in 1-2 HTTP calls)
+  - Polygon /v3/reference/tickers for per-holding metadata (sector via SIC,
+    industry, list_date, market cap, shares outstanding, description, etc.)
+  - Finnhub /stock/metric for valuation (P/E, beta, dividend yield, 52w range)
+  - NASDAQ public API for the full holdings list (all 100 of QQQ, 500 of SPY)
+  - yfinance kept ONLY for ETF-specific fund accessors (expense ratio,
+    sector weightings, total assets) — its weakest spot (per-stock metadata)
+    is no longer used.
 
-Output: single JSON object to stdout (same convention as analyze.py).
+Output: single JSON object to stdout.
 
-Limits (documented honestly in the response):
-  - Yahoo Finance returns top-N holdings (typically 10) per ETF. Full
-    holdings require scraping the issuer (SSGA, iShares, Vanguard).
-  - Yahoo does not publish rebalance dates. We surface a typical
-    schedule by family.
-  - SPAC flag is name-pattern heuristic, not authoritative.
-  - "Listing date" = firstTradeDateEpochUtc; for deSPACs this is the
-    original SPAC IPO, not the operating company's public debut.
-
-Usage:
-  python3 etf_analyzer.py SPY
+Usage: python3 etf_analyzer.py SPY
 """
 
 import sys
@@ -36,19 +31,21 @@ from datetime import datetime, timezone
 warnings.filterwarnings("ignore")
 
 try:
-    import yfinance as yf  # noqa
+    import yfinance as yf
 except Exception as e:
     print(json.dumps({"error": f"yfinance not available: {e}"}))
     sys.exit(1)
 
+import etf_data_sources as ds
 
-# ── Cache (filesystem, mirrors finnhub_data.py / alt_data.py pattern) ────────
+
+# ─── Cache (filesystem) ──────────────────────────────────────────────────────
 
 CACHE_DIR = "/tmp/voltrade_etf_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-def _cache_get(key: str, ttl_seconds: int):
+def _cache_get(key, ttl_seconds):
     path = os.path.join(CACHE_DIR, f"{key}.json")
     try:
         if os.path.exists(path) and (time.time() - os.path.getmtime(path)) < ttl_seconds:
@@ -59,7 +56,7 @@ def _cache_get(key: str, ttl_seconds: int):
     return None
 
 
-def _cache_set(key: str, data) -> None:
+def _cache_set(key, data):
     path = os.path.join(CACHE_DIR, f"{key}.json")
     try:
         dirname = os.path.dirname(path) or "."
@@ -69,15 +66,13 @@ def _cache_set(key: str, data) -> None:
                 json.dump(data, f)
             os.replace(tmp, path)
         except Exception:
-            try:
-                os.unlink(tmp)
-            except Exception:
-                pass
+            try: os.unlink(tmp)
+            except Exception: pass
     except Exception:
         pass
 
 
-# ── JSON cleanliness helpers ─────────────────────────────────────────────────
+# ─── JSON cleanliness ────────────────────────────────────────────────────────
 
 def _clean_nan(obj):
     if isinstance(obj, float):
@@ -92,13 +87,10 @@ def _clean_nan(obj):
 
 
 def _safe_float(x):
-    """Coerce yfinance numbers (which can be numpy types) to clean Python floats."""
     try:
-        if x is None:
-            return None
+        if x is None: return None
         v = float(x)
-        if math.isnan(v) or math.isinf(v):
-            return None
+        if math.isnan(v) or math.isinf(v): return None
         return v
     except Exception:
         return None
@@ -109,10 +101,8 @@ def _safe_int(x):
     return int(v) if v is not None else None
 
 
-# ── Family / index heuristics ────────────────────────────────────────────────
+# ─── Family / index heuristics ───────────────────────────────────────────────
 
-# Maps fund-family substrings to a "typical rebalance schedule" string. Yahoo
-# does not publish actual rebalance dates; this is informational only.
 _REBALANCE_BY_FAMILY = [
     ("SPDR", "Quarterly (S&P 500 reconstitution: 3rd Fri of Mar/Jun/Sep/Dec)"),
     ("iShares Core S&P", "Quarterly (S&P reconstitution)"),
@@ -127,8 +117,6 @@ _REBALANCE_BY_FAMILY = [
     ("VanEck", "Quarterly review"),
 ]
 
-# A small index map for the "tracks" field. yfinance does not always expose
-# the underlying index cleanly, so we fall back to a few well-known cases.
 _INDEX_BY_TICKER = {
     "SPY": "S&P 500", "VOO": "S&P 500", "IVV": "S&P 500", "SPLG": "S&P 500",
     "QQQ": "Nasdaq-100", "QQQM": "Nasdaq-100",
@@ -154,6 +142,9 @@ _INDEX_BY_TICKER = {
     "ARKK": "Active — Disruptive Innovation",
     "JEPI": "Active — Equity Premium Income",
     "JEPQ": "Active — Nasdaq Equity Premium Income",
+    "VNQ": "MSCI US Investable Market Real Estate 25/50",
+    "REM": "FTSE NAREIT All Mortgage Capped",
+    "MORT": "MVIS US Mortgage REITs",
 }
 
 
@@ -164,7 +155,7 @@ def _rebalance_for(family: str, ticker: str) -> str:
     for key, sched in _REBALANCE_BY_FAMILY:
         if key.lower() in fam.lower():
             return sched
-    return "Not disclosed by Yahoo (check issuer prospectus for rebalance schedule)"
+    return "Check issuer prospectus for the official rebalance schedule"
 
 
 def _index_for(ticker: str, category: str) -> str:
@@ -172,14 +163,12 @@ def _index_for(ticker: str, category: str) -> str:
     if t in _INDEX_BY_TICKER:
         return _INDEX_BY_TICKER[t]
     if category:
-        return f"(Tracks a {category.lower()} benchmark — see issuer prospectus)"
+        return f"(Tracks a {category.lower()} benchmark)"
     return "Unknown"
 
 
-def _management_style(info: dict, fund_overview: dict | None, ticker: str) -> str:
-    """Heuristically classify active vs passive."""
+def _management_style(info: dict, ticker: str) -> str:
     t = ticker.upper()
-    # Known actives
     if t in {"ARKK", "ARKQ", "ARKW", "ARKG", "ARKF", "ARKX", "JEPI", "JEPQ",
              "DIVO", "QYLD", "RYLD", "XYLD", "NUSI", "BALI", "PFFA", "AVUV",
              "AVDV", "AVEM", "FFTY", "MOAT"}:
@@ -190,11 +179,10 @@ def _management_style(info: dict, fund_overview: dict | None, ticker: str) -> st
     family = (info.get("fundFamily") or "").lower()
     if "ark" in family or "actively managed" in family:
         return "Active"
-    # Default: most ETFs by AUM are passive index trackers
     return "Passive (index-tracking)"
 
 
-# ── SPAC heuristic ────────────────────────────────────────────────────────────
+# ─── SPAC heuristic ──────────────────────────────────────────────────────────
 
 _SPAC_NAME_PATTERNS = [
     "acquisition corp", "acquisition corporation",
@@ -202,207 +190,25 @@ _SPAC_NAME_PATTERNS = [
 ]
 
 
-def _spac_heuristic(long_name: str | None, short_name: str | None) -> bool:
+def _spac_heuristic(long_name, short_name) -> bool:
     if not long_name and not short_name:
         return False
     blob = ((long_name or "") + " " + (short_name or "")).lower()
     return any(p in blob for p in _SPAC_NAME_PATTERNS)
 
 
-# ── Per-holding fetch ─────────────────────────────────────────────────────────
+# ─── Holdings sources from yfinance (last-resort fallback) ──────────────────
 
-# Periods we surface in the UI. Yahoo accepts standard yfinance period codes.
-_PERIODS = ["1mo", "3mo", "6mo", "ytd", "1y", "5y"]
-
-
-def _period_return(hist_close, period: str):
-    """Compute % return over the period from a daily-close Series."""
-    if hist_close is None or len(hist_close) < 2:
-        return None
-    try:
-        last = float(hist_close.iloc[-1])
-        first = float(hist_close.iloc[0])
-        if first <= 0:
-            return None
-        return (last / first - 1.0)
-    except Exception:
-        return None
-
-
-def _fetch_period_returns(ticker_obj, periods=_PERIODS) -> dict:
-    """One yfinance .history() call per period — pulled sequentially per holding
-    but the holdings themselves are parallelized at the level above."""
-    out = {}
-    for p in periods:
-        try:
-            h = ticker_obj.history(period=p, auto_adjust=True)
-            if h is None or h.empty:
-                out[p] = None
-                continue
-            out[p] = _period_return(h["Close"])
-        except Exception:
-            out[p] = None
-    return out
-
-
-def _fetch_holding_snapshot(symbol: str, weight: float) -> dict:
-    """Build the per-holding payload. Cached 1h per symbol to keep ETF rebuilds
-    fast across users."""
-    cache_key = f"holding_{symbol.upper()}"
-    cached = _cache_get(cache_key, ttl_seconds=3600)
-    if cached is not None:
-        cached["weight"] = weight  # weight comes from the parent ETF, not cached
-        return cached
-
-    out = {
-        "symbol": symbol,
-        "weight": weight,
-        "name": None,
-        "price": None,
-        "currency": None,
-        "exchange": None,
-        "country": None,
-        "sector": None,
-        "industry": None,
-        "market_cap": None,
-        "shares_outstanding": None,
-        "first_trade_date": None,
-        "listing_age_years": None,
-        "is_spac_heuristic": False,
-        "trailing_pe": None,
-        "forward_pe": None,
-        "dividend_yield": None,
-        "beta": None,
-        "52w_high": None,
-        "52w_low": None,
-        "52w_pos_pct": None,
-        "employees": None,
-        "headquarters": None,
-        "website": None,
-        "long_business_summary": None,
-        "performance": {},
-        "fetch_error": None,
-    }
-
-    try:
-        t = yf.Ticker(symbol)
-        info = {}
-        try:
-            info = t.info or {}
-        except Exception:
-            try:
-                info = t.get_info() or {}
-            except Exception:
-                info = {}
-
-        out["name"] = info.get("longName") or info.get("shortName")
-        out["price"] = _safe_float(
-            info.get("currentPrice")
-            or info.get("regularMarketPrice")
-            or info.get("previousClose")
-        )
-        out["currency"] = info.get("currency")
-        out["exchange"] = info.get("exchange") or info.get("fullExchangeName")
-        out["country"] = info.get("country")
-        out["sector"] = info.get("sector")
-        out["industry"] = info.get("industry")
-        out["market_cap"] = _safe_int(info.get("marketCap"))
-        out["shares_outstanding"] = _safe_int(info.get("sharesOutstanding"))
-        out["trailing_pe"] = _safe_float(info.get("trailingPE"))
-        out["forward_pe"] = _safe_float(info.get("forwardPE"))
-        out["dividend_yield"] = _safe_float(info.get("dividendYield"))
-        out["beta"] = _safe_float(info.get("beta"))
-        out["52w_high"] = _safe_float(info.get("fiftyTwoWeekHigh"))
-        out["52w_low"] = _safe_float(info.get("fiftyTwoWeekLow"))
-        out["employees"] = _safe_int(info.get("fullTimeEmployees"))
-        out["website"] = info.get("website")
-        out["long_business_summary"] = info.get("longBusinessSummary")
-
-        # Headquarters
-        city = info.get("city") or ""
-        state = info.get("state") or ""
-        country = info.get("country") or ""
-        hq_parts = [p for p in (city, state, country) if p]
-        if hq_parts:
-            out["headquarters"] = ", ".join(hq_parts)
-
-        # 52-week position (0-1)
-        h, l, p = out["52w_high"], out["52w_low"], out["price"]
-        if h and l and p and h > l:
-            out["52w_pos_pct"] = max(0.0, min(1.0, (p - l) / (h - l)))
-
-        # First trade / listing date
-        ftd = info.get("firstTradeDateEpochUtc")
-        if ftd:
-            try:
-                dt = datetime.fromtimestamp(int(ftd), tz=timezone.utc)
-                out["first_trade_date"] = dt.strftime("%Y-%m-%d")
-                age_days = (datetime.now(timezone.utc) - dt).days
-                out["listing_age_years"] = round(age_days / 365.25, 2)
-            except Exception:
-                pass
-
-        # SPAC heuristic
-        out["is_spac_heuristic"] = _spac_heuristic(
-            info.get("longName"), info.get("shortName")
-        )
-
-        # Multi-period performance — only call history if we have a usable ticker
-        out["performance"] = _fetch_period_returns(t)
-
-    except Exception as e:
-        out["fetch_error"] = str(e)[:200]
-
-    _cache_set(cache_key, out)
-    out["weight"] = weight  # ensure freshest weight
-    return out
-
-
-# ── ETF top-level fetch ───────────────────────────────────────────────────────
-
-def _df_to_dict(df, key_col, val_col):
-    """Convert a small yfinance DataFrame to a plain dict, robust to schema drift."""
-    if df is None:
-        return {}
-    try:
-        if hasattr(df, "empty") and df.empty:
-            return {}
-        # DataFrame path
-        if hasattr(df, "iterrows"):
-            out = {}
-            for _, row in df.iterrows():
-                k = row.get(key_col)
-                v = row.get(val_col)
-                if k is None and df.index.name == key_col:
-                    k = row.name
-                if k is not None:
-                    out[str(k)] = _safe_float(v)
-            return out
-        # Dict path (some yfinance versions return dicts)
-        if isinstance(df, dict):
-            return {str(k): _safe_float(v) for k, v in df.items()}
-    except Exception:
-        pass
-    return {}
-
-
-def _extract_top_holdings(funds_data) -> list[tuple[str, float]]:
-    """Return [(symbol, weight_0_to_1), ...] for the ETF's top holdings.
-
-    yfinance has shifted this API across versions; we try a few shapes.
-    """
+def _extract_top_holdings_yfinance(funds_data):
+    """Used only if NASDAQ holdings API is unavailable. Caps at top-10."""
     try:
         th = funds_data.top_holdings
     except Exception:
         return []
 
-    holdings: list[tuple[str, float]] = []
-
-    # Most current yfinance returns a DataFrame with columns:
-    #   index = symbol, "Holding Percent" or "holdingPercent" column
+    holdings = []
     try:
         if hasattr(th, "iterrows"):
-            cols = [c.lower() for c in th.columns]
             pct_col = None
             for c in th.columns:
                 cl = c.lower().replace(" ", "")
@@ -415,7 +221,6 @@ def _extract_top_holdings(funds_data) -> list[tuple[str, float]]:
                     continue
                 w = _safe_float(row[pct_col]) if pct_col else None
                 if w is None:
-                    # Try common fallbacks
                     for c in th.columns:
                         v = _safe_float(row[c])
                         if v is not None and 0 < v <= 1.5:
@@ -423,10 +228,9 @@ def _extract_top_holdings(funds_data) -> list[tuple[str, float]]:
                             break
                 if w is None:
                     continue
-                # Normalize: yfinance sometimes returns 0-1 floats, sometimes 0-100
                 if w > 1.5:
                     w = w / 100.0
-                holdings.append((sym, w))
+                holdings.append({"symbol": sym, "weight": w, "name": None})
         elif isinstance(th, dict):
             for sym, w in th.items():
                 wv = _safe_float(w)
@@ -434,24 +238,20 @@ def _extract_top_holdings(funds_data) -> list[tuple[str, float]]:
                     continue
                 if wv > 1.5:
                     wv = wv / 100.0
-                holdings.append((str(sym).upper(), wv))
+                holdings.append({"symbol": str(sym).upper(), "weight": wv, "name": None})
     except Exception:
         pass
-
     return holdings
 
 
-def _extract_expense_ratio(funds_data, info: dict) -> float | None:
-    """Pull expense ratio from fund_operations (preferred) or info."""
-    # Try fund_operations DataFrame
+def _extract_expense_ratio(funds_data, info):
+    """yfinance is still the best free source for expense ratio."""
     try:
         fo = funds_data.fund_operations
         if fo is not None and hasattr(fo, "loc"):
-            # Common row name in current yfinance: "Annual Report Expense Ratio"
             for row_name in ("Annual Report Expense Ratio", "annualReportExpenseRatio",
                              "Expense Ratio", "expenseRatio"):
                 if row_name in fo.index:
-                    # First column is usually the ETF itself
                     try:
                         val = _safe_float(fo.loc[row_name].iloc[0])
                         if val is not None:
@@ -460,17 +260,14 @@ def _extract_expense_ratio(funds_data, info: dict) -> float | None:
                         pass
     except Exception:
         pass
-
-    # Fallback to info fields (older yfinance)
     for k in ("annualReportExpenseRatio", "netExpenseRatio", "expenseRatio"):
         v = _safe_float(info.get(k))
         if v is not None:
             return v if v < 1 else v / 100.0
-
     return None
 
 
-def _extract_fund_overview(funds_data) -> dict:
+def _extract_fund_overview(funds_data):
     out = {"category_name": None, "family": None, "legal_type": None}
     try:
         fo = funds_data.fund_overview
@@ -481,7 +278,6 @@ def _extract_fund_overview(funds_data) -> dict:
             out["family"] = fo.get("family")
             out["legal_type"] = fo.get("legalType")
         else:
-            # DataFrame fallback
             try:
                 row = fo.iloc[0]
                 out["category_name"] = row.get("categoryName")
@@ -494,17 +290,90 @@ def _extract_fund_overview(funds_data) -> dict:
     return out
 
 
+# ─── Per-holding fetch (rich metadata for top-N) ────────────────────────────
+
+_PERIODS = ["1mo", "3mo", "6mo", "ytd", "1y", "5y"]
+TOP_N_RICH = 30  # how many holdings get full metadata (Polygon + Finnhub)
+
+
+def _fetch_holding_full(symbol, weight, name_hint, perf_data):
+    """Build a holding payload with rich metadata.
+
+    perf_data = {"performance": {...}, "price": float, "history_points": int}
+    pre-computed in the batch Alpaca call. So this function only needs to
+    fetch the per-symbol metadata (Polygon + Finnhub).
+    """
+    cache_key = f"holding_full_v2_{symbol.upper()}"
+    cached = _cache_get(cache_key, ttl_seconds=3600)
+
+    if cached is None:
+        meta = ds.fetch_holding_metadata(symbol)
+        cached = meta
+        _cache_set(cache_key, cached)
+
+    out = dict(cached)
+    # Always re-apply current weight, name hint, and live perf data
+    out["symbol"] = symbol
+    out["weight"] = weight
+    if name_hint and not out.get("name"):
+        out["name"] = name_hint
+    out["price"] = perf_data.get("price")
+    out["performance"] = perf_data.get("performance") or {p: None for p in _PERIODS}
+    out["data_level"] = "full"
+
+    # SPAC heuristic from the name we have now
+    out["is_spac_heuristic"] = _spac_heuristic(out.get("name"), None)
+
+    # 52w position percentage (if we have both bounds and a current price)
+    h_hi, h_lo, p = _safe_float(out.get("52w_high")), _safe_float(out.get("52w_low")), out.get("price")
+    if h_hi and h_lo and p and h_hi > h_lo:
+        out["52w_pos_pct"] = max(0.0, min(1.0, (p - h_lo) / (h_hi - h_lo)))
+    else:
+        out["52w_pos_pct"] = None
+
+    return out
+
+
+def _fetch_holding_slim(symbol, weight, name_hint, perf_data):
+    """Lightweight holding payload — symbol, weight, price, returns only.
+
+    Used for the long tail beyond top-N. No metadata API calls.
+    """
+    return {
+        "symbol": symbol,
+        "weight": weight,
+        "name": name_hint,
+        "price": perf_data.get("price"),
+        "performance": perf_data.get("performance") or {p: None for p in _PERIODS},
+        "data_level": "slim",
+    }
+
+
+# ─── ETF top-level fetch ─────────────────────────────────────────────────────
+
 def analyze_etf(ticker: str) -> dict:
     ticker = ticker.upper().strip()
-    cache_key = f"etf_{ticker}"
-    cached = _cache_get(cache_key, ttl_seconds=900)  # 15 min for full payload
+    cache_key = f"etf_v3_{ticker}"  # bumped v2 → v3 because data sources changed
+    cached = _cache_get(cache_key, ttl_seconds=900)
     if cached is not None:
         cached["from_cache"] = True
         return cached
 
-    t = yf.Ticker(ticker)
+    # ── Classification: Polygon's `type` field is the source of truth ────
+    # If Polygon says it's not ETF/ETN/ETV, return a friendly classified error.
+    classification = ds.classify_ticker(ticker)
+    if classification:
+        cid, msg, suggested = classification
+        if cid not in ("etf", "etn", "etv"):
+            return {
+                "error": msg,
+                "error_classification": cid,
+                "suggested_ticker": suggested,
+                "queried_ticker": ticker,
+            }
 
-    # ── Verify ticker is an ETF ────────────────────────────────────────────
+    # ── yfinance for ETF-specific fund data (expense ratio, sector weights) ──
+    t = yf.Ticker(ticker)
     info = {}
     try:
         info = t.info or {}
@@ -514,62 +383,89 @@ def analyze_etf(ticker: str) -> dict:
         except Exception:
             info = {}
 
-    quote_type = (info.get("quoteType") or "").upper()
-    if quote_type and quote_type not in ("ETF", "MUTUALFUND"):
-        return {
-            "error": f"{ticker} is a {quote_type.title()}, not an ETF. "
-                     f"Use the regular Analyze view for individual stocks."
-        }
+    # If we didn't get Polygon classification AND yfinance also reports
+    # this isn't an ETF, classify via the legacy path
+    if classification is None:
+        quote_type = (info.get("quoteType") or "").upper()
+        if quote_type and quote_type not in ("ETF", "MUTUALFUND"):
+            info_with_symbol = dict(info)
+            info_with_symbol["symbol"] = ticker
+            cid, msg, suggested = ds.classify_non_etf(info_with_symbol)
+            return {
+                "error": msg,
+                "error_classification": cid,
+                "suggested_ticker": suggested,
+                "queried_ticker": ticker,
+            }
 
-    # funds_data is the yfinance accessor for ETF / fund details
     try:
         fd = t.funds_data
-    except Exception as e:
-        return {"error": f"No fund data available for {ticker}: {e}"}
-
-    fund_overview = _extract_fund_overview(fd)
-    sector_weights = {}
-    try:
-        sw = fd.sector_weightings
-        if isinstance(sw, dict):
-            sector_weights = {k: _safe_float(v) for k, v in sw.items() if _safe_float(v)}
-            # Normalize keys to title case
-            sector_weights = {k.replace("_", " ").title(): v for k, v in sector_weights.items()}
     except Exception:
-        pass
+        fd = None
 
-    raw_holdings = _extract_top_holdings(fd)
-    expense_ratio = _extract_expense_ratio(fd, info)
+    fund_overview = _extract_fund_overview(fd) if fd else {"category_name": None, "family": None, "legal_type": None}
+    sector_weights = {}
+    if fd:
+        try:
+            sw = fd.sector_weightings
+            if isinstance(sw, dict):
+                sector_weights = {k.replace("_", " ").title(): _safe_float(v)
+                                  for k, v in sw.items() if _safe_float(v)}
+        except Exception:
+            pass
 
-    # ── ETF metadata ──────────────────────────────────────────────────────
+    expense_ratio = _extract_expense_ratio(fd, info) if fd else None
     family = fund_overview.get("family") or info.get("fundFamily")
     category = fund_overview.get("category_name") or info.get("category")
     legal_type = fund_overview.get("legal_type") or info.get("legalType") or "ETF"
 
-    # ETF current price (separate yfinance call is unnecessary — info has it)
-    etf_price = _safe_float(
+    # Inception: Polygon list_date is authoritative for nearly all ETFs.
+    # Fall through to static table, then yfinance, then None.
+    poly_etf = ds.fetch_ticker_details_polygon(ticker)
+    inception = (poly_etf or {}).get("list_date")
+    if not inception:
+        inception = ds.ETF_INCEPTION.get(ticker)
+    if not inception:
+        ftd = info.get("firstTradeDateEpochUtc")
+        if ftd:
+            try:
+                inception = datetime.fromtimestamp(int(ftd), tz=timezone.utc).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+    # ── HOLDINGS LIST: full list from NASDAQ; fall back to yfinance top-N ──
+    holdings_meta = ds.fetch_full_holdings_nasdaq(ticker)
+    holdings_source = "nasdaq"
+    if not holdings_meta:
+        holdings_meta = _extract_top_holdings_yfinance(fd) if fd else []
+        holdings_source = "yfinance_top_n" if holdings_meta else "none"
+
+    # ── BATCH PRICE/RETURN FETCH for ALL holdings + the ETF itself ────────
+    # One Alpaca batch call (chunked at 50 symbols/request internally) covers
+    # the entire ETF in 1-2 round trips. Much faster than per-symbol.
+    all_syms = [ticker] + [h["symbol"] for h in (holdings_meta or [])]
+    perf_map = ds.compute_returns_for_symbols(all_syms, history_days=1900)
+
+    # ETF-level price & performance from the batch
+    etf_pkg = perf_map.get(ticker, {})
+    etf_performance = etf_pkg.get("performance") or {p: None for p in _PERIODS}
+    etf_price = etf_pkg.get("price") or _safe_float(
         info.get("regularMarketPrice")
         or info.get("currentPrice")
         or info.get("previousClose")
         or info.get("navPrice")
     )
 
-    inception = None
-    ftd = info.get("firstTradeDateEpochUtc")
-    if ftd:
-        try:
-            inception = datetime.fromtimestamp(int(ftd), tz=timezone.utc).strftime("%Y-%m-%d")
-        except Exception:
-            pass
-
     etf_meta = {
         "ticker": ticker,
-        "long_name": info.get("longName") or info.get("shortName"),
+        "long_name": (info.get("longName") or info.get("shortName")
+                      or (poly_etf or {}).get("name")),
         "family": family,
         "category": category,
         "legal_type": legal_type,
-        "exchange": info.get("exchange") or info.get("fullExchangeName"),
-        "currency": info.get("currency"),
+        "exchange": (info.get("exchange") or info.get("fullExchangeName")
+                     or (poly_etf or {}).get("exchange")),
+        "currency": info.get("currency") or (poly_etf or {}).get("currency"),
         "total_assets": _safe_int(info.get("totalAssets")),
         "nav_price": _safe_float(info.get("navPrice")),
         "current_price": etf_price,
@@ -579,51 +475,53 @@ def analyze_etf(ticker: str) -> dict:
         "three_year_avg_return": _safe_float(info.get("threeYearAverageReturn")),
         "five_year_avg_return": _safe_float(info.get("fiveYearAverageReturn")),
         "inception_date": inception,
-        "management_style": _management_style(info, fund_overview, ticker),
+        "management_style": _management_style(info, ticker),
         "tracks_index": _index_for(ticker, category),
         "rebalance_schedule": _rebalance_for(family or "", ticker),
-        "long_business_summary": info.get("longBusinessSummary"),
+        "long_business_summary": (info.get("longBusinessSummary")
+                                   or (poly_etf or {}).get("description")),
     }
 
-    # ── ETF historical performance ────────────────────────────────────────
-    etf_performance = _fetch_period_returns(t)
-
-    # ── Holdings: fetch in parallel ───────────────────────────────────────
+    # ── Build per-holding records ─────────────────────────────────────────
     holdings_full = []
-    holdings_coverage = sum(w for _, w in raw_holdings) if raw_holdings else 0.0
+    holdings_coverage = sum(h["weight"] for h in (holdings_meta or [])) if holdings_meta else 0.0
 
-    if raw_holdings:
-        # Cap concurrent threads — yfinance gets rate-limited if hammered
-        max_workers = min(6, len(raw_holdings))
+    if holdings_meta:
+        ranked = sorted(holdings_meta, key=lambda h: h.get("weight") or 0, reverse=True)
+        top_n = ranked[:TOP_N_RICH]
+        rest = ranked[TOP_N_RICH:]
+
+        # Rich metadata for top-N (Polygon + Finnhub via threadpool)
+        max_workers = min(8, max(1, len(top_n)))
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {
-                ex.submit(_fetch_holding_snapshot, sym, w): sym
-                for sym, w in raw_holdings
-            }
+            futures = []
+            for h in top_n:
+                pd_perf = perf_map.get(h["symbol"], {})
+                futures.append(ex.submit(_fetch_holding_full,
+                                          h["symbol"], h["weight"],
+                                          h.get("name"), pd_perf))
             for fut in as_completed(futures):
                 try:
                     holdings_full.append(fut.result())
-                except Exception as e:
-                    sym = futures[fut]
-                    holdings_full.append({
-                        "symbol": sym,
-                        "weight": next((w for s, w in raw_holdings if s == sym), 0),
-                        "fetch_error": str(e)[:200],
-                    })
+                except Exception:
+                    pass
 
-        # Preserve original weight ordering (descending)
-        weight_order = {sym: i for i, (sym, _) in enumerate(raw_holdings)}
-        holdings_full.sort(key=lambda h: weight_order.get(h.get("symbol"), 999))
+        # Slim for the long tail — no metadata calls, just batch perf data
+        for h in rest:
+            pd_perf = perf_map.get(h["symbol"], {})
+            holdings_full.append(_fetch_holding_slim(
+                h["symbol"], h["weight"], h.get("name"), pd_perf))
 
-    # ── Compute contribution-to-return for each period and tag drags ──────
-    # contribution_to_etf_return[period] = weight × holding_return[period]
+        holdings_full.sort(key=lambda h: h.get("weight") or 0, reverse=True)
+
+    # ── Contribution + drag flags per period ──────────────────────────────
     for h in holdings_full:
         perf = h.get("performance") or {}
         contrib = {}
         drag_flag = {}
         for p in _PERIODS:
             r = perf.get(p)
-            etf_r = (etf_performance or {}).get(p)
+            etf_r = etf_performance.get(p)
             if r is not None and h.get("weight") is not None:
                 contrib[p] = h["weight"] * r
             else:
@@ -635,24 +533,34 @@ def analyze_etf(ticker: str) -> dict:
         h["contribution"] = contrib
         h["is_drag"] = drag_flag
 
+    coverage = round(holdings_coverage, 4)
+    is_complete = coverage >= 0.90
+
     payload = {
         "ticker": ticker,
         "info": etf_meta,
         "sector_weights": sector_weights,
         "holdings": holdings_full,
-        "holdings_coverage": round(holdings_coverage, 4),
+        "holdings_coverage": coverage,
         "holdings_returned": len(holdings_full),
-        "holdings_truncated": holdings_coverage < 0.99,
+        "holdings_truncated": not is_complete,
+        "holdings_source": holdings_source,
         "etf_performance": etf_performance,
         "as_of": datetime.now(timezone.utc).isoformat(),
         "data_source_notes": (
-            "ETF metadata + top holdings via Yahoo Finance (yfinance). "
-            "Per-holding details cached 1h, ETF metadata cached 15min. "
-            "Yahoo returns top-N holdings (typically 10) — not the complete fund. "
-            "Rebalance schedules are typical-by-family; not the literal last rebalance date. "
-            "SPAC flag is a name-pattern heuristic only. "
-            "Listing date = firstTradeDateEpochUtc (the SPAC IPO date for deSPACs)."
+            "Price history & current prices: Alpaca Market Data API (SIP feed, "
+            "adjusted for splits & dividends). "
+            "Per-holding company data: Polygon reference + Finnhub financial metrics. "
+            "Full holdings list: NASDAQ ETF data. "
+            "Fund-level data (expense ratio, sector weightings): issuer feeds. "
+            "Cached: ETF payload 15min, per-holding metadata 24h, "
+            "Finnhub metrics 6h, price history 12h."
         ),
+        "data_sources_used": {
+            "alpaca": ds.have_alpaca(),
+            "polygon": ds.have_polygon(),
+            "finnhub": ds.have_finnhub(),
+        },
         "from_cache": False,
     }
 
@@ -660,7 +568,7 @@ def analyze_etf(ticker: str) -> dict:
     return payload
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ─── Entry point ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

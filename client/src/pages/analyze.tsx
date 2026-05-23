@@ -2077,7 +2077,10 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
       const res = await apiRequest("GET", `/api/analyze/${ticker}`);
       return res.json();
     },
-    enabled: !!ticker,
+    // SECTION 2026-05-23: don't hit /api/analyze when the user is on the
+    // ETF Builder section — that section uses /api/etf, not /api/analyze,
+    // and the result view is rendered inside ETFBuilderView.
+    enabled: !!ticker && subTab !== "etf-builder",
     retry: false,
     staleTime: 30000,
   });
@@ -2164,13 +2167,13 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
 
   return (
     <div style={{ position: "relative", minHeight: "100vh" }}>
-      {/* DataWorldMap background only for stock-ticker sections — ETF Builder
-          has its own model and the world-map chrome doesn't apply. */}
-      {subTab !== "etf-builder" && (
-        <Suspense fallback={null}>
-          <DataWorldMap isLoading={isLoading} hasData={!!data && !data.error} ticker={ticker} />
-        </Suspense>
-      )}
+      {/* DataWorldMap background — shared across all sections (Options,
+          Smart Money, Structure, ETF Builder). 2026-05-23: was gated to
+          stock-ticker sections; ungated so ETF Builder gets the same
+          chrome as the rest of the analyze page. */}
+      <Suspense fallback={null}>
+        <DataWorldMap isLoading={isLoading} hasData={!!data && !data.error} ticker={ticker} />
+      </Suspense>
       <div style={{ position: "relative", zIndex: 1 }}>
 
         {/* Page heading badge — changes color/text per section */}
@@ -2191,14 +2194,12 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
             handy "you are here" anchor on desktop. */}
         {sectionSwitcher}
 
-        {/* ETF Builder is a self-contained view (its own search, own data).
-            Render it in place of the regular search/analyze flow. */}
-        {subTab === "etf-builder" && <ETFBuilderView />}
-
-        {/* Regular stock-ticker flow for Options / Smart Money / Structure */}
-        {subTab !== "etf-builder" && (
-        <>
-        {/* Search */}
+        {/* SEARCH + CHIPS — unified across all sections 2026-05-23: same
+            search bar, same world-map chrome, same chip-row whether you're
+            in Options, Smart Money, Structure, or ETF Builder. Only the
+            chip suggestions change per section, and the submit handler
+            still just sets the shared `ticker` state. ETF Builder is now a
+            result view downstream — see further below. */}
         <form onSubmit={handleSubmit} className="search-form" data-testid="form-ticker">
           <div className="search-wrapper">
             <Search className="search-icon" size={18} />
@@ -2207,7 +2208,9 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
               type="text"
               value={input}
               onChange={e => setInput(e.target.value.toUpperCase())}
-              placeholder="Enter a ticker — AAPL, SPY, TSLA…"
+              placeholder={subTab === "etf-builder"
+                ? "Enter an ETF ticker — SPY, QQQ, VOO, ARKK…"
+                : "Enter a ticker — AAPL, SPY, TSLA…"}
               className="search-input"
               maxLength={10}
               autoComplete="off"
@@ -2222,13 +2225,25 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
           </button>
         </form>
 
-        {/* Quick tickers */}
+        {/* Quick tickers — chip suggestions vary by section. ETF Builder
+            gets ETF-only suggestions; others get the original mix. */}
         <div className="chip-row">
-          {["SPY","QQQ","AAPL","TSLA","NVDA","AMZN","MSFT","AMD"].map(t => (
+          {(subTab === "etf-builder"
+            ? ["SPY","QQQ","VOO","VTI","IWM","DIA","ARKK","XLK","XLF","JEPI"]
+            : ["SPY","QQQ","AAPL","TSLA","NVDA","AMZN","MSFT","AMD"]
+          ).map(t => (
             <button key={t} className="chip" onClick={() => selectTicker(t)}>{t}</button>
           ))}
         </div>
 
+        {/* ETF BUILDER VIEW — driven by the shared `ticker` state, same
+            search bar, no separate searcher. Its own data-fetching lives
+            inside the component. */}
+        {subTab === "etf-builder" && <ETFBuilderView ticker={ticker} />}
+
+        {/* Regular stock-ticker flow for Options / Smart Money / Structure */}
+        {subTab !== "etf-builder" && (
+        <>
         {/* Loading */}
         {isLoading && <LoadingSkeleton />}
 

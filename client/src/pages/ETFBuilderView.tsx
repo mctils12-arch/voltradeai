@@ -2,9 +2,9 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
-  Search, PieChart, DollarSign, AlertTriangle, TrendingUp, TrendingDown,
-  Building2, Calendar, Layers, Info, Calculator, Percent,
-  Briefcase, Globe, Hash, Activity, Sparkles, ChevronDown, ChevronUp,
+  PieChart, AlertTriangle, TrendingUp, TrendingDown,
+  Calendar, Layers, Info, Calculator,
+  Briefcase, Sparkles, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -51,6 +51,8 @@ interface Holding {
   contribution?: Partial<Record<Period, number | null>>;
   is_drag?: Partial<Record<Period, boolean | null>>;
   fetch_error?: string | null;
+  /** "full" = rich metadata (top-N by weight); "slim" = just weight/price/perf */
+  data_level?: "full" | "slim";
 }
 
 interface ETFInfo {
@@ -84,11 +86,18 @@ interface ETFResult {
   holdings_coverage?: number;
   holdings_returned?: number;
   holdings_truncated?: boolean;
+  holdings_source?: string;
   etf_performance?: Partial<Record<Period, number | null>>;
   as_of?: string;
   data_source_notes?: string;
   from_cache?: boolean;
   error?: string;
+  /** Set when error indicates the ticker isn't an ETF — e.g. "stock", "reit",
+   *  "mreit", "mutual_fund", "index", "crypto", "currency", "unknown" */
+  error_classification?: string;
+  /** Optional ETF ticker to suggest as an alternative (e.g. "VNQ" when a REIT was entered) */
+  suggested_ticker?: string;
+  queried_ticker?: string;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -369,7 +378,7 @@ function InvestmentCalculator({
         fontSize: 11, color: "#cbd5e1", lineHeight: 1.5,
       }}>
         <AlertTriangle size={11} style={{ display: "inline", marginRight: 4, verticalAlign: "text-bottom", color: "#fbb24c" }} />
-        This replicates only the top-N holdings Yahoo discloses. The remaining{" "}
+        This replicates only the holdings the data source exposed. The remaining{" "}
         {(((1 - coverageWeight)) * 100).toFixed(1)}% of the fund isn't represented.
         Replicating perfectly requires the issuer's full holdings list.
       </div>
@@ -584,7 +593,7 @@ function PerformanceTable({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Holdings detail (expandable rows with full Yahoo info)
+// Holdings detail (expandable rows with full per-company metadata)
 // ────────────────────────────────────────────────────────────────────────────
 
 function HoldingDetail({ h }: { h: Holding }) {
@@ -595,6 +604,33 @@ function HoldingDetail({ h }: { h: Holding }) {
       borderTop: "1px solid rgba(148, 163, 184, 0.1)",
       fontSize: 12,
     }}>
+      {/* When this holding only has slim data (long-tail position beyond
+          the top-N detail bucket), show a more focused card with just
+          weight, price, and multi-period returns. The full sector/industry/
+          valuation grid is only meaningful when we have that data. */}
+      {h.data_level === "slim" ? (
+        <div>
+          <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: "0.75rem", lineHeight: 1.5 }}>
+            Long-tail holding — basic data shown. Top holdings by weight get the full company
+            breakdown (sector, valuation, business summary). For deeper detail on this name,
+            switch to the regular Analyze view and enter <strong style={{ color: "#cbd5e1", fontFamily: "'JetBrains Mono', monospace" }}>{h.symbol}</strong>.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.625rem" }}>
+            <StatTile label="Weight in fund" value={`${(h.weight * 100).toFixed(3)}%`} />
+            <StatTile label="Last price" value={fmtMoney(h.price)} />
+            {h.performance?.["1y"] != null && (
+              <StatTile label="1Y return" value={fmtPct(h.performance["1y"])} color={perfColor(h.performance["1y"])} />
+            )}
+            {h.performance?.["3mo"] != null && (
+              <StatTile label="3M return" value={fmtPct(h.performance["3mo"])} color={perfColor(h.performance["3mo"])} />
+            )}
+            {h.performance?.["5y"] != null && (
+              <StatTile label="5Y return" value={fmtPct(h.performance["5y"])} color={perfColor(h.performance["5y"])} />
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.875rem" }}>
         <div>
           <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", marginBottom: 6, letterSpacing: "0.05em" }}>Identity</div>
@@ -662,6 +698,8 @@ function HoldingDetail({ h }: { h: Holding }) {
           Partial data: {h.fetch_error}
         </div>
       )}
+      </>
+      )}
     </div>
   );
 }
@@ -693,7 +731,7 @@ function HoldingsExplorer({ holdings }: { holdings: Holding[] }) {
     <Section
       icon={<Layers size={16} />}
       title="Holdings Explorer"
-      subtitle={`Click any holding for full Yahoo Finance detail — sector, industry, listing date, valuation, business summary.`}
+      subtitle={`Click any holding for full company detail — sector, industry, listing date, valuation, business summary.`}
       accent="#c084fc"
     >
       <div style={{ background: "rgba(10, 22, 40, 0.4)", borderRadius: "0.375rem", overflow: "hidden" }}>
@@ -769,7 +807,7 @@ function SectorBreakdown({ sectors }: { sectors: Record<string, number> }) {
     <Section
       icon={<PieChart size={16} />}
       title="Sector Breakdown"
-      subtitle="As reported by Yahoo Finance"
+      subtitle="Composition by GICS sector"
       accent="#4ade80"
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -888,7 +926,7 @@ function ETFHeader({ info, perf, holdingsCount }: {
         <StatTile
           label="Holdings shown"
           value={holdingsCount}
-          sub="top-N from Yahoo"
+          sub="positions in fund"
         />
       </div>
 
@@ -915,19 +953,148 @@ function ETFHeader({ info, perf, holdingsCount }: {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Error panel — classification-aware
+// ────────────────────────────────────────────────────────────────────────────
+
+const CLASSIFICATION_META: Record<string, { label: string; emoji: string; accent: string }> = {
+  stock:       { label: "Individual Stock",       emoji: "🏢", accent: "#4d9fff" },
+  reit:        { label: "REIT",                   emoji: "🏘️", accent: "#fbb24c" },
+  mreit:       { label: "Mortgage REIT (mREIT)",  emoji: "🏦", accent: "#fbb24c" },
+  mutual_fund: { label: "Mutual Fund",            emoji: "📊", accent: "#c084fc" },
+  index:       { label: "Market Index",           emoji: "📈", accent: "#c084fc" },
+  crypto:      { label: "Cryptocurrency",         emoji: "🪙", accent: "#fbb24c" },
+  currency:    { label: "Currency",               emoji: "💱", accent: "#fbb24c" },
+  unknown:     { label: "Not an ETF",             emoji: "❓", accent: "#94a3b8" },
+};
+
+function ETFErrorPanel({
+  message, classification, suggestedTicker, queriedTicker,
+}: {
+  message: string;
+  classification?: string;
+  suggestedTicker?: string;
+  queriedTicker?: string;
+}) {
+  const meta = classification ? CLASSIFICATION_META[classification] : null;
+  const isClassified = !!meta;
+
+  // Programmatically dispatch a "set ticker" by submitting the parent
+  // search form. The parent analyze page owns the ticker state and the
+  // section switcher — we want to keep the user on ETF Builder and just
+  // swap the symbol.
+  const trySuggested = () => {
+    if (!suggestedTicker) return;
+    // Find the input on the page (it's the one with data-testid="input-ticker")
+    const input = document.querySelector<HTMLInputElement>('[data-testid="input-ticker"]');
+    const form = document.querySelector<HTMLFormElement>('[data-testid="form-ticker"]');
+    if (input && form) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, suggestedTicker);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      form.requestSubmit();
+    }
+  };
+
+  return (
+    <div style={{
+      marginTop: "2rem",
+      padding: "1.5rem",
+      background: "rgba(255, 90, 110, 0.04)",
+      border: `1px solid ${isClassified ? "rgba(148, 163, 184, 0.25)" : "rgba(255, 90, 110, 0.3)"}`,
+      borderRadius: "0.5rem",
+      lineHeight: 1.6,
+    }}>
+      {/* Header — symbol + classification badge */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.875rem", flexWrap: "wrap" }}>
+        {queriedTicker && (
+          <span style={{
+            fontSize: 18, fontWeight: 700, color: "#eef3fb",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            {queriedTicker}
+          </span>
+        )}
+        {meta && (
+          <span style={{
+            padding: "3px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            background: `color-mix(in srgb, ${meta.accent} 15%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${meta.accent} 35%, transparent)`,
+            color: meta.accent,
+            borderRadius: 3,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            {meta.emoji} {meta.label}
+          </span>
+        )}
+        {!meta && (
+          <AlertTriangle size={18} style={{ color: "#ff5a6e" }} />
+        )}
+      </div>
+
+      {/* Friendly explanation */}
+      <div style={{
+        fontSize: 13.5,
+        color: "#cbd5e1",
+        lineHeight: 1.6,
+        marginBottom: suggestedTicker ? "1rem" : 0,
+      }}>
+        {message}
+      </div>
+
+      {/* "Try this instead" suggestion */}
+      {suggestedTicker && (
+        <div style={{
+          marginTop: "1rem",
+          padding: "0.75rem 1rem",
+          background: "rgba(74, 222, 128, 0.06)",
+          border: "1px solid rgba(74, 222, 128, 0.25)",
+          borderRadius: "0.375rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>
+            Try this ETF instead:
+          </span>
+          <button
+            onClick={trySuggested}
+            style={{
+              padding: "0.4rem 0.85rem",
+              background: "rgba(74, 222, 128, 0.12)",
+              border: "1px solid rgba(74, 222, 128, 0.35)",
+              color: "#4ade80",
+              borderRadius: "0.25rem",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              letterSpacing: "0.05em",
+            }}
+          >
+            {suggestedTicker} →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────────────────────
 
 interface ETFBuilderViewProps {
-  initialTicker?: string;
+  /** The shared ticker from the parent analyze page. ETF Builder is now a
+   *  result view driven by the parent's search bar — no separate searcher. */
+  ticker?: string | null;
 }
 
-const SUGGESTIONS = ["SPY", "QQQ", "VOO", "VTI", "IWM", "DIA", "ARKK", "XLK", "XLF", "JEPI"];
-
-export default function ETFBuilderView({ initialTicker }: ETFBuilderViewProps = {}) {
-  const [input, setInput] = useState(initialTicker ?? "");
-  const [ticker, setTicker] = useState<string | null>(initialTicker ?? null);
-
+export default function ETFBuilderView({ ticker }: ETFBuilderViewProps = {}) {
   const { data, isLoading, isError, error } = useQuery<ETFResult>({
     queryKey: ["/api/etf", ticker],
     queryFn: async () => {
@@ -939,12 +1106,6 @@ export default function ETFBuilderView({ initialTicker }: ETFBuilderViewProps = 
     staleTime: 5 * 60 * 1000, // 5 min — backend already caches 15 min
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const t = input.trim().toUpperCase();
-    if (t && /^[A-Z.]{1,10}$/.test(t)) setTicker(t);
-  };
-
   const holdings = data?.holdings || [];
   const sortedHoldings = useMemo(
     () => [...holdings].sort((a, b) => (b.weight || 0) - (a.weight || 0)),
@@ -953,91 +1114,28 @@ export default function ETFBuilderView({ initialTicker }: ETFBuilderViewProps = 
 
   return (
     <div data-testid="section-etf-builder">
-      {/* Search */}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: "1rem" }}>
-        <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: 600 }}>
-          <div style={{
-            display: "flex", gap: "0.5rem", padding: "0.5rem",
-            background: "rgba(15, 23, 42, 0.8)",
-            border: "1px solid rgba(77, 159, 255, 0.3)",
-            borderRadius: "0.5rem",
-          }}>
-            <Search size={18} style={{ color: "#4d9fff", alignSelf: "center", marginLeft: "0.5rem" }} />
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value.toUpperCase())}
-              placeholder="Enter ETF ticker — e.g. SPY, QQQ, VOO, ARKK"
-              style={{
-                flex: 1,
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                color: "#eef3fb",
-                fontSize: 16,
-                fontFamily: "'JetBrains Mono', monospace",
-                letterSpacing: "0.05em",
-              }}
-              autoFocus
-            />
-            <button type="submit" style={{
-              padding: "0.5rem 1.25rem",
-              background: "rgba(77, 159, 255, 0.15)",
-              border: "1px solid rgba(77, 159, 255, 0.4)",
-              color: "#4d9fff",
-              borderRadius: "0.375rem",
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              letterSpacing: "0.05em",
-            }}>
-              ANALYZE
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Suggestions */}
+      {/* Empty state — no ticker entered yet. The parent analyze page hosts
+          the search bar and chip-row, so we just show a quick description. */}
       {!ticker && (
-        <div style={{ marginTop: "1.5rem", textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: "#64748b", marginBottom: "0.75rem", letterSpacing: "0.05em", textTransform: "uppercase" }}>
-            Quick start
-          </div>
-          <div style={{ display: "flex", justifyContent: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => { setInput(s); setTicker(s); }}
-                style={{
-                  padding: "0.375rem 0.875rem",
-                  background: "rgba(15, 23, 42, 0.6)",
-                  border: "1px solid rgba(148, 163, 184, 0.2)",
-                  color: "#cbd5e1",
-                  borderRadius: "0.25rem",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontWeight: 600,
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-          <div style={{
-            marginTop: "2rem", padding: "1rem 1.25rem",
-            background: "rgba(15, 23, 42, 0.5)",
-            border: "1px solid rgba(148, 163, 184, 0.1)",
-            borderRadius: "0.5rem",
-            maxWidth: 640, margin: "2rem auto 0",
-            fontSize: 12, color: "#94a3b8", lineHeight: 1.6,
-          }}>
-            <Sparkles size={13} style={{ display: "inline", marginRight: 6, color: "#fbb24c", verticalAlign: "text-bottom" }} />
-            <strong style={{ color: "#cbd5e1" }}>ETF Builder</strong> breaks any ETF down into its underlying holdings, shows you
-            how each one is performing across multiple periods, surfaces which holdings are dragging the fund down, and lets you
-            calculate exactly how many shares of each you'd need to replicate the ETF with a given dollar amount.
-            All data sourced from Yahoo Finance. Top-N holdings only (Yahoo doesn't expose full holdings lists).
+        <div style={{
+          marginTop: "2rem", padding: "1.25rem 1.5rem",
+          background: "rgba(15, 23, 42, 0.5)",
+          border: "1px solid rgba(148, 163, 184, 0.12)",
+          borderRadius: "0.5rem",
+          maxWidth: 720, margin: "2rem auto 0",
+          fontSize: 13, color: "#94a3b8", lineHeight: 1.6,
+        }}>
+          <Sparkles size={14} style={{ display: "inline", marginRight: 6, color: "#fbb24c", verticalAlign: "text-bottom" }} />
+          <strong style={{ color: "#cbd5e1" }}>ETF Builder</strong> — enter an ETF ticker above (SPY, QQQ, VOO, ARKK, etc.).
+          You'll get a full breakdown: holdings, weights, sector mix, expense ratio,
+          per-holding performance across 6 periods, biggest contributors and drags,
+          plus a replication calculator that shows exactly how many shares of each
+          holding you'd need to buy to match the ETF with a given dollar amount.
+          <div style={{ marginTop: "0.75rem", fontSize: 11, color: "#64748b" }}>
+            Note: ETFs only (won't accept individual stocks or REITs — you'll get
+            a friendly explanation if you try). For ETFs holding stocks, you'll see
+            full company detail on each underlying — sector, industry, listing date,
+            market cap, valuation, business summary.
           </div>
         </div>
       )}
@@ -1045,25 +1143,23 @@ export default function ETFBuilderView({ initialTicker }: ETFBuilderViewProps = 
       {/* Loading */}
       {isLoading && (
         <div style={{ textAlign: "center", marginTop: "3rem", color: "#94a3b8" }}>
-          <div style={{ fontSize: 13, marginBottom: 8 }}>Pulling ETF metadata and holdings…</div>
+          <div style={{ fontSize: 13, marginBottom: 8 }}>Loading holdings, returns, and per-position detail…</div>
           <div style={{ fontSize: 11, color: "#64748b" }}>
-            Fetching per-holding details in parallel — this can take 10-30 seconds on first run.
+            Pulling data in parallel — first load can take 10-30 seconds for large funds.
           </div>
         </div>
       )}
 
-      {/* Error */}
+      {/* Error — classification-aware. When the ticker isn't an ETF, the
+          backend returns a friendly message explaining what it actually is
+          (REIT, stock, index, etc.) plus an optional suggested ETF. */}
       {(isError || data?.error) && !isLoading && (
-        <div style={{
-          marginTop: "2rem", padding: "1.25rem",
-          background: "rgba(255, 90, 110, 0.08)",
-          border: "1px solid rgba(255, 90, 110, 0.3)",
-          borderRadius: "0.5rem",
-          color: "#fda4af", fontSize: 13,
-        }}>
-          <AlertTriangle size={16} style={{ display: "inline", marginRight: 8, verticalAlign: "text-bottom" }} />
-          {data?.error || (error as any)?.message || "ETF analysis failed. The ticker must be an ETF (e.g. SPY, not AAPL)."}
-        </div>
+        <ETFErrorPanel
+          message={data?.error || (error as any)?.message || "ETF analysis failed. The ticker must be an ETF (e.g. SPY, not AAPL)."}
+          classification={data?.error_classification}
+          suggestedTicker={data?.suggested_ticker}
+          queriedTicker={data?.queried_ticker || ticker || undefined}
+        />
       )}
 
       {/* Results */}
@@ -1075,8 +1171,10 @@ export default function ETFBuilderView({ initialTicker }: ETFBuilderViewProps = 
             holdingsCount={data.holdings_returned || 0}
           />
 
-          {/* Coverage warning if Yahoo only gave us a partial holdings list */}
-          {data.holdings_truncated && (
+          {/* Coverage warning — only shown when we genuinely got a partial
+              list (sub-90% coverage). With NASDAQ holdings working we
+              usually get the full fund, so this is rarely visible. */}
+          {data.holdings_truncated && (data.holdings_coverage || 0) < 0.9 && (
             <div style={{
               marginTop: "1rem", padding: "0.75rem 1rem",
               background: "rgba(251, 178, 76, 0.06)",
@@ -1085,10 +1183,10 @@ export default function ETFBuilderView({ initialTicker }: ETFBuilderViewProps = 
               fontSize: 12, color: "#cbd5e1", lineHeight: 1.5,
             }}>
               <Info size={13} style={{ display: "inline", marginRight: 6, color: "#fbb24c", verticalAlign: "text-bottom" }} />
-              <strong style={{ color: "#fbb24c" }}>Partial holdings:</strong>{" "}
-              Yahoo Finance returned {data.holdings_returned} holdings covering{" "}
-              <strong>{((data.holdings_coverage || 0) * 100).toFixed(1)}%</strong> of the fund weight.
-              For complete holdings, see the issuer's site ({data.info.family || "fund issuer"}).
+              <strong style={{ color: "#fbb24c" }}>Partial coverage:</strong>{" "}
+              Showing {data.holdings_returned} positions ({((data.holdings_coverage || 0) * 100).toFixed(1)}% of fund weight).
+              The full holdings list wasn't available for this fund — for complete data, check{" "}
+              {data.info.family ? `${data.info.family}'s` : "the issuer's"} site.
             </div>
           )}
 
@@ -1119,7 +1217,7 @@ export default function ETFBuilderView({ initialTicker }: ETFBuilderViewProps = 
             fontSize: 11, color: "#94a3b8", lineHeight: 1.5,
           }}>
             <strong style={{ color: "#4d9fff" }}>Sources:</strong>{" "}
-            {data.data_source_notes || "Yahoo Finance via yfinance."}
+            {data.data_source_notes || "Market data from multiple sources, cached for performance."}
             {data.as_of && (
               <span style={{ color: "#64748b" }}> · Generated {new Date(data.as_of).toLocaleString()}</span>
             )}
