@@ -360,12 +360,48 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     active_universe = _get_t1_universe()
     logger.debug(f"T1 scanning {len(active_universe)} tickers (dynamic)")
 
+    # AFFORDABILITY PRE-FILTER 2026-05-22: skip tickers whose typical CSP
+    # cash collateral would exceed the per-position budget. A 30-delta CSP
+    # typically picks a strike ~5% OTM, so cash_required ≈ price × 0.95 × 100.
+    # We need: equity × max_per_position × size_scalar >= cash_required.
+    # Equivalently: price <= (equity × max_per_position × size_scalar) / 95.
+    # Without this, T1 hands the dispatcher candidates that consistently
+    # fail at the strike-affordability step (per audit log: LRCX/WDC/MSTR).
+    affordable_budget = ctx.equity * max_per_position * size_scalar
+    max_underlying_price_for_csp = affordable_budget / 95.0  # ~strike × 100 with 5% OTM
+    logger.debug(
+        f"T1 affordability gate: max underlying price = ${max_underlying_price_for_csp:.0f} "
+        f"(budget=${affordable_budget:.0f})"
+    )
+
+    # Snapshot lookup for affordability gate. Falls back to ranked-universe
+    # cache or skips the gate gracefully if no price data available.
+    _price_lookup = {}
+    try:
+        from csp_universe import _load_layer2_cache
+        _layer2 = _load_layer2_cache() or {}
+        for entry in _layer2.get("scores", []):
+            if entry.get("ticker") and entry.get("price", 0) > 0:
+                _price_lookup[entry["ticker"]] = float(entry["price"])
+    except Exception:
+        pass  # gate becomes a no-op if no price data
+
     # Candidates: liquid, high-IV names we don't already own
     for ticker in active_universe:
         if ticker in held_tickers:
             continue
         if slots_available <= 0:
             break  # respect MAX_POSITIONS
+
+        # AFFORDABILITY GATE 2026-05-22: skip if underlying too expensive.
+        # If we have no price data we let the dispatcher decide (defense in depth
+        # is in _select_sell_put's pre-filter and in csp_universe's Layer 1 cap).
+        _u_price = _price_lookup.get(ticker)
+        if _u_price and _u_price > max_underlying_price_for_csp:
+            logger.debug(
+                f"T1 skip {ticker}: price ${_u_price:.0f} > affordable ${max_underlying_price_for_csp:.0f}"
+            )
+            continue
 
         # Position sizing: respect MAX_OPTIONS_PCT from system_config (8%)
         base_size = max_per_position * size_scalar

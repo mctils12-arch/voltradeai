@@ -54,12 +54,22 @@ CSP_ANCHOR_TICKERS = [
     "COIN", "MSTR", "UBER",
 ]
 
-# Blocked tickers (leveraged/inverse ETFs, known scam patterns)
+# Blocked tickers (leveraged/inverse ETFs, known scam patterns, thin-options ETFs)
+# AUDIT 2026-05-22: added SGOV/BIL/SHV/SHY (treasury bill ETFs, options too thin for
+# CSP), USO/UNG (commodity ETFs with thin/seasonal chains — failed liquidity gates),
+# and ETFs with structural issues for premium selling.
 CSP_BLOCKED_TICKERS = {
+    # Leveraged & inverse (volatility decay makes premium selling unprofitable)
     "TQQQ", "SQQQ", "UPRO", "SPXU", "UVXY", "SVXY", "TMF", "TMV",
     "SOXL", "SOXS", "TNA", "TZA", "LABU", "LABD", "SPXL", "SPXS",
     "FAS", "FAZ", "YINN", "YANG", "JNUG", "JDST", "NUGT", "DUST",
     "BOIL", "KOLD", "UGL", "GLL", "UCO", "SCO", "UVIX", "SVIX",
+    # Treasury bill ETFs — options exist but volume too thin for reliable CSP
+    "SGOV", "BIL", "SHV",
+    # Commodity ETFs — thin/seasonal chains (per audit log, USO repeatedly failed)
+    "USO", "UNG", "BNO", "DBO", "USL",
+    # Pure cash equivalents
+    "JPST", "USFR",
 }
 
 # Max universe size after Layer 2 ranking
@@ -76,6 +86,47 @@ def _is_likely_etf_leveraged(ticker: str) -> bool:
         if ticker.endswith(("L", "S")) and ticker[:-1] in ("TQQQ", "SQQQ", "SOXL", "SOXS"):
             return True
     return False
+
+
+# Account equity cache for affordability filter (refreshed every 15 min)
+_account_equity_cache: Optional[float] = None
+_account_equity_cached_at: float = 0.0
+_ACCOUNT_EQUITY_TTL_SEC = 900  # 15 min
+
+
+def _fetch_account_equity() -> Optional[float]:
+    """
+    Fetch account equity from Alpaca, cached.
+    Used by the Layer 1 affordability filter so the universe price ceiling
+    scales with account size instead of being a hardcoded constant.
+    """
+    global _account_equity_cache, _account_equity_cached_at
+    if _account_equity_cache is not None:
+        if time.time() - _account_equity_cached_at < _ACCOUNT_EQUITY_TTL_SEC:
+            return _account_equity_cache
+    try:
+        import requests
+        _key = os.environ.get("ALPACA_KEY", "")
+        _sec = os.environ.get("ALPACA_SECRET", "")
+        if not _key:
+            return None
+        # Paper endpoint by default — production switches via env
+        _base = os.environ.get("ALPACA_TRADING_URL", "https://paper-api.alpaca.markets")
+        r = requests.get(
+            f"{_base}/v2/account",
+            headers={"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            data = r.json() or {}
+            eq = float(data.get("equity", 0) or 0)
+            if eq > 0:
+                _account_equity_cache = eq
+                _account_equity_cached_at = time.time()
+                return eq
+    except Exception as e:
+        logger.debug(f"_fetch_account_equity failed: {e}")
+    return None
 
 
 def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, float, int, float]]:
@@ -113,6 +164,27 @@ def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, floa
         return [(t, 0.0, 0, 0.0) for t in CSP_ANCHOR_TICKERS]
 
     candidates = []
+    # AFFORDABILITY FILTER 2026-05-22: CSP requires $strike × 100 cash collateral.
+    # Block tickers whose typical CSP cost (strike at ~95% of spot × 100) would
+    # exceed 25% of equity (the absolute upper bound for stretch-mode CSP sizing
+    # per options_execution._select_sell_put). Without this, the ranker
+    # repeatedly hands the dispatcher names it can't afford.
+    #
+    # The cap scales with the account. We fetch live equity from Alpaca with a
+    # short timeout — failure falls back to a conservative $250 default which
+    # keeps most large-caps in (AAPL $210, AVGO $200) but blocks the extreme
+    # names (LRCX $295, WDC $487, MSTR $300+) that were filling the audit log
+    # with "Not enough capital" failures.
+    CSP_MAX_UNDERLYING_PRICE = 250.0  # conservative default
+    try:
+        _eq = _fetch_account_equity()
+        if _eq and _eq > 0:
+            # 25% of equity in collateral / 100 shares / 0.95 strike factor
+            CSP_MAX_UNDERLYING_PRICE = round(_eq * 0.25 / 95, 0)
+            logger.debug(f"Layer 1 affordability cap: ${CSP_MAX_UNDERLYING_PRICE:.0f} "
+                         f"(account equity: ${_eq:.0f})")
+    except Exception as _e:
+        logger.debug(f"Could not fetch equity for affordability cap, using default: {_e}")
     for sym, snap in snap_data.items():
         if not sym or "." in sym or len(sym) > 5:
             continue
@@ -126,6 +198,8 @@ def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, floa
             continue
         if price < 10.0:
             continue
+        if price > CSP_MAX_UNDERLYING_PRICE:
+            continue  # too expensive for retail CSP — strike collateral exceeds position cap
         if volume < 1_000_000:
             continue
         dollar_volume = price * volume
@@ -621,6 +695,26 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
 
     logger.info(f"Layer 2: scored {len(scored)}, returned top {len(top)}")
     return top
+
+
+def _load_layer2_cache() -> Optional[Dict[str, Any]]:
+    """
+    Public-ish helper to read the Layer 2 scoring cache.
+    Returns None if missing/stale. Each cached entry contains:
+        ticker, score, price, volume, dollar_volume, factors, full_scoring
+    Callers can use this to enrich downstream decisions (e.g. tier1_csp_core
+    needs the price to decide affordability without an extra Alpaca call).
+    """
+    try:
+        if not os.path.exists(SCORES_CACHE_PATH):
+            return None
+        with open(SCORES_CACHE_PATH) as f:
+            cached = json.load(f)
+        # Don't restrict by TTL here — even stale data is more useful than nothing
+        # for the affordability gate. TTL applies to the get_top_csp_candidates path.
+        return cached
+    except Exception:
+        return None
 
 
 def get_top_csp_candidates(n: int = MAX_UNIVERSE_SIZE,

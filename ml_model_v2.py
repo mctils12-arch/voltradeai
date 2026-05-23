@@ -186,19 +186,34 @@ _model_cache_lock = _threading_ml.Lock()
 # DATA FETCHING
 # ══════════════════════════════════════════════════════════════════
 
-def _fetch_training_bars(days: int = 365, max_tickers: int = 200) -> dict:
+def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: bool = False) -> dict:
     """Fetch daily bars for training universe.
+
+    OOM FIX 2026-05-22 (audit log 2026-05-21):
+      Production snapshot showed daemon RSS 449/1024 MB cap (NOT 8GB as a
+      previous comment claimed). The ml_retrain subprocess hit SIGKILL during
+      training because 200 tickers × 6 years × ~5 KB/bar features ≈ 1.5 GB of
+      pandas frames, well over the 575 MB headroom in the container.
+
+      Fix: when fast_mode=True (the default path called by ml_retrain_safe.py),
+      use the days parameter, default to 100 tickers, and use a 2-year window.
+      Full-history training is still available via fast_mode=False from a CLI
+      runner with more memory.
 
     OOM FIX 2026-05-04 batch 8 (REVISED):
       - The original `days` parameter was being IGNORED. Function
         hardcoded `start_date = "2020-01-01"` regardless of caller.
         Fixed to honor the parameter so callers can request a smaller
-        window if they have memory pressure. **Defaults remain 365×200**
-        because container memory is 8GB — there is no shortage.
+        window if they have memory pressure.
       - Original 2020-01-01 fixed start was kept available via
         BASE_CONFIG["ML_FORCE_2020_START"] = True if you specifically
         want to lock the regime-diversity training window.
     """
+    # FAST MODE 2026-05-22: cap aggressively for low-memory containers
+    if fast_mode:
+        max_tickers = min(max_tickers, 100)
+        days = min(days, 730)  # 2-year window
+
     tickers = []
     try:
         r = requests.get(f"{DATA_URL}/v1beta1/screener/stocks/most-actives?by=volume&top=50",
@@ -216,14 +231,15 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200) -> dict:
     # Default behavior: still use 2020-01-01 fixed start for full regime
     # diversity (2020 COVID panic, 2021 bull, 2022 bear, etc.). The `days`
     # parameter only takes effect if the caller explicitly opts in via
-    # BASE_CONFIG["ML_USE_DAYS_PARAMETER"] = True.
+    # BASE_CONFIG["ML_USE_DAYS_PARAMETER"] = True, OR fast_mode is True.
     try:
         from system_config import BASE_CONFIG as _bc
         use_days = _bc.get("ML_USE_DAYS_PARAMETER", False)
     except Exception:
         use_days = False
 
-    if use_days:
+    # FAST MODE 2026-05-22: always use the days parameter when fast_mode is on
+    if fast_mode or use_days:
         start_dt = datetime.now() - timedelta(days=max(int(days), 365))
         start_date = start_dt.strftime("%Y-%m-%d")
     else:
@@ -1260,12 +1276,15 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
     t0 = time.time()
 
     # Step 1: Fetch training data
-    # batch 8 REVISED: 8GB container so training scope is unchanged.
-    # Default 1yr lookback × 200 tickers; ML_LOOKBACK_DAYS / ML_MAX_TICKERS
-    # both tunable via BASE_CONFIG if you ever want to throttle.
+    # MEMORY-AWARE 2026-05-22: production daemon has a 1024 MB cap (NOT 8GB
+    # as a prior comment claimed). When fast_mode is True (the path called
+    # by ml_retrain_safe.py from the subprocess), _fetch_training_bars caps
+    # to 100 tickers × 2 years so the subprocess fits inside the available
+    # ~575 MB headroom. Full-history training still available via fast_mode=False.
     _ml_days = BASE_CONFIG.get("ML_LOOKBACK_DAYS", 365)
     _ml_max_tickers = BASE_CONFIG.get("ML_MAX_TICKERS", 200)
-    all_bars = _fetch_training_bars(days=_ml_days, max_tickers=_ml_max_tickers)
+    all_bars = _fetch_training_bars(days=_ml_days, max_tickers=_ml_max_tickers,
+                                     fast_mode=fast_mode)
     if not all_bars:
         return {"status": "failed", "reason": "Could not fetch training bars"}
 

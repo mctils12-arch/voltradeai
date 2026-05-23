@@ -348,7 +348,20 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         # Weekly strategies (QQQ iron condor, covered call) need short-dated contracts
         _weekly_strategies = ("qqq_iron_condor", "covered_call")
         _min_dte = 3 if strategy in _weekly_strategies else 7
-        contracts = _fetch_option_chain(ticker, price, min_dte=_min_dte)
+        # FIX 2026-05-22: ask Alpaca for the specific side we need.
+        # Single-leg strategies only need one side; the API filter dramatically
+        # reduces the chance of "chain=7, puts=0" failures by ensuring the
+        # limit=100 budget is spent on the side we actually want.
+        _put_strategies  = ("sell_cash_secured_put", "buy_put", "bear_put_spread")
+        _call_strategies = ("buy_call", "bull_call_spread", "covered_call")
+        if strategy in _put_strategies:
+            _option_type = "put"
+        elif strategy in _call_strategies:
+            _option_type = "call"
+        else:
+            _option_type = None  # multi-leg/straddles need both sides
+        contracts = _fetch_option_chain(ticker, price, min_dte=_min_dte,
+                                        option_type=_option_type)
         # HOTFIX R2 2026-04-22: surface empty chain issues
         if not contracts:
             import logging
@@ -428,7 +441,8 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         return {"error": f"Contract selection failed: {str(e)[:200]}"}
 
 
-def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7) -> list:
+def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
+                        option_type: str = None) -> list:
     """Fetch options chain from Alpaca data API.
 
     Args:
@@ -436,6 +450,14 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7) -> 
         current_price: Current stock price for strike range filtering.
         min_dte: Minimum days to expiry (default 7). Set lower for weekly
                  strategies like QQQ iron condors and covered calls.
+        option_type: Optional 'call' or 'put' filter. AUDIT 2026-05-22 FIX:
+                 previously the function fetched both types with limit=100 in
+                 a 10% strike band. For thinly-traded names like WDC, this
+                 returned 7 contracts that were ALL calls (Alpaca ordering by
+                 strike or symbol meant calls came first). Result: CSP scanner
+                 saw chain=7, puts=0 and failed. By passing type=put when the
+                 caller is selecting a put, we guarantee the limit=100 budget
+                 goes to puts only.
     """
     contracts = []
     try:
@@ -450,22 +472,40 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7) -> 
         min_exp = (now + timedelta(days=min_dte)).strftime("%Y-%m-%d")
         max_exp = (now + timedelta(days=50)).strftime("%Y-%m-%d")
         
-        # Strike range: within 10% of current price
-        min_strike = current_price * 0.90
-        max_strike = current_price * 1.10
+        # Strike range: AUDIT 2026-05-22 FIX — was symmetric ±10% around price.
+        # For CSPs (puts), we want OTM strikes BELOW spot — strikes ABOVE spot
+        # are useless for premium selling. For calls, we want strikes ABOVE spot.
+        # Widen the relevant side to 20% to ensure we capture the 0.30-delta
+        # strike even on names with wider strike spacing or shorter chains.
+        if option_type == "put":
+            # Puts: scan 20% OTM down to 5% ITM (need some buffer above spot too
+            # for assignment-recovery thinking, but the bulk of candidates is OTM)
+            min_strike = current_price * 0.80
+            max_strike = current_price * 1.05
+        elif option_type == "call":
+            min_strike = current_price * 0.95
+            max_strike = current_price * 1.20
+        else:
+            min_strike = current_price * 0.85
+            max_strike = current_price * 1.15
         
         alpaca_throttle.acquire()
         
+        params = {
+            "feed": "opra",  # Real-time OPRA feed (Algo Trader Plus)
+            "limit": 100,
+            "expiration_date_gte": min_exp,
+            "expiration_date_lte": max_exp,
+            "strike_price_gte": str(min_strike),
+            "strike_price_lte": str(max_strike),
+        }
+        # FIX 2026-05-22: pass type filter through to Alpaca API
+        if option_type in ("call", "put"):
+            params["type"] = option_type
+
         resp = requests.get(
             f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
-            params={
-                "feed": "opra",  # Real-time OPRA feed (Algo Trader Plus)
-                "limit": 100,
-                "expiration_date_gte": min_exp,
-                "expiration_date_lte": max_exp,
-                "strike_price_gte": str(min_strike),
-                "strike_price_lte": str(max_strike),
-            },
+            params=params,
             headers=_alpaca_headers(),
             timeout=10,
         )
@@ -514,6 +554,8 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7) -> 
                         "option_type": opt_type,
                         "bid": bid,
                         "ask": ask,
+                        "bid_size": bid_size,   # FIX 2026-05-22: needed by _is_liquid fallback check
+                        "ask_size": ask_size,
                         "mid": round(mid, 2),
                         "volume": daily_vol,
                         "open_interest": oi_est,
@@ -533,30 +575,50 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7) -> 
 
 
 def _is_liquid(contract: dict) -> bool:
-    """Check if a contract meets minimum liquidity requirements."""
+    """Check if a contract meets minimum liquidity requirements.
+
+    AUDIT 2026-05-22 FIX: previous logic required OI >= 200 unconditionally, where
+    OI was `max(bid_size, ask_size) * 10`. For large-cap names like STX and COHR
+    in after-hours / quiet periods, bid_size/ask_size are often 0 (no live retail
+    quotes), making the OI proxy 0 and rejecting the contract. The fix recognizes
+    that liquidity can be demonstrated EITHER through OI (real or proxy) OR through
+    daily volume — many contracts have huge daily volume but zero quotes mid-bar.
+    """
     bid = contract.get("bid", 0)
     ask = contract.get("ask", 0)
     mid = contract.get("mid", 0)
-    
+
     # Must have a bid and ask
     if bid <= 0 or ask <= 0:
         return False
-    
-    # Spread check
+
+    # Spread check (relative)
     if mid > 0:
         spread_pct = (ask - bid) / mid
         if spread_pct > MAX_SPREAD_PCT:
             return False
-    
-    # Volume and OI
-    if contract.get("open_interest", 0) < MIN_OPEN_INTEREST:
-        return False
-    
+
     # Price floor — don't trade options under $0.10 (penny options = gambling)
     if mid < 0.10:
         return False
-    
-    return True
+
+    # Liquidity: pass if EITHER OI OR daily volume meets the bar.
+    # OI of 200+ means at least 200 contracts are open (real institutional flow)
+    # OR daily volume of 10+ contracts means the contract is actively trading today.
+    # Either alone is sufficient evidence of a functional market.
+    oi = contract.get("open_interest", 0) or 0
+    vol = contract.get("volume", 0) or 0
+    if oi >= MIN_OPEN_INTEREST:
+        return True
+    if vol >= MIN_OPTION_VOLUME:
+        return True
+    # Last resort: if quote sizes are real (both bid_size and ask_size > 5),
+    # the MM is committing — accept it for highly liquid names.
+    bid_size = contract.get("bid_size", 0) or 0
+    ask_size = contract.get("ask_size", 0) or 0
+    if bid_size >= 10 and ask_size >= 10:
+        return True
+    return False
 
 
 def _optimized_limit_price(contract: dict, direction: str) -> float:
@@ -731,6 +793,49 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     # Standard filter: put below current price (OTM for sell-side)
     puts = [c for c in all_puts_any_type if c.get("strike", 0) <= price]
 
+    # AFFORDABILITY FILTER 2026-05-22: pre-filter to strikes the account can
+    # actually secure. Each CSP requires strike * 100 cash. The previous code
+    # picked the 30-delta strike then failed at sizing — leaving zero CSP
+    # exposure on legitimate names. Now: filter the candidate set to puts
+    # whose strike fits in the position budget BEFORE delta selection.
+    # If no strikes fit (e.g. underlying too expensive), fail cleanly.
+    affordable_budget = max(equity * size_pct, equity * 0.02)  # at least 2% of equity per CSP
+    affordable_strike_max = affordable_budget / 100.0
+    affordable_puts = [c for c in puts if c.get("strike", 0) * 100 <= affordable_budget]
+
+    if not affordable_puts:
+        # GRACEFUL DEGRADATION 2026-05-22: instead of failing, check if there's
+        # ANY strike we could afford even by stretching the budget to the
+        # MAX_POSITION_PCT cap (typically 8%). The idea is: this ticker might
+        # have moved up since it entered the universe; instead of rejecting
+        # the trade entirely, try the lowest strike available. The
+        # _enforce_exposure_cap allocator at the tier-engine level will scale
+        # back if we collectively exceed the total budget anyway.
+        smallest_strike = min((p.get("strike", 0) for p in puts), default=0)
+        if puts and smallest_strike > 0 and smallest_strike * 100 <= equity * 0.20:
+            # Allow up to 20% of equity for a single CSP under "stretch" mode
+            # — but explicitly log and tag so the dispatcher knows.
+            affordable_puts = [c for c in puts if c.get("strike", 0) == smallest_strike]
+            import logging
+            logging.getLogger("voltrade.options_execution").info(
+                f"CSP {ticker}: stretching position budget — smallest available strike "
+                f"${smallest_strike} requires ${smallest_strike*100:,.0f} "
+                f"({smallest_strike*100/equity*100:.1f}% of equity) vs target budget "
+                f"${affordable_budget:,.0f}"
+            )
+        else:
+            # Even the smallest strike is too expensive — give up cleanly
+            return {"error": (
+                f"All available puts exceed position budget for {ticker}: "
+                f"smallest strike ${smallest_strike:.0f} needs ${smallest_strike*100:,.0f}, "
+                f"but max affordable per-position is ${affordable_budget:,.0f} "
+                f"(equity ${equity:,.0f} × size_pct {size_pct:.2%}). "
+                f"Underlying too expensive at ${price:.2f} for this account."
+            )}
+
+    # Use the affordable subset for the rest of selection
+    puts = affordable_puts
+
     if not puts:
         # Diagnostic info for debugging
         import logging
@@ -743,10 +848,10 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         sample_strike = sample.get("strike") if sample else None
         logger_csp.warning(
             f"CSP FAIL {ticker}: contracts={total_contracts}, calls={calls_count}, "
-            f"puts_any_type={puts_count}, strike<=price_puts={len(puts)}, "
+            f"puts_any_type={puts_count}, strike<=price_puts={len(all_puts_any_type)}, "
             f"price={price}, sample_type={sample_type}, sample_strike={sample_strike}"
         )
-        return {"error": f"No suitable puts found for selling (chain={total_contracts}, puts={puts_count}, filtered={len(puts)}, price={price})"}
+        return {"error": f"No suitable puts found for selling (chain={total_contracts}, puts={puts_count}, filtered={0}, price={price})"}
 
     # HOTFIX R2 2026-04-22: prefer delta-based selection, fall back to
     # strike-distance if delta data not populated (some feeds return
@@ -768,13 +873,15 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
             f"CSP {ticker}: no delta data; using strike-distance fallback (target=${target_strike:.2f}, picked=${best.get('strike')})"
         )
     limit_price = _optimized_limit_price(best, "sell")
-    
+
     # Cash required to secure: strike * 100 per contract
     cash_per_contract = best["strike"] * 100
     max_contracts = int(equity * size_pct / cash_per_contract)  # Dynamic sizing
     if max_contracts <= 0:
+        # Shouldn't reach here after the affordability pre-filter, but keep
+        # as defense-in-depth for unusual sizing edge cases.
         return {"error": f"Not enough capital to sell cash-secured put at ${best['strike']} (need ${cash_per_contract:,.0f} per contract)"}
-    
+
     qty = min(max_contracts, 2)  # Conservative: max 2 contracts
     premium_received = qty * limit_price * 100
     
