@@ -35,7 +35,7 @@ import {
   Activity, BarChart2, Zap, Moon, Sun, RefreshCw, Target, Volume2,
   DollarSign, AlertTriangle, CheckCircle, XCircle, Info, ArrowUp, ArrowDown,
   Building2, Users, Calendar, Layers, PieChart, Percent, Flame, Radio,
-  TrendingUp as TrendUp, Cpu, Eye, ShieldAlert, Newspaper
+  TrendingUp as TrendUp, Cpu, Eye, ShieldAlert, Newspaper, Briefcase
 } from "lucide-react";
 
 // Props interface for AnalyzePage
