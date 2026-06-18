@@ -52,7 +52,7 @@ See `.env.example`. Each source is independently optional; missing ones fall
 back to sample data.
 
 ## Status: done vs stubbed
-DONE: engine, five pillars, tax horizons, CLI, selftest (23 checks), offline
+DONE: engine, five pillars, tax horizons, CLI, selftest (27 checks), offline
 sample provider, live provider selection + Alpaca/Polygon/Finnhub adapter,
 per-field graceful fallback.
 - Task #1 — live Finnhub field mappings verified/corrected (see `_map_finnhub_metrics`).
@@ -61,6 +61,12 @@ per-field graceful fallback.
   `LiveProvider.filings` with sample fallback. EDGAR needs no API key, only a
   descriptive `EDGAR_USER_AGENT`; a custom UA alone now activates the live
   provider (`Keys.have_edgar`).
+- Task #4 — Claude filing reader (`llm_reader.py`): `ClaudeFilingReader.read()`
+  sends the real EDGAR filing text to Claude (`claude-opus-4-8`, structured
+  outputs) for a genuine summary / sentiment / red-flags / catalysts read,
+  injected via `analyze(filing_llm=...)`. Auto-enabled when `ANTHROPIC_API_KEY`
+  is set and the `anthropic` package is installed (`Keys.have_anthropic`);
+  `FilingReasoner` falls back to the heuristic on any error. CLI: `--no-llm`.
 - Site integration — exposed as the "Research" tab in the VolTrade site
   (`GET /api/research/:ticker` -> `python -m alphadesk --json`; React page in
   `client/src/pages/research.tsx`).
@@ -68,15 +74,11 @@ per-field graceful fallback.
 STUBBED / TODO (in priority order — see TASKS.md):
 1. **Market context** — real index/breadth/VIX/credit in
    `LiveProvider.market_context` (currently sample).
-2. **LLM filing reader** — implement an object with `read(filings)->FilingRead`
-   that calls Claude (model e.g. `claude-sonnet-4-6`) over the now-real extracted
-   filing text; pass it as `filing_llm=` to `analyze()`. (`edgar.py` already
-   supplies genuine document text for it to read.)
-3. **Options pillar** — IV rank, skew, expected move; translate an equity
+2. **Options pillar** — IV rank, skew, expected move; translate an equity
    verdict into a defined-risk options expression. New module + new Pillar.
-4. **Calibration/backtest** — validate weights and the score→return mapping on
+3. **Calibration/backtest** — validate weights and the score→return mapping on
    history before trusting absolute numbers.
-5. **UI polish** — the engine is already surfaced as the site's "Research" tab;
+4. **UI polish** — the engine is already surfaced as the site's "Research" tab;
    remaining work is richer visualization / a dedicated standalone view.
 
 ## Conventions

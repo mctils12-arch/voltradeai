@@ -99,6 +99,44 @@ def _selftest() -> int:
     ok("EDGAR strips HTML to text", txt == "Going concern & risk")
     ok("EDGAR caps text length", len(edgar.html_to_text("<p>" + "a" * 100000 + "</p>", cap=100)) == 100)
 
+    # The Claude filing reader is verifiable offline by injecting a fake client
+    # shaped like the SDK response (a thinking block then a JSON text block) and
+    # confirming the reader parses structured output, clamps sentiment, and tags
+    # its source — no API key or network required.
+    from .llm_reader import ClaudeFilingReader, make_filing_reader
+    from .models import Filing
+    from .config import Keys
+
+    class _FakeBlock:
+        def __init__(self, type, text=""):
+            self.type = type
+            self.text = text
+
+    class _FakeResp:
+        def __init__(self, content):
+            self.content = content
+
+    class _FakeMessages:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def create(self, **_):
+            return _FakeResp([_FakeBlock("thinking"), _FakeBlock("text", json.dumps(self._payload))])
+
+    class _FakeClient:
+        def __init__(self, payload):
+            self.messages = _FakeMessages(payload)
+
+    reader = ClaudeFilingReader(client=_FakeClient(
+        {"summary": "Steady quarter.", "sentiment": 2.5,
+         "red_flags": ["Litigation disclosed"], "catalysts": []}))
+    fr = reader.read([Filing(ticker="AAPL", form="10-Q", filed_at="2026-05-01", text="body")])
+    ok("LLM reader parses structured output",
+       fr.summary == "Steady quarter." and fr.red_flags == ["Litigation disclosed"] and fr.catalysts == [])
+    ok("LLM reader clamps sentiment to [-1,1]", fr.sentiment == 1.0)
+    ok("LLM reader tags its source", fr.source.startswith("llm:"))
+    ok("LLM reader disabled without ANTHROPIC key", make_filing_reader(Keys()) is None)
+
     # Long-term should be taxed at a lower rate than short-term for same profile.
     st = next(h for h in r.horizons if "<1y" in h.label)
     lt = next(h for h in r.horizons if ">1y" in h.label)
@@ -130,10 +168,18 @@ def main(argv=None) -> int:
     ap.add_argument("--ltcg", type=float, help="long-term cap-gains rate, e.g. 0.15")
     ap.add_argument("--state", type=float, help="flat state rate, e.g. 0.05")
     ap.add_argument("--no-niit", action="store_true", help="disable 3.8%% NIIT surtax")
+    ap.add_argument("--no-llm", action="store_true",
+                    help="skip the Claude filing reader even if ANTHROPIC_API_KEY is set")
     args = ap.parse_args(argv)
 
     provider = make_provider(force_sample=args.sample)
-    report = analyze(args.ticker, provider=provider, tax=_build_tax(args))
+    # Use the Claude filing reader when an Anthropic key is configured (and the
+    # SDK is installed); otherwise the engine falls back to the heuristic scan.
+    filing_llm = None
+    if not args.no_llm and not args.sample:
+        from .llm_reader import make_filing_reader
+        filing_llm = make_filing_reader()
+    report = analyze(args.ticker, provider=provider, tax=_build_tax(args), filing_llm=filing_llm)
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:

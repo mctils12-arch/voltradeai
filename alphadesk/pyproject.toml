@@ -5,6 +5,11 @@ description = "Explainable equity & options research engine"
 requires-python = ">=3.10"
 dependencies = []   # core runs on the standard library; live adapters add their own
 
+[project.optional-dependencies]
+# Claude filing reader (Task #4). Optional — without it the engine uses the
+# heuristic. `pip install -e .[llm]`.
+llm = ["anthropic>=0.69.0"]
+
 [project.scripts]
 alphadesk = "alphadesk.__main__:main"
 

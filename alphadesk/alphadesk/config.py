@@ -21,6 +21,8 @@ class Keys:
     polygon_key: str | None = None
     finnhub_key: str | None = None
     edgar_user_agent: str = "AlphaDesk research@example.com"
+    anthropic_key: str | None = None
+    anthropic_model: str = "claude-opus-4-8"
 
     @property
     def have_alpaca(self) -> bool:
@@ -33,6 +35,12 @@ class Keys:
     @property
     def have_finnhub(self) -> bool:
         return bool(self.finnhub_key)
+
+    @property
+    def have_anthropic(self) -> bool:
+        """True when an Anthropic API key is configured, enabling the LLM
+        filing reader. Without it the engine uses the heuristic reasoner."""
+        return bool(self.anthropic_key)
 
     @property
     def have_edgar(self) -> bool:
@@ -51,6 +59,8 @@ def load_keys() -> Keys:
         polygon_key=os.environ.get("POLYGON_KEY") or os.environ.get("POLYGON_API_KEY"),
         finnhub_key=os.environ.get("FINNHUB_KEY"),
         edgar_user_agent=os.environ.get("EDGAR_USER_AGENT", "AlphaDesk research@example.com"),
+        anthropic_key=os.environ.get("ANTHROPIC_API_KEY"),
+        anthropic_model=os.environ.get("ALPHADESK_LLM_MODEL", "claude-opus-4-8"),
     )
 
 
@@ -61,4 +71,5 @@ def status() -> dict:
         "polygon": k.have_polygon,
         "finnhub": k.have_finnhub,
         "edgar_user_agent_set": k.edgar_user_agent != "AlphaDesk research@example.com",
+        "anthropic": k.have_anthropic,
     }
