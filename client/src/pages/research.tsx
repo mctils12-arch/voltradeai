@@ -204,8 +204,8 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
           <Scale size={20} style={{ color: "#4d9fff" }} /> Research
         </h1>
         <p style={{ color: "#8a9bb3", fontSize: 13, margin: "6px 0 0" }}>
-          Explainable buy/sell verdict from five weighted pillars — fundamentals, valuation, supply/demand,
-          market context, and SEC filings — plus an after-tax horizon comparison.
+          Explainable buy/sell verdict from six weighted pillars — fundamentals, valuation, supply/demand,
+          market context, SEC filings, and options — plus an after-tax horizon comparison.
         </p>
       </div>
 
