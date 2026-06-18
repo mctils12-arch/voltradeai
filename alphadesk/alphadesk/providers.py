@@ -216,8 +216,15 @@ class LiveProvider:
         return base
 
     def filings(self, ticker: str, limit: int = 5) -> List[Filing]:
-        # TODO(handoff #2): resolve CIK -> submissions -> fetch latest N docs.
-        return self._fallback.filings(ticker, limit)
+        # Real SEC EDGAR: ticker -> CIK -> recent submissions -> latest N docs
+        # with extracted text. Any failure (network, unknown ticker, empty
+        # result) degrades to the sample filings so a report is always produced.
+        try:
+            from . import edgar
+            out = edgar.fetch_filings(ticker, self.ua, limit=limit)
+            return out or self._fallback.filings(ticker, limit)
+        except Exception:
+            return self._fallback.filings(ticker, limit)
 
     def price_history(self, ticker: str, days: int = 365) -> List[PriceBar]:
         if self.market:
@@ -280,6 +287,6 @@ def make_provider(force_sample: bool = False) -> DataProvider:
     if force_sample:
         return SampleProvider()
     k = load_keys()
-    if k.have_alpaca or k.have_polygon or k.have_finnhub:
+    if k.have_alpaca or k.have_polygon or k.have_finnhub or k.have_edgar:
         return LiveProvider(k)
     return SampleProvider()

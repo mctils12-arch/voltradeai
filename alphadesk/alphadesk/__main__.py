@@ -70,6 +70,35 @@ def _selftest() -> int:
     ok("EV/EBITDA not fed EV/FCF", fm.ev_ebitda != 29.7)
     ok("forward P/E not fed trailing", fm.forward_pe != 30.9)
 
+    # SEC EDGAR parsing is verifiable offline: feed EDGAR-shaped payloads
+    # through the same pure functions LiveProvider.filings uses and confirm CIK
+    # resolution, form filtering + URL construction, and HTML->text extraction.
+    from . import edgar
+    tickers_json = {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 1045810, "ticker": "NVDA", "title": "NVIDIA CORP"},
+    }
+    ok("EDGAR resolves CIK (zero-padded)", edgar.resolve_cik("aapl", tickers_json) == "0000320193")
+    ok("EDGAR unknown ticker -> None", edgar.resolve_cik("ZZZZ", tickers_json) is None)
+
+    submissions = {"filings": {"recent": {
+        "form": ["4", "10-Q", "8-K", "10-K"],
+        "filingDate": ["2026-06-17", "2026-05-01", "2026-04-10", "2026-02-01"],
+        "accessionNumber": ["0000320193-26-000001", "0000320193-26-000050",
+                            "0000320193-26-000040", "0000320193-26-000010"],
+        "primaryDocument": ["x/f4.xml", "q.htm", "ev.htm", "k.htm"],
+        "primaryDocDescription": ["FORM 4", "10-Q", "8-K", "10-K"],
+    }}}
+    fil = edgar.parse_recent_filings("AAPL", "0000320193", submissions, limit=5)
+    ok("EDGAR keeps only material forms", [f.form for f in fil] == ["10-Q", "8-K", "10-K"])
+    ok("EDGAR builds archive URL",
+       fil[0].url == "https://www.sec.gov/Archives/edgar/data/320193/000032019326000050/q.htm")
+    ok("EDGAR respects limit",
+       len(edgar.parse_recent_filings("AAPL", "0000320193", submissions, limit=1)) == 1)
+    txt = edgar.html_to_text("<html><style>x{}</style><body><p>Going&nbsp;concern  &amp;   risk</p></body></html>")
+    ok("EDGAR strips HTML to text", txt == "Going concern & risk")
+    ok("EDGAR caps text length", len(edgar.html_to_text("<p>" + "a" * 100000 + "</p>", cap=100)) == 100)
+
     # Long-term should be taxed at a lower rate than short-term for same profile.
     st = next(h for h in r.horizons if "<1y" in h.label)
     lt = next(h for h in r.horizons if ">1y" in h.label)

@@ -34,6 +34,13 @@ class Keys:
     def have_finnhub(self) -> bool:
         return bool(self.finnhub_key)
 
+    @property
+    def have_edgar(self) -> bool:
+        """True when a descriptive (non-default) EDGAR User-Agent is configured.
+        EDGAR needs no API key — only SEC's required identifying User-Agent — so
+        a custom UA is enough to enable real filings."""
+        return self.edgar_user_agent != "AlphaDesk research@example.com"
+
 
 def load_keys() -> Keys:
     return Keys(
