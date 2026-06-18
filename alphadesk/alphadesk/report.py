@@ -32,6 +32,25 @@ def render_text(r: ResearchReport) -> str:
             L.append("  catalysts: " + ", ".join(r.filing_read.catalysts))
         if r.filing_read.red_flags:
             L.append("  red flags: " + ", ".join(r.filing_read.red_flags))
+    if r.options:
+        snap, strat = r.options.snapshot, r.options.strategy
+        L.append("")
+        L.append("OPTIONS")
+        bits = []
+        if snap.iv_rank is not None:
+            bits.append(f"IV rank {snap.iv_rank:.0f}")
+        if snap.expected_move_30d is not None:
+            bits.append(f"~{snap.expected_move_30d:.0%} 30d expected move")
+        if snap.hv_30d is not None:
+            bits.append(f"HV {snap.hv_30d:.0%}")
+        if bits:
+            L.append("  " + "   ".join(bits))
+        L.append(f"  {strat.structure} ({strat.direction})")
+        L.append("  " + strat.rationale)
+        for leg in strat.legs:
+            L.append(f"       - {leg}")
+        if strat.max_risk_note:
+            L.append("  " + strat.max_risk_note)
     L.append("")
     L.append("HORIZON / AFTER-TAX ALPHA")
     for h in r.horizons:

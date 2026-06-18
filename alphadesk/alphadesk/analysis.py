@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from .models import (
     Fundamentals, Ownership, MarketContext, Filing, Quote,
-    Factor, Pillar, FilingRead,
+    Factor, Pillar, FilingRead, OptionsSnapshot,
 )
 
 
@@ -152,6 +152,30 @@ def score_market_context(m: MarketContext) -> Pillar:
     score = _weighted(factors)
     return Pillar("Market Context", score, factors,
                   f"Backdrop is {m.trend_label.replace('_', '-')}.")
+
+
+def score_options(s: OptionsSnapshot) -> Pillar:
+    """Score the options *environment* for the name (not its direction). High
+    implied vol / heavy put skew / IV richly above realized read as elevated
+    implied risk → lower score; calm, fairly-priced options → higher. A minor
+    composite input; the actionable directional call is the OptionsView strategy.
+    """
+    factors: List[Factor] = []
+    if s.iv_rank is not None:
+        # Elevated IV rank = the market is pricing more fear/uncertainty.
+        factors.append(Factor("IV rank", round(_band(-s.iv_rank, -90, -20), 1), 0.8,
+                              f"IV rank {s.iv_rank:.0f} (lower = calmer)"))
+    if s.put_call_skew is not None:
+        factors.append(Factor("Put/call skew", round(_band(-s.put_call_skew, -0.08, 0.0), 1), 0.9,
+                              f"{s.put_call_skew * 100:.1f} vol-pt put skew (lower = less downside fear)"))
+    if s.iv_30d is not None and s.hv_30d and s.hv_30d > 0:
+        ratio = s.iv_30d / s.hv_30d
+        factors.append(Factor("Implied vs realized", round(_band(-ratio, -1.6, -0.9), 1), 0.6,
+                              f"IV/HV {ratio:.2f} (>1 = options pricing in extra risk)"))
+    score = _weighted(factors)
+    note = "Options pricing in elevated risk." if (score is not None and score < 45) else \
+           ("Calm, fairly-priced options." if score is not None else "No options data.")
+    return Pillar("Options", score, factors, note)
 
 
 # --------------------------------------------------------------------------- #

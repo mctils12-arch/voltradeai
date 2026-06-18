@@ -88,6 +88,17 @@ class MarketContext:
 
 
 @dataclass
+class OptionsSnapshot:
+    """Options-market inputs for the options pillar."""
+    ticker: str
+    iv_30d: Optional[float] = None            # 30d implied vol, annualized (0.35 = 35%)
+    hv_30d: Optional[float] = None            # 30d realized vol, annualized
+    iv_rank: Optional[float] = None           # 0-100: where IV sits in its ~1y range
+    put_call_skew: Optional[float] = None     # 25-delta put IV - call IV, vol points (+ = downside fear)
+    expected_move_30d: Optional[float] = None  # ~1-sigma move over 30d, fractional
+
+
+@dataclass
 class PriceBar:
     date: str
     close: float
@@ -125,6 +136,24 @@ class FilingRead:
 
 
 @dataclass
+class OptionsStrategy:
+    """A defined-risk options expression of the equity view (education only)."""
+    structure: str                    # e.g. "Bull put credit spread"
+    direction: str                    # bullish / bearish / neutral
+    rationale: str
+    legs: List[str] = field(default_factory=list)
+    max_risk_note: str = ""
+
+
+@dataclass
+class OptionsView:
+    """The options pillar's full output: the market snapshot + the suggested
+    defined-risk structure derived from the equity verdict."""
+    snapshot: OptionsSnapshot
+    strategy: OptionsStrategy
+
+
+@dataclass
 class HorizonView:
     """Pre- and post-tax expected outcome for one holding horizon."""
     label: str                        # "swing (<1y)" / "core (>1y)"
@@ -153,6 +182,7 @@ class ResearchReport:
     risks: List[str]
     data_completeness: float          # 0-1
     provider: str
+    options: Optional[OptionsView] = None
     disclaimer: str = (
         "Research and education only. Not investment advice. Verdicts are model "
         "output, not a recommendation, and do not account for your full situation."

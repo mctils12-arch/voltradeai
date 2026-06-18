@@ -52,7 +52,7 @@ See `.env.example`. Each source is independently optional; missing ones fall
 back to sample data.
 
 ## Status: done vs stubbed
-DONE: engine, five pillars, tax horizons, CLI, selftest (34 checks), offline
+DONE: engine, six pillars, tax horizons, CLI, selftest (43 checks), offline
 sample provider, live provider selection + Alpaca/Polygon/Finnhub adapter,
 per-field graceful fallback.
 - Task #1 — live Finnhub field mappings verified/corrected (see `_map_finnhub_metrics`).
@@ -72,20 +72,27 @@ per-field graceful fallback.
   and a derived risk_on/neutral/risk_off label, wired into
   `LiveProvider.market_context`. Yields/credit have no keyless source wired and
   keep sample values; any failure leaves a field on sample.
+- Task #5 — options pillar (`options.py` + `analysis.score_options`): a 6th
+  pillar scoring the implied-risk environment (IV rank, put/call skew, IV vs
+  realized) plus a defined-risk **OptionsStrategy** derived from the verdict +
+  IV regime + expected move (credit spread when premium is rich, debit when
+  cheap, iron condor / stand-aside when neutral), strikes anchored to the
+  expected move. `provider.options()`: SampleProvider synthesizes a snapshot;
+  LiveProvider computes realized vol + expected move from real Alpaca prices and
+  leaves IV fields on sample (no keyless IV source). Surfaced on the Research
+  tab. Education only — risk-defined by construction, no order placement.
 - Site integration — exposed as the "Research" tab in the VolTrade site
   (`GET /api/research/:ticker` -> `python -m alphadesk --json`; React page in
   `client/src/pages/research.tsx`).
 
-All five pillars now run on live data when keys are present.
+All six pillars now run on live data when keys are present.
 
 STUBBED / TODO (in priority order — see TASKS.md):
-1. **Options pillar** — IV rank, skew, expected move; translate an equity
-   verdict into a defined-risk options expression. New module + new Pillar.
-2. **Calibration/backtest** — validate weights and the score→return mapping on
+1. **Calibration/backtest** — validate weights and the score→return mapping on
    history before trusting absolute numbers.
-3. **UI polish** — the engine is already surfaced as the site's "Research" tab;
+2. **UI polish** — the engine is already surfaced as the site's "Research" tab;
    remaining work is richer visualization / a dedicated standalone view.
-4. **Yields/credit in market context** — wire a source for 10y yield, 2s10s,
+3. **Yields/credit in market context** — wire a source for 10y yield, 2s10s,
    and HY OAS (e.g. Treasury par-yield API + a FRED key) to replace the sample
    values those two fields still use.
 

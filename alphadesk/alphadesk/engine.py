@@ -12,21 +12,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Protocol
 
-from . import analysis
+from . import analysis, options as options_mod
 from .models import (
-    ResearchReport, Pillar, HorizonView, FilingRead,
+    ResearchReport, Pillar, HorizonView, FilingRead, OptionsView,
 )
 from .providers import DataProvider, SampleProvider
 from .tax import TaxProfile, after_tax_return
 
 
 # Default pillar weights for the composite. Sum need not be 1; normalized.
+# Options is a deliberately minor input — it shades the verdict via the implied-
+# risk environment but doesn't drive it; the actionable options call is the
+# defined-risk strategy attached to the report, not this score.
 DEFAULT_WEIGHTS: Dict[str, float] = {
     "Fundamentals": 0.30,
     "Valuation": 0.22,
     "Supply / Demand": 0.18,
     "Market Context": 0.12,
     "Filings": 0.18,
+    "Options": 0.06,
 }
 
 VERDICT_BANDS = [
@@ -74,12 +78,14 @@ def analyze(
     o = provider.ownership(ticker)
     m = provider.market_context()
     filings = provider.filings(ticker, limit=5)
+    opt_snap = provider.options(ticker)
 
     pillars: List[Pillar] = [
         analysis.score_fundamentals(f),
         analysis.score_valuation(f),
         analysis.score_supply_demand(o, q),
         analysis.score_market_context(m),
+        analysis.score_options(opt_snap),
     ]
     filing_read = analysis.FilingReasoner(llm=filing_llm).read(filings)
     pillars.append(Pillar("Filings", _filing_pillar_score(filing_read),
@@ -117,11 +123,17 @@ def analyze(
 
     thesis, risks = _narrative(ticker, q.price, composite, pillars, filing_read, m)
 
+    verdict = _verdict(composite)
+    options_view = OptionsView(
+        snapshot=opt_snap,
+        strategy=options_mod.build_strategy(verdict, q.price, opt_snap),
+    )
+
     return ResearchReport(
         ticker=ticker.upper(),
         as_of=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         price=q.price,
-        verdict=_verdict(composite),
+        verdict=verdict,
         conviction=conviction,
         composite_score=composite,
         pillars=pillars,
@@ -134,6 +146,7 @@ def analyze(
         risks=risks,
         data_completeness=completeness,
         provider=provider.name,
+        options=options_view,
     )
 
 

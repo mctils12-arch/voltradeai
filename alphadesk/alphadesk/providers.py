@@ -21,7 +21,7 @@ import hashlib
 from typing import List, Optional, Protocol
 
 from .models import (
-    Quote, Fundamentals, Ownership, Filing, MarketContext, PriceBar,
+    Quote, Fundamentals, Ownership, Filing, MarketContext, PriceBar, OptionsSnapshot,
 )
 
 
@@ -33,6 +33,7 @@ class DataProvider(Protocol):
     def filings(self, ticker: str, limit: int = 5) -> List[Filing]: ...
     def price_history(self, ticker: str, days: int = 365) -> List[PriceBar]: ...
     def market_context(self) -> MarketContext: ...
+    def options(self, ticker: str) -> OptionsSnapshot: ...
     @property
     def name(self) -> str: ...
 
@@ -138,6 +139,20 @@ class SampleProvider:
             yield_curve_2s10s=round(_between("MKT", "curve", -0.6, 0.8), 2),
             credit_spread_hy=round(_between("MKT", "hy", 300, 600)),
             trend_label="risk_on" if risk_on else "risk_off",
+        )
+
+    def options(self, ticker: str) -> OptionsSnapshot:
+        from .options import expected_move
+        t = ticker.upper()
+        iv = round(_between(t, "iv", 0.18, 0.65), 3)
+        hv = round(iv * _between(t, "ivhv", 0.7, 1.2), 3)
+        return OptionsSnapshot(
+            ticker=t,
+            iv_30d=iv,
+            hv_30d=hv,
+            iv_rank=round(_between(t, "ivrank", 8, 92), 1),
+            put_call_skew=round(_between(t, "skew", 0.0, 0.06), 3),
+            expected_move_30d=expected_move(iv, 30),
         )
 
 
@@ -266,6 +281,25 @@ class LiveProvider:
 
             base.trend_label = mc.derive_trend(
                 base.spx_above_200dma, base.breadth_pct_above_50dma, base.vix)
+        except Exception:
+            pass
+        return base
+
+    def options(self, ticker: str) -> OptionsSnapshot:
+        # Realized vol + a realized-vol-based expected move come from real prices
+        # (Alpaca). Implied-vol fields (iv_30d, iv_rank, skew) have no cheap
+        # keyless source, so they keep the sample values — the strategy builder
+        # and scorer degrade gracefully on the realized-vol signal.
+        base = self._fallback.options(ticker)
+        if not self.market:
+            return base
+        try:
+            from . import options as opt
+            closes = [b.close for b in self.market.price_history(ticker, days=60)]
+            hv = opt.realized_vol(closes, 30)
+            if hv is not None:
+                base.hv_30d = hv
+                base.expected_move_30d = opt.expected_move(hv, 30)
         except Exception:
             pass
         return base

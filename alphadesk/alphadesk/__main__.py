@@ -151,6 +151,34 @@ def _selftest() -> int:
     ok("MC trend risk_off", mc.derive_trend(False, 0.3, 28) == "risk_off")
     ok("MC trend neutral with no signals", mc.derive_trend(None, None, None) == "neutral")
 
+    # Options analytics are verifiable offline: realized vol on a flat series is
+    # ~0, expected move scales with vol, and the defined-risk strategy builder
+    # maps verdict + IV regime to the right structure.
+    from . import options as opt
+    from . import analysis
+    from .models import OptionsSnapshot
+    ok("OPT realized_vol ~0 on flat series", opt.realized_vol([100.0] * 40, 30) == 0.0)
+    ok("OPT realized_vol None when too few bars", opt.realized_vol([100.0, 101.0], 30) is None)
+    ok("OPT expected move scales with vol",
+       opt.expected_move(0.40, 30) > opt.expected_move(0.20, 30) > 0)
+    rich = OptionsSnapshot("X", iv_rank=80.0, expected_move_30d=0.06)
+    cheap = OptionsSnapshot("X", iv_rank=20.0, expected_move_30d=0.06)
+    ok("OPT bullish + rich IV -> sell premium (credit)",
+       opt.build_strategy("Buy", 100.0, rich).structure == "Bull put credit spread")
+    ok("OPT bullish + cheap IV -> buy premium (debit)",
+       opt.build_strategy("Strong Buy", 100.0, cheap).structure == "Bull call debit spread")
+    ok("OPT bearish + rich IV -> bear call credit",
+       opt.build_strategy("Sell", 100.0, rich).structure == "Bear call credit spread")
+    ok("OPT neutral + rich IV -> iron condor",
+       opt.build_strategy("Hold", 100.0, rich).structure == "Iron condor")
+    ok("OPT neutral + cheap IV -> stand aside",
+       opt.build_strategy("Hold", 100.0, cheap).structure == "No options trade")
+    op = analysis.score_options(OptionsSnapshot("X", iv_rank=85.0, put_call_skew=0.07,
+                                                iv_30d=0.5, hv_30d=0.3))
+    op2 = analysis.score_options(OptionsSnapshot("X", iv_rank=15.0, put_call_skew=0.0,
+                                                 iv_30d=0.25, hv_30d=0.25))
+    ok("OPT score: calm options score above stressed", op2.score > op.score)
+
     # Long-term should be taxed at a lower rate than short-term for same profile.
     st = next(h for h in r.horizons if "<1y" in h.label)
     lt = next(h for h in r.horizons if ">1y" in h.label)

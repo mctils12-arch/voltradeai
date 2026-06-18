@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers } from "lucide-react";
+import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target } from "lucide-react";
 
 // ── Types (mirror alphadesk JSON contract) ──────────────────────────────────
 
@@ -36,6 +36,23 @@ interface FilingRead {
   source: string;
 }
 
+interface OptionsView {
+  snapshot: {
+    iv_rank?: number | null;
+    expected_move_30d?: number | null;
+    hv_30d?: number | null;
+    iv_30d?: number | null;
+    put_call_skew?: number | null;
+  };
+  strategy: {
+    structure: string;
+    direction: string;
+    rationale: string;
+    legs: string[];
+    max_risk_note: string;
+  };
+}
+
 interface ResearchReport {
   ticker: string;
   as_of: string;
@@ -44,6 +61,7 @@ interface ResearchReport {
   conviction: number;
   composite_score: number;
   pillars: Pillar[];
+  options?: OptionsView | null;
   supply_demand_read: string;
   filing_read: FilingRead;
   market_note: string;
@@ -278,6 +296,33 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
               ))}
             </div>
           </div>
+
+          {/* Options strategy */}
+          {data.options && (
+            <div>
+              <SectionTitle icon={<Target size={15} />} text="Options strategy" />
+              <div style={{ background: "rgba(77,159,255,0.04)", border: "1px solid rgba(77,159,255,0.15)", borderRadius: 8, padding: "14px 16px" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 10, color: "#8a9bb3", fontSize: 11.5, fontFamily: "Geist Mono, monospace" }}>
+                  {data.options.snapshot.iv_rank != null && <span>IV rank {data.options.snapshot.iv_rank.toFixed(0)}</span>}
+                  {data.options.snapshot.expected_move_30d != null && <span>~{(data.options.snapshot.expected_move_30d * 100).toFixed(1)}% 30d expected move</span>}
+                  {data.options.snapshot.hv_30d != null && <span>HV {(data.options.snapshot.hv_30d * 100).toFixed(0)}%</span>}
+                </div>
+                <div style={{ color: "#eef3fb", fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+                  {data.options.strategy.structure}
+                  <span style={{ color: "#6b7c93", fontWeight: 400, fontSize: 12, marginLeft: 8 }}>({data.options.strategy.direction})</span>
+                </div>
+                <p style={{ color: "#cdd8e8", fontSize: 13, margin: "0 0 8px", lineHeight: 1.5 }}>{data.options.strategy.rationale}</p>
+                {data.options.strategy.legs.length > 0 && (
+                  <ul style={{ margin: "0 0 8px", paddingLeft: 18, color: "#b3c2d8", fontSize: 12.5, lineHeight: 1.6, fontFamily: "Geist Mono, monospace" }}>
+                    {data.options.strategy.legs.map((leg, i) => <li key={i}>{leg}</li>)}
+                  </ul>
+                )}
+                {data.options.strategy.max_risk_note && (
+                  <p style={{ color: "#6b7c93", fontSize: 11, margin: 0 }}>{data.options.strategy.max_risk_note}</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Filings + reads */}
           <div>
