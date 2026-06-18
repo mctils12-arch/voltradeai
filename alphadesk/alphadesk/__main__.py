@@ -238,6 +238,26 @@ def _selftest() -> int:
     wres = tx.estimate(tx.TaxProfile(filing_status="single", w2_income=50000), wash)
     ok("TAX flags wash sale", len(wres.flags) >= 1 and "wash" in wres.flags[0].lower())
     ok("TAX disallows wash-sale loss", wres.short_term_gain == 0 and wres.wash_sale_disallowed == -2000)
+    # Pre-trade planner — verifiable offline against hand-computed sizing.
+    from . import planner as pl
+    p = pl.build_plan("AAA", entry=100.0, account_value=10000.0, risk_pct=0.01, stop=90.0)
+    ok("PLAN per-share risk = entry - stop", p.per_share_risk == 10.0)
+    ok("PLAN shares = risk budget / per-share risk", p.shares == 10)   # $100 / $10
+    ok("PLAN position value", p.position_value == 1000.0)
+    ok("PLAN account exposure pct", p.account_pct == 0.10)
+    ok("PLAN 1R target price", p.targets[0].price == 110.0)
+    ok("PLAN 2R total gain over shares", next(t for t in p.targets if t.r == 2.0).total_gain == 200.0)
+    ok("PLAN volatility stop = entry - mult*dailyvol",
+       pl.suggest_stop(100.0, 0.02, 2.0) == 96.0)
+    ok("PLAN daily vol from annual (sqrt 252)",
+       abs((pl.daily_vol_from_annual(0.40) or 0) - 0.40 / (252 ** 0.5)) < 1e-9)
+    over = pl.build_plan("B", entry=100.0, account_value=1000.0, risk_pct=0.5, stop=99.0)
+    ok("PLAN warns when position needs margin", any("margin" in w for w in over.warnings))
+    bad = pl.build_plan("C", entry=100.0, account_value=10000.0, risk_pct=0.01, stop=110.0)  # long stop above entry
+    ok("PLAN warns on wrong-side stop", any("wrong side" in w for w in bad.warnings))
+    manual = pl.build_plan("D", entry=50.0, account_value=10000.0, risk_pct=0.02, stop=45.0, target_price=65.0)
+    ok("PLAN manual target computes reward:risk", manual.reward_risk == 3.0)  # (65-50)/(50-45)
+
     ok("TAX payload bridge round-trips",
        tx.estimate_from_payload({"profile": {"filing_status": "single", "w2_income": 100000, "state_rate": 0.05},
                                  "trades": [{"symbol": "AAA", "proceeds": 60000, "cost_basis": 50000,
@@ -264,6 +284,47 @@ def main(argv=None) -> int:
     if argv and argv[0].lower() == "keys":
         from .config import status
         print(json.dumps(status(), indent=2))
+        return 0
+    if argv and argv[0].lower() == "plan":
+        # Pre-trade planner: fetch live price + realized vol, then size the trade.
+        import base64
+        from . import planner as plan_mod
+        b64 = argv[argv.index("--payload") + 1] if "--payload" in argv else ""
+        try:
+            payload = json.loads(base64.b64decode(b64).decode("utf-8")) if b64 else {}
+        except Exception:
+            print(json.dumps({"error": "invalid payload"}))
+            return 1
+        ticker = str(payload.get("ticker", "")).upper()
+        if not ticker:
+            print(json.dumps({"error": "ticker required"}))
+            return 1
+        provider = make_provider(force_sample=bool(payload.get("sample")))
+        try:
+            live_price = float(provider.quote(ticker).price)
+        except Exception:
+            live_price = 0.0
+        entry = float(payload.get("entry") or 0) or live_price
+        daily_vol = None
+        if not payload.get("stop"):
+            try:
+                snap = provider.options(ticker)
+                daily_vol = plan_mod.daily_vol_from_annual(getattr(snap, "hv_30d", None))
+            except Exception:
+                daily_vol = None
+        plan = plan_mod.build_plan(
+            ticker, entry,
+            float(payload.get("account_value") or 0),
+            float(payload.get("risk_pct") or 0.01),
+            stop=(float(payload["stop"]) if payload.get("stop") else None),
+            stop_atr_mult=float(payload.get("stop_atr_mult") or 2.0),
+            daily_vol_pct=daily_vol,
+            direction=str(payload.get("direction") or "long"),
+            target_price=(float(payload["target_price"]) if payload.get("target_price") else None),
+        )
+        out = plan_mod.plan_to_dict(plan)
+        out["live_price"] = round(live_price, 2)
+        print(json.dumps(out))
         return 0
     if argv and argv[0].lower() == "taxes":
         # Standalone tax estimator. Payload (profile + trades) arrives base64-

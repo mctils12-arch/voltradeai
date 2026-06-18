@@ -666,6 +666,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── PRE-TRADE PLANNER ─────────────────────────────────────────────────────
+  // Given a ticker + account value + risk-per-trade, fetches the live price and
+  // realized vol and returns a sized trade plan: volatility-based stop, share
+  // count, position value, and R-multiple targets. Backed by alphadesk's pure
+  // `planner`. Plans only — it never places an order. Education, not advice.
+  app.post("/api/plan", async (req, res) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    if (!body.ticker || !/^[A-Za-z.]{1,10}$/.test(String(body.ticker))) {
+      return res.status(400).json({ error: "Invalid ticker symbol." });
+    }
+    const payload = Buffer.from(JSON.stringify(body)).toString("base64");
+    const cwd = path.resolve(process.cwd(), "alphadesk");
+    try {
+      const { stdout } = await execAsync(
+        `python3 -m alphadesk plan --payload "${payload}"`,
+        { timeout: 120000, maxBuffer: 1024 * 1024 * 2, cwd }
+      );
+      const out = stdout.trim();
+      if (!out) return res.status(500).json({ error: "No output from planner." });
+      return res.json(JSON.parse(out));
+    } catch (err: any) {
+      console.error("[plan] error:", err?.message || err);
+      return res.status(500).json({ error: "Trade plan failed." });
+    }
+  });
+
   // ── ETF BUILDER / ANALYZER ────────────────────────────────────────────────
   // Pulls ETF metadata (expense ratio, holdings, sector breakdown, active vs
   // passive heuristic, typical rebalance schedule) plus rich per-holding data
