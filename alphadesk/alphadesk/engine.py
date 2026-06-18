@@ -132,9 +132,18 @@ def analyze(
 
     # Catalyst overlay: a detected pending acquisition is a special situation that
     # supersedes the fundamentals read — lead the thesis with it so the verdict
-    # pill never tells a misleading story on its own.
+    # pill never tells a misleading story on its own. Detection scans both recent
+    # news and the (now real) SEC filing text — a merger 6-K reliably states the
+    # deal terms even when the news window has moved on — while only the news is
+    # shown to the user.
+    from .models import NewsItem as _NewsItem
+    _filing_sources = [
+        _NewsItem(headline=f.title or f.form, summary=(f.text or "")[:6000],
+                  url=f.url, source="SEC EDGAR", date=f.filed_at)
+        for f in filings
+    ]
     catalyst_view = catalyst_mod.build_view(
-        catalyst_mod.detect_deal(news), q.price, news)
+        catalyst_mod.detect_deal(news + _filing_sources), q.price, news)
     if catalyst_view.catalyst.kind == "pending_acquisition" and catalyst_view.assessment:
         thesis = catalyst_view.assessment + " (Fundamentals view below.) " + thesis
         risks.insert(0, "Outcome hinges on deal completion (regulatory/closing risk), "
