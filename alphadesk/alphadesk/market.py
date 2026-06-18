@@ -22,7 +22,7 @@ import json
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional
 
 from .config import Keys
 from .models import Quote, PriceBar
@@ -88,6 +88,14 @@ class MarketAdapter:
         url = f"https://api.polygon.io/v3/reference/tickers/{t}?apiKey={self.k.polygon_key}"
         data = _get_json(url)
         return data.get("results", {}) or {}
+
+    def polygon_index_value(self, index_ticker: str = "I:VIX") -> Optional[float]:
+        """Latest value of a Polygon index (e.g. I:VIX) via the previous-close
+        aggregate. Returns None if unavailable / not on this Polygon plan."""
+        url = f"https://api.polygon.io/v2/aggs/ticker/{index_ticker}/prev?apiKey={self.k.polygon_key}"
+        data = _get_json(url)
+        results = data.get("results") or []
+        return float(results[0]["c"]) if results else None
 
     # ---- Finnhub ---------------------------------------------------------- #
     def finnhub_metrics(self, ticker: str) -> dict:

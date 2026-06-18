@@ -137,6 +137,20 @@ def _selftest() -> int:
     ok("LLM reader tags its source", fr.source.startswith("llm:"))
     ok("LLM reader disabled without ANTHROPIC key", make_filing_reader(Keys()) is None)
 
+    # Market context math is verifiable offline: feed close-series through the
+    # same pure helpers LiveProvider.market_context uses and confirm the SMA
+    # cross, the breadth fraction, and the risk-on/off trend logic.
+    from . import market_context as mc
+    rising = list(range(1, 61))          # strictly increasing -> last close > SMA
+    falling = list(range(60, 0, -1))     # strictly decreasing -> last close < SMA
+    ok("MC above_sma detects uptrend", mc.above_sma(rising, 50) is True)
+    ok("MC above_sma detects downtrend", mc.above_sma(falling, 50) is False)
+    ok("MC above_sma None when too few bars", mc.above_sma(rising, 200) is None)
+    ok("MC breadth fraction", abs(mc.breadth_fraction([rising, rising, falling], 50) - (2 / 3)) < 1e-9)
+    ok("MC trend risk_on", mc.derive_trend(True, 0.7, 13) == "risk_on")
+    ok("MC trend risk_off", mc.derive_trend(False, 0.3, 28) == "risk_off")
+    ok("MC trend neutral with no signals", mc.derive_trend(None, None, None) == "neutral")
+
     # Long-term should be taxed at a lower rate than short-term for same profile.
     st = next(h for h in r.horizons if "<1y" in h.label)
     lt = next(h for h in r.horizons if ">1y" in h.label)

@@ -232,8 +232,43 @@ class LiveProvider:
         return self._fallback.price_history(ticker, days)
 
     def market_context(self) -> MarketContext:
-        # TODO(handoff #3): derive from real index/breadth/VIX/credit data.
-        return self._fallback.market_context()
+        # Real backdrop from live prices: SPY vs its 200dma (index trend) and the
+        # 11 SPDR sector ETFs' breadth above their 50dma, plus best-effort VIX via
+        # Polygon. Yields/credit have no keyless source wired, so they keep the
+        # sample values. Any failure leaves the corresponding field on sample.
+        base = self._fallback.market_context()
+        if not self.market:
+            return base
+        try:
+            from . import market_context as mc
+            spy = [b.close for b in self.market.price_history("SPY", days=400)]
+            above = mc.above_sma(spy, 200)
+            if above is not None:
+                base.spx_above_200dma = above
+
+            series = []
+            for etf in mc.SECTOR_ETFS:
+                try:
+                    series.append([b.close for b in self.market.price_history(etf, days=80)])
+                except Exception:
+                    pass
+            bf = mc.breadth_fraction(series, 50)
+            if bf is not None:
+                base.breadth_pct_above_50dma = round(bf, 2)
+
+            if self.keys.have_polygon:
+                try:
+                    v = self.market.polygon_index_value("I:VIX")
+                    if v:
+                        base.vix = round(v, 1)
+                except Exception:
+                    pass
+
+            base.trend_label = mc.derive_trend(
+                base.spx_above_200dma, base.breadth_pct_above_50dma, base.vix)
+        except Exception:
+            pass
+        return base
 
 
 def _pct(v, default):

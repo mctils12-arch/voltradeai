@@ -52,7 +52,7 @@ See `.env.example`. Each source is independently optional; missing ones fall
 back to sample data.
 
 ## Status: done vs stubbed
-DONE: engine, five pillars, tax horizons, CLI, selftest (27 checks), offline
+DONE: engine, five pillars, tax horizons, CLI, selftest (34 checks), offline
 sample provider, live provider selection + Alpaca/Polygon/Finnhub adapter,
 per-field graceful fallback.
 - Task #1 — live Finnhub field mappings verified/corrected (see `_map_finnhub_metrics`).
@@ -67,19 +67,27 @@ per-field graceful fallback.
   injected via `analyze(filing_llm=...)`. Auto-enabled when `ANTHROPIC_API_KEY`
   is set and the `anthropic` package is installed (`Keys.have_anthropic`);
   `FilingReasoner` falls back to the heuristic on any error. CLI: `--no-llm`.
+- Task #3 — live market context (`market_context.py`): SPY vs 200dma (index
+  trend), 11 SPDR sector ETFs' breadth above 50dma, best-effort VIX via Polygon,
+  and a derived risk_on/neutral/risk_off label, wired into
+  `LiveProvider.market_context`. Yields/credit have no keyless source wired and
+  keep sample values; any failure leaves a field on sample.
 - Site integration — exposed as the "Research" tab in the VolTrade site
   (`GET /api/research/:ticker` -> `python -m alphadesk --json`; React page in
   `client/src/pages/research.tsx`).
 
+All five pillars now run on live data when keys are present.
+
 STUBBED / TODO (in priority order — see TASKS.md):
-1. **Market context** — real index/breadth/VIX/credit in
-   `LiveProvider.market_context` (currently sample).
-2. **Options pillar** — IV rank, skew, expected move; translate an equity
+1. **Options pillar** — IV rank, skew, expected move; translate an equity
    verdict into a defined-risk options expression. New module + new Pillar.
-3. **Calibration/backtest** — validate weights and the score→return mapping on
+2. **Calibration/backtest** — validate weights and the score→return mapping on
    history before trusting absolute numbers.
-4. **UI polish** — the engine is already surfaced as the site's "Research" tab;
+3. **UI polish** — the engine is already surfaced as the site's "Research" tab;
    remaining work is richer visualization / a dedicated standalone view.
+4. **Yields/credit in market context** — wire a source for 10y yield, 2s10s,
+   and HY OAS (e.g. Treasury par-yield API + a FRED key) to replace the sample
+   values those two fields still use.
 
 ## Conventions
 - Margins/ratios as fractions internally (0.42, not 42). `_pct()` converts.
