@@ -18,25 +18,38 @@ from typing import List, Optional
 
 from .models import NewsItem, Catalyst, CatalystView
 
-# Phrases that signal the *subject company* is being acquired (an arb floor),
-# not that it is the acquirer.
+# Phrases that signal the *subject company* is in play as a target (an arb
+# floor / special situation) — definitive deals, tender offers, and earlier-stage
+# takeover interest/bids alike. Combined with an extractable per-share price, this
+# keeps false positives low while catching real-world headline phrasing.
 _ACQUIRED_TERMS = (
-    "to be acquired", "be acquired by", "agrees to be acquired", "to acquire all",
-    "merger agreement", "definitive agreement", "cash merger", "all-cash",
-    "per share in cash", "buyout", "take private", "take-private",
-    "tender offer", "to be taken private", "agreed to acquire",
+    "to be acquired", "be acquired by", "acquired by", "agrees to be acquired",
+    "agreed to acquire", "to acquire all", "acquisition of", "acquisition interest",
+    "acquisition talks", "acquisition offer", "merger agreement", "definitive agreement",
+    "cash merger", "all-cash", "per share in cash", "buyout", "takeover", "take private",
+    "take-private", "going private", "go private", "tender offer", "rival bid",
+    "rival offer", "rival $", "bid for", "bid of", "bid",
 )
+
+# Talk-y language that means an early/uncertain stage rather than a signed deal.
+_TALKS_TERMS = ("talks", "interest", "rumor", "rumour", "exploring", "considering",
+                "approached", "weighing", "in play", "rival bid", "rival offer", "rival $")
 
 # Default assumed drop from the current price if the deal breaks, used to back
 # out a market-implied close probability. Deliberately conservative and stated
 # in the output so the user can judge it.
 _DEFAULT_BREAK_DROP = 0.30
 
-# "$35.00 per share", "$35 a share", "$35/share", "per share ... $35.00"
+# Per-share deal prices in real-world phrasing: "$35.00 per share", "$35 a share",
+# "$35/share", "$37.50 bid", "$35 offer", "bid of $37.50", "per share ... $35.00".
+# A negative lookahead after the number rejects deal *sizes* like "$4.5B" /
+# "$4.2 billion" / "$500M" so we never read total consideration as a share price.
+_NUM = r"(\d{1,4}(?:\.\d{1,2})?)(?![\d.])(?![bBmMkK])(?!\s*(?:billion|million|bn|mn))"
 _PRICE_PATTERNS = (
-    re.compile(r"\$\s?(\d{1,5}(?:\.\d{1,2})?)\s*(?:per|/|a)\s*share", re.I),
-    re.compile(r"per\s*share[^$]{0,30}\$\s?(\d{1,5}(?:\.\d{1,2})?)", re.I),
-    re.compile(r"\$\s?(\d{1,5}(?:\.\d{1,2})?)\s*(?:in\s+cash|cash)\s+per\s+share", re.I),
+    re.compile(r"\$\s?" + _NUM + r"\s*(?:per|/|a)\s*share", re.I),
+    re.compile(r"\$\s?" + _NUM + r"\s*(?:bid|offer|cash)\b", re.I),
+    re.compile(r"(?:bid|offer|acquire[a-z]*|deal|takeover)\s+(?:of|at|for)?\s*\$\s?" + _NUM, re.I),
+    re.compile(r"per\s*share[^$]{0,30}\$\s?" + _NUM, re.I),
 )
 
 
@@ -61,6 +74,11 @@ def _status(text: str) -> str:
     if any(k in t for k in ("regulatory", "antitrust", "awaiting approval", "pending approval",
                             "closing conditions", "regulatory approval", "subject to approval")):
         return "regulatory_pending"
+    if any(k in t for k in ("definitive agreement", "merger agreement", "to be acquired",
+                            "agreed to acquire", "tender offer")):
+        return "announced"
+    if any(k in t for k in _TALKS_TERMS):
+        return "in_talks"
     return "announced"
 
 
@@ -93,7 +111,8 @@ def detect_deal(news: List[NewsItem]) -> Catalyst:
     if best is None:
         return Catalyst(kind="none")
     # Upgrade status if any related headline shows a later stage.
-    order = {"announced": 0, "regulatory_pending": 1, "shareholder_approved": 2, "closed": 3}
+    order = {"in_talks": 0, "announced": 1, "regulatory_pending": 2,
+             "shareholder_approved": 3, "closed": 4}
     if blob_status:
         best.status = max(blob_status + [best.status], key=lambda s: order.get(s, 0))
     return best
@@ -126,7 +145,8 @@ def build_view(catalyst: Catalyst, current_price: Optional[float],
         "closed": "The deal has reportedly closed — limited remaining upside.",
         "shareholder_approved": "Shareholders have approved; regulatory/closing approval is the main remaining risk.",
         "regulatory_pending": "Awaiting regulatory/closing approval — the key remaining risk.",
-        "announced": "Recently announced — earliest stage, more uncertainty.",
+        "announced": "A definitive agreement is reported — deal-completion risk applies.",
+        "in_talks": "Early stage — takeover interest/bid reported but not a signed deal, so treat the price as indicative and the odds as lower.",
         "none": "",
     }.get(catalyst.status, "")
 

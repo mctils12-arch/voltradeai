@@ -200,6 +200,14 @@ def _selftest() -> int:
     v = cat.build_view(c, 24.36, deal_news)
     ok("CAT view: positive upside to deal", v.upside_pct is not None and v.upside_pct > 0)
     ok("CAT view: assessment mentions the deal price", "$35.00" in v.assessment)
+    # Real-world headline phrasing: a "$37.50 bid" amid "acquisition interest".
+    bid = cat.detect_deal([NewsItem(headline="Co: $4.5B Rival Offer Provides Support",
+                                    summary="acquisition interest; a rival $37.50 bid")])
+    ok("CAT detects '$37.50 bid' headline", bid.kind == "pending_acquisition" and bid.deal_price == 37.5)
+    ok("CAT marks talk-stage as in_talks", bid.status == "in_talks")
+    ok("CAT ignores deal SIZE ($4.5B), not per-share", bid.deal_price != 4.5)
+    ok("CAT no false positive on a per-share dividend",
+       cat.detect_deal([NewsItem(headline="Co declares dividend of $0.50 per share")]).kind == "none")
 
     # Long-term should be taxed at a lower rate than short-term for same profile.
     st = next(h for h in r.horizons if "<1y" in h.label)
