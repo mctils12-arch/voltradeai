@@ -1,0 +1,49 @@
+"""AlphaDesk — human-readable report formatting."""
+from __future__ import annotations
+
+from .models import ResearchReport
+
+
+def render_text(r: ResearchReport) -> str:
+    L = []
+    L.append("=" * 64)
+    L.append(f"  {r.ticker}   {r.verdict.upper()}   ({r.composite_score:.0f}/100, "
+             f"conviction {r.conviction:.0f})")
+    L.append(f"  price ${r.price:,.2f}   as of {r.as_of}   provider: {r.provider}")
+    L.append("=" * 64)
+    L.append("")
+    L.append("THESIS")
+    L.append("  " + r.thesis)
+    L.append("")
+    L.append("PILLARS")
+    for p in r.pillars:
+        s = f"{p.score:.0f}/100" if p.score is not None else "  n/a"
+        L.append(f"  {p.name:<18} {s:>8}   {p.note}")
+        for fct in p.factors:
+            L.append(f"       - {fct.name:<28} {fct.score:>5.0f}   {fct.detail}")
+    L.append("")
+    L.append("SUPPLY / DEMAND")
+    L.append("  " + r.supply_demand_read)
+    if r.filing_read:
+        L.append("")
+        L.append(f"FILINGS  ({r.filing_read.source})")
+        L.append("  " + r.filing_read.summary)
+        if r.filing_read.catalysts:
+            L.append("  catalysts: " + ", ".join(r.filing_read.catalysts))
+        if r.filing_read.red_flags:
+            L.append("  red flags: " + ", ".join(r.filing_read.red_flags))
+    L.append("")
+    L.append("HORIZON / AFTER-TAX ALPHA")
+    for h in r.horizons:
+        star = "  <-- best after-tax" if h.label == r.best_horizon else ""
+        L.append(f"  {h.label:<12} pre-tax {h.expected_return:+.1%}  "
+                 f"tax {h.tax_rate:.0%}  ->  after-tax {h.after_tax_return:+.1%}{star}")
+        L.append(f"               ({h.note})")
+    L.append("")
+    L.append("RISKS")
+    for risk in r.risks:
+        L.append(f"  - {risk}")
+    L.append("")
+    L.append(f"data completeness: {r.data_completeness:.0%}")
+    L.append(r.disclaimer)
+    return "\n".join(L)
