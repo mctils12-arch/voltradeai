@@ -22,9 +22,12 @@ from typing import List, Optional
 
 from .models import Filing
 
-# Forms that carry a narrative worth reading. Periodic reports + current events;
-# amendments (…/A) are matched too. Insider Form 4 / ownership noise is excluded.
-MATERIAL_FORMS = ("10-K", "10-Q", "8-K")
+# Forms that carry a narrative worth reading. Periodic reports + current events,
+# plus foreign private issuers (6-K current reports / 20-F annual) — without these
+# a company like ZIM (which files 6-K/20-F, not 10-K/8-K) would return nothing and
+# its merger 6-K would be missed. Amendments (…/A) are matched too; insider Form 4
+# noise is excluded.
+MATERIAL_FORMS = ("10-K", "10-Q", "8-K", "6-K", "20-F")
 
 # Cap on extracted document text. The heuristic reasoner only keyword-scans the
 # body, and full 10-Ks are megabytes — keep reports fast and memory-bounded.

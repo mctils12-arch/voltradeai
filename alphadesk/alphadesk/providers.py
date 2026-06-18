@@ -22,6 +22,7 @@ from typing import List, Optional, Protocol
 
 from .models import (
     Quote, Fundamentals, Ownership, Filing, MarketContext, PriceBar, OptionsSnapshot,
+    NewsItem,
 )
 
 
@@ -34,6 +35,7 @@ class DataProvider(Protocol):
     def price_history(self, ticker: str, days: int = 365) -> List[PriceBar]: ...
     def market_context(self) -> MarketContext: ...
     def options(self, ticker: str) -> OptionsSnapshot: ...
+    def news(self, ticker: str, days: int = 30) -> List[NewsItem]: ...
     @property
     def name(self) -> str: ...
 
@@ -154,6 +156,19 @@ class SampleProvider:
             put_call_skew=round(_between(t, "skew", 0.0, 0.06), 3),
             expected_move_30d=expected_move(iv, 30),
         )
+
+    def news(self, ticker: str, days: int = 30) -> List[NewsItem]:
+        # Deterministic, generic headlines — no synthetic M&A, so the catalyst
+        # detector correctly finds nothing under sample data.
+        t = ticker.upper()
+        return [
+            NewsItem(headline=f"{t} reports quarterly results in line with expectations",
+                     summary="Routine operating update; no special situation.",
+                     source="sample", date="2026-01-01"),
+            NewsItem(headline=f"Analysts weigh in on {t} outlook",
+                     summary="Mixed analyst commentary on the sector.",
+                     source="sample", date="2026-01-01"),
+        ]
 
 
 def _sample_filing_text(t: str, form: str) -> str:
@@ -303,6 +318,35 @@ class LiveProvider:
         except Exception:
             pass
         return base
+
+    def news(self, ticker: str, days: int = 30) -> List[NewsItem]:
+        # Real company news via Finnhub (drives catalyst detection). Falls back
+        # to the generic sample headlines if no key / on error.
+        base = self._fallback.news(ticker, days)
+        if not (self.market and self.keys.have_finnhub):
+            return base
+        try:
+            from datetime import datetime, timezone
+            raw = self.market.finnhub_company_news(ticker, days)
+            items: List[NewsItem] = []
+            for n in raw[:40]:
+                ts = n.get("datetime")
+                date = ""
+                if ts:
+                    try:
+                        date = datetime.fromtimestamp(int(ts), timezone.utc).strftime("%Y-%m-%d")
+                    except Exception:
+                        date = ""
+                items.append(NewsItem(
+                    headline=str(n.get("headline", "")),
+                    summary=str(n.get("summary", "")),
+                    url=str(n.get("url", "")),
+                    source=str(n.get("source", "")),
+                    date=date,
+                ))
+            return items or base
+        except Exception:
+            return base
 
 
 def _pct(v, default):

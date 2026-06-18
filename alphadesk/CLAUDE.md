@@ -52,9 +52,16 @@ See `.env.example`. Each source is independently optional; missing ones fall
 back to sample data.
 
 ## Status: done vs stubbed
-DONE: engine, six pillars, tax horizons, CLI, selftest (43 checks), offline
+DONE: engine, six pillars, tax horizons, CLI, selftest (51 checks), offline
 sample provider, live provider selection + Alpaca/Polygon/Finnhub adapter,
 per-field graceful fallback.
+- Catalyst / news layer (`catalyst.py` + `provider.news()`): pulls Finnhub
+  company-news, detects a pending cash acquisition + deal price + status, and
+  derives the merger-arb framing (spread, estimated break price, market-implied
+  close probability, "buy if you believe odds > X%" assessment). Surfaced as a
+  top-of-report "Special situation" banner that leads the thesis. Fixes the
+  ZIM-class blind spot where fundamentals miss a buyout. EDGAR now also reads
+  foreign-issuer 6-K/20-F (was 10-K/10-Q/8-K only) so deal filings are seen.
 - Task #1 — live Finnhub field mappings verified/corrected (see `_map_finnhub_metrics`).
 - Task #2 — real SEC EDGAR filings (`edgar.py`): ticker→CIK→submissions→latest
   N material 10-K/10-Q/8-K docs with extracted text, wired into

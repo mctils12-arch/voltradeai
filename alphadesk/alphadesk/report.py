@@ -12,8 +12,24 @@ def render_text(r: ResearchReport) -> str:
     L.append(f"  price ${r.price:,.2f}   as of {r.as_of}   provider: {r.provider}")
     L.append("=" * 64)
     L.append("")
+    if r.catalyst and r.catalyst.catalyst.kind == "pending_acquisition":
+        c = r.catalyst
+        L.append("!! SPECIAL SITUATION — PENDING ACQUISITION")
+        L.append("  " + c.assessment)
+        if c.implied_close_prob is not None:
+            L.append(f"  deal ${c.catalyst.deal_price:.2f}  upside {c.upside_pct:+.0%}  "
+                     f"downside {c.downside_pct:+.0%}  market-implied close odds ~{c.implied_close_prob:.0%}")
+        if c.catalyst.url:
+            L.append(f"  source: {c.catalyst.url}")
+        L.append("")
     L.append("THESIS")
     L.append("  " + r.thesis)
+    if r.catalyst and r.catalyst.news:
+        L.append("")
+        L.append("RECENT NEWS")
+        for n in r.catalyst.news[:5]:
+            d = f"[{n.date}] " if n.date else ""
+            L.append(f"  - {d}{n.headline}")
     L.append("")
     L.append("PILLARS")
     for p in r.pillars:
