@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target } from "lucide-react";
+import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target, Megaphone, Newspaper } from "lucide-react";
 
 // ── Types (mirror alphadesk JSON contract) ──────────────────────────────────
 
@@ -53,6 +53,25 @@ interface OptionsView {
   };
 }
 
+interface NewsItem {
+  headline: string;
+  summary?: string;
+  url?: string;
+  source?: string;
+  date?: string;
+}
+
+interface CatalystView {
+  catalyst: { kind: string; headline?: string; url?: string; deal_price?: number | null; cash?: boolean; status?: string };
+  current_price?: number | null;
+  upside_pct?: number | null;
+  downside_pct?: number | null;
+  downside_price?: number | null;
+  implied_close_prob?: number | null;
+  assessment?: string;
+  news?: NewsItem[];
+}
+
 interface ResearchReport {
   ticker: string;
   as_of: string;
@@ -62,6 +81,7 @@ interface ResearchReport {
   composite_score: number;
   pillars: Pillar[];
   options?: OptionsView | null;
+  catalyst?: CatalystView | null;
   supply_demand_read: string;
   filing_read: FilingRead;
   market_note: string;
@@ -256,6 +276,33 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
       {/* Report */}
       {data && !error && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Special-situation / catalyst banner */}
+          {data.catalyst && data.catalyst.catalyst.kind === "pending_acquisition" && (
+            <div style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.45)", borderRadius: 10, padding: "16px 20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#f5a623", fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 8 }}>
+                <Megaphone size={16} /> Special situation — pending acquisition
+              </div>
+              <p style={{ color: "#eef3fb", fontSize: 13.5, margin: "0 0 10px", lineHeight: 1.55 }}>{data.catalyst.assessment}</p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 18, fontFamily: "Geist Mono, monospace", fontSize: 12.5 }}>
+                {data.catalyst.catalyst.deal_price != null && (
+                  <span style={{ color: "#b3c2d8" }}>deal <b style={{ color: "#eef3fb" }}>${data.catalyst.catalyst.deal_price.toFixed(2)}</b></span>
+                )}
+                {data.catalyst.upside_pct != null && (
+                  <span style={{ color: "#30d158" }}>upside {(data.catalyst.upside_pct * 100).toFixed(0)}%</span>
+                )}
+                {data.catalyst.downside_pct != null && (
+                  <span style={{ color: "#ff6b5a" }}>downside {(data.catalyst.downside_pct * 100).toFixed(0)}%</span>
+                )}
+                {data.catalyst.implied_close_prob != null && (
+                  <span style={{ color: "#b3c2d8" }}>market-implied close odds <b style={{ color: "#f5a623" }}>~{(data.catalyst.implied_close_prob * 100).toFixed(0)}%</b></span>
+                )}
+              </div>
+              {data.catalyst.catalyst.url && (
+                <a href={data.catalyst.catalyst.url} target="_blank" rel="noopener noreferrer" style={{ color: "#4d9fff", fontSize: 11.5, marginTop: 8, display: "inline-block" }}>source ↗</a>
+              )}
+            </div>
+          )}
+
           {/* Verdict banner */}
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 20, background: "rgba(77,159,255,0.05)", border: "1px solid rgba(77,159,255,0.2)", borderRadius: 10, padding: "18px 22px" }}>
             <div>
@@ -278,6 +325,23 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
           <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: "14px 16px" }}>
             <p style={{ color: "#dbe4f0", fontSize: 13.5, margin: 0, lineHeight: 1.55 }}>{data.thesis}</p>
           </div>
+
+          {/* Recent news */}
+          {data.catalyst && data.catalyst.news && data.catalyst.news.length > 0 && (
+            <div>
+              <SectionTitle icon={<Newspaper size={15} />} text="Recent news" />
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {data.catalyst.news.slice(0, 5).map((n, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12.5, color: "#b3c2d8" }}>
+                    {n.date && <span style={{ color: "#6b7c93", fontFamily: "Geist Mono, monospace", whiteSpace: "nowrap" }}>{n.date}</span>}
+                    {n.url
+                      ? <a href={n.url} target="_blank" rel="noopener noreferrer" style={{ color: "#cdd8e8", textDecoration: "none" }}>{n.headline}</a>
+                      : <span>{n.headline}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Pillars */}
           <div>

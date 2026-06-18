@@ -97,6 +97,17 @@ class MarketAdapter:
         results = data.get("results") or []
         return float(results[0]["c"]) if results else None
 
+    def finnhub_company_news(self, ticker: str, days: int = 30) -> list:
+        """Recent company news/press releases from Finnhub (list of dicts)."""
+        from datetime import datetime, timedelta, timezone
+        t = ticker.upper()
+        to = datetime.now(timezone.utc).date()
+        frm = to - timedelta(days=days)
+        url = (f"https://finnhub.io/api/v1/company-news?symbol={t}"
+               f"&from={frm}&to={to}&token={self.k.finnhub_key}")
+        data = _get_json(url)
+        return data if isinstance(data, list) else []
+
     # ---- Finnhub ---------------------------------------------------------- #
     def finnhub_metrics(self, ticker: str) -> dict:
         t = ticker.upper()

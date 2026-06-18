@@ -179,6 +179,28 @@ def _selftest() -> int:
                                                  iv_30d=0.25, hv_30d=0.25))
     ok("OPT score: calm options score above stressed", op2.score > op.score)
 
+    # Catalyst detection + merger-arb math, verifiable offline on canned news.
+    from . import catalyst as cat
+    from .models import NewsItem
+    deal_news = [
+        NewsItem(headline="Acme to be acquired by BigCo for $35.00 per share in cash",
+                 summary="Shareholders approved the all-cash merger; regulatory approval pending."),
+        NewsItem(headline="Acme posts quarterly results"),
+    ]
+    c = cat.detect_deal(deal_news)
+    ok("CAT detects pending acquisition", c.kind == "pending_acquisition")
+    ok("CAT extracts deal price", c.deal_price == 35.0)
+    ok("CAT classifies status (approved)", c.status == "shareholder_approved")
+    ok("CAT no false positive on routine news",
+       cat.detect_deal([NewsItem(headline="Acme posts quarterly results")]).kind == "none")
+    ok("CAT implied prob in (0,1) between break and deal",
+       0.0 < (cat.implied_probability(24.36, 35.0, 17.05) or -1) < 1.0)
+    ok("CAT implied prob clamps at 1 when price>=deal",
+       cat.implied_probability(36.0, 35.0, 17.05) == 1.0)
+    v = cat.build_view(c, 24.36, deal_news)
+    ok("CAT view: positive upside to deal", v.upside_pct is not None and v.upside_pct > 0)
+    ok("CAT view: assessment mentions the deal price", "$35.00" in v.assessment)
+
     # Long-term should be taxed at a lower rate than short-term for same profile.
     st = next(h for h in r.horizons if "<1y" in h.label)
     lt = next(h for h in r.horizons if ">1y" in h.label)

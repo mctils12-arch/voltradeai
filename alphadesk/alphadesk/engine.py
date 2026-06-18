@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Protocol
 
-from . import analysis, options as options_mod
+from . import analysis, options as options_mod, catalyst as catalyst_mod
 from .models import (
     ResearchReport, Pillar, HorizonView, FilingRead, OptionsView,
 )
@@ -79,6 +79,7 @@ def analyze(
     m = provider.market_context()
     filings = provider.filings(ticker, limit=5)
     opt_snap = provider.options(ticker)
+    news = provider.news(ticker)
 
     pillars: List[Pillar] = [
         analysis.score_fundamentals(f),
@@ -129,6 +130,16 @@ def analyze(
         strategy=options_mod.build_strategy(verdict, q.price, opt_snap),
     )
 
+    # Catalyst overlay: a detected pending acquisition is a special situation that
+    # supersedes the fundamentals read — lead the thesis with it so the verdict
+    # pill never tells a misleading story on its own.
+    catalyst_view = catalyst_mod.build_view(
+        catalyst_mod.detect_deal(news), q.price, news)
+    if catalyst_view.catalyst.kind == "pending_acquisition" and catalyst_view.assessment:
+        thesis = catalyst_view.assessment + " (Fundamentals view below.) " + thesis
+        risks.insert(0, "Outcome hinges on deal completion (regulatory/closing risk), "
+                        "not fundamentals — size for the break scenario.")
+
     return ResearchReport(
         ticker=ticker.upper(),
         as_of=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
@@ -147,6 +158,7 @@ def analyze(
         data_completeness=completeness,
         provider=provider.name,
         options=options_view,
+        catalyst=catalyst_view,
     )
 
 

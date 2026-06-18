@@ -104,6 +104,41 @@ class PriceBar:
     close: float
 
 
+@dataclass
+class NewsItem:
+    """One recent news / press-release headline for a ticker."""
+    headline: str
+    summary: str = ""
+    url: str = ""
+    source: str = ""
+    date: str = ""        # ISO date
+
+
+@dataclass
+class Catalyst:
+    """A detected hard catalyst (currently: pending cash acquisition)."""
+    kind: str                         # "pending_acquisition" | "none"
+    headline: str = ""
+    url: str = ""
+    deal_price: Optional[float] = None
+    cash: bool = True
+    status: str = "none"              # announced / shareholder_approved / regulatory_pending / closed / none
+
+
+@dataclass
+class CatalystView:
+    """Catalyst + the merger-arb framing the engine derives from it, plus the
+    recent news the read is based on. The actionable 'special situation' overlay."""
+    catalyst: Catalyst
+    current_price: Optional[float] = None
+    upside_pct: Optional[float] = None        # to deal price if it closes
+    downside_pct: Optional[float] = None      # to estimated break price
+    downside_price: Optional[float] = None
+    implied_close_prob: Optional[float] = None  # market-implied, 0..1
+    assessment: str = ""
+    news: List[NewsItem] = field(default_factory=list)
+
+
 # --------------------------------------------------------------------------- #
 # Outputs (what the engine produces)
 # --------------------------------------------------------------------------- #
@@ -183,6 +218,7 @@ class ResearchReport:
     data_completeness: float          # 0-1
     provider: str
     options: Optional[OptionsView] = None
+    catalyst: Optional[CatalystView] = None
     disclaimer: str = (
         "Research and education only. Not investment advice. Verdicts are model "
         "output, not a recommendation, and do not account for your full situation."
