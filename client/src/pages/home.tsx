@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase } from "lucide-react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AnalyzePage, { AnalyzeSection } from "./analyze";
 import ScannerPage from "./scanner";
+import ResearchPage from "./research";
 import NewsPage from "./news";
 import WatchlistPage from "./watchlist";
 import BotDashboard from "./bot";
 import LoginPage from "./login";
 
-type TabId = "analyze" | "scanner" | "news" | "watchlist" | "bot";
+type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "bot";
 
 interface Tab {
   id: TabId;
@@ -22,6 +23,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: "analyze",   label: "Analyze",   icon: <BarChart2 size={14} />, mobileIcon: <BarChart2 size={20} />, requiresAuth: false },
+  { id: "research",  label: "Research",  icon: <Scale size={14} />,     mobileIcon: <Scale size={20} />,     requiresAuth: false },
   { id: "scanner",   label: "Scanner",   icon: <ScanLine size={14} />,  mobileIcon: <ScanLine size={20} />,  requiresAuth: false },
   { id: "news",      label: "News",      icon: <Newspaper size={14} />, mobileIcon: <Newspaper size={20} />, requiresAuth: false },
   { id: "watchlist", label: "Watchlist", icon: <Bookmark size={14} />,  mobileIcon: <Bookmark size={20} />,  requiresAuth: false },
@@ -341,6 +343,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       <main className="page-container tab-page">
         {activeTab === "analyze" && (
           <AnalyzePage key={analyzeTarget} initialTicker={analyzeTarget} section={analyzeSection} />
+        )}
+        {activeTab === "research" && (
+          <ResearchPage onSelectTicker={handleSelectTicker} />
         )}
         {activeTab === "scanner" && (
           <ScannerPage onSelectTicker={handleSelectTicker} />

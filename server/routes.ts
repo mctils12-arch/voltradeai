@@ -580,6 +580,64 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── AlphaDesk EQUITY RESEARCH ─────────────────────────────────────────────
+  // Explainable buy/sell verdict from five weighted pillars (fundamentals,
+  // valuation, supply/demand, market context, filings) + an after-tax horizon
+  // comparison. Backed by the `alphadesk` Python package (clean-room engine in
+  // ./alphadesk). Runs offline on sample data; fills in live vendor numbers when
+  // the same Alpaca/Polygon/Finnhub keys used elsewhere are present in env.
+  // Optional tax query params (?bracket=0.37&state=0.093&ltcg=0.20&niit=0)
+  // tune the after-tax math. Research/education only — never places orders.
+  app.get("/api/research/:ticker", async (req, res) => {
+    const { ticker } = req.params;
+
+    if (!ticker || !/^[A-Za-z.]{1,10}$/.test(ticker)) {
+      return res.status(400).json({ error: "Invalid ticker symbol. Please use letters only (e.g. AAPL, MSFT, NVDA)." });
+    }
+
+    // Build the optional tax flags from query params, validating each as a
+    // plausible 0–1 rate so nothing untrusted reaches the shell.
+    const taxFlags: string[] = [];
+    const rate = (v: unknown) => {
+      const n = typeof v === "string" ? parseFloat(v) : NaN;
+      return Number.isFinite(n) && n >= 0 && n <= 1 ? n : null;
+    };
+    const bracket = rate(req.query.bracket);
+    const state = rate(req.query.state);
+    const ltcg = rate(req.query.ltcg);
+    if (bracket !== null) taxFlags.push(`--bracket ${bracket}`);
+    if (state !== null) taxFlags.push(`--state ${state}`);
+    if (ltcg !== null) taxFlags.push(`--ltcg ${ltcg}`);
+    if (req.query.niit === "0" || req.query.niit === "false") taxFlags.push("--no-niit");
+
+    // AlphaDesk runs as a module (`python -m alphadesk`) from its own folder.
+    const cwd = path.resolve(process.cwd(), "alphadesk");
+
+    try {
+      const { stdout } = await execAsync(
+        `python3 -m alphadesk "${ticker.toUpperCase()}" --json ${taxFlags.join(" ")}`.trim(),
+        { timeout: 120000, maxBuffer: 1024 * 1024 * 2, cwd }
+      );
+
+      const output = stdout.trim();
+      if (!output) {
+        return res.status(500).json({ error: "No output from research engine. Try again." });
+      }
+
+      const data = JSON.parse(output);
+      return res.json(data);
+    } catch (err: any) {
+      if (err.stdout) {
+        try {
+          const data = JSON.parse(err.stdout.trim());
+          return res.status(400).json(data);
+        } catch {}
+      }
+      console.error("[research] AlphaDesk error:", err?.message || err);
+      return res.status(500).json({ error: "Research failed. Please check the ticker and try again." });
+    }
+  });
+
   // ── ETF BUILDER / ANALYZER ────────────────────────────────────────────────
   // Pulls ETF metadata (expense ratio, holdings, sector breakdown, active vs
   // passive heuristic, typical rebalance schedule) plus rich per-holding data
