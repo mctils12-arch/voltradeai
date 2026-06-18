@@ -209,6 +209,40 @@ def _selftest() -> int:
     ok("CAT no false positive on a per-share dividend",
        cat.detect_deal([NewsItem(headline="Co declares dividend of $0.50 per share")]).kind == "none")
 
+    # Standalone tax engine — verifiable offline against a hand-computed scenario.
+    from . import tax_engine as tx
+    prof = tx.TaxProfile(filing_status="single", w2_income=100000, state_rate=0.05)
+    trades = [
+        tx.Trade("AAA", proceeds=60000, cost_basis=50000, buy_date="2025-01-02", sell_date="2025-04-12"),  # +10k ST
+        tx.Trade("BBB", proceeds=70000, cost_basis=50000, buy_date="2024-01-02", sell_date="2025-06-01"),  # +20k LT
+        tx.Trade("CCC", proceeds=15000, cost_basis=10000, buy_date="2024-01-02", sell_date="2025-06-01", account="roth_ira"),  # sheltered
+    ]
+    res = tx.estimate(prof, trades)
+    ok("TAX marginal rate (85k single -> 22%)", abs(res.marginal_rate - 0.22) < 1e-9)
+    ok("TAX short-term gain classified", res.short_term_gain == 10000)
+    ok("TAX long-term gain classified", res.long_term_gain == 20000)
+    ok("TAX Roth gain sheltered (untaxed)", res.sheltered_gain == 5000)
+    ok("TAX fed tax on ST = ordinary incremental (22% * 10k)", res.federal_st_tax == 2200)
+    ok("TAX fed tax on LT = 15% band (3000)", res.federal_lt_tax == 3000)
+    ok("TAX state = flat rate on gains (5% * 30k)", res.state_tax == 1500)
+    ok("TAX NIIT zero below MAGI threshold", res.niit == 0)
+    ok("TAX total tax on gains (6700)", res.total_tax == 6700)
+    ok("TAX after-tax gain (30k - 6700)", res.after_tax_gain == 23300)
+    # NIIT kicks in for a high earner.
+    hi = tx.estimate(tx.TaxProfile(filing_status="single", w2_income=300000),
+                     [tx.Trade("D", proceeds=110000, cost_basis=100000, buy_date="2024-01-01", sell_date="2025-06-01")])
+    ok("TAX NIIT applies above threshold", hi.niit == round(0.038 * 10000, 2))
+    # Wash sale: loss with a repurchase within 30 days is flagged + disallowed.
+    wash = [tx.Trade("Z", proceeds=8000, cost_basis=10000, buy_date="2025-01-01", sell_date="2025-03-01"),
+            tx.Trade("Z", proceeds=0, cost_basis=9000, buy_date="2025-03-20", sell_date="")]
+    wres = tx.estimate(tx.TaxProfile(filing_status="single", w2_income=50000), wash)
+    ok("TAX flags wash sale", len(wres.flags) >= 1 and "wash" in wres.flags[0].lower())
+    ok("TAX disallows wash-sale loss", wres.short_term_gain == 0 and wres.wash_sale_disallowed == -2000)
+    ok("TAX payload bridge round-trips",
+       tx.estimate_from_payload({"profile": {"filing_status": "single", "w2_income": 100000, "state_rate": 0.05},
+                                 "trades": [{"symbol": "AAA", "proceeds": 60000, "cost_basis": 50000,
+                                             "buy_date": "2025-01-02", "sell_date": "2025-04-12"}]})["short_term_gain"] == 10000)
+
     # Long-term should be taxed at a lower rate than short-term for same profile.
     st = next(h for h in r.horizons if "<1y" in h.label)
     lt = next(h for h in r.horizons if ">1y" in h.label)
@@ -230,6 +264,19 @@ def main(argv=None) -> int:
     if argv and argv[0].lower() == "keys":
         from .config import status
         print(json.dumps(status(), indent=2))
+        return 0
+    if argv and argv[0].lower() == "taxes":
+        # Standalone tax estimator. Payload (profile + trades) arrives base64-
+        # encoded so a trade list passes safely through argv with no shell risk.
+        import base64
+        from .tax_engine import estimate_from_payload
+        b64 = argv[argv.index("--payload") + 1] if "--payload" in argv else ""
+        try:
+            payload = json.loads(base64.b64decode(b64).decode("utf-8")) if b64 else {}
+        except Exception:
+            print(json.dumps({"error": "invalid payload"}))
+            return 1
+        print(json.dumps(estimate_from_payload(payload)))
         return 0
 
     ap = argparse.ArgumentParser(prog="alphadesk")

@@ -638,6 +638,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────
+  // Account-aware capital-gains + income tax estimate. Takes a profile (filing
+  // status, state rate, W-2/1099 income) + a list of realized trades and returns
+  // a full breakdown (ST/LT, NIIT, state, wash sales, sheltered gains). Backed by
+  // alphadesk's pure `tax_engine`. Payload is base64'd so the trade list passes
+  // safely through argv. Estimate/education only — not tax advice.
+  app.post("/api/tax/estimate", async (req, res) => {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const trades = Array.isArray(body.trades) ? body.trades : [];
+    if (trades.length > 2000) {
+      return res.status(400).json({ error: "Too many trades (max 2000)." });
+    }
+    const payload = Buffer.from(JSON.stringify(body)).toString("base64");
+    const cwd = path.resolve(process.cwd(), "alphadesk");
+    try {
+      const { stdout } = await execAsync(
+        `python3 -m alphadesk taxes --payload "${payload}"`,
+        { timeout: 30000, maxBuffer: 1024 * 1024 * 2, cwd }
+      );
+      const out = stdout.trim();
+      if (!out) return res.status(500).json({ error: "No output from tax engine." });
+      return res.json(JSON.parse(out));
+    } catch (err: any) {
+      console.error("[tax] estimate error:", err?.message || err);
+      return res.status(500).json({ error: "Tax estimate failed." });
+    }
+  });
+
   // ── ETF BUILDER / ANALYZER ────────────────────────────────────────────────
   // Pulls ETF metadata (expense ratio, holdings, sector breakdown, active vs
   // passive heuristic, typical rebalance schedule) plus rich per-holding data

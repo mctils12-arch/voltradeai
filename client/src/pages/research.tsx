@@ -112,8 +112,6 @@ function scoreColor(score: number): string {
   return "#ff6b5a";
 }
 
-const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${(n * 100).toFixed(2)}%`;
-const fmtRate = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -156,41 +154,6 @@ function PillarCard({ pillar }: { pillar: Pillar }) {
   );
 }
 
-function HorizonCard({ h, best }: { h: Horizon; best: boolean }) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 200,
-        background: best ? "rgba(48,209,88,0.06)" : "rgba(255,255,255,0.02)",
-        border: `1px solid ${best ? "rgba(48,209,88,0.35)" : "rgba(255,255,255,0.08)"}`,
-        borderRadius: 8,
-        padding: "14px 16px",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ color: "#eef3fb", fontWeight: 600, fontSize: 13.5 }}>{h.label}</span>
-        {best && (
-          <span style={{ color: "#30d158", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Better after tax
-          </span>
-        )}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 4, fontSize: 12.5, fontFamily: "Geist Mono, monospace" }}>
-        <span style={{ color: "#8a9bb3" }}>Pre-tax</span>
-        <span style={{ color: "#b3c2d8", textAlign: "right" }}>{fmtPct(h.expected_return)}</span>
-        <span style={{ color: "#8a9bb3" }}>Tax rate</span>
-        <span style={{ color: "#b3c2d8", textAlign: "right" }}>{fmtRate(h.tax_rate)}</span>
-        <span style={{ color: "#8a9bb3" }}>After-tax</span>
-        <span style={{ color: h.after_tax_return >= 0 ? "#30d158" : "#ff6b5a", textAlign: "right", fontWeight: 700 }}>
-          {fmtPct(h.after_tax_return)}
-        </span>
-      </div>
-      <p style={{ color: "#6b7c93", fontSize: 11, marginTop: 8 }}>{h.note}</p>
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: string) => void }) {
@@ -225,7 +188,7 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
         </h1>
         <p style={{ color: "#8a9bb3", fontSize: 13, margin: "6px 0 0" }}>
           Explainable buy/sell verdict from six weighted pillars — fundamentals, valuation, supply/demand,
-          market context, SEC filings, and options — plus an after-tax horizon comparison.
+          market context, SEC filings, and options — plus catalyst detection for special situations.
         </p>
       </div>
 
@@ -348,16 +311,6 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
             <SectionTitle icon={<Layers size={15} />} text="Pillars" />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
               {data.pillars.map((p) => <PillarCard key={p.name} pillar={p} />)}
-            </div>
-          </div>
-
-          {/* Horizons */}
-          <div>
-            <SectionTitle icon={<Scale size={15} />} text="After-tax horizon comparison" />
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {data.horizons.map((h) => (
-                <HorizonCard key={h.label} h={h} best={h.label === data.best_horizon} />
-              ))}
             </div>
           </div>
 
