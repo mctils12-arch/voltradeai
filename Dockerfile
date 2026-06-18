@@ -60,6 +60,9 @@ COPY content/ ./content/
 # ── Copy Python source (needed at runtime) ──────────────────────
 COPY *.py ./
 COPY strategies/ ./strategies/
+# AlphaDesk research engine package — the /api/research route runs
+# `python3 -m alphadesk` from /app/alphadesk, so the whole package must ship.
+COPY alphadesk/ ./alphadesk/
 
 # ── Copy backtest data needed for trade_feedback seeding ────────
 # (alpha audit 2026-05-03: voltrade_daemon auto-seeds the Kelly
