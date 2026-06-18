@@ -54,8 +54,37 @@ const ACCOUNTS: { id: Account; label: string; sheltered: boolean }[] = [
   { id: "hsa", label: "HSA", sheltered: true },
 ];
 
-// A few common no-income-tax states for the quick preset.
-const NO_TAX_STATES = ["TX", "FL", "WA", "NV", "TN", "WY", "SD", "AK", "NH"];
+// State individual income tax — representative top marginal rate (2025 est.).
+// Most states tax capital gains as ordinary income; user can override. No-income-
+// tax states are 0. Estimates — verify for your situation.
+const STATES: { code: string; name: string; rate: number }[] = [
+  { code: "AL", name: "Alabama", rate: 5.0 }, { code: "AK", name: "Alaska", rate: 0 },
+  { code: "AZ", name: "Arizona", rate: 2.5 }, { code: "AR", name: "Arkansas", rate: 3.9 },
+  { code: "CA", name: "California", rate: 13.3 }, { code: "CO", name: "Colorado", rate: 4.4 },
+  { code: "CT", name: "Connecticut", rate: 6.99 }, { code: "DE", name: "Delaware", rate: 6.6 },
+  { code: "DC", name: "District of Columbia", rate: 10.75 }, { code: "FL", name: "Florida", rate: 0 },
+  { code: "GA", name: "Georgia", rate: 5.39 }, { code: "HI", name: "Hawaii", rate: 11.0 },
+  { code: "ID", name: "Idaho", rate: 5.8 }, { code: "IL", name: "Illinois", rate: 4.95 },
+  { code: "IN", name: "Indiana", rate: 3.05 }, { code: "IA", name: "Iowa", rate: 3.8 },
+  { code: "KS", name: "Kansas", rate: 5.7 }, { code: "KY", name: "Kentucky", rate: 4.0 },
+  { code: "LA", name: "Louisiana", rate: 3.0 }, { code: "ME", name: "Maine", rate: 7.15 },
+  { code: "MD", name: "Maryland", rate: 5.75 }, { code: "MA", name: "Massachusetts", rate: 5.0 },
+  { code: "MI", name: "Michigan", rate: 4.25 }, { code: "MN", name: "Minnesota", rate: 9.85 },
+  { code: "MS", name: "Mississippi", rate: 4.7 }, { code: "MO", name: "Missouri", rate: 4.8 },
+  { code: "MT", name: "Montana", rate: 5.9 }, { code: "NE", name: "Nebraska", rate: 5.84 },
+  { code: "NV", name: "Nevada", rate: 0 }, { code: "NH", name: "New Hampshire", rate: 0 },
+  { code: "NJ", name: "New Jersey", rate: 10.75 }, { code: "NM", name: "New Mexico", rate: 5.9 },
+  { code: "NY", name: "New York", rate: 10.9 }, { code: "NC", name: "North Carolina", rate: 4.5 },
+  { code: "ND", name: "North Dakota", rate: 2.5 }, { code: "OH", name: "Ohio", rate: 3.5 },
+  { code: "OK", name: "Oklahoma", rate: 4.75 }, { code: "OR", name: "Oregon", rate: 9.9 },
+  { code: "PA", name: "Pennsylvania", rate: 3.07 }, { code: "RI", name: "Rhode Island", rate: 5.99 },
+  { code: "SC", name: "South Carolina", rate: 6.4 }, { code: "SD", name: "South Dakota", rate: 0 },
+  { code: "TN", name: "Tennessee", rate: 0 }, { code: "TX", name: "Texas", rate: 0 },
+  { code: "UT", name: "Utah", rate: 4.55 }, { code: "VT", name: "Vermont", rate: 8.75 },
+  { code: "VA", name: "Virginia", rate: 5.75 }, { code: "WA", name: "Washington", rate: 0 },
+  { code: "WV", name: "West Virginia", rate: 4.82 }, { code: "WI", name: "Wisconsin", rate: 7.65 },
+  { code: "WY", name: "Wyoming", rate: 0 },
+];
 
 const usd = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -69,7 +98,23 @@ const emptyTrade = (): TradeRow => ({
 export default function TaxesPage() {
   const [status, setStatus] = useState("single");
   const [state, setState] = useState("");
-  const [stateRate, setStateRate] = useState("5");
+  const [stateRate, setStateRate] = useState("0");
+  const [stateQuery, setStateQuery] = useState("");
+  const [showStates, setShowStates] = useState(false);
+
+  const stateMatches = (() => {
+    const q = stateQuery.trim().toLowerCase();
+    const list = !q
+      ? STATES
+      : STATES.filter(s => s.code.toLowerCase().startsWith(q) || s.name.toLowerCase().includes(q));
+    return list.slice(0, 8);
+  })();
+  const pickState = (s: { code: string; name: string; rate: number }) => {
+    setState(s.code);
+    setStateQuery(s.code);
+    setStateRate(String(s.rate));
+    setShowStates(false);
+  };
   const [w2, setW2] = useState("");
   const [inc1099, setInc1099] = useState("");
   const [other, setOther] = useState("");
@@ -145,14 +190,42 @@ export default function TaxesPage() {
               {FILING.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </div>
-          <div>
+          <div style={{ position: "relative" }}>
             <label style={label}>State</label>
-            <input style={input} placeholder="e.g. CA, TX" value={state}
+            <input
+              style={input}
+              placeholder="Type a state…"
+              value={stateQuery}
               onChange={e => {
-                const v = e.target.value.toUpperCase();
-                setState(v);
-                if (NO_TAX_STATES.includes(v)) setStateRate("0");
-              }} />
+                const v = e.target.value;
+                setStateQuery(v);
+                setShowStates(true);
+                // Exact code/name match auto-fills the rate as you type.
+                const hit = STATES.find(s => s.code.toLowerCase() === v.trim().toLowerCase()
+                  || s.name.toLowerCase() === v.trim().toLowerCase());
+                if (hit) { setState(hit.code); setStateRate(String(hit.rate)); }
+              }}
+              onFocus={() => setShowStates(true)}
+              onBlur={() => setTimeout(() => setShowStates(false), 150)}
+            />
+            {showStates && stateMatches.length > 0 && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, marginTop: 4, background: "#0b1320", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, maxHeight: 240, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+                {stateMatches.map(s => (
+                  <div
+                    key={s.code}
+                    onMouseDown={() => pickState(s)}
+                    style={{ display: "flex", justifyContent: "space-between", padding: "8px 11px", fontSize: 12.5, color: "#cdd8e8", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(77,159,255,0.12)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span>{s.code} — {s.name}</span>
+                    <span style={{ color: s.rate === 0 ? "#30d158" : "#7e8ca0", fontFamily: "Geist Mono, monospace" }}>
+                      {s.rate === 0 ? "no tax" : `${s.rate}%`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label style={label}>State rate (%)</label>
