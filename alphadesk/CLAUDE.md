@@ -55,6 +55,12 @@ back to sample data.
 DONE: engine, six pillars, tax horizons, CLI, selftest (51 checks), offline
 sample provider, live provider selection + Alpaca/Polygon/Finnhub adapter,
 per-field graceful fallback.
+- Tax estimator (`tax_engine.py`, `python -m alphadesk taxes --payload <b64>`):
+  standalone, account-aware capital-gains + income estimate (filing status,
+  state, W-2/1099 income; ST vs LT stacking; NIIT; wash-sale flagging; gains in
+  Roth/IRA/HSA sheltered). Exposed via POST /api/tax/estimate and the "Taxes"
+  tab. Replaced the old inline "after-tax horizon" toy in the research view.
+  TY2025 brackets; estimate/education only, not tax advice. selftest covers it.
 - Catalyst / news layer (`catalyst.py` + `provider.news()`): pulls Finnhub
   company-news, detects a pending cash acquisition + deal price + status, and
   derives the merger-arb framing (spread, estimated break price, market-implied
