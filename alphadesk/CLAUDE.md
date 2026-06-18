@@ -55,6 +55,11 @@ back to sample data.
 DONE: engine, six pillars, tax horizons, CLI, selftest (51 checks), offline
 sample provider, live provider selection + Alpaca/Polygon/Finnhub adapter,
 per-field graceful fallback.
+- Pre-trade planner (`planner.py`, `python -m alphadesk plan --payload <b64>`):
+  fetches live price + realized vol, suggests a volatility-based stop, sizes the
+  position to account value x risk-per-trade, and lays out 1R/2R/3R (+ manual)
+  targets with reward:risk. Exposed via POST /api/plan and the "Planner" tab.
+  Planner-only — never executes (keeps us out of broker-dealer territory).
 - Tax estimator (`tax_engine.py`, `python -m alphadesk taxes --payload <b64>`):
   standalone, account-aware capital-gains + income estimate (filing status,
   state, W-2/1099 income; ST vs LT stacking; NIIT; wash-sale flagging; gains in
