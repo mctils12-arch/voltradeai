@@ -7,3 +7,6 @@ __pycache__/
 .env
 
 .pre_release_backup/
+
+# backtest price cache (regenerated on demand)
+.bt_cache/
