@@ -61,7 +61,14 @@
   personal tier ~$100/mo class. Recommendation: defer until the predicted
   version's measured accuracy (archive self-scoring) proves insufficient
   for a gated signal.
-- **Position-archive volume watch** (standing): archive grows on the
-  Railway volume; adaptive thinning + rollups built in R1. FLAG HERE if
-  growth trends toward plan limits (est. <100MB/mo at current thinning —
-  monitor via /api/data/archive/stats once live).
+- **Position-archive volume watch** (standing, LIVE 2026-07-03 — see
+  experiments.md): 30-min sample interval per kind, compact positional
+  (not object) JSONL records, 90-day raw retention with a permanent
+  rollup surviving pruning. Computed estimate at these parameters:
+  aircraft ~40MB/mo + vessels ~65MB/mo ≈ **105MB/mo combined** (math in
+  `server/dataArchive.ts` header comment) — this is the actual design
+  figure, not a guess; revise the interval if the real
+  `/api/data/archive/stats` numbers, once the deploy has run for a few
+  days, come in materially higher (e.g. from aircraft/vessel counts near
+  the 800/1500 per-request caps more often than assumed). FLAG HERE if
+  growth trends toward Railway volume plan limits.

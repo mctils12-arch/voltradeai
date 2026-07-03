@@ -37,6 +37,20 @@ Constitution: CLAUDE.md → KNOWN STATE → SPINOUT-READY DATA LAYER
   `fetch()` (raw), `latest()` (cached most-recent), and gate status.
 - Node-side serving lives in `server/routes.ts` under `/api/data/*` — thin
   proxies/caches over this package's outputs. Keep them dumb.
+- `server/datacoreArchive.ts` — the position archive (MAP V2 ROADMAP R1;
+  ARCHIVE EVERYTHING amendment): adaptive thinning (full resolution near
+  strategic sites and low-altitude flight / near-port vessels; sparser
+  oceanic cruise; per-entity cadence clocks), hourly JSONL under
+  `${DATA_DIR}/datacore_archive/`, gzip after 2h, 7-day raw retention with
+  rollup into per-entity daily track summaries (bbox + coarse polyline).
+  Growth estimate at current thinning: ~100MB/mo combined (volume watch in
+  wishlist; observe via `/api/data/archive/stats`). Recent trails served
+  at `/api/data/track/:kind/:id` (powers the map's click-through history).
+  Raw material for the archive-enabled signal hypotheses in
+  open_questions.md and R2 maritime transit analytics.
+  (Supersedes the parallel-built `dataArchive.ts` from PR #107 — uniform
+  30-min sampling didn't meet the amendment's adaptive-thinning and
+  compression requirements; its growth-estimate discipline was adopted.)
 
 ## Spinout trigger (decided by the human)
 

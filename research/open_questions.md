@@ -149,6 +149,12 @@
 
 ## OPS GOTCHAS (avoid re-learning)
 
+- CONCURRENT SESSIONS DOUBLE-BUILD roadmap items: an interactive session
+  and a routine both built R1's archive on 2026-07-03 (#106 branch vs
+  #107), forcing a supersession merge. Rule: CLAIM before building —
+  append [CLAIMED <date> <PR#>] to the roadmap entry in your first
+  commit; check for claims first. Version bumps: read-and-increment,
+  never hardcode (three collisions today: 1.0.36 x2, 1.0.41 x2).
 - A `mergeable_state: "dirty"` claude/* PR stalls SILENTLY: no merge ref ->
   pull_request workflows never start -> no checks, no automerge, no error.
   Check mergeability FIRST, not CI logs. Cause: reusing one branch across
@@ -169,14 +175,18 @@ gate at ladder gate 2. Every map layer labeled as one or the other.
 
 ## MAP V2 ROADMAP (human directive 2026-07-03 — product routines work in order)
 
-R1. **[THIS SESSION] Performance + live-layer overhaul** — WebGL layer
-    rendering at 10k+ features, viewport-culled; global aircraft+vessel
-    coverage with viewport fetching; shared server-side feed cache +
-    exponential backoff + delta updates; aircraft/vessel enrichment
-    (heading rotation, velocity vectors, type-differentiated icons, detail
-    cards, recent trails); POSITION ARCHIVE (see R2 note) starts recording
-    immediately. Honest coverage labeling (terrestrial AIS has mid-ocean
-    gaps; ADS-B coverage follows receiver density).
+R1. **Performance + live-layer overhaul** — WebGL layer rendering at 10k+
+    features, viewport-culled; global aircraft+vessel coverage with
+    viewport fetching; shared server-side feed cache + exponential backoff
+    + delta updates; aircraft/vessel enrichment (heading rotation,
+    velocity vectors, type-differentiated icons, detail cards, recent
+    trails). Honest coverage labeling (terrestrial AIS has mid-ocean gaps;
+    ADS-B coverage follows receiver density).
+    - **[SHIPPED 2026-07-03] POSITION ARCHIVE** — recording started
+      immediately per the "every day not recorded is unrecoverable" note
+      below (see experiments.md, `server/dataArchive.ts`). Still open in
+      R1: WebGL rendering, viewport-fetching, delta updates, and the
+      enrichment features listed above.
 
 R2. **Maritime transit analytics — the strongest trading-signal candidate
     here.** Geofence counters on major ports and chokepoints (Suez,
