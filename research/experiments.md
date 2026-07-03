@@ -197,3 +197,28 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - STARVED: no — high-value work remains queued (KNOWN BROKEN #3/#4/#5/#6/#8,
   counterfactual logger, Sentinel-2 gate 1) but this session cleared its
   planned scope. Session end.
+
+## 2026-07-03 — [PRODUCT] /data map UX overhaul + two production bug fixes (v1.0.40)
+- Human production review failed the v1 map on basic usability -> full
+  redesign per DESIGN.md (installed this session, PR #103): full-bleed at
+  every width (fixed inset under 56px desktop nav / 48+64px mobile bars),
+  collapsible layer panel (FAB top-right; collapsed by default on phone,
+  open on desktop), toggle switches with live status dots + count badges,
+  RAW/SIGNAL as info-tooltip, aircraft+sites ON by default (alive at first
+  paint), site detail card (side card desktop / bottom sheet phone),
+  styled popovers, legend, loading skeleton with 8s failsafe, maplibre
+  chrome themed (44px touch controls, dark attribution).
+- PRODUCTION BUGS found & fixed in scope: (1) /api/data/layers returned []
+  in prod — frozen Dockerfile never copies datacore/ into the image; fixed
+  by importing the JSON statically so esbuild bakes it into dist/index.cjs.
+  (2) aircraft 502 — OpenSky rejects the Railway egress; fixed with UA
+  header + adsb.lol fallback (verified live: 679 aircraft over Cushing).
+  (3) maplibre CSS dynamically imported -> never applied in prod build ->
+  300px phantom canvas + unpositioned controls; fixed with static CSS
+  import + resize-on-ready.
+- Harness (rule 6): npm run visual GREEN at 390/768/1440, screenshots
+  reviewed against DESIGN.md. Harness itself hardened: SwiftShader WebGL
+  flags + full network isolation (external requests aborted).
+- Remaining known (site shell, NOT this page; follow-up candidate): desktop
+  tab nav clips at 768px; several nav buttons < 44px touch floor.
+- STARVED: no.
