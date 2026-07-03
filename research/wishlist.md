@@ -29,3 +29,10 @@
   build): free signup at aisstream.io -> set the key in Railway as
   AISSTREAM_KEY. The vessels layer ships scaffolded and activates when the
   key exists. HUMAN ACTION NEEDED.
+
+- **[APPROVED BY HUMAN 2026-07-03 — applied same message]** Constitutional
+  amendment: PROMOTION RULES gain rule 6 (visual verification) — client/
+  PRs must run the DESIGN.md harness at 390/768/1440 and self-review
+  screenshots before opening. DESIGN.md + scripts/visual_check.mjs are the
+  standard and its enforcement. Proposal+approval recorded here per the
+  amendment rule.

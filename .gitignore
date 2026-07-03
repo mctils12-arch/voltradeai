@@ -10,3 +10,6 @@ __pycache__/
 
 # backtest price cache (regenerated on demand)
 .bt_cache/
+
+# visual harness output (screenshots regenerated per run)
+.visual/
