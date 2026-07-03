@@ -471,3 +471,46 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   compliance before enabling billing/ads. Still analysis-only; provider
   order unchanged pending human decision.
 - STARVED: no.
+
+## 2026-07-03 — [REPAIR] Vessel stream eager boot connect (KNOWN BROKEN #9, v1.0.44)
+- PRIOR (stated before implementing): the aisstream websocket only ever
+  connects when `ensureVesselStream()` is called, and the only caller was
+  the `/api/data/vessels` GET handler — so a fresh deploy with zero
+  visitors to the map stays disconnected indefinitely. Expected fix:
+  calling the same function once at route-registration time (server boot)
+  closes the gap with no other behavior change, since `ensureVesselStream`
+  already no-ops if a socket is OPEN/CONNECTING and no-ops if the key is
+  unset.
+- Downstream chain (REASONING STANDARD #1): eager connect at boot -> the
+  websocket is live before any request arrives -> the 60s archive-snapshot
+  interval (already running unconditionally) has real positions to record
+  from minute one instead of only after a map visit -> position-archive
+  continuity across deploys improves (this feeds R2's transit-analytics
+  signal, whose value depends on unbroken history) -> no change to sizing,
+  scoring, or any trading path (this module has zero imports from bot_engine/
+  system_config/strategies, so the datacore boundary is intact).
+- Fix: extracted `vesselStreamEnabled(env)` and `bootVesselStream(env,
+  connect)` into new pure module `server/vesselStream.ts` (no imports,
+  fully unit-testable — avoids importing routes.ts's heavy deps, notably
+  auth.ts's top-level sqlite `db` open, into a test). Replaced the three
+  independent `process.env.AISSTREAM_KEY` truthy checks (layers status,
+  vessels route, and the new boot call) with the single shared predicate,
+  removing a duplication-drift risk. Added
+  `bootVesselStream(process.env, ensureVesselStream)` immediately after
+  `ensureVesselStream`'s definition in `server/routes.ts`.
+- Test (loop-health rule 3 — regression test that would have caught the
+  break): `server/vesselStream.test.ts`, 4 cases — `vesselStreamEnabled`
+  true/false on key presence, and `bootVesselStream` invokes its connect
+  callback iff a key is present (dependency-injected, so it directly
+  proves the "connect on boot when enabled" wiring without needing a real
+  WebSocket or Express app). 17/17 `npm run test:node` pass (13 pre-
+  existing + 4 new).
+- `npx tsc --noEmit`: identical 46 pre-existing errors with/without this
+  change (git-stash A/B diff), zero new errors, none in touched/new files.
+  `npm run build`: client + server bundle succeed. No client/ files
+  touched, so DESIGN.md visual-verification (promotion rule 6) doesn't
+  apply.
+- Version 1.0.43 -> 1.0.44 (read-and-increment).
+- STARVED: no — KNOWN BROKEN #5 (data-module wiring audit) and #6 (pytest
+  collection) remain queued for a future session; SESSION BUDGET caps
+  this session at one action.

@@ -106,13 +106,20 @@
    deliberately untouched (no options extended session exists on Alpaca).
    See experiments.md for the regression test and downstream-chain trace.
 
-9. **Vessel stream: connect eagerly at boot** (found in v1.0.43 live
-   verification): the aisstream websocket connects lazily on the first
-   /api/data/vessels request, so every deploy leaves a vessels gap (map
-   empty + archive not recording) until someone opens the map. One-line
-   fix: call ensureVesselStream() at server startup when AISSTREAM_KEY is
-   set. Also closes archive continuity gaps across deploys. Verify
-   ShipStaticData typing/destination populates post-warm-up while there.
+9. **[RESOLVED 2026-07-03 — v1.0.44]** ~~Vessel stream: connect eagerly at
+   boot~~. Found in v1.0.43 live verification: the aisstream websocket
+   connected lazily on the first /api/data/vessels request, so every
+   deploy left a vessels gap (map empty + archive not recording) until
+   someone opened the map. Fix: extracted `vesselStreamEnabled` /
+   `bootVesselStream` into new module `server/vesselStream.ts` (single
+   source of truth for the AISSTREAM_KEY gate, replacing three
+   independent `process.env.AISSTREAM_KEY` checks) and call
+   `bootVesselStream(process.env, ensureVesselStream)` once at route
+   registration time, right after the function is defined. See
+   experiments.md for the regression test and downstream-chain trace.
+   STILL OPEN, unrelated to this fix: verify ShipStaticData
+   typing/destination populates post-warm-up on the next live check —
+   that's read-path enrichment, not connection timing.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
