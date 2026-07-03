@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
+import { aircraftProviderCompliance } from "./providerCompliance";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
@@ -1084,6 +1085,18 @@ print(json.dumps(data))
       equityPeak: state.equityPeak,
       drawdownPct: state.equityPeak > 0 ? (((state.equityPeak - parseFloat(state.lastEquity || String(state.equityPeak))) / state.equityPeak) * 100).toFixed(1) : "N/A",
     };
+
+    // Check 6: data-provider licensing (monetization tripwire, CLAUDE.md
+    // KNOWN STATE 2026-07-03) — non-commercial providers must leave the
+    // aircraft chain before billing activates; degrade health so the next
+    // DAILY routine's health check sees a dashboard-only monetization flip.
+    const licensing = aircraftProviderCompliance();
+    if (licensing.status === "ok") {
+      checks.checks.licensing = { status: "ok" };
+    } else {
+      checks.checks.licensing = { status: "warning", detail: licensing.detail };
+      checks.status = "degraded";
+    }
     
     // OOM fix: expose memory usage in health check for monitoring
     const mem = process.memoryUsage();

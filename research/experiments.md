@@ -539,3 +539,36 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   or both community providers show sustained simultaneous failure in
   the audit log (re-add a third provider — see the provider-redundancy
   research item in open_questions.md).
+
+## 2026-07-03 — [RULE-REVIEW] Monetization tripwire hardened: runtime guard (v1.0.46)
+- Constitutional half (human-approved verbatim, this message): CLAUDE.md
+  KNOWN STATE gains the MONETIZATION TRIPWIRE standing rule — sessions
+  touching billing/pricing/subscriptions/ads/paid-gating must re-run the
+  wishlist provider-compliance check before merging.
+- Runtime half (new server/providerCompliance.ts): billingActive() =
+  BILLING_ENABLED=true OR STRIPE_SECRET_KEY present (billing.ts — frozen,
+  read-only — activates on that key, so key presence is the earliest
+  observable monetization signal). While airplanes.live (non-commercial
+  license) remains in the aircraft chain, activation produces a throttled
+  COMPLIANCE-WARNING row in the persistent audit log + a licensing check
+  on /api/health that degrades overall status — a dashboard-only
+  monetization flip becomes visible to the next DAILY routine's health
+  check within hours, no code change needed to detect it.
+- Wiring: boot check at datacore route registration + tick per aircraft
+  request (both throttled to one warning per 6h window); /api/health
+  Check 6 in bot.ts. Datacore boundary intact: the guard lives in the
+  serving layer (routes/bot), NOT datacore/ — datacore keeps zero
+  knowledge of billing.
+- Tests: server/providerCompliance.test.ts (6) — inactive-by-default,
+  BILLING_ENABLED trip, STRIPE_SECRET_KEY trip, tick throttling with
+  injected clock, non-commercial list pinned to the live chain, and
+  wiring pins for /api/health + aircraft path.
+- Measurement-integrity note: this changes /api/health's payload shape
+  (adds checks.licensing; can newly degrade status). Direction of bias:
+  none on trading metrics — it can only ADD a warning state.
+- OPS LESSON (2nd occurrence — now a pattern): importing auth.ts's
+  top-level sqlite db into any node:test hangs the runner (open handle).
+  PR #113 dodged it with pure vesselStream.ts; this PR first hit it,
+  then adopted the same pattern (pure module + injected audit writer).
+  RULE: server modules that need the db AND unit tests take the db
+  dependency by injection; never import ./auth from a tested module.

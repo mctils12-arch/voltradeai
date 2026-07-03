@@ -19,6 +19,7 @@ import {
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
+import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 
 const execAsync = promisify(exec);
 
@@ -677,6 +678,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // stale-over-error; every fresh snapshot feeds the permanent position
   // archive (datacoreArchive). Frontend never calls upstreams.
   const ARCHIVE_SITES = ((datacoreSites as any).sites || []).map((s: any) => ({ lat: s.lat, lon: s.lon }));
+  // Monetization tripwire boot check (throttled inside; also ticked per
+  // aircraft request) — loud COMPLIANCE-WARNING if billing activates while
+  // a non-commercial-licensed provider is still in the chain. Writer wired
+  // to the persistent audit_log (same table bot.ts persistAudit uses; the
+  // compliance module itself stays db-free for testability).
+  setComplianceAuditWriter((type, message) => {
+    try {
+      db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
+        new Date().toISOString(), type, message.slice(0, 500)
+      );
+    } catch {}
+  });
+  complianceAuditTick();
   const aircraftCache: Map<string, { at: number; data: any }> = new Map();
   const aircraftInflight: Map<string, Promise<any>> = new Map();
   const feedBackoff: Record<string, { failures: number; until: number }> = {};
@@ -755,6 +769,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.get("/api/data/aircraft", async (req, res) => {
+    complianceAuditTick();
     const num = (v: any, lo: number, hi: number, dflt: number) => {
       const n = parseFloat(String(v));
       return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
