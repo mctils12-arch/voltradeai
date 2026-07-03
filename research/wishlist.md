@@ -139,3 +139,46 @@
   days, come in materially higher (e.g. from aircraft/vessel counts near
   the 800/1500 per-request caps more often than assumed). FLAG HERE if
   growth trends toward Railway volume plan limits.
+
+- **[APPROVED BY HUMAN 2026-07-03 — applied same message]** Constitutional
+  amendments batch: (1) SESSION BUDGET replaced by the PRODUCTIVE
+  FALL-THROUGH ladder (queued item -> filed-artifact research -> decision
+  request never idles a session; hard limits preserved: own PR/log per
+  action, read-before-write, anti-churn, [NO-ACTION] only on empty
+  queue); (2) DEAD CODE POLICY (stale code is debt; same-PR removal;
+  likely-returner adapters only with zero runtime cost + review-by date +
+  open_questions log; 30-day staleness audit as fall-through action);
+  (3) CONSTITUTIONAL HYGIENE (monthly rule audit files consolidation
+  proposals here, never self-applies; live conflicts resolved by GOAL
+  priority order and filed). Bookkept per the amendment rule.
+
+- **⚖ FIRST CONSTITUTIONAL AUDIT (2026-07-03) — consolidation proposal
+  for human approval (audit changes nothing itself):**
+  - **Finding 1 — rules living in KNOWN STATE.** KNOWN STATE now hosts
+    four standing behavior RULES (SPINOUT-READY DATA LAYER, RAW-vs-SIGNAL
+    surface rules, USAGE-CALIBRATION LOOP, MONETIZATION TRIPWIRE, plus
+    the product-routine mandate). The self-edit rule permits sessions to
+    append "factual updates" to KNOWN STATE — rules living there blur
+    the facts-vs-rules boundary the amendment lockdown depends on.
+    PROPOSAL: add a "STANDING BEHAVIORS (each human-approved, dated)"
+    section; MOVE those rule paragraphs there verbatim (zero wording
+    change); KNOWN STATE returns to pure facts. Preserves: all rule
+    text. Drops: nothing. Resolves: self-edit ambiguity.
+  - **Finding 2 — two identical-cadence periodic audits.** DEAD CODE
+    POLICY's staleness audit and CONSTITUTIONAL HYGIENE's rule audit
+    share trigger (fall-through research tier, 30+ days) but live in
+    separate sections; the December market_calendar year-add is a third
+    scattered periodic duty. PROPOSAL: one "PERIODIC AUDITS" register
+    (subsection of SESSION BUDGET) listing all recurring obligations +
+    cadences + last-run dates, each pointing at its governing section.
+    Preserves: every audit's content/cadence. Drops: nothing. Resolves:
+    scatter — future sessions check one place.
+  - Factual drift found and corrected directly in this PR (allowed as
+    factual update, not part of the proposal): KNOWN STATE + CODEBASE
+    MAP still called backtest.py a STUB hours after the engine was
+    rebuilt; both now state the rebuilt reality.
+  - Interactions checked, no action needed: STARVED's definition
+    survives fall-through unchanged (capacity exhausted with queue
+    nonzero); BUILD-FIRST sits correctly as an EDGE DOCTRINE subsection;
+    the tripwire rule vs. the FLAGGED CONSTRAINT entry are rule vs.
+    decision-record, cross-referenced, not redundant.

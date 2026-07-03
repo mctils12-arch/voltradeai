@@ -162,6 +162,26 @@
   but survives ~+1% CAGR over SPY ex-2020-21; kill if negative in >=2
   sub-periods. Candidate tournament entrant once #1 lands.
 
+- **Aircraft/vessel provider redundancy** (queued 2026-07-03, human
+  directive — OpenSky's removal thins the aircraft chain to two).
+  Evaluate additional providers for chain redundancy: candidates to
+  assess for terms + coverage + field shape: ADSBHub, ADS-B Exchange
+  (RapidAPI — terms?), OpenSky-via-agreement (pending, see below);
+  vessels side currently single-sourced on aisstream.io — find a second
+  AIS source (AISHub requires feeding; others?). Deliverable per the
+  fall-through rules: wishlist/open_questions entries with terms
+  analysis per provider, then a chain PR if one qualifies. LICENSING
+  FIRST: any candidate must pass the commercial-compatibility check
+  BEFORE integration work (lesson: OpenSky).
+- **OpenSky reinstatement (likely-returner, DEAD CODE POLICY tracking).**
+  Human emailed contact@opensky-network.org for a research agreement
+  (2026-07-03). No disabled adapter retained — the v1.0.43 OAuth +
+  states/all implementation lives in git history (revert of PR #114's
+  removal restores it). REVIEW-BY 2026-08-17 (+45d): if no agreement by
+  then, close this item and strike OpenSky from the redundancy
+  candidates; if granted, reinstate the chain attempt AND re-verify
+  Railway egress connectivity before relying on it.
+
 ## OPS GOTCHAS (avoid re-learning)
 
 - CONCURRENT SESSIONS DOUBLE-BUILD roadmap items: an interactive session

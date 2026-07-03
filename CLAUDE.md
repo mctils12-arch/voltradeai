@@ -273,7 +273,8 @@ self-kills over 1GB RSS).
 - State: JSON files at /data/voltrade (Railway volume; /tmp local
   fallback) — all paths in `storage_config.py`. SQLite via better-sqlite3
   on the Node side.
-- `backtest.py` — STUB (see open_questions.md #1).
+- `backtest.py` — CLI wrapper over `backtest_v2.py`, the real engine
+  (rebuilt 2026-07-03; regime-gated, no-lookahead).
 
 ## READ BEFORE WRITE — non-negotiable editing protocol
 
@@ -332,6 +333,39 @@ results. A measurement change that makes existing strategies look better
 is treated as suspect by default and requires independent justification
 (a named bug, an external ground truth). Never tune the ruler and the
 thing being measured in the same session.
+
+## DEAD CODE POLICY (human-approved 2026-07-03)
+
+STALE CODE IS DEBT: when a feature, provider, integration, or experiment
+is removed or abandoned, the same PR removes its code from all active
+execution paths — no orphaned calls, dead config, unused env var reads,
+or commented-out blocks left behind. EXCEPTION for likely-returners: if
+reinstatement is plausibly pending (e.g., awaiting a license agreement),
+a minimal disabled adapter MAY be retained if it is (a) fully out of the
+execution path with zero runtime cost, (b) clearly marked with the
+reason and a review-by date, and (c) logged in open_questions.md; past
+its review date, the next session deletes it. Additionally: periodic
+hygiene — when a session's fall-through reaches the research tier and
+the codebase hasn't had a staleness audit in 30+ days, auditing for
+orphaned code, unused dependencies, dead config, and expired disabled
+adapters is a valid fall-through action; findings become removal PRs.
+
+## CONSTITUTIONAL HYGIENE (human-approved 2026-07-03)
+
+THE CONSTITUTION IS ALSO CODE: rule debt is debt. Monthly (or as a
+fall-through action when 30+ days since last review), a session performs
+a constitutional audit: identify rules that are redundant (restating
+others), obsolete (governing removed features), conflicting (two rules
+disagreeing on the same case), or consolidatable (multiple amendments
+that should merge into one clean rule). The audit NEVER changes rules
+itself — it files a consolidation proposal in wishlist.md showing exact
+before/after text and what each change preserves, drops, or resolves,
+for human approval. Approved consolidations ship as one docs PR.
+
+If a session encounters two rules that genuinely conflict on the case at
+hand, it follows the GOAL priority order to resolve the immediate case,
+then files the conflict in wishlist.md — never silently picks a side
+without recording it.
 
 ## FROZEN PATHS — never edit these
 
@@ -409,21 +443,42 @@ prior experiments now old enough to judge — live paper results vs. backtest
 expectation. If live diverges badly from backtest, that divergence is itself
 a top-priority open question (usually overfitting or a data leak).
 
-## SESSION BUDGET
+## SESSION BUDGET — productive fall-through (amended 2026-07-03)
 
-Each scheduled session: pick ONE highest-value action. Fix a bug seen in
-audit logs > judge a matured experiment > start a new experiment > research
-new ideas on the web. Do not start a second experiment in one session.
-If nothing needs doing, say so and end — an empty commit history is better
-than churn.
+Pick the ONE highest-value PRIMARY action first: fix a bug seen in audit
+logs > judge a matured experiment > start a new experiment > research new
+ideas on the web.
+
+When the primary action completes with substantial capacity remaining,
+the session does NOT end — it falls through, in order:
+
+1. Take the next queued item from research/open_questions.md or the
+   roadmap that fits the remaining capacity — own PR, own tagged log
+   entry, never bundled with the first action.
+2. If no queued item fits, do RESEARCH that terminates in filed
+   artifacts: evaluate alternative data providers for existing feeds
+   (additional ADS-B/AIS sources for chain redundancy is a standing
+   need), scout new free data roots per the EDGE DOCTRINE, or deepen an
+   open hypothesis. Every research fall-through MUST end as a written
+   artifact — a new open_questions.md entry with its ladder path, a
+   wishlist.md entry with build-first analysis, or an experiments.md
+   finding — never as unrecorded browsing.
+3. If a decision blocks all remaining work, write the decision request
+   to wishlist.md clearly and THEN fall through to (2) — a blocked
+   decision never idles a session that could be researching.
+
+Hard limits preserved: each action is its own PR and log entry;
+read-before-write rigor never relaxes for later actions; [NO-ACTION]
+remains correct only when the queue is empty AND research would
+duplicate existing filed work; the anti-churn rule stands — padding to
+look busy remains forbidden.
 
 ## KNOWN STATE (update as things change)
 
-- `backtest.py` is a STUB. The real engine that produced
-  `backtest_10yr_results.json` was never ported. Rebuilding it to match that
-  file's output schema is the standing top-priority task until done.
-- `test_audit_critical.py` has 2 tests referencing missing `backtest_v2.py`
-  — fix or skip-with-reason as part of the backtest rebuild.
+- Backtest engine REBUILT 2026-07-03 (v1.0.34): `backtest_v2.py` is the
+  real engine (regime-gated, no-lookahead, Alpaca-first/Yahoo fallback);
+  `backtest.py` is its CLI wrapper. `test_audit_critical.py`'s backtest
+  tests reference it and pass. (Both were stubs/missing before that.)
 - `market_calendar.py` has 2026 dates only. Add 2027 in December 2026.
 - ML feedback records are version-gated; legacy records weighted 0.4x.
   Poisoned-record cleanup runs on startup (`ml_model_v2.py`).
