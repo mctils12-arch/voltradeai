@@ -36,3 +36,32 @@
   screenshots before opening. DESIGN.md + scripts/visual_check.mjs are the
   standard and its enforcement. Proposal+approval recorded here per the
   amendment rule.
+
+- **[APPROVED BY HUMAN 2026-07-03 — applied same message]** Constitutional
+  amendment: EDGE DOCTRINE gains the BUILD-FIRST RULE (paid is the last
+  resort; 4-step free-alternative assessment; honesty clause; every spend
+  proposal must attach the analysis). Also DESIGN.md gains the PERFORMANCE
+  BUDGET + FEATURE COMPLETENESS CHECKLIST sections. Bookkept per the
+  amendment rule.
+- **OpenSky free account** (HUMAN ACTION, $0): anonymous OpenSky is
+  rate-limited AND currently rejects Railway egress entirely (we run on
+  the adsb.lol fallback). A free OpenSky account (OAuth2 client
+  credentials -> OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET in Railway)
+  raises limits ~4x and may restore the primary feed. BUILD-FIRST
+  analysis: raw material already free via adsb.lol; this is a $0 signup
+  that adds redundancy, not spend.
+- **FlightAware AeroAPI / FAA SWIM (filed flight plans + routes) — PRICED,
+  deferred.** BUILD-FIRST analysis attached per the new rule: (1) raw
+  material (filed plans) is NOT freely receivable; (2) accumulation
+  substitute BUILT: our own position archive gives track history free;
+  (3) inference substitute BUILT: destination PREDICTION from trajectory +
+  per-tail route history, labeled predicted, self-scored against observed
+  landings; (4) what paid adds over our free version: filed (not
+  predicted) routes, ETAs, schedules, pre-departure intent. Price: AeroAPI
+  personal tier ~$100/mo class. Recommendation: defer until the predicted
+  version's measured accuracy (archive self-scoring) proves insufficient
+  for a gated signal.
+- **Position-archive volume watch** (standing): archive grows on the
+  Railway volume; adaptive thinning + rollups built in R1. FLAG HERE if
+  growth trends toward plan limits (est. <100MB/mo at current thinning —
+  monitor via /api/data/archive/stats once live).

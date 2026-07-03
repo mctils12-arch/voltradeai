@@ -84,6 +84,32 @@ mobile so browser chrome doesn't cause overflow.
 - Detail interactions: site markers open a clean detail card (name, type,
   what it's watching and why); aircraft/vessels open compact popovers.
 
+## Performance budget (human-approved 2026-07-03)
+
+- Map interactions stay smooth on mid-range phone hardware at 10k+
+  features — rendering is canvas/WebGL layers (MapLibre native or
+  deck.gl), never per-marker DOM; off-screen features are culled.
+- Initial page interactive under 3 seconds.
+- Live layers degrade gracefully: stale data with a visible timestamp
+  beats a spinner; a failed feed shows its last-known state and when it
+  was fetched, never an empty layer with no explanation.
+- Heavy geo processing is CLIENT-side. The server (Railway Hobby plan)
+  only proxies and caches feeds — one upstream request shared across all
+  visitors, never per-visitor fan-out and never server-side geometry.
+
+## Feature completeness checklist (human-approved 2026-07-03)
+
+Every user-facing feature answers these BEFORE its PR opens — the human
+should never discover scale, coverage, or failure-mode gaps in production:
+
+1. Does it work at global scale, not just the demo region?
+2. What happens when the feed fails, rate-limits, or returns partial
+   data?
+3. What does the user see on first load, on error, on empty?
+4. Is heavy work client-side?
+5. What are the data source's hard limits, and does the UI state them
+   honestly (coverage gaps, update cadence, prediction vs. ground truth)?
+
 ## The harness (enforcement)
 
 `npm run visual` → `scripts/visual_check.mjs`:
