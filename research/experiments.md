@@ -590,3 +590,19 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Docs-only; no version bump (no runtime behavior change).
 - STARVED: no — remaining queue continues in this same session (daily
   usage loop PR + scale-now schedule answer).
+
+## 2026-07-03 — [RULE-REVIEW] Daily usage-calibration mode + scale-now schedule (docs)
+- Applied the approved daily-aggressive usage rule (CLAUDE.md KNOWN
+  STATE updated in place — supersedes the weekly-only rule from earlier
+  today; usage_log.md carries both modes with the ~2026-07-24 revisit).
+- voltrade-usage-check routine prompt canonicalized in usage_log.md
+  (DAILY 21:30 ET; draft-only Gmail caveat + Notifications-tab
+  recommendation embedded so the routine never depends on send).
+- SAME-DAY SCALE RECOMMENDATION recorded in usage_log.md per the human's
+  "scale now" directive: create product-am 9:00, daily-midday 12:30,
+  product-pm 14:00, product-eve 20:00, usage-check 21:30, edge-late
+  22:30 — completes the A5 8-run table + daily nudge. Evidence: weekly
+  15% (resets ~Jul 5) with 3 routines + the heaviest interactive day;
+  throttle trigger stated (5-hour peaks >~80% → drop order).
+- STARVED: no — directive fully executed this session (PRs #114 #115
+  #116 + this).
