@@ -747,43 +747,56 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     if (!source) {
-      if (backoffActive("adsblol")) throw new Error(`both providers backing off (${primaryErr?.message})`);
-      try {
-        // adsb.lol point+radius (hard max 250nm). At wide zooms this covers
-        // only part of the viewport — say so honestly instead of pretending.
-        const clat = (lamin + lamax) / 2;
-        const clon = (lomin + lomax) / 2;
-        const latSpanNm = Math.abs(lamax - lamin) * 60;
-        const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.max(0.1, Math.cos((clat * Math.PI) / 180));
-        const neededNm = Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2);
-        const radiusNm = Math.min(250, Math.max(50, neededNm));
-        if (neededNm > 250) {
-          coverage = "partial";
-          coverage_note = `fallback feed covers ~250nm around view center (viewport needs ~${neededNm}nm) — zoom in for full coverage, or add OpenSky credentials (wishlist) for global`;
-        }
-        const r2 = await fetch(`https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`,
-          { headers: UA, signal: AbortSignal.timeout(12000) });
-        if (!r2.ok) throw new Error(`adsb.lol ${r2.status}`);
-        const raw2: any = await r2.json();
-        aircraft = (raw2.ac || []).slice(0, 5000).map((a: any) => ({
-          icao24: a.hex,
-          callsign: String(a.flight || "").trim(),
-          origin_country: a.r || "",
-          lon: a.lon,
-          lat: a.lat,
-          altitude_m: a.alt_baro === "ground" || a.alt_baro == null ? null : Math.round(a.alt_baro * 0.3048),
-          on_ground: a.alt_baro === "ground",
-          velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
-          heading: a.track ?? null,
-          type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
-          category: a.category || null,          // ADS-B emitter category (A1..A7)
-        })).filter((a: any) => a.lat != null && a.lon != null);
-        source = "adsb.lol (ADS-B, community)";
-        backoffClear("adsblol");
-      } catch (e: any) {
-        backoffBump("adsblol");
-        throw new Error(`OpenSky (${primaryErr?.message}) then ${e?.message}`);
+      // Community fallbacks share the point+radius API shape (hard max
+      // 250nm). Two independent networks so one flaking doesn't kill the
+      // layer — the 2026-07-03 prod incident was OpenSky blocked + a single
+      // adsb.lol egress flake exponentially backing off = zero aircraft for
+      // fresh bboxes (feature-completeness Q2 gap).
+      const clat = (lamin + lamax) / 2;
+      const clon = (lomin + lomax) / 2;
+      const latSpanNm = Math.abs(lamax - lamin) * 60;
+      const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.max(0.1, Math.cos((clat * Math.PI) / 180));
+      const neededNm = Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2);
+      const radiusNm = Math.min(250, Math.max(50, neededNm));
+      if (neededNm > 250) {
+        coverage = "partial";
+        coverage_note = `fallback feed covers ~250nm around view center (viewport needs ~${neededNm}nm) — zoom in for full coverage, or add OpenSky credentials (wishlist) for global`;
       }
+      const FALLBACKS = [
+        { key: "adsblol", url: `https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "adsb.lol (ADS-B, community)" },
+        { key: "airplaneslive", url: `https://api.airplanes.live/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "airplanes.live (ADS-B, community)" },
+      ];
+      const errs: string[] = [`OpenSky (${primaryErr?.message})`];
+      for (const fb of FALLBACKS) {
+        if (source) break;
+        if (backoffActive(fb.key)) { errs.push(`${fb.key} in backoff`); continue; }
+        try {
+          const r2 = await fetch(fb.url, { headers: UA, signal: AbortSignal.timeout(12000) });
+          if (!r2.ok) throw new Error(`${fb.key} ${r2.status}`);
+          const raw2: any = await r2.json();
+          aircraft = (raw2.ac || []).slice(0, 5000).map((a: any) => ({
+            icao24: a.hex,
+            callsign: String(a.flight || "").trim(),
+            origin_country: a.r || "",
+            lon: a.lon,
+            lat: a.lat,
+            altitude_m: a.alt_baro === "ground" || a.alt_baro == null ? null : Math.round(a.alt_baro * 0.3048),
+            on_ground: a.alt_baro === "ground",
+            velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
+            heading: a.track ?? null,
+            type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
+            category: a.category || null,          // ADS-B emitter category (A1..A7)
+          })).filter((a: any) => a.lat != null && a.lon != null);
+          source = fb.label;
+          backoffClear(fb.key);
+        } catch (e: any) {
+          backoffBump(fb.key);
+          // capture the underlying cause — bare "fetch failed" is undiagnosable
+          const cause = e?.cause?.code || e?.cause?.message || "";
+          errs.push(`${fb.key}: ${e?.message}${cause ? ` (${cause})` : ""}`);
+        }
+      }
+      if (!source) throw new Error(errs.join(" | "));
     }
 
     // Feed the permanent archive (adaptive thinning inside; fire-and-forget).

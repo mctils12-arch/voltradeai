@@ -398,3 +398,19 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   roadmap item before building — append a one-line [CLAIMED <date> <PR#>]
   marker to the roadmap entry in open_questions.md in their FIRST commit,
   and check for claims before starting.
+
+## 2026-07-03 — [REPAIR] Aircraft feed resilience: third provider + cause capture (v1.0.43)
+- Live incident found during v1.0.42 verification: production aircraft
+  layer dead with "both providers backing off" — OpenSky blocked from
+  Railway (known) + adsb.lol egress flake ("fetch failed", cause hidden)
+  exponentially pinned the only fallback -> zero aircraft for fresh
+  bboxes. Both fallbacks verified healthy from outside Railway (adsb.lol
+  764, airplanes.live 548 aircraft, identical field shape) -> egress-
+  specific, transient.
+- Fix: fallback chain now OpenSky -> adsb.lol -> airplanes.live (per-
+  provider backoff so one flake can't kill the layer) + fetch-failure
+  cause codes captured into the error string (bare "fetch failed" was
+  undiagnosable). Feature-completeness checklist Q2 gap, closed.
+- Also explains v1.0.42's empty aircraft archive (writes happen on
+  successful fetch only); vessels archive + ShipStaticData typing were
+  boot-warm-up, re-verified post-deploy below.
