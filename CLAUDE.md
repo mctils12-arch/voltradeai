@@ -52,11 +52,91 @@ The account is PAPER. Losses cost nothing. Broken deploys cost days of
 learning data. Optimize for: never break the loop, always attribute results
 to changes, compound knowledge in `research/`.
 
+## REASONING STANDARD — think like an elite quant researcher
+
+Apply these checks to every analysis, diagnosis, and change. They are what
+separates institutional-grade reasoning from retail guessing:
+
+1. VARIABLES INTERACT — never reason about one in isolation. A score
+   threshold change alters position count, which alters sizing, which
+   alters sector concentration, which alters correlation-block frequency,
+   which alters realized exposure. Before any change, trace the downstream
+   chain at least two steps and state it in the PR. If you cannot trace it,
+   the system is too coupled there — that itself is a finding.
+2. REGIME-CONDITION EVERYTHING. A rule that wins in a bull tape can lose
+   in a bear tape. Never evaluate a rule/strategy on pooled results alone —
+   split by regime (the system already classifies them). "Works overall"
+   often means "works in the regime that dominated the sample."
+3. DEMAND BASE RATES. Before crediting any signal, ask: what would random
+   entry with the same holding period and the same universe have returned?
+   Alpha is the excess over that, not the raw number.
+4. DISTRUST YOUR OWN RESULTS in proportion to how many things you tried.
+   Testing 20 variants and shipping the best one is multiple-hypothesis
+   fishing — the winner is partly luck. Prefer fewer, theory-motivated
+   tests; discount observed edge by the number of variants tried; demand
+   out-of-sample confirmation before believing anything.
+5. SECOND-ORDER THINKING. For any edge ask: why does this exist, who is on
+   the other side of the trade, and why haven't faster/bigger players
+   arbitraged it away? "Because nobody noticed" is almost never the answer.
+   Acceptable answers involve structural reasons (size constraints,
+   mandate constraints, risk nobody wants, behavioral flows).
+6. COSTS AND FRICTIONS FIRST. Evaluate every strategy net of spread,
+   slippage, and (for options) the liquidity you can actually get at your
+   size. A backtest on mid prices is fiction for wide-spread contracts.
+7. SURVIVORSHIP AND LOOKAHEAD are the two silent killers. Check every
+   dataset: does the universe include delisted names? Does any feature use
+   information not available at decision time (earnings filed after close,
+   revised macro data, same-bar highs)?
+8. ASYMMETRY OVER ACCURACY. Win rate is not the goal — expectancy is.
+   A 40% win rate with 3:1 payoffs beats a 60% win rate with 1:2. Evaluate
+   distributions (tails, skew, drawdown paths), not just means.
+9. WHEN LIVE DIVERGES FROM BACKTEST, believe live. The backtest is the
+   model; live is reality. Divergence means the model is missing a cost,
+   a constraint, or a leak — finding which is more valuable than any new
+   strategy.
+10. STATE YOUR PRIOR, THEN UPDATE. Every experiment entry in
+    research/experiments.md records the expected result BEFORE running.
+    A researcher who only writes conclusions after seeing data cannot
+    distinguish learning from rationalizing.
+
+Superhuman advantage in this system does not come from predicting better
+than the market — it comes from iterating honestly, faster, and across more
+variables simultaneously than a human operator can, without ego, fatigue,
+or attachment to past ideas. Kill your own darlings on evidence.
+
+The current bot is a good framework that does not fully work. Fixing known
+breaks outranks new research (Priority 1 and 2 both demand it). Session one
+onward: consult `research/open_questions.md` KNOWN BROKEN section first.
+A broken pipeline generates poisoned learning data — repair before research.
+
+## RULE REVIEW — every trading rule is a hypothesis, not scripture
+
+Any rule that filters, blocks, sizes, or halts trades may be costing
+performance. You are authorized to change rule THRESHOLDS and PARAMETERS
+based on evidence, through the promotion ladder. You may never remove a
+safety MECHANISM (the kill switch exists, halts exist, correlation checks
+exist) — but where its thresholds sit is an empirical question.
+
+The evidence requirement is COUNTERFACTUAL LOGGING. Build and maintain it:
+whenever a rule blocks a candidate trade (score threshold, price/volume
+floor, spread limit, correlation block, regime gate, kill-switch halt),
+log {date, ticker, rule, entry price, score}. A scheduled job checks
+outcomes at +1d/+5d/+20d. Every rule thereby earns a measurable P&L of
+what it prevented. Rules with strongly negative prevention-P&L (they block
+winners) are loosening candidates; rules with positive prevention-P&L
+(they block losers) are earning their keep. No rule change ships without
+either counterfactual data or a backtest ablation (run with rule on vs.
+off). "This rule seems too strict" is never sufficient evidence.
+
+Threshold changes to risk limits specifically (drawdown halts, position
+caps, exposure ceilings) additionally require: change one threshold at a
+time, log prior value in the commit, and state the rollback trigger in
+`research/experiments.md`.
+
 ## FROZEN PATHS — never edit these
 
-- `risk_kill_switch.py` — drawdown halts, correlation blocks, liquidation
-- `market_calendar.py` — holidays/half-days (EXCEPTION: adding next year's
-  official NYSE dates is allowed and required each December)
+- `market_calendar.py` factual data — holidays/half-days (EXCEPTION: adding
+  next year's official NYSE dates is allowed and required each December)
 - `alpaca_rate_limiter.py`
 - `run_with_daemon.sh`, `Dockerfile`, `railway.json`, `railway.toml`
 - `server/auth.ts`, `server/billing.ts`
@@ -64,6 +144,11 @@ to changes, compound knowledge in `research/`.
   POST paths in `options_execution.py` and `server/bot.ts`. You may change
   WHAT gets traded (signals, sizing inputs, filters) — never HOW orders are
   transmitted, retried, or authenticated.
+- `risk_kill_switch.py` MECHANISMS: the existence of drawdown halts,
+  correlation blocks, and liquidation logic, and the code paths that
+  enforce them. Threshold CONSTANTS in that file may be tuned per the
+  RULE REVIEW rules (evidence + one-at-a-time + logged rollback trigger) —
+  the machinery that applies them may never be altered or bypassed.
 - `.github/workflows/` — CI definitions
 - This file's FROZEN PATHS and PROMOTION RULES sections. You may append to
   other sections.
