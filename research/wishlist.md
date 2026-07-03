@@ -100,17 +100,19 @@
     no-revenue POC**, incompatible the day the site charges anyone
     (commercial access exists via direct arrangement:
     airplanes.live/commercial-use/, RapidAPI "coming soon").
-  - **Recommendation (pending your approval):** today's chain is
-    acceptable to keep as-is for the POC, with one honest caveat —
-    OpenSky's operational-use clause technically applies even now, and
-    since OpenSky is ALSO non-functional from Railway (verification
-    above), it currently contributes nothing but a 12s timeout on every
-    fresh viewport. Cheapest clean state: drop OpenSky from the chain
-    (or email them for a free research agreement if you want the
-    global-bbox capability). THE TRIPWIRE: before enabling billing, ads,
-    or any paid feature, re-run this compliance check — at that moment
-    airplanes.live must be dropped or upgraded to a commercial
-    arrangement, and adsb.lol becomes the only lawful free provider.
+  - **DECIDED BY HUMAN 2026-07-03 (executed same day, v1.0.45):**
+    OpenSky dropped from the runtime chain — adsb.lol primary,
+    airplanes.live fallback; removes the ~12s dead OpenSky attempt on
+    every fresh viewport. The human has emailed
+    contact@opensky-network.org requesting a research agreement.
+    IF/WHEN GRANTED: reinstate OpenSky in the chain (git history of
+    v1.0.43 has the OAuth + states/all implementation to restore) AND
+    re-verify Railway connectivity at that time — the egress block is
+    independent of the license and may still bite. THE TRIPWIRE stands:
+    before enabling billing, ads, or any paid feature, re-run this
+    compliance check — at that moment airplanes.live must be dropped or
+    upgraded to a commercial arrangement, and adsb.lol becomes the only
+    lawful free provider.
   - Sources: opensky-network.org/about/terms-of-use (§1 LICENSE, §3(vi));
     adsb.lol/docs/open-data/api (ODbL 1.0) + adsb.lol privacy-license;
     airplanes.live/api-guide + airplanes.live/commercial-use.

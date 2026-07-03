@@ -46,7 +46,7 @@ const FIXTURES = {
   "/api/data/layers": {
     layers: [
       { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", source: "Esri World Imagery", description: "Base imagery." },
-      { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "OpenSky/adsb.lol", description: "Live aircraft." },
+      { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
       { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
       { id: "sites", name: "Strategic sites", kind: "raw", status: "live", source: "datacore/sites", description: "Reference sites." },
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", source: "Copernicus", description: "Gate-2 locked." },
