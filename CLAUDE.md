@@ -459,3 +459,14 @@ than churn.
   irreducible core). The voltrade-weekly-review routine (Sun 10:00 ET)
   produces the C1 briefing plus a Gmail DRAFT to the human — the Gmail
   connector is draft-only (verified 2026-07-03), no send capability.
+- MONETIZATION TRIPWIRE (standing, human-approved 2026-07-03): any
+  session touching billing, pricing, subscriptions, ads, or paid-feature
+  gating MUST first re-run the aircraft-provider compliance check in
+  wishlist.md (drop or upgrade airplanes.live; adsb.lol is the only free
+  provider lawful under monetization) before its change may merge.
+  Runtime half: server/providerCompliance.ts — if billing activates
+  (BILLING_ENABLED=true or STRIPE_SECRET_KEY present) while a
+  non-commercial provider is in the aircraft chain, a COMPLIANCE-WARNING
+  lands in the audit log and /api/health degrades with a licensing
+  check, so even a dashboard-only monetization flip surfaces to the next
+  DAILY routine's health check.
