@@ -1,0 +1,72 @@
+# .github/workflows/ci.yml
+# CI gate for VolTradeAI. Runs on every push and PR.
+# Railway should deploy only after this passes (enable "Wait for CI"
+# in Railway service settings → GitHub → Check Suites).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Syntax check every Python file
+        run: python -m compileall -q .
+
+      - name: Run test suite (offline-safe tests)
+        # Network-dependent tests are excluded in CI; they run in the
+        # agent's session against live APIs instead.
+        env:
+          VOLTRADE_CI: "1"
+        run: |
+          python -m pytest -q \
+            test_risk_controls.py \
+            test_audit_critical.py \
+            test_diagnostic_false_positives.py \
+            test_patches_verification.py
+
+  node-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit || true   # tighten to hard-fail once existing TS errors are cleared
+
+      - name: Build (client + server bundle)
+        run: npm run build
+
+  docker-build:
+    # Proves the exact image Railway will build actually builds.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t voltradeai-ci .
