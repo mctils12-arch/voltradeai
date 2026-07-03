@@ -449,3 +449,13 @@ than churn.
   map layer is labeled as one or the other.
 - A dedicated product routine builds datacore/ + the /data site section
   per the SPINOUT-READY DATA LAYER rules ([PRODUCT] sessions).
+- USAGE-CALIBRATION LOOP (human-approved 2026-07-03): When the human
+  pastes a usage screenshot, read the 5-hour and weekly percentages from
+  the image, append them to research/usage_log.md with context, and if
+  2+ consecutive weekly readings are under 50% while queue depth is
+  nonzero, recommend specific routine slots to add; if readings approach
+  90%+, recommend which slots to drop per the established drop order
+  (research/usage_log.md: product-pm → edge-late → product-eve; 4-run
+  irreducible core). The voltrade-weekly-review routine (Sun 10:00 ET)
+  produces the C1 briefing plus a Gmail DRAFT to the human — the Gmail
+  connector is draft-only (verified 2026-07-03), no send capability.
