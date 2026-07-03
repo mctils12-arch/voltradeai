@@ -82,12 +82,29 @@
    history -> halt can actually fire after a slow multi-deploy bleed ->
    fewer trades during real drawdowns (intended).
 
-8. **Verify extended-hours order handling end-to-end** (human-added
-   2026-07-03): stock orders outside regular hours must use limit orders
-   with the extended_hours flag; options order attempts must be gated in
-   code to 9:30-4:00 ET rather than relying on Alpaca rejection. Broker
-   rejection is a safe backstop but wastes scan cycles and clutters the
-   audit log — confirm the gates exist in our code, add them if not.
+8. **[RESOLVED 2026-07-03 — v1.0.36]** ~~Verify extended-hours order
+   handling end-to-end~~. Findings: (a) options orders were ALREADY
+   correctly gated — `executeTrades()` (the only function that submits
+   options orders) is called exclusively `if (isMarketOpen)`
+   (server/bot.ts:3030), so no code change was needed there; the
+   `options_exit` OrderContext case existed but was dead (never actually
+   passed by any caller), harmless. (b) Real bug found: `getOrderParams()`
+   priced stock/ETF orders for the extended-hours window (4am-9:30am,
+   4pm-8pm ET) with wider limit buffers but never set Alpaca's
+   `extended_hours: true` flag — so those day-limit orders were silently
+   queued for the next REGULAR session instead of attempting to fill
+   during the pre-market/after-hours session they were priced for. This
+   hit the real-time WS stop-loss/trailing-stop/take-profit exit handler
+   (server/bot.ts, fires on any live price tick regardless of market
+   hours) and the Tier-3 SPY/QQQ floor buy — meaning a stop-loss computed
+   at, say, 6am would never actually attempt to execute until 9:30am,
+   defeating the point of a stop during an overnight/pre-market move.
+   Fix: extracted `getETHour`/`getOrderParams`/`OrderContext` into a new
+   pure module `server/orderParams.ts` (no behavior change beyond the
+   fix) and added `extended_hours: true` to the extended-hours branch for
+   stop_loss/trailing_stop/take_profit/new_entry. Options branch
+   deliberately untouched (no options extended session exists on Alpaca).
+   See experiments.md for the regression test and downstream-chain trace.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

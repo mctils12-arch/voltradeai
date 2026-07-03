@@ -3,6 +3,95 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-03 — [REPAIR] Extended-hours order gating (KNOWN BROKEN #8)
+
+- Session start check: /api/health all-ok (Alpaca ACTIVE, python bridge ok,
+  bot active, equityPeak=108151.39/drawdownPct=0.0% — confirms the
+  2026-07-03 equityPeak-persistence fix is holding live across deploys).
+  Loop-health ratio: 3 of 4 total experiments.md entries are [REPAIR]
+  (framework bootstrapped today, <10 entries exist yet — below the 7/10
+  escalation threshold, not a concern). Audit log / trade_feedback still
+  unreachable from an autonomous session (owner-gated per KNOWN BROKEN #4)
+  so this session worked from KNOWN BROKEN #8, the next actionable
+  un-diagnosed item, per SESSION BUDGET (no matured experiment to judge —
+  everything else logged today is same-day).
+- PRIOR (before reading the order-submission code, REASONING STANDARD #10):
+  expected either (a) both stock and options extended-hours paths already
+  correctly gated (nothing to do), or (b) options orders missing a time
+  gate and firing outside 9:30-4:00 relying on Alpaca to reject them
+  (wasted scan cycles per the human's framing). Did NOT expect the actual
+  finding — that options were fine and the real gap was on the stock side.
+- Finding (READ BEFORE WRITE, this session): `executeTrades()` — the only
+  function that ever calls `submit_options_order`/`select_contract` — is
+  invoked exclusively `if (isMarketOpen)` (bot.ts:3030); outside market
+  hours new trades are queued (`morningQueue`) and executed at the next
+  open via `executeMorningQueue()`, gated on `clock.is_open`. Options were
+  never actually at risk of an off-hours submission attempt. The
+  `options_exit` OrderContext variant is declared but never passed by any
+  call site — dead but harmless.
+  The real bug: `getOrderParams()`'s extended-hours branch (4am-9:30am,
+  4pm-8pm ET) computes wider-buffer limit prices for stock/ETF orders but
+  never sets Alpaca's `extended_hours: true`. Per Alpaca's API, a
+  day-limit order submitted without that flag outside regular hours is
+  simply queued for the NEXT REGULAR session — it does not attempt to
+  fill during the extended session it was priced for. This branch is hit
+  live by the real-time WS position-exit handler (stop_loss/trailing_stop/
+  take_profit — fires on any price tick, not gated to market hours) and by
+  the Tier-3 SPY/QQQ floor buy. Net effect: a stop-loss or trailing-stop
+  computed during a 4am-9:30am or 4pm-8pm price move would never actually
+  attempt to execute until 9:30am the next regular session — silently
+  defeating the stop during exactly the window (thin liquidity,
+  pre-market gaps) it matters most.
+- Downstream chain (REASONING STANDARD #1): adding `extended_hours: true`
+  → those day-limit orders become eligible to fill during the pre-market/
+  after-hours session Alpaca actually runs → a stop-loss priced at 6am can
+  fill near 6am instead of silently waiting until 9:30am → smaller
+  realized loss on overnight/pre-market adverse moves that would otherwise
+  ride uncapped until the regular open → net effect is MORE stops firing
+  during extended hours (intended; this is a bug fix restoring intended
+  behavior, not a threshold change) with no change to entry cadence (entry
+  orders during extended hours were already funneled through the
+  market-hours-gated morning queue in the live-fire paths that matter).
+- Change (one logical change, options untouched): extracted
+  `getETHour`/`getOrderParams`/`OrderContext` out of `server/bot.ts` into a
+  new pure module `server/orderParams.ts` (zero behavior change beyond the
+  fix — needed because `bot.ts` has import-time side effects and isn't
+  safe to import directly in a test). Added `extended_hours: true` to the
+  extended-hours branch for `stop_loss`/`trailing_stop`/`take_profit`/
+  `new_entry`. Left the options branch (`options_entry`/`options_exit`)
+  untouched — Alpaca has no options extended-hours session, so the flag
+  must never be set there.
+- Regression test FIRST (loop-health rule 3): `server/orderParams.test.ts`
+  (Node's built-in `node:test`, zero new dependencies; `getOrderParams` now
+  takes an optional `etHourOverride` param for determinism). Verified by
+  temporarily stripping the fix and re-running: 4 of 6 assertions FAILED
+  on the pre-fix code (stop_loss/trailing_stop/take_profit/new_entry all
+  missing `extended_hours`); all 6 pass post-fix. Added `npm run test:node`
+  to package.json to run it (`tsx --test server/*.test.ts`). Note: CI's
+  node-build job (`.github/workflows/ci.yml`, FROZEN) does not currently
+  invoke this script — only `tsc --noEmit` and `npm run build` run in CI.
+  Wiring `test:node` into CI is a follow-up worth a human-approved
+  wishlist entry since ci.yml can't be self-edited.
+- Verified locally: `npm ci && npx tsc --noEmit` shows zero NEW errors
+  (diffed against main via `git stash` — identical pre-existing
+  vite/client + tsconfig + Buffer.trim() errors, all unrelated to this
+  change, all already non-blocking in CI's `|| true`); `npm run build`
+  succeeds (client + server bundle); `npm run test:node` — 6/6 pass.
+- Version: 1.0.36 (from 1.0.35).
+- Frozen-path judgment call, stated explicitly for the human to override:
+  this touches order-body fields inside `server/bot.ts`'s stock/ETF order
+  construction. Read the FROZEN PATHS order-submission clause as covering
+  the HTTP transport/auth/retry mechanics (the `alpaca()` helper) and
+  `options_execution.py`'s `submit_options_order`, not the pre-existing,
+  already-mutable `getOrderParams()` order-type/pricing logic (which
+  already varies type/limit-price/time-in-force by time of day before this
+  change) — neither the `alpaca()` transport function, retries, auth, nor
+  `options_execution.py` were touched.
+- Rollback trigger: if live audit logs (once accessible) show extended-
+  hours orders being rejected by Alpaca (e.g. account not enabled for
+  extended-hours trading) rather than filling, revert this commit — the
+  pre-fix behavior (queue for regular open) is a safe fallback.
+
 ## 2026-07-03 — [RESEARCH] Equity-momentum backtest harness (`bot_backtest.py`)
 - Change: added a reproducible backtest of the bot's OWN momentum scoring
   (`strategies/momentum.py`) run as a monthly ETF rotation, vs SPY buy&hold.
