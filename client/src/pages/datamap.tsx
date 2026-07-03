@@ -94,6 +94,94 @@ export default function DataMapPage() {
     } catch {}
   }, [enabled.imagery, mapReady]);
 
+  // Live aircraft overlay (RAW — OpenSky via the datacore boundary).
+  // Polls /api/data/aircraft for the current viewport every 15s while on.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.aircraft) {
+      try {
+        if (map.getLayer("aircraft-dots")) map.removeLayer("aircraft-dots");
+        if (map.getSource("aircraft")) map.removeSource("aircraft");
+      } catch {}
+      return;
+    }
+
+    let stop = false;
+    const load = async () => {
+      try {
+        const b = map.getBounds();
+        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}`;
+        const r = await fetch(`/api/data/aircraft?${q}`);
+        const d = await r.json();
+        if (stop || !d.aircraft) return;
+        const geojson = {
+          type: "FeatureCollection",
+          features: d.aircraft.map((a: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [a.lon, a.lat] },
+            properties: {
+              callsign: a.callsign || a.icao24,
+              country: a.origin_country,
+              alt: a.altitude_m == null ? -1 : Math.round(a.altitude_m),
+              kts: a.velocity_ms == null ? null : Math.round(a.velocity_ms * 1.944),
+              ground: !!a.on_ground,
+            },
+          })),
+        };
+        const src: any = map.getSource("aircraft");
+        if (src) {
+          src.setData(geojson);
+        } else {
+          map.addSource("aircraft", { type: "geojson", data: geojson as any });
+          map.addLayer({
+            id: "aircraft-dots",
+            type: "circle",
+            source: "aircraft",
+            paint: {
+              // color by altitude: ground gray → low amber → cruise blue
+              "circle-color": [
+                "case",
+                ["get", "ground"], "#8a9bb3",
+                ["<", ["get", "alt"], 3000], "#f5a623",
+                "#4da3ff",
+              ],
+              "circle-radius": 3.5,
+              "circle-stroke-width": 1,
+              "circle-stroke-color": "rgba(0,0,0,0.6)",
+            },
+          });
+          map.on("click", "aircraft-dots", async (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const maplibregl = (await import("maplibre-gl")).default;
+            new maplibregl.Popup({ closeButton: true, className: "vt-popup" })
+              .setLngLat(e.lngLat)
+              .setHTML(
+                `<div style="font-family:Geist Mono,monospace;font-size:12px;color:#111">` +
+                `<b>${p.callsign}</b><br/>${p.country}<br/>` +
+                `${p.ground === "true" || p.ground === true ? "on ground" : `alt ${p.alt} m`}` +
+                `${p.kts ? ` · ${p.kts} kts` : ""}</div>`
+              )
+              .addTo(map);
+          });
+          map.on("mouseenter", "aircraft-dots", () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", "aircraft-dots", () => { map.getCanvas().style.cursor = ""; });
+        }
+      } catch { /* transient — next poll retries */ }
+    };
+    load();
+    const iv = window.setInterval(load, 15_000);
+    const onMove = () => load();
+    map.on("moveend", onMove);
+    return () => {
+      stop = true;
+      window.clearInterval(iv);
+      try { map.off("moveend", onMove); } catch {}
+    };
+  }, [enabled.aircraft, mapReady]);
+
   const kindBadge = (kind: string) => (
     <span style={{
       fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px",
