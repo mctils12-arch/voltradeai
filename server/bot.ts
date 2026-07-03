@@ -7,6 +7,7 @@ import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import * as net from "net";
+import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
@@ -279,70 +280,7 @@ const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_confi
 // (QQQ/SVXY/SPY excluded via MANAGED_TICKERS). system_config.py's
 // 0.95 controls total portfolio including floor.
 
-// ─── ET Hour Helper (DST-aware) ───────────────────────────────────────────────
-function getETHour(): number {
-  // Proper ET that handles DST automatically (EST = UTC-5, EDT = UTC-4)
-  const now = new Date();
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  return et.getHours() + et.getMinutes() / 60;
-}
-
-// ─── Market Hours Helper ──────────────────────────────────────────────────────
-type OrderContext = 'stop_loss' | 'trailing_stop' | 'take_profit' | 'new_entry' | 'options_entry' | 'options_exit';
-
-function getOrderParams(
-  price: number,
-  context: OrderContext = 'new_entry'
-): { type: string; limit_price?: string; time_in_force: string } {
-  const etTime = getETHour();
-  const isRegularHours = etTime >= 9.5 && etTime < 16.0;
-
-  // Options: ALWAYS limit, no exceptions (wide bid-ask spreads)
-  if (context === 'options_entry' || context === 'options_exit') {
-    const limitPrice = Math.round(price * 100) / 100;
-    return { type: "limit", limit_price: String(limitPrice), time_in_force: "day" };
-  }
-
-  if (isRegularHours) {
-    switch (context) {
-      case 'stop_loss':
-      case 'trailing_stop':
-        // Speed matters — get out NOW. A limit that doesn't fill while price drops is catastrophic.
-        return { type: "market", time_in_force: "day" };
-      case 'take_profit': {
-        // Not in a rush — want the exact target price
-        const tpPrice = Math.round(price * 100) / 100;
-        return { type: "limit", limit_price: String(tpPrice), time_in_force: "day" };
-      }
-      case 'new_entry':
-      default: {
-        // Limit at ask + 0.1% — fill priority while capping worst case
-        const entryPrice = Math.round(price * 1.001 * 100) / 100;
-        return { type: "limit", limit_price: String(entryPrice), time_in_force: "day" };
-      }
-    }
-  } else {
-    // Extended hours (4am-9:30am, 4pm-8pm ET): Alpaca requires limit orders
-    switch (context) {
-      case 'stop_loss':
-      case 'trailing_stop': {
-        // Bid - 0.5% to ensure fill in thin liquidity
-        const stopPrice = Math.round(price * 0.995 * 100) / 100;
-        return { type: "limit", limit_price: String(stopPrice), time_in_force: "day" };
-      }
-      case 'take_profit': {
-        const tpPrice = Math.round(price * 100) / 100;
-        return { type: "limit", limit_price: String(tpPrice), time_in_force: "day" };
-      }
-      case 'new_entry':
-      default: {
-        // Ask + 0.5% — wider buffer for thinner extended hours liquidity
-        const entryPrice = Math.round(price * 1.005 * 100) / 100;
-        return { type: "limit", limit_price: String(entryPrice), time_in_force: "day" };
-      }
-    }
-  }
-}
+// ─── ET Hour Helper + Order Params — extracted to ./orderParams (see top imports) for unit testing ──
 
 const state = {
   active: true,  // Bot starts automatically — always on unless killed

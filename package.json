@@ -1,13 +1,14 @@
 {
   "name": "rest-express",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
     "start": "node --max-old-space-size=512 dist/index.cjs",
-    "check": "tsc"
+    "check": "tsc",
+    "test:node": "tsx --test server/*.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
