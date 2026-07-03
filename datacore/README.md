@@ -33,7 +33,7 @@ Constitution: CLAUDE.md → KNOWN STATE → SPINOUT-READY DATA LAYER
 - `sites/` — static reference data (strategic sites: tank farms, mills,
   ports) with coordinates, metadata, and sources. RAW.
 - `pipelines/` — one module per data root (future: sentinel2_tanks,
-  opensky_flows, ais_vessels, edgar_form4, trends_demand). Each exposes
+  adsb_flows, ais_vessels, edgar_form4, trends_demand). Each exposes
   `fetch()` (raw), `latest()` (cached most-recent), and gate status.
 - Node-side serving lives in `server/routes.ts` under `/api/data/*` — thin
   proxies/caches over this package's outputs. Keep them dumb.

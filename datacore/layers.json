@@ -14,7 +14,7 @@
       "name": "Live aircraft (ADS-B)",
       "kind": "raw",
       "status": "live",
-      "source": "OpenSky Network (free API)",
+      "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live (fallback)",
       "description": "Live aircraft positions; updates ~10s. No predictive claim."
     },
     {
@@ -23,7 +23,7 @@
       "kind": "raw",
       "status": "awaiting_key",
       "source": "aisstream.io (free API key)",
-      "description": "Live ship positions via AIS websocket. Goes live automatically when AISSTREAM_KEY is set (free signup \u2014 see wishlist)."
+      "description": "Live ship positions via AIS websocket. Goes live automatically when AISSTREAM_KEY is set (free signup — see wishlist)."
     },
     {
       "id": "sites",

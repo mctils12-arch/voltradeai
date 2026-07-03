@@ -514,3 +514,28 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - STARVED: no — KNOWN BROKEN #5 (data-module wiring audit) and #6 (pytest
   collection) remain queued for a future session; SESSION BUDGET caps
   this session at one action.
+
+## 2026-07-03 — [PIPELINE] OpenSky dropped from aircraft chain (human decision, v1.0.45)
+- Change: fetchAircraft in server/routes.ts no longer attempts OpenSky —
+  chain is now adsb.lol (primary) -> airplanes.live (fallback). OAuth
+  helper removed (v1.0.43 git history holds the implementation for
+  reinstatement). layers.json + harness fixture attribution updated;
+  coverage note no longer promises OpenSky credentials.
+- Why: verification showed OpenSky never serves from Railway even with
+  creds (egress block), so it contributed only a ~12s dead attempt per
+  fresh viewport; AND its operational-use license clause requires a
+  written agreement we don't have. Human emailed OpenSky requesting a
+  research agreement — reinstate + re-verify Railway connectivity if
+  granted (wishlist entry updated with the trigger).
+- Expected effect: fresh-bbox latency drops by the dead-attempt time
+  (~12s worst case); zero functional coverage change (OpenSky served 0%
+  of requests). Downstream chain: fewer request timeouts -> fewer
+  in-flight dedup pile-ups behind slow fetches; archive feed cadence
+  unchanged (it records on successful fetches only).
+- Regression tests: server/aircraftChain.test.ts (4 source-level tests:
+  OpenSky fully absent, adsb.lol before airplanes.live, no stale
+  coverage note, layers.json attribution matches chain).
+- Rollback trigger: OpenSky grants the research agreement (reinstate),
+  or both community providers show sustained simultaneous failure in
+  the audit log (re-add a third provider — see the provider-redundancy
+  research item in open_questions.md).

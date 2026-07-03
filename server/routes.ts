@@ -664,12 +664,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ layers });
   });
 
-  // Live aircraft overlay (RAW) — OpenSky primary (OAuth when creds exist),
-  // adsb.lol fallback. GLOBAL coverage with viewport bboxes; one shared
-  // upstream request per bbox (in-flight dedup + 30s cache) protects rate
-  // limits no matter how many visitors watch. Exponential backoff per
-  // provider; stale-over-error; every fresh snapshot feeds the permanent
-  // position archive (datacoreArchive). Frontend never calls upstreams.
+  // Live aircraft overlay (RAW) — community ADS-B chain: adsb.lol primary
+  // (ODbL 1.0, the only provider lawful under monetization), airplanes.live
+  // fallback (non-commercial license — fine for the current no-revenue POC,
+  // must be dropped/upgraded before billing goes live; see wishlist
+  // MONETIZATION TRIPWIRE). OpenSky removed 2026-07-03 (human decision):
+  // Railway egress rejects it even with OAuth creds, and its operational-use
+  // clause requires a written agreement — requested by the human; reinstate
+  // and re-verify Railway connectivity if granted. One shared upstream
+  // request per bbox (in-flight dedup + 30s cache) protects rate limits no
+  // matter how many visitors watch. Exponential backoff per provider;
+  // stale-over-error; every fresh snapshot feeds the permanent position
+  // archive (datacoreArchive). Frontend never calls upstreams.
   const ARCHIVE_SITES = ((datacoreSites as any).sites || []).map((s: any) => ({ lat: s.lat, lon: s.lon }));
   const aircraftCache: Map<string, { at: number; data: any }> = new Map();
   const aircraftInflight: Map<string, Promise<any>> = new Map();
@@ -683,122 +689,64 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   };
   const backoffClear = (p: string) => { feedBackoff[p] = { failures: 0, until: 0 }; };
 
-  // OpenSky OAuth2 client-credentials (free account -> higher limits; see
-  // wishlist: OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET). Anonymous otherwise.
-  let osToken: { tok: string; exp: number } | null = null;
-  async function openskyAuthHeader(UA: Record<string, string>): Promise<Record<string, string>> {
-    const id = process.env.OPENSKY_CLIENT_ID, secret = process.env.OPENSKY_CLIENT_SECRET;
-    if (!id || !secret) return UA;
-    if (osToken && osToken.exp > Date.now() + 60_000) return { ...UA, Authorization: `Bearer ${osToken.tok}` };
-    try {
-      const r = await fetch("https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token", {
-        method: "POST",
-        headers: { ...UA, "Content-Type": "application/x-www-form-urlencoded" },
-        body: `grant_type=client_credentials&client_id=${encodeURIComponent(id)}&client_secret=${encodeURIComponent(secret)}`,
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!r.ok) throw new Error(`token ${r.status}`);
-      const j: any = await r.json();
-      osToken = { tok: j.access_token, exp: Date.now() + (j.expires_in || 1800) * 1000 };
-      return { ...UA, Authorization: `Bearer ${osToken.tok}` };
-    } catch (e: any) {
-      console.error("[datacore] opensky auth:", e?.message || e);
-      return UA;
-    }
-  }
-
   async function fetchAircraft(lamin: number, lamax: number, lomin: number, lomax: number) {
     const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
     let aircraft: any[] = [];
     let source = "";
     let coverage = "full";
     let coverage_note = "";
-    let time = Math.floor(Date.now() / 1000);
+    const time = Math.floor(Date.now() / 1000);
 
-    let primaryErr: any = null;
-    if (!backoffActive("opensky")) {
+    // Both providers share the point+radius API shape (hard max 250nm) —
+    // wide viewports are served best-effort around view center. Two
+    // independent networks so one flaking doesn't kill the layer — the
+    // 2026-07-03 prod incident was a single provider's egress flake
+    // exponentially backing off = zero aircraft for fresh bboxes.
+    const clat = (lamin + lamax) / 2;
+    const clon = (lomin + lomax) / 2;
+    const latSpanNm = Math.abs(lamax - lamin) * 60;
+    const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.max(0.1, Math.cos((clat * Math.PI) / 180));
+    const neededNm = Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2);
+    const radiusNm = Math.min(250, Math.max(50, neededNm));
+    if (neededNm > 250) {
+      coverage = "partial";
+      coverage_note = `feed covers ~250nm around view center (viewport needs ~${neededNm}nm) — zoom in for full coverage`;
+    }
+    const PROVIDERS = [
+      { key: "adsblol", url: `https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "adsb.lol (ADS-B, community)" },
+      { key: "airplaneslive", url: `https://api.airplanes.live/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "airplanes.live (ADS-B, community)" },
+    ];
+    const errs: string[] = [];
+    for (const fb of PROVIDERS) {
+      if (source) break;
+      if (backoffActive(fb.key)) { errs.push(`${fb.key} in backoff`); continue; }
       try {
-        const headers = await openskyAuthHeader(UA);
-        const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
-        const r = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
-        if (!r.ok) throw new Error(`OpenSky ${r.status}`);
-        const raw: any = await r.json();
-        time = raw.time || time;
-        aircraft = (raw.states || []).slice(0, 5000).map((s: any[]) => ({
-          icao24: s[0],
-          callsign: (s[1] || "").trim(),
-          origin_country: s[2],
-          lon: s[5],
-          lat: s[6],
-          altitude_m: s[7],
-          on_ground: s[8],
-          velocity_ms: s[9],
-          heading: s[10],
-          type: null,       // OpenSky states carry no type designator
-          category: s[17] != null ? String(s[17]) : null,
+        const r2 = await fetch(fb.url, { headers: UA, signal: AbortSignal.timeout(12000) });
+        if (!r2.ok) throw new Error(`${fb.key} ${r2.status}`);
+        const raw2: any = await r2.json();
+        aircraft = (raw2.ac || []).slice(0, 5000).map((a: any) => ({
+          icao24: a.hex,
+          callsign: String(a.flight || "").trim(),
+          origin_country: a.r || "",
+          lon: a.lon,
+          lat: a.lat,
+          altitude_m: a.alt_baro === "ground" || a.alt_baro == null ? null : Math.round(a.alt_baro * 0.3048),
+          on_ground: a.alt_baro === "ground",
+          velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
+          heading: a.track ?? null,
+          type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
+          category: a.category || null,          // ADS-B emitter category (A1..A7)
         })).filter((a: any) => a.lat != null && a.lon != null);
-        source = "OpenSky Network (opensky-network.org)";
-        backoffClear("opensky");
+        source = fb.label;
+        backoffClear(fb.key);
       } catch (e: any) {
-        primaryErr = e;
-        backoffBump("opensky");
+        backoffBump(fb.key);
+        // capture the underlying cause — bare "fetch failed" is undiagnosable
+        const cause = e?.cause?.code || e?.cause?.message || "";
+        errs.push(`${fb.key}: ${e?.message}${cause ? ` (${cause})` : ""}`);
       }
-    } else {
-      primaryErr = new Error("opensky in backoff");
     }
-
-    if (!source) {
-      // Community fallbacks share the point+radius API shape (hard max
-      // 250nm). Two independent networks so one flaking doesn't kill the
-      // layer — the 2026-07-03 prod incident was OpenSky blocked + a single
-      // adsb.lol egress flake exponentially backing off = zero aircraft for
-      // fresh bboxes (feature-completeness Q2 gap).
-      const clat = (lamin + lamax) / 2;
-      const clon = (lomin + lomax) / 2;
-      const latSpanNm = Math.abs(lamax - lamin) * 60;
-      const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.max(0.1, Math.cos((clat * Math.PI) / 180));
-      const neededNm = Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2);
-      const radiusNm = Math.min(250, Math.max(50, neededNm));
-      if (neededNm > 250) {
-        coverage = "partial";
-        coverage_note = `fallback feed covers ~250nm around view center (viewport needs ~${neededNm}nm) — zoom in for full coverage, or add OpenSky credentials (wishlist) for global`;
-      }
-      const FALLBACKS = [
-        { key: "adsblol", url: `https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "adsb.lol (ADS-B, community)" },
-        { key: "airplaneslive", url: `https://api.airplanes.live/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "airplanes.live (ADS-B, community)" },
-      ];
-      const errs: string[] = [`OpenSky (${primaryErr?.message})`];
-      for (const fb of FALLBACKS) {
-        if (source) break;
-        if (backoffActive(fb.key)) { errs.push(`${fb.key} in backoff`); continue; }
-        try {
-          const r2 = await fetch(fb.url, { headers: UA, signal: AbortSignal.timeout(12000) });
-          if (!r2.ok) throw new Error(`${fb.key} ${r2.status}`);
-          const raw2: any = await r2.json();
-          aircraft = (raw2.ac || []).slice(0, 5000).map((a: any) => ({
-            icao24: a.hex,
-            callsign: String(a.flight || "").trim(),
-            origin_country: a.r || "",
-            lon: a.lon,
-            lat: a.lat,
-            altitude_m: a.alt_baro === "ground" || a.alt_baro == null ? null : Math.round(a.alt_baro * 0.3048),
-            on_ground: a.alt_baro === "ground",
-            velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
-            heading: a.track ?? null,
-            type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
-            category: a.category || null,          // ADS-B emitter category (A1..A7)
-          })).filter((a: any) => a.lat != null && a.lon != null);
-          source = fb.label;
-          backoffClear(fb.key);
-        } catch (e: any) {
-          backoffBump(fb.key);
-          // capture the underlying cause — bare "fetch failed" is undiagnosable
-          const cause = e?.cause?.code || e?.cause?.message || "";
-          errs.push(`${fb.key}: ${e?.message}${cause ? ` (${cause})` : ""}`);
-        }
-      }
-      if (!source) throw new Error(errs.join(" | "));
-    }
+    if (!source) throw new Error(errs.join(" | "));
 
     // Feed the permanent archive (adaptive thinning inside; fire-and-forget).
     try { archiveAircraft(aircraft, ARCHIVE_SITES); } catch {}
