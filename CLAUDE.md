@@ -146,6 +146,39 @@ The compounding asset is never the ingredient (data feeds, rented
 intelligence) — it is the accumulation: pipelines built, tools compiled,
 experiments logged, rules costed. Protect and grow the accumulation.
 
+### BUILD-FIRST RULE — paid is the last resort
+
+Whenever a capability, dataset, or service costs money, the default is to
+first design a free alternative and assess it honestly before the paid
+option may even enter wishlist.md. The assessment asks, in order:
+
+1. Do we already receive or can we freely receive the RAW MATERIAL? If
+   yes, the paid product is usually just processing on top of it — build
+   the processing (precedent: flight track history = archiving the ADS-B
+   feed we already ingest; destination prediction = inference over our
+   own archive vs. paying for filed flight plans).
+2. Can accumulation substitute for purchase? Many paid datasets are just
+   history someone else recorded — start recording NOW and time turns our
+   free feed into their paid product (precedent: transit counters,
+   position archive).
+3. Can inference substitute for ground truth? A free predicted/estimated
+   version labeled honestly often captures most of the value (precedent:
+   predicted destination vs. filed plan; tank-shadow inventory vs. paid
+   inventory data).
+4. Only if the raw material itself is inaccessible (sub-meter imagery,
+   card panels, satellite AIS, exchange order flow) is the capability
+   genuinely paid — then wishlist.md gets the entry WITH the
+   free-alternative analysis attached: what we built or why building is
+   impossible, what the paid version adds over our free version, and the
+   price.
+
+HONESTY CLAUSE: build-first is not build-always — if the free version
+costs many sessions to deliver a materially worse result, say so and
+recommend paying; the human decides. Every wishlist entry proposing spend
+must show this analysis. Free substitutes are labeled as
+estimates/predictions in the product, never passed off as the
+ground-truth equivalent.
+
 ## ROOT VALIDATION LADDER — how new data becomes trading logic, and how faults localize
 
 Every data pipeline passes five gates in order, each against its own

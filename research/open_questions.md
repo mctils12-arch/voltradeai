@@ -166,3 +166,58 @@ demand OR dedicated-infrastructure need). Until then: one loop, one repo;
 gate-2 signals get a /data surface on the existing site. RAW-DATA overlays
 (as-is display + attribution, no predictive claim) ship ungated; SIGNALS
 gate at ladder gate 2. Every map layer labeled as one or the other.
+
+## MAP V2 ROADMAP (human directive 2026-07-03 — product routines work in order)
+
+R1. **[THIS SESSION] Performance + live-layer overhaul** — WebGL layer
+    rendering at 10k+ features, viewport-culled; global aircraft+vessel
+    coverage with viewport fetching; shared server-side feed cache +
+    exponential backoff + delta updates; aircraft/vessel enrichment
+    (heading rotation, velocity vectors, type-differentiated icons, detail
+    cards, recent trails); POSITION ARCHIVE (see R2 note) starts recording
+    immediately. Honest coverage labeling (terrestrial AIS has mid-ocean
+    gaps; ADS-B coverage follows receiver density).
+
+R2. **Maritime transit analytics — the strongest trading-signal candidate
+    here.** Geofence counters on major ports and chokepoints (Suez,
+    Panama, Hormuz, Malacca, major US ports) counting AIS transits/day
+    from OUR OWN accumulating feed history; baseline vs anomaly display on
+    the map. Ladder path: gate 1 = ground truth against published port
+    statistics; gate 2 = transit anomalies as predictive signal for
+    shipping/energy/commodity tickers. ARCHIVE-FIRST: recording starts
+    with R1's archive even though the signal validates later — every day
+    not recorded is unrecoverable proprietary data.
+
+R3. **Environmental layers (all free sources).** USGS water gauges
+    (lake/river levels + trend indicators), NWS weather overlays, NASA
+    FIRMS active fires. Each ships as a RAW layer first. Logged
+    hypotheses with ladder paths: drought/low-water -> ag futures,
+    utilities cooling constraints, barge draft limits on the Mississippi
+    (shipping costs); active fires -> insurers (P&C), utilities
+    (liability precedent: PCG), timber.
+
+R4. **3D globe mode.** MapLibre globe projection (or Cesium only if
+    terrain tilt justifies it) as a 2D/3D toggle; pan/tilt/rotate; free
+    elevation tiles for a terrain/relief base option. GATE: evaluate
+    performance impact on phone BEFORE shipping — 3D must not degrade the
+    2D default experience (DESIGN.md performance budget applies).
+    Elevation/terrain as possible future signal input (flood-risk
+    context) — hypothesis only, no build until a use case passes the
+    ladder.
+
+## ARCHIVE-ENABLED SIGNAL HYPOTHESES (raw material accumulating from R1;
+   each still validates through the full ladder)
+
+- **Corporate jet activity around M&A targets**: per-tail-number history
+  from our archive -> unusual visits of corporate jets to counterparty
+  HQs/airfields preceding announcements. Ladder: gate 1 = tail->operator
+  mapping verified against public registries; gate 2 = do clustered
+  visits precede M&A announcements at better-than-base rates?
+- **Tanker routing anomalies**: deviations from a vessel's own historical
+  route patterns (from our archive) near chokepoints/sanctioned routes ->
+  energy price/logistics signals. Gate 1 = route baselines vs known
+  seasonal patterns; gate 2 = anomaly counts vs tanker rates/crude moves.
+- **Destination prediction quality**: trajectory + per-aircraft
+  historical route patterns -> predicted destination (labeled PREDICTED).
+  Gate 1 = predictions scored against actually-observed landings from our
+  own archive (self-labeling ground truth — free).

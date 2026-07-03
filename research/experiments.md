@@ -222,3 +222,22 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Remaining known (site shell, NOT this page; follow-up candidate): desktop
   tab nav clips at 768px; several nav buttons < 44px touch floor.
 - STARVED: no.
+
+## 2026-07-03 — [PRODUCT] Map v2 directive: constitution + roadmap installed (PR 1 of 3)
+- BUILD-FIRST RULE added to EDGE DOCTRINE (human-approved inline):
+  4-step free-alternative assessment before any paid wishlist entry;
+  honesty clause. DESIGN.md gains PERFORMANCE BUDGET (10k+ features
+  smooth on phone, <3s interactive, stale-beats-spinner, server
+  proxies-only) + FEATURE COMPLETENESS CHECKLIST (global scale, failure
+  modes, first-load/error/empty, client-side heavy work, honest limits).
+- Map v2 roadmap filed in open_questions (R1 this session; R2 maritime
+  transit analytics ARCHIVE-FIRST; R3 environmental layers; R4 3D globe
+  perf-gated) + archive-enabled signal hypotheses with ladder paths.
+- Wishlist: OpenSky free account ($0, HUMAN ACTION), FlightAware/SWIM
+  priced entry WITH build-first analysis, archive volume watch.
+- ATTRIBUTION NOTE: version collision discovered — the concurrent routine
+  session's extended-hours fix (PR #97) and map slice 1 (PR #99) both
+  carry code_version 1.0.36 (slice 1's hardcoded-string bump silently
+  no-op'd). Impact limited: only #97 affects trading behavior. Rule
+  forward: bump by READING the current version and incrementing, never by
+  replacing a hardcoded prior value.
