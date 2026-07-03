@@ -18,6 +18,7 @@ import {
 } from "./datacoreArchive";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
+import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 
 const execAsync = promisify(exec);
 
@@ -657,7 +658,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const layers = ((datacoreLayers as any).layers || []).map((l: any) =>
       // vessels goes live automatically the moment AISSTREAM_KEY exists
       l.id === "vessels"
-        ? { ...l, status: process.env.AISSTREAM_KEY ? "live" : "awaiting_key" }
+        ? { ...l, status: vesselStreamEnabled() ? "live" : "awaiting_key" }
         : l
     );
     res.json({ layers });
@@ -936,8 +937,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   }
 
+  // KNOWN BROKEN #9 fix: connect at boot instead of waiting for the first
+  // /api/data/vessels request, so every deploy doesn't leave the vessels
+  // layer (and its archive recording) cold until someone opens the map.
+  bootVesselStream(process.env, ensureVesselStream);
+
   app.get("/api/data/vessels", (req, res) => {
-    if (!process.env.AISSTREAM_KEY) {
+    if (!vesselStreamEnabled()) {
       return res.json({
         enabled: false,
         reason: "AISSTREAM_KEY not set — free signup at aisstream.io (see research/wishlist.md)",
