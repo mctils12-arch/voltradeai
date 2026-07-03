@@ -43,13 +43,67 @@
   proposal must attach the analysis). Also DESIGN.md gains the PERFORMANCE
   BUDGET + FEATURE COMPLETENESS CHECKLIST sections. Bookkept per the
   amendment rule.
-- **OpenSky free account** (HUMAN ACTION, $0): anonymous OpenSky is
-  rate-limited AND currently rejects Railway egress entirely (we run on
-  the adsb.lol fallback). A free OpenSky account (OAuth2 client
-  credentials -> OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET in Railway)
-  raises limits ~4x and may restore the primary feed. BUILD-FIRST
-  analysis: raw material already free via adsb.lol; this is a $0 signup
-  that adds redundancy, not spend.
+- **[DONE BY HUMAN 2026-07-03 — verification NEGATIVE, see below]**
+  OpenSky free account ($0): credentials set in Railway as
+  OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET. Same-day verification:
+  production STILL serves from community fallbacks — 6+ fresh-bbox
+  probes spanning ~30 minutes (longer than the 15-min max backoff, so at
+  least one live OpenSky attempt was guaranteed inside the window) all
+  returned adsb.lol or airplanes.live; OpenSky never served a request.
+  The API itself is up (HTTP 200 anonymously from a non-Railway
+  network), so the pre-credentials Railway egress rejection appears to
+  persist with OAuth. Not distinguishable from outside: (a) IP-level
+  block also covering the auth endpoint, (b) states/all rejecting
+  Railway even authenticated, or (c) service never restarted after the
+  env vars were set. Railway deploy logs disambiguate — look for
+  "[datacore] opensky auth:" lines (token fetch failing) around aircraft
+  requests; if no restart happened since setting the vars, redeploy once
+  and re-check. MOOT UNTIL THE LICENSING DECISION BELOW: the terms
+  analysis means OpenSky should not be our primary even if it worked.
+- **⚠ FLAGGED CONSTRAINT — aircraft-feed licensing (HUMAN DECISION NEEDED,
+  filed 2026-07-03). Analysis only per your instruction; NO provider or
+  code change made.** While verifying the new OpenSky credentials we read
+  all three providers' actual terms:
+  - **OpenSky Network** (current primary): the license grants use "solely
+    for the purpose of non-profit research and non-profit education," and
+    two independent tripwires both fire for us: (1) "Any use by a
+    for-profit or commercial entity requires written permission and a
+    license granted by the OpenSky Network"; (2) "Use of the REST API in
+    any operational capacity — including integration into a live product,
+    service, or automated system (even if only internal) — requires a
+    previous written agreement, even for non-profit or governmental
+    entities." VolTradeAI has paid features (billing) and integrates the
+    feed into a live product plus an automated archive — commercial AND
+    operational. The new free account raises rate limits but does not
+    change the license; continued use as primary is a terms violation
+    unless written permission is obtained (contact@opensky-network.org).
+  - **adsb.lol** (fallback 1): API and data licensed **ODbL 1.0**,
+    "available to everyone" — commercial use permitted, with attribution
+    (the map already shows source attribution) and share-alike on
+    derivative *databases*. The only provider terms-compatible with
+    commercial display today. Spinout note: our position archive is a
+    derivative database — any future redistribution/sale of
+    archive-derived products built on adsb.lol data must carry ODbL
+    attribution + share-alike (fine for display/signals we keep internal).
+  - **airplanes.live** (fallback 2): the free REST API is explicitly
+    "Non-Commercial Use" (educational purposes, 1 req/s, no SLA).
+    Commercial access exists via direct arrangement
+    (airplanes.live/commercial-use/, RapidAPI "coming soon") — same
+    incompatibility as OpenSky until arranged.
+  - **Recommendation (pending your approval, ~15-min change once
+    approved):** make adsb.lol PRIMARY; remove OpenSky from the chain
+    unless/until you obtain written permission (it is also still failing
+    from Railway egress even with credentials — see the entry above);
+    keep airplanes.live as emergency-only fallback while you email their
+    commercial contact, or drop it too for strict compliance. If you want
+    OpenSky's global-bbox capability legitimately, their non-commercial
+    research license does not cover us — the honest paths are written
+    permission or a commercial ADS-B aggregator (would join FlightAware
+    entry below as a priced item).
+  - Sources: opensky-network.org/about/terms-of-use (§1 LICENSE, §3(vi));
+    adsb.lol/docs/open-data/api (ODbL 1.0) + adsb.lol privacy-license;
+    airplanes.live/api-guide + airplanes.live/commercial-use.
+
 - **FlightAware AeroAPI / FAA SWIM (filed flight plans + routes) — PRICED,
   deferred.** BUILD-FIRST analysis attached per the new rule: (1) raw
   material (filed plans) is NOT freely receivable; (2) accumulation
