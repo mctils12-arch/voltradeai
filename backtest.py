@@ -1,78 +1,54 @@
 #!/usr/bin/env python3
 """
-backtest.py — minimal stub for /api/bot/backtest endpoints.
+backtest.py — CLI entrypoint for the backtest engine (backtest_v2.py).
 
-ALPHA AUDIT 2026-05-03: server/bot.ts has two endpoints that spawn
-this script via subprocess and JSON-parse stdout:
-  - /api/bot/backtest        (line ~2188)
-  - earlier btPath usage     (line ~3724)
-
-The full backtest engine that originally produced backtest_10yr_results.json
-is not in the repo (likely lived in the workbench). Without this stub, both
-endpoints crash with "ENOENT: no such file" and return HTTP 500.
-
-This stub returns a structured response so callers see a clean "not yet
-ported" message instead of a 500. Replace with a real implementation when
-the workbench backtest engine is ported to production source.
-
-Invocation (from bot.ts):
+Contract (server/bot.ts — POST /api/bot/backtest and the overnight scheduler):
     python3 backtest.py <ticker> <strategy> <years>
+  - JSON-only on stdout (bot.ts does JSON.parse(stdout.trim()))
+  - exit 0 always, even on failure (bot.ts treats nonzero/parse-fail as 500)
+  - `results` is an array; the scheduler reads per-item
+    strategy / sharpe / totalReturn / maxDrawdown
 
-Output: JSON-only on stdout. Exit 0 always (so bot.ts JSON.parse succeeds).
+strategy: momentum | mean_reversion | squeeze | all   (default all)
+years: 0.5 .. 10                                       (default 3)
+
+The engine simulates the bot's equity strategy logic with live-identical
+regime gating; options/squeeze legs are not simulated (no historical data —
+see research/wishlist.md). Details in backtest_v2.py.
 """
 import json
-import os
 import sys
 
 
 def main():
-    ticker  = sys.argv[1] if len(sys.argv) > 1 else "SPY"
+    ticker = sys.argv[1] if len(sys.argv) > 1 else "SPY"
     strategy = sys.argv[2] if len(sys.argv) > 2 else "all"
-    years   = sys.argv[3] if len(sys.argv) > 3 else "3"
+    years_raw = sys.argv[3] if len(sys.argv) > 3 else "3"
 
-    # If the existing static backtest results file is available and the
-    # caller is asking for a generic summary, serve a slice from it. This
-    # at least gives the UI something to display rather than nothing.
-    static_path = os.path.join(os.path.dirname(__file__),
-                                "backtest_10yr_results.json")
-    static_summary = None
-    if os.path.exists(static_path):
-        try:
-            with open(static_path) as f:
-                bt = json.load(f)
-            results = bt.get("results", {})
-            static_summary = {
-                "period_start":   bt.get("period_start"),
-                "period_end":     bt.get("period_end"),
-                "spy_cagr":       bt.get("spy_cagr"),
-                "configs": [
-                    {
-                        "name":   k,
-                        "cagr":   v.get("cagr"),
-                        "max_dd": v.get("max_dd"),
-                        "sortino": v.get("sortino"),
-                        "n_trades": len(bt.get("all_trades", {}).get(k, [])),
-                    }
-                    for k, v in results.items()
-                ] if isinstance(results, dict) else [],
-            }
-        except Exception:
-            static_summary = None
+    try:
+        years = float(years_raw)
+    except ValueError:
+        years = 3.0
 
-    response = {
-        "ok": True,
-        "status": "stub",
-        "message": (
-            "Live backtest engine not yet ported from workbench. "
-            "Returning static 10-year results from "
-            "backtest_10yr_results.json. Request the static file "
-            "directly for trade-level data."
-        ),
-        "request": {"ticker": ticker, "strategy": strategy, "years": years},
-        "results": [],  # bot.ts looks for `results` array — empty is safe
-        "static_summary": static_summary,
-    }
-    # bot.ts does JSON.parse(stdout.trim()) — output a single JSON object only
+    try:
+        from backtest_v2 import run_backtest
+        response = run_backtest(ticker, strategy, years)
+        # Keep the endpoint payload bounded: bot.ts returns this verbatim to
+        # the client. Cap per-strategy trade logs at the most recent 200.
+        at = response.get("all_trades", {})
+        for k in at:
+            if len(at[k]) > 200:
+                at[k] = at[k][-200:]
+    except Exception as e:
+        response = {
+            "ok": False,
+            "status": "error",
+            "message": f"backtest failed: {type(e).__name__}: {e}",
+            "request": {"ticker": ticker, "strategy": strategy, "years": years},
+            "results": [],  # bot.ts iterates `results` — empty is safe
+        }
+
+    # JSON object only on stdout — nothing else may be printed
     sys.stdout.write(json.dumps(response))
     sys.stdout.flush()
 

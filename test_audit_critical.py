@@ -246,5 +246,145 @@ class TestRequirementsTxt(unittest.TestCase):
                           f"Missing required package in requirements.txt: {pkg}")
 
 
+class TestBacktestV2Engine(unittest.TestCase):
+    """Offline tests for the rebuilt backtest engine (backtest_v2.py).
+    All bars are injected — no network, no keys (CI-safe)."""
+
+    @staticmethod
+    def _synth_bars(n, start=100.0, daily=0.001, vol_shape=0.0):
+        """Deterministic uptrending OHLCV bars (no randomness — reproducible)."""
+        dates, o, h, l, c, v = [], [], [], [], [], []
+        px = start
+        from datetime import date, timedelta
+        d0 = date(2022, 1, 3)
+        for i in range(n):
+            wiggle = 0.002 * ((i % 7) - 3) / 3.0 + vol_shape
+            op = px
+            cl = px * (1 + daily + wiggle)
+            dates.append((d0 + timedelta(days=i)).isoformat())
+            o.append(round(op, 4)); c.append(round(cl, 4))
+            h.append(round(max(op, cl) * 1.004, 4))
+            l.append(round(min(op, cl) * 0.996, 4))
+            v.append(5_000_000)
+            px = cl
+        return {"date": dates, "open": o, "high": h, "low": l,
+                "close": c, "volume": v}
+
+    @staticmethod
+    def _bull_vxx(spy_bars):
+        """VXX series whose close/30d-avg ratio stays <= 0.90 (BULL input)."""
+        n = len(spy_bars["date"])
+        closes = [30.0 * (0.995 ** i) for i in range(n)]  # steadily falling
+        return {"date": list(spy_bars["date"]), "open": closes,
+                "high": closes, "low": closes, "close": closes,
+                "volume": [1_000_000] * n}
+
+    def test_neutral_default_blocks_all_entries(self):
+        """With no VXX data (vxx_ratio degrades to 1.0) the regime is NEUTRAL
+        and max_pos=0 — the engine must take ZERO trades even on a perfect
+        momentum tape. This is the regime-consistency contract with live."""
+        from backtest_v2 import run_backtest
+        bars = self._synth_bars(420, daily=0.004)
+        out = run_backtest("TEST", "momentum", 1, bars=bars, spy=bars, vxx=None)
+        mom = out["results"][0]
+        self.assertEqual(mom["n_trades"], 0,
+                         "NEUTRAL regime (max_pos=0) must block all entries")
+        self.assertEqual(mom["data_quality"], "degraded")
+
+    def test_bull_regime_allows_entries_and_no_lookahead(self):
+        from backtest_v2 import run_backtest, COST_PCT
+        bars = self._synth_bars(420, daily=0.004)
+        vxx = self._bull_vxx(bars)
+        out = run_backtest("TEST", "momentum", 1, bars=bars, spy=bars, vxx=vxx)
+        mom = out["results"][0]
+        self.assertGreater(mom["n_trades"], 0, "BULL regime should permit entries")
+        # No-lookahead: every entry price must equal some bar's OPEN (+cost),
+        # never the signal bar's close.
+        opens = {round(op * (1 + COST_PCT), 2) for op in bars["open"]}
+        for t in out["all_trades"]["momentum"]:
+            self.assertIn(round(t["entry_price"], 2), opens,
+                          f"entry {t['entry_price']} is not a next-bar open fill")
+            self.assertGreater(t["holding_days"], 0)
+            # exit strictly after entry (no same-signal-bar exits)
+            self.assertLess(t["date_entry"], t["date_exit"])
+
+    def test_scheduler_contract_fields(self):
+        """bot.ts overnight scheduler reads strategy/sharpe/totalReturn/
+        maxDrawdown from each results[] item — they must exist and be numeric."""
+        from backtest_v2 import run_backtest
+        bars = self._synth_bars(420, daily=0.004)
+        out = run_backtest("TEST", "all", 1, bars=bars, spy=bars,
+                           vxx=self._bull_vxx(bars))
+        self.assertTrue(out["ok"])
+        self.assertIsInstance(out["results"], list)
+        for r in out["results"]:
+            for field in ("strategy", "sharpe", "totalReturn", "maxDrawdown"):
+                self.assertIn(field, r)
+            self.assertIsInstance(r["sharpe"], (int, float))
+        json.dumps(out)  # bot.ts JSON.parses stdout — must be serializable
+
+    def test_artifact_trade_schema(self):
+        """Trade records must match backtest_10yr_results.json's trade keys."""
+        from backtest_v2 import run_backtest
+        bars = self._synth_bars(420, daily=0.004)
+        out = run_backtest("TEST", "momentum", 1, bars=bars, spy=bars,
+                           vxx=self._bull_vxx(bars))
+        expected = {"date_exit", "date_entry", "ticker", "instrument",
+                    "strategy", "entry_price", "exit_price", "holding_days",
+                    "pnl", "net_pct", "exit_reason", "score", "vxx_ratio", "vrp"}
+        trades = out["all_trades"]["momentum"]
+        self.assertTrue(trades, "expected at least one trade under BULL")
+        for t in trades:
+            self.assertEqual(set(t.keys()), expected)
+            self.assertIn(t["exit_reason"], {"stop_loss", "take_profit",
+                                             "time_stop", "end_of_backtest"})
+
+    def test_squeeze_refuses_to_fabricate(self):
+        """No historical short-interest data -> squeeze must report zero trades
+        with a note, never made-up results (CLAUDE.md priority 2)."""
+        from backtest_v2 import run_backtest
+        bars = self._synth_bars(300)
+        out = run_backtest("TEST", "squeeze", 1, bars=bars, spy=bars, vxx=None)
+        sq = out["results"][0]
+        self.assertEqual(sq["n_trades"], 0)
+        self.assertIn("note", sq)
+
+    def test_metrics_math(self):
+        from backtest_v2 import compute_metrics, TRADING_DAYS
+        # Equity doubling linearly over exactly one trading year
+        equity = [100.0 + 100.0 * i / TRADING_DAYS for i in range(TRADING_DAYS + 1)]
+        m = compute_metrics(equity, TRADING_DAYS)
+        self.assertAlmostEqual(m["total_return_pct"], 100.0, places=1)
+        self.assertAlmostEqual(m["cagr_pct"], 100.0, places=1)
+        self.assertEqual(m["max_drawdown_pct"], 0.0)
+        # A drawdown is measured peak-to-trough
+        m2 = compute_metrics([100, 120, 90, 110], 4)
+        self.assertAlmostEqual(m2["max_drawdown_pct"], 25.0, places=1)
+
+    def test_regime_blocking_consistent_with_live_config(self):
+        """The safety-critical contract: the same regimes that block live
+        trading (MAX_POSITIONS=0 in system_config.get_adaptive_params) must
+        block backtest entries (max_pos=0), and vice versa."""
+        from backtest_v2 import get_adaptive_params as bt_params
+        from system_config import get_adaptive_params as live_params
+        # Inputs chosen to hit each regime per regime_util thresholds
+        cases = {
+            "PANIC":   dict(vxx_ratio=1.50, spy_vs_ma50=1.00),
+            "BEAR":    dict(vxx_ratio=1.20, spy_vs_ma50=1.00),
+            "CAUTION": dict(vxx_ratio=1.08, spy_vs_ma50=1.00),
+            "NEUTRAL": dict(vxx_ratio=1.00, spy_vs_ma50=0.99),
+            "BULL":    dict(vxx_ratio=0.85, spy_vs_ma50=1.02),
+        }
+        from system_config import get_market_regime
+        for regime, inputs in cases.items():
+            self.assertEqual(get_market_regime(**inputs), regime,
+                             f"test inputs no longer map to {regime} — update test")
+            live_blocked = live_params(**inputs)["MAX_POSITIONS"] == 0
+            bt_blocked = bt_params(regime)["max_pos"] == 0
+            self.assertEqual(bt_blocked, live_blocked,
+                             f"{regime}: backtest blocking (max_pos) diverges "
+                             f"from live (MAX_POSITIONS)")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
