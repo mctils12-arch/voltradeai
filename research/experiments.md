@@ -3,7 +3,7 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-07-03 — Equity-momentum backtest harness (`bot_backtest.py`)
+## 2026-07-03 — [RESEARCH] Equity-momentum backtest harness (`bot_backtest.py`)
 - Change: added a reproducible backtest of the bot's OWN momentum scoring
   (`strategies/momentum.py`) run as a monthly ETF rotation, vs SPY buy&hold.
   Yahoo daily adj-close, stdlib only, cached under `.bt_cache/`.
@@ -23,7 +23,7 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Caveat: equity logic only; the options leg can't be backtested without
   historical option prices (see wishlist).
 
-## 2026-07-03 — Backtest engine rebuild (backtest_v2.py) — PRIOR STATED BEFORE FIRST RUN
+## 2026-07-03 — [REPAIR] Backtest engine rebuild (backtest_v2.py) — PRIOR STATED BEFORE FIRST RUN
 - Change: real engine replacing the backtest.py stub (KNOWN BROKEN #1).
   Daily-bar sim of strategies/momentum.py + mean_reversion.py with
   live-identical regime gating (regime_util.classify_regime_5level;
