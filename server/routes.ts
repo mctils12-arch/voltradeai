@@ -7,6 +7,11 @@ import fs from "fs";
 import https from "https";
 import { WebSocket as WSClient } from "ws";
 import cookieParser from "cookie-parser";
+// datacore JSON is imported statically so esbuild bakes it into dist/index.cjs
+// — the frozen Dockerfile's runtime stage copies selective paths and datacore/
+// never reaches the image, which made runtime fs reads return {} in prod.
+import datacoreLayers from "../datacore/layers.json";
+import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 
@@ -645,20 +650,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // never calls external data sources directly. Layers registry is static
   // metadata from datacore/layers.json; overlay routes land one per slice.
   app.get("/api/data/layers", (_req, res) => {
-    try {
-      const p = path.resolve(process.cwd(), "datacore", "layers.json");
-      const registry = JSON.parse(fs.readFileSync(p, "utf8"));
-      const layers = (registry.layers || []).map((l: any) =>
-        // vessels goes live automatically the moment AISSTREAM_KEY exists
-        l.id === "vessels"
-          ? { ...l, status: process.env.AISSTREAM_KEY ? "live" : "awaiting_key" }
-          : l
-      );
-      res.json({ layers });
-    } catch (e: any) {
-      console.error("[datacore] layers registry:", e?.message || e);
-      res.json({ layers: [] });
-    }
+    const layers = ((datacoreLayers as any).layers || []).map((l: any) =>
+      // vessels goes live automatically the moment AISSTREAM_KEY exists
+      l.id === "vessels"
+        ? { ...l, status: process.env.AISSTREAM_KEY ? "live" : "awaiting_key" }
+        : l
+    );
+    res.json({ layers });
   });
 
   // Live aircraft overlay (RAW) — proxies OpenSky Network's free ADS-B API.
@@ -682,25 +680,62 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.json({ ...hit.data, cached: true });
     }
     try {
-      const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-      if (!r.ok) throw new Error(`OpenSky ${r.status}`);
-      const raw: any = await r.json();
-      const aircraft = (raw.states || []).slice(0, 800).map((s: any[]) => ({
-        icao24: s[0],
-        callsign: (s[1] || "").trim(),
-        origin_country: s[2],
-        lon: s[5],
-        lat: s[6],
-        altitude_m: s[7],
-        on_ground: s[8],
-        velocity_ms: s[9],
-        heading: s[10],
-      })).filter((a: any) => a.lat != null && a.lon != null);
+      // Primary: OpenSky. Fallback: adsb.lol (free, open, no key) — OpenSky
+      // rejects requests from some datacenter IPs, which broke aircraft in
+      // production while working locally. UA header set on both (UA-less
+      // requests are another common rejection cause).
+      const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
+      let aircraft: any[] = [];
+      let source = "";
+      let time = Math.floor(Date.now() / 1000);
+      try {
+        const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
+        const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(12000) });
+        if (!r.ok) throw new Error(`OpenSky ${r.status}`);
+        const raw: any = await r.json();
+        time = raw.time || time;
+        aircraft = (raw.states || []).slice(0, 800).map((s: any[]) => ({
+          icao24: s[0],
+          callsign: (s[1] || "").trim(),
+          origin_country: s[2],
+          lon: s[5],
+          lat: s[6],
+          altitude_m: s[7],
+          on_ground: s[8],
+          velocity_ms: s[9],
+          heading: s[10],
+        })).filter((a: any) => a.lat != null && a.lon != null);
+        source = "OpenSky Network (opensky-network.org)";
+      } catch (primaryErr: any) {
+        // adsb.lol: point+radius API (max 250nm). Cover the bbox from its
+        // center; fields are imperial (ft / kts) — convert to SI to keep the
+        // response shape identical for the client.
+        const clat = (lamin + lamax) / 2;
+        const clon = (lomin + lomax) / 2;
+        const latSpanNm = Math.abs(lamax - lamin) * 60;
+        const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.cos((clat * Math.PI) / 180);
+        const radiusNm = Math.min(250, Math.max(50, Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2)));
+        const r2 = await fetch(`https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`,
+          { headers: UA, signal: AbortSignal.timeout(12000) });
+        if (!r2.ok) throw new Error(`OpenSky (${primaryErr?.message}) then adsb.lol ${r2.status}`);
+        const raw2: any = await r2.json();
+        aircraft = (raw2.ac || []).slice(0, 800).map((a: any) => ({
+          icao24: a.hex,
+          callsign: String(a.flight || "").trim(),
+          origin_country: a.r || "",
+          lon: a.lon,
+          lat: a.lat,
+          altitude_m: a.alt_baro === "ground" || a.alt_baro == null ? null : Math.round(a.alt_baro * 0.3048),
+          on_ground: a.alt_baro === "ground",
+          velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
+          heading: a.track ?? null,
+        })).filter((a: any) => a.lat != null && a.lon != null);
+        source = "adsb.lol (ADS-B, community)";
+      }
       const data = {
-        source: "OpenSky Network (opensky-network.org)",
+        source,
         kind: "raw",
-        time: raw.time,
+        time,
         count: aircraft.length,
         aircraft,
       };
@@ -765,9 +800,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           // bound memory: prune stale (>15min) when large, then cap hard
           if (vesselPositions.size > 5000) {
             const cutoff = Date.now() - 15 * 60_000;
-            for (const [k, v] of vesselPositions) {
+            vesselPositions.forEach((v, k) => {
               if (v.at < cutoff) vesselPositions.delete(k);
-            }
+            });
             while (vesselPositions.size > 5000) {
               const first = vesselPositions.keys().next().value;
               if (first === undefined) break;
@@ -803,12 +838,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const lomin = num(req.query.lomin, -180), lomax = num(req.query.lomax, 180);
     const cutoff = Date.now() - 15 * 60_000;
     const vessels: any[] = [];
-    for (const [mmsi, v] of vesselPositions) {
-      if (v.at < cutoff) continue;
-      if (v.lat < lamin || v.lat > lamax || v.lon < lomin || v.lon > lomax) continue;
+    vesselPositions.forEach((v, mmsi) => {
+      if (vessels.length >= 1500) return;
+      if (v.at < cutoff) return;
+      if (v.lat < lamin || v.lat > lamax || v.lon < lomin || v.lon > lomax) return;
       vessels.push({ mmsi, name: v.name, lat: v.lat, lon: v.lon, sog: v.sog, cog: v.cog });
-      if (vessels.length >= 1500) break;
-    }
+    });
     res.json({
       enabled: true,
       source: "aisstream.io (AIS)",
@@ -821,14 +856,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Strategic sites (RAW) — static reference data from datacore/sites.
   app.get("/api/data/sites", (_req, res) => {
-    try {
-      const p = path.resolve(process.cwd(), "datacore", "sites", "strategic_sites.json");
-      const data = JSON.parse(fs.readFileSync(p, "utf8"));
-      res.json({ kind: "raw", categories: data.categories, sites: data.sites });
-    } catch (e: any) {
-      console.error("[datacore] sites:", e?.message || e);
-      res.json({ kind: "raw", categories: {}, sites: [] });
-    }
+    const d = datacoreSites as any;
+    res.json({ kind: "raw", categories: d.categories || {}, sites: d.sites || [] });
   });
 
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────

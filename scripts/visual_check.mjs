@@ -175,14 +175,23 @@ async function main() {
   }
   const { chromium } = await import("playwright");
   const exePath = "/opt/pw-browsers/chromium";
+  // Software WebGL (SwiftShader) — maplibre-gl requires a GL context, and
+  // headless containers have no GPU. Without these flags the map never
+  // fires "load" and every screenshot is a skeleton.
+  const GL_ARGS = [
+    "--use-gl=angle",
+    "--use-angle=swiftshader",
+    "--enable-unsafe-swiftshader",
+    "--ignore-gpu-blocklist",
+  ];
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, args: GL_ARGS });
   } catch {
     browser = await chromium.launch({
       headless: true,
       executablePath: existsSync(exePath) ? exePath : undefined,
-      args: ["--use-angle=swiftshader"],
+      args: GL_ARGS,
     });
   }
   const srv = await startServer();
@@ -200,6 +209,15 @@ async function main() {
         deviceScaleFactor: 2,
       });
       const page = await ctx.newPage();
+      // Full determinism: only the fixture server is reachable. External
+      // requests (tile CDN, fonts) abort instantly — layouts and overlays are
+      // what we verify, and aborted tiles let maplibre settle immediately
+      // instead of hanging on proxy connection-resets.
+      await page.route("**/*", (route) => {
+        const u = route.request().url();
+        if (u.startsWith(`http://127.0.0.1:${port}`)) return route.continue();
+        return route.abort();
+      });
       const errors = [];
       page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
       await page.goto(`http://127.0.0.1:${port}${route}`, { waitUntil: "load", timeout: 30000 });
