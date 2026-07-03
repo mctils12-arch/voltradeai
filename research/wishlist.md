@@ -19,3 +19,13 @@
   diagnosis is needed, (b) approve a scoped read-only token path in
   auth.ts, or (c) a nightly job that snapshots key state JSON into the
   repo. Until then KNOWN BROKEN #3/#4 can only be verified by the human.
+
+- **[APPROVED BY HUMAN 2026-07-03 — applied same message]** Constitutional
+  amendments A1-A3 + STARVED metric (PROMPTS.md Section A): SPINOUT-READY
+  DATA LAYER, RAW-DATA vs SIGNALS surface rules, [PRODUCT] session tag,
+  starvation signal in HEALTH OF THE LOOP. Proposal and approval recorded
+  here per the amendment rule; applied in the same PR.
+- **aisstream.io API key** (for the /data map's live vessel overlay — A4
+  build): free signup at aisstream.io -> set the key in Railway as
+  AISSTREAM_KEY. The vessels layer ships scaffolded and activates when the
+  key exists. HUMAN ACTION NEEDED.

@@ -173,7 +173,9 @@ A loop that only repairs is failing even when every session looks
 productive. Enforce these:
 
 1. TAG EVERY SESSION. Each experiments.md entry starts with a type:
-   [REPAIR], [RESEARCH], [RULE-REVIEW], [PIPELINE], or [NO-ACTION].
+   [REPAIR], [RESEARCH], [RULE-REVIEW], [PIPELINE], [PRODUCT], or
+   [NO-ACTION]. [PRODUCT] counts as [PIPELINE] for progress-floor and
+   thrash-ratio purposes.
 2. WATCH THE RATIO. At session start, count the types of the last 10
    entries. If 7+ are [REPAIR], stop normal work: the meta-problem
    "system generates breaks faster than fixes hold" is now the
@@ -190,6 +192,10 @@ productive. Enforce these:
 5. PROGRESS FLOOR. If no [RESEARCH] or [PIPELINE] session has shipped in
    14 days, note it prominently at the top of wishlist.md so the human
    sees the stall on their weekly review.
+6. STARVATION SIGNAL. Every session log records whether it ended with
+   high-value work still queued ("STARVED") or not. If 10+ consecutive
+   sessions log STARVED, flag in wishlist.md that continuous operation
+   via the Agent SDK is now evidence-justified, with a cost estimate.
 
 ## REPAIR MANDATE
 
@@ -383,3 +389,25 @@ than churn.
 - `market_calendar.py` has 2026 dates only. Add 2027 in December 2026.
 - ML feedback records are version-gated; legacy records weighted 0.4x.
   Poisoned-record cleanup runs on startup (`ml_model_v2.py`).
+- SPINOUT-READY DATA LAYER (human-approved 2026-07-03) — all data pipelines
+  built under the EDGE DOCTRINE live in datacore/ with no imports from or
+  knowledge of trading logic; signals are exposed only through an internal
+  API boundary (the bot consumes signals the same way an external API
+  customer would). Rationale: datacore/ is a potential future standalone
+  product (geospatial/alt-data signals: satellite, ADS-B, AIS, EDGAR,
+  Trends). Spinout trigger, decided by the human: a root passes ladder
+  gate 2 AND (external demand exists OR processing needs dedicated
+  infrastructure). Until then, one loop, one repo. Signals that pass
+  gate 2 also get a user-facing surface on the existing site under a
+  /data section — no separate site, repo, or routine set until the
+  spinout trigger fires.
+- RAW-DATA OVERLAYS vs SIGNALS on the /data product surface (human-approved
+  2026-07-03): raw-data overlays (live ADS-B aircraft, AIS vessels,
+  satellite imagery tiles, site markers, weather) display data as-is with
+  source attribution and may ship without ladder gating — they make no
+  predictive claim. SIGNALS (interpreted readings presented as
+  intelligence: tank-fill %, yard inventory change, flow anomalies)
+  remain gated at ladder gate 2 before appearing on the surface. Every
+  map layer is labeled as one or the other.
+- A dedicated product routine builds datacore/ + the /data site section
+  per the SPINOUT-READY DATA LAYER rules ([PRODUCT] sessions).
