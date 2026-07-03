@@ -65,6 +65,22 @@
    green. Fix candidates: convert test_auto_discovery to proper pytest tests;
    mark network suites with a skip-if-no-keys guard.
 
+7. **[NEXT REPAIR — HUMAN-APPROVED 2026-07-03] Persist the max-drawdown
+   high-water mark.** `state.equityPeak` (bot.ts:359, seeded at 862/2482) is
+   in-memory only: every deploy/restart re-bases the drawdown kill switch
+   from current equity, so frequent autonomous deploys silently defang it.
+   Approved fix: save/restore equityPeak via the existing /data/voltrade
+   state files (storage_config.py paths; bot already persists other state
+   there). REQUIREMENTS per constitution: (a) regression test that fails on
+   the current reset behavior (loop-health rule 3 — no fix without its
+   test); (b) do NOT alter the halt logic itself, only add persistence of
+   its input (the human approval covers exactly this scope); (c) one
+   logical change, version bump, prior stated in experiments.md before
+   measuring any live effect; (d) trace the downstream chain in the PR
+   (REASONING STANDARD #1): persisted peak -> drawdownPct reflects true
+   history -> halt can actually fire after a slow multi-deploy bleed ->
+   fewer trades during real drawdowns (intended).
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
