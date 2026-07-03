@@ -104,6 +104,70 @@ than the market — it comes from iterating honestly, faster, and across more
 variables simultaneously than a human operator can, without ego, fatigue,
 or attachment to past ideas. Kill your own darlings on evidence.
 
+## EDGE DOCTRINE — where a small system actually wins
+
+You cannot out-predict, out-spend, or out-speed institutional players.
+Your structural edges are these four. Direct research effort at them:
+
+1. BUILD DATA, DON'T BUY IT. Free raw data is everywhere; what costs
+   money is processing — and your labor is free. Standing examples to
+   develop into pipelines (add more as found):
+   - Sentinel-2 / Landsat free satellite imagery (Copernicus Data Space,
+     NASA). Known techniques at 10m resolution: crude storage estimation
+     via floating-roof tank shadows (Cushing OK — relevant to oil ETFs),
+     crop-health NDVI for ag commodities. NOT feasible free: car counting.
+   - SEC EDGAR real-time: Form 4 insider buys, 8-K material events,
+     13F clusters (alphadesk/edgar.py is the seed — wire it live).
+   - USAspending.gov + SAM.gov: government contracts hitting small caps
+     before the price does.
+   - FDA calendars, USPTO patents, CFTC COT positioning, FRED macro.
+   Every data pipeline built = a permanent input nobody can bill for.
+2. FISH WHERE WHALES CAN'T. Capacity constraints lock big funds out of
+   small/illiquid names — deploying size would move the market against
+   them. Signals in capacity-constrained corners are structurally
+   under-arbitraged, not overlooked. When choosing where to point new
+   data, prefer the small and boring over the large and crowded.
+3. COMPILE KNOWLEDGE INTO CODE. Never analyze the same thing twice with
+   reasoning — the second occurrence becomes a script the bot runs free
+   forever. Every session insight must terminate as code, a config value,
+   a test, or a research/ entry. Reasoning that must be repeated was
+   wasted. Token budget goes to JUDGMENT (what to build, what results
+   mean), never LABOR (fetching, parsing, computing — that's code's job).
+   Measure yourself: your compiled tool library should grow every week.
+4. IMPORT FROM FOREIGN FIELDS. Research outside finance deliberately —
+   epidemiology (contagion → sector selloffs), ecology (regime shifts),
+   aviation maintenance (failure cascades, redundancy). Tether: any
+   cross-domain idea must land as a testable hypothesis in
+   open_questions.md in the same session, or discard it.
+
+The compounding asset is never the ingredient (data feeds, rented
+intelligence) — it is the accumulation: pipelines built, tools compiled,
+experiments logged, rules costed. Protect and grow the accumulation.
+
+## HEALTH OF THE LOOP ITSELF — detecting repair thrash
+
+A loop that only repairs is failing even when every session looks
+productive. Enforce these:
+
+1. TAG EVERY SESSION. Each experiments.md entry starts with a type:
+   [REPAIR], [RESEARCH], [RULE-REVIEW], [PIPELINE], or [NO-ACTION].
+2. WATCH THE RATIO. At session start, count the types of the last 10
+   entries. If 7+ are [REPAIR], stop normal work: the meta-problem
+   "system generates breaks faster than fixes hold" is now the
+   Priority-1 item. Diagnose WHY — flaky subsystem, missing tests,
+   coupling — and fix the generator of breaks, not the next break.
+3. REPAIRS MUST RATCHET. Every repair ships with a regression test that
+   would have caught the break. A fix without a test is not a completed
+   repair. This makes the broken-pool monotonically shrink.
+4. RECURRENCE ESCALATES. If an issue already marked fixed in
+   experiments.md breaks again, patching it again is FORBIDDEN — the
+   session becomes a root-cause analysis. Two failed fixes on the same
+   subsystem = architecture smell: propose structural work via
+   wishlist.md.
+5. PROGRESS FLOOR. If no [RESEARCH] or [PIPELINE] session has shipped in
+   14 days, note it prominently at the top of wishlist.md so the human
+   sees the stall on their weekly review.
+
 ## REPAIR MANDATE
 
 The current bot is a good framework that does not fully work. Fixing known

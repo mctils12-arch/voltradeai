@@ -97,6 +97,11 @@ OPTIONAL LATER (add only when wanted):
 ## 7. Your recurring role (the only human tasks)
 
 - Weekly: read research/wishlist.md, decide what data to pay for.
+- Weekly, same glance: scan the session-type tags in
+  research/experiments.md. No new entries = loop is DOWN (dead-man
+  check). Nearly all [REPAIR] tags = loop is THRASHING (it should have
+  self-flagged per CLAUDE.md loop-health rules — if it hasn't, tell it).
+  Mixed tags including [RESEARCH]/[PIPELINE] = healthy.
 - Occasionally: glance at equity curve vs SPY on the site.
 - December 2026: confirm the agent added 2027 market holidays
   (it's instructed to, but calendar correctness is worth one glance).
