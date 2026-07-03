@@ -2,21 +2,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
-// its controls render unpositioned. The JS stays dynamically imported below —
-// only this ~15KB stylesheet rides the main bundle.
+// its controls render unpositioned. The JS stays dynamically imported below.
 import "maplibre-gl/dist/maplibre-gl.css";
+import {
+  registerIcons, classifyAircraft, classifyVessel, velocityEndpoint,
+  AIRCRAFT_ICON, VESSEL_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
+} from "@/lib/mapIcons";
 
 /**
- * /data — the data-intelligence map.
+ * /data — the data-intelligence map (v2).
  *
- * DESIGN.md-governed: full-viewport below the nav at every width, collapsible
- * layer controls (collapsed by default on phone), alive on first load
- * (aircraft + strategic sites default ON), designed loading/error/awaiting-key
- * states, theme tokens only. Verified by `npm run visual` at 390/768/1440.
+ * DESIGN.md-governed: full-viewport at every width, collapsible controls,
+ * alive on first load, designed error/stale/partial-coverage states, theme
+ * tokens only, PERFORMANCE BUDGET (WebGL symbol layers — no per-marker DOM;
+ * smooth at 10k+ features; stale-with-timestamp beats spinner).
+ * Verified by `npm run visual` (layout + perf checks) at 390/768/1440.
  *
- * SPINOUT-READY rules: all overlay data flows through /api/data/* (datacore
- * boundary); base imagery tiles are the documented scoped exception. Every
- * layer is labeled RAW DATA or SIGNAL (gate-2 rule).
+ * SPINOUT-READY rules: overlay data flows only through /api/data/* (base
+ * imagery tiles are the documented scoped exception). RAW vs SIGNAL labels.
  */
 
 interface LayerMeta {
@@ -30,11 +33,14 @@ interface LayerMeta {
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
-interface SiteDetail {
-  name: string;
-  category: string;
-  operator: string;
-  relevance: string;
+interface Detail {
+  kind: "site" | "aircraft" | "vessel";
+  title: string;
+  subtitle: string;
+  body: string;
+  trailId?: string;      // archive id for the trail (aircraft icao24 / mmsi)
+  trailKind?: "aircraft" | "vessels";
+  trailNote?: string;
 }
 
 const IMAGERY_TILES =
@@ -43,22 +49,34 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
 const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true };
 
+// altitude → tint for aircraft icons (SDF icon-color)
+const ALT_COLOR: any = ["case",
+  ["get", "ground"], "#6680a0",
+  ["<", ["coalesce", ["get", "alt"], 99999], 3000], "#fbb24c",
+  "#4d9fff"];
+
+const VESSEL_COLOR: Record<string, string> = {
+  tanker: "#fbb24c", cargo: "#4ade80", passenger: "#c084fc",
+  fishing: "#7cc4ff", tug: "#b3c2d8", other: "#4ade80",
+};
+
 export default function DataMapPage() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
-  const glRef = useRef<any>(null); // maplibregl module (loaded lazily)
+  const glRef = useRef<any>(null);
+  const sinceRef = useRef<Record<string, string>>({});
   const [layers, setLayers] = useState<LayerMeta[]>([]);
   const [enabled, setEnabled] = useState<Record<string, boolean>>(DEFAULT_ON);
-  const [runtime, setRuntime] = useState<Record<string, { status: RuntimeStatus; count?: number }>>({});
+  const [runtime, setRuntime] = useState<Record<string, { status: RuntimeStatus; count?: number; note?: string }>>({});
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
-  const [site, setSite] = useState<SiteDetail | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
 
-  const setStatus = useCallback((id: string, status: RuntimeStatus, count?: number) => {
-    setRuntime(s => ({ ...s, [id]: { status, count } }));
+  const setStatus = useCallback((id: string, status: RuntimeStatus, count?: number, note?: string) => {
+    setRuntime(s => ({ ...s, [id]: { status, count, note } }));
   }, []);
 
   // Layer registry (datacore boundary)
@@ -69,7 +87,7 @@ export default function DataMapPage() {
       .catch(() => setLayers([]));
   }, []);
 
-  // Map bootstrap (maplibre lazy-loaded to keep the main bundle lean)
+  // Map bootstrap (maplibre JS lazy-loaded to keep the main bundle lean)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -81,7 +99,6 @@ export default function DataMapPage() {
           container: mapContainer.current,
           style: {
             version: 8,
-            // glyphs are required for symbol/text layers (site labels)
             glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
             sources: {
               imagery: { type: "raster", tiles: [IMAGERY_TILES], tileSize: 256, attribution: IMAGERY_ATTRIB },
@@ -99,15 +116,15 @@ export default function DataMapPage() {
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
         map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
         mapRef.current = map;
-        // Ready = style usable, NOT all tiles fetched: a slow or blocked tile
-        // CDN must never hold the page hostage on the skeleton. Overlays come
-        // from our own /api/data/* and mount as soon as the style is live.
+        // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
+        (window as any).__vtMap = map;
         let readyFired = false;
         const ready = () => {
           if (cancelled || readyFired) return;
           readyFired = true;
           window.clearInterval(stylePoll);
-          try { map.resize(); } catch {}  // self-heal any container measure race
+          try { map.resize(); } catch {}
+          try { registerIcons(map); } catch {}
           setMapReady(true);
         };
         map.once("load", ready);
@@ -119,11 +136,8 @@ export default function DataMapPage() {
         // to a usable map with layer-level error states, never a dead page.
         window.setTimeout(ready, 8000);
         map.on("error", (e: any) => {
-          // tile errors are routine; only surface fatal init failures
           if (readyFired) return;
-          if (e?.error?.message && /style/i.test(e.error.message)) {
-            setMapError(e.error.message);
-          }
+          if (e?.error?.message && /style/i.test(e.error.message)) setMapError(e.error.message);
         });
       } catch (e: any) {
         setMapError(e?.message || "Map failed to load");
@@ -131,21 +145,53 @@ export default function DataMapPage() {
     })();
     return () => {
       cancelled = true;
+      try { delete (window as any).__vtMap; } catch {}
       try { mapRef.current?.remove(); mapRef.current = null; } catch {}
     };
   }, []);
 
-  // Escape closes panel / detail card / tooltip (DESIGN.md keyboard rule)
+  // Escape closes card / tooltip / (phone) panel
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setSite(null);
+      setDetail(null);
+      clearTrail();
       setShowRawInfo(false);
       if (window.innerWidth < 768) setPanelOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const clearTrail = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      if (map.getLayer("trail-line")) map.removeLayer("trail-line");
+      if (map.getSource("trail")) map.removeSource("trail");
+    } catch {}
+  };
+
+  const showTrail = async (kind: "aircraft" | "vessels", id: string) => {
+    const map = mapRef.current;
+    if (!map) return "";
+    try {
+      const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
+      const d = await r.json();
+      const pts = (d.points || []).map((p: any) => [p.lo, p.la]);
+      clearTrail();
+      if (pts.length >= 2) {
+        map.addSource("trail", { type: "geojson", data: {
+          type: "Feature", geometry: { type: "LineString", coordinates: pts }, properties: {},
+        } as any });
+        map.addLayer({
+          id: "trail-line", type: "line", source: "trail",
+          paint: { "line-color": "#7cc4ff", "line-width": 2, "line-opacity": 0.8, "line-dasharray": [1, 1.5] },
+        });
+      }
+      return d.note || (pts.length ? `${pts.length} archived positions (our own feed history)` : "");
+    } catch { return "trail unavailable"; }
+  };
 
   // ── imagery toggle ──
   useEffect(() => {
@@ -155,91 +201,163 @@ export default function DataMapPage() {
     setStatus("imagery", enabled.imagery ? "active" : "off");
   }, [enabled.imagery, mapReady, setStatus]);
 
-  // ── live aircraft (RAW — via /api/data/aircraft) ──
+  // ── generic live-points wiring (aircraft + vessels share the machinery) ──
+  const wireLivePoints = useCallback((opts: {
+    id: "aircraft" | "vessels";
+    intervalMs: number;
+    toFeatures: (d: any) => any[];
+    toVectors?: (d: any) => any[];
+    onClick: (props: any, lngLat: any) => void;
+    iconLayout: any;
+    iconPaint: any;
+  }) => {
+    const map = mapRef.current;
+    const { id } = opts;
+    let stop = false;
+    const srcId = id, layerId = `${id}-sym`, vecSrc = `${id}-vec`, vecLayer = `${id}-veclines`;
+
+    const teardown = () => {
+      stop = true;
+      try {
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+        if (map.getLayer(vecLayer)) map.removeLayer(vecLayer);
+        if (map.getSource(srcId)) map.removeSource(srcId);
+        if (map.getSource(vecSrc)) map.removeSource(vecSrc);
+      } catch {}
+    };
+
+    const load = async () => {
+      try {
+        const b = map.getBounds();
+        const since = sinceRef.current[id] || "";
+        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}${since ? `&since=${since}` : ""}`;
+        const r = await fetch(`/api/data/${id}?${q}`);
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (stop) return;
+        if (d.enabled === false) { setStatus(id, "awaiting_key"); return; }
+        if (d.unchanged) { return; } // delta: nothing new to draw
+        if (d.time != null) sinceRef.current[id] = String(d.time);
+
+        // Honest feed states (DESIGN.md): partial coverage + staleness shown.
+        let note: string | undefined;
+        if (d.coverage === "partial" && d.coverage_note) note = d.coverage_note;
+        if (d.stale) note = `stale — data as of ${new Date(d.stale_at || Date.now()).toLocaleTimeString()}`;
+
+        const features = opts.toFeatures(d);
+        const fc = { type: "FeatureCollection", features };
+        const src: any = map.getSource(srcId);
+        if (src) {
+          src.setData(fc);
+        } else {
+          map.addSource(srcId, { type: "geojson", data: fc as any });
+          map.addLayer({ id: layerId, type: "symbol", source: srcId, layout: opts.iconLayout, paint: opts.iconPaint });
+          map.on("click", layerId, (e: any) => {
+            const f = e.features?.[0];
+            if (f) opts.onClick(f.properties, e.lngLat);
+          });
+          map.on("mouseenter", layerId, () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; });
+        }
+        if (opts.toVectors) {
+          const vfc = { type: "FeatureCollection", features: opts.toVectors(d) };
+          const vsrc: any = map.getSource(vecSrc);
+          if (vsrc) {
+            vsrc.setData(vfc);
+          } else {
+            map.addSource(vecSrc, { type: "geojson", data: vfc as any });
+            map.addLayer({
+              id: vecLayer, type: "line", source: vecSrc,
+              minzoom: 6,   // vectors are 2px noise at continent zooms and double
+                            // the draw load — appear once you zoom into a region
+              paint: { "line-color": ["get", "color"], "line-width": 1, "line-opacity": 0.45 },
+            }, layerId);
+          }
+        }
+        setStatus(id, "active", d.count ?? features.length, note);
+      } catch {
+        if (!stop) setStatus(id, "error", undefined, "feed error — backing off, retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(load, opts.intervalMs);
+    const onMove = () => load();
+    map.on("moveend", onMove);
+    return () => {
+      teardown();
+      window.clearInterval(iv);
+      try { map.off("moveend", onMove); } catch {}
+    };
+  }, [setStatus]);
+
+  // ── live aircraft (RAW; WebGL symbols, heading-rotated, class icons) ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.aircraft) {
       try {
-        if (map.getLayer("aircraft-dots")) map.removeLayer("aircraft-dots");
+        if (map.getLayer("aircraft-sym")) map.removeLayer("aircraft-sym");
+        if (map.getLayer("aircraft-veclines")) map.removeLayer("aircraft-veclines");
         if (map.getSource("aircraft")) map.removeSource("aircraft");
+        if (map.getSource("aircraft-vec")) map.removeSource("aircraft-vec");
       } catch {}
       setStatus("aircraft", "off");
       return;
     }
     setStatus("aircraft", "loading");
-    let stop = false;
-    const load = async () => {
-      try {
-        const b = map.getBounds();
-        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}`;
-        const r = await fetch(`/api/data/aircraft?${q}`);
-        if (!r.ok) throw new Error(String(r.status));
-        const d = await r.json();
-        if (stop || !d.aircraft) return;
-        const geojson = {
-          type: "FeatureCollection",
-          features: d.aircraft.map((a: any) => ({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: [a.lon, a.lat] },
-            properties: {
-              callsign: a.callsign || a.icao24,
-              country: a.origin_country,
-              alt: a.altitude_m == null ? -1 : Math.round(a.altitude_m),
-              kts: a.velocity_ms == null ? null : Math.round(a.velocity_ms * 1.944),
-              ground: !!a.on_ground,
-            },
-          })),
+    return wireLivePoints({
+      id: "aircraft",
+      intervalMs: 15_000,
+      toFeatures: (d) => (d.aircraft || []).map((a: any) => {
+        const cls = classifyAircraft(a.type, a.category);
+        return {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [a.lon, a.lat] },
+          properties: {
+            icon: AIRCRAFT_ICON[cls], cls,
+            heading: a.heading ?? 0,
+            callsign: a.callsign || a.icao24, icao24: a.icao24,
+            country: a.origin_country, type: a.type || "",
+            alt: a.altitude_m, ground: !!a.on_ground,
+            kts: a.velocity_ms == null ? null : Math.round(a.velocity_ms * 1.944),
+          },
         };
-        const src: any = map.getSource("aircraft");
-        if (src) {
-          src.setData(geojson);
-        } else if (!map.getLayer("aircraft-dots")) {
-          map.addSource("aircraft", { type: "geojson", data: geojson as any });
-          map.addLayer({
-            id: "aircraft-dots",
-            type: "circle",
-            source: "aircraft",
-            paint: {
-              "circle-color": ["case", ["get", "ground"], "#6680a0", ["<", ["get", "alt"], 3000], "#fbb24c", "#4d9fff"],
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 2.5, 8, 5],
-              "circle-stroke-width": 1,
-              "circle-stroke-color": "rgba(0,0,0,0.55)",
-            },
-          });
-          map.on("click", "aircraft-dots", (e: any) => {
-            const f = e.features?.[0];
-            if (!f || !glRef.current) return;
-            const p = f.properties;
-            new glRef.current.Popup({ closeButton: true, className: "vt-popup", maxWidth: "240px" })
-              .setLngLat(e.lngLat)
-              .setHTML(
-                `<div class="vt-popup-body"><div class="vt-popup-title">✈ ${p.callsign}</div>` +
-                `<div class="vt-popup-line">${p.country || ""}</div>` +
-                `<div class="vt-popup-line">${p.ground === true || p.ground === "true" ? "on ground" : `${p.alt} m`}${p.kts ? ` · ${p.kts} kts` : ""}</div></div>`
-              )
-              .addTo(map);
-          });
-          map.on("mouseenter", "aircraft-dots", () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", "aircraft-dots", () => { map.getCanvas().style.cursor = ""; });
-        }
-        setStatus("aircraft", "active", d.count ?? geojson.features.length);
-      } catch {
-        if (!stop) setStatus("aircraft", "error");
-      }
-    };
-    load();
-    const iv = window.setInterval(load, 15_000);
-    const onMove = () => load();
-    map.on("moveend", onMove);
-    return () => {
-      stop = true;
-      window.clearInterval(iv);
-      try { map.off("moveend", onMove); } catch {}
-    };
-  }, [enabled.aircraft, mapReady, setStatus]);
+      }),
+      toVectors: (d) => (d.aircraft || [])
+        .filter((a: any) => a.heading != null && !a.on_ground)
+        .map((a: any) => ({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: [[a.lon, a.lat], velocityEndpoint(a.lat, a.lon, a.heading, a.velocity_ms)] },
+          properties: { color: a.on_ground ? "#6680a0" : (a.altitude_m != null && a.altitude_m < 3000 ? "#fbb24c" : "#4d9fff") },
+        })),
+      iconLayout: {
+        "icon-image": ["get", "icon"],
+        "icon-size": 0.5,
+        "icon-rotate": ["get", "heading"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+      iconPaint: { "icon-color": ALT_COLOR, "icon-opacity": 0.95 },
+      onClick: async (p) => {
+        const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
+        const alt = p.ground === true || p.ground === "true" ? "on ground" : (p.alt != null ? `${p.alt} m` : "alt unknown");
+        setDetail({
+          kind: "aircraft",
+          title: `✈ ${p.callsign}`,
+          subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
+          body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
+                `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
+                `trail below is our own archived feed history.`,
+          trailId: p.icao24, trailKind: "aircraft",
+        });
+        const note = await showTrail("aircraft", p.icao24);
+        setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note } : prev);
+      },
+    });
+  }, [enabled.aircraft, mapReady, wireLivePoints, setStatus]);
 
-  // ── live vessels (RAW — key-gated; registry only marks live when key set) ──
+  // ── live vessels (RAW; class icons + heading, destination from AIS) ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -247,72 +365,65 @@ export default function DataMapPage() {
     if (meta && meta.status === "awaiting_key") setStatus("vessels", "awaiting_key");
     if (!enabled.vessels) {
       try {
-        if (map.getLayer("vessel-dots")) map.removeLayer("vessel-dots");
+        if (map.getLayer("vessels-sym")) map.removeLayer("vessels-sym");
+        if (map.getLayer("vessels-veclines")) map.removeLayer("vessels-veclines");
         if (map.getSource("vessels")) map.removeSource("vessels");
+        if (map.getSource("vessels-vec")) map.removeSource("vessels-vec");
       } catch {}
       if (!meta || meta.status !== "awaiting_key") setStatus("vessels", "off");
       return;
     }
     setStatus("vessels", "loading");
-    let stop = false;
-    const load = async () => {
-      try {
-        const b = map.getBounds();
-        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}`;
-        const r = await fetch(`/api/data/vessels?${q}`);
-        const d = await r.json();
-        if (stop) return;
-        if (!d.enabled) { setStatus("vessels", "awaiting_key"); return; }
-        const geojson = {
-          type: "FeatureCollection",
-          features: (d.vessels || []).map((v: any) => ({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: [v.lon, v.lat] },
-            properties: { name: v.name, mmsi: v.mmsi, kts: v.sog == null ? null : Math.round(v.sog) },
-          })),
+    return wireLivePoints({
+      id: "vessels",
+      intervalMs: 20_000,
+      toFeatures: (d) => (d.vessels || []).map((v: any) => {
+        const cls = classifyVessel(v.shiptype);
+        return {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [v.lon, v.lat] },
+          properties: {
+            icon: VESSEL_ICON[cls], cls, color: VESSEL_COLOR[cls],
+            heading: v.cog ?? 0,
+            name: v.name, mmsi: v.mmsi,
+            kts: v.sog == null ? null : Math.round(v.sog),
+            destination: v.destination || "",
+          },
         };
-        const src: any = map.getSource("vessels");
-        if (src) {
-          src.setData(geojson);
-        } else if (!map.getLayer("vessel-dots")) {
-          map.addSource("vessels", { type: "geojson", data: geojson as any });
-          map.addLayer({
-            id: "vessel-dots",
-            type: "circle",
-            source: "vessels",
-            paint: {
-              "circle-color": "#4ade80",
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 2.5, 8, 5],
-              "circle-stroke-width": 1,
-              "circle-stroke-color": "rgba(0,0,0,0.55)",
-            },
-          });
-          map.on("click", "vessel-dots", (e: any) => {
-            const f = e.features?.[0];
-            if (!f || !glRef.current) return;
-            const p = f.properties;
-            new glRef.current.Popup({ closeButton: true, className: "vt-popup", maxWidth: "240px" })
-              .setLngLat(e.lngLat)
-              .setHTML(
-                `<div class="vt-popup-body"><div class="vt-popup-title">⚓ ${p.name}</div>` +
-                `<div class="vt-popup-line">MMSI ${p.mmsi}${p.kts != null ? ` · ${p.kts} kts` : ""}</div></div>`
-              )
-              .addTo(map);
-          });
-          map.on("mouseenter", "vessel-dots", () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", "vessel-dots", () => { map.getCanvas().style.cursor = ""; });
-        }
-        setStatus("vessels", "active", d.count ?? geojson.features.length);
-      } catch {
-        if (!stop) setStatus("vessels", "error");
-      }
-    };
-    load();
-    const iv = window.setInterval(load, 20_000);
-    return () => { stop = true; window.clearInterval(iv); };
-  }, [enabled.vessels, mapReady, layers, setStatus]);
+      }),
+      toVectors: (d) => (d.vessels || [])
+        .filter((v: any) => v.cog != null && (v.sog || 0) > 0.5)
+        .map((v: any) => ({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: [[v.lon, v.lat], velocityEndpoint(v.lat, v.lon, v.cog, (v.sog || 0) * 0.5144, 0.25)] },
+          properties: { color: VESSEL_COLOR[classifyVessel(v.shiptype)] },
+        })),
+      iconLayout: {
+        "icon-image": ["get", "icon"],
+        "icon-size": 0.45,
+        "icon-rotate": ["get", "heading"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+      iconPaint: { "icon-color": ["get", "color"], "icon-opacity": 0.95 },
+      onClick: async (p) => {
+        const cls = VESSEL_CLASS_LABEL[(p.cls || "other") as keyof typeof VESSEL_CLASS_LABEL] || "Vessel";
+        setDetail({
+          kind: "vessel",
+          title: `⚓ ${p.name}`,
+          subtitle: `${cls} · MMSI ${p.mmsi}`,
+          body: `${p.kts != null ? `${p.kts} kts · ` : ""}hdg ${Math.round(p.heading || 0)}°` +
+                `${p.destination ? `\nDestination (AIS-broadcast): ${p.destination}` : "\nDestination: not broadcast"}`,
+          trailId: p.mmsi, trailKind: "vessels",
+        });
+        const note = await showTrail("vessels", p.mmsi);
+        setDetail(prev => prev && prev.trailId === p.mmsi ? { ...prev, trailNote: note } : prev);
+      },
+    });
+  }, [enabled.vessels, mapReady, layers, wireLivePoints, setStatus]);
 
-  // ── strategic sites (RAW — datacore reference data; opens the detail card) ──
+  // ── strategic sites (RAW; opens the detail card) ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -322,7 +433,6 @@ export default function DataMapPage() {
         if (map.getSource("sites")) map.removeSource("sites");
       } catch {}
       setStatus("sites", "off");
-      setSite(null);
       return;
     }
     setStatus("sites", "loading");
@@ -331,52 +441,44 @@ export default function DataMapPage() {
       try {
         const r = await fetch("/api/data/sites");
         const d = await r.json();
-        if (cancelled || !d.sites) return;
+        if (cancelled || !d.sites || map.getSource("sites")) return;
         const colors: Record<string, string> = {};
-        Object.entries(d.categories || {}).forEach(([k, v]: any) => { colors[k] = v.color; });
         const catLabels: Record<string, string> = {};
-        Object.entries(d.categories || {}).forEach(([k, v]: any) => { catLabels[k] = v.label; });
-        const geojson = {
+        Object.entries(d.categories || {}).forEach(([k, v]: any) => { colors[k] = v.color; catLabels[k] = v.label; });
+        map.addSource("sites", { type: "geojson", data: {
           type: "FeatureCollection",
           features: d.sites.map((s: any) => ({
             type: "Feature",
             geometry: { type: "Point", coordinates: [s.lon, s.lat] },
             properties: {
-              name: s.name,
-              category: catLabels[s.category] || s.category,
-              operator: s.operator,
-              relevance: s.relevance,
+              name: s.name, category: catLabels[s.category] || s.category,
+              operator: s.operator, relevance: s.relevance,
               color: colors[s.category] || "#4d9fff",
             },
           })),
-        };
-        if (!map.getSource("sites")) {
-          map.addSource("sites", { type: "geojson", data: geojson as any });
-          map.addLayer({
-            id: "sites-dots",
-            type: "circle",
-            source: "sites",
-            paint: {
-              "circle-color": ["get", "color"],
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 5, 8, 8],
-              "circle-opacity": 0.9,
-              "circle-stroke-width": 1.5,
-              "circle-stroke-color": "rgba(238,243,251,0.9)",
-            },
+        } as any });
+        map.addLayer({
+          id: "sites-dots", type: "circle", source: "sites",
+          paint: {
+            "circle-color": ["get", "color"],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 5, 8, 8],
+            "circle-opacity": 0.9,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": "rgba(238,243,251,0.9)",
+          },
+        });
+        map.on("click", "sites-dots", (e: any) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          setDetail({
+            kind: "site",
+            title: f.properties.name,
+            subtitle: `${f.properties.category} · ${f.properties.operator}`,
+            body: f.properties.relevance,
           });
-          map.on("click", "sites-dots", (e: any) => {
-            const f = e.features?.[0];
-            if (!f) return;
-            setSite({
-              name: f.properties.name,
-              category: f.properties.category,
-              operator: f.properties.operator,
-              relevance: f.properties.relevance,
-            });
-          });
-          map.on("mouseenter", "sites-dots", () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", "sites-dots", () => { map.getCanvas().style.cursor = ""; });
-        }
+        });
+        map.on("mouseenter", "sites-dots", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "sites-dots", () => { map.getCanvas().style.cursor = ""; });
         setStatus("sites", "active", d.sites.length);
       } catch {
         if (!cancelled) setStatus("sites", "error");
@@ -392,15 +494,15 @@ export default function DataMapPage() {
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> : <LayersIcon size={15} />;
 
-  const statusFor = (l: LayerMeta): { dot: string; text: string } => {
-    const rt = runtime[l.id]?.status;
+  const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
+    const rt = runtime[l.id];
     if (l.status === "planned") return { dot: "var(--text-tertiary)", text: "coming soon" };
-    if (l.status === "awaiting_key" || rt === "awaiting_key") return { dot: "var(--accent-orange)", text: "awaiting API key" };
-    if (rt === "error") return { dot: "var(--accent-red)", text: "feed error — retrying" };
-    if (rt === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
-    if (rt === "active") {
-      const c = runtime[l.id]?.count;
-      return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${l.id === "sites" ? "sites" : l.id}` : "active" };
+    if (l.status === "awaiting_key" || rt?.status === "awaiting_key") return { dot: "var(--accent-orange)", text: "awaiting API key" };
+    if (rt?.status === "error") return { dot: "var(--accent-red)", text: rt.note || "feed error — retrying" };
+    if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
+    if (rt?.status === "active") {
+      const c = rt.count;
+      return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${l.id === "sites" ? "sites" : l.id}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
   };
@@ -411,7 +513,6 @@ export default function DataMapPage() {
     <div className="vt-map-page" data-vt-map>
       <div ref={mapContainer} className="vt-map-canvas" />
 
-      {/* loading skeleton until the map style is ready */}
       {!mapReady && !mapError && (
         <div className="vt-map-skeleton" aria-label="Map loading">
           <div className="vt-map-skeleton-shimmer" />
@@ -424,7 +525,7 @@ export default function DataMapPage() {
         </div>
       )}
 
-      {/* Layers control — top-right, collapsible; collapsed default on phone */}
+      {/* Layers control — top-right; collapsed by default on phone */}
       <div className="vt-map-controls">
         {!panelOpen ? (
           <button className="vt-map-fab" aria-label="Open layers panel" onClick={() => setPanelOpen(true)}>
@@ -448,7 +549,9 @@ export default function DataMapPage() {
               <div className="vt-layer-info-tip" role="note">
                 <b>RAW DATA</b> layers show sources as-is with attribution — no
                 predictive claim. <b>SIGNAL</b> layers appear only after
-                statistical validation (ladder gate 2).
+                statistical validation (ladder gate 2). Coverage limits are
+                stated per layer (terrestrial AIS has mid-ocean gaps; ADS-B
+                follows receiver density).
               </div>
             )}
             {layers.map(l => {
@@ -463,6 +566,7 @@ export default function DataMapPage() {
                     <span className="vt-layer-status">
                       <i style={{ background: st.dot }} /> {st.text}
                     </span>
+                    {st.note && <span className="vt-layer-covnote">{st.note}</span>}
                   </span>
                   <button
                     role="switch"
@@ -478,29 +582,34 @@ export default function DataMapPage() {
               );
             })}
             <div className="vt-legend">
-              <span><i style={{ background: "#4d9fff" }} /> cruise</span>
-              <span><i style={{ background: "#fbb24c" }} /> low alt / tanks</span>
+              <span><i style={{ background: "#4d9fff" }} /> jet/cruise</span>
+              <span><i style={{ background: "#fbb24c" }} /> low alt · tanker · tanks</span>
               <span><i style={{ background: "#6680a0" }} /> ground</span>
+              <span><i style={{ background: "#4ade80" }} /> cargo · ports</span>
+              <span><i style={{ background: "#c084fc" }} /> passenger</span>
               <span><i style={{ background: "#ff5a6e" }} /> mills</span>
-              <span><i style={{ background: "#4ade80" }} /> ports / vessels</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Site detail card — side card on desktop, bottom sheet on phone */}
-      {site && (
-        <div className="vt-site-card" role="dialog" aria-label={site.name}>
+      {/* Detail card — side card on desktop, bottom sheet on phone */}
+      {detail && (
+        <div className="vt-site-card" role="dialog" aria-label={detail.title}>
           <div className="vt-site-card-head">
             <div>
-              <div className="vt-site-card-title">{site.name}</div>
-              <div className="vt-site-card-cat">{site.category} · {site.operator}</div>
+              <div className="vt-site-card-title">{detail.title}</div>
+              <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
-            <button className="vt-icon-btn" aria-label="Close details" onClick={() => setSite(null)}>
+            <button className="vt-icon-btn" aria-label="Close details"
+                    onClick={() => { setDetail(null); clearTrail(); }}>
               <X size={17} />
             </button>
           </div>
-          <p className="vt-site-card-body">{site.relevance}</p>
+          <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
+          {detail.trailNote && (
+            <p className="vt-site-card-trail">Trail: {detail.trailNote}</p>
+          )}
         </div>
       )}
     </div>

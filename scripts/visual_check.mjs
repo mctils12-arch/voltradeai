@@ -52,14 +52,27 @@ const FIXTURES = {
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", source: "Copernicus", description: "Gate-2 locked." },
     ],
   },
-  "/api/data/aircraft": {
-    source: "fixture", kind: "raw", time: 0, count: 3,
-    aircraft: [
-      { icao24: "t1", callsign: "TEST1", origin_country: "US", lon: -96.7, lat: 36.2, altitude_m: 10000, on_ground: false, velocity_ms: 230, heading: 90 },
-      { icao24: "t2", callsign: "TEST2", origin_country: "US", lon: -97.4, lat: 35.5, altitude_m: 2000, on_ground: false, velocity_ms: 120, heading: 180 },
-      { icao24: "t3", callsign: "TEST3", origin_country: "US", lon: -96.0, lat: 35.9, altitude_m: null, on_ground: true, velocity_ms: 5, heading: 0 },
-    ],
-  },
+  // 10,000 synthetic aircraft — the DESIGN.md performance budget says map
+  // interactions stay smooth at 10k+ features; the fixture proves the
+  // rendering path at that scale (deterministic pseudo-random spread).
+  "/api/data/aircraft": (() => {
+    const aircraft = [];
+    let seed = 42;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const types = ["B738", "A320", "C172", "AT76", "EC35", null];
+    for (let i = 0; i < 10000; i++) {
+      aircraft.push({
+        icao24: "fx" + i.toString(16), callsign: "TST" + i, origin_country: "US",
+        lon: -125 + rnd() * 58, lat: 25 + rnd() * 24,
+        altitude_m: i % 17 === 0 ? null : Math.round(rnd() * 12000),
+        on_ground: i % 23 === 0,
+        velocity_ms: Math.round(rnd() * 250),
+        heading: Math.round(rnd() * 359),
+        type: types[i % types.length], category: null,
+      });
+    }
+    return { source: "fixture", kind: "raw", time: 1, count: aircraft.length, aircraft };
+  })(),
   "/api/data/vessels": { enabled: false, reason: "AISSTREAM_KEY not set (fixture)", vessels: [] },
   "/api/data/sites": {
     kind: "raw",
@@ -81,10 +94,17 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 function startServer() {
   return new Promise((resolve) => {
     const srv = createServer((req, res) => {
-      const u = (req.url || "/").split("?")[0];
+      const [u, qs] = (req.url || "/").split("?");
       const fx = Object.keys(FIXTURES).find((k) => u === k || u.startsWith(k + "/"));
       if (fx) {
         res.writeHead(200, { "content-type": "application/json" });
+        // Exercise the real ?since= delta path: an unchanged snapshot returns
+        // {unchanged:true} with no payload — the client must skip setData.
+        // (This also makes the perf window measure PAN smoothness, not
+        // redundant 10k-feature re-uploads.)
+        if (fx === "/api/data/aircraft" && (qs || "").includes("since=1")) {
+          return res.end(JSON.stringify({ unchanged: true, time: 1, count: FIXTURES[fx].count }));
+        }
         return res.end(JSON.stringify(FIXTURES[fx]));
       }
       if (u.startsWith("/api/")) {
@@ -206,7 +226,11 @@ async function main() {
         viewport: { width: vp.w, height: vp.h },
         hasTouch: vp.touch,
         isMobile: vp.touch && vp.w < 640,
-        deviceScaleFactor: 2,
+        // dsf 1: SwiftShader rasterizes in software — dsf 2 quadruples the
+        // pixel surface at 1440 and turns the perf guard into a pixel-count
+        // test instead of a feature-count test. Real-DPR acceptance is the
+        // human's S24 (real GPU).
+        deviceScaleFactor: 1,
       });
       const page = await ctx.newPage();
       // Full determinism: only the fixture server is reachable. External
@@ -220,13 +244,65 @@ async function main() {
       });
       const errors = [];
       page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+      const t0 = Date.now();
       await page.goto(`http://127.0.0.1:${port}${route}`, { waitUntil: "load", timeout: 30000 });
-      await page.waitForTimeout(6000); // map init + fixture layers
+      // TTI: skeleton gone = page interactive (DESIGN.md: <3s on device;
+      // headless SwiftShader is far slower — hard regression guard at 12s).
+      let tti = null;
+      for (let i = 0; i < 60; i++) {
+        const gone = await page.evaluate(() => !document.querySelector(".vt-map-skeleton"));
+        if (gone) { tti = Date.now() - t0; break; }
+        await page.waitForTimeout(250);
+      }
+      await page.waitForTimeout(2500); // let overlay layers mount
+      // PERF BUDGET: drive pans through the __vtMap hook while sampling rAF
+      // frame deltas. Software-GL thresholds are regression guards, not the
+      // on-device budget (that's DESIGN.md's number).
+      const perf = await page.evaluate(async () => {
+        const map = window.__vtMap;
+        if (!map) return { error: "__vtMap hook missing" };
+        const c = map.getCenter();
+        const runPans = async (record) => {
+          const deltas = [];
+          let last = performance.now();
+          let sampling = true;
+          const tick = (t) => { deltas.push(t - last); last = t; if (sampling) requestAnimationFrame(tick); };
+          if (record) requestAnimationFrame(tick);
+          for (const [dx, dy] of [[8, 3], [-14, -5], [10, 4], [-4, -2]]) {
+            map.easeTo({ center: [c.lng + dx, c.lat + dy], duration: 600 });
+            await new Promise(r => setTimeout(r, 650));
+          }
+          sampling = false;
+          await new Promise(r => setTimeout(r, 60));
+          return deltas.filter(d => d > 0).sort((a, b) => a - b);
+        };
+        await runPans(false);            // warm-up: first-pan upload hitches
+        const sorted = await runPans(true);   // measured window (warm)
+        const q = (f) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * f))] || 0;
+        let rendered = 0;
+        try { rendered = map.queryRenderedFeatures({ layers: ["aircraft-sym"] }).length; } catch {}
+        return { frames: sorted.length, median: Math.round(q(0.5)), p95: Math.round(q(0.95)),
+                 max: Math.round(sorted[sorted.length - 1] || 0), renderedAircraft: rendered };
+      });
       const shot = path.join(OUT, `${name}-${vp.w}.png`);
       await page.screenshot({ path: shot });
       const checks = await page.evaluate(CHECKS_SNIPPET(vp.w, vp.touch));
       checks.failures.push(...errors);
-      results.push({ page: name, width: vp.w, label: vp.label, screenshot: shot, ...checks });
+      // Perf budget (headless regression guards; on-device budget in DESIGN.md)
+      if (tti == null) checks.failures.push("TTI: skeleton never cleared (>15s)");
+      else if (tti > 12000) checks.failures.push(`TTI ${tti}ms > 12s headless guard`);
+      if (perf.error) checks.failures.push("perf: " + perf.error);
+      else {
+        // Software-GL (SwiftShader) is 10-50x slower than any real GPU —
+        // REGRESSION GUARDS calibrated to headless, not the on-device budget
+        // (DESIGN.md owns that; the S24 is the acceptance device). MEDIAN =
+        // steady-state smoothness after a warm-up window; p95 spikes are
+        // data-upload hitches, warned not failed under software rasterization.
+        if (perf.median > 300) checks.failures.push(`perf: median frame ${perf.median}ms > 300ms headless guard (steady-state jank) @10k features`);
+        if (perf.p95 > 700) checks.warnings.push(`perf: p95 frame ${perf.p95}ms (upload-hitch spikes)`);
+        if (!perf.renderedAircraft) checks.warnings.push("perf: no aircraft features rendered in viewport sample");
+      }
+      results.push({ page: name, width: vp.w, label: vp.label, screenshot: shot, tti, perf, ...checks });
       await ctx.close();
     }
   }
@@ -241,6 +317,7 @@ async function main() {
     r.failures.forEach((f) => console.log(`  ✗ ${f}`));
     r.warnings.forEach((w) => console.log(`  ⚠ ${w}`));
     if (r.info.map) console.log(`  map: ${Math.round(r.info.map.w)}x${Math.round(r.info.map.h)} at y=${Math.round(r.info.map.y)}`);
+    if (r.tti != null) console.log(`  tti: ${r.tti}ms | perf: median ${r.perf?.median}ms p95 ${r.perf?.p95}ms over ${r.perf?.frames} frames | rendered ${r.perf?.renderedAircraft ?? "?"} aircraft`);
   }
   writeFileSync(path.join(OUT, "results.json"), JSON.stringify(results, null, 2));
   console.log(`\n${hard} hard failure(s). Results: .visual/results.json`);

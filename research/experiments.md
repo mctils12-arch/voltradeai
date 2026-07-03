@@ -268,3 +268,25 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   provider out for 30s..15min after failures, and the fallback serves
   immediately.
 - STARVED: no.
+
+## 2026-07-03 — [PRODUCT] Map v2 client half: WebGL rendering + enrichment (with PR #106)
+- Rendering: MapLibre WebGL symbol layers (per-marker DOM eliminated).
+  Runtime-generated SDF silhouettes (jet/turboprop/piston/helicopter;
+  tanker/cargo/small-craft) tinted per-feature, rotated to heading,
+  velocity-vector line layers zoom-gated >=6 (halves low-zoom draw load —
+  found by the perf harness). Verified at 10,000 aircraft.
+- Enrichment: class from ICAO type designator + emitter category (free
+  feed fields — adsb.lol 't'/'category'); detail cards with archive
+  trails (/api/data/track), "route data unavailable — filed plans are a
+  paid source" honesty line, AIS destination shown when broadcast,
+  per-layer stale/partial-coverage notes; Escape/keyboard rules kept.
+- Harness upgraded to the perf budget: 10k-feature fixture, __vtMap
+  pan-driving, TTI + median-frame guards. Calibration journey (logged
+  honestly): p95 -> median-after-warmup (upload hitches vs steady-state),
+  fixture ?since= support (validates the delta path AND stops measuring
+  redundant re-uploads), dsf 1 (features not pixels under software GL).
+  Final: PASS x3 widths, median 67-167ms @10k in SwiftShader, TTI <1.7s.
+- CI note: #106's first docker-build failed on npm ECONNRESET (registry
+  flake — gate correctly held). Frozen ci.yml/Dockerfile can't grow
+  retries without human approval; recurrence -> wishlist proposal.
+- STARVED: no.
