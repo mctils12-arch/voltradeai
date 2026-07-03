@@ -5,6 +5,7 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs";
 import https from "https";
+import { WebSocket as WSClient } from "ws";
 import cookieParser from "cookie-parser";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
@@ -647,7 +648,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const p = path.resolve(process.cwd(), "datacore", "layers.json");
       const registry = JSON.parse(fs.readFileSync(p, "utf8"));
-      res.json({ layers: registry.layers || [] });
+      const layers = (registry.layers || []).map((l: any) =>
+        // vessels goes live automatically the moment AISSTREAM_KEY exists
+        l.id === "vessels"
+          ? { ...l, status: process.env.AISSTREAM_KEY ? "live" : "awaiting_key" }
+          : l
+      );
+      res.json({ layers });
     } catch (e: any) {
       console.error("[datacore] layers registry:", e?.message || e);
       res.json({ layers: [] });
@@ -709,6 +716,107 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (hit) return res.json({ ...hit.data, cached: true, stale: true });
       res.status(502).json({ error: `aircraft feed unavailable: ${e?.message || e}`, aircraft: [] });
     }
+  });
+
+  // Live vessels (RAW) — aisstream.io AIS websocket, key-gated. Without
+  // AISSTREAM_KEY the route reports enabled:false (the layer panel shows
+  // "awaiting API key" — signup flagged in research/wishlist.md). With the
+  // key, a lazy singleton subscriber keeps an in-memory latest-positions map
+  // (US coastal boxes, PositionReports only), pruned for staleness and
+  // capped in size. The frontend polls this route only (boundary rule).
+  const vesselPositions: Map<string, { lat: number; lon: number; sog: number | null; cog: number | null; name: string; at: number }> = new Map();
+  let vesselSocket: WSClient | null = null;
+  let vesselSocketUp = 0;
+
+  function ensureVesselStream(): boolean {
+    const key = process.env.AISSTREAM_KEY || "";
+    if (!key) return false;
+    if (vesselSocket && vesselSocket.readyState === 1) return true;   // OPEN
+    if (vesselSocket && vesselSocket.readyState === 0) return true;   // CONNECTING
+    try { vesselSocket?.terminate(); } catch {}
+    try {
+      const ws = new WSClient("wss://stream.aisstream.io/v0/stream");
+      vesselSocket = ws;
+      ws.on("open", () => {
+        vesselSocketUp = Date.now();
+        ws.send(JSON.stringify({
+          APIKey: key,
+          // US West Coast + East/Gulf coastal boxes
+          BoundingBoxes: [[[24, -130], [49, -110]], [[24, -100], [45, -65]]],
+          FilterMessageTypes: ["PositionReport"],
+        }));
+      });
+      ws.on("message", (buf: any) => {
+        try {
+          const m = JSON.parse(buf.toString());
+          if (m.MessageType !== "PositionReport") return;
+          const meta = m.MetaData || {};
+          const pos = m.Message?.PositionReport || {};
+          const mmsi = String(meta.MMSI || "");
+          const lat = pos.Latitude ?? meta.latitude;
+          const lon = pos.Longitude ?? meta.longitude;
+          if (!mmsi || lat == null || lon == null) return;
+          vesselPositions.set(mmsi, {
+            lat, lon,
+            sog: pos.Sog ?? null, cog: pos.Cog ?? null,
+            name: String(meta.ShipName || "").trim() || mmsi,
+            at: Date.now(),
+          });
+          // bound memory: prune stale (>15min) when large, then cap hard
+          if (vesselPositions.size > 5000) {
+            const cutoff = Date.now() - 15 * 60_000;
+            for (const [k, v] of vesselPositions) {
+              if (v.at < cutoff) vesselPositions.delete(k);
+            }
+            while (vesselPositions.size > 5000) {
+              const first = vesselPositions.keys().next().value;
+              if (first === undefined) break;
+              vesselPositions.delete(first);
+            }
+          }
+        } catch {}
+      });
+      ws.on("error", (e: any) => console.error("[datacore] aisstream:", e?.message || e));
+      ws.on("close", () => { if (vesselSocket === ws) vesselSocket = null; });
+      return true;
+    } catch (e: any) {
+      console.error("[datacore] aisstream connect:", e?.message || e);
+      vesselSocket = null;
+      return false;
+    }
+  }
+
+  app.get("/api/data/vessels", (req, res) => {
+    if (!process.env.AISSTREAM_KEY) {
+      return res.json({
+        enabled: false,
+        reason: "AISSTREAM_KEY not set — free signup at aisstream.io (see research/wishlist.md)",
+        vessels: [],
+      });
+    }
+    ensureVesselStream();
+    const num = (v: any, dflt: number) => {
+      const n = parseFloat(String(v));
+      return Number.isFinite(n) ? n : dflt;
+    };
+    const lamin = num(req.query.lamin, -85), lamax = num(req.query.lamax, 85);
+    const lomin = num(req.query.lomin, -180), lomax = num(req.query.lomax, 180);
+    const cutoff = Date.now() - 15 * 60_000;
+    const vessels: any[] = [];
+    for (const [mmsi, v] of vesselPositions) {
+      if (v.at < cutoff) continue;
+      if (v.lat < lamin || v.lat > lamax || v.lon < lomin || v.lon > lomax) continue;
+      vessels.push({ mmsi, name: v.name, lat: v.lat, lon: v.lon, sog: v.sog, cog: v.cog });
+      if (vessels.length >= 1500) break;
+    }
+    res.json({
+      enabled: true,
+      source: "aisstream.io (AIS)",
+      kind: "raw",
+      warming_up: vessels.length === 0 && Date.now() - vesselSocketUp < 30_000,
+      count: vessels.length,
+      vessels,
+    });
   });
 
   // Strategic sites (RAW) — static reference data from datacore/sites.
