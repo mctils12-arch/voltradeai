@@ -182,6 +182,72 @@ export default function DataMapPage() {
     };
   }, [enabled.aircraft, mapReady]);
 
+  // Strategic sites overlay (RAW — datacore/sites reference data).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.sites) {
+      try {
+        if (map.getLayer("sites-dots")) map.removeLayer("sites-dots");
+        if (map.getLayer("sites-labels")) map.removeLayer("sites-labels");
+        if (map.getSource("sites")) map.removeSource("sites");
+      } catch {}
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/data/sites");
+        const d = await r.json();
+        if (cancelled || !d.sites || map.getSource("sites")) return;
+        const colors: Record<string, string> = {};
+        Object.entries(d.categories || {}).forEach(([k, v]: any) => { colors[k] = v.color; });
+        const geojson = {
+          type: "FeatureCollection",
+          features: d.sites.map((s: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+            properties: {
+              name: s.name, category: s.category, operator: s.operator,
+              relevance: s.relevance, color: colors[s.category] || "#4d9fff",
+            },
+          })),
+        };
+        map.addSource("sites", { type: "geojson", data: geojson as any });
+        map.addLayer({
+          id: "sites-dots",
+          type: "circle",
+          source: "sites",
+          paint: {
+            "circle-color": ["get", "color"],
+            "circle-radius": 6,
+            "circle-opacity": 0.85,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": "rgba(255,255,255,0.85)",
+          },
+        });
+        map.on("click", "sites-dots", async (e: any) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          const p = f.properties;
+          const maplibregl = (await import("maplibre-gl")).default;
+          new maplibregl.Popup({ closeButton: true, maxWidth: "300px" })
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `<div style="font-family:Geist,sans-serif;font-size:12px;color:#111;line-height:1.45">` +
+              `<b style="font-size:13px">${p.name}</b><br/>` +
+              `<span style="color:#555">${p.operator}</span><br/><br/>` +
+              `${p.relevance}</div>`
+            )
+            .addTo(map);
+        });
+        map.on("mouseenter", "sites-dots", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "sites-dots", () => { map.getCanvas().style.cursor = ""; });
+      } catch { /* registry unavailable — toggle again to retry */ }
+    })();
+    return () => { cancelled = true; };
+  }, [enabled.sites, mapReady]);
+
   const kindBadge = (kind: string) => (
     <span style={{
       fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px",
