@@ -121,6 +121,8 @@ Your structural edges are these four. Direct research effort at them:
    - USAspending.gov + SAM.gov: government contracts hitting small caps
      before the price does.
    - FDA calendars, USPTO patents, CFTC COT positioning, FRED macro.
+   - Google Trends via pytrends (already in requirements.txt, currently
+     dormant) — the free consumer-demand proxy; most valuable on small caps.
    Every data pipeline built = a permanent input nobody can bill for.
 2. FISH WHERE WHALES CAN'T. Capacity constraints lock big funds out of
    small/illiquid names — deploying size would move the market against
@@ -143,6 +145,27 @@ Your structural edges are these four. Direct research effort at them:
 The compounding asset is never the ingredient (data feeds, rented
 intelligence) — it is the accumulation: pipelines built, tools compiled,
 experiments logged, rules costed. Protect and grow the accumulation.
+
+## ROOT VALIDATION LADDER — how new data becomes trading logic, and how faults localize
+
+Every data pipeline passes five gates in order, each against its own
+ground truth:
+
+1. DATA: the reading is verified against an external truth source (e.g.
+   tank shadows vs. the EIA report) before anything downstream.
+2. SIGNAL: predictive power is measured statistically, with no trading
+   involved.
+3. LOGIC: entry/exit rules are backtested by ablation against the
+   validated signal.
+4. SIZING: results are compared vs. equal-weight to isolate allocation
+   effects.
+5. EXECUTION: the slippage gap from the fills tracker isolates fill
+   quality from decision quality.
+
+A failure at layer N with 1..N-1 verified is a fault AT layer N — never
+debug the whole pipeline at once. A root that fails a gate is logged with
+its layer of death in experiments.md; roots may not skip gates regardless
+of how promising they look.
 
 ## HEALTH OF THE LOOP ITSELF — detecting repair thrash
 
@@ -258,6 +281,19 @@ caps, exposure ceilings) additionally require: change one threshold at a
 time, log prior value in the commit, and state the rollback trigger in
 `research/experiments.md`.
 
+## MEASUREMENT INTEGRITY — who audits the ruler
+
+Code that measures performance is more sensitive than code that trades:
+the backtest engine, slippage/fill models, P&L computation, counterfactual
+logger, and any metric definition. Changes to measurement code are their
+own PR, never combined with a strategy change, tagged [RULE-REVIEW], and
+must state in the PR: what the metric reported before vs. after on
+identical historical inputs, and in which direction the change could bias
+results. A measurement change that makes existing strategies look better
+is treated as suspect by default and requires independent justification
+(a named bug, an external ground truth). Never tune the ruler and the
+thing being measured in the same session.
+
 ## FROZEN PATHS — never edit these
 
 - `market_calendar.py` factual data — holidays/half-days (EXCEPTION: adding
@@ -275,8 +311,12 @@ time, log prior value in the commit, and state the rollback trigger in
   RULE REVIEW rules (evidence + one-at-a-time + logged rollback trigger) —
   the machinery that applies them may never be altered or bypassed.
 - `.github/workflows/` — CI definitions
-- This file's FROZEN PATHS and PROMOTION RULES sections. You may append to
-  other sections.
+- This file's FROZEN PATHS and PROMOTION RULES sections. Appending to
+  this file's non-frozen sections is limited to factual updates (KNOWN
+  STATE, CODEBASE MAP). Any change that adds, softens, or creates
+  exceptions to a rule anywhere in this file is a constitutional
+  amendment: propose it in wishlist.md with rationale and wait for human
+  approval — never self-apply.
 
 If a change seems to require touching a frozen path, write the proposal to
 `research/wishlist.md` instead and stop that line of work.
