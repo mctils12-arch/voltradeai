@@ -430,3 +430,27 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   version-by-increment); the archive is accumulating the proprietary
   dataset R2 builds on. STARVED: no — queue is deep but this directive's
   scope is fully shipped.
+
+## 2026-07-03 — [RESEARCH] OpenSky creds verification (negative) + aircraft-feed licensing audit
+- Human set OPENSKY_CLIENT_ID/SECRET in Railway (wishlist item closed).
+  Verification NEGATIVE: 6+ fresh-bbox probes over ~30 min (wider than
+  the 15-min max backoff window, so at least one live OpenSky attempt
+  was forced) all served from community fallbacks; OpenSky never took a
+  request. OpenSky reachable anonymously from a non-Railway network
+  (HTTP 200) -> the Railway egress rejection persists even with OAuth
+  creds available. Disambiguation (IP block vs. auth-endpoint failure
+  vs. env-not-loaded) needs Railway deploy logs — handed to the human
+  in the wishlist entry.
+- Prior expectation (recorded in the wishlist entry BEFORE the test):
+  creds "may restore the primary feed" — rejected; an egress-level
+  block is not an authentication problem.
+- Licensing audit (triggered by the verification request): OpenSky
+  license = non-profit research/education ONLY, and operational REST-API
+  integration requires written permission even for non-profits — both
+  tripwires fire for us (paid site features + automated integration).
+  airplanes.live free API = explicitly non-commercial. adsb.lol = ODbL
+  1.0, the only terms-compatible provider for commercial display today.
+  Flagged constraint + provider-priority recommendation filed in
+  wishlist.md for human decision — ANALYSIS ONLY per instruction, no
+  code or priority-order change shipped.
+- STARVED: no — usage-calibration loop build queued in same session.

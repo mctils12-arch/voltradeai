@@ -43,13 +43,23 @@
   proposal must attach the analysis). Also DESIGN.md gains the PERFORMANCE
   BUDGET + FEATURE COMPLETENESS CHECKLIST sections. Bookkept per the
   amendment rule.
-- **OpenSky free account** (HUMAN ACTION, $0): anonymous OpenSky is
-  rate-limited AND currently rejects Railway egress entirely (we run on
-  the adsb.lol fallback). A free OpenSky account (OAuth2 client
-  credentials -> OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET in Railway)
-  raises limits ~4x and may restore the primary feed. BUILD-FIRST
-  analysis: raw material already free via adsb.lol; this is a $0 signup
-  that adds redundancy, not spend.
+- **[DONE BY HUMAN 2026-07-03 — verification NEGATIVE, see below]**
+  OpenSky free account ($0): credentials set in Railway as
+  OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET. Same-day verification:
+  production STILL serves from community fallbacks — 6+ fresh-bbox
+  probes spanning ~30 minutes (longer than the 15-min max backoff, so at
+  least one live OpenSky attempt was guaranteed inside the window) all
+  returned adsb.lol or airplanes.live; OpenSky never served a request.
+  The API itself is up (HTTP 200 anonymously from a non-Railway
+  network), so the pre-credentials Railway egress rejection appears to
+  persist with OAuth. Not distinguishable from outside: (a) IP-level
+  block also covering the auth endpoint, (b) states/all rejecting
+  Railway even authenticated, or (c) service never restarted after the
+  env vars were set. Railway deploy logs disambiguate — look for
+  "[datacore] opensky auth:" lines (token fetch failing) around aircraft
+  requests; if no restart happened since setting the vars, redeploy once
+  and re-check. MOOT UNTIL THE LICENSING DECISION BELOW: the terms
+  analysis means OpenSky should not be our primary even if it worked.
 - **⚠ FLAGGED CONSTRAINT — aircraft-feed licensing (HUMAN DECISION NEEDED,
   filed 2026-07-03). Analysis only per your instruction; NO provider or
   code change made.** While verifying the new OpenSky credentials we read
