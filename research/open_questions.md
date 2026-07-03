@@ -106,6 +106,14 @@
    deliberately untouched (no options extended session exists on Alpaca).
    See experiments.md for the regression test and downstream-chain trace.
 
+9. **Vessel stream: connect eagerly at boot** (found in v1.0.43 live
+   verification): the aisstream websocket connects lazily on the first
+   /api/data/vessels request, so every deploy leaves a vessels gap (map
+   empty + archive not recording) until someone opens the map. One-line
+   fix: call ensureVesselStream() at server startup when AISSTREAM_KEY is
+   set. Also closes archive continuity gaps across deploys. Verify
+   ShipStaticData typing/destination populates post-warm-up while there.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
