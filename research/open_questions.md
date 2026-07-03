@@ -22,7 +22,29 @@
    in current audit logs that Tier 2 CSP trades actually fire now. If
    still zero fills, the fix pack didn't take.
 
-4. **Human-reported: bot "doesn't work right" overall.** Symptoms to
+4. **Human-reported: bot "doesn't work right" overall.**
+   DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
+   below): /api/health reports ALL subsystems ok (server, sqlite, Alpaca
+   account ACTIVE, python bridge, bot state "active"; Node RSS 78MB).
+   Market-status/calendar correct (July-3 NYSE holiday handled). One
+   evidence-backed finding: `state.equityPeak` (bot.ts:359) is in-memory
+   only — initialized 0, lazily seeded from CURRENT equity on the first
+   account poll (bot.ts:862, 2482), never persisted to the volume or
+   rehydrated on boot. Therefore the MAX-DRAWDOWN KILL SWITCH high-water
+   mark RESETS on every deploy/restart; with frequent autonomous deploys
+   (6 on 2026-07-03 alone) drawdown protection is silently re-based each
+   time and can never accumulate a true peak. Fix (persist equityPeak in
+   the existing /data/voltrade state) touches frozen kill-switch machinery
+   -> proposed in wishlist.md for human approval, not edited.
+   ACCESS LIMITATION: every deeper diagnostic route (/api/bot/audit,
+   /positions, /performance, /api/daemon/health, /api/bot/ml-status,
+   /api/monitoring/*) is requireOwner (session cookie for OWNER_EMAIL,
+   auth.ts — frozen). Autonomous sessions cannot read audit logs or
+   trade_feedback from outside the container. Deeper #3/#4 verification
+   (CSP fills firing? feedback accumulating? Tier-3 retrain green?) needs
+   either the human pasting /api/bot/audit + /api/bot/ml-status JSON into
+   a session, or the wishlist read-only-diagnostics proposal.
+   Original symptom list to collect: Symptoms to
    collect from audit logs: are trades firing at expected frequency? Are
    fills tracked into trade_feedback? Is the ML retrain loop (Tier 3)
    completing or erroring? Diagnose from `/data/voltrade` state files and

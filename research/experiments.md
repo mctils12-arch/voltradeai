@@ -58,3 +58,12 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   excluding it, 7 failures + 1 error in network/keys-dependent files
   (identical with and without this change — verified by stash A/B). CI's
   4-file offline subset is green: 110 passed, 1 skipped.
+
+## 2026-07-03 — [REPAIR] Live-system diagnosis (BOOTSTRAP Phase 2, public surface)
+- /api/health all-ok (Alpaca ACTIVE, python bridge ok, bot active); calendar
+  correct on the July-3 NYSE holiday. Finding: equityPeak in-memory only ->
+  drawdown kill-switch high-water mark resets every deploy (6 today);
+  strengthening fix touches frozen kill-switch machinery -> wishlist
+  proposal, not edited. Deeper verification of KNOWN BROKEN #3/#4 blocked
+  by owner-only auth on all diagnostic routes -> access options proposed in
+  wishlist. No code change this entry.
