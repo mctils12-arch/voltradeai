@@ -2,15 +2,18 @@
 
 ## KNOWN BROKEN — fix these first (repair mandate)
 
-1. **Backtest engine missing.** `backtest.py` is a stub; the real engine
+1. **[RESOLVED 2026-07-03 — backtest_v2.py]** ~~Backtest engine missing.~~
+   Rebuilt: see experiments.md entry. Original text: `backtest.py` is a stub; the real engine
    that produced `backtest_10yr_results.json` was never ported from the
    workbench. Nothing can be evaluated until this exists. Reproduce the
    output schema in that JSON; invoke signature is
    `python3 backtest.py <ticker> <strategy> <years>` (bot.ts JSON-parses
    stdout). STANDING TOP PRIORITY.
 
-2. **2 failing tests** in `test_audit_critical.py` reference missing
-   `backtest_v2.py`. Fix as part of #1, or skip with reason until then.
+2. **[RESOLVED 2026-07-03]** ~~2 failing tests reference missing backtest_v2.py.~~
+   The backtest_v2 gated test now runs and passes; the backtest_v1028_full
+   test remains skip-with-reason (legacy file superseded by backtest_v2,
+   never ported).
 
 3. **CSP execution cascade** (per CHANGELOG 2026-05-22): CSP trades were
    failing on three modes — insufficient capital for high-priced
@@ -30,6 +33,15 @@
    `macro_data.py`, `alt_data.py`, `social_data.py`,
    `institutional_data.py` — audit which of these actually feed
    `deep_score`/tier decisions vs. which are orphaned. Wire or retire.
+
+6. **Full-repo pytest is broken at collection (pre-existing).**
+   `test_auto_discovery.py` calls sys.exit() at module level, killing
+   collection for everything; excluding it, 7 failures + 1 error remain in
+   network/keys-dependent files (test_options_fixes, test_options_v134_fixes,
+   test_fixes_pr8/11, test_full_system) — verified identical with and without
+   the backtest change. CI's 4-file offline subset is the real gate and is
+   green. Fix candidates: convert test_auto_discovery to proper pytest tests;
+   mark network suites with a skip-if-no-keys guard.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
