@@ -457,6 +457,48 @@ function saveEquityCurve() {
   }
 }
 
+// KNOWN BROKEN #7 FIX 2026-07-03 (human-approved): the max-drawdown kill
+// switch's high-water mark (state.equityPeak) was in-memory only, so every
+// deploy/restart re-based drawdown protection from current equity — frequent
+// autonomous deploys silently defanged it. Persist the peak exactly like the
+// equity curve above (volume path + /tmp fallback), restore on boot. The
+// halt logic itself is untouched — this only preserves its input.
+const EQUITY_PEAK_PATH = "/data/voltrade/voltrade_equity_peak.json";
+const EQUITY_PEAK_FALLBACK = "/tmp/voltrade_equity_peak.json";
+
+function loadEquityPeak(): number {
+  for (const p of [EQUITY_PEAK_PATH, EQUITY_PEAK_FALLBACK]) {
+    try {
+      if (fs.existsSync(p)) {
+        const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+        const peak = parseFloat(parsed?.equityPeak);
+        if (Number.isFinite(peak) && peak > 0) return peak;
+      }
+    } catch (e: any) {
+      console.error(`[equity-peak] could not load ${p}:`, e?.message || e);
+    }
+  }
+  return 0;
+}
+
+function saveEquityPeak() {
+  for (const p of [EQUITY_PEAK_PATH, EQUITY_PEAK_FALLBACK]) {
+    try {
+      const dir = p.substring(0, p.lastIndexOf("/"));
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      fs.writeFileSync(p, JSON.stringify({ equityPeak: state.equityPeak, savedAt: new Date().toISOString() }));
+      return;
+    } catch (e: any) {
+      console.error(`[equity-peak] could not save to ${p}:`, e?.message || e);
+    }
+  }
+}
+
+// Restore the high-water mark on boot so restarts don't reset drawdown
+// protection. If no file exists yet (first boot), the existing lazy seeding
+// at the kill-switch sites behaves exactly as before.
+state.equityPeak = loadEquityPeak();
+
 // ─── Email Alerts (Resend) ────────────────────────────────────────────────────
 const RESEND_KEY = process.env.RESEND_KEY || "";
 const ALERT_EMAIL = process.env.ALERT_EMAIL || "mctils12@gmail.com";
@@ -859,8 +901,8 @@ export function registerBotRoutes(app: Express) {
       state.dailyPnL = dailyPnL;
 
       // ── Max Drawdown Kill Switch ──
-      if (state.equityPeak === 0) state.equityPeak = equity;
-      if (equity > state.equityPeak) state.equityPeak = equity;
+      if (state.equityPeak === 0) { state.equityPeak = equity; saveEquityPeak(); }
+      if (equity > state.equityPeak) { state.equityPeak = equity; saveEquityPeak(); }
       const drawdownPct = ((equity - state.equityPeak) / state.equityPeak) * 100;
       if (drawdownPct <= state.maxDrawdownPct && !state.killSwitch) {
         state.killSwitch = true;
@@ -2479,8 +2521,8 @@ print(json.dumps(result[:20]))
     const equity = parseFloat(acct.equity || "100000");
 
     // Max drawdown check on every Tier 1 cycle
-    if (state.equityPeak === 0) state.equityPeak = equity;
-    if (equity > state.equityPeak) state.equityPeak = equity;
+    if (state.equityPeak === 0) { state.equityPeak = equity; saveEquityPeak(); }
+    if (equity > state.equityPeak) { state.equityPeak = equity; saveEquityPeak(); }
     const t1Drawdown = ((equity - state.equityPeak) / state.equityPeak) * 100;
     if (t1Drawdown <= state.maxDrawdownPct && !state.killSwitch) {
       state.killSwitch = true;

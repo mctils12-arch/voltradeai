@@ -67,3 +67,25 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   proposal, not edited. Deeper verification of KNOWN BROKEN #3/#4 blocked
   by owner-only auth on all diagnostic routes -> access options proposed in
   wishlist. No code change this entry.
+
+## 2026-07-03 — [REPAIR] Kill-switch peak persistence (KNOWN BROKEN #7, human-approved)
+- Change: persist state.equityPeak (max-drawdown kill switch high-water mark)
+  to /data/voltrade/voltrade_equity_peak.json (/tmp fallback), restored on
+  boot — mirroring the 2026-05-05 equity-curve persistence fix for the same
+  bug class. All 4 raise-sites save on the same line; halt logic untouched.
+  Version 1.0.35.
+- Regression test FIRST (loop-health rule 3): TestKillSwitchPeakPersistence
+  in test_audit_critical.py — 3 of 4 assertions PROVEN FAILING on the old
+  code (no persistence file, no boot restore, raises without save); the 4th
+  is a scope guard asserting the halt condition itself is unchanged. All 4
+  pass post-fix.
+- PRIOR (before live verification, REASONING STANDARD #10): after deploy,
+  the peak file is created on the first account poll / Tier 1 cycle (market
+  closed until Jul 6, so expect /api/health equityPeak = 0 until then);
+  from Jul 6 onward equityPeak survives restarts (nonzero across deploys)
+  and drawdownPct measures from the true historical peak.
+- Downstream chain (#1): persisted peak -> drawdown measured from true peak
+  -> halt CAN fire after a slow multi-deploy bleed -> possibly more halts in
+  genuine drawdowns (intended). ROLLBACK TRIGGER: a spurious DRAWDOWN-KILL
+  from a stale peak (e.g. after an intentional capital change) -> revert the
+  commit AND delete voltrade_equity_peak.json from the volume.
