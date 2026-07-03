@@ -104,10 +104,71 @@ than the market — it comes from iterating honestly, faster, and across more
 variables simultaneously than a human operator can, without ego, fatigue,
 or attachment to past ideas. Kill your own darlings on evidence.
 
+## REPAIR MANDATE
+
 The current bot is a good framework that does not fully work. Fixing known
 breaks outranks new research (Priority 1 and 2 both demand it). Session one
 onward: consult `research/open_questions.md` KNOWN BROKEN section first.
 A broken pipeline generates poisoned learning data — repair before research.
+
+## CODEBASE MAP — read this so you don't rediscover the architecture
+
+Runtime: Railway runs `run_with_daemon.sh` → Node (`dist/index.cjs`) +
+supervised `voltrade_daemon.py` (Unix-socket RPC at
+/tmp/voltrade_daemon.sock, subprocess fallback if the socket is down,
+self-kills over 1GB RSS).
+
+- `server/bot.ts` (247KB) — THE ORCHESTRATOR. Tier scheduling (Tier 1 stop
+  monitoring ~30s; Tier 2 scans with time-of-day cadence; Tier 3 hourly:
+  ML retrain, macro, diagnostics). Calls Python via pythonRpc → daemon,
+  subprocess fallback via pythonCall. Audit log, SSE, fills tracking WITH
+  synthetic volume-tiered slippage haircut, equity curve, strategy weights.
+- `bot_engine.py` (240KB) — scan_market, deep_score, manage_positions,
+  SPY floor, convexity overlay (QQQ puts), defensive floor, sector
+  correlation, portfolio drawdown tracking.
+- `ml_model_v2.py` — LightGBM, triple-barrier labels, purged walk-forward
+  CV, regime classification, trade_feedback training with code_version
+  gating (legacy weighted 0.4x), poisoned-record cleanup on startup.
+- `system_config.py` — ALL tunable parameters, regime-adaptive via
+  get_adaptive_params(). Parameter changes happen HERE, nowhere else.
+- `risk_kill_switch.py` — halts/liquidation/correlation (see FROZEN rules).
+- Options stack: `options_scanner.py`, `options_manager.py`,
+  `options_execution.py` (select_contract, submit_options_order),
+  `csp_universe.py` (CSP candidate filtering — source of the May-2026
+  failure cascade in CHANGELOG.md).
+- Data modules (verify live wiring — possibly orphaned): `alt_data.py`,
+  `macro_data.py`, `social_data.py`, `institutional_data.py`,
+  `intelligence.py`, `finnhub_data.py`, and `alphadesk/` (EDGAR filings /
+  catalyst engine; separate package with its own CLAUDE.md).
+- `strategies/` — small isolated scoring modules (momentum, mean_reversion,
+  squeeze). Future tournament home.
+- Site: `client/src/` React+shadcn; `server/routes.ts` API;
+  `server/auth.ts` / `billing.ts` / `newsletter.ts` (frozen).
+- State: JSON files at /data/voltrade (Railway volume; /tmp local
+  fallback) — all paths in `storage_config.py`. SQLite via better-sqlite3
+  on the Node side.
+- `backtest.py` — STUB (see open_questions.md #1).
+
+## READ BEFORE WRITE — non-negotiable editing protocol
+
+You have NO memory of this codebase between sessions, and your training
+knowledge of "how trading bots usually work" does not describe THIS bot.
+Before editing ANY function:
+
+1. Read the actual current code of the function and its surrounding
+   section, this session. If you have not read it this session, you do
+   not know it.
+2. Grep every call site of anything whose signature or behavior changes.
+   bot.ts calls Python via RPC method names AND inline subprocess
+   one-liners, so call sites exist in BOTH languages — a Python signature
+   change with an un-updated bot.ts caller fails silently at runtime, not
+   in CI.
+3. Before hardcoding any number, check system_config.py — the parameter
+   almost always already exists there.
+4. If you add or rename a Python entry point that bot.ts calls, register
+   it in voltrade_daemon.py's method table AND keep the subprocess
+   fallback path working.
+5. Never patch from memory, assumption, or generic patterns.
 
 ## RULE REVIEW — every trading rule is a hypothesis, not scripture
 
