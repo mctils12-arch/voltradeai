@@ -178,3 +178,22 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   genuine drawdowns (intended). ROLLBACK TRIGGER: a spurious DRAWDOWN-KILL
   from a stale peak (e.g. after an intentional capital change) -> revert the
   commit AND delete voltrade_equity_peak.json from the volume.
+
+## 2026-07-03 — [PRODUCT] /data map v1 shipped (PROMPTS.md Section A executed)
+- A0 status check -> A1-A3 + STARVED metric installed (PR #98, human
+  pre-approved inline). A4 map build shipped in 4 vertical slices:
+  #99 map+imagery+datacore boundary (v1.0.36), #100 live aircraft/OpenSky
+  (v1.0.37), #101 strategic sites x16 (v1.0.38), vessels scaffold this PR
+  (v1.0.39, key-gated: goes live automatically when AISSTREAM_KEY is set).
+- The /data tab is LIVE on the site: satellite imagery, live ADS-B
+  aircraft (30s-cached boundary proxy, stale-over-error), Cushing/STLD/
+  ports reference layer with tradable-exposure metadata, RAW/SIGNAL
+  labeling per the surface rules, gate-2 disclosure in the layer panel.
+- Boundary discipline: frontend calls /api/data/* only; base imagery tiles
+  are the documented scoped exception. datacore/ has zero trading imports.
+- Ladder position: everything shipped is RAW (ungated by design). First
+  SIGNAL candidate remains Sentinel-2 tank-fill at Cushing — gate 1 ground
+  truth = EIA weekly storage. The sites layer just gave it its ground.
+- STARVED: no — high-value work remains queued (KNOWN BROKEN #3/#4/#5/#6/#8,
+  counterfactual logger, Sentinel-2 gate 1) but this session cleared its
+  planned scope. Session end.

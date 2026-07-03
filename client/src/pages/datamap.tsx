@@ -182,6 +182,83 @@ export default function DataMapPage() {
     };
   }, [enabled.aircraft, mapReady]);
 
+  // Live vessels overlay (RAW — aisstream via the datacore boundary).
+  // The registry only marks this layer live when AISSTREAM_KEY is set
+  // server-side, so this effect only ever runs against an enabled feed.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.vessels) {
+      try {
+        if (map.getLayer("vessel-dots")) map.removeLayer("vessel-dots");
+        if (map.getSource("vessels")) map.removeSource("vessels");
+      } catch {}
+      return;
+    }
+    let stop = false;
+    const load = async () => {
+      try {
+        const b = map.getBounds();
+        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}`;
+        const r = await fetch(`/api/data/vessels?${q}`);
+        const d = await r.json();
+        if (stop || !d.enabled) return;
+        const geojson = {
+          type: "FeatureCollection",
+          features: (d.vessels || []).map((v: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [v.lon, v.lat] },
+            properties: {
+              name: v.name, mmsi: v.mmsi,
+              kts: v.sog == null ? null : Math.round(v.sog),
+            },
+          })),
+        };
+        const src: any = map.getSource("vessels");
+        if (src) {
+          src.setData(geojson);
+        } else {
+          map.addSource("vessels", { type: "geojson", data: geojson as any });
+          map.addLayer({
+            id: "vessel-dots",
+            type: "circle",
+            source: "vessels",
+            paint: {
+              "circle-color": "#2dd4bf",
+              "circle-radius": 3.5,
+              "circle-stroke-width": 1,
+              "circle-stroke-color": "rgba(0,0,0,0.6)",
+            },
+          });
+          map.on("click", "vessel-dots", async (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const maplibregl = (await import("maplibre-gl")).default;
+            new maplibregl.Popup({ closeButton: true })
+              .setLngLat(e.lngLat)
+              .setHTML(
+                `<div style="font-family:Geist Mono,monospace;font-size:12px;color:#111">` +
+                `<b>${p.name}</b><br/>MMSI ${p.mmsi}${p.kts != null ? `<br/>${p.kts} kts` : ""}</div>`
+              )
+              .addTo(map);
+          });
+          map.on("mouseenter", "vessel-dots", () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", "vessel-dots", () => { map.getCanvas().style.cursor = ""; });
+        }
+      } catch { /* transient — next poll retries */ }
+    };
+    load();
+    const iv = window.setInterval(load, 20_000);
+    const onMove = () => load();
+    map.on("moveend", onMove);
+    return () => {
+      stop = true;
+      window.clearInterval(iv);
+      try { map.off("moveend", onMove); } catch {}
+    };
+  }, [enabled.vessels, mapReady]);
+
   // Strategic sites overlay (RAW — datacore/sites reference data).
   useEffect(() => {
     const map = mapRef.current;

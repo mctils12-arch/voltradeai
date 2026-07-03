@@ -21,9 +21,9 @@
       "id": "vessels",
       "name": "Live vessels (AIS)",
       "kind": "raw",
-      "status": "planned",
+      "status": "awaiting_key",
       "source": "aisstream.io (free API key)",
-      "description": "Live ship positions via AIS websocket. Requires AISSTREAM_KEY."
+      "description": "Live ship positions via AIS websocket. Goes live automatically when AISSTREAM_KEY is set (free signup \u2014 see wishlist)."
     },
     {
       "id": "sites",
