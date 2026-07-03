@@ -182,3 +182,15 @@
     nonzero); BUILD-FIRST sits correctly as an EDGE DOCTRINE subsection;
     the tripwire rule vs. the FLAGGED CONSTRAINT entry are rule vs.
     decision-record, cross-referenced, not redundant.
+
+- **[APPROVED BY HUMAN 2026-07-03 — applied same message]** USAGE-
+  CALIBRATION LOOP switched to DAILY AGGRESSIVE MODE: usage-screenshot
+  readings get a SAME-DAY recommendation (headroom → name exact slots to
+  add NOW up to the platform cap; near limits → throttle fall-through
+  first, then drop order); aggressive-add bias while weekly <50%. New
+  voltrade-usage-check routine (DAILY 21:30 ET) — canonical prompt in
+  usage_log.md; description carries the ~2026-07-24 revisit note (drop
+  back to weekly once readings flatten). Gmail re-verified this session:
+  connector remains DRAFT-ONLY (no send tool exists) — daily nudge lands
+  in Drafts; the Claude Code Notifications tab is the recommended
+  completion signal instead. Bookkept per the amendment rule.

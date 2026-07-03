@@ -7,10 +7,16 @@ percentages from the image, appends a row here with context, and applies
 the calibration rule below (standing behavior note in CLAUDE.md KNOWN
 STATE, human-approved 2026-07-03).
 
-## Calibration rule
-- 2+ consecutive weekly readings under 50% AND queue depth nonzero →
-  recommend specific routine slots to ADD from the expansion menu below.
-- Readings approaching 90%+ → recommend slots to DROP per the drop order.
+## Calibration rule (DAILY AGGRESSIVE MODE, human-approved 2026-07-03)
+- Screenshot pasted → log the row and respond SAME DAY: if trajectory
+  shows clear headroom against the queue, name exact routine slots to
+  add NOW (up to the platform's daily cap and 1-hour spacing); if
+  approaching limits, name what to throttle — fall-through depth first
+  (CLAUDE.md SESSION BUDGET ladder), then slots per the drop order.
+- Bias toward AGGRESSIVE slot addition while weekly readings are <50%.
+- Revisit cadence ~2026-07-24 (2–3 weeks in): once readings flatten,
+  drop the daily check back to weekly; the weekly-mode rule then applies
+  (2+ consecutive weekly readings <50% → add; ~90%+ → drop).
 
 ## Schedule reference (A5 design, delivered 2026-07-03)
 Full 8-run/day menu (all ET): daily-am 7:00 · product-am 9:00 ·
@@ -25,6 +31,32 @@ Gmail draft; not a build slot).
   currently active subset toward the full 8-run table.
 - STARVED valve (armed since #98): 10+ consecutive STARVED sessions
   auto-flags Agent-SDK continuous operation in wishlist.md.
+
+## voltrade-usage-check routine (DAILY 21:30 ET) — canonical prompt text
+
+Routine description field: "Daily usage nudge — two-line day summary +
+screenshot reminder draft. REVISIT CADENCE ~2026-07-24: once usage
+readings flatten, delete this daily routine and let
+voltrade-weekly-review carry the loop."
+
+> [USAGE-CHECK] Read research/usage_log.md and today's entries in
+> research/experiments.md. Report only — no code changes, no PRs.
+>
+> 1. Two-line summary: (line 1) sessions run today and PRs merged today
+> with their tags ([REPAIR]/[PIPELINE]/[PRODUCT]/...); (line 2) the
+> current top queued item and whether any session today logged STARVED.
+>
+> 2. With the Gmail connector, create a DRAFT to mctils12@gmail.com,
+> subject "VolTrade Daily — usage screenshot". Body = the two-line
+> summary, then: "REMINDER: paste your current Plan usage panel
+> screenshot into any Claude Code session on voltradeai — same-day
+> schedule recalibration per the USAGE-CALIBRATION LOOP." The connector
+> is draft-only (verified 2026-07-03): the draft lands in the Drafts
+> folder, not the Inbox — the Claude Code Notifications tab is the
+> reliable place to see this routine completed. If Gmail tools are
+> unavailable in this routine context, state that prominently at the top
+> of the session output and continue — the summary itself is the
+> deliverable.
 
 ## voltrade-weekly-review routine (Sun 10:00 ET) — canonical prompt text
 
@@ -64,8 +96,22 @@ Gmail draft; not a build slot).
   (~21 PRs from the interactive session — not a representative week; the
   weekly window is also partial, resetting Jul 5). Queue depth is
   nonzero: MAP V2 roadmap R2 (transit counters), R3 (environmental), R4
-  (globe), KNOWN BROKEN #3/#4/#5/#6/#9, options-backtest wishlist item.
-  Per the 2-consecutive-readings rule, a formal slot-add recommendation
-  waits for the next Sunday reading — but at 15% weekly with a deep
-  queue, the expected recommendation is to fill toward the 8-run table
-  (first adds: product-eve 20:00, edge-late 22:30, daily-midday 12:30).
+  (globe), KNOWN BROKEN #3/#4/#5/#6, provider-redundancy research,
+  options fill realism, strategy tournament, dual-momentum OOS.
+- 2026-07-03 SAME-DAY RECOMMENDATION (daily aggressive mode, human
+  directive "scale now"): headroom is decisive — weekly 15% two days
+  before reset with only 3 routines active, on the heaviest interactive
+  day the repo has had. CREATE TODAY (completes the A5 8-run table +
+  the daily nudge; all ≥1h apart, within the per-account daily cap):
+  1. voltrade-product-am — 9:00 ET — PRODUCT prompt (B4)
+  2. voltrade-daily-midday — 12:30 ET — DAILY prompt (B1; holds merges
+     until close per the A5 mid-market rule)
+  3. voltrade-product-pm — 14:00 ET — PRODUCT prompt (B4; holds merges)
+  4. voltrade-product-eve — 20:00 ET — PRODUCT prompt (B4)
+  5. voltrade-usage-check — 21:30 ET — prompt above (this file)
+  6. voltrade-edge-late — 22:30 ET — EDGE prompt (B3)
+  Rationale: routines alone are a small share of the 15%; ~2.7× routine
+  load stays far under the 50% aggression threshold even with
+  fall-through making each run heavier. Watch the next 2-3 daily
+  readings; if 5-hour peaks spike past ~80%, throttle per drop order
+  (product-pm → edge-late → product-eve) before touching the core.

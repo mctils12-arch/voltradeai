@@ -504,16 +504,20 @@ look busy remains forbidden.
   map layer is labeled as one or the other.
 - A dedicated product routine builds datacore/ + the /data site section
   per the SPINOUT-READY DATA LAYER rules ([PRODUCT] sessions).
-- USAGE-CALIBRATION LOOP (human-approved 2026-07-03): When the human
-  pastes a usage screenshot, read the 5-hour and weekly percentages from
-  the image, append them to research/usage_log.md with context, and if
-  2+ consecutive weekly readings are under 50% while queue depth is
-  nonzero, recommend specific routine slots to add; if readings approach
-  90%+, recommend which slots to drop per the established drop order
+- USAGE-CALIBRATION LOOP (human-approved 2026-07-03; DAILY AGGRESSIVE
+  MODE approved same day): When the human pastes a usage screenshot, log
+  it to research/usage_log.md and respond with a SAME-DAY
+  recommendation: if trajectory shows clear headroom against the queue,
+  name exact routine slots to add NOW (up to the platform's daily cap
+  and hourly spacing); if approaching limits, name what to throttle —
+  fall-through ladder first, then slots per the drop order
   (research/usage_log.md: product-pm → edge-late → product-eve; 4-run
-  irreducible core). The voltrade-weekly-review routine (Sun 10:00 ET)
-  produces the C1 briefing plus a Gmail DRAFT to the human — the Gmail
-  connector is draft-only (verified 2026-07-03), no send capability.
+  irreducible core). Bias toward aggressive slot addition while weekly
+  readings are under 50%. Cadence: voltrade-usage-check (DAILY 21:30 ET)
+  + voltrade-weekly-review (Sun 10:00 ET, C1 briefing); both emit Gmail
+  DRAFTS — the connector is draft-only (verified 2026-07-03), no send
+  capability. Revisit ~2026-07-24: once readings flatten, drop the daily
+  check back to weekly mode.
 - MONETIZATION TRIPWIRE (standing, human-approved 2026-07-03): any
   session touching billing, pricing, subscriptions, ads, or paid-feature
   gating MUST first re-run the aircraft-provider compliance check in
