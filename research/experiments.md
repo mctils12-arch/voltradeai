@@ -332,3 +332,69 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   no-op'd). Impact limited: only #97 affects trading behavior. Rule
   forward: bump by READING the current version and incrementing, never by
   replacing a hardcoded prior value.
+
+## 2026-07-03 — [PRODUCT] Map v2 PR 2/3: global feeds + PERMANENT POSITION ARCHIVE (v1.0.41)
+- ARCHIVE EVERYTHING is live: server/datacoreArchive.ts records every
+  ingested aircraft/vessel position to the Railway volume from this deploy
+  forward. Adaptive thinning (30s near strategic sites / 60s low-altitude /
+  5min cruise; 2min near ports / 10min open water / 30min anchored),
+  hourly JSONL rotate, gzip after 2h, 7-day rollup into per-entity daily
+  track summaries (bbox + coarse polyline), /api/data/archive/stats for
+  the volume watch, /api/data/track/:kind/:id serves recent trails.
+  13 hermetic node:test cases (thinning ordering, cadence enforcement,
+  gzip/rollup lifecycle, round-trip, stats).
+- Feeds: GLOBAL coverage. Aircraft: OpenSky primary with OAuth2 support
+  (activates when OPENSKY_CLIENT_ID/SECRET land — wishlist), adsb.lol
+  fallback with HONEST partial-coverage flag when the viewport needs
+  >250nm; per-provider exponential backoff (30s..15min); in-flight dedup
+  so all visitors share ONE upstream request per bbox; ?since= dedup
+  returns {unchanged:true} instead of re-sending payloads; caps raised to
+  5000 (WebGL client lands in PR 3/3). Vessels: aisstream subscription
+  widened to global, ShipStaticData captured (shiptype/destination) and
+  merged into reads, caps 20k in-memory / 5k per response, coverage
+  honesty in the source string (terrestrial AIS = mid-ocean gaps).
+- Feed-error diagnosis (the "feed error — retrying" symptom): root cause
+  was OpenSky rejecting Railway egress + no backoff, so every 15s poll
+  re-failed the primary before falling back. Backoff now pins the
+  provider out for 30s..15min after failures, and the fallback serves
+  immediately.
+- STARVED: no.
+
+## 2026-07-03 — [PRODUCT] Map v2 client half: WebGL rendering + enrichment (with PR #106)
+- Rendering: MapLibre WebGL symbol layers (per-marker DOM eliminated).
+  Runtime-generated SDF silhouettes (jet/turboprop/piston/helicopter;
+  tanker/cargo/small-craft) tinted per-feature, rotated to heading,
+  velocity-vector line layers zoom-gated >=6 (halves low-zoom draw load —
+  found by the perf harness). Verified at 10,000 aircraft.
+- Enrichment: class from ICAO type designator + emitter category (free
+  feed fields — adsb.lol 't'/'category'); detail cards with archive
+  trails (/api/data/track), "route data unavailable — filed plans are a
+  paid source" honesty line, AIS destination shown when broadcast,
+  per-layer stale/partial-coverage notes; Escape/keyboard rules kept.
+- Harness upgraded to the perf budget: 10k-feature fixture, __vtMap
+  pan-driving, TTI + median-frame guards. Calibration journey (logged
+  honestly): p95 -> median-after-warmup (upload hitches vs steady-state),
+  fixture ?since= support (validates the delta path AND stops measuring
+  redundant re-uploads), dsf 1 (features not pixels under software GL).
+  Final: PASS x3 widths, median 67-167ms @10k in SwiftShader, TTI <1.7s.
+- CI note: #106's first docker-build failed on npm ECONNRESET (registry
+  flake — gate correctly held). Frozen ci.yml/Dockerfile can't grow
+  retries without human approval; recurrence -> wishlist proposal.
+- STARVED: no.
+
+## 2026-07-03 — [PRODUCT] Archive supersession + coordination lesson (merge of #106/#107 work)
+- A routine session and this interactive session BOTH built MAP V2 R1's
+  position archive concurrently (#107 merged first; this branch carried the
+  fuller build). Reconciled to ONE system: server/datacoreArchive.ts stays
+  (adaptive thinning per the ARCHIVE EVERYTHING amendment, gzip, 7-day
+  rollups, /api/data/track trails needed by the map client); PR #107's
+  server/dataArchive.ts + test removed — its uniform 30-min sampling and
+  no-compression design didn't meet the amendment. Adopted from #107: the
+  measured growth-estimate discipline (~100MB/mo documented in datacore/
+  README + module header). #107's experiments entry stays (append-only).
+- Version: three-way lesson compounding — #97/#99 collided on 1.0.36, and
+  #106/#107 BOTH took 1.0.41. This merge lands as 1.0.42.
+- COORDINATION GOTCHA (added to ops list): concurrent sessions must CLAIM a
+  roadmap item before building — append a one-line [CLAIMED <date> <PR#>]
+  marker to the roadmap entry in open_questions.md in their FIRST commit,
+  and check for claims before starting.

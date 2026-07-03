@@ -12,9 +12,12 @@ import cookieParser from "cookie-parser";
 // never reaches the image, which made runtime fs reads return {} in prod.
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
+import {
+  archiveAircraft, archiveVessels, compressOldHours, rollupOldDays,
+  recentTrack, archiveStats,
+} from "./datacoreArchive";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
-import { recordAircraftSample, recordVesselSample, getArchiveStats } from "./dataArchive";
 
 const execAsync = promisify(exec);
 
@@ -650,7 +653,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // DATA LAYER). All /data map overlay data is served here — the frontend
   // never calls external data sources directly. Layers registry is static
   // metadata from datacore/layers.json; overlay routes land one per slice.
-  const DATA_DIR = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp");
   app.get("/api/data/layers", (_req, res) => {
     const layers = ((datacoreLayers as any).layers || []).map((l: any) =>
       // vessels goes live automatically the moment AISSTREAM_KEY exists
@@ -661,42 +663,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ layers });
   });
 
-  // Live aircraft overlay (RAW) — proxies OpenSky Network's free ADS-B API.
-  // Anonymous OpenSky is hard-rate-limited (~400 credits/day), so responses
-  // are cached 30s per rounded bbox and the bbox is clamped to sane spans.
-  // Frontend polls this route only — never OpenSky directly (boundary rule).
+  // Live aircraft overlay (RAW) — OpenSky primary (OAuth when creds exist),
+  // adsb.lol fallback. GLOBAL coverage with viewport bboxes; one shared
+  // upstream request per bbox (in-flight dedup + 30s cache) protects rate
+  // limits no matter how many visitors watch. Exponential backoff per
+  // provider; stale-over-error; every fresh snapshot feeds the permanent
+  // position archive (datacoreArchive). Frontend never calls upstreams.
+  const ARCHIVE_SITES = ((datacoreSites as any).sites || []).map((s: any) => ({ lat: s.lat, lon: s.lon }));
   const aircraftCache: Map<string, { at: number; data: any }> = new Map();
-  app.get("/api/data/aircraft", async (req, res) => {
-    const num = (v: any, lo: number, hi: number, dflt: number) => {
-      const n = parseFloat(String(v));
-      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
-    };
-    // Default bbox: continental US. Rounded to 1dp so map panning re-hits cache.
-    const lamin = Math.round(num(req.query.lamin, -85, 85, 24) * 10) / 10;
-    const lamax = Math.round(num(req.query.lamax, -85, 85, 50) * 10) / 10;
-    const lomin = Math.round(num(req.query.lomin, -180, 180, -125) * 10) / 10;
-    const lomax = Math.round(num(req.query.lomax, -180, 180, -66) * 10) / 10;
-    const key = `${lamin},${lamax},${lomin},${lomax}`;
-    const hit = aircraftCache.get(key);
-    if (hit && Date.now() - hit.at < 30_000) {
-      return res.json({ ...hit.data, cached: true });
-    }
+  const aircraftInflight: Map<string, Promise<any>> = new Map();
+  const feedBackoff: Record<string, { failures: number; until: number }> = {};
+
+  const backoffActive = (p: string) => (feedBackoff[p]?.until || 0) > Date.now();
+  const backoffBump = (p: string) => {
+    const b = (feedBackoff[p] ||= { failures: 0, until: 0 });
+    b.failures++;
+    b.until = Date.now() + Math.min(15 * 60_000, 30_000 * 2 ** (b.failures - 1));
+  };
+  const backoffClear = (p: string) => { feedBackoff[p] = { failures: 0, until: 0 }; };
+
+  // OpenSky OAuth2 client-credentials (free account -> higher limits; see
+  // wishlist: OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET). Anonymous otherwise.
+  let osToken: { tok: string; exp: number } | null = null;
+  async function openskyAuthHeader(UA: Record<string, string>): Promise<Record<string, string>> {
+    const id = process.env.OPENSKY_CLIENT_ID, secret = process.env.OPENSKY_CLIENT_SECRET;
+    if (!id || !secret) return UA;
+    if (osToken && osToken.exp > Date.now() + 60_000) return { ...UA, Authorization: `Bearer ${osToken.tok}` };
     try {
-      // Primary: OpenSky. Fallback: adsb.lol (free, open, no key) — OpenSky
-      // rejects requests from some datacenter IPs, which broke aircraft in
-      // production while working locally. UA header set on both (UA-less
-      // requests are another common rejection cause).
-      const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
-      let aircraft: any[] = [];
-      let source = "";
-      let time = Math.floor(Date.now() / 1000);
+      const r = await fetch("https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token", {
+        method: "POST",
+        headers: { ...UA, "Content-Type": "application/x-www-form-urlencoded" },
+        body: `grant_type=client_credentials&client_id=${encodeURIComponent(id)}&client_secret=${encodeURIComponent(secret)}`,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!r.ok) throw new Error(`token ${r.status}`);
+      const j: any = await r.json();
+      osToken = { tok: j.access_token, exp: Date.now() + (j.expires_in || 1800) * 1000 };
+      return { ...UA, Authorization: `Bearer ${osToken.tok}` };
+    } catch (e: any) {
+      console.error("[datacore] opensky auth:", e?.message || e);
+      return UA;
+    }
+  }
+
+  async function fetchAircraft(lamin: number, lamax: number, lomin: number, lomax: number) {
+    const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
+    let aircraft: any[] = [];
+    let source = "";
+    let coverage = "full";
+    let coverage_note = "";
+    let time = Math.floor(Date.now() / 1000);
+
+    let primaryErr: any = null;
+    if (!backoffActive("opensky")) {
       try {
+        const headers = await openskyAuthHeader(UA);
         const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
-        const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(12000) });
+        const r = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
         if (!r.ok) throw new Error(`OpenSky ${r.status}`);
         const raw: any = await r.json();
         time = raw.time || time;
-        aircraft = (raw.states || []).slice(0, 800).map((s: any[]) => ({
+        aircraft = (raw.states || []).slice(0, 5000).map((s: any[]) => ({
           icao24: s[0],
           callsign: (s[1] || "").trim(),
           origin_country: s[2],
@@ -706,22 +733,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           on_ground: s[8],
           velocity_ms: s[9],
           heading: s[10],
+          type: null,       // OpenSky states carry no type designator
+          category: s[17] != null ? String(s[17]) : null,
         })).filter((a: any) => a.lat != null && a.lon != null);
         source = "OpenSky Network (opensky-network.org)";
-      } catch (primaryErr: any) {
-        // adsb.lol: point+radius API (max 250nm). Cover the bbox from its
-        // center; fields are imperial (ft / kts) — convert to SI to keep the
-        // response shape identical for the client.
+        backoffClear("opensky");
+      } catch (e: any) {
+        primaryErr = e;
+        backoffBump("opensky");
+      }
+    } else {
+      primaryErr = new Error("opensky in backoff");
+    }
+
+    if (!source) {
+      if (backoffActive("adsblol")) throw new Error(`both providers backing off (${primaryErr?.message})`);
+      try {
+        // adsb.lol point+radius (hard max 250nm). At wide zooms this covers
+        // only part of the viewport — say so honestly instead of pretending.
         const clat = (lamin + lamax) / 2;
         const clon = (lomin + lomax) / 2;
         const latSpanNm = Math.abs(lamax - lamin) * 60;
-        const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.cos((clat * Math.PI) / 180);
-        const radiusNm = Math.min(250, Math.max(50, Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2)));
+        const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.max(0.1, Math.cos((clat * Math.PI) / 180));
+        const neededNm = Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2);
+        const radiusNm = Math.min(250, Math.max(50, neededNm));
+        if (neededNm > 250) {
+          coverage = "partial";
+          coverage_note = `fallback feed covers ~250nm around view center (viewport needs ~${neededNm}nm) — zoom in for full coverage, or add OpenSky credentials (wishlist) for global`;
+        }
         const r2 = await fetch(`https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`,
           { headers: UA, signal: AbortSignal.timeout(12000) });
-        if (!r2.ok) throw new Error(`OpenSky (${primaryErr?.message}) then adsb.lol ${r2.status}`);
+        if (!r2.ok) throw new Error(`adsb.lol ${r2.status}`);
         const raw2: any = await r2.json();
-        aircraft = (raw2.ac || []).slice(0, 800).map((a: any) => ({
+        aircraft = (raw2.ac || []).slice(0, 5000).map((a: any) => ({
           icao24: a.hex,
           callsign: String(a.flight || "").trim(),
           origin_country: a.r || "",
@@ -731,29 +775,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           on_ground: a.alt_baro === "ground",
           velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
           heading: a.track ?? null,
+          type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
+          category: a.category || null,          // ADS-B emitter category (A1..A7)
         })).filter((a: any) => a.lat != null && a.lon != null);
         source = "adsb.lol (ADS-B, community)";
+        backoffClear("adsblol");
+      } catch (e: any) {
+        backoffBump("adsblol");
+        throw new Error(`OpenSky (${primaryErr?.message}) then ${e?.message}`);
       }
-      const data = {
-        source,
-        kind: "raw",
-        time,
-        count: aircraft.length,
-        aircraft,
-      };
+    }
+
+    // Feed the permanent archive (adaptive thinning inside; fire-and-forget).
+    try { archiveAircraft(aircraft, ARCHIVE_SITES); } catch {}
+
+    return { source, kind: "raw", time, coverage, coverage_note: coverage_note || undefined, count: aircraft.length, aircraft };
+  }
+
+  app.get("/api/data/aircraft", async (req, res) => {
+    const num = (v: any, lo: number, hi: number, dflt: number) => {
+      const n = parseFloat(String(v));
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+    };
+    // GLOBAL defaults; rounded to 1dp so panning re-hits the shared cache.
+    const lamin = Math.round(num(req.query.lamin, -85, 85, -85) * 10) / 10;
+    const lamax = Math.round(num(req.query.lamax, -85, 85, 85) * 10) / 10;
+    const lomin = Math.round(num(req.query.lomin, -180, 180, -180) * 10) / 10;
+    const lomax = Math.round(num(req.query.lomax, -180, 180, 180) * 10) / 10;
+    const key = `${lamin},${lamax},${lomin},${lomax}`;
+    const hit = aircraftCache.get(key);
+    if (hit && Date.now() - hit.at < 30_000) {
+      // Delta support: if the client already holds this snapshot, don't
+      // re-send the payload.
+      if (String(req.query.since || "") === String(hit.data.time)) {
+        return res.json({ unchanged: true, time: hit.data.time, count: hit.data.count });
+      }
+      return res.json({ ...hit.data, cached: true });
+    }
+    try {
+      // In-flight dedup: concurrent visitors on the same bbox share ONE
+      // upstream request (rate-limit protection is server-wide, not per-tab).
+      let p = aircraftInflight.get(key);
+      if (!p) {
+        p = fetchAircraft(lamin, lamax, lomin, lomax).finally(() => aircraftInflight.delete(key));
+        aircraftInflight.set(key, p);
+      }
+      const data = await p;
       aircraftCache.set(key, { at: Date.now(), data });
-      // Position archive (MAP V2 ROADMAP R1): self-throttled, independent of
-      // client poll rate — see server/dataArchive.ts.
-      recordAircraftSample(DATA_DIR, aircraft, Date.now());
-      // keep the cache tiny — this is a per-bbox map, not a store
       if (aircraftCache.size > 20) {
         const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
         if (oldest) aircraftCache.delete(oldest[0]);
       }
+      if (String(req.query.since || "") === String(data.time)) {
+        return res.json({ unchanged: true, time: data.time, count: data.count });
+      }
       res.json(data);
     } catch (e: any) {
-      // Serve a stale cache over an error — the map degrades gracefully.
-      if (hit) return res.json({ ...hit.data, cached: true, stale: true });
+      // Stale-beats-spinner (DESIGN.md performance budget): serve the last
+      // snapshot with its timestamp rather than an empty error.
+      if (hit) return res.json({ ...hit.data, cached: true, stale: true, stale_at: hit.at });
       res.status(502).json({ error: `aircraft feed unavailable: ${e?.message || e}`, aircraft: [] });
     }
   });
@@ -765,6 +845,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // (US coastal boxes, PositionReports only), pruned for staleness and
   // capped in size. The frontend polls this route only (boundary rule).
   const vesselPositions: Map<string, { lat: number; lon: number; sog: number | null; cog: number | null; name: string; at: number }> = new Map();
+  // Static data (ship type, destination) arrives in separate AIS messages —
+  // kept in a side map and merged into position reads.
+  const vesselStatics: Map<string, { shiptype: number | null; destination: string | null; name: string | null }> = new Map();
   let vesselSocket: WSClient | null = null;
   let vesselSocketUp = 0;
 
@@ -781,34 +864,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         vesselSocketUp = Date.now();
         ws.send(JSON.stringify({
           APIKey: key,
-          // US West Coast + East/Gulf coastal boxes
-          BoundingBoxes: [[[24, -130], [49, -110]], [[24, -100], [45, -65]]],
-          FilterMessageTypes: ["PositionReport"],
+          // GLOBAL coverage. Honest limit (stated in the layer panel):
+          // aisstream aggregates terrestrial receivers, so mid-ocean gaps
+          // are physics, not a bug — satellite AIS is a priced product
+          // (BUILD-FIRST rule: raw material inaccessible free).
+          BoundingBoxes: [[[-90, -180], [90, 180]]],
+          FilterMessageTypes: ["PositionReport", "ShipStaticData"],
         }));
       });
       ws.on("message", (buf: any) => {
         try {
           const m = JSON.parse(buf.toString());
-          if (m.MessageType !== "PositionReport") return;
           const meta = m.MetaData || {};
-          const pos = m.Message?.PositionReport || {};
           const mmsi = String(meta.MMSI || "");
+          if (!mmsi) return;
+          if (m.MessageType === "ShipStaticData") {
+            const s = m.Message?.ShipStaticData || {};
+            vesselStatics.set(mmsi, {
+              shiptype: s.Type ?? null,
+              destination: (s.Destination || "").trim() || null,
+              name: (s.Name || meta.ShipName || "").trim() || null,
+            });
+            if (vesselStatics.size > 30_000) vesselStatics.clear();
+            return;
+          }
+          if (m.MessageType !== "PositionReport") return;
+          const pos = m.Message?.PositionReport || {};
           const lat = pos.Latitude ?? meta.latitude;
           const lon = pos.Longitude ?? meta.longitude;
-          if (!mmsi || lat == null || lon == null) return;
+          if (lat == null || lon == null) return;
           vesselPositions.set(mmsi, {
             lat, lon,
             sog: pos.Sog ?? null, cog: pos.Cog ?? null,
             name: String(meta.ShipName || "").trim() || mmsi,
             at: Date.now(),
           });
-          // bound memory: prune stale (>15min) when large, then cap hard
-          if (vesselPositions.size > 5000) {
-            const cutoff = Date.now() - 15 * 60_000;
+          // bound memory: prune stale (>20min) when large, then cap hard
+          if (vesselPositions.size > 20_000) {
+            const cutoff = Date.now() - 20 * 60_000;
             vesselPositions.forEach((v, k) => {
               if (v.at < cutoff) vesselPositions.delete(k);
             });
-            while (vesselPositions.size > 5000) {
+            while (vesselPositions.size > 20_000) {
               const first = vesselPositions.keys().next().value;
               if (first === undefined) break;
               vesselPositions.delete(first);
@@ -841,19 +938,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     };
     const lamin = num(req.query.lamin, -85), lamax = num(req.query.lamax, 85);
     const lomin = num(req.query.lomin, -180), lomax = num(req.query.lomax, 180);
-    const cutoff = Date.now() - 15 * 60_000;
+    const cutoff = Date.now() - 20 * 60_000;
     const vessels: any[] = [];
     vesselPositions.forEach((v, mmsi) => {
-      if (vessels.length >= 1500) return;
+      if (vessels.length >= 5000) return;
       if (v.at < cutoff) return;
       if (v.lat < lamin || v.lat > lamax || v.lon < lomin || v.lon > lomax) return;
-      vessels.push({ mmsi, name: v.name, lat: v.lat, lon: v.lon, sog: v.sog, cog: v.cog });
+      const st = vesselStatics.get(mmsi);
+      vessels.push({
+        mmsi, name: st?.name || v.name, lat: v.lat, lon: v.lon,
+        sog: v.sog, cog: v.cog,
+        shiptype: st?.shiptype ?? null,
+        destination: st?.destination ?? null,
+      });
     });
-    // Position archive (MAP V2 ROADMAP R1): self-throttled — see dataArchive.ts.
-    recordVesselSample(DATA_DIR, vessels, Date.now());
     res.json({
       enabled: true,
-      source: "aisstream.io (AIS)",
+      source: "aisstream.io (AIS, terrestrial receivers — mid-ocean coverage gaps are inherent)",
       kind: "raw",
       warming_up: vessels.length === 0 && Date.now() - vesselSocketUp < 30_000,
       count: vessels.length,
@@ -861,16 +962,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // ── PERMANENT POSITION ARCHIVE (ARCHIVE EVERYTHING directive) ────────────
+  // Vessels: snapshot the in-memory position map into the archive every 60s
+  // (adaptive thinning happens inside archiveVessels). Aircraft archive on
+  // every fresh upstream fetch (see fetchAircraft). Maintenance: gzip old
+  // hours every 30min; roll raw days older than the retention window into
+  // per-entity track summaries every 6h. All on the Railway volume.
+  setInterval(() => {
+    try {
+      if (vesselPositions.size === 0) return;
+      const pts: any[] = [];
+      const cutoff = Date.now() - 5 * 60_000;
+      vesselPositions.forEach((v, mmsi) => {
+        if (v.at < cutoff) return;
+        const st = vesselStatics.get(mmsi);
+        pts.push({ mmsi, name: st?.name || v.name, lat: v.lat, lon: v.lon,
+                   sog: v.sog, cog: v.cog, shiptype: st?.shiptype ?? null,
+                   destination: st?.destination ?? null });
+      });
+      archiveVessels(pts, ARCHIVE_SITES);
+    } catch (e: any) { console.error("[archive] vessel tick:", e?.message || e); }
+  }, 60_000).unref?.();
+  setInterval(() => { try { compressOldHours(); } catch {} }, 30 * 60_000).unref?.();
+  setInterval(() => { try { rollupOldDays(); } catch {} }, 6 * 3600_000).unref?.();
+
+  // Recent trail for one entity (serves the client's track-on-click).
+  app.get("/api/data/track/:kind/:id", (req, res) => {
+    const kind = req.params.kind === "vessels" ? "vessels" : "aircraft";
+    const id = String(req.params.id || "").slice(0, 24);
+    if (!id) return res.status(400).json({ error: "id required" });
+    try {
+      const points = recentTrack(kind, id);
+      res.json({ kind, id, points, count: points.length,
+                 note: points.length === 0 ? "no archived positions yet for this id (archive began 2026-07-03)" : undefined });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "track read failed" });
+    }
+  });
+
+  // Archive growth observability (volume watch — see wishlist).
+  app.get("/api/data/archive/stats", (_req, res) => {
+    try { res.json(archiveStats()); } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
   // Strategic sites (RAW) — static reference data from datacore/sites.
   app.get("/api/data/sites", (_req, res) => {
     const d = datacoreSites as any;
     res.json({ kind: "raw", categories: d.categories || {}, sites: d.sites || [] });
-  });
-
-  // Position archive stats (wishlist.md volume watch) — sample/record counts
-  // and on-disk size per kind, so growth can be monitored without a shell.
-  app.get("/api/data/archive/stats", (_req, res) => {
-    res.json(getArchiveStats(DATA_DIR));
   });
 
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────

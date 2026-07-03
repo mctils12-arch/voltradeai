@@ -149,6 +149,12 @@
 
 ## OPS GOTCHAS (avoid re-learning)
 
+- CONCURRENT SESSIONS DOUBLE-BUILD roadmap items: an interactive session
+  and a routine both built R1's archive on 2026-07-03 (#106 branch vs
+  #107), forcing a supersession merge. Rule: CLAIM before building —
+  append [CLAIMED <date> <PR#>] to the roadmap entry in your first
+  commit; check for claims first. Version bumps: read-and-increment,
+  never hardcode (three collisions today: 1.0.36 x2, 1.0.41 x2).
 - A `mergeable_state: "dirty"` claude/* PR stalls SILENTLY: no merge ref ->
   pull_request workflows never start -> no checks, no automerge, no error.
   Check mergeability FIRST, not CI logs. Cause: reusing one branch across
