@@ -414,3 +414,19 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Also explains v1.0.42's empty aircraft archive (writes happen on
   successful fetch only); vessels archive + ShipStaticData typing were
   boot-warm-up, re-verified post-deploy below.
+
+## 2026-07-03 — [PRODUCT] Map v2 Part 1 CLOSED — live verification (v1.0.43)
+- Production evidence: aircraft GLOBAL alive (782 over Europe via adsb.lol
+  with airplanes.live behind it); POSITION ARCHIVE RECORDING (aircraft +
+  vessels files, 1.7MB day one — and the vessels file survived the deploy,
+  volume persistence working); vessels feed in expected post-deploy
+  warm-up (lazy WS connect — filed as KNOWN BROKEN #9 with the one-line
+  eager-connect fix for a routine). ShipStaticData typing verification
+  pending warm-up.
+- Day tally: 20 PRs through the needs-gated automerge; 4 live incidents
+  found by verification and fixed same-day (datacore-not-in-image,
+  OpenSky egress block, maplibre CSS phantom canvas, both-providers-
+  backing-off); 2 new permanent ops rules (claim-before-build,
+  version-by-increment); the archive is accumulating the proprietary
+  dataset R2 builds on. STARVED: no — queue is deep but this directive's
+  scope is fully shipped.
