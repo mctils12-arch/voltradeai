@@ -14,6 +14,7 @@ import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
+import { recordAircraftSample, recordVesselSample, getArchiveStats } from "./dataArchive";
 
 const execAsync = promisify(exec);
 
@@ -649,6 +650,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // DATA LAYER). All /data map overlay data is served here — the frontend
   // never calls external data sources directly. Layers registry is static
   // metadata from datacore/layers.json; overlay routes land one per slice.
+  const DATA_DIR = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp");
   app.get("/api/data/layers", (_req, res) => {
     const layers = ((datacoreLayers as any).layers || []).map((l: any) =>
       // vessels goes live automatically the moment AISSTREAM_KEY exists
@@ -740,6 +742,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         aircraft,
       };
       aircraftCache.set(key, { at: Date.now(), data });
+      // Position archive (MAP V2 ROADMAP R1): self-throttled, independent of
+      // client poll rate — see server/dataArchive.ts.
+      recordAircraftSample(DATA_DIR, aircraft, Date.now());
       // keep the cache tiny — this is a per-bbox map, not a store
       if (aircraftCache.size > 20) {
         const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
@@ -844,6 +849,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (v.lat < lamin || v.lat > lamax || v.lon < lomin || v.lon > lomax) return;
       vessels.push({ mmsi, name: v.name, lat: v.lat, lon: v.lon, sog: v.sog, cog: v.cog });
     });
+    // Position archive (MAP V2 ROADMAP R1): self-throttled — see dataArchive.ts.
+    recordVesselSample(DATA_DIR, vessels, Date.now());
     res.json({
       enabled: true,
       source: "aisstream.io (AIS)",
@@ -858,6 +865,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/sites", (_req, res) => {
     const d = datacoreSites as any;
     res.json({ kind: "raw", categories: d.categories || {}, sites: d.sites || [] });
+  });
+
+  // Position archive stats (wishlist.md volume watch) — sample/record counts
+  // and on-disk size per kind, so growth can be monitored without a shell.
+  app.get("/api/data/archive/stats", (_req, res) => {
+    res.json(getArchiveStats(DATA_DIR));
   });
 
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────

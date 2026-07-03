@@ -37,6 +37,14 @@ Constitution: CLAUDE.md → KNOWN STATE → SPINOUT-READY DATA LAYER
   `fetch()` (raw), `latest()` (cached most-recent), and gate status.
 - Node-side serving lives in `server/routes.ts` under `/api/data/*` — thin
   proxies/caches over this package's outputs. Keep them dumb.
+- `server/dataArchive.ts` — the position archive (MAP V2 ROADMAP R1):
+  self-throttled (30 min/kind, independent of client poll rate), compact
+  append-only JSONL under `${DATA_DIR}/archive/{aircraft,vessels}/`, with a
+  tiny rollup file surviving the 90-day raw-file retention prune. Raw
+  material for the archive-enabled signal hypotheses in open_questions.md
+  (corporate jet activity, tanker routing anomalies, destination
+  prediction) and R2 (maritime transit analytics). Stats via
+  `/api/data/archive/stats`.
 
 ## Spinout trigger (decided by the human)
 

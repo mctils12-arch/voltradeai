@@ -3,6 +3,97 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-03 — [PIPELINE] Position archive — MAP V2 ROADMAP R1 (PR 2/3 of the Map v2 directive)
+
+- Session start check: read CLAUDE.md, all of research/, per the [PRODUCT]
+  session protocol. Loop-health ratio over the last 8 experiments.md
+  entries: 4 REPAIR, 1 RESEARCH, 3 PRODUCT/PIPELINE — below the 7/10
+  escalation threshold, no concern. KNOWN BROKEN #3/#4/#5 remain
+  un-diagnosed (owner-gated diagnostics access, per wishlist) but per this
+  session's brief, product work is not preempted by outstanding repairs
+  that don't block it; none of them touch datacore/ or the /data surface.
+- Chose this action over the other three options in the brief (new
+  UI/enrichment work, a new-root proposal, or API/docs hardening) because
+  the prior session's Map v2 directive (PR #105, docs-only "PR 1 of 3")
+  explicitly named the position archive as the most time-sensitive R1 item
+  — "every day not recorded is unrecoverable proprietary data" — and it is
+  the load-bearing prerequisite for R2 (maritime transit analytics, "the
+  strongest trading-signal candidate here") and three of the four
+  ARCHIVE-ENABLED SIGNAL HYPOTHESES in open_questions.md. Every day this
+  stays unbuilt is lost history those hypotheses can never recover.
+- PRIOR (before writing any code, REASONING STANDARD #10): expected the
+  main design risk to be disk growth on the Railway volume, since aircraft
+  responses are capped at 800 records and vessels at 1500 and the /data
+  page can poll every 10-30s — recording every poll would be tens of MB/day
+  from one bbox alone. Expected the fix to be a time-gated sample interval
+  decoupled from poll rate, landing in the 15-100MB/mo combined range
+  depending on the interval chosen, plus a retention/rollup scheme so the
+  raw-file directory doesn't grow forever.
+- Design (server/dataArchive.ts, wired into server/routes.ts): aircraft and
+  vessel positions are sampled independent of request/poll frequency via a
+  30-min-per-kind throttle (module-level last-write timestamp), recorded as
+  compact POSITIONAL ARRAYS (not objects — no repeated field names) into
+  one append-only JSONL file per UTC day at
+  `${DATA_DIR}/archive/{aircraft,vessels}/YYYY-MM-DD.jsonl`, rounded to
+  ~11m lat/lon precision. Every sample also updates a tiny permanent
+  rollup JSON (`${kind}_rollup.json`: total samples/records, per-day
+  counts, first/last day) BEFORE any pruning, so raw-file retention (90
+  days) never loses the count history — only the ability to replay exact
+  positions that far back. New route `/api/data/archive/stats` exposes
+  this for the wishlist.md volume-watch item without a shell.
+  Computed at these parameters: aircraft ≈800 recs/sample × ~35B/rec ×
+  48 samples/day ≈ 1.3MB/day ≈ 40MB/mo; vessels ≈1500 recs/sample ×
+  ~30B/rec × 48/day ≈ 2.1MB/day ≈ 65MB/mo. Combined ≈105MB/mo — close to
+  the prior session's aspirational <100MB/mo estimate; wishlist.md updated
+  with the real figures and a note to revisit if live stats run hotter
+  (record counts near the per-request caps more often than assumed).
+- Downstream chain (REASONING STANDARD #1): recording starts today ->
+  every subsequent session gains one more day of position history it can
+  never otherwise recover -> R2's geofence transit counters and the
+  corporate-jet / tanker-routing / destination-prediction hypotheses all
+  become buildable once enough days accumulate -> none of this touches
+  live trading (datacore/ boundary rule: zero imports from bot_engine.py /
+  system_config.py / strategies/ / server/bot.ts) so it cannot affect
+  order flow, sizing, or the kill switch even in a bug scenario worse than
+  intended (worst case: excess disk usage on the Railway volume, caught by
+  the new stats route and the wishlist watch item, not by any trading
+  behavior change).
+- Boundary discipline verified: `server/dataArchive.ts` has no imports
+  from trading modules; it is pure filesystem I/O over positions already
+  fetched by the existing `/api/data/aircraft` and `/api/data/vessels`
+  handlers (unchanged upstream fetch/cache logic — this only adds a
+  recording side-effect after the existing cache-set line in each).
+- Regression tests FIRST (loop-health rule 3):
+  `server/dataArchive.test.ts` — 7 new tests covering: UTC day-key
+  boundaries, interval throttling (3 calls inside one window write only 2
+  samples), compact-record rounding/null handling for both aircraft and
+  vessel shapes, JSONL round-trip, and an end-to-end
+  mkdtemp-write-read-stats-cleanup test proving the throttle, the per-day
+  file append, and `/api/data/archive/stats`'s counts all agree. All 7
+  pass; `npm run test:node` is 13/13 (6 pre-existing + 7 new).
+- Verified: `npx tsc --noEmit` — identical 45 pre-existing errors with and
+  without this change (git-stash A/B diff, same method as the prior
+  backtest_v2 session), zero new errors, none in the touched/new files.
+  `npm run build` succeeds (client 3 chunks + server bundle, same warning
+  profile as before — the large maplibre-gl chunk is pre-existing from the
+  map slices, not from this change).
+- Version: 1.0.41 (from 1.0.40, read-then-incremented per the prior
+  session's attribution-note lesson on the 1.0.36 collision).
+- Not done (explicitly out of scope for one logical change): geofence
+  transit counters (R2 gate 1) — this PR only builds the raw material R2
+  will read; WebGL rendering / viewport-fetching / enrichment (rest of
+  R1) — untouched, still open per open_questions.md.
+- Rollback trigger: if `/api/data/archive/stats.kinds.*.approxBytesOnDisk`
+  trends toward the Railway volume's plan limit faster than the ~105MB/mo
+  estimate (e.g. because bbox record counts run near the 800/1500 caps
+  far more often live than assumed), lengthen `SAMPLE_INTERVAL_MS` in
+  `server/dataArchive.ts` first (cheapest lever) before shortening
+  `RETENTION_DAYS` — retention loses history depth, the interval only
+  loses temporal resolution.
+- STARVED: no — this session's scope (position archive) was fully shipped;
+  high-value work remains queued (KNOWN BROKEN #3/#4/#5, counterfactual
+  logger, Sentinel-2 gate 1, rest of R1/R2/R3/R4) for future sessions.
+
 ## 2026-07-03 — [REPAIR] Extended-hours order gating (KNOWN BROKEN #8)
 
 - Session start check: /api/health all-ok (Alpaca ACTIVE, python bridge ok,
