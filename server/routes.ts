@@ -654,6 +654,63 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Live aircraft overlay (RAW) — proxies OpenSky Network's free ADS-B API.
+  // Anonymous OpenSky is hard-rate-limited (~400 credits/day), so responses
+  // are cached 30s per rounded bbox and the bbox is clamped to sane spans.
+  // Frontend polls this route only — never OpenSky directly (boundary rule).
+  const aircraftCache: Map<string, { at: number; data: any }> = new Map();
+  app.get("/api/data/aircraft", async (req, res) => {
+    const num = (v: any, lo: number, hi: number, dflt: number) => {
+      const n = parseFloat(String(v));
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+    };
+    // Default bbox: continental US. Rounded to 1dp so map panning re-hits cache.
+    const lamin = Math.round(num(req.query.lamin, -85, 85, 24) * 10) / 10;
+    const lamax = Math.round(num(req.query.lamax, -85, 85, 50) * 10) / 10;
+    const lomin = Math.round(num(req.query.lomin, -180, 180, -125) * 10) / 10;
+    const lomax = Math.round(num(req.query.lomax, -180, 180, -66) * 10) / 10;
+    const key = `${lamin},${lamax},${lomin},${lomax}`;
+    const hit = aircraftCache.get(key);
+    if (hit && Date.now() - hit.at < 30_000) {
+      return res.json({ ...hit.data, cached: true });
+    }
+    try {
+      const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error(`OpenSky ${r.status}`);
+      const raw: any = await r.json();
+      const aircraft = (raw.states || []).slice(0, 800).map((s: any[]) => ({
+        icao24: s[0],
+        callsign: (s[1] || "").trim(),
+        origin_country: s[2],
+        lon: s[5],
+        lat: s[6],
+        altitude_m: s[7],
+        on_ground: s[8],
+        velocity_ms: s[9],
+        heading: s[10],
+      })).filter((a: any) => a.lat != null && a.lon != null);
+      const data = {
+        source: "OpenSky Network (opensky-network.org)",
+        kind: "raw",
+        time: raw.time,
+        count: aircraft.length,
+        aircraft,
+      };
+      aircraftCache.set(key, { at: Date.now(), data });
+      // keep the cache tiny — this is a per-bbox map, not a store
+      if (aircraftCache.size > 20) {
+        const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
+        if (oldest) aircraftCache.delete(oldest[0]);
+      }
+      res.json(data);
+    } catch (e: any) {
+      // Serve a stale cache over an error — the map degrades gracefully.
+      if (hit) return res.json({ ...hit.data, cached: true, stale: true });
+      res.status(502).json({ error: `aircraft feed unavailable: ${e?.message || e}`, aircraft: [] });
+    }
+  });
+
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────
   // Account-aware capital-gains + income tax estimate. Takes a profile (filing
   // status, state rate, W-2/1099 income) + a list of realized trades and returns

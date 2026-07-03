@@ -13,7 +13,7 @@
       "id": "aircraft",
       "name": "Live aircraft (ADS-B)",
       "kind": "raw",
-      "status": "planned",
+      "status": "live",
       "source": "OpenSky Network (free API)",
       "description": "Live aircraft positions; updates ~10s. No predictive claim."
     },
