@@ -154,3 +154,15 @@
   Check mergeability FIRST, not CI logs. Cause: reusing one branch across
   squash-merged PRs; scheduled sessions (fresh branch each run) are immune,
   interactive sessions must reset the branch onto main after each merge.
+
+## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
+
+All EDGE-DOCTRINE data pipelines live in datacore/ with no imports from or
+knowledge of trading logic; signals exposed only through an internal API
+boundary (the bot consumes them like an external customer would).
+Potential standalone product (satellite, ADS-B, AIS, EDGAR, Trends).
+Spinout trigger (human decides): a root passes ladder gate 2 AND (external
+demand OR dedicated-infrastructure need). Until then: one loop, one repo;
+gate-2 signals get a /data surface on the existing site. RAW-DATA overlays
+(as-is display + attribution, no predictive claim) ship ungated; SIGNALS
+gate at ladder gate 2. Every map layer labeled as one or the other.
