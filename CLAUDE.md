@@ -355,6 +355,11 @@ If a change seems to require touching a frozen path, write the proposal to
    prior code.
 5. One logical change per commit/PR. Never bundle a parameter tune with a
    new data source — attribution dies when changes are bundled.
+6. VISUAL VERIFICATION (human-approved 2026-07-03): PRs touching client/
+   must include the visual harness run (`npm run visual`, DESIGN.md) at
+   all three canonical widths (390/768/1440); the session reviews its own
+   screenshots against DESIGN.md before opening the PR, and attaches or
+   describes them in the PR description.
 
 ## MEMORY PROTOCOL — how you avoid re-learning
 
