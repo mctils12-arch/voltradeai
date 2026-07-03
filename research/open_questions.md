@@ -65,7 +65,8 @@
    green. Fix candidates: convert test_auto_discovery to proper pytest tests;
    mark network suites with a skip-if-no-keys guard.
 
-7. **[NEXT REPAIR — HUMAN-APPROVED 2026-07-03] Persist the max-drawdown
+7. **[RESOLVED 2026-07-03 — v1.0.35, executed same-day on human request]**
+   ~~Persist the max-drawdown~~
    high-water mark.** `state.equityPeak` (bot.ts:359, seeded at 862/2482) is
    in-memory only: every deploy/restart re-bases the drawdown kill switch
    from current equity, so frequent autonomous deploys silently defang it.

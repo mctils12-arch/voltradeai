@@ -246,6 +246,51 @@ class TestRequirementsTxt(unittest.TestCase):
                           f"Missing required package in requirements.txt: {pkg}")
 
 
+class TestKillSwitchPeakPersistence(unittest.TestCase):
+    """Regression test for KNOWN BROKEN #7 (human-approved 2026-07-03).
+
+    Bug: state.equityPeak — the max-drawdown kill switch's high-water mark —
+    was in-memory only (init 0, lazily seeded from CURRENT equity), so every
+    deploy/restart re-based drawdown protection and frequent autonomous
+    deploys silently defanged it. These tests FAIL on that behavior: they
+    require the peak to be persisted on every raise and restored on boot.
+    (Source-level assertions, same style as the other bot.ts audits here —
+    the repo has no Node test runner, and these would have caught the bug.)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(os.path.dirname(__file__), "server", "bot.ts")) as f:
+            cls.src = f.read()
+
+    def test_peak_has_a_persistence_file(self):
+        self.assertIn("voltrade_equity_peak.json", self.src,
+                      "equityPeak has no persistence path — the kill-switch "
+                      "high-water mark resets on every deploy/restart")
+
+    def test_peak_is_restored_on_boot(self):
+        self.assertIn("loadEquityPeak", self.src,
+                      "equityPeak is never restored on boot — restart wipes "
+                      "the drawdown high-water mark")
+
+    def test_every_peak_raise_is_saved(self):
+        import re
+        # Every line that raises the peak from live equity must persist it on
+        # the same line, so no future call site can silently skip the save.
+        raises = [l for l in self.src.split("\n") if re.search(r"state\.equityPeak\s*=\s*equity\b", l)]
+        self.assertGreaterEqual(len(raises), 4,
+                                "expected the two known kill-switch sites (2 lines each)")
+        for line in raises:
+            self.assertIn("saveEquityPeak", line,
+                          f"peak raised without persisting it: {line.strip()}")
+
+    def test_halt_logic_untouched(self):
+        # Scope guard for the approved change: the halt condition itself must
+        # remain exactly the drawdown-vs-threshold comparison.
+        self.assertIn("drawdownPct <= state.maxDrawdownPct && !state.killSwitch", self.src)
+        self.assertIn("t1Drawdown <= state.maxDrawdownPct && !state.killSwitch", self.src)
+
+
 class TestBacktestV2Engine(unittest.TestCase):
     """Offline tests for the rebuilt backtest engine (backtest_v2.py).
     All bars are injected — no network, no keys (CI-safe)."""
