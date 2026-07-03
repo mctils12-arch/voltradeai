@@ -60,6 +60,17 @@
   requests; if no restart happened since setting the vars, redeploy once
   and re-check. MOOT UNTIL THE LICENSING DECISION BELOW: the terms
   analysis means OpenSky should not be our primary even if it worked.
+- **[APPROVED BY HUMAN 2026-07-03 — applied same message]** Constitutional
+  amendment: CLAUDE.md KNOWN STATE gains the USAGE-CALIBRATION LOOP note
+  (usage-screenshot readings → research/usage_log.md; 2+ consecutive
+  weekly readings <50% with nonzero queue → recommend slot adds; ≥90% →
+  recommend drops per the established drop order). usage_log.md carries
+  the A5 schedule reference (8-run menu, drop/add order, STARVED valve)
+  and the canonical voltrade-weekly-review routine prompt. Gmail
+  connector verified draft-only (no send) — weekly email lands in
+  Drafts; routine-context availability unverifiable until the first
+  Sunday run. Bookkept per the amendment rule.
+
 - **⚠ FLAGGED CONSTRAINT — aircraft-feed licensing (HUMAN DECISION NEEDED,
   filed 2026-07-03). Analysis only per your instruction; NO provider or
   code change made.** While verifying the new OpenSky credentials we read
