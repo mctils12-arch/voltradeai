@@ -1,0 +1,45 @@
+{
+  "_doc": "Registry of /data map layers. Served via /api/data/layers. Every layer is labeled kind: 'raw' (as-is display, source attribution, no predictive claim) or 'signal' (interpreted reading; may not surface before ROOT VALIDATION LADDER gate 2). Status: live | awaiting_key | planned.",
+  "layers": [
+    {
+      "id": "imagery",
+      "name": "Satellite imagery",
+      "kind": "raw",
+      "status": "live",
+      "source": "Esri World Imagery (tiles; attribution on-map)",
+      "description": "Base satellite/aerial imagery."
+    },
+    {
+      "id": "aircraft",
+      "name": "Live aircraft (ADS-B)",
+      "kind": "raw",
+      "status": "planned",
+      "source": "OpenSky Network (free API)",
+      "description": "Live aircraft positions; updates ~10s. No predictive claim."
+    },
+    {
+      "id": "vessels",
+      "name": "Live vessels (AIS)",
+      "kind": "raw",
+      "status": "planned",
+      "source": "aisstream.io (free API key)",
+      "description": "Live ship positions via AIS websocket. Requires AISSTREAM_KEY."
+    },
+    {
+      "id": "sites",
+      "name": "Strategic sites",
+      "kind": "raw",
+      "status": "planned",
+      "source": "datacore/sites (researched coordinates + metadata)",
+      "description": "Cushing OK tank farms, major steel mills, top US ports."
+    },
+    {
+      "id": "tank_fill",
+      "name": "Tank-fill % (Sentinel-2)",
+      "kind": "signal",
+      "status": "planned",
+      "source": "Copernicus Sentinel-2 shadow analysis",
+      "description": "GATED: may not surface before ladder gate 2 (statistical validation vs EIA ground truth)."
+    }
+  ]
+}
