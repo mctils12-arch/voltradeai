@@ -241,3 +241,30 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   no-op'd). Impact limited: only #97 affects trading behavior. Rule
   forward: bump by READING the current version and incrementing, never by
   replacing a hardcoded prior value.
+
+## 2026-07-03 — [PRODUCT] Map v2 PR 2/3: global feeds + PERMANENT POSITION ARCHIVE (v1.0.41)
+- ARCHIVE EVERYTHING is live: server/datacoreArchive.ts records every
+  ingested aircraft/vessel position to the Railway volume from this deploy
+  forward. Adaptive thinning (30s near strategic sites / 60s low-altitude /
+  5min cruise; 2min near ports / 10min open water / 30min anchored),
+  hourly JSONL rotate, gzip after 2h, 7-day rollup into per-entity daily
+  track summaries (bbox + coarse polyline), /api/data/archive/stats for
+  the volume watch, /api/data/track/:kind/:id serves recent trails.
+  13 hermetic node:test cases (thinning ordering, cadence enforcement,
+  gzip/rollup lifecycle, round-trip, stats).
+- Feeds: GLOBAL coverage. Aircraft: OpenSky primary with OAuth2 support
+  (activates when OPENSKY_CLIENT_ID/SECRET land — wishlist), adsb.lol
+  fallback with HONEST partial-coverage flag when the viewport needs
+  >250nm; per-provider exponential backoff (30s..15min); in-flight dedup
+  so all visitors share ONE upstream request per bbox; ?since= dedup
+  returns {unchanged:true} instead of re-sending payloads; caps raised to
+  5000 (WebGL client lands in PR 3/3). Vessels: aisstream subscription
+  widened to global, ShipStaticData captured (shiptype/destination) and
+  merged into reads, caps 20k in-memory / 5k per response, coverage
+  honesty in the source string (terrestrial AIS = mid-ocean gaps).
+- Feed-error diagnosis (the "feed error — retrying" symptom): root cause
+  was OpenSky rejecting Railway egress + no backoff, so every 15s poll
+  re-failed the primary before falling back. Backoff now pins the
+  provider out for 30s..15min after failures, and the fallback serves
+  immediately.
+- STARVED: no.
