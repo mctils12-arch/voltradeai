@@ -572,3 +572,21 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   then adopted the same pattern (pure module + injected audit writer).
   RULE: server modules that need the db AND unit tests take the db
   dependency by injection; never import ./auth from a tested module.
+
+## 2026-07-03 — [RULE-REVIEW] Constitution batch: fall-through, dead-code, hygiene + first audit
+- Applied three human-approved amendments (this message, bookkept in
+  wishlist): SESSION BUDGET -> productive fall-through ladder; DEAD CODE
+  POLICY; CONSTITUTIONAL HYGIENE (audit files proposals, never
+  self-applies; live rule conflicts resolved by GOAL order + filed).
+- Queued research filed per the directive: aircraft/vessel provider
+  redundancy (chain is two-deep post-OpenSky; vessels single-sourced);
+  OpenSky likely-returner tracked with REVIEW-BY 2026-08-17, no adapter
+  retained (git-history reinstatement documented).
+- Ran the FIRST CONSTITUTIONAL AUDIT (details in wishlist): 2 findings
+  proposed for consolidation (rules-in-KNOWN-STATE -> STANDING BEHAVIORS
+  section; scattered periodic duties -> one PERIODIC AUDITS register);
+  factual drift fixed directly (backtest STUB claims stale since the
+  rebuild); interaction checks clean (STARVED, BUILD-FIRST, tripwire).
+- Docs-only; no version bump (no runtime behavior change).
+- STARVED: no — remaining queue continues in this same session (daily
+  usage loop PR + scale-now schedule answer).
