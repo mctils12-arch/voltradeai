@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair } from "lucide-react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AnalyzePage, { AnalyzeSection } from "./analyze";
 import ScannerPage from "./scanner";
@@ -7,11 +7,12 @@ import ResearchPage from "./research";
 import NewsPage from "./news";
 import WatchlistPage from "./watchlist";
 import PlannerPage from "./planner";
+import DataMapPage from "./datamap";
 import TaxesPage from "./taxes";
 import BotDashboard from "./bot";
 import LoginPage from "./login";
 
-type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "planner" | "taxes" | "bot";
+type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "bot";
 
 interface Tab {
   id: TabId;
@@ -29,6 +30,7 @@ const TABS: Tab[] = [
   { id: "scanner",   label: "Scanner",   icon: <ScanLine size={14} />,  mobileIcon: <ScanLine size={20} />,  requiresAuth: false },
   { id: "news",      label: "News",      icon: <Newspaper size={14} />, mobileIcon: <Newspaper size={20} />, requiresAuth: false },
   { id: "watchlist", label: "Watchlist", icon: <Bookmark size={14} />,  mobileIcon: <Bookmark size={20} />,  requiresAuth: false },
+  { id: "data",      label: "Data",      icon: <Globe size={14} />,     mobileIcon: <Globe size={20} />,     requiresAuth: false },
   { id: "planner",   label: "Planner",   icon: <Crosshair size={14} />, mobileIcon: <Crosshair size={20} />, requiresAuth: false },
   { id: "taxes",     label: "Taxes",     icon: <Calculator size={14} />, mobileIcon: <Calculator size={20} />, requiresAuth: false },
   { id: "bot",       label: "AI Engine", icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true, requiresOwner: true },
@@ -359,6 +361,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         )}
         {activeTab === "watchlist" && (
           <WatchlistPage onSelectTicker={handleSelectTicker} authenticated={authenticated} />
+        )}
+        {activeTab === "data" && (
+          <DataMapPage />
         )}
         {activeTab === "planner" && (
           <PlannerPage />

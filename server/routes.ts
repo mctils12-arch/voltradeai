@@ -638,6 +638,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── DATACORE BOUNDARY (/api/data/*) ──────────────────────────────────────
+  // The spinout-ready data layer's API boundary (CLAUDE.md: SPINOUT-READY
+  // DATA LAYER). All /data map overlay data is served here — the frontend
+  // never calls external data sources directly. Layers registry is static
+  // metadata from datacore/layers.json; overlay routes land one per slice.
+  app.get("/api/data/layers", (_req, res) => {
+    try {
+      const p = path.resolve(process.cwd(), "datacore", "layers.json");
+      const registry = JSON.parse(fs.readFileSync(p, "utf8"));
+      res.json({ layers: registry.layers || [] });
+    } catch (e: any) {
+      console.error("[datacore] layers registry:", e?.message || e);
+      res.json({ layers: [] });
+    }
+  });
+
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────
   // Account-aware capital-gains + income tax estimate. Takes a profile (filing
   // status, state rate, W-2/1099 income) + a list of realized trades and returns
