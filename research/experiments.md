@@ -454,3 +454,20 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   wishlist.md for human decision — ANALYSIS ONLY per instruction, no
   code or priority-order change shipped.
 - STARVED: no — usage-calibration loop build queued in same session.
+
+## 2026-07-03 — [RESEARCH] Correction to the aircraft-feed licensing audit (same day)
+- Human correction: VolTradeAI has NO paid product — billing code exists
+  but nothing is charged; the site is a proof of concept. The earlier
+  entry's claim that the commercial tripwire "fires" was wrong on the
+  facts as of today.
+- Revised assessment (wishlist entry updated in place): adsb.lol (ODbL)
+  compatible now and after monetization; airplanes.live compatible NOW
+  (non-commercial POC) but flips incompatible the day anything is
+  charged; OpenSky's OPERATIONAL-use clause (written agreement for any
+  live/automated integration, even non-profit) still applies today —
+  and OpenSky is non-functional from Railway anyway, costing a 12s
+  timeout per fresh viewport for zero data.
+- Constraint reframed as a MONETIZATION TRIPWIRE: re-run provider
+  compliance before enabling billing/ads. Still analysis-only; provider
+  order unchanged pending human decision.
+- STARVED: no.

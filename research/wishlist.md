@@ -71,46 +71,46 @@
   Drafts; routine-context availability unverifiable until the first
   Sunday run. Bookkept per the amendment rule.
 
-- **⚠ FLAGGED CONSTRAINT — aircraft-feed licensing (HUMAN DECISION NEEDED,
-  filed 2026-07-03). Analysis only per your instruction; NO provider or
-  code change made.** While verifying the new OpenSky credentials we read
-  all three providers' actual terms:
+- **⚠ FLAGGED CONSTRAINT — aircraft-feed licensing (MONETIZATION
+  TRIPWIRE, filed 2026-07-03; corrected same day per human: the site is a
+  proof of concept with NO paid product today — billing code exists but
+  nothing is charged). Analysis only; NO provider or code change made.**
+  Provider terms, assessed against the corrected commercial status:
   - **OpenSky Network** (current primary): the license grants use "solely
-    for the purpose of non-profit research and non-profit education," and
-    two independent tripwires both fire for us: (1) "Any use by a
-    for-profit or commercial entity requires written permission and a
-    license granted by the OpenSky Network"; (2) "Use of the REST API in
-    any operational capacity — including integration into a live product,
+    for the purpose of non-profit research and non-profit education."
+    As a no-revenue POC we are plausibly inside "non-profit research"
+    on the commercial clause — but a second, independent clause still
+    fires TODAY regardless of revenue: "Use of the REST API in any
+    operational capacity — including integration into a live product,
     service, or automated system (even if only internal) — requires a
     previous written agreement, even for non-profit or governmental
-    entities." VolTradeAI has paid features (billing) and integrates the
-    feed into a live product plus an automated archive — commercial AND
-    operational. The new free account raises rate limits but does not
-    change the license; continued use as primary is a terms violation
-    unless written permission is obtained (contact@opensky-network.org).
-  - **adsb.lol** (fallback 1): API and data licensed **ODbL 1.0**,
-    "available to everyone" — commercial use permitted, with attribution
-    (the map already shows source attribution) and share-alike on
-    derivative *databases*. The only provider terms-compatible with
-    commercial display today. Spinout note: our position archive is a
-    derivative database — any future redistribution/sale of
-    archive-derived products built on adsb.lol data must carry ODbL
-    attribution + share-alike (fine for display/signals we keep internal).
-  - **airplanes.live** (fallback 2): the free REST API is explicitly
-    "Non-Commercial Use" (educational purposes, 1 req/s, no SLA).
-    Commercial access exists via direct arrangement
-    (airplanes.live/commercial-use/, RapidAPI "coming soon") — same
-    incompatibility as OpenSky until arranged.
-  - **Recommendation (pending your approval, ~15-min change once
-    approved):** make adsb.lol PRIMARY; remove OpenSky from the chain
-    unless/until you obtain written permission (it is also still failing
-    from Railway egress even with credentials — see the entry above);
-    keep airplanes.live as emergency-only fallback while you email their
-    commercial contact, or drop it too for strict compliance. If you want
-    OpenSky's global-bbox capability legitimately, their non-commercial
-    research license does not cover us — the honest paths are written
-    permission or a commercial ADS-B aggregator (would join FlightAware
-    entry below as a priced item).
+    entities." Our bot + site + automated archive are exactly that. So
+    OpenSky technically requires a written agreement even for the POC
+    (contact@opensky-network.org — plausibly granted free for research).
+    The new free account raises rate limits but does not change this.
+  - **adsb.lol** (fallback 1): **ODbL 1.0**, "available to everyone" —
+    compatible today AND after monetization, with attribution (already
+    shown on the map) and share-alike on derivative *databases*. The
+    only provider that survives monetization unchanged. Spinout note:
+    the position archive is a derivative database — redistribution/sale
+    of archive-derived products built on adsb.lol data must carry ODbL
+    attribution + share-alike (internal display/signals are fine).
+  - **airplanes.live** (fallback 2): free REST API is "Non-Commercial
+    Use" (educational, 1 req/s, no SLA) — **compatible with today's
+    no-revenue POC**, incompatible the day the site charges anyone
+    (commercial access exists via direct arrangement:
+    airplanes.live/commercial-use/, RapidAPI "coming soon").
+  - **Recommendation (pending your approval):** today's chain is
+    acceptable to keep as-is for the POC, with one honest caveat —
+    OpenSky's operational-use clause technically applies even now, and
+    since OpenSky is ALSO non-functional from Railway (verification
+    above), it currently contributes nothing but a 12s timeout on every
+    fresh viewport. Cheapest clean state: drop OpenSky from the chain
+    (or email them for a free research agreement if you want the
+    global-bbox capability). THE TRIPWIRE: before enabling billing, ads,
+    or any paid feature, re-run this compliance check — at that moment
+    airplanes.live must be dropped or upgraded to a commercial
+    arrangement, and adsb.lol becomes the only lawful free provider.
   - Sources: opensky-network.org/about/terms-of-use (§1 LICENSE, §3(vi));
     adsb.lol/docs/open-data/api (ODbL 1.0) + adsb.lol privacy-license;
     airplanes.live/api-guide + airplanes.live/commercial-use.
