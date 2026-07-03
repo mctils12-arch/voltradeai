@@ -1,0 +1,39 @@
+# .github/workflows/automerge.yml
+# Closes the autonomy loop: any PR from a claude/* branch is merged
+# automatically once ALL required CI checks pass.
+#
+# Safety model:
+#   - Routines can only push to claude/* branches (Claude Code default —
+#     do not disable that).
+#   - This workflow only auto-merges claude/* PRs. Human branches are
+#     untouched.
+#   - Merge happens via GitHub's auto-merge, which waits for required
+#     status checks. Make the CI jobs (python-tests, node-build,
+#     docker-build) REQUIRED checks in branch protection for main,
+#     or auto-merge will fire before tests finish.
+#
+# One-time repo settings needed:
+#   Settings → General → Pull Requests → check "Allow auto-merge"
+#   Settings → Branches → protect main → require status checks:
+#     python-tests, node-build, docker-build
+
+name: Auto-merge Claude PRs
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-automerge:
+    if: startsWith(github.head_ref, 'claude/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge (squash)
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
