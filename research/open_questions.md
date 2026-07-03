@@ -81,6 +81,13 @@
    history -> halt can actually fire after a slow multi-deploy bleed ->
    fewer trades during real drawdowns (intended).
 
+8. **Verify extended-hours order handling end-to-end** (human-added
+   2026-07-03): stock orders outside regular hours must use limit orders
+   with the extended_hours flag; options order attempts must be gated in
+   code to 9:30-4:00 ET rather than relying on Alpaca rejection. Broker
+   rejection is a safe backstop but wastes scan cycles and clutters the
+   audit log — confirm the gates exist in our code, add them if not.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
