@@ -5,7 +5,8 @@
   validated — and the options leg is the suspected main performance drag.
   Candidates: ORATS, CBOE DataShop, historicaloptiondata.com.
 
-- **Persist the max-drawdown high-water mark** (`state.equityPeak`,
+- **[APPROVED BY HUMAN 2026-07-03 — queued as next [REPAIR], see open_questions #7]**
+  **Persist the max-drawdown high-water mark** (`state.equityPeak`,
   server/bot.ts:359/862/2482): in-memory only today, so every
   deploy/restart re-bases the drawdown kill switch from current equity —
   frequent autonomous deploys silently defang it. Proposal: save/restore
