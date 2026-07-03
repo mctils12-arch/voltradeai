@@ -29,7 +29,7 @@
       "id": "sites",
       "name": "Strategic sites",
       "kind": "raw",
-      "status": "planned",
+      "status": "live",
       "source": "datacore/sites (researched coordinates + metadata)",
       "description": "Cushing OK tank farms, major steel mills, top US ports."
     },

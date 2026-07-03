@@ -711,6 +711,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Strategic sites (RAW) — static reference data from datacore/sites.
+  app.get("/api/data/sites", (_req, res) => {
+    try {
+      const p = path.resolve(process.cwd(), "datacore", "sites", "strategic_sites.json");
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      res.json({ kind: "raw", categories: data.categories, sites: data.sites });
+    } catch (e: any) {
+      console.error("[datacore] sites:", e?.message || e);
+      res.json({ kind: "raw", categories: {}, sites: [] });
+    }
+  });
+
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────
   // Account-aware capital-gains + income tax estimate. Takes a profile (filing
   // status, state rate, W-2/1099 income) + a list of realized trades and returns

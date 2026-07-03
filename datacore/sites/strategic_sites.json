@@ -1,0 +1,26 @@
+{
+  "_doc": "Strategic-sites reference layer (RAW). Researched coordinates + metadata; positions are approximate site centroids, good to ~1km — fine for map markers, NOT survey-grade. Each entry lists why it matters to a tradable exposure. Source: public maps/filings knowledge, cross-checked against operator public materials. Served via /api/data/sites.",
+  "categories": {
+    "tank_farm": { "label": "Crude storage (tank farms)", "color": "#f5a623" },
+    "steel_mill": { "label": "Steel mills (STLD)", "color": "#ff6b5a" },
+    "port": { "label": "Container ports (top US)", "color": "#4ade80" }
+  },
+  "sites": [
+    { "id": "cushing_hub", "name": "Cushing Oil Hub (WTI delivery point)", "category": "tank_farm", "lat": 35.985, "lon": -96.767, "operator": "Multiple (Enbridge, Plains, ONEOK, Energy Transfer)", "relevance": "WTI futures physical delivery point; ~10% of US crude storage. Tank-shadow fill estimates here are the Sentinel-2 SIGNAL candidate (vs EIA weekly ground truth). Exposure: USO, XLE, CL futures.", "note": "Hub centroid; individual terminals ring the town." },
+    { "id": "cushing_enbridge", "name": "Enbridge Cushing Terminal", "category": "tank_farm", "lat": 35.93, "lon": -96.766, "operator": "Enbridge", "relevance": "Largest single Cushing operator (~20M bbl shell capacity).", "note": "South tank farm cluster." },
+    { "id": "cushing_plains", "name": "Plains All American Cushing", "category": "tank_farm", "lat": 35.955, "lon": -96.755, "operator": "Plains All American", "relevance": "Major Cushing terminal (~10M bbl class).", "note": "" },
+    { "id": "stld_butler", "name": "Steel Dynamics — Butler Flat Roll", "category": "steel_mill", "lat": 41.428, "lon": -84.855, "operator": "Steel Dynamics (STLD)", "relevance": "STLD's original flat-roll mill. Yard inventory change detection is a future SIGNAL candidate (capacity-constrained mid-cap angle).", "note": "Butler, Indiana." },
+    { "id": "stld_columbus", "name": "Steel Dynamics — Columbus Flat Roll", "category": "steel_mill", "lat": 33.532, "lon": -88.415, "operator": "Steel Dynamics (STLD)", "relevance": "Flat-roll division, southern auto/appliance demand.", "note": "Columbus, Mississippi." },
+    { "id": "stld_sinton", "name": "Steel Dynamics — Sinton Flat Roll", "category": "steel_mill", "lat": 28.041, "lon": -97.56, "operator": "Steel Dynamics (STLD)", "relevance": "Newest EAF flat-roll mill (2022 ramp); its utilization is a live earnings variable.", "note": "Sinton, Texas." },
+    { "id": "stld_columbia_city", "name": "Steel Dynamics — Structural & Rail", "category": "steel_mill", "lat": 41.157, "lon": -85.488, "operator": "Steel Dynamics (STLD)", "relevance": "Structural steel + rail; nonresidential construction proxy.", "note": "Columbia City, Indiana." },
+    { "id": "port_la", "name": "Port of Los Angeles", "category": "port", "lat": 33.74, "lon": -118.272, "operator": "City of LA (POLA)", "relevance": "#1 US container port. Ship-queue counts (AIS) here were the classic 2021 supply-chain signal. Exposure: retail (XRT), logistics (IYT).", "note": "San Pedro Bay." },
+    { "id": "port_lb", "name": "Port of Long Beach", "category": "port", "lat": 33.754, "lon": -118.216, "operator": "POLB", "relevance": "#2 US container port; shares San Pedro Bay anchorage with POLA.", "note": "" },
+    { "id": "port_nynj", "name": "Port of NY/NJ (Elizabeth)", "category": "port", "lat": 40.684, "lon": -74.145, "operator": "PANYNJ", "relevance": "Largest East Coast port.", "note": "Port Newark–Elizabeth marine terminal." },
+    { "id": "port_savannah", "name": "Port of Savannah (Garden City)", "category": "port", "lat": 32.129, "lon": -81.144, "operator": "Georgia Ports Authority", "relevance": "Fastest-growing East Coast container port.", "note": "" },
+    { "id": "port_houston", "name": "Port of Houston (Barbours Cut)", "category": "port", "lat": 29.681, "lon": -94.942, "operator": "Port Houston", "relevance": "Gulf container + energy complex gateway.", "note": "" },
+    { "id": "port_oakland", "name": "Port of Oakland", "category": "port", "lat": 37.796, "lon": -122.279, "operator": "Port of Oakland", "relevance": "NorCal gateway; ag exports.", "note": "" },
+    { "id": "port_seattle", "name": "Port of Seattle", "category": "port", "lat": 47.582, "lon": -122.352, "operator": "NWSA", "relevance": "Pacific Northwest gateway (with Tacoma).", "note": "" },
+    { "id": "port_charleston", "name": "Port of Charleston (Wando Welch)", "category": "port", "lat": 32.921, "lon": -79.86, "operator": "SC Ports", "relevance": "Southeast auto/tire imports.", "note": "" },
+    { "id": "port_norfolk", "name": "Port of Virginia (Norfolk NIT)", "category": "port", "lat": 36.877, "lon": -76.328, "operator": "Virginia Port Authority", "relevance": "Deepest East Coast channels.", "note": "" }
+  ]
+}
