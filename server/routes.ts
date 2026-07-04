@@ -24,6 +24,10 @@ import { complianceAuditTick, setComplianceAuditWriter } from "./providerComplia
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStats } from "./shadowFleet";
 import { computePortDwell, portsFromSites } from "./portDwell";
+import {
+  validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
+  TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
+} from "./owmTiles";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 
@@ -1177,6 +1181,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "portdwell failed" });
+    }
+  });
+
+  // ── OpenWeatherMap global weather fields (Tier-1(b) global half) ─────────
+  // Key stays server-side; tiles proxied + cached (free tier is 60 calls/min
+  // — the shared cache bounds upstream to unique-tiles-per-TTL across all
+  // visitors). Fresh-key honesty: OWM 401s until a new key activates (~2h),
+  // classified "activating" with a retry note, never a hard error.
+  const wxTileCache = makeTileCache<Buffer>(2000);
+  let wxNegativeUntil = 0; // don't hammer OWM while the key activates
+  let wxStatusCache: { at: number; data: any } | null = null;
+
+  app.get("/api/data/weather/global/status", async (_req, res) => {
+    if (wxStatusCache && Date.now() - wxStatusCache.at < 5 * 60_000) return res.json(wxStatusCache.data);
+    const key = process.env.OPENWEATHERMAP_KEY || "";
+    let http: number | null = null;
+    if (key) {
+      try {
+        const r = await fetch(owmTileUrl("temp_new", 0, 0, 0, key));
+        http = r.status;
+      } catch { http = null; }
+    }
+    const status = classifyOwmStatus(http, !!key);
+    const data = { status, note: owmStatusNote(status), attribution: "Weather data © OpenWeatherMap" };
+    wxStatusCache = { at: Date.now(), data };
+    res.json(data);
+  });
+
+  app.get("/api/data/wxtile/:layer/:z/:x/:y", async (req, res) => {
+    const key = process.env.OPENWEATHERMAP_KEY || "";
+    if (!key) return res.status(503).json({ status: "awaiting_key", note: owmStatusNote("awaiting_key") });
+    const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
+    const layer = req.params.layer;
+    if (!validateWxTile(layer, z, x, y)) return res.status(400).json({ error: "bad tile request" });
+    const ck = `${layer}/${z}/${x}/${y}`;
+    const hit = wxTileCache.get(ck);
+    if (hit) {
+      res.setHeader("content-type", "image/png");
+      res.setHeader("cache-control", "public, max-age=600");
+      return res.end(hit);
+    }
+    if (Date.now() < wxNegativeUntil) {
+      return res.status(503).json({ status: "activating", note: owmStatusNote("activating") });
+    }
+    try {
+      const r = await fetch(owmTileUrl(layer as WxLayer, z, x, y, key));
+      if (r.status === 401 || r.status === 403) {
+        wxNegativeUntil = Date.now() + NEGATIVE_TTL_MS;
+        wxStatusCache = null; // let the next status probe re-check
+        return res.status(503).json({ status: "activating", note: owmStatusNote("activating") });
+      }
+      if (!r.ok) return res.status(502).json({ status: "error", note: owmStatusNote("error") });
+      const buf = Buffer.from(await r.arrayBuffer());
+      wxTileCache.set(ck, buf, TILE_TTL_MS);
+      res.setHeader("content-type", "image/png");
+      res.setHeader("cache-control", "public, max-age=600");
+      res.end(buf);
+    } catch {
+      res.status(502).json({ status: "error", note: owmStatusNote("error") });
     }
   });
 

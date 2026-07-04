@@ -26,6 +26,22 @@
       "description": "US base-reflectivity radar mosaic, refreshed ~5 min, rendered under all data layers. COVERAGE HONESTY: US + territories only — no free lawful global radar source exists (RainViewer and Open-Meteo free tiers prohibit our use). Global temp/wind fields can activate later via an OpenWeatherMap free key (human action filed)."
     },
     {
+      "id": "weather_temp",
+      "name": "Temperature (global)",
+      "kind": "raw",
+      "status": "live",
+      "source": "OpenWeatherMap free tier (Weather data © OpenWeatherMap; attribution required)",
+      "description": "Global surface-temperature field, model-derived (not station truth — labeled per the licensing register). Tiles proxied server-side so the API key is never exposed and the 60-calls/min free budget is shared-cache bounded. Fresh keys take ~2h to activate on OWM's side — the layer shows a retry note, not an error, until then."
+    },
+    {
+      "id": "weather_wind",
+      "name": "Wind (global)",
+      "kind": "raw",
+      "status": "live",
+      "source": "OpenWeatherMap free tier (Weather data © OpenWeatherMap; attribution required)",
+      "description": "Global wind-speed field, model-derived (not station truth). Same proxied-key + shared-cache + fresh-key-retry behavior as the temperature layer."
+    },
+    {
       "id": "aircraft",
       "name": "Live aircraft (ADS-B)",
       "kind": "raw",
