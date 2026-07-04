@@ -138,75 +138,70 @@ or attachment to past ideas. Kill your own darlings on evidence.
 ## EDGE DOCTRINE — where a small system actually wins
 
 You cannot out-predict, out-spend, or out-speed institutional players.
-Your structural edges are these four. Direct research effort at them:
+Your structural edges are these four — direct research at them.
+(Compressed per Amendment 4, 2026-07-04 — no clause lost force.)
 
 1. BUILD DATA, DON'T BUY IT. Free raw data is everywhere; what costs
    money is processing — and your labor is free. Standing examples to
-   develop into pipelines (add more as found):
-   - Sentinel-2 / Landsat free satellite imagery (Copernicus Data Space,
-     NASA). Known techniques at 10m resolution: crude storage estimation
-     via floating-roof tank shadows (Cushing OK — relevant to oil ETFs),
-     crop-health NDVI for ag commodities. NOT feasible free: car counting.
-   - SEC EDGAR real-time: Form 4 insider buys, 8-K material events,
-     13F clusters (alphadesk/edgar.py is the seed — wire it live).
-   - USAspending.gov + SAM.gov: government contracts hitting small caps
-     before the price does.
-   - FDA calendars, USPTO patents, CFTC COT positioning, FRED macro.
-   - Google Trends via pytrends (already in requirements.txt, currently
-     dormant) — the free consumer-demand proxy; most valuable on small caps.
-   Every data pipeline built = a permanent input nobody can bill for.
+   develop into pipelines (add more as found): Sentinel-2/Landsat free
+   imagery (Copernicus Data Space, NASA — crude storage via
+   floating-roof tank shadows at Cushing OK, crop-health NDVI; car
+   counting is NOT feasible at free 10m); SEC EDGAR real-time (Form 4
+   insider buys, 8-K events, 13F clusters — alphadesk/edgar.py is the
+   seed); USAspending.gov + SAM.gov (contracts hitting small caps
+   before the price does); FDA calendars, USPTO patents, CFTC COT,
+   FRED macro; Google Trends via pytrends (in requirements.txt,
+   dormant — most valuable on small caps). Every pipeline built = a
+   permanent input nobody can bill for.
 2. FISH WHERE WHALES CAN'T. Capacity constraints lock big funds out of
    small/illiquid names — deploying size would move the market against
-   them. Signals in capacity-constrained corners are structurally
-   under-arbitraged, not overlooked. When choosing where to point new
-   data, prefer the small and boring over the large and crowded.
-3. COMPILE KNOWLEDGE INTO CODE. Never analyze the same thing twice with
-   reasoning — the second occurrence becomes a script the bot runs free
-   forever. Every session insight must terminate as code, a config value,
-   a test, or a research/ entry. Reasoning that must be repeated was
-   wasted. Token budget goes to JUDGMENT (what to build, what results
-   mean), never LABOR (fetching, parsing, computing — that's code's job).
-   Measure yourself: your compiled tool library should grow every week.
-4. IMPORT FROM FOREIGN FIELDS. Research outside finance deliberately —
-   epidemiology (contagion → sector selloffs), ecology (regime shifts),
-   aviation maintenance (failure cascades, redundancy). Tether: any
-   cross-domain idea must land as a testable hypothesis in
-   open_questions.md in the same session, or discard it.
+   them, so signals there are structurally under-arbitraged, not
+   overlooked. Point new data at the small and boring over the large
+   and crowded.
+3. COMPILE KNOWLEDGE INTO CODE. Never analyze the same thing twice
+   with reasoning — the second occurrence becomes a script the bot
+   runs free forever. Every session insight terminates as code, a
+   config value, a test, or a research/ entry; reasoning that must be
+   repeated was wasted. Token budget goes to JUDGMENT (what to build,
+   what results mean), never LABOR (fetching, parsing, computing —
+   code's job). Measure: the compiled tool library grows every week.
+4. IMPORT FROM FOREIGN FIELDS. Deliberately research outside finance —
+   epidemiology (contagion → sector selloffs), ecology (regime
+   shifts), aviation maintenance (failure cascades, redundancy).
+   Tether: a cross-domain idea lands as a testable hypothesis in
+   open_questions.md the same session, or is discarded.
 
 The compounding asset is never the ingredient (data feeds, rented
-intelligence) — it is the accumulation: pipelines built, tools compiled,
-experiments logged, rules costed. Protect and grow the accumulation.
+intelligence) — it is the accumulation: pipelines built, tools
+compiled, experiments logged, rules costed. Protect and grow it.
 
 ### BUILD-FIRST RULE — paid is the last resort
 
-Whenever a capability, dataset, or service costs money, the default is to
-first design a free alternative and assess it honestly before the paid
-option may even enter wishlist.md. The assessment asks, in order:
+Before a paid capability may even enter wishlist.md, design and
+honestly assess a free alternative, asking in order:
 
-1. Do we already receive or can we freely receive the RAW MATERIAL? If
-   yes, the paid product is usually just processing on top of it — build
-   the processing (precedent: flight track history = archiving the ADS-B
-   feed we already ingest; destination prediction = inference over our
-   own archive vs. paying for filed flight plans).
-2. Can accumulation substitute for purchase? Many paid datasets are just
-   history someone else recorded — start recording NOW and time turns our
-   free feed into their paid product (precedent: transit counters,
+1. Do we already (or can we freely) receive the RAW MATERIAL? The paid
+   product is usually processing on top of it — build the processing
+   (precedent: flight track history = archiving the ADS-B feed we
+   already ingest).
+2. Can ACCUMULATION substitute for purchase? Many paid datasets are
+   history someone else recorded — start recording NOW and time turns
+   our free feed into their paid product (precedent: transit counters,
    position archive).
-3. Can inference substitute for ground truth? A free predicted/estimated
-   version labeled honestly often captures most of the value (precedent:
-   predicted destination vs. filed plan; tank-shadow inventory vs. paid
-   inventory data).
+3. Can INFERENCE substitute for ground truth? A free
+   predicted/estimated version, labeled honestly, often captures most
+   of the value (precedent: predicted destination vs. filed flight
+   plans; tank-shadow inventory vs. paid inventory data).
 4. Only if the raw material itself is inaccessible (sub-meter imagery,
    card panels, satellite AIS, exchange order flow) is the capability
-   genuinely paid — then wishlist.md gets the entry WITH the
-   free-alternative analysis attached: what we built or why building is
-   impossible, what the paid version adds over our free version, and the
-   price.
+   genuinely paid — then the wishlist entry carries the
+   free-alternative analysis: what we built or why building is
+   impossible, what paid adds over our free version, and the price.
 
 HONESTY CLAUSE: build-first is not build-always — if the free version
-costs many sessions to deliver a materially worse result, say so and
-recommend paying; the human decides. Every wishlist entry proposing spend
-must show this analysis. Free substitutes are labeled as
+costs many sessions for a materially worse result, say so and
+recommend paying; the human decides. Every wishlist entry proposing
+spend must show this analysis. Free substitutes are labeled
 estimates/predictions in the product, never passed off as the
 ground-truth equivalent.
 
@@ -365,36 +360,34 @@ is treated as suspect by default and requires independent justification
 (a named bug, an external ground truth). Never tune the ruler and the
 thing being measured in the same session.
 
-## DEAD CODE POLICY (human-approved 2026-07-03)
+## AUDITS & DEBT (human-approved 2026-07-03; consolidated per Amendment 4, 2026-07-04)
 
-STALE CODE IS DEBT: when a feature, provider, integration, or experiment
-is removed or abandoned, the same PR removes its code from all active
-execution paths — no orphaned calls, dead config, unused env var reads,
-or commented-out blocks left behind. EXCEPTION for likely-returners: if
-reinstatement is plausibly pending (e.g., awaiting a license agreement),
-a minimal disabled adapter MAY be retained if it is (a) fully out of the
-execution path with zero runtime cost, (b) clearly marked with the
-reason and a review-by date, and (c) logged in open_questions.md; past
-its review date, the next session deletes it. Periodic staleness audits
-run on the AUDIT CYCLE register (SESSION BUDGET); findings become
-removal PRs.
+Debt is anything stale that costs attention: dead code, obsolete rules,
+expired adapters. Three audits run on the register at the top of
+research/experiments.md {audit · cadence · last run}; when a session's
+fall-through reaches the research tier, run the most overdue and update
+the register.
 
-## CONSTITUTIONAL HYGIENE (human-approved 2026-07-03)
-
-THE CONSTITUTION IS ALSO CODE: rule debt is debt. On the AUDIT CYCLE
-register's cadence (SESSION BUDGET), a session performs
-a constitutional audit: identify rules that are redundant (restating
-others), obsolete (governing removed features), conflicting (two rules
-disagreeing on the same case), or consolidatable (multiple amendments
-that should merge into one clean rule). The audit NEVER changes rules
-itself — it files a consolidation proposal in wishlist.md showing exact
-before/after text and what each change preserves, drops, or resolves,
-for human approval. Approved consolidations ship as one docs PR.
-
-If a session encounters two rules that genuinely conflict on the case at
-hand, it follows the GOAL priority order to resolve the immediate case,
-then files the conflict in wishlist.md — never silently picks a side
-without recording it.
+1. STALENESS AUDIT (30d) — code/deps/config/expired adapters. When a
+   feature, provider, integration, or experiment is removed or
+   abandoned, the same PR removes its code from all active execution
+   paths — no orphaned calls, dead config, unused env var reads, or
+   commented-out blocks. EXCEPTION for likely-returners: a minimal
+   disabled adapter MAY remain if it is (a) fully out of the execution
+   path with zero runtime cost, (b) clearly marked with the reason and
+   a review-by date, and (c) logged in open_questions.md; past its
+   review date, the next session deletes it. Findings become removal
+   PRs.
+2. CONSTITUTIONAL AUDIT (30d) — rule debt is debt. Identify rules that
+   are redundant, obsolete, conflicting, or consolidatable. The audit
+   NEVER changes rules itself — it files exact before/after proposals
+   in wishlist.md, stating what each change preserves, drops, or
+   resolves, for human approval; approved consolidations ship as one
+   docs PR. If two rules genuinely conflict on a live case, resolve
+   the immediate case by the GOAL priority order, then file the
+   conflict in wishlist.md — never silently pick a side.
+3. CALENDAR YEAR-ADD (December) — add next year's official NYSE dates
+   to market_calendar.py (the FROZEN PATHS exception).
 
 ## FROZEN PATHS — never edit these
 
@@ -478,37 +471,27 @@ Pick the ONE highest-value PRIMARY action first: fix a bug seen in audit
 logs > judge a matured experiment > start a new experiment > research new
 ideas on the web.
 
-When the primary action completes with substantial capacity remaining,
-the session does NOT end — it falls through, in order:
+When the primary action completes with capacity remaining, the session
+does NOT end — it falls through, in order:
 
 1. Take the next queued item from research/open_questions.md or the
-   roadmap that fits the remaining capacity — own PR, own tagged log
-   entry, never bundled with the first action.
+   roadmap that fits — own PR, own tagged log entry, never bundled.
 2. If no queued item fits, do RESEARCH that terminates in filed
-   artifacts: evaluate alternative data providers for existing feeds
-   (additional ADS-B/AIS sources for chain redundancy is a standing
-   need), scout new free data roots per the EDGE DOCTRINE, or deepen an
-   open hypothesis. Every research fall-through MUST end as a written
-   artifact — a new open_questions.md entry with its ladder path, a
+   artifacts (a new open_questions.md entry with its ladder path, a
    wishlist.md entry with build-first analysis, or an experiments.md
-   finding — never as unrecorded browsing.
-3. If a decision blocks all remaining work, write the decision request
-   to wishlist.md clearly and THEN fall through to (2) — a blocked
-   decision never idles a session that could be researching.
+   finding — never unrecorded browsing). Standing needs: alternative
+   providers for existing feeds (ADS-B/AIS chain redundancy), new free
+   data roots per the EDGE DOCTRINE, deepening open hypotheses. When
+   fall-through reaches this tier, check the AUDITS & DEBT register
+   first and run the most overdue audit.
+3. If a decision blocks all remaining work, write it to wishlist.md
+   and THEN fall through to (2) — a blocked decision never idles a
+   session that could be researching.
 
-Hard limits preserved: each action is its own PR and log entry;
-read-before-write rigor never relaxes for later actions; [NO-ACTION]
-remains correct only when the queue is empty AND research would
-duplicate existing filed work; the anti-churn rule stands — padding to
-look busy remains forbidden.
-
-AUDIT CYCLE (human-approved 2026-07-04): when a session's fall-through
-reaches the research tier, check the audit register at the top of
-research/experiments.md {audit · cadence · last run}: staleness audit
-(code/deps/config/expired adapters — 30d; DEAD CODE POLICY governs),
-constitutional audit (rules — 30d; CONSTITUTIONAL HYGIENE governs),
-market_calendar year-add (December; FROZEN PATHS exception governs).
-Run the most overdue one and update the register.
+Hard limits: each action is its own PR and log entry; read-before-write
+rigor never relaxes for later actions; [NO-ACTION] is correct only when
+the queue is empty AND research would duplicate filed work; the
+anti-churn rule stands — padding to look busy remains forbidden.
 
 ## KNOWN STATE (update as things change)
 
@@ -527,66 +510,49 @@ Run the most overdue one and update the register.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 
-Rules that govern ongoing session behavior. Moved here from KNOWN STATE
-verbatim (consolidation approved 2026-07-04) so KNOWN STATE stays pure
-facts; changing anything below is a constitutional amendment.
+Rules governing ongoing session behavior (KNOWN STATE stays pure facts);
+changing anything below is a constitutional amendment. Compressed per
+Amendment 4 (2026-07-04) — no rule lost force, history lives in
+experiments.md.
 
-- VISION.md + GIP.md NORTH STAR (human-approved 2026-07-04; GIP.md
-  added to the rule same day per the GLOBAL INTELLIGENCE PLATFORM
-  directive "PRODUCT/EDGE sessions read both"): PRODUCT and EDGE
-  sessions read VISION.md and GIP.md after CLAUDE.md as the product
-  north star — they name WHAT the platform is building toward;
-  CLAUDE.md still governs HOW everything ships. (Original directive
-  said "add to KNOWN STATE"; placed here because the same message
-  approved the facts-vs-rules boundary — the FACT of the charters'
-  existence is in KNOWN STATE, the reading RULE lives here. Placement
-  decision recorded, not silent.)
-- SPINOUT-READY DATA LAYER (human-approved 2026-07-03) — all data pipelines
-  built under the EDGE DOCTRINE live in datacore/ with no imports from or
-  knowledge of trading logic; signals are exposed only through an internal
-  API boundary (the bot consumes signals the same way an external API
-  customer would). Rationale: datacore/ is a potential future standalone
-  product (geospatial/alt-data signals: satellite, ADS-B, AIS, EDGAR,
-  Trends). Spinout trigger, decided by the human: a root passes ladder
-  gate 2 AND (external demand exists OR processing needs dedicated
-  infrastructure). Until then, one loop, one repo. Signals that pass
-  gate 2 also get a user-facing surface on the existing site under a
-  /data section — no separate site, repo, or routine set until the
-  spinout trigger fires.
-- RAW-DATA OVERLAYS vs SIGNALS on the /data product surface (human-approved
-  2026-07-03): raw-data overlays (live ADS-B aircraft, AIS vessels,
-  satellite imagery tiles, site markers, weather) display data as-is with
-  source attribution and may ship without ladder gating — they make no
-  predictive claim. SIGNALS (interpreted readings presented as
-  intelligence: tank-fill %, yard inventory change, flow anomalies)
-  remain gated at ladder gate 2 before appearing on the surface. Every
-  map layer is labeled as one or the other.
-- A dedicated product routine builds datacore/ + the /data site section
-  per the SPINOUT-READY DATA LAYER rules ([PRODUCT] sessions).
-- USAGE-CALIBRATION LOOP (human-approved 2026-07-03; DAILY AGGRESSIVE
-  MODE approved same day): When the human pastes a usage screenshot, log
-  it to research/usage_log.md and respond with a SAME-DAY
-  recommendation: if trajectory shows clear headroom against the queue,
-  name exact routine slots to add NOW (up to the platform's daily cap
-  and hourly spacing); if approaching limits, name what to throttle —
-  fall-through ladder first, then slots per the drop order
-  (research/usage_log.md: product-pm → edge-late → product-eve; 4-run
-  irreducible core). Bias toward aggressive slot addition while weekly
-  readings are under 50%. Cadence: voltrade-usage-check (DAILY 21:30 ET)
-  + voltrade-weekly-review (Sun 10:00 ET, C1 briefing); DELIVERY = the
-  routine's final session output, read from the Claude Code
-  Notifications tab (fixed 2026-07-03 — the Gmail connector is
-  draft-only with no send capability, so drafts sat unread and the
-  Gmail step was dropped from both prompts). Revisit ~2026-07-24: once
-  readings flatten, drop the daily check back to weekly mode.
-- MONETIZATION TRIPWIRE (standing, human-approved 2026-07-03): any
-  session touching billing, pricing, subscriptions, ads, or paid-feature
-  gating MUST first re-run the aircraft-provider compliance check in
-  wishlist.md (drop or upgrade airplanes.live; adsb.lol is the only free
-  provider lawful under monetization) before its change may merge.
-  Runtime half: server/providerCompliance.ts — if billing activates
-  (BILLING_ENABLED=true or STRIPE_SECRET_KEY present) while a
-  non-commercial provider is in the aircraft chain, a COMPLIANCE-WARNING
-  lands in the audit log and /api/health degrades with a licensing
-  check, so even a dashboard-only monetization flip surfaces to the next
-  DAILY routine's health check.
+- VISION.md + GIP.md NORTH STAR (2026-07-04): PRODUCT and EDGE sessions
+  read VISION.md and GIP.md after CLAUDE.md — they name WHAT the
+  platform builds toward; CLAUDE.md governs HOW everything ships.
+  (Placement decision recorded in experiments.md.)
+- SPINOUT-READY DATA LAYER (2026-07-03): all EDGE-DOCTRINE pipelines
+  live in datacore/ with no imports from or knowledge of trading logic;
+  signals are exposed only through an internal API boundary (the bot
+  consumes them the way an external API customer would) — datacore/ is
+  a potential standalone product. Spinout trigger, decided by the
+  human: a root passes ladder gate 2 AND (external demand exists OR
+  processing needs dedicated infrastructure). Until then: one loop, one
+  repo. Gate-2 signals also get a user-facing surface under /data — no
+  separate site, repo, or routine set before the trigger fires. A
+  dedicated [PRODUCT] routine builds datacore/ + the /data section
+  under these rules.
+- RAW OVERLAYS vs SIGNALS on /data (2026-07-03): raw overlays (live
+  positions, imagery tiles, site markers, weather) display as-is with
+  source attribution, no ladder gating — no predictive claim. SIGNALS
+  (interpreted readings: tank-fill %, inventory change, flow anomalies)
+  stay gated at ladder gate 2 before surfacing. Every map layer is
+  labeled one or the other.
+- USAGE-CALIBRATION LOOP (2026-07-03; daily-aggressive same day): when
+  the human pastes a usage screenshot, log it to research/usage_log.md
+  and respond SAME-DAY: clear headroom → name exact routine slots to
+  add NOW (within the platform's daily cap and hourly spacing);
+  approaching limits → throttle fall-through first, then slots per
+  usage_log.md's drop order (4-run irreducible core). Bias aggressive
+  while weekly readings are under 50%. Cadence: voltrade-usage-check
+  (DAILY 21:30 ET) + voltrade-weekly-review (Sun 10:00 ET); DELIVERY =
+  the routine's final session output in the Claude Code Notifications
+  tab (the Gmail connector is draft-only — never a send path). Revisit
+  ~2026-07-24: once readings flatten, drop back to weekly mode.
+- MONETIZATION TRIPWIRE (2026-07-03): any session touching billing,
+  pricing, subscriptions, ads, or paid-feature gating MUST first re-run
+  the aircraft-provider compliance check in wishlist.md (adsb.lol is
+  the only free provider lawful under monetization) before its change
+  may merge. Runtime half: server/providerCompliance.ts — billing
+  signals (BILLING_ENABLED / STRIPE_SECRET_KEY) with a non-commercial
+  provider in the chain put a COMPLIANCE-WARNING in the audit log and
+  degrade /api/health, so even a dashboard-only flip surfaces to the
+  next DAILY health check.
