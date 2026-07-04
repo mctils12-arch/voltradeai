@@ -76,7 +76,7 @@ const LAYER_GROUP: Record<string, string> = {
   weather_temp: "base", weather_wind: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
-  fires: "environmental", surfacewater: "environmental",
+  fires: "environmental", surfacewater: "environmental", forest: "environmental",
   insider: "filings", shadowstats: "filings", portdwell: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
@@ -141,7 +141,7 @@ export default function DataMapPage() {
   // (directive: the field is context, never a curtain).
   const FIELD_MAP_LAYER: Record<string, string> = {
     weather: "weather-radar", weather_temp: "wx-temp_new", weather_wind: "wx-wind_new",
-    surfacewater: "gsw-occurrence",
+    surfacewater: "gsw-occurrence", forest: "jrc-forest",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -410,6 +410,45 @@ export default function DataMapPage() {
       setStatus("surfacewater", "error");
     }
   }, [enabled.surfacewater, mapReady, setStatus]);
+
+  // ── forest cover (RAW; JRC Global Forest Cover 2020 — atlas-parity
+  // layer 2, licensing per open_questions ATLAS PARITY: CC BY 4.0, tiles
+  // via the GFW public tile API. STATIC 2020 vintage stated per the
+  // imagery-date honesty rule. Zero server cost, zero key. field:true —
+  // opacity slider inherited.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.forest) {
+      try {
+        if (map.getLayer("jrc-forest")) map.removeLayer("jrc-forest");
+        if (map.getSource("jrc-forest")) map.removeSource("jrc-forest");
+      } catch {}
+      setStatus("forest", "off");
+      return;
+    }
+    try {
+      if (!map.getSource("jrc-forest")) {
+        map.addSource("jrc-forest", {
+          type: "raster",
+          tiles: ["https://tiles.globalforestwatch.org/jrc_global_forest_cover/latest/dynamic/{z}/{x}/{y}.png"],
+          tileSize: 256, maxzoom: 12,
+          attribution: "Forest cover © EC JRC (CC BY 4.0), tiles by GFW",
+        } as any);
+      }
+      if (!map.getLayer("jrc-forest")) {
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: "jrc-forest", type: "raster", source: "jrc-forest",
+          paint: { "raster-opacity": opacityOf("forest") / 100 },
+        } as any, firstMarker?.id);
+      }
+      setStatus("forest", "active", undefined,
+        "forest extent 2020, 10m (static) · EC JRC GFC2020 · tiles via Global Forest Watch");
+    } catch {
+      setStatus("forest", "error");
+    }
+  }, [enabled.forest, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in
@@ -1638,6 +1677,13 @@ export default function DataMapPage() {
                       <span key={t}><i style={{ background: c }} /> {t}</span>
                     ))}
                   <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(1984–2021, JRC GSW)</span>
+                </>
+              )}
+              {enabled.forest && (
+                <>
+                  <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
+                  <span><i style={{ background: "#2e7d32" }} /> forest extent</span>
+                  <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(2020 10m, JRC GFC2020)</span>
                 </>
               )}
               <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />

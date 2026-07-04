@@ -46,6 +46,15 @@ test("surface-water layer: JRC attribution + static-vintage honesty + opacity in
   assert.equal(s.field, true, "atlas rasters inherit the registry opacity slider");
 });
 
+test("forest layer: JRC attribution + static-vintage honesty + opacity inheritance (atlas parity 2)", () => {
+  const f = registry.layers.find((x: any) => x.id === "forest");
+  assert.ok(f, "forest layer missing");
+  assert.equal(f.kind, "raw");
+  assert.ok(f.source.includes("JRC"), "attribution must name EC JRC");
+  assert.ok(/2020/.test(f.description), "description must state the static 2020 vintage (imagery-date honesty)");
+  assert.equal(f.field, true, "atlas rasters inherit the registry opacity slider");
+});
+
 test("weather layer states US-only coverage honestly (Tier-1(b), licensing register 2026-07-04)", () => {
   const w = registry.layers.find((x: any) => x.id === "weather");
   assert.ok(w, "weather layer missing");
