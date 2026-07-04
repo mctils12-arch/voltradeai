@@ -13,6 +13,25 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RESEARCH] USPTO ODP key path + keyless-bypass verdict (docs)
+
+- Human hit a wall between the submitted ODP form and a key; research
+  (primary sources + live HTTP probes) resolved it: the key is gated
+  on completing ID.ME FIRST (MyUSPTO → Profile → Verify with ID.me),
+  then self-serve at data.uspto.gov/apikey — no approval queue
+  documented. Click-by-click filed in wishlist.md.
+- Landscape finding worth the entry on its own: the ENTIRE keyless
+  USPTO ecosystem died 2025-2026 — bulkdata.uspto.gov retired (host
+  dead, probed), Developer Hub decommissioned, PatentsView API offline
+  pending ODP relaunch with old keys incompatible, ODP web bulk
+  directory account-gated since 2026-06-18, ODP API 401 without a key
+  (probed). Only keyless start: Google Patents BigQuery — backfill
+  only (repo archived read-only 2026-04-18, freshness unverified).
+- Design consequences recorded in NEW DATA ROOTS #4: key-first
+  pipeline, single-threaded (ODP burst=1, 429 ⇒ ~7-day lockout risk),
+  quotas reset Sun 00:00 UTC, key is a per-person credential tied to
+  the human's ID.me.
+
 ## 2026-07-04 — [REPAIR] FIRMS activation: env-name mismatch fixed (v1.0.68) + duplicate build superseded
 
 - Human set the FIRMS key in Railway as FIRMS_MAP_KEY and asked "tell

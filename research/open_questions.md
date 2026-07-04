@@ -547,10 +547,17 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    bookings) — the EIA-equivalent ground truth — then vs returns.
 4. **USPTO patents (filing velocity / topic shifts).** LICENSING: USPTO
    ODP public domain (redistribution OK) but API key needs a HUMAN
-   ID.me signup (wishlist action filed); PatentsView CC BY 4.0
-   (disambiguated assignees — the entity-resolution shortcut); Google
-   Patents BigQuery CC BY 4.0 (1TB/mo free scan budget backfill path
-   while the key waits); EPO OPS free ≤4GB/week. STRUCTURAL HONESTY:
+   ID.me signup (wishlist action filed). CORRECTION (2026-07-04
+   research, live-probed): the keyless landscape is DEAD — BDSS bulk
+   server retired Apr 2025, Developer Hub decommissioned Jun 2026,
+   PatentsView API offline pending ODP relaunch (its bulk tables moved
+   behind the same ODP wall; old keys incompatible). The ODP key is
+   the sole gateway to live data; Google Patents BigQuery (CC BY 4.0,
+   free GCP account, 1TB/mo scan budget) remains the only keyless
+   path and is BACKFILL-ONLY (source repo archived read-only Apr
+   2026; freshness unverified). Pipeline design is key-first,
+   single-threaded (ODP burst=1; 429 lockouts ~7d); EPO OPS free
+   ≤4GB/week unaffected. STRUCTURAL HONESTY:
    the 18-month publication hole is universal (filing velocity is
    really publication velocity of ~18-month-old filings; ~7%
    non-publication requesters never appear pre-grant); grants publish

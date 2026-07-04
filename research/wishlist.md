@@ -368,11 +368,44 @@
   #155 closed), the routine's implementation stands; the interactive
   session's unique salvage is this activation fix + the live-key prod
   verification.
-- **HUMAN ACTION — USPTO Open Data Portal API key (free, ~15 min):**
-  create a USPTO.gov account with ID.me identity verification —
-  sessions cannot do identity verification. Unblocks the patents root
-  (open_questions NEW DATA ROOTS #4); until then the BigQuery backfill
-  path works within the 1TB/mo free budget.
+- **HUMAN ACTION — USPTO Open Data Portal API key (STATUS 2026-07-04:
+  account created, ODP form submitted, key NOT yet reached — entry
+  stays open).** Research completed same day (primary sources: ODP
+  FAQ, ID.me help, USPTO notices + live HTTP probes) — CLICK-BY-CLICK
+  for next time:
+  1. account.uspto.gov — confirm the USPTO.gov account (email + MFA).
+     Note: from 2026-08-18 four extra "Open Data Portal" fields in
+     account settings (account.uspto.gov/profile) become mandatory.
+  2. ID.ME MUST COMPLETE FIRST — the key is gated on it. Path:
+     uspto.gov → MyUSPTO → sign in → Profile → "Verify with ID.me" →
+     follow prompts → "Allow" on the Authorize screen. Needs gov ID +
+     SSN; outside the US it requires a video call. (This is almost
+     certainly the "more verification" you hit — the form alone
+     doesn't issue keys.)
+  3. Then sign in at data.uspto.gov and open "Manage API Key":
+     https://data.uspto.gov/apikey (reveal page: /apikey/key-reveal;
+     also on the MyODP dashboard). First visit validates + links
+     ID.me, then the key is view/copyable. NO approval queue is
+     documented — self-serve once ID.me is verified.
+  4. Gotchas: ONE key per person (ID.me↔USPTO 1:1, never
+     organizational); a duplicate ID.me account blocks linking;
+     replacements via data@uspto.gov; use as header `x-api-key`
+     against api.uspto.gov. Legacy Developer-Hub and PatentsView keys
+     are dead/incompatible — only the ODP key matters.
+  KEYLESS-BYPASS VERDICT (probed live 2026-07-04): NO USPTO-native
+  keyless start exists anymore — bulkdata.uspto.gov RETIRED (Apr
+  2025, host dead), ODP API returns 401 without a key, the ODP web
+  bulk directory needs the signed-in account, PatentsView's API is
+  OFFLINE pending ODP relaunch (old keys incompatible). The only true
+  keyless start is Google Patents Public Datasets on BigQuery (free
+  GCP account) for HISTORICAL BACKFILL — its repo was archived
+  read-only 2026-04-18, so freshness is unverified; logged as
+  backfill-only, not a live feed. The live weekly pipeline (grant +
+  application XML, File Wrapper continuity/assignments that BigQuery
+  lacks) is designed KEY-FIRST: single-threaded (burst=1 per key —
+  parallel calls trigger 429s with ~7-day lockout risk), quotas reset
+  Sun 00:00 UTC, and the key is a PER-PERSON credential tied to your
+  ID.me — the pipeline config treats it as such.
 - **HUMAN ACTION — Apple Performance Partners / Enterprise Partner
   Feed enrollment (free):** sanctioned bulk feed that hedges the
   undocumented Apple RSS endpoints the app-store archiver uses
