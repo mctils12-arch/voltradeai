@@ -186,17 +186,21 @@
   but survives ~+1% CAGR over SPY ex-2020-21; kill if negative in >=2
   sub-periods. Candidate tournament entrant once #1 lands.
 
-- **Aircraft/vessel provider redundancy** (queued 2026-07-03, human
-  directive — OpenSky's removal thins the aircraft chain to two).
-  Evaluate additional providers for chain redundancy: candidates to
-  assess for terms + coverage + field shape: ADSBHub, ADS-B Exchange
-  (RapidAPI — terms?), OpenSky-via-agreement (pending, see below);
-  vessels side currently single-sourced on aisstream.io — find a second
-  AIS source (AISHub requires feeding; others?). Deliverable per the
-  fall-through rules: wishlist/open_questions entries with terms
-  analysis per provider, then a chain PR if one qualifies. LICENSING
-  FIRST: any candidate must pass the commercial-compatibility check
-  BEFORE integration work (lesson: OpenSky).
+- **Aircraft/vessel provider redundancy** — AIRCRAFT SIDE EXECUTED
+  2026-07-03 (v1.0.52): chain is now THREE deep — adsb.lol (ODbL,
+  primary) -> airplanes.live -> adsb.fi. Licensing checked first:
+  adsb.fi = personal/non-commercial with attribution (same class as
+  airplanes.live; covered by the MONETIZATION TRIPWIRE), global
+  coverage verified from three continents (Tokyo 130 / Sydney 146 /
+  São Paulo 69 aircraft), same readsb JSON shape. Rejected: adsb.one
+  (Cloudflare-blocks server egress), ADS-B Exchange (community API
+  non-commercial AND keyed via RapidAPI; commercial = paid Enterprise —
+  a priced wishlist candidate only if the free chain proves fragile).
+  SELF-HOSTED RECEIVER: DECLINED BY HUMAN 2026-07-03 — no physical
+  builds; do not re-propose feeder hardware. VESSELS SIDE still open:
+  single-sourced on aisstream.io; find a second AIS source (AISHub
+  requires feeding a receiver — excluded by the same no-hardware
+  decision; satellite AIS is paid — see wishlist).
 - **OpenSky reinstatement (likely-returner, DEAD CODE POLICY tracking).**
   Human emailed contact@opensky-network.org for a research agreement
   (2026-07-03). No disabled adapter retained — the v1.0.43 OAuth +

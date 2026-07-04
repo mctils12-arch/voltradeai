@@ -14,7 +14,7 @@
       "name": "Live aircraft (ADS-B)",
       "kind": "raw",
       "status": "live",
-      "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live (fallback)",
+      "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live + adsb.fi (fallbacks)",
       "description": "Live aircraft positions; updates ~10s. No predictive claim."
     },
     {
