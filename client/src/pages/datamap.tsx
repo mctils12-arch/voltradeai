@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2 } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -65,7 +65,7 @@ const PANEL_GROUPS = [
   { id: "signals", label: "Signals — coming soon" },
 ] as const;
 const LAYER_GROUP: Record<string, string> = {
-  imagery: "base",
+  imagery: "base", terrain: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   insider: "filings", shadowstats: "filings", portdwell: "filings",
@@ -255,6 +255,50 @@ export default function DataMapPage() {
     if (enabled.imagery) setStatus("imagery", "active", undefined, "capture date unavailable (Esri base tiles)");
     else setStatus("imagery", "off");
   }, [enabled.imagery, mapReady, setStatus]);
+
+  // ── terrain hillshade (RAW; Mapterhorn terrarium DEM — geospatial Tier-1(a),
+  // licensing register 2026-07-04: commercial-OK, © Mapterhorn attribution via
+  // TileJSON. Also wires the raster-dem source R4's 3D terrain will reuse.
+  // Default OFF: the imagery base already carries visual relief; hillshade is
+  // an opt-in accent inserted UNDER all marker layers.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.terrain) {
+      try {
+        if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade");
+        if (map.getSource("terrain-dem")) map.removeSource("terrain-dem");
+      } catch {}
+      setStatus("terrain", "off");
+      return;
+    }
+    try {
+      if (!map.getSource("terrain-dem")) {
+        map.addSource("terrain-dem", {
+          type: "raster-dem",
+          url: "https://tiles.mapterhorn.com/tilejson.json",
+          encoding: "terrarium",
+        } as any);
+      }
+      if (!map.getLayer("terrain-hillshade")) {
+        // insert beneath the lowest data layer (symbol/circle/line) so
+        // shading never covers markers or velocity vectors
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: "terrain-hillshade", type: "hillshade", source: "terrain-dem",
+          paint: {
+            "hillshade-exaggeration": 0.45,
+            "hillshade-shadow-color": "rgba(5,10,19,0.9)",
+            "hillshade-highlight-color": "rgba(238,243,251,0.25)",
+            "hillshade-accent-color": "rgba(77,159,255,0.15)",
+          },
+        } as any, firstMarker?.id);
+      }
+      setStatus("terrain", "active", undefined, "hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
+    } catch {
+      setStatus("terrain", "error");
+    }
+  }, [enabled.terrain, mapReady, setStatus]);
 
   // ── generic live-points wiring (aircraft + vessels share the machinery) ──
   const wireLivePoints = useCallback((opts: {
@@ -875,6 +919,7 @@ export default function DataMapPage() {
   // ── panel helpers ──
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
+    id === "terrain" ? <Mountain size={15} /> :
     id === "aircraft" ? <Plane size={15} /> :
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> :

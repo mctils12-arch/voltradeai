@@ -10,6 +10,14 @@
       "description": "Base satellite/aerial imagery."
     },
     {
+      "id": "terrain",
+      "name": "Terrain (hillshade)",
+      "kind": "raw",
+      "status": "live",
+      "source": "Mapterhorn terrain tiles (Copernicus GLO-30 + national open DEMs; © Mapterhorn)",
+      "description": "Global elevation hillshade rendered under all data layers. Off by default — the imagery base already shows relief; this is the opt-in accent (and the DEM source future 3D terrain reuses)."
+    },
+    {
       "id": "aircraft",
       "name": "Live aircraft (ADS-B)",
       "kind": "raw",
