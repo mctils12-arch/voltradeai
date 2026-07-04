@@ -84,6 +84,14 @@ mobile so browser chrome doesn't cause overflow.
 - Detail interactions: site markers open a clean detail card (name, type,
   what it's watching and why); aircraft/vessels open compact popovers.
 
+## Imagery metadata honesty (human-approved 2026-07-04)
+
+Where capture dates are available (Sentinel-2 scenes when that pipeline
+lands; any tile source exposing dates), display "imagery as of [date]"
+on the map. Where unavailable (Esri base tiles), say "date unavailable"
+rather than implying freshness. Standing display rule: no imagery
+surface may imply currency it cannot prove.
+
 ## Reference data accuracy (human-approved 2026-07-03)
 
 REFERENCE DATA ACCURACY: raw reference data (site coordinates, facility

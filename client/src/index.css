@@ -2387,3 +2387,25 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   border: 1px solid rgba(77, 159, 255, 0.2);
 }
 .vt-site-card-links a:hover { background: rgba(77, 159, 255, 0.16); }
+
+/* Layer panel v2: collapsible groups + per-layer descriptions */
+.vt-layer-group { border-top: 1px solid rgba(77, 159, 255, 0.08); }
+.vt-layer-group-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 44px; padding: 0 14px; background: none; border: 0;
+  color: var(--text-tertiary); font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.08em; cursor: pointer; font-family: var(--font-mono);
+}
+.vt-layer-group-head:hover { color: var(--text-secondary); }
+.vt-layer-group-chev { transition: transform 0.15s; display: inline-block; }
+.vt-layer-group-chev.closed { transform: rotate(-90deg); }
+.vt-layer-group-count { margin-left: auto; font-size: 10px; }
+.vt-layer-namebtn {
+  background: none; border: 0; padding: 0; color: inherit; font: inherit;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+}
+.vt-layer-desc {
+  padding: 4px 14px 10px 40px; font-size: 11.5px; color: var(--text-tertiary);
+  line-height: 1.45;
+}
+.vt-layer-desc-src { display: block; margin-top: 3px; font-family: var(--font-mono); font-size: 10.5px; }
