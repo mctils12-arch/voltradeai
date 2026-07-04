@@ -316,3 +316,34 @@ R4. **3D globe mode.** MapLibre globe projection (or Cesium only if
   above. Capacity-constrained corner: mid-cap single-plant operators.
 - Both hypotheses use the archive-first pattern: start recording EIA-930
   + NRC dailies NOW (cheap cron), judge after a quarter of history.
+
+## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
+
+- **TRUCKS CONCLUSION (do not chase): individual truck positions are
+  private fleet telematics** (Samsara/Motive/Geotab class, sold per
+  fleet; no public feed anywhere, free or paid-aggregate). The
+  build-first ladder terminates at step 4 with nothing to buy at our
+  scale either — the capability simply isn't for sale as a market feed.
+  Filed so no session burns time on it.
+- Freight PROXIES worth building instead (all free, each with its
+  ladder path):
+  1. **Border crossing wait times** (CBP BWT public API + BTS border
+     crossing monthly volumes). Hypothesis: sustained commercial-lane
+     wait/volume anomalies at Laredo/Otay Mesa lead cross-border
+     logistics + Mexico-exposure names. LADDER — DATA: BWT api vs BTS
+     monthlies reconcile; SIGNAL: anomalies vs forward returns of a
+     logistics basket; then LOGIC/SIZING/EXECUTION as standard.
+  2. **Truck-lane traffic volumes** (Caltrans PeMS + state DOT APIs,
+     free registration): real-time-ish corridor truck counts (I-710
+     port drayage corridor, I-80). Hypothesis: port-corridor drayage
+     volume leads retail-inventory names. DATA gate: PeMS truck counts
+     vs port TEU monthlies correlate.
+  3. **FMCSA carrier census/inspection counts** (free bulk): slow-moving
+     capacity proxy (carrier entries/exits lead trucking-rate cycles —
+     KNX/JBHT class). Monthly cadence; archive-first.
+  4. **Port TEU monthlies** (already adjacent to our verified port
+     sites): denominator for #2, slow ground truth for R2 transit
+     counters.
+  Archive-first rule applies to all four: start recording now, judge
+  after a quarter. None surfaces on the map until ladder gate 2 (they
+  are SIGNALS, not raw overlays).

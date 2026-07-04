@@ -894,3 +894,20 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   assertion in review, not just "layer exists".
 - Gates: node 41/41 (5 new trains tests incl. archive round-trip via the
   shared machinery), CI python 114, harness green 390/768/1440.
+
+## 2026-07-04 — [RESEARCH] Ships coverage verified + trucks build-first conclusion + freight proxies
+- SHIPS (directive): aisstream subscription confirmed GLOBAL in code
+  (BoundingBoxes ±90/±180 — routes.ts) — the honest gap is physical:
+  terrestrial AIS sees ~40-60nm offshore, mid-ocean is dark. Satellite
+  AIS filed in wishlist as PRICED (quote-only, ~$500+/mo entry class)
+  with build-first analysis: dead-reckoned predicted tracks + coastal
+  reacquisition cover most port-transit needs free; do not buy unless
+  a gated signal needs mid-ocean truth.
+- TRUCKS (directive): build-first analysis TERMINATES — individual
+  truck positions are private fleet telematics with no public feed at
+  any price tier relevant to us; conclusion filed in open_questions so
+  no session chases it. Four free freight PROXIES filed with ladder
+  paths instead (CBP border waits, PeMS truck-lane volumes, FMCSA
+  carrier census, port TEU monthlies) — archive-first, gate-2 gated.
+- STARVED: no — directive fully executed across PRs #124 (aircraft
+  third leg), #125 (trains layer), and this docs bundle.
