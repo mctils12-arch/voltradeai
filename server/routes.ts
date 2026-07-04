@@ -12,6 +12,7 @@ import cookieParser from "cookie-parser";
 // never reaches the image, which made runtime fs reads return {} in prod.
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
+import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import {
   archiveAircraft, archiveVessels, compressOldHours, rollupOldDays,
   recentTrack, archiveStats,
@@ -992,6 +993,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/sites", (_req, res) => {
     const d = datacoreSites as any;
     res.json({ kind: "raw", categories: d.categories || {}, sites: d.sites || [] });
+  });
+
+  // US power plants (RAW) — static reference data compiled from the WRI
+  // Global Power Plant Database (CC BY 4.0) by scripts/build_powerplants.py.
+  // Whole-file response, day-cached: ~760KB raw / ~200KB gzipped, one fetch
+  // per visitor-day; clustering/decluttering is client-side (DESIGN.md:
+  // heavy geo work never on the Railway box).
+  app.get("/api/data/powerplants", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json({ kind: "raw", ...(datacorePowerplants as any) });
   });
 
   // SEC EDGAR Form 4 (insider transactions) — RAW as-filed display (EDGE

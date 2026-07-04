@@ -34,6 +34,14 @@
       "description": "Cushing OK tank farms, major steel mills, top US ports."
     },
     {
+      "id": "powerplants",
+      "name": "US power plants",
+      "kind": "raw",
+      "status": "live",
+      "source": "Global Power Plant Database v1.3.0 (WRI, CC BY 4.0)",
+      "description": "All ~9,800 US plants by fuel type; capacity + operator on click. Static reference data (2021 vintage)."
+    },
+    {
       "id": "insider",
       "name": "Insider transactions (Form 4)",
       "kind": "raw",

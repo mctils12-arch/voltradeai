@@ -49,6 +49,7 @@ const FIXTURES = {
       { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
       { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
       { id: "sites", name: "Strategic sites", kind: "raw", status: "live", source: "datacore/sites", description: "Reference sites." },
+      { id: "powerplants", name: "US power plants", kind: "raw", status: "live", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", source: "Copernicus", description: "Gate-2 locked." },
     ],
@@ -103,6 +104,13 @@ const FIXTURES = {
     ],
   },
   "/api/health": { status: "ok", checks: {} },
+  // The real compiled dataset (repo file, deterministic): ~9.8k plants
+  // exercises the clustering path at full production scale in the perf
+  // window, on top of the 10k-aircraft budget check.
+  "/api/data/powerplants": {
+    kind: "raw",
+    ...JSON.parse(readFileSync(path.join(ROOT, "datacore", "powerplants", "us_power_plants.json"), "utf8")),
+  },
 };
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json", ".woff2": "font/woff2", ".ico": "image/x-icon" };

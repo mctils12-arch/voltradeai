@@ -774,3 +774,27 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Perf unchanged: same symbol-layer path as aircraft (16 features is
   noise next to the 10k-aircraft budget); harness perf medians 117ms
   unchanged from v1.0.48 baseline.
+
+## 2026-07-03 — [PRODUCT] US power plants layer: 9,833 plants, fuel icons, clustering (v1.0.50)
+- Map v2.1 POWER PLANTS directive. Free data root per EDGE DOCTRINE #1:
+  WRI Global Power Plant Database v1.3.0 (CC BY 4.0 — commercial-safe,
+  attribution shipped in layers.json + detail card + legend source).
+  Compiler: scripts/build_powerplants.py (re-runnable when WRI updates)
+  -> datacore/powerplants/us_power_plants.json (9,833 US plants, 762KB
+  compact rows; solar 3283 / gas 1852 / hydro 1449 / wind 1139 / oil 876
+  / other 879 / coal 297 / nuclear 58).
+- Serving: /api/data/powerplants — whole-file, day-cached, static import
+  (esbuild bakes it; Dockerfile never copies datacore/). RAW layer, no
+  ladder gate needed (no predictive claim); signal hypotheses filed in
+  open_questions.md (EIA-930 generation-mix utilization; NRC outage
+  adjacency) with full ladder paths.
+- Client: maplibre native clustering (clusterMaxZoom 7, radius 50) so
+  ~9.8k features stay legible + cheap on phones; unclustered points are
+  8 new fuel silhouettes in the SDF system (atom/coal pile/flame/derrick/
+  drop/turbine/sun/bolt) with per-fuel tint; cluster click zooms in;
+  point click -> detail card with MW + operator + attribution; legend
+  gains a plants row; panel row with count badge (Zap icon).
+- Tests: server/powerplants.test.ts (3) — dataset scale + row validity +
+  US bounds, CC BY attribution present, route/layers.json wiring.
+  Harness fixture serves the REAL compiled dataset so the perf window
+  now measures 10k aircraft + 9.8k clustered plants together.
