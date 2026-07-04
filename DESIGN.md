@@ -108,6 +108,19 @@ the open panel covered the zoom buttons in production). Plus the armed
 eternal-spinner check: any layer row in "loading" longer than 30s must
 carry a designed note.
 
+## Tile-layer pixel verification (lesson, 2026-07-04)
+
+An overlay tile layer is verified by its PIXEL CONTRIBUTION, never by
+HTTP 200s or layer-exists checks. Precedent: the OWM temp/wind
+recurrence — status endpoint ok, tiles serving 200 image/png, layer
+mounted, and the field still invisible (Weather Maps 1.0 tiles are
+intrinsically ~6-30% alpha pastels made for light basemaps; over our
+dark imagery the effective visibility was 3-18%). Verification for any
+new raster overlay: decode a real tile and check its alpha/color
+distribution against the basemap it will sit on
+(`scripts/verify_weather_prod.mjs` is the compiled pattern — screenshot
++ layer-on/off pixel diff on production).
+
 ## Loading-state rule (human-approved 2026-07-04)
 
 No loading state lives longer than 30s without resolving to a designed

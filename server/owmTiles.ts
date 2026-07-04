@@ -65,6 +65,47 @@ export function owmStatusNote(s: OwmStatus): string {
   }
 }
 
+// ── tile visibility amplification (v1.0.69 root-cause fix) ────────────────
+// MEASURED ROOT CAUSE of "temp/wind not rendering" (2026-07-04, prod tiles
+// pixel-analyzed): OWM Weather Maps 1.0 tiles are intrinsically
+// near-transparent pastels built for LIGHT basemaps — temp_new is uniform
+// ~76/255 alpha, wind_new ~15-53/255 with ZERO pixels above 120/255. Over
+// our dark satellite base, and further scaled by client raster-opacity,
+// effective visibility was 3-18% — invisible. GL raster paint can only
+// REDUCE opacity below the texture's baked-in alpha, so the fix must happen
+// before the texture: the proxy amplifies alpha (and saturation, the
+// palette is pale) once per tile per TTL. Factors chosen from the measured
+// per-layer alpha floors.
+import { PNG } from "pngjs";
+
+export const WX_ALPHA_FACTOR: Record<WxLayer, number> = {
+  temp_new: 3.2,   // 76/255 avg -> ~95% ceiling-capped visible field
+  wind_new: 5.5,   // 15-53/255 -> calm air stays faint, real wind reads
+};
+export const WX_ALPHA_CAP = 230;      // never fully opaque — basemap context survives
+export const WX_SATURATION = 1.6;     // pale 1.0-palette colors get usable chroma
+
+/** Amplifies a Weather-Maps-1.0 PNG's alpha + saturation. Pure buffer
+ *  transform (pngjs, no native deps); throws on non-PNG input — the route
+ *  falls back to the untouched buffer rather than serving nothing. */
+export function amplifyWeatherTile(buf: Buffer, layer: WxLayer): Buffer {
+  const png = PNG.sync.read(buf);
+  const f = WX_ALPHA_FACTOR[layer] ?? 1;
+  const d = png.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3];
+    if (a === 0) continue;
+    d[i + 3] = Math.min(WX_ALPHA_CAP, Math.round(a * f));
+    // saturation boost around luma (Rec.601), clamped
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const y = 0.299 * r + 0.587 * g + 0.114 * b;
+    d[i]     = Math.max(0, Math.min(255, Math.round(y + (r - y) * WX_SATURATION)));
+    d[i + 1] = Math.max(0, Math.min(255, Math.round(y + (g - y) * WX_SATURATION)));
+    d[i + 2] = Math.max(0, Math.min(255, Math.round(y + (b - y) * WX_SATURATION)));
+  }
+  return PNG.sync.write(png);
+}
+
 /** Tiny TTL cache with FIFO eviction — bounded memory for tile buffers. */
 export function makeTileCache<T>(maxEntries = 2000) {
   const m = new Map<string, { at: number; ttl: number; v: T }>();
