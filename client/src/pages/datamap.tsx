@@ -10,6 +10,7 @@ import {
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL,
 } from "@/lib/mapIcons";
 import FilingsView from "./filings";
+import { mmsiFlag } from "@/lib/mmsiFlag";
 
 /**
  * /data — the data-intelligence map (v2).
@@ -43,6 +44,9 @@ interface Detail {
   trailId?: string;      // archive id for the trail (aircraft icao24 / mmsi)
   trailKind?: "aircraft" | "vessels" | "trains";
   trailNote?: string;
+  /** External profile/photo pages — LINK OUT only, never embedded
+   *  (third-party photo copyright). */
+  links?: { label: string; href: string }[];
 }
 
 const IMAGERY_TILES =
@@ -382,6 +386,10 @@ export default function DataMapPage() {
                 `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
                 `trail below is our own archived feed history.`,
           trailId: p.icao24, trailKind: "aircraft",
+          links: [
+            { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
+            { label: "Live track (adsb.lol)", href: `https://adsb.lol/?icao=${p.icao24}` },
+          ],
         });
         const note = await showTrail("aircraft", p.icao24);
         setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note } : prev);
@@ -442,13 +450,18 @@ export default function DataMapPage() {
       iconPaint: { "icon-color": ["get", "color"], "icon-opacity": 0.95 },
       onClick: async (p) => {
         const cls = VESSEL_CLASS_LABEL[(p.cls || "other") as keyof typeof VESSEL_CLASS_LABEL] || "Vessel";
+        const flag = mmsiFlag(p.mmsi);
         setDetail({
           kind: "vessel",
           title: `⚓ ${p.name}`,
-          subtitle: `${cls} · MMSI ${p.mmsi}`,
+          subtitle: `${cls} · MMSI ${p.mmsi}${flag ? ` · ${flag}` : ""}`,
           body: `${p.kts != null ? `${p.kts} kts · ` : ""}hdg ${Math.round(p.heading || 0)}°` +
                 `${p.destination ? `\nDestination (AIS-broadcast): ${p.destination}` : "\nDestination: not broadcast"}`,
           trailId: p.mmsi, trailKind: "vessels",
+          links: [
+            { label: "MarineTraffic", href: `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${p.mmsi}` },
+            { label: "VesselFinder", href: `https://www.vesselfinder.com/vessels/details/${p.mmsi}` },
+          ],
         });
         const note = await showTrail("vessels", p.mmsi);
         setDetail(prev => prev && prev.trailId === p.mmsi ? { ...prev, trailNote: note } : prev);
@@ -936,6 +949,15 @@ export default function DataMapPage() {
             </button>
           </div>
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
+          {detail.links && detail.links.length > 0 && (
+            <div className="vt-site-card-links">
+              {detail.links.map((l) => (
+                <a key={l.href} href={l.href} target="_blank" rel="noreferrer">
+                  {l.label} ↗
+                </a>
+              ))}
+            </div>
+          )}
           {detail.trailNote && (
             <p className="vt-site-card-trail">Trail: {detail.trailNote}</p>
           )}
