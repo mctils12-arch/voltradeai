@@ -26,7 +26,7 @@ import { computeShadowStats } from "./shadowFleet";
 import { computePortDwell, portsFromSites } from "./portDwell";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
-  TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
+  amplifyWeatherTile, TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
 } from "./owmTiles";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
@@ -1316,7 +1316,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(503).json({ status: "activating", note: owmStatusNote("activating") });
       }
       if (!r.ok) return res.status(502).json({ status: "error", note: owmStatusNote("error") });
-      const buf = Buffer.from(await r.arrayBuffer());
+      let buf = Buffer.from(await r.arrayBuffer());
+      // v1.0.69: amplify the near-invisible 1.0-palette tiles once, here,
+      // then cache the display-ready result (root cause in owmTiles.ts).
+      try { buf = amplifyWeatherTile(buf, layer as WxLayer); } catch {}
       wxTileCache.set(ck, buf, TILE_TTL_MS);
       res.setHeader("content-type", "image/png");
       res.setHeader("cache-control", "public, max-age=600");

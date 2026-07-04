@@ -13,6 +13,39 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] Temp/wind recurrence ROOT-CAUSED: OWM 1.0 tiles are intrinsically near-invisible on dark basemaps (v1.0.69)
+
+- RECURRENCE (v2.4 touched this surface once — per loop-health rule 4,
+  no re-patch: root-cause analysis). MEASURED on production tiles (six
+  real tiles pixel-analyzed): temp_new = uniform 76/255 alpha,
+  wind_new = 15-53/255 alpha, ZERO pixels above 120/255 in ANY tile —
+  OWM Weather Maps 1.0 palettes are pale low-alpha overlays designed
+  for LIGHT basemaps. Attenuation chain: intrinsic alpha (0.3/0.1) ×
+  client raster-opacity (0.6) × dark satellite background = 3-18%
+  effective visibility. "Not rendering" was rendering — invisibly.
+- WHY BOTH PRIOR VERIFICATIONS MISSED IT (the actual generator):
+  v1.0.63 verified HTTP 200 + content-type + byte size — never pixels;
+  v2.4 fixed STATUS/note display — never pixels. Nothing ever asserted
+  the layer's pixel CONTRIBUTION. Ratchet: DESIGN.md gains the
+  tile-layer pixel-verification lesson;
+  scripts/verify_weather_prod.mjs compiles the check (prod layer-off
+  vs layer-on canvas screenshots, mean-pixel-diff floor, all three
+  widths).
+- FIX AT THE GENERATOR: GL raster paint can only reduce opacity below
+  a texture's baked-in alpha — the client cannot fix this. The proxy
+  we already own now amplifies each tile once per 10-min TTL (pngjs,
+  pure JS): alpha ×3.2 (temp) / ×5.5 (wind, from its measured floor),
+  capped at 230 so the basemap survives, +1.6× saturation around luma
+  for the pale palette; fully-transparent pixels stay transparent (no
+  field invented where none exists); transform fail-open (garbage →
+  raw buffer served). Client raster-opacity 0.6 → 0.85 (mild blend
+  now, not the visibility mechanism). TEST FIXTURE = a real captured
+  production wind tile: must exhibit the defect before amplification
+  (zero strong pixels — pinned) and read clearly after; alpha cap
+  pinned.
+- Verification: post-deploy, scripts/verify_weather_prod.mjs against
+  voltradeai.com at 390/768/1440 — results land in this log.
+
 ## 2026-07-04 — [RESEARCH] USPTO ODP key path + keyless-bypass verdict (docs)
 
 - Human hit a wall between the submitted ODP form and a key; research

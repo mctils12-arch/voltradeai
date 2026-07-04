@@ -6,8 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote,
-  makeTileCache, MAX_WX_ZOOM,
+  makeTileCache, MAX_WX_ZOOM, amplifyWeatherTile, WX_ALPHA_CAP,
 } from "./owmTiles";
+import { PNG } from "pngjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,6 +36,39 @@ test("fresh-key honesty: 401/403 classify as 'activating' (retry), never 'error'
   assert.equal(classifyOwmStatus(500, true), "error");
   assert.ok(owmStatusNote("activating").includes("~2h"), "retry note must state the ~2h activation window");
   assert.ok(owmStatusNote("ok").includes("© OpenWeatherMap"), "attribution required by license");
+});
+
+test("alpha amplification: the measured root cause is actually fixed (real prod wind tile)", () => {
+  // Fixture = a real production wind_new tile captured 2026-07-04 during the
+  // root-cause analysis: avg alpha 15/255, ZERO pixels above 120/255 —
+  // invisible over a dark basemap. After amplification the visible fraction
+  // must be dominated by mid/high-alpha pixels, capped below full opacity.
+  const raw = fs.readFileSync(path.join(here, "__fixtures__", "owm_wind_tile.png"));
+  const before = PNG.sync.read(raw);
+  let beforeStrong = 0, beforeNonzero = 0;
+  for (let i = 3; i < before.data.length; i += 4) {
+    if (before.data[i] > 0) beforeNonzero++;
+    if (before.data[i] > 120) beforeStrong++;
+  }
+  assert.equal(beforeStrong, 0, "fixture must exhibit the defect (no strong pixels)");
+  assert.ok(beforeNonzero > 0, "fixture must have SOME field content");
+
+  const out = amplifyWeatherTile(raw, "wind_new");
+  const after = PNG.sync.read(out);
+  let afterStrong = 0, maxA = 0;
+  for (let i = 3; i < after.data.length; i += 4) {
+    if (after.data[i] > 120) afterStrong++;
+    if (after.data[i] > maxA) maxA = after.data[i];
+  }
+  assert.ok(afterStrong > beforeNonzero * 0.1,
+    `amplification must create strong pixels (got ${afterStrong} of ${beforeNonzero} nonzero)`);
+  assert.ok(maxA <= WX_ALPHA_CAP, `alpha capped at ${WX_ALPHA_CAP} so the basemap stays visible (max ${maxA})`);
+  // fully-transparent pixels stay transparent — no field invented where none exists
+  assert.equal(after.data[3] > 0, before.data[3] > 0);
+});
+
+test("amplification is fail-open: garbage input throws (route falls back to the raw buffer)", () => {
+  assert.throws(() => amplifyWeatherTile(Buffer.from("not a png"), "temp_new"));
 });
 
 test("tile cache: TTL expiry and bounded eviction", () => {

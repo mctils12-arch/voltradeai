@@ -434,7 +434,10 @@ export default function DataMapPage() {
               const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
               map.addLayer({
                 id: `wx-${f.owm}`, type: "raster", source: `wx-${f.owm}`,
-                paint: { "raster-opacity": 0.6 },
+                // 0.85 (was 0.6): tiles arrive alpha-amplified from the proxy
+                // (owmTiles.ts root-cause fix) — this is a mild blend, not the
+                // visibility mechanism.
+                paint: { "raster-opacity": 0.85 },
               } as any, firstMarker?.id);
             }
             setStatus(f.id, "active", undefined, "global field · Weather data © OpenWeatherMap");
