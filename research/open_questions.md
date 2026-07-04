@@ -221,6 +221,15 @@
   rewrites merged main history onto the branch, diverges from origin,
   and recreates the dirty-PR stall. Correct action: none.
 
+- WRONG-MERGE RESET (recurred 2026-07-04, now mechanically fixed): a
+  hash-only merge monitor fires on ANY main advance — a concurrent PR
+  merging first (#147 while #148 waited) triggered a reflexive branch
+  reset + force-push that EMPTIED the open PR (GitHub auto-closed it;
+  work recovered via cherry-pick from the local object store, reopened
+  as #149). RULE: merge monitors must print the merged commit's
+  SUBJECT and gate the reset on it matching the expected PR number —
+  never reset on a bare hash change. The identity-aware monitor
+  template lives in this session's history (PR #149's watch).
 - CONCURRENT SESSIONS DOUBLE-BUILD roadmap items: an interactive session
   and a routine both built R1's archive on 2026-07-03 (#106 branch vs
   #107), forcing a supersession merge. Rule: CLAIM before building —
