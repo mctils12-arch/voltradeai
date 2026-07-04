@@ -2123,7 +2123,19 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 @keyframes vt-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* Controls cluster — standard top-right map position */
-.vt-map-controls { position: absolute; top: 12px; right: 12px; z-index: 10; }
+/* v2.3 overflow fix: the wrapper must be height-CONSTRAINED (top+bottom)
+   or the panel's max-height:100% resolves against an auto-height box and
+   never engages — the exact defect the human found (panel grew past the
+   viewport, clipped by the page's overflow:hidden, lower rows unreachable).
+   pointer-events pattern lets the empty area under the panel pass clicks
+   through to the map. */
+.vt-map-controls {
+  position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 10;
+  display: flex; flex-direction: column; align-items: flex-end;
+  pointer-events: none;
+}
+.vt-map-controls > * { pointer-events: auto; }
+.vt-layer-panel { max-height: 100%; }
 .vt-map-fab {
   width: 44px; height: 44px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
@@ -2291,29 +2303,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(77, 159, 255, 0.12);
 }
 
-/* Insider transactions (Form 4) — inline list inside the layer panel row
-   (non-geospatial data has no map marker to click, so it expands in place). */
-.vt-filings-list {
-  max-height: 220px; overflow-y: auto;
-  margin: 0 14px 8px; padding: 4px 0;
-  border-top: 1px solid rgba(77, 159, 255, 0.12);
-}
-.vt-filings-empty {
-  padding: 10px 2px; font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono);
-}
-.vt-filings-row {
-  display: flex; align-items: baseline; gap: 8px;
-  padding: 5px 2px; font-size: 11px; font-family: var(--font-mono);
-  border-bottom: 1px solid rgba(77, 159, 255, 0.06);
-}
-.vt-filings-row:last-child { border-bottom: none; }
-.vt-filings-issuer { font-weight: 700; color: var(--text-primary); min-width: 44px; }
-.vt-filings-owner {
-  flex: 1; color: var(--text-secondary); overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
-}
-.vt-filings-kind { font-weight: 700; min-width: 52px; text-align: right; }
-.vt-filings-shares { color: var(--text-tertiary); min-width: 70px; text-align: right; }
+/* v2.3: the in-panel filings feed was removed (a feed doesn't belong in a
+   layer-toggle sidebar) — its styles went with it per the dead-code policy.
+   The panel keeps only .vt-filings-openfull; the feed lives in the view
+   below. */
 
 /* ── Form 4 full filings view (#/data/filings) ─────────────────────────── */
 .vt-filings-page {
@@ -2409,3 +2402,24 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   line-height: 1.45;
 }
 .vt-layer-desc-src { display: block; margin-top: 3px; font-family: var(--font-mono); font-size: 10.5px; }
+
+/* v2.3 fullscreen map mode: hide site nav for a full-viewport map */
+body.vt-map-fullscreen .desktop-nav,
+body.vt-map-fullscreen .mobile-top-bar,
+body.vt-map-fullscreen .mobile-bottom-bar { display: none; }
+body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
+@media (max-width: 639px) {
+  body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
+}
+.vt-map-fs-btn {
+  position: absolute; top: 12px; left: 12px; z-index: 10;
+  width: 44px; height: 44px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(8, 16, 30, 0.94); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.2); cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.vt-map-fs-btn:hover { color: var(--accent-bright); }
+
+/* v2.3: filings columns must wrap, never clip mid-word */
+.vt-filings-table td { word-break: break-word; overflow-wrap: anywhere; }

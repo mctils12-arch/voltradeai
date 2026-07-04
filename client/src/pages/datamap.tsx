@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2 } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -73,23 +73,6 @@ const LAYER_GROUP: Record<string, string> = {
 const groupOf = (l: LayerMeta): string =>
   l.kind === "signal" || l.status === "planned" ? "signals" : LAYER_GROUP[l.id] || "live";
 
-interface InsiderRow {
-  issuer: string;
-  owner: string;
-  kind: string;
-  shares: number | null;
-  price: number | null;
-  date: string | null;
-}
-
-const INSIDER_KIND_LABEL: Record<string, string> = {
-  open_market_buy: "BUY", open_market_sale: "SELL", award_grant: "GRANT",
-  option_exercise: "EXERCISE", gift: "GIFT", tax_withholding: "TAX WH", other: "OTHER",
-};
-const INSIDER_KIND_COLOR: Record<string, string> = {
-  open_market_buy: "var(--accent-green)", open_market_sale: "var(--accent-red)",
-};
-
 // altitude → tint for aircraft icons (SDF icon-color)
 const ALT_COLOR: any = ["case",
   ["get", "ground"], "#6680a0",
@@ -115,11 +98,28 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
-  const [insiderRows, setInsiderRows] = useState<InsiderRow[]>([]);
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
-  const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>({});
+  // v2.3: groups beyond the first fold start collapsed — the panel stays
+  // scannable and everything below is one visible tap away.
+  const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>({
+    facilities: true, filings: true, signals: true,
+  });
+  // v2.3 fullscreen map mode — nav hidden via a body class; remembered per
+  // session; the map needs a resize after the container jumps.
+  const [fullscreen, setFullscreen] = useState<boolean>(() => {
+    try { return sessionStorage.getItem("vt-map-fs") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    document.body.classList.toggle("vt-map-fullscreen", fullscreen);
+    try { sessionStorage.setItem("vt-map-fs", fullscreen ? "1" : "0"); } catch {}
+    const t = window.setTimeout(() => { try { mapRef.current?.resize(); } catch {} }, 60);
+    return () => {
+      window.clearTimeout(t);
+      document.body.classList.remove("vt-map-fullscreen");
+    };
+  }, [fullscreen]);
   const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
   useEffect(() => {
     const onHash = () => setFilingsOpen(window.location.hash === "#/data/filings");
@@ -793,14 +793,6 @@ export default function DataMapPage() {
         const d = await r.json();
         if (stop) return;
         if (d.warming_up) { setStatus("insider", "loading", 0, "warming up — first poll can take a minute"); return; }
-        const rows: InsiderRow[] = (d.filings || []).flatMap((f: any) =>
-          (f.transactions || []).map((t: any) => ({
-            issuer: f.issuerTradingSymbol || f.issuerName || "—",
-            owner: f.owners?.[0]?.name || "—",
-            kind: t.kind, shares: t.shares, price: t.pricePerShare, date: t.transactionDate,
-          }))
-        ).slice(0, 40);
-        setInsiderRows(rows);
         setStatus("insider", "active", d.count ?? (d.filings || []).length);
       } catch {
         if (!stop) setStatus("insider", "error", undefined, "feed error — retrying");
@@ -843,7 +835,7 @@ export default function DataMapPage() {
     const descIsOpen = !!descOpen[l.id];
     return (
       <div key={l.id}>
-        <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`}>
+        <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`} data-vt-layer={l.id}>
           <span className="vt-layer-ic">{layerIcon(l.id)}</span>
           <span className="vt-layer-name">
             <button className="vt-layer-namebtn" aria-expanded={descIsOpen}
@@ -885,26 +877,13 @@ export default function DataMapPage() {
           </div>
         )}
         {l.id === "insider" && on && (
-          <div className="vt-filings-list" role="log" aria-label="Recent Form 4 insider transactions">
+          // v2.3: the filings FEED does not belong inside a layer-toggle
+          // sidebar — it lives in the full view; the panel keeps one button.
+          <div style={{ padding: "0 14px" }}>
             <button className="vt-filings-openfull"
                     onClick={() => { window.location.hash = "#/data/filings"; setFilingsOpen(true); }}>
-              Open full view — history, filters, SEC links →
+              Open filings view — history, filters, SEC links →
             </button>
-            {insiderRows.length === 0 ? (
-              <div className="vt-filings-empty">no filings yet — polls every ~15min</div>
-            ) : insiderRows.map((r, i) => (
-              <div className="vt-filings-row" key={i}>
-                <span className="vt-filings-issuer">{r.issuer}</span>
-                <span className="vt-filings-owner">{r.owner}</span>
-                <span className="vt-filings-kind" style={{ color: INSIDER_KIND_COLOR[r.kind] || "var(--text-tertiary)" }}>
-                  {INSIDER_KIND_LABEL[r.kind] || r.kind}
-                </span>
-                <span className="vt-filings-shares">
-                  {r.shares != null ? r.shares.toLocaleString() : "—"}
-                  {r.price ? ` @ $${r.price}` : ""}
-                </span>
-              </div>
-            ))}
           </div>
         )}
       </div>
@@ -916,6 +895,14 @@ export default function DataMapPage() {
       {filingsOpen && (
         <FilingsView onBack={() => { window.location.hash = "#/data"; setFilingsOpen(false); }} />
       )}
+
+      {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}
+      <button className="vt-map-fs-btn" data-vt-fullscreen
+              aria-label={fullscreen ? "Exit fullscreen map" : "Fullscreen map"}
+              aria-pressed={fullscreen}
+              onClick={() => setFullscreen((v) => !v)}>
+        {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+      </button>
       <div ref={mapContainer} className="vt-map-canvas" />
 
       {!mapReady && !mapError && (

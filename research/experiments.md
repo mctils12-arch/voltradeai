@@ -1025,3 +1025,36 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   Sentinel-2 pipeline lands. Doctrine line added to open_questions.
 - Map v2.2 directive fully executed across PRs #127-#131 + this docs
   close-out. STARVED: no.
+
+## 2026-07-04 — [PRODUCT] Map UI v2.3: panel overflow root-caused + self-see harness rule + fullscreen (v1.0.59)
+- ROOT CAUSE of the human-reported clipping: .vt-map-controls was
+  position:absolute with NO bottom constraint, so the panel's
+  max-height:100% resolved against an auto-height wrapper and never
+  engaged — the panel grew past the viewport, clipped by the page's
+  overflow:hidden, lower rows unreachable. Fix: wrapper now
+  top+bottom-constrained (flex column, pointer-events pass-through
+  under the panel); panel max-height:100% + existing overflow-y:auto
+  now actually scroll.
+- Panel restructured per directive: groups beyond the first fold
+  (Facilities, Filings & flows, Signals) start COLLAPSED — headers
+  visible, one tap to expand; the Form 4 FEED is fully removed from the
+  panel (a feed doesn't belong in a layer-toggle sidebar) — the panel
+  keeps one "Open filings view" button; the feed lives only in
+  #/data/filings where columns wrap (word-break added), never clip.
+  Dead panel-feed code + CSS removed per the dead-code policy.
+- HARNESS SELF-SEE (approved amendment, DESIGN.md + wishlist): the
+  harness now opens the panel via its own control, expands every
+  collapsed group, and asserts panel-bottom-in-viewport, scroll-when-
+  overflowing, every registry layer has a reachable row, every toggle
+  scrollable-into-view and hit-testable (nothing covering it).
+  PROVEN AGAINST THE BUG (loop-health rule 3 applied to the harness
+  itself): A/B with the old CSS makes the harness FAIL with exactly the
+  reported defect ("panel bottom 1084 past viewport 900"); fixed CSS
+  passes. The harness gap that let this ship is closed by construction.
+- FULLSCREEN MAP MODE: top-left 44px toggle hides the site nav (desktop
+  top bar; phone top+bottom bars) for a true full-viewport map;
+  sessionStorage-persisted; map.resize() on toggle. Verified
+  mechanically at 390: nav display:none, map rect 0..innerHeight,
+  persistence flag set; screenshot reviewed.
+- Gates: harness green all widths WITH self-see active; node 49/49;
+  CI python 114.
