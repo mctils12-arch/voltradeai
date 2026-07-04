@@ -13,6 +13,25 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RESEARCH] Wishlist decisions recorded + options/diagnostics decision packages (docs PR)
+
+- Human decisions 2026-07-04 recorded in wishlist.md: satellite-AIS
+  DECLINED (entry retained; revisit trigger = a gated signal that
+  specifically needs open-ocean coverage); historical options data
+  HOLD (full decision package delivered: unlocks, dependencies,
+  vendor prices verified same-day from vendor pages, ranked
+  recommendation — Databento $125-credit pilot first, then
+  historicaloptiondata.com L2 $1,495 one-off, then ThetaData Pro
+  churn ~$160-320 if retention confirmed; free Alpaca chain archiving
+  queued regardless); read-only diagnostics EXPLAIN delivered (four
+  options risk-assessed; recommended = DIAG_TOKEN-gated whitelist
+  route in routes.ts, auth.ts untouched, sanitizer test pinned;
+  ships only on explicit approval).
+- Sources: options prices from a 10-agent primary-source research
+  workflow this session (vendor pricing pages fetched 2026-07-04);
+  repo verified private (unauthenticated GitHub 404) for the
+  snapshot-option risk assessment.
+
 ## 2026-07-04 — [PRODUCT] Tier-3 spec filed: Sentinel-2 facility change detection (docs PR)
 
 - Geospatial directive Tier 3 executed as a spec (build queued for a
