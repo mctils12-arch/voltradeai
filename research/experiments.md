@@ -13,6 +13,57 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] Local pytest gate repaired: collection breakers + stale pins (KNOWN BROKEN #6 RESOLVED, v1.0.73)
+
+- The constitutional gate (`python3 -m pytest -q`, promotion rule 1) has
+  been UNRUNNABLE since the repo import — every session either ran the
+  CI 4-file whitelist or scoped around it (KNOWN BROKEN #6 filed it,
+  hypothesizing network/keys dependence). Root-caused today; the
+  hypothesis was WRONG on both counts:
+  1. COLLECTION BREAKERS: two root-level standalone SCRIPTS wear test_
+     prefixes. test_auto_discovery.py executes its full discovery
+     protocol at import and sys.exit()s → pytest INTERNALERROR kills
+     collection for the entire repo. test_full_system.py defines a
+     module-level `def test(phase, name, fn)` helper that pytest
+     collects and fails ("fixture 'phase' not found") — and its import
+     alone costs 62s. Fix: conftest.py collect_ignore for both, with
+     the policy documented; both remain runnable directly as scripts.
+     No assertion was removed — neither file could execute under pytest
+     at all.
+  2. STALE PINS (7 failures, none a live bug, none network-dependent):
+     (a) test_fixes_pr8 TestTrackFillValidation ×3 — tearDown os.rmdir
+     failed because track_fill's atomic write leaves feedback.json.lock
+     (fcntl thread-safety, in the code since import); tearDown now
+     rmtrees. (b) TestOptionsSlotseparation ×3 — pinned tunable VALUES
+     (MAX_POSITIONS==5, MAX_OPTIONS_POSITIONS==3) that dated code
+     comments legitimately moved to 8/8 (SIZING-FIX 2026-04-22,
+     ALPHA-TUNE 2026-04-21); re-anchored to the MECHANISM (separate
+     caps exist structurally; full stock book consumes zero options
+     slots) with arithmetic against the live constants — pinning
+     tunables in tests contradicts RULE REVIEW's tuning authority.
+     (c) TestFix8 ×1 — string pin "max_loss=contract.get" went stale
+     when the flow moved through shared_max_loss; the mechanism is
+     INTACT and improved (single AND multi-leg paths register the same
+     max_loss); re-pinned BOTH hops (contract→shared, shared→register),
+     stricter than before.
+- RATCHET (loop-health rule 3): test_collection_health.py collects the
+  whole repo in a subprocess and demands a clean exit — A/B-proven: with
+  conftest.py removed it FAILS carrying the original SystemExit
+  diagnostics; with it, green. Any future collection breaker fails the
+  gate the day it lands.
+- Gate after repair: 311 passed, 1 skipped, ~8s (was: INTERNALERROR; or
+  with the breaker excluded, 7 failed + 1 error in 74s — 62s of that was
+  test_full_system's import). Count reconciled exactly: −1 full_system
+  error entry, +4 test_voltrade_daemon (#164, merged after baseline),
+  +1 ratchet.
+- CORRECTION to today's v1.0.72 entry (learning-integrity): it
+  attributed the gate breakage to "routine commit 2479df0 added
+  test_auto_discovery.py" — WRONG. 2479df0 is the repo's INITIAL IMPORT
+  commit (74k-line squash, authored 2026-04-23); the breakage is
+  pre-existing and was already filed as KNOWN BROKEN #6. No routine
+  broke the gate today. The v1.0.72 PR body carries the same error;
+  corrected here, append-only.
+
 ## 2026-07-04 — [PRODUCT] Weather layer upgrade: opacity sliders, wind arrows, temp labels + scale (v1.0.72)
 
 - Directive: make the now-rendering temp/wind fields usable intelligence

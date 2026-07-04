@@ -9,6 +9,7 @@ Run: python3 -m pytest test_fixes_pr8.py -v
 """
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
@@ -81,9 +82,9 @@ class TestTrackFillValidation(unittest.TestCase):
             json.dump([], f)
 
     def tearDown(self):
-        if os.path.exists(self.feedback_path):
-            os.remove(self.feedback_path)
-        os.rmdir(self.tmpdir)
+        # track_fill's atomic write leaves a feedback.json.lock sidecar
+        # (production thread-safety, fcntl flock) — rmtree, not rmdir.
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _call_track_fill(self, order_data):
         """Call track_fill with patched FEEDBACK_PATH."""
