@@ -236,3 +236,13 @@
   ORBCOMM — pricing is quote-only, entry commonly $500+/mo class.
   RECOMMENDATION: do not buy unless a specific gated signal needs
   mid-ocean truth (none does today; port-transit signals don't).
+
+- **[APPROVED BY HUMAN 2026-07-04 — applied same message]** DESIGN.md
+  amendment: SELF-SEE RULE — "UI changes must verify their own
+  rendering: after any change to a panel or overlay, the harness
+  screenshots must show ALL registered content reachable (visible or
+  behind an on-screen expand control) at all three widths. A component
+  that exists in code but can't be reached on screen is a failed
+  build." Enforcement shipped in visual_check.mjs (SELF-SEE block) and
+  proven against the actual defect by A/B (old CSS -> harness FAILS
+  with "panel bottom past viewport"). Bookkept per the amendment rule.

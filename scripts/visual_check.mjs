@@ -346,6 +346,56 @@ async function main() {
       await page.screenshot({ path: shot });
       const checks = await page.evaluate(CHECKS_SNIPPET(vp.w, vp.touch));
       checks.failures.push(...errors);
+
+      // ── SELF-SEE (DESIGN.md, human-approved 2026-07-04): after any panel/
+      // overlay change, ALL registered content must be reachable — visible or
+      // behind an on-screen expand control. The 2026-07-04 defect: the panel
+      // grew past the viewport with lower rows unreachable while this harness
+      // passed. These assertions check what the human actually checks.
+      try {
+        // open the panel via its own on-screen control (as a user would)
+        await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(250);
+        // expand every collapsed group via its visible header
+        for (let round = 0; round < 6; round++) {
+          const btn = page.locator('.vt-layer-group-head[aria-expanded="false"]').first();
+          if (!(await btn.count())) break;
+          await btn.click().catch(() => {});
+          await page.waitForTimeout(120);
+        }
+        const layerIds = FIXTURES["/api/data/layers"].layers.map((l) => l.id);
+        const selfSee = await page.evaluate((ids) => {
+          const fails = [];
+          const panel = document.querySelector(".vt-layer-panel");
+          if (!panel) { fails.push("self-see: layer panel not rendered after opening"); return fails; }
+          const pr = panel.getBoundingClientRect();
+          if (pr.bottom > innerHeight + 2) fails.push(`self-see: panel bottom ${Math.round(pr.bottom)} past viewport ${innerHeight} — content unreachable`);
+          if (panel.scrollHeight > panel.clientHeight + 4) {
+            const oy = getComputedStyle(panel).overflowY;
+            if (!/(auto|scroll)/.test(oy)) fails.push("self-see: panel overflows without internal scrolling");
+          }
+          for (const id of ids) {
+            const row = panel.querySelector(`[data-vt-layer="${id}"]`);
+            if (!row) { fails.push(`self-see: registered layer '${id}' has no reachable panel row`); continue; }
+            row.scrollIntoView({ block: "center" });
+            const toggle = row.querySelector('[role="switch"]');
+            if (!toggle) { fails.push(`self-see: layer '${id}' has no toggle`); continue; }
+            const tr = toggle.getBoundingClientRect();
+            if (tr.right > innerWidth + 1 || tr.left < -1) fails.push(`self-see: '${id}' toggle off-screen horizontally at ${Math.round(tr.left)}..${Math.round(tr.right)}`);
+            if (tr.bottom > innerHeight + 1 || tr.top < -1) fails.push(`self-see: '${id}' toggle not scrollable into viewport`);
+            const hit = document.elementFromPoint(tr.left + tr.width / 2, tr.top + tr.height / 2);
+            if (hit && !toggle.contains(hit) && hit !== toggle && !hit.contains(toggle)) {
+              fails.push(`self-see: '${id}' toggle covered by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'>`);
+            }
+          }
+          return fails;
+        }, layerIds);
+        checks.failures.push(...selfSee);
+        // restore collapsed-by-default state for the phone screenshot honesty
+        if (vp.touch) await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]').catch(() => {});
+      } catch (e) {
+        checks.failures.push("self-see: driver error — " + (e?.message || e));
+      }
       // Perf budget (headless regression guards; on-device budget in DESIGN.md)
       if (tti == null) checks.failures.push("TTI: skeleton never cleared (>15s)");
       else if (tti > 12000) checks.failures.push(`TTI ${tti}ms > 12s headless guard`);

@@ -84,6 +84,23 @@ mobile so browser chrome doesn't cause overflow.
 - Detail interactions: site markers open a clean detail card (name, type,
   what it's watching and why); aircraft/vessels open compact popovers.
 
+## Self-see rule (human-approved 2026-07-04)
+
+UI changes must verify their own rendering: after any change to a panel
+or overlay, the harness screenshots must show ALL registered content
+reachable (visible or behind an on-screen expand control) at all three
+widths. A component that exists in code but can't be reached on screen
+is a failed build.
+
+Enforcement (visual_check.mjs SELF-SEE block): opens the panel via its
+own control, expands every collapsed group, then asserts — panel bottom
+inside the viewport; internal scrolling engaged when content overflows;
+every layer in the registry has a reachable row; every toggle scrolls
+into view and is hit-testable (nothing rendered on top of it). Precedent:
+the 2026-07-04 defect — the panel's height constraint resolved against
+an auto-height wrapper, rows below the fold were unreachable, and the
+harness passed because it never asserted reachability.
+
 ## Imagery metadata honesty (human-approved 2026-07-04)
 
 Where capture dates are available (Sentinel-2 scenes when that pipeline
