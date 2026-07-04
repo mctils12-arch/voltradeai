@@ -13,6 +13,13 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RULE-REVIEW] Amendment 3 SHIPPED: human-sovereignty clause (docs)
+
+- Fix 3 applied exactly as filed: the verbatim HUMAN SOVEREIGNTY
+  paragraph placed FIRST inside AUTONOMY AUTHORIZATION, so the
+  delegation is read as subordinate to the human before the delegation
+  itself is read. No other rule touched.
+
 ## 2026-07-04 — [RULE-REVIEW] Amendment 2 SHIPPED: liveness alarm in Priority 1 (docs; runtime half queued as [REPAIR])
 
 - Fix 2 constitution half applied exactly as filed: LIVENESS ALARM
