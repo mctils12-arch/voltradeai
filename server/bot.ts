@@ -3726,6 +3726,27 @@ print(json.dumps(run_diagnostics()))
     // 4. Record daily equity
     recordDailyEquity();
 
+    // 5. CFTC Commitments of Traders archive update (EDGE DOCTRINE #1
+    // free-data pipeline). COT only publishes weekly — cftc_cot.py
+    // self-guards to hit the network at most once per ~20h, so this
+    // hourly call is a cheap file-mtime check on 23 of 24 invocations.
+    // DATA-LADDER GATE 1 ONLY: archives validated positioning, feeds
+    // nothing into scoring yet (see research/open_questions.md).
+    try {
+      const { stdout: cotOut } = await execPythonSerialized(`python3 -c "
+from cftc_cot import run_daily_update
+import json
+print(json.dumps(run_daily_update()))
+"`, { timeout: 45000 });
+      const cotResult = JSON.parse(cotOut.trim());
+      if (cotResult.status === "done") {
+        const errored = Object.entries(cotResult.symbols || {}).filter(([, v]: [string, any]) => v.status === "error");
+        if (errored.length > 0) {
+          audit("TIER3-COT", `COT update: ${errored.length} symbol(s) failed — ${errored.map(([s]) => s).join(", ")}`);
+        }
+      }
+    } catch (err: any) { console.error("[tier3-cot]", err?.message || err); }
+
     audit("TIER3", "Strategic scan complete");
   }
 

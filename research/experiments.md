@@ -987,3 +987,98 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   otherwise; no imagery surface may imply currency it cannot prove.
 - Verified at 390/768/1440 (rule 6): desktop screenshot shows all four
   groups with honest per-layer notes; phone keeps the collapsed FAB.
+
+## 2026-07-04 — [REPAIR] KNOWN BROKEN #5 audit: data modules are wired, not orphaned
+- Repair Mandate check per session start: KNOWN BROKEN #5 said "audit
+  which of macro_data/alt_data/social_data/institutional_data/alphadesk
+  actually feed deep_score vs. orphaned. Wire or retire." Traced every
+  call site (grep + read) rather than trusting the stale claim.
+- FINDING: macro_data.py, intelligence.py, alt_data.py, social_data.py,
+  finnhub_data.py are all fetched inside deep_score()'s parallel-fetch
+  block (bot_engine.py:543-608) and consumed extensively downstream
+  (vix_regime, sector momentum, news sentiment, intel_score, insider
+  signal, alt_score adjustment, social_signal, ML feature vector).
+  institutional_data.py is wired through insights.py to the user-facing
+  `/api/insights/:ticker` route + InsightsView.tsx page — a manual
+  research tool by design, not an automated scoring input; "orphaned"
+  was the wrong frame. alphadesk/ is likewise wired to its own route.
+  Nothing was actually dead. No wire-or-retire code change needed —
+  #5 closed in open_questions.md with the evidence trail.
+- SIDE FINDING (documented, not self-edited): CLAUDE.md's EDGE DOCTRINE
+  #1 calls Google Trends/pytrends "currently dormant" — it is not; it's
+  live in social_data.py's per-ticker Google Trends signal, already
+  feeding deep_score via get_social_intelligence. Only KNOWN
+  STATE/CODEBASE MAP are self-editable for factual corrections per
+  FROZEN PATHS, so this is filed in open_questions.md #5 rather than
+  edited into the doctrine text.
+- No test needed (audit, zero behavior change).
+
+## 2026-07-04 — [PIPELINE] CFTC Commitments of Traders (COT) — free positioning-data pipeline (v1.0.58)
+- Doctrine axis chosen: EDGE DOCTRINE #1 (BUILD DATA, DON'T BUY IT),
+  the standing CFTC COT example. Prior state: zero references to CFTC/
+  COT anywhere in the repo — virgin territory, unlike EDGAR Form4 (gate
+  1 already shipped 2026-07-04) or Google Trends (already live per the
+  audit above). Chosen over the Sentinel-2/USAspending/FDA options in
+  the same doctrine bullet because it needs no image processing, no API
+  key, and CFTC exposes clean historical bulk data (unlike EDGAR Form4,
+  which had to wait on live-forward accumulation) — gate 2 work can
+  start immediately next session instead of waiting on months of polling.
+- PRIOR (stated before any fetch): expected the free Socrata "Legacy
+  Futures Only" dataset (publicreporting.cftc.gov/resource/6dca-aqww) to
+  be reachable and to expose clean per-contract weekly rows; expected to
+  need a per-record ground-truth check since this is GATE 1 DATA, not an
+  external source we can spot-check by eye at volume.
+- BUILD: `cftc_cot.py` (new, top-level — matches the existing
+  macro_data.py/alt_data.py flat-module convention; NOT placed under
+  datacore/, since datacore/README.md's boundary rules + Node-only
+  precedent are for the site's map/product surface, and COT is a pure
+  macro signal candidate for the Python trading engine, not a
+  geospatial overlay). 7 symbols: GLD, SLV, USO, CORN, TLT, SPY, QQQ —
+  each contract code cross-checked against the live dataset by exact
+  code + most-recent-report-date (not name-matched, several same-named
+  legacy/mini variants exist per commodity). Natural gas explicitly
+  skipped: the classic NYMEX "NATURAL GAS" contract (023651) stopped
+  reporting in 2022 and no unambiguous successor code was findable from
+  the API alone — filed as a gap rather than guessed.
+- GATE 1 VALIDATION (the actual repair-mandate-grade finding): CFTC's
+  own record accounts for itself via 4 exact accounting identities
+  (long/short/spread components sum to reported totals; reported +
+  non-reported = open interest). Implemented as `validate_record()`,
+  applied to every fetched row before archiving — any row that fails is
+  rejected and logged, never silently stored (Priority 2: corrupted
+  learning is worse than no learning). Live backfill result: 156/156
+  weeks passed for all 7 symbols, 0 rejections — the data source is
+  clean, and the check itself is proven to catch corruption (tests
+  below tamper a real captured row and confirm rejection).
+- ARCHIVE: `storage_config.py` gains COT_ARCHIVE_PATH/COT_CHECKPOINT_PATH
+  (same persistent-volume pattern as every other state file there).
+  `run_daily_update()` backfills 156 weeks (~3yr, standard COT-index
+  lookback) on first run, appends deltas thereafter, and self-guards to
+  hit the network at most once per ~20h regardless of call frequency.
+- WIRED (gate 1 plumbing only): server/bot.ts tier3Strategic() step 5
+  calls `run_daily_update()` on the existing hourly cadence — cheap on
+  23/24 calls due to the guard. Deliberately NOT wired into
+  deep_score/macro_data — that would jump the ROOT VALIDATION LADDER
+  past an unvalidated gate 2. `get_cot_snapshot(ticker)` exists as the
+  future internal-API getter, unused by trading code today.
+- Tests: `test_cftc_cot.py`, 17 cases, all offline (fixtures are a real
+  captured WTI row, not synthetic) — accounting-identity pass/fail/
+  tolerance, derived net-position math, COT-index edge cases (flat
+  series, lookback window boundary), archive round-trip via a tmp dir
+  (no /tmp collision with the real archive), and the staleness guard
+  (mocks fetch_symbol_history to assert zero network calls when checked
+  recently, and that one symbol's fetch failure doesn't abort the
+  others). 17/17 pass. Not registered in the frozen CI 4-file list
+  (.github/workflows/ci.yml) — run locally per the established
+  precedent for this repo's Node test suites (aircraftChain.test.ts
+  etc., also not in CI). Re-ran the CI 4-file offline subset after this
+  change: 114 passed, 1 skipped — unchanged from the documented
+  baseline. `npx tsc --noEmit`: no new error category (the one new
+  `.trim()` line matches the same pre-existing Buffer-typing pattern at
+  every other execPythonSerialized call site in this function).
+  `npm run build`: clean.
+- GATE 2 NOT ATTEMPTED THIS SESSION — logged in open_questions.md with
+  the stated prior (real edge expected on commodities, weak-to-none
+  expected on SPY/QQQ given the legacy report's weaker financial-futures
+  classification) and the kill criteria, ready for the next session once
+  the already-built backtest engine is pointed at the archived series.

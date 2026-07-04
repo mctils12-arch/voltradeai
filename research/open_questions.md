@@ -50,11 +50,29 @@
    completing or erroring? Diagnose from `/data/voltrade` state files and
    the persisted audit log before assuming any subsystem works.
 
-5. **Data modules not wired to live scoring.** The repo contains
-   `alphadesk/` (EDGAR filings, catalyst detection, LLM filing reader),
-   `macro_data.py`, `alt_data.py`, `social_data.py`,
-   `institutional_data.py` — audit which of these actually feed
-   `deep_score`/tier decisions vs. which are orphaned. Wire or retire.
+5. **[RESOLVED 2026-07-04 — audit, no code change needed]** ~~Data modules
+   not wired to live scoring.~~ Traced every import: `macro_data.py`,
+   `intelligence.py`, `alt_data.py`, `social_data.py`, `finnhub_data.py`
+   are all imported inside `deep_score()`'s parallel fetch block
+   (bot_engine.py:543-608) and their return values are read extensively
+   downstream (vix_regime, sector_momentum, news sentiment, intel_score,
+   insider signal, alt_score adjustment, social_signal, ML feature
+   vector — grepped every `macro.get(...)`/`alt.get(...)`/etc. call site).
+   `institutional_data.py` is imported only by `insights.py`
+   (institutional_data.py:151), which is NOT dead — it's the backend for
+   the user-facing `/api/insights/:ticker` route (server/routes.ts:565)
+   and the `InsightsView.tsx` page: a manual single-ticker research tool
+   by design, not an automated scoring input, so "orphaned" was the wrong
+   frame for it. `alphadesk/` is likewise wired to its own route
+   ("AlphaDesk EQUITY RESEARCH", server/routes.ts:598). Nothing found
+   here was actually dead; no wire-or-retire action was needed. Side
+   finding worth a note, not an edit (EDGE DOCTRINE text is not
+   self-editable per FROZEN PATHS): CLAUDE.md's EDGE DOCTRINE #1 still
+   calls Google Trends/pytrends "currently dormant" — it is not; it's
+   live inside `social_data.py`'s per-ticker Google Trends signal
+   (6h-cached, called from `get_social_intelligence` -> `deep_score`).
+   Filed here since only KNOWN STATE/CODEBASE MAP get self-edited
+   factual updates.
 
 6. **Full-repo pytest is broken at collection (pre-existing).**
    `test_auto_discovery.py` calls sys.exit() at module level, killing
@@ -157,6 +175,46 @@
   (or sourcing free historical Form 4 index files from SEC's bulk data
   page, `www.sec.gov/Archives/edgar/full-index/`, which is public and free
   — worth trying before waiting on live accumulation, unexplored).
+- **CFTC Commitments of Traders (COT) positioning** (gate 1 DATA PASSED
+  2026-07-04 — see `cftc_cot.py` / `test_cftc_cot.py`; EDGE DOCTRINE #1
+  standing example). Free, no key, via CFTC's public Socrata "Legacy
+  Futures Only" dataset. 7 symbols tracked (GLD, SLV, USO, CORN, TLT,
+  SPY, QQQ — natural gas deliberately skipped, its classic NYMEX contract
+  code stopped reporting in 2022 and the successor is ambiguous from the
+  API alone, revisit rather than guess). Every fetched record is
+  validated against CFTC's own accounting identities (long/short/spread
+  sum to reported totals; reported + non-reported = open interest) before
+  being archived — 0 rejections across a 156-week backfill for all 7
+  symbols on first run. Archived to `storage_config.COT_ARCHIVE_PATH`;
+  `run_daily_update()` wired into the existing hourly Tier 3 maintenance
+  call (server/bot.ts tier3Strategic, step 5) but self-guards to hit the
+  network at most once per ~20h, so the other 23 hourly calls are a free
+  file check. NOT wired into deep_score/macro_data — this is DATA-LADDER
+  GATE 1 ONLY. Gate 2 hypothesis, not yet attempted: does an extreme COT
+  index (the standard 0-100 Larry-Williams-style trailing-156-week
+  positioning percentile, already computed and archived per record) on
+  the non-commercial (speculator) side predict a forward mean-reversion
+  move in the underlying ETF, beating a same-holding-period random-entry
+  baseline (REASONING STANDARD #3)? PRIOR stated before any run: expect a
+  small, real edge on the commodity contracts (GLD/SLV/USO/CORN — the
+  classic hedger/speculator literature is strongest here, and REASONING
+  STANDARD #5's "who's on the other side" answer is structural: commercial
+  hedgers have production/inventory information speculators don't) and
+  little-to-no edge on the two equity-index contracts (SPY/QQQ — the
+  legacy report's noncomm/comm split is a much weaker economic
+  classification for financial futures than for physical commodities;
+  CFTC's newer TFF report categories may separate signal better there,
+  worth an A/B before trusting legacy-report SPY/QQQ results either way).
+  Discount per REASONING STANDARD #4 — this is 7 symbols x 2 series
+  (noncomm/comm) tried at once; do not cherry-pick the best-performing
+  symbol into a rule without out-of-sample confirmation. Kill the
+  hypothesis for a symbol if its COT-index extremes show no separation
+  from the random-entry baseline after the backtest engine (#1, already
+  built) is run against the archived series with >=1 year of accumulated
+  weekly history (156 weeks already backfilled from CFTC's public
+  history, so gate 2 could start as soon as next session — this is unlike
+  the EDGAR Form4 pipeline, which had to wait on live-forward
+  accumulation because no free historical bulk source existed).
 - **Options fill realism.** The synthetic slippage haircut in bot.ts is
   volume-tiered with a random component — good for stocks, weak for
   options. Replace for options with quote-based fills: short premium
