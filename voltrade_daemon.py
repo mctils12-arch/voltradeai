@@ -151,7 +151,7 @@ class RPCDispatcher:
             "macro_snapshot": ("macro_data", "get_macro_snapshot"),
 
             # Shadow portfolio stats
-            "shadow_stats": ("shadow_portfolio", "get_stats"),
+            "shadow_stats": ("shadow_portfolio", "get_shadow_stats"),
 
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),

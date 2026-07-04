@@ -158,12 +158,100 @@
    typing/destination populates post-warm-up on the next live check —
    that's read-path enrichment, not connection timing.
 
+10. **[FOUND 2026-07-04 — dead config, not yet repaired] SCORE_BAND_MAX,
+    MAX_CHANGE_PCT, SCORE_BAND_OPTIMAL_LO/HI are defined in
+    `system_config.py`'s BASE_CONFIG with comments claiming they gate
+    trades ("Skip stocks already up/down 35%+", "Scores above this are
+    often fake breakouts", "Sweet spot confirmed by 10-year backtest")
+    but are READ NOWHERE ELSE IN THE ENTIRE REPO.** Verified via
+    `grep -rn "SCORE_BAND_MAX\|MAX_CHANGE_PCT\|SCORE_BAND_OPTIMAL"` across
+    every `.py`/`.ts` file: the only hits are the four definitions in
+    `system_config.py` itself and this file. `bot_engine.py`'s actual
+    quick-score pass (line ~2458-2462) computes `change_pct` and applies
+    an `_extreme_penalty` that SOFTLY penalizes the score for >30%/>50%
+    moves — it never hard-skips a candidate the way the `MAX_CHANGE_PCT`
+    comment says, and `combined_score` is never checked against
+    `SCORE_BAND_MAX`/`SCORE_BAND_OPTIMAL_LO/HI` anywhere. HONESTY METRIC
+    RELEVANCE: these four values read as active, backtest-validated
+    guardrails to anyone consulting `system_config.py` (including this
+    file's own RULE COST AUDIT section below, which asked to "measure
+    prevention-P&L" for a rule that prevents nothing) — a session or
+    human could reasonably believe the system is filtering out fake
+    breakouts and 35%-already-run names when it is not. NOT REPAIRED
+    THIS SESSION, deliberately: per RULE REVIEW, wiring a hard skip back
+    in would be a genuine rule/threshold CHANGE (the system's actual
+    live behavior today has no such gate) and requires either
+    counterfactual evidence or a backtest ablation before shipping —
+    neither exists yet, and inventing the ablation harness for a
+    per-candidate stock-selection filter is a separate, larger effort
+    than this session's scope (bot_backtest.py/backtest_v2.py model
+    ETF-rotation strategies, not the full deep_score candidate-selection
+    path, so they cannot test this specific hypothesis as-is). USEFUL
+    NEWS: `shadow_portfolio.py`'s `log_candidate()` already records
+    `change_pct` inside the logged `features` dict for EVERY scanned
+    candidate (not just accepted trades) with forward +5d/+10d/+20d
+    outcomes backfilled nightly (see the entry directly below) — so once
+    enough shadow history accumulates, a future session can query the
+    existing archive directly (win rate for |change_pct|>35 candidates
+    vs. the rest) instead of building a new backtest harness. NEXT STEP:
+    once shadow_portfolio has >=90 days of backfilled history, test that
+    query; if it shows overreacting names are worse bets, wire the skip
+    with the evidence cited in the PR per RULE REVIEW; if not, delete
+    the four dead keys from `system_config.py` (DEAD CODE POLICY) rather
+    than leave them as misleading documentation.
+
+11. **[FOUND + FIXED 2026-07-04, v1.0.71]** ~~Daemon RPC route
+    `shadow_stats` pointed at a function that doesn't exist~~.
+    `voltrade_daemon.py`'s `RPCDispatcher._routes["shadow_stats"]` was
+    `("shadow_portfolio", "get_stats")` — but `shadow_portfolio.py` only
+    defines `get_shadow_stats()`, never `get_stats()`. Every call to this
+    RPC method would have silently returned `{"status": "error",
+    "error_message": "Method get_stats not found in shadow_portfolio"}`
+    at runtime — exactly the READ BEFORE WRITE failure mode CLAUDE.md
+    warns about (a Python-side rename/typo with no updated caller,
+    invisible to CI because nothing in the test suite exercised the
+    dispatch table). Found while auditing `shadow_portfolio.py` for the
+    counterfactual-logging finding above (#10) — confirmed via `grep`
+    that nothing in `server/bot.ts`/`server/routes.ts` currently calls
+    the `shadow_stats` RPC method (so this was latent, not an active
+    live break; `backfill_outcomes` IS called daily from bot.ts's Tier-1
+    cycle at 10pm UTC and works correctly — only the read-side stats
+    route was broken). FIX: corrected the route to `get_shadow_stats`.
+    RATCHET: new `test_voltrade_daemon.py` — no daemon test file existed
+    before this PR — walks every route in `RPCDispatcher._routes` whose
+    target module exists on disk and asserts the attribute is a real,
+    callable function (would have caught this bug, and will catch any
+    future rename of a routed function); a second test pins the two
+    genuinely-placeholder routes (`ml_status_impl`/`ml_toggle_impl`,
+    which dispatch to a local fallback by design, no such modules exist)
+    so they're never silently miscounted as "checked." 4/4 new tests
+    pass; full offline CI-gate subset unaffected (124 passed, 1 skipped
+    — 120 pre-existing + 4 new, identical baseline otherwise). Zero
+    Python trading-path behavior change (nothing calls this route today)
+    — version bumped 1.0.70 -> 1.0.71 per the read-and-increment
+    convention anyway, for `code_version` attribution hygiene.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
 - SCORE_BAND_MAX=75 ("fake breakout" ceiling) — measure prevention-P&L.
+  **UPDATE 2026-07-04: this rule does not exist in code — see KNOWN
+  BROKEN #10. Nothing to measure until it's either wired with evidence
+  or the dead config is removed.**
 - MAX_CHANGE_PCT=35 ("easy money gone") — verify against outcomes.
+  **UPDATE 2026-07-04: same as above — MAX_CHANGE_PCT is never read
+  outside system_config.py. See KNOWN BROKEN #10.**
 - Spread filter 0.5% — how many blocked names would have filled fine?
+  (this one DOES exist in code — bot_engine.py:3011, `_spread_pct > 0.005`
+  — unlike the two above; not yet counterfactual-logged, since
+  `shadow_portfolio.log_candidate()` is only called from inside
+  `deep_score()` with decision values `taken`/`rejected_score` — the
+  spread/correlation/regime/kill-switch decision buckets the function's
+  own docstring anticipates (`rejected_heat`/`rejected_halt`/
+  `rejected_earnings`/`rejected_other`) have zero real call sites
+  anywhere in the repo. Wiring those in is the natural next
+  counterfactual-logging PR — smaller and lower-risk than #10's
+  ablation, since it only adds observability, not new trading behavior.)
 - Correlation/sector blocks — cost vs. protection in current regime.
 - Kill-switch drawdown thresholds — sized for real-money caution; is
   that optimal for a paper account whose goal is learning speed?
