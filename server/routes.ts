@@ -32,6 +32,10 @@ import {
   parseApiKeys, makeRateLimiter, meterUsage, apiMeta, LICENSE_MARKS, ApiTier,
 } from "./apiProduct";
 import { addToWaitlist } from "./waitlist";
+import {
+  snapBbox, bboxKey, gridPoints, spacingKm, owmPointUrl, parseOwmPoint,
+  GRID_TTL_MS, UPSTREAM_PER_MIN_GUARD, WeatherSample,
+} from "./weatherGrid";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1389,6 +1393,59 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const data = { status, note: owmStatusNote(status), attribution: "Weather data © OpenWeatherMap" };
     wxStatusCache = { at: Date.now(), data };
     res.json(data);
+  });
+
+  // Sampled weather grid (wind vectors + temperature labels). One shared
+  // upstream burst per snapped-viewport bucket per 10-min TTL; minute guard
+  // keeps the OWM free budget safe; stale beats spinner on guard trips.
+  const wxGridCache = new Map<string, { at: number; data: any }>();
+  let wxGridMinute = 0, wxGridMinuteCalls = 0;
+  app.get("/api/data/weather/grid", async (req, res) => {
+    const key = process.env.OPENWEATHERMAP_KEY || "";
+    if (!key) return res.status(503).json({ status: "awaiting_key", note: owmStatusNote("awaiting_key") });
+    const parts = String(req.query.bbox || "").split(",").map(Number);
+    if (parts.length !== 4 || parts.some((v) => !Number.isFinite(v))) {
+      return res.status(400).json({ error: "bbox=s,w,n,e required" });
+    }
+    const b = snapBbox(parts[0], parts[1], parts[2], parts[3]);
+    const ck = bboxKey(b);
+    const hit = wxGridCache.get(ck);
+    if (hit && Date.now() - hit.at < GRID_TTL_MS) return res.json(hit.data);
+    const minute = Math.floor(Date.now() / 60_000);
+    if (minute !== wxGridMinute) { wxGridMinute = minute; wxGridMinuteCalls = 0; }
+    const pts = gridPoints(b);
+    if (wxGridMinuteCalls + pts.length > UPSTREAM_PER_MIN_GUARD) {
+      if (hit) return res.json({ ...hit.data, stale: true }); // stale beats spinner
+      return res.status(503).json({ status: "budget", note: "shared upstream budget exhausted this minute — retry shortly" });
+    }
+    wxGridMinuteCalls += pts.length;
+    try {
+      const samples: WeatherSample[] = [];
+      const CONC = 8;
+      for (let i = 0; i < pts.length; i += CONC) {
+        const chunk = await Promise.all(pts.slice(i, i + CONC).map(async (p) => {
+          try {
+            const r = await fetch(owmPointUrl(p.la, p.lo, key));
+            if (!r.ok) return null;
+            return parseOwmPoint(p.la, p.lo, await r.json());
+          } catch { return null; }
+        }));
+        for (const s of chunk) if (s) samples.push(s);
+      }
+      const data = {
+        kind: "raw",
+        source: "OpenWeatherMap current-weather point samples (Weather data © OpenWeatherMap)",
+        note: `sampled grid — one observation per ~${spacingKm(b, pts.length)} km; arrows/labels never denser than the data`,
+        spacing_km: spacingKm(b, pts.length),
+        sampled: samples.length,
+        points: samples,
+      };
+      if (wxGridCache.size > 200) wxGridCache.delete(wxGridCache.keys().next().value as string);
+      wxGridCache.set(ck, { at: Date.now(), data });
+      res.json(data);
+    } catch (e: any) {
+      res.status(502).json({ status: "error", note: e?.message || "grid fetch failed" });
+    }
   });
 
   app.get("/api/data/wxtile/:layer/:z/:x/:y", async (req, res) => {

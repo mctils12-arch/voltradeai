@@ -2276,6 +2276,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-map-page .maplibregl-ctrl-attrib {
   background: rgba(5, 10, 19, 0.75); color: var(--text-tertiary);
   font-size: 10px; font-family: var(--font-body); border-radius: 6px 0 0 0;
+  /* Attribution grows as layers stack (weather adds OWM). Cap its spread so
+     it wraps inside the right column and can NEVER slide under the
+     bottom-left zoom controls (v2.4 occlusion rule; caught at 390px). */
+  max-width: min(70vw, 560px);
 }
 .vt-map-page .maplibregl-ctrl-attrib a { color: var(--text-tertiary); }
 .vt-map-page .maplibregl-ctrl-scale {
@@ -2477,3 +2481,21 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-dev-footer { margin-top: 48px; }
 .vt-dev-footer a { color: var(--accent); font-size: 15px; text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
 .vt-dev-footer a:hover { color: var(--accent-bright); }
+
+/* ── field-layer display controls (weather upgrade, 2026-07-04) ───────── */
+.vt-field-controls {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 6px 14px 10px 40px; font-size: 11.5px; color: var(--text-tertiary);
+}
+.vt-field-slider { display: flex; align-items: center; gap: 8px; min-height: 44px; flex: 1 1 170px; }
+.vt-field-slider span { font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap; }
+.vt-field-slider input[type="range"] { flex: 1; min-width: 90px; accent-color: var(--accent); min-height: 24px; }
+.vt-field-check { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; cursor: pointer; }
+.vt-field-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.vt-field-unit {
+  min-width: 44px; min-height: 32px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(77, 159, 255, 0.4); background: transparent;
+  color: var(--accent); font-family: var(--font-mono); font-size: 12px;
+}
+.vt-field-unit:hover { background: rgba(77, 159, 255, 0.12); }
+.vt-field-note { flex-basis: 100%; font-size: 10px; line-height: 1.4; }

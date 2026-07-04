@@ -13,6 +13,63 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Weather layer upgrade: opacity sliders, wind arrows, temp labels + scale (v1.0.72)
+
+- Directive: make the now-rendering temp/wind fields usable intelligence
+  tools — per-layer opacity control (default ~60% so the base map stays
+  visible), aviation-style wind vectors rendered HONESTLY at the data's
+  real density, temperature value labels (°F/°C) + color-scale legend.
+  All RAW display enhancements — no interpretation, no gating needed.
+- HONEST SOURCING (the load-bearing finding): OWM's free tile API is a
+  raster COLOR FIELD with no vector data in it. Direction/speed/temp
+  numbers exist only in the free current-weather POINT API. So vectors
+  and labels come from a sampled point grid: ≤40 points per snapped
+  viewport bucket (server/weatherGrid.ts), 10-min shared cache, 45/min
+  upstream guard under the 60/min free budget. The UI states the real
+  spacing ("one observation per ~N km") and never renders arrows denser
+  than the samples — no faked barb density. Barbs proper were rejected:
+  at 40 points/viewport the pennant/half-tick grammar would imply
+  station-level precision we don't have; arrow + kt text is the honest
+  form. Static grid that refetches on pan (debounced 600ms), never an
+  animation — phone budget over spectacle.
+- Registry-native: layers.json field:true flags opt layers into the
+  opacity slider (weather radar included); default 60%, sessionStorage-
+  persisted, live setPaintProperty updates. Wind arrows an SDF icon
+  (mapIcons registry) with OWM's FROM-direction converted (+180°) to
+  pointing direction; temp labels precomputed per °F/°C unit; temp
+  color ramp added to the legend labeled "approx — amplified for dark
+  basemap" (the proxy amplification from v1.0.69 shifts hues).
+- snapBbox bug caught by its own test: quantum derived from each
+  viewport's raw span gave nearby viewports different buckets, defeating
+  the shared cache. Fix: power-of-two quantum ladder + outward
+  (floor/ceil) edge snapping so the bucket always covers the viewport.
+- HARNESS fields-on battery (new, all 3 widths): toggles temp+wind as a
+  user would, then asserts pixel-level rendering (canvas off/on mean
+  diff ≥3; measured 46.8/53.6/56.3), aircraft still rendered with
+  fields on, rasters BELOW symbols, 60% default applied, arrows placed
+  from the sampled grid, and the v2.4 occlusion hit-test re-run with
+  fields on. A/B-PROVEN against a real defect it caught during this
+  session: enabling weather grew the attribution to 2 lines at 390px
+  and covered the zoom-out button ("OCCLUDED by
+  maplibregl-ctrl-attrib-inner"); fixed with an attribution max-width
+  cap so it wraps inside the right column. Deterministic wx tile
+  fixture stands in for the proxy's amplified OUTPUT (the amplification
+  itself stays unit-tested against the real captured prod tile).
+- Gates: node 106/106; harness green ×3 + developers + all-off
+  (fields diffs above); python vs PRISTINE origin/main baseline —
+  identical 7 failed + 1 error on main worktree and on my tree, i.e.
+  ZERO new failures from this change. Main's local pytest gate is
+  BROKEN independently of U1: routine commit 2479df0 added root-level
+  test_auto_discovery.py which pytest collects and which sys.exit()s at
+  import (INTERNALERROR, kills the whole run; CI stays green only
+  because ci.yml whitelists 4 files), and 7 options/track-fill tests +
+  test_full_system.py now fail on pristine main. Filed as the next
+  [REPAIR] action — not bundled here per one-change-per-PR.
+- Live expectation: default-on look unchanged (fields stay off by
+  default); when enabled, base map + live layers remain visible at 60%;
+  arrow count per viewport ≤40 with kt labels; °F default matches US
+  audience, °C one tap away.
+
 ## 2026-07-04 — [REPAIR] Daemon RPC route bug fixed (shadow_stats) + counterfactual-logging dead-config audit finding (v1.0.71)
 
 - Session-start protocol followed in order: CLAUDE.md, experiments.md,
