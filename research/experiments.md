@@ -13,6 +13,16 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] OWM v1.0.63 VERIFIED LIVE on prod (follow-up to the entry below)
+
+- Prod probe sequence: deploy live -> /api/data/weather/global/status
+  = "activating" (fresh-key state, retry note surfaced, nothing
+  marked broken) -> key ACTIVATED within the watch window -> status
+  "ok" and a real temperature tile served through the proxy
+  (200 image/png 78KB, /api/data/wxtile/temp_new/2/1/1). Global
+  temp/wind fields are live end-to-end; the activation-aware flow
+  behaved exactly as designed on a real fresh key.
+
 ## 2026-07-04 — [PRODUCT] OWM global temp/wind fields — key-proxied tiles, activation-aware status (v1.0.63)
 
 - Human set OPENWEATHERMAP_KEY in Railway (fresh key, ~2h activation
