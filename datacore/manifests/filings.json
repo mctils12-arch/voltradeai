@@ -1,0 +1,25 @@
+{
+ "stream": "filings",
+ "storage": "volume JSONL <archive>/filings/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/edgarForm4.ts archiveFilings",
+ "source": "SEC EDGAR Form 4 (as filed)",
+ "license": "US public records; no reuse restriction; 10 req/s + declared User-Agent",
+ "attribution": "SEC EDGAR",
+ "schema_version": 1,
+ "field_map": {
+  "accession": "SEC accession (dedup key)",
+  "filedAt": "filing date UTC",
+  "indexUrl": "SEC filing index URL (evidence link)",
+  "issuerName": "issuer",
+  "issuerTradingSymbol": "ticker (entity key)",
+  "owners[]": "cik (person entity key), name, roles",
+  "transactions[]": "table, kind, shares, pricePerShare, transactionDate"
+ },
+ "confidence_model": "as-filed regulatory records (high; filing errors possible, never corrected in-archive)",
+ "geo_fields": [],
+ "entity_key": "issuerTradingSymbol (company) + owners[].cik (person)",
+ "sentiment": null,
+ "started": "2026-07-04",
+ "cadence": "15-min poll; day-file dedup by accession",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

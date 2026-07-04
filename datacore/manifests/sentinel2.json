@@ -1,0 +1,30 @@
+{
+ "stream": "sentinel2",
+ "storage": "git-versioned JSONL datacore/sentinel2/readings.jsonl",
+ "written_by": "scripts/sentinel2_tankfill.py",
+ "source": "Copernicus Sentinel-2 L2A via Element84 earth-search STAC + AWS Open Data (anonymous)",
+ "license": "Copernicus free/open data policy; attribution 'Contains modified Copernicus Sentinel data'",
+ "attribution": "Contains modified Copernicus Sentinel data",
+ "schema_version": 1,
+ "field_map": {
+  "site": "facility id from datacore/sites (entity key)",
+  "scene": "Sentinel-2 scene id (dedup key with site)",
+  "date": "capture date UTC",
+  "cloud_pct": "scene cloud cover",
+  "sun_elev": "solar elevation deg",
+  "px": "AOI valid pixels",
+  "median_reflectance": "B04 AOI median",
+  "raw_dark_frac": "dark-pixel fraction",
+  "shadow_index": "tan-zenith-normalized index",
+  "label": "EXPERIMENTAL marker (gate 2 unpassed)"
+ },
+ "confidence_model": "EXPERIMENTAL derived index; per-reading quality = cloud_pct + px; ladder gate 1 not yet earned (see experiments.md 2026-07-04)",
+ "geo_fields": [
+  "(site -> lat/lon via datacore/sites)"
+ ],
+ "entity_key": "site + scene",
+ "sentiment": null,
+ "started": "2026-07-04 (backfilled to 2026-03-19)",
+ "cadence": "weekly-ish (Sentinel-2 revisit, cloud-permitting)",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

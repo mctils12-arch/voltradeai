@@ -1,0 +1,29 @@
+{
+ "stream": "trains",
+ "storage": "volume JSONL <archive>/trains/YYYY-MM-DD-HH.jsonl(.gz)",
+ "written_by": "server/datacoreArchive.ts archiveTrains",
+ "source": "Digitraffic Finland + Entur Norway",
+ "license": "Digitraffic CC BY 4.0; Entur NLOD \u2014 attribution required",
+ "attribution": "Digitraffic FI (CC BY 4.0) + Entur NO (NLOD)",
+ "schema_version": 1,
+ "field_map": {
+  "t": "unix sec UTC",
+  "i": "train id FI-{num}-{date} / NO-{vehicleId} (entity key)",
+  "c": "label",
+  "co": "country code",
+  "la": "lat (4dp)",
+  "lo": "lon (4dp)",
+  "v": "speed km/h",
+  "h": "bearing deg"
+ },
+ "confidence_model": "operator-reported positions, as-published",
+ "geo_fields": [
+  "la",
+  "lo"
+ ],
+ "entity_key": "i",
+ "sentiment": null,
+ "started": "2026-07-04",
+ "cadence": "fixed 2min",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

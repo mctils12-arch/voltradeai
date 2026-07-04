@@ -1,0 +1,23 @@
+{
+ "stream": "earnings8k",
+ "storage": "volume JSONL <archive>/earnings8k/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/sec8kEarnings.ts archiveEarnings8Ks",
+ "source": "SEC EDGAR 8-K Item 2.02 Exhibit 99 (earnings press-release text)",
+ "license": "US public records; press-release text is company-authored (analysis/archival is standard practice; no SEC reuse restriction)",
+ "attribution": "SEC EDGAR",
+ "schema_version": 1,
+ "field_map": {
+  "accession": "SEC accession (dedup key)",
+  "ticker/issuer": "entity key",
+  "acceptanceDatetime": "EDGAR acceptance ts UTC (lookahead-free event time)",
+  "text": "extracted exhibit plain text (truncated at 30k chars with truncated flag)",
+  "textLength/truncated": "honesty pair"
+ },
+ "confidence_model": "as-filed text; extraction is deterministic parsing (gate-1 verified 2026-07-04); sentiment/tone are DERIVED later, never stored as fact here",
+ "geo_fields": [],
+ "entity_key": "ticker + accession",
+ "sentiment": "not stored raw; L-M tone computed downstream (SIGNAL-class, gated)",
+ "started": "2026-07-04",
+ "cadence": "getcurrent feed poll",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

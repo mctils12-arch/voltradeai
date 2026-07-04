@@ -1,0 +1,31 @@
+{
+ "stream": "aircraft",
+ "storage": "volume JSONL <archive>/aircraft/YYYY-MM-DD-HH.jsonl(.gz)",
+ "written_by": "server/datacoreArchive.ts archiveAircraft",
+ "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live + adsb.fi (non-commercial fallbacks)",
+ "license": "ODbL 1.0 (primary); fallbacks personal/non-commercial \u2014 monetization tripwire applies",
+ "attribution": "adsb.lol + airplanes.live + adsb.fi",
+ "schema_version": 1,
+ "field_map": {
+  "t": "unix sec UTC",
+  "i": "icao24 hex (entity key)",
+  "c": "callsign",
+  "la": "lat (4dp)",
+  "lo": "lon (4dp)",
+  "al": "altitude m",
+  "gs": "ground flag/speed per writer",
+  "h": "heading deg",
+  "ty": "ICAO type",
+  "ca": "emitter category"
+ },
+ "confidence_model": "as-broadcast ADS-B; no inference applied at archive time",
+ "geo_fields": [
+  "la",
+  "lo"
+ ],
+ "entity_key": "i (icao24)",
+ "sentiment": null,
+ "started": "2026-07-03",
+ "cadence": "adaptive thinning: 30s near sites / 1-5min otherwise",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}
