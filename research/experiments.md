@@ -13,6 +13,34 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RESEARCH] Atlas parity filed: free-layer endpoints verified, licenses checked, build order set (docs)
+
+- Geospatial-parity directive Part 1/2 filing (open_questions.md ATLAS
+  PARITY section). Endpoint verification done SERVER-SIDE with pixel
+  decodes (DESIGN.md tile rule — never HTTP 200s): JRC Global Surface
+  Water tiles VERIFIED (65k non-transparent px on the z4 probe), JRC
+  Global Forest Cover 2020 10m via the GFW public tile API VERIFIED
+  (24.8k px) — the directive's exact dataset; Natural Earth admin-0
+  GeoJSON VERIFIED (public domain; GADM REJECTED — non-commercial
+  license conflicts with the monetization path). WorldCover: COGs free
+  on S3 (verified anonymous listing) but the Terrascope WMTS resets
+  from this sandbox — prod-side verify or COG-pyramid fallback filed.
+  GHSL/WorldPop: WMS endpoints moved/404 — endpoint research filed,
+  licensing already clear (both CC BY 4.0). Elevation: already live
+  (Mapterhorn = GLO-30). Dead ends recorded (Hansen GCS tile paths,
+  umd_tree_cover_density_2020 "no latest version") so no session
+  re-walks them.
+- Part 2 BLOCKED-BY-ACCESS boundary filed: Google's Street-View-derived
+  professional layers have no free lawful raw material — not a build
+  target; free building footprints (Microsoft ODbL / Google Open
+  Buildings CC BY) remain the Tier-2 path.
+- Parts 3/4: differentiation pointers mapped to existing queue items
+  (timeline slider, Everything Graph card, ladder-gated signals,
+  /api/v1); positioning copy queued as its own small [T-CLIENT] PR.
+- Build order chosen: surface water → forest 2020 → NE boundaries,
+  one layer per PR (X7 precedent), all registry-native with field:true
+  opacity inheritance from v1.0.72.
+
 ## 2026-07-04 — [REPAIR] Local pytest gate repaired: collection breakers + stale pins (KNOWN BROKEN #6 RESOLVED, v1.0.73)
 
 - The constitutional gate (`python3 -m pytest -q`, promotion rule 1) has
