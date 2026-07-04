@@ -13,6 +13,16 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RULE-REVIEW] ACTIVE ANGLE-HUNTING amendment SHIPPED (docs)
+
+- Human approved ("ANGLE-HUNTING amendment — ship it"). Applied to
+  STANDING BEHAVIORS exactly as proposed, dated 2026-07-04: every EDGE
+  session not consumed by repair or a higher-priority queued item
+  hunts novel angles (cross-connections, anomaly mining, foreign-field
+  imports, second-order), with the freedom-plus-rigor discipline —
+  every angle logged with its testable form and ladder path, priors
+  first, multiplicity discounts, out-of-sample required.
+
 ## 2026-07-04 — [REPAIR] Liveness alarm RUNTIME half live: dark loop now degrades /api/health (v1.0.80)
 
 - Completes approved Amendment 2: server/liveness.ts (pure,

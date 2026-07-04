@@ -16,9 +16,10 @@
   (free NASA Earthdata login — also a HUMAN ACTION if preferred:
   urs.earthdata.nasa.gov signup, same shape). Either credential works;
   CDSE is the single-signup option the directive named.
-- **⚖ AMENDMENT PROPOSAL — ACTIVE ANGLE-HUNTING (satellite/EDGE
-  directive 2026-07-04; human approval required; NOT self-applied).**
-  Proposed addition to CLAUDE.md STANDING BEHAVIORS, exact text:
+- **⚖ [APPROVED BY HUMAN 2026-07-04 — "ANGLE-HUNTING amendment — ship
+  it"; applied to CLAUDE.md STANDING BEHAVIORS same day, dated
+  2026-07-04.] AMENDMENT — ACTIVE ANGLE-HUNTING (satellite/EDGE
+  directive 2026-07-04).** Applied text (as proposed):
 
   "- ACTIVE ANGLE-HUNTING (human-approved YYYY-MM-DD): the system does
   not only execute directed roadmaps — it generates its OWN novel

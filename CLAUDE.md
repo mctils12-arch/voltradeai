@@ -547,6 +547,28 @@ experiments.md.
   the routine's final session output in the Claude Code Notifications
   tab (the Gmail connector is draft-only — never a send path). Revisit
   ~2026-07-24: once readings flatten, drop back to weekly mode.
+- ACTIVE ANGLE-HUNTING (human-approved 2026-07-04): the system does
+  not only execute directed roadmaps — it generates its OWN novel
+  hypotheses. Every EDGE session not consumed by repair or a
+  higher-priority queued item deliberately hunts new angles: (1)
+  CROSS-CONNECTIONS — join two or more existing data streams in ways
+  not yet tried (insider-buying × facility SAR-activity × port-dwell;
+  corporate-fleet aircraft utilization × earnings timing; plant
+  thermal-activity × commodity prices) — the Everything Graph is the
+  substrate; (2) ANOMALY MINING — scan the archives for unexplained
+  recurring patterns, especially ones preceding price moves, and ask
+  why; (3) FOREIGN-FIELD IMPORTS — borrow techniques from outside
+  finance (epidemiology, ecology, signal processing, aviation
+  failure-analysis) and test whether they reveal structure others
+  miss; (4) SECOND-ORDER — for any edge found, ask who is on the other
+  side and why it has not been arbitraged. FREEDOM + RIGOR:
+  unconventional, speculative, even weird hypotheses are explicitly
+  wanted — AND every one enters the ROOT VALIDATION LADDER before it
+  is believed or traded. Every generated angle is logged in
+  open_questions.md with its testable form and ladder path, even the
+  speculative ones; priors stated before testing; edges discounted by
+  the number of combinations tried; out-of-sample confirmation
+  required; a beautiful story never substitutes for validation.
 - MONETIZATION TRIPWIRE (2026-07-03): any session touching billing,
   pricing, subscriptions, ads, or paid-feature gating MUST first re-run
   the aircraft-provider compliance check in wishlist.md (adsb.lol is
