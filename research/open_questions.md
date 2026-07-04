@@ -708,6 +708,86 @@ filings.tsx) is now the next queued PRODUCT item alongside (d)-(g).
 STATUS UPDATE: FIRMS is ACTIVE (key set as FIRMS_MAP_KEY + env-name
 alias fix v1.0.68 — archive recording live).
 
+## ATLAS PARITY (geospatial-parity directive 2026-07-04 — free public
+layers Google Earth re-displays; endpoints VERIFIED server-side from
+this session's sandbox via the sanctioned proxy, pixel-decoded, not
+just HTTP 200s per the DESIGN.md tile rule)
+
+PART 1 BUILD LIST — one layer per PR (X7 precedent), registry-native
+(lazy, zero-cost-off, opacity slider via field:true, legend entry):
+
+1. **Surface water (JRC GSW v2021)** — VERIFIED: XYZ tiles
+   `https://storage.googleapis.com/global-surface-water/tiles2021/{set}/{z}/{x}/{y}.png`
+   (sets: occurrence, transitions, seasonality...) → 200 image/png,
+   65,155 non-transparent px on the z4 Americas probe tile. License:
+   EC JRC/Google, free for any use with attribution + Pekel et al.
+   2016 (Nature) citation. STATUS: build next ([T-CLIENT]).
+2. **Forest cover 2020 10m (JRC GFC2020 via GFW tile API)** —
+   VERIFIED: `https://tiles.globalforestwatch.org/jrc_global_forest_cover/latest/dynamic/{z}/{x}/{y}.png`
+   → 200 image/png, 24,850 non-transparent px z4 probe. This is the
+   directive's exact dataset (10m, 2020, EC JRC; CC BY 4.0; GFW
+   attribution for the tile service). NOTE dead ends recorded so
+   nobody re-walks them: Hansen `tree_alpha` GCS paths 404 (v1.7 and
+   v1.11), `umd_tree_cover_density_2020` has "no latest version" in
+   the GFW data API.
+3. **Admin boundaries (Natural Earth admin-0)** — VERIFIED: 110m
+   countries GeoJSON (839KB raw) from the nvkelso/natural-earth-vector
+   mirror; PUBLIC DOMAIN. Build: compile a slim lines-only artifact
+   into datacore/ (self-hosted — zero external dependency), render as
+   a reference line layer. GADM explicitly NOT used: its license bars
+   commercial use — conflicts with the monetization path; Natural
+   Earth is the lawful choice.
+4. **Land cover (ESA WorldCover 2021 v200, CC BY 4.0)** — PARTIAL:
+   raw COGs verified anonymously accessible (AWS S3 `esa-worldcover`
+   bucket listing works; per-3° Map.tif tiles). The official
+   Terrascope WMTS could NOT be verified from this sandbox
+   (connection reset — possibly egress policy, possibly their server;
+   indistinguishable from here). Plan: attempt WMTS from prod with
+   the standard tile-pixel verification; if it fails there too,
+   build-first fallback = offline low-zoom PNG pyramid compiled from
+   the free COGs into datacore (their license permits redistribution
+   with attribution).
+5. **Population density (GHSL / WorldPop)** — BLOCKED-BY-ENDPOINT:
+   GHSL WMS moved (ghsl.jrc.ec.europa.eu redirects to
+   human-settlement.emergency.copernicus.eu; probed paths 404) and
+   WorldPop's sdi.worldpop.org WMS 404'd on the standard pattern.
+   Both datasets remain free (GHSL CC BY 4.0, WorldPop CC BY 4.0) —
+   this is endpoint research, not licensing. Next: read GHSL's
+   current services page for the live WMS base URL; WorldPop REST at
+   hub.worldpop.org as alternative. Raw GeoTIFFs of both are free
+   downloads if tile services stay dead (same fallback as #4).
+6. **Elevation (Copernicus GLO-30)** — ALREADY LIVE: the terrain
+   hillshade layer ships Mapterhorn tiles built from GLO-30 + national
+   DEMs ("selectable elevation layer" satisfied). Future upgrade:
+   hypsometric tint/color-relief rendering when justified.
+7. **Cropland (USDA CDL)** — already queued as Tier-1(d) in the
+   licensing register above.
+
+PART 2 — BLOCKED-BY-ACCESS (honest boundary, do NOT chase): Google
+Earth Professional/Advanced layers (driveway/EV-charger/building-
+footprint counts, proprietary zoning) derive from Street View +
+sub-meter imagery + Places — raw material with NO free lawful source.
+Not a build target at any effort level. The free-tier equivalent we
+CAN build: Microsoft Global ML Building Footprints (ODbL) / Google
+Open Buildings (CC BY 4.0) — already Tier-2 queued in the licensing
+register.
+
+PART 3 — the differentiation (pointers, no duplicate filing): (a)
+MOTION = timeline-slider as registry-native capability, queued
+[T-CLIENT] in GIP BUILD QUEUE below; (b) FUSION = Everything Graph
+click-card (R5 + aircraft spine [T-DATACORE] below); (c) VALIDATED
+SIGNALS = ladder-gated (Sentinel-2 tank-fill in flight at gate 1);
+(d) API = /api/v1 shipped v1.0.70 — atlas layers surface there as
+they land where license terms permit (NOT the GFW/JRC tile passthrough;
+metadata + our derived stats only).
+
+PART 4 — POSITIONING COPY (queued [T-CLIENT], own small PR): honest
+line for landing + /developers: "We are not a basemap competitor —
+same open geospatial foundation as any Earth viewer (and we name our
+sources), plus what a static atlas can't do: live movement, entity
+fusion, market-validated signals, and full API access." Live-vs-coming
+stated per feature; no claim to Google's proprietary imagery.
+
 ## GIP BUILD QUEUE (directive 2026-07-04 Parts 3-6 — territory-tagged
 per the WORKSTREAM PARTITION proposal in wishlist.md; routines claim a
 territory in their first commit)
