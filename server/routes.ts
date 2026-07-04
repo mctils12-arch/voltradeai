@@ -28,6 +28,9 @@ import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
   amplifyWeatherTile, TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
 } from "./owmTiles";
+import {
+  parseApiKeys, makeRateLimiter, meterUsage, apiMeta, LICENSE_MARKS, ApiTier,
+} from "./apiProduct";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1242,6 +1245,93 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "shadowstats failed" });
+    }
+  });
+
+  // ── /api/v1 — the DATA PRODUCT surface (throughput/API directive
+  // 2026-07-04). Pre-revenue scaffolding: env-seeded keys only, per-tier
+  // rate limits, metering from day one, license marks on every response.
+  // No billing, no pricing, no public issuance — the monetization
+  // readiness checklist (wishlist.md) gates the last mile.
+  const apiKeys = parseApiKeys();
+  const apiLimiter = makeRateLimiter();
+  const requireApiKey = (req: any, res: any): { key: string; tier: ApiTier } | null => {
+    const key = String(req.headers["x-api-key"] || req.query.api_key || "");
+    const info = apiKeys.get(key);
+    if (!info) {
+      res.status(401).json({ error: "invalid or missing API key", docs: "/developers", waitlist: true });
+      return null;
+    }
+    const gate = apiLimiter.allow(key, info.tier);
+    if (!gate.ok) {
+      res.setHeader("retry-after", String(gate.retryAfterSec));
+      res.status(429).json({ error: "rate limit", tier: info.tier, retry_after_sec: gate.retryAfterSec });
+      try { meterUsage({ key, endpoint: req.path, status: 429, tier: info.tier }); } catch {}
+      return null;
+    }
+    return { key, tier: info.tier };
+  };
+  const v1Envelope = (mark: keyof typeof LICENSE_MARKS, data: any) => ({
+    api_version: "v1",
+    ...LICENSE_MARKS[mark],
+    disclaimer: "data as-is; not for safety-of-life use",
+    data,
+  });
+
+  app.get("/api/v1/meta", (_req, res) => res.json(apiMeta())); // reference is public — docs, not data
+
+  app.get("/api/v1/tracks/:kind/:id", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const kind = String(req.params.kind);
+    if (!["aircraft", "vessels", "trains"].includes(kind)) {
+      return res.status(400).json({ error: "kind must be aircraft|vessels|trains" });
+    }
+    try {
+      const track = recentTrack(kind as any, String(req.params.id));
+      const mark = (`tracks/${kind}`) as keyof typeof LICENSE_MARKS;
+      res.json(v1Envelope(mark, { id: req.params.id, kind, points: track }));
+      meterUsage({ key: auth.key, endpoint: `/api/v1/tracks/${kind}`, status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "track read failed" });
+      meterUsage({ key: auth.key, endpoint: `/api/v1/tracks/${kind}`, status: 500, tier: auth.tier });
+    }
+  });
+
+  app.get("/api/v1/stats/portdwell", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const ports = portsFromSites((datacoreSites as any).sites || []);
+      res.json(v1Envelope("stats/portdwell", computePortDwell(ports)));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/portdwell", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/portdwell", status: 500, tier: auth.tier });
+    }
+  });
+
+  app.get("/api/v1/stats/shadow", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      res.json(v1Envelope("stats/shadow", computeShadowStats(((shadowZones as any).zones || []))));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/shadow", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/shadow", status: 500, tier: auth.tier });
+    }
+  });
+
+  app.get("/api/v1/stats/archive", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      res.json(v1Envelope("stats/archive", archiveStats()));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/archive", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/archive", status: 500, tier: auth.tier });
     }
   });
 

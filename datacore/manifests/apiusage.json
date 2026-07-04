@@ -1,0 +1,23 @@
+{
+ "stream": "apiusage",
+ "storage": "volume JSONL <archive>/apiusage/YYYY-MM-DD.jsonl",
+ "written_by": "server/apiProduct.ts meterUsage",
+ "source": "our own API-product request metering (no external data)",
+ "license": "VolTradeAI operational data",
+ "attribution": "VolTradeAI",
+ "schema_version": 1,
+ "field_map": {
+  "t": "unix sec UTC",
+  "k": "sha256(key) first 12 hex \u2014 raw keys NEVER logged",
+  "e": "endpoint path",
+  "s": "HTTP status",
+  "ti": "tier"
+ },
+ "confidence_model": "exact request log (operational fact)",
+ "geo_fields": [],
+ "entity_key": "k (hashed key id)",
+ "sentiment": null,
+ "started": "2026-07-04",
+ "cadence": "per request",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

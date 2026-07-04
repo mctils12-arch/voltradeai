@@ -13,6 +13,29 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] API product foundation — /api/v1 over the archives, key scaffolding, metering, license marks (v1.0.70)
+
+- API directive part 1 built pre-revenue, last mile explicitly gated:
+  server/apiProduct.ts (pure module — no express/db imports per the
+  runner-hang rule): env-seeded keys ONLY (API_PRODUCT_KEYS; no
+  issuance flow by design — issuance binds to billing later),
+  per-tier sliding-window rate limits (dev/pro/enterprise), usage
+  metering to a NEW manifested stream (<archive>/apiusage/, sha256
+  key prefixes — raw keys never logged; forward-enforcement test
+  covers the manifest automatically), and LICENSE MARKS on every
+  response: aircraft-derived = ODbL share-alike; AIS-derived =
+  conditional (aisstream ToS re-read at switch); US-gov streams =
+  public domain; OWM excluded from the API entirely (display-only
+  product). /api/v1: meta (public docs), tracks/:kind/:id,
+  stats/portdwell, stats/shadow, stats/archive — the product IS the
+  archive, not a live-proxy duplicate. Gated items (tank-fill, entity
+  timelines) appear only under coming_gated — meta honesty pinned by
+  test.
+- 6 new node tests (97/97): key parsing + closed-by-default, limiter
+  window behavior, metering hash discipline, license-mark pins, meta
+  honesty, route wiring/guard count. No UI in this PR (/developers is
+  the next, T-CLIENT-territory change).
+
 ## 2026-07-04 — [RESEARCH] Throughput: workstream-partition amendment proposed + velocity metric + GIP queue territory-tagged (docs)
 
 - Throughput directive executed as filed artifacts: (1) WORKSTREAM
