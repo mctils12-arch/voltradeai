@@ -22,6 +22,8 @@ import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
+import { computeShadowStats } from "./shadowFleet";
+import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 
 const execAsync = promisify(exec);
@@ -1130,6 +1132,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
+    }
+  });
+
+  // Dark-ship RAW statistics — derived from OUR OWN AIS archive (shadow-fleet
+  // directive 2026-07-04). Counts only: per-vessel claims are SIGNAL-class
+  // and ladder-gated (validation plan in open_questions). 10-min cache — the
+  // computation reads up to 72h of archive JSONL.
+  let shadowCache: { at: number; data: any } | null = null;
+  app.get("/api/data/shadowstats", (_req, res) => {
+    if (shadowCache && Date.now() - shadowCache.at < 10 * 60_000) return res.json(shadowCache.data);
+    try {
+      const zones = (shadowZones as any).zones || [];
+      const data = {
+        kind: "raw",
+        source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
+        zones: zones.map((z: any) => ({ id: z.id, name: z.name })),
+        ...computeShadowStats(zones),
+      };
+      shadowCache = { at: Date.now(), data };
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "shadowstats failed" });
     }
   });
 

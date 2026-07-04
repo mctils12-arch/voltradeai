@@ -53,7 +53,7 @@ const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
-const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true };
+const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true, shadowstats: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -68,7 +68,7 @@ const LAYER_GROUP: Record<string, string> = {
   imagery: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
-  insider: "filings",
+  insider: "filings", shadowstats: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
   l.kind === "signal" || l.status === "planned" ? "signals" : LAYER_GROUP[l.id] || "live";
@@ -757,6 +757,30 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.trains, mapReady, setStatus]);
 
+  // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
+  // archive — counts only, per-vessel claims stay ladder-gated) ──
+  const [shadowStats, setShadowStats] = useState<any>(null);
+  useEffect(() => {
+    if (!enabled.shadowstats) { setStatus("shadowstats", "off"); setShadowStats(null); return; }
+    setStatus("shadowstats", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/shadowstats");
+        const d = await r.json();
+        if (stop) return;
+        setShadowStats(d);
+        setStatus("shadowstats", "active", d.gap_events,
+          `${d.window_hours}h: ${d.gap_events} gaps · ${d.identity_candidates} identity cand. · ${d.loiter_events} loiter (${d.vessels_seen} vessels archived)`);
+      } catch {
+        if (!stop) setStatus("shadowstats", "error");
+      }
+    };
+    load();
+    const iv = window.setInterval(load, 10 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.shadowstats, setStatus]);
+
   // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
   // markers, an inline list inside the layer panel instead) ──
   useEffect(() => {
@@ -805,7 +829,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -848,6 +872,16 @@ export default function DataMapPage() {
           <div className="vt-layer-desc" role="note">
             {l.description}
             <span className="vt-layer-desc-src">Source: {l.source}</span>
+          </div>
+        )}
+        {l.id === "shadowstats" && on && shadowStats && shadowStats.loiter_events > 0 && (
+          <div className="vt-layer-desc" role="note">
+            {Object.entries(shadowStats.loiter_by_zone as Record<string, number>)
+              .filter(([, n]) => n > 0)
+              .map(([zid, n]) => {
+                const z = (shadowStats.zones || []).find((x: any) => x.id === zid);
+                return `${z?.name || zid}: ${n} loitering`;
+              }).join(" · ")}
           </div>
         )}
         {l.id === "insider" && on && (
