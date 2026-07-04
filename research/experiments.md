@@ -13,6 +13,34 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Decisions batch executed: monetization 2+3 delivered, options pilot decided, DIAG approved, CDSE/AIS verified (docs)
+
+- Human decision batch (five items) recorded and executed:
+  1. Monetization checklist items 2+3 APPROVED as pre-revenue prep —
+     DELIVERED: datacore/LICENSING_AUDIT.md (per-source resell-vs-
+     display register the API's LICENSE_MARKS derive from; re-verify
+     every row at switch) + datacore/API_TERMS_DRAFT.md (customer ToS,
+     explicitly DRAFT/not-in-effect). Items 1+4 wait for the charge
+     decision.
+  2. Options data: FREE Databento pilot chosen (needs the human's
+     account + DATABENTO_KEY in session env — steps delivered); free
+     Alpaca daily chain archiver queued as its own [PIPELINE] PR —
+     starts regardless of the pilot outcome.
+  3. DIAG option (d) APPROVED: token generated + handed to the human
+     (Railway + session env); /api/diag route ships as its own code PR
+     with the sanitizer test.
+  4. CDSE: creds set in Railway; NO code read any CDSE var yet —
+     canonical names declared CDSE_CLIENT_ID / CDSE_CLIENT_SECRET (S1
+     pipeline will read exactly these); told the human sessions also
+     need them in the Claude Code env; OAuth endpoint + STAC catalogue
+     verified reachable from our egress. Item stays open until an
+     authenticated S1 pull succeeds.
+  5. AISSTREAM verified LIVE in prod (enabled:true, 1,838 vessels,
+     registry "live") — the reported "awaiting key" was a pre-restart
+     tab; wishlist entry closed with evidence.
+- Bonus verification while probing: the v1.0.80 liveness field is live
+  in production health (checks.bot.liveness {dark:false}, bot active).
+
 ## 2026-07-04 — [RULE-REVIEW] WORKSTREAM PARTITION amendment SHIPPED (docs)
 
 - Human approved ("WORKSTREAM PARTITION amendment — ship it"). Applied

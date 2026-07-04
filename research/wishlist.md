@@ -1,8 +1,17 @@
 # Data / Access Wishlist — human reviews weekly
 
-- **HUMAN ACTION — Copernicus Data Space (CDSE) free account (satellite
-  directive 2026-07-04): ONE credential unlocks the fused-sensor engine
-  (Sentinel-1 SAR + Sentinel-2).** Exact steps: (1)
+- **[CREDENTIALS SET BY HUMAN 2026-07-04 — status: Railway has the
+  OAuth Client ID + Secret. NAME THEM CDSE_CLIENT_ID / CDSE_CLIENT_SECRET
+  (no code read any CDSE var before this; the S1 pipeline is being
+  built to read exactly those two). ALSO NEEDED: the same two values in
+  the Claude Code environment settings — imagery pipelines run in
+  SESSIONS, not on Railway. Endpoint verified from our egress: CDSE
+  OAuth token endpoint answers the client-credentials flow (401 on
+  dummy creds) and the STAC catalogue responds. Item stays open until
+  an authenticated Sentinel-1 pull succeeds — closes with evidence when
+  the S1 pipeline lands.] Copernicus Data Space (CDSE) free account
+  (satellite directive 2026-07-04): ONE credential unlocks the
+  fused-sensor engine (Sentinel-1 SAR + Sentinel-2).** Exact steps: (1)
   dataspace.copernicus.eu → "Register" (top right); (2) email +
   password, verify the confirmation email; (3) no approval wait — the
   account is immediately active on the free tier (generous monthly
@@ -241,9 +250,11 @@
   1 wrong-merge reset) — all recovered but each cost a cycle;
   territories prevent the class instead of patching instances.
 
-- **⚖ MONETIZATION READINESS CHECKLIST (API-product directive
-  2026-07-04; for human approval BEFORE any switch flips — everything
-  buildable pre-revenue is being built now, the last mile waits).**
+- **⚖ [PARTIAL APPROVAL BY HUMAN 2026-07-04: items 2 and 3 approved as
+  pre-revenue prep (DELIVERED same day: datacore/LICENSING_AUDIT.md +
+  datacore/API_TERMS_DRAFT.md); items 1 and 4 explicitly WAIT until the
+  human decides to charge.] MONETIZATION READINESS CHECKLIST
+  (API-product directive 2026-07-04).**
   1. PROVIDER COMPLIANCE RE-RUN (the tripwire, executed for this
      directive since it touches pricing design): aircraft chain is
      adsb.lol (ODbL — monetization-lawful) primary with
@@ -280,8 +291,11 @@
   the options leg honestly. Without it, only the equity/ETF logic can be
   validated — and the options leg is the suspected main performance drag.
   Candidates: ORATS, CBOE DataShop, historicaloptiondata.com.
-  **[HOLD BY HUMAN 2026-07-04 — decision package delivered same day; no
-  spend until you pick.]**
+  **[DECIDED BY HUMAN 2026-07-04: run the FREE Databento pilot to price
+  the historical pull (needs the human's free account + API key —
+  signup steps delivered; set DATABENTO_KEY in the session env), and
+  START THE FREE ALPACA CHAIN ARCHIVE NOW regardless (queued as its own
+  [PIPELINE] PR). No spend until the pilot prices the pull.]**
   - WHAT IT UNLOCKS THAT CURRENT BACKTESTING CANNOT: backtest_v2 is
     equity/ETF OHLCV only — the options leg (CSP selection, convexity
     QQQ puts, options_scanner) is unbacktestable against ANY history:
@@ -331,9 +345,11 @@
   equityPeak via the existing /data/voltrade state files. Touches frozen
   kill-switch machinery -> needs explicit human approval (this entry).
   Evidence: /api/health shows equityPeak 0 after today's deploys.
-- **Read-only diagnostics access for autonomous sessions — ANALYSIS
-  DELIVERED 2026-07-04 (human asked "explain, I'll decide"); decision
-  pending, nothing built.** WHAT IS GATED TODAY: /api/bot/audit,
+- **[APPROVED BY HUMAN 2026-07-04 — option (d), the token-gated
+  read-only /api/diag route; token generated and handed to the human
+  for Railway + session-env; route ships as its own code PR with the
+  sanitizer test.] Read-only diagnostics access for autonomous
+  sessions — ANALYSIS DELIVERED 2026-07-04.** WHAT IS GATED TODAY: /api/bot/audit,
   /positions, /performance, /api/daemon/health, /api/bot/ml-status,
   /api/monitoring/* — all requireOwner (session cookie must belong to
   OWNER_EMAIL; auth.ts, frozen). Sessions cannot verify KNOWN BROKEN
@@ -370,10 +386,13 @@
   DATA LAYER, RAW-DATA vs SIGNALS surface rules, [PRODUCT] session tag,
   starvation signal in HEALTH OF THE LOOP. Proposal and approval recorded
   here per the amendment rule; applied in the same PR.
-- **aisstream.io API key** (for the /data map's live vessel overlay — A4
-  build): free signup at aisstream.io -> set the key in Railway as
-  AISSTREAM_KEY. The vessels layer ships scaffolded and activates when the
-  key exists. HUMAN ACTION NEEDED.
+- **[DONE BY HUMAN 2026-07-04 — VERIFIED LIVE same day]**
+  ~~aisstream.io API key~~ — set in Railway as AISSTREAM_KEY (exact
+  name the code reads); prod verified streaming: enabled:true, 1,838
+  vessels in a continental-US probe, registry status "live". The
+  "off/awaiting key" the human saw was a pre-restart tab — env vars
+  read at boot; the v1.0.79 version-skew guard now tells stale tabs to
+  reload.
 
 - **[APPROVED BY HUMAN 2026-07-03 — applied same message]** Constitutional
   amendment: PROMOTION RULES gain rule 6 (visual verification) — client/
