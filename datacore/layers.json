@@ -18,6 +18,14 @@
       "description": "Global elevation hillshade rendered under all data layers. Off by default — the imagery base already shows relief; this is the opt-in accent (and the DEM source future 3D terrain reuses)."
     },
     {
+      "id": "weather",
+      "name": "Weather radar (US)",
+      "kind": "raw",
+      "status": "live",
+      "source": "NOAA/NWS nowCOAST WMS (public domain)",
+      "description": "US base-reflectivity radar mosaic, refreshed ~5 min, rendered under all data layers. COVERAGE HONESTY: US + territories only — no free lawful global radar source exists (RainViewer and Open-Meteo free tiers prohibit our use). Global temp/wind fields can activate later via an OpenWeatherMap free key (human action filed)."
+    },
+    {
       "id": "aircraft",
       "name": "Live aircraft (ADS-B)",
       "kind": "raw",

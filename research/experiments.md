@@ -13,6 +13,40 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Tier-1(b): US weather radar layer — NOAA nowCOAST WMS (v1.0.62)
+
+- Built against the licensing register: NOAA nowCOAST base-reflectivity
+  mosaic (public domain, no key). COVERAGE HONESTY carried in the
+  registry entry, status note, and a registry TEST: US + territories
+  only — no free lawful global radar exists (RainViewer
+  personal/educational-only + API gutted Jan 2026; Open-Meteo free
+  tier non-commercial). Global temp/wind path = OpenWeatherMap free
+  key (commercial-OK w/ attribution) — HUMAN ACTION filed; the OWM
+  code path is NOT scaffolded (dead-code policy: build when the key
+  exists). RAW, default OFF, rendered under all data layers, tiles
+  refresh on a 5-min bucket via source.setTiles.
+- VERIFICATION (browser egress died mid-session — ops gotcha below):
+  GetCapabilities 200; the exact GetMap tile-template URL returns
+  200 image/png 5.5KB via curl; CORS verified open
+  (access-control-allow-origin: * with an Origin header present);
+  in-map source spec printed by probe carries exactly that template;
+  layer attaches beneath data layers. In-browser tile-load
+  confirmation was NOT possible: headless Chromium lost ALL external
+  egress mid-session (even Esri base tiles fail "Failed to fetch
+  (0)"; curl fine both direct and via proxy; explicit
+  --proxy-server no help; proxy status logs no failures — requests
+  never leave the browser). The raster-tiles mechanism used is
+  identical to the proven imagery base layer, so residual risk is
+  low and confined to runtime tile delivery, which prod will show.
+- OPS GOTCHA (avoid re-learning): headless-browser external egress in
+  this remote env can die mid-session while curl keeps working; when
+  a probe needs tile-load confirmation and the browser is dark,
+  curl-verify the exact tile URL + CORS headers instead — that
+  covers everything except in-browser compositing.
+- Gates: node 60/60 (new registry pin: weather description MUST state
+  the US-only limit), python 114/1 skipped, harness green x3 with
+  self-see (weather row reachable). Version 1.0.61 -> 1.0.62.
+
 ## 2026-07-04 — [PRODUCT] Tier-1(a): terrain hillshade layer — Mapterhorn DEM (v1.0.61)
 
 - First geospatial Tier-1 layer, built against the licensing register

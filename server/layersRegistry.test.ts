@@ -36,3 +36,11 @@ test("terrain layer registered with Mapterhorn attribution (Tier-1(a), licensing
   assert.equal(t.kind, "raw");
   assert.ok(t.source.includes("Mapterhorn"), "attribution must name Mapterhorn");
 });
+
+test("weather layer states US-only coverage honestly (Tier-1(b), licensing register 2026-07-04)", () => {
+  const w = registry.layers.find((x: any) => x.id === "weather");
+  assert.ok(w, "weather layer missing");
+  assert.equal(w.kind, "raw");
+  assert.ok(w.source.includes("NOAA"), "attribution must name NOAA");
+  assert.ok(/US.+only|only.+US/i.test(w.description), "description must state the US-only coverage limit");
+});

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -65,7 +65,7 @@ const PANEL_GROUPS = [
   { id: "signals", label: "Signals — coming soon" },
 ] as const;
 const LAYER_GROUP: Record<string, string> = {
-  imagery: "base", terrain: "base",
+  imagery: "base", terrain: "base", weather: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   insider: "filings", shadowstats: "filings", portdwell: "filings",
@@ -299,6 +299,53 @@ export default function DataMapPage() {
       setStatus("terrain", "error");
     }
   }, [enabled.terrain, mapReady, setStatus]);
+
+  // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
+  // register 2026-07-04: public domain, no key, US-only. Honest gap stated in
+  // the registry: no free lawful GLOBAL radar exists; global temp/wind fields
+  // activate later if the human sets the OpenWeatherMap key. Tiles refresh on
+  // a 5-min bucket — radar mosaics update every ~4-10 min upstream.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.weather) {
+      try {
+        if (map.getLayer("weather-radar")) map.removeLayer("weather-radar");
+        if (map.getSource("weather-radar")) map.removeSource("weather-radar");
+      } catch {}
+      setStatus("weather", "off");
+      return;
+    }
+    const radarTiles = (bucket: number) =>
+      "https://nowcoast.noaa.gov/geoserver/observations/weather_radar/ows" +
+      "?service=WMS&version=1.3.0&request=GetMap&layers=base_reflectivity_mosaic" +
+      "&styles=&format=image/png&transparent=true&crs=EPSG:3857" +
+      "&bbox={bbox-epsg-3857}&width=256&height=256&_t=" + bucket;
+    const bucketNow = () => Math.floor(Date.now() / 300_000);
+    try {
+      if (!map.getSource("weather-radar")) {
+        map.addSource("weather-radar", {
+          type: "raster", tiles: [radarTiles(bucketNow())], tileSize: 256,
+          attribution: "NOAA/NWS radar (nowCOAST)",
+        } as any);
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: "weather-radar", type: "raster", source: "weather-radar",
+          paint: { "raster-opacity": 0.72 },
+        } as any, firstMarker?.id);
+      }
+      setStatus("weather", "active", undefined, "US radar mosaic (NOAA nowCOAST) · refreshes ~5 min · US-only — no free lawful global radar exists");
+    } catch {
+      setStatus("weather", "error");
+    }
+    const iv = window.setInterval(() => {
+      try {
+        const src: any = map.getSource("weather-radar");
+        if (src?.setTiles) src.setTiles([radarTiles(bucketNow())]);
+      } catch {}
+    }, 300_000);
+    return () => { window.clearInterval(iv); };
+  }, [enabled.weather, mapReady, setStatus]);
 
   // ── generic live-points wiring (aircraft + vessels share the machinery) ──
   const wireLivePoints = useCallback((opts: {
@@ -920,6 +967,7 @@ export default function DataMapPage() {
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
     id === "terrain" ? <Mountain size={15} /> :
+    id === "weather" ? <CloudRain size={15} /> :
     id === "aircraft" ? <Plane size={15} /> :
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> :
