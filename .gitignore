@@ -13,3 +13,6 @@ __pycache__/
 
 # visual harness output (screenshots regenerated per run)
 .visual/
+
+# test_auto_discovery.py runtime artifact
+.test_manifest.json

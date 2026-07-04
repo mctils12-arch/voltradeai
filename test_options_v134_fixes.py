@@ -684,11 +684,20 @@ class TestFix8_IronCondorMaxLossExit(unittest.TestCase):
             os.remove(test_path)
 
     def test_execution_passes_max_loss_to_register(self):
-        """options_execution must pass max_loss to register_options_entry."""
+        """options_execution must pass max_loss to register_options_entry.
+
+        2026-07-04: re-anchored — the old pin ("max_loss=contract.get")
+        went stale when the flow moved through a shared local so the
+        multi-leg AND single-leg paths register the same max_loss. Both
+        hops of the data flow are now pinned, stricter than the original
+        single-string pin.
+        """
         import inspect
         import options_execution as oe
         source = inspect.getsource(oe)
-        self.assertIn("max_loss=contract.get", source,
+        self.assertIn('shared_max_loss = contract.get("max_loss"', source,
+            "execute_options_trade must read max_loss from the contract")
+        self.assertIn("max_loss=shared_max_loss", source,
             "execute_options_trade must pass max_loss to register_options_entry")
 
 

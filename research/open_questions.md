@@ -93,14 +93,25 @@
    test_diagnostic_false_positives.py, isolation explicitly pinned by a
    source-inspection test. See experiments.md for the full trace.
 
-6. **Full-repo pytest is broken at collection (pre-existing).**
-   `test_auto_discovery.py` calls sys.exit() at module level, killing
-   collection for everything; excluding it, 7 failures + 1 error remain in
-   network/keys-dependent files (test_options_fixes, test_options_v134_fixes,
-   test_fixes_pr8/11, test_full_system) — verified identical with and without
-   the backtest change. CI's 4-file offline subset is the real gate and is
-   green. Fix candidates: convert test_auto_discovery to proper pytest tests;
-   mark network suites with a skip-if-no-keys guard.
+6. **[RESOLVED 2026-07-04 — v1.0.73]** ~~Full-repo pytest is broken at
+   collection (pre-existing).~~ Root causes were NOT network/keys (the
+   original hypothesis was wrong): (a) two root-level STANDALONE SCRIPTS
+   with test_ prefixes broke pytest itself — test_auto_discovery.py
+   sys.exit()s at import (INTERNALERROR kills collection),
+   test_full_system.py's module-level `def test(phase,...)` helper
+   collides with fixture resolution and its import costs 62s — both now
+   collect_ignore'd in conftest.py, still runnable directly as scripts;
+   (b) 7 failures were STALE TEST PINS, not live bugs: test_fixes_pr8
+   tearDown didn't expect track_fill's legitimate .lock sidecar (atomic
+   write, present since import), TestOptionsSlotseparation pinned old
+   tunable VALUES (5/3) that dated comments moved to 8/8
+   (SIZING-FIX 2026-04-22, ALPHA-TUNE 2026-04-21), TestFix8's string pin
+   went stale when max_loss flow moved through shared_max_loss (the
+   mechanism is intact on BOTH leg paths — re-pinned stricter). Full
+   bare gate now green (311 passed, 1 skipped, ~8s);
+   test_collection_health.py is the ratchet (subprocess collect-only,
+   A/B-proven to fail on the original breaker). Original text preserved
+   above via strikethrough; see experiments.md 2026-07-04 [REPAIR].
 
 7. **[RESOLVED 2026-07-03 — v1.0.35, executed same-day on human request]**
    ~~Persist the max-drawdown~~

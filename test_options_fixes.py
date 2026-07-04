@@ -895,10 +895,26 @@ class TestOptionsSlotseparation(unittest.TestCase):
     """Options positions must NOT consume stock slots and vice versa."""
 
     def test_max_options_positions_constant_exists(self):
-        """bot_engine must have MAX_OPTIONS_POSITIONS separate from MAX_POSITIONS."""
-        from bot_engine import MAX_POSITIONS, MAX_OPTIONS_POSITIONS
-        self.assertEqual(MAX_POSITIONS, 5)
-        self.assertEqual(MAX_OPTIONS_POSITIONS, 3)
+        """bot_engine must have MAX_OPTIONS_POSITIONS separate from MAX_POSITIONS.
+
+        2026-07-04: stopped pinning the VALUES (5/3) — they are tunable
+        parameters (SIZING-FIX 2026-04-22 and ALPHA-TUNE 2026-04-21 moved
+        them to 8/8 with dated comments) and pinning tunables in tests
+        contradicts the constitution's RULE REVIEW authority. The MECHANISM
+        this class exists for — separate caps for stock vs options slots —
+        is what gets asserted.
+        """
+        import bot_engine
+        import inspect
+        self.assertIsInstance(bot_engine.MAX_POSITIONS, int)
+        self.assertIsInstance(bot_engine.MAX_OPTIONS_POSITIONS, int)
+        self.assertGreater(bot_engine.MAX_POSITIONS, 0)
+        self.assertGreater(bot_engine.MAX_OPTIONS_POSITIONS, 0)
+        # Separation must be structural: two independent assignments, so a
+        # future refactor can't silently alias one cap to the other.
+        src = inspect.getsource(bot_engine)
+        self.assertIn("\nMAX_POSITIONS =", src)
+        self.assertIn("\nMAX_OPTIONS_POSITIONS =", src)
 
     def test_num_positions_excludes_options(self):
         """num_positions should only count stocks, not OCC-symbol options."""
@@ -929,14 +945,16 @@ class TestOptionsSlotseparation(unittest.TestCase):
         )
         options_slots = MAX_OPTIONS_POSITIONS - existing_options
         self.assertEqual(existing_options, 1)
-        self.assertEqual(options_slots, 2)  # 3 - 1 = 2 remaining
+        # anchored to the live constant, not a stale value pin (2026-07-04)
+        self.assertEqual(options_slots, MAX_OPTIONS_POSITIONS - 1)
 
     def test_full_stock_slots_still_allows_options(self):
-        """Even with 5 stock positions, options scanner should get slots."""
+        """Even with ALL stock slots taken, options scanner should get slots."""
         from bot_engine import MAX_POSITIONS, MAX_OPTIONS_POSITIONS
+        # fill the stock book to its cap, whatever the cap is tuned to
         stock_positions = [
             {"symbol": f"STK{i}", "asset_class": "us_equity"}
-            for i in range(5)
+            for i in range(MAX_POSITIONS)
         ]
         num_stock = sum(
             1 for p in stock_positions
@@ -949,7 +967,8 @@ class TestOptionsSlotseparation(unittest.TestCase):
         )
         options_slots = MAX_OPTIONS_POSITIONS - existing_options
         self.assertEqual(stock_slots, 0)  # No stock slots
-        self.assertEqual(options_slots, 3)  # All 3 options slots available
+        # THE mechanism: a full stock book consumes zero options slots
+        self.assertEqual(options_slots, MAX_OPTIONS_POSITIONS)
 
     def test_scanner_trade_has_correct_markers(self):
         """Scanner trades must have trade_type='options' and regime_at_entry='OPTIONS_SCANNER'."""
