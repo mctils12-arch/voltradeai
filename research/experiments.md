@@ -971,3 +971,19 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   hex + adsb.lol live-track link. Rendered as pill links in the detail
   card, 32px min height, external target with rel=noreferrer.
 - Gates: build, node 45/45, harness green all widths.
+
+## 2026-07-04 — [PRODUCT] Layer panel v2: collapsible groups + imagery-date honesty (v1.0.57)
+- Map v2.2 LAYER PANEL directive: with 7+ layers the flat list stopped
+  scaling. Panel now groups into Base / Live tracking / Facilities /
+  Filings & flows / Signals—coming-soon (signal/planned layers auto-
+  route to the last group), with collapsible headers ("2/3 on" counts),
+  per-layer info toggles (name click -> description + source), and the
+  existing status lines/badges/switches unchanged. 44px touch targets
+  on headers and name buttons.
+- IMAGERY METADATA honesty: the imagery row now states "capture date
+  unavailable (Esri base tiles)" — DESIGN.md gains the human-approved
+  standing rule: show "imagery as of [date]" where a source exposes
+  capture dates (Sentinel-2 when it lands), say "date unavailable"
+  otherwise; no imagery surface may imply currency it cannot prove.
+- Verified at 390/768/1440 (rule 6): desktop screenshot shows all four
+  groups with honest per-layer notes; phone keeps the collapsed FAB.

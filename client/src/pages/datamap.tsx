@@ -55,6 +55,24 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
 const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true };
 
+// Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
+// collapsible groups keep the panel scannable as layers keep arriving.
+const PANEL_GROUPS = [
+  { id: "base", label: "Base" },
+  { id: "live", label: "Live tracking" },
+  { id: "facilities", label: "Facilities" },
+  { id: "filings", label: "Filings & flows" },
+  { id: "signals", label: "Signals — coming soon" },
+] as const;
+const LAYER_GROUP: Record<string, string> = {
+  imagery: "base",
+  aircraft: "live", vessels: "live", trains: "live",
+  sites: "facilities", powerplants: "facilities",
+  insider: "filings",
+};
+const groupOf = (l: LayerMeta): string =>
+  l.kind === "signal" || l.status === "planned" ? "signals" : LAYER_GROUP[l.id] || "live";
+
 interface InsiderRow {
   issuer: string;
   owner: string;
@@ -101,6 +119,8 @@ export default function DataMapPage() {
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
+  const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>({});
+  const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
   useEffect(() => {
     const onHash = () => setFilingsOpen(window.location.hash === "#/data/filings");
     window.addEventListener("hashchange", onHash);
@@ -230,7 +250,10 @@ export default function DataMapPage() {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     try { map.setLayoutProperty("imagery", "visibility", enabled.imagery ? "visible" : "none"); } catch {}
-    setStatus("imagery", enabled.imagery ? "active" : "off");
+    // IMAGERY METADATA honesty (DESIGN.md 2026-07-04): never imply
+    // freshness — Esri base tiles expose no capture date, so say so.
+    if (enabled.imagery) setStatus("imagery", "active", undefined, "capture date unavailable (Esri base tiles)");
+    else setStatus("imagery", "off");
   }, [enabled.imagery, mapReady, setStatus]);
 
   // ── generic live-points wiring (aircraft + vessels share the machinery) ──
@@ -790,6 +813,70 @@ export default function DataMapPage() {
 
   const toggleable = (l: LayerMeta) => l.status === "live";
 
+  const renderLayerRow = (l: LayerMeta) => {
+    const st = statusFor(l);
+    const on = !!enabled[l.id] && toggleable(l);
+    const descIsOpen = !!descOpen[l.id];
+    return (
+      <div key={l.id}>
+        <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`}>
+          <span className="vt-layer-ic">{layerIcon(l.id)}</span>
+          <span className="vt-layer-name">
+            <button className="vt-layer-namebtn" aria-expanded={descIsOpen}
+                    aria-label={`About ${l.name}`}
+                    onClick={() => setDescOpen((s) => ({ ...s, [l.id]: !s[l.id] }))}>
+              {l.name} <Info size={11} aria-hidden style={{ opacity: 0.55 }} />
+            </button>
+            <span className={`vt-kind-badge ${l.kind}`}>{l.kind === "raw" ? "RAW" : "SIGNAL"}</span>
+            <span className="vt-layer-status">
+              <i style={{ background: st.dot }} /> {st.text}
+            </span>
+            {st.note && <span className="vt-layer-covnote">{st.note}</span>}
+          </span>
+          <button
+            role="switch"
+            aria-checked={on}
+            aria-label={`Toggle ${l.name}`}
+            disabled={!toggleable(l)}
+            className={`vt-switch${on ? " on" : ""}`}
+            onClick={() => setEnabled(s => ({ ...s, [l.id]: !s[l.id] }))}
+          >
+            <i />
+          </button>
+        </div>
+        {descIsOpen && (
+          <div className="vt-layer-desc" role="note">
+            {l.description}
+            <span className="vt-layer-desc-src">Source: {l.source}</span>
+          </div>
+        )}
+        {l.id === "insider" && on && (
+          <div className="vt-filings-list" role="log" aria-label="Recent Form 4 insider transactions">
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/filings"; setFilingsOpen(true); }}>
+              Open full view — history, filters, SEC links →
+            </button>
+            {insiderRows.length === 0 ? (
+              <div className="vt-filings-empty">no filings yet — polls every ~15min</div>
+            ) : insiderRows.map((r, i) => (
+              <div className="vt-filings-row" key={i}>
+                <span className="vt-filings-issuer">{r.issuer}</span>
+                <span className="vt-filings-owner">{r.owner}</span>
+                <span className="vt-filings-kind" style={{ color: INSIDER_KIND_COLOR[r.kind] || "var(--text-tertiary)" }}>
+                  {INSIDER_KIND_LABEL[r.kind] || r.kind}
+                </span>
+                <span className="vt-filings-shares">
+                  {r.shares != null ? r.shares.toLocaleString() : "—"}
+                  {r.price ? ` @ $${r.price}` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="vt-map-page" data-vt-map>
       {filingsOpen && (
@@ -838,55 +925,20 @@ export default function DataMapPage() {
                 follows receiver density).
               </div>
             )}
-            {layers.map(l => {
-              const st = statusFor(l);
-              const on = !!enabled[l.id] && toggleable(l);
+            {PANEL_GROUPS.map((g) => {
+              const members = layers.filter((l) => groupOf(l) === g.id);
+              if (members.length === 0) return null;
+              const onCount = members.filter((l) => !!enabled[l.id] && toggleable(l)).length;
+              const isCollapsed = !!groupCollapsed[g.id];
               return (
-                <div key={l.id}>
-                  <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`}>
-                    <span className="vt-layer-ic">{layerIcon(l.id)}</span>
-                    <span className="vt-layer-name">
-                      {l.name}
-                      <span className={`vt-kind-badge ${l.kind}`}>{l.kind === "raw" ? "RAW" : "SIGNAL"}</span>
-                      <span className="vt-layer-status">
-                        <i style={{ background: st.dot }} /> {st.text}
-                      </span>
-                      {st.note && <span className="vt-layer-covnote">{st.note}</span>}
-                    </span>
-                    <button
-                      role="switch"
-                      aria-checked={on}
-                      aria-label={`Toggle ${l.name}`}
-                      disabled={!toggleable(l)}
-                      className={`vt-switch${on ? " on" : ""}`}
-                      onClick={() => setEnabled(s => ({ ...s, [l.id]: !s[l.id] }))}
-                    >
-                      <i />
-                    </button>
-                  </div>
-                  {l.id === "insider" && on && (
-                    <div className="vt-filings-list" role="log" aria-label="Recent Form 4 insider transactions">
-                      <button className="vt-filings-openfull"
-                              onClick={() => { window.location.hash = "#/data/filings"; setFilingsOpen(true); }}>
-                        Open full view — history, filters, SEC links →
-                      </button>
-                      {insiderRows.length === 0 ? (
-                        <div className="vt-filings-empty">no filings yet — polls every ~15min</div>
-                      ) : insiderRows.map((r, i) => (
-                        <div className="vt-filings-row" key={i}>
-                          <span className="vt-filings-issuer">{r.issuer}</span>
-                          <span className="vt-filings-owner">{r.owner}</span>
-                          <span className="vt-filings-kind" style={{ color: INSIDER_KIND_COLOR[r.kind] || "var(--text-tertiary)" }}>
-                            {INSIDER_KIND_LABEL[r.kind] || r.kind}
-                          </span>
-                          <span className="vt-filings-shares">
-                            {r.shares != null ? r.shares.toLocaleString() : "—"}
-                            {r.price ? ` @ $${r.price}` : ""}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <div key={g.id} className="vt-layer-group">
+                  <button className="vt-layer-group-head" aria-expanded={!isCollapsed}
+                          onClick={() => setGroupCollapsed((s) => ({ ...s, [g.id]: !s[g.id] }))}>
+                    <span className={`vt-layer-group-chev${isCollapsed ? " closed" : ""}`}>▾</span>
+                    <span>{g.label}</span>
+                    <span className="vt-layer-group-count">{onCount}/{members.length} on</span>
+                  </button>
+                  {!isCollapsed && members.map((l) => renderLayerRow(l))}
                 </div>
               );
             })}
