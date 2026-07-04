@@ -406,6 +406,19 @@
   parallel calls trigger 429s with ~7-day lockout risk), quotas reset
   Sun 00:00 UTC, and the key is a PER-PERSON credential tied to your
   ID.me — the pipeline config treats it as such.
+- **CDSE (Copernicus Data Space) credentials — NOT NEEDED, filed as
+  fallback only (Sentinel-2 directive 2026-07-04 asked for exact
+  signup steps).** The tank-fill pipeline runs with ZERO credentials
+  (Element84 earth-search STAC + AWS Open Data public S3, live-probed;
+  scripts/sentinel2_tankfill.py). IF the AWS mirror ever lags or dies,
+  the CDSE path: (1) dataspace.copernicus.eu -> "Register" (free,
+  email + password, instant — no identity verification); (2) sign in
+  -> user menu -> Settings -> generate S3 keys for eodata, OR use the
+  OData/STAC APIs with an OAuth token from the same account; (3) set
+  CDSE_S3_KEY / CDSE_S3_SECRET in the SESSION environment (not Railway
+  — the pipeline is script-side, never runtime). Re-verify their
+  free-tier transfer quota at need per the licensing rule.
+
 - **HUMAN ACTION — Apple Performance Partners / Enterprise Partner
   Feed enrollment (free):** sanctioned bulk feed that hedges the
   undocumented Apple RSS endpoints the app-store archiver uses

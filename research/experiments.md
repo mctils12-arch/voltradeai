@@ -13,6 +13,66 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PIPELINE] Sentinel-2 tank-fill gate-1 kickoff — PRIOR STATED BEFORE FIRST COMPARISON
+
+- PRIOR (REASONING STANDARD #10 — this entry is written BEFORE running
+  the backfill comparison, per the directive's explicit instruction):
+  for the v1 facility-scale shadow index (dark-pixel fraction in the
+  three verified Cushing tank-farm AOIs, scene-relative threshold,
+  tan-zenith normalized) vs EIA weekly Cushing crude stocks over
+  ~12-16 backfilled scene-weeks, I expect:
+  (a) LEVELS correlation r ≈ +0.2 to +0.5 — weak-to-moderate positive.
+      Mechanism: fuller tanks → higher floating roofs → SHALLOWER
+      roof-well shadows → per-tank shadow area SHRINKS as stocks rise,
+      which argues r NEGATIVE — BUT the v1 index is facility-scale
+      dark-fraction, dominated by inter-tank ground shadows cast by
+      tank WALLS (constant) and contaminated by ponds/asphalt, so the
+      per-tank fill signal is a second-order modulation on a noisy
+      base. Sign is genuinely uncertain at facility scale; magnitude
+      |r| > 0.5 would surprise me.
+  (b) WEEK-OVER-WEEK DELTAS r ≈ 0 (noise-dominated at v1 resolution —
+      clouds, sun-angle residuals, tile registration).
+  (c) KILL/ITERATE CRITERION: this v1 index is NOT expected to pass
+      gate 1. Its job is to prove the pipeline (anonymous scene access
+      → windowed reads → archived readings → EIA reconciliation runs
+      end-to-end) and establish the noise floor. Gate 1 credit
+      requires |r| ≥ 0.5 on levels over ≥12 weeks with a sign
+      explainable by mechanism — anything less iterates toward
+      per-tank annulus geometry (the spec's real design) rather than
+      declaring victory or death on the facility-scale proxy.
+- Pipeline facts (probed live before this entry): scene access needs
+  ZERO credentials (Element84 earth-search STAC + AWS Open Data
+  sentinel-cogs public S3; windowed B04 reads verified over the
+  Enbridge AOI); EIA ground truth is keyless (public history XLS,
+  current through 2026-06-26: 23.0M → 19.7M bbl June drawdown — a
+  real live signal in the comparison window). CDSE credentials are
+  NOT required; exact CDSE signup steps filed in wishlist.md as a
+  fallback only (per the directive's request).
+- RESULT (run AFTER the prior above; scripts/sentinel2_tankfill.py,
+  36 readings, 12 scene-weeks matched to EIA weeks, 2026-03-19 →
+  2026-06-27, archived in datacore/sentinel2/readings.jsonl):
+  Pearson r LEVELS = -0.731; DELTAS = -0.225.
+  VS PRIOR: sign matches the physical mechanism I named (fuller tanks
+  → higher floating roofs → shallower roof-well shadows → less dark
+  area) and the magnitude EXCEEDS my |r|<=0.5 expectation — a genuine
+  surprise. Deltas ≈ weak, as predicted.
+  HONEST VERDICT — GATE 1 NOT CLAIMED, despite technically meeting
+  the |r|>=0.5 + mechanism-sign criterion I wrote above: both series
+  are strongly TRENDED over this window (stocks fell near-monotonic
+  31.5M→19M bbl; the index rose spring→summer, where imperfect
+  sun-angle normalization plus surface seasonality push the same
+  direction) — 12 points of trend-vs-trend inflate |r| regardless of
+  mechanism; the weak deltas correlation is the tell that detrended
+  signal is thin. STANDARD #4 applies: one window, one variant, no
+  out-of-sample. WHAT WOULD EARN GATE 1: (a) the June stock REVERSAL
+  (18957→19666 kbbl) extending into weeks where the index must turn
+  DOWN against the seasonal sun trend — the natural experiment is
+  already in motion; (b) per-tank annulus geometry (the spec's real
+  design) replacing the facility-scale proxy; (c) >=20 weeks spanning
+  at least one full reversal, levels AND deltas both mechanism-signed.
+  Weekly readings continue via the archived script — every scene is
+  now recorded (collect-everything).
+
 ## 2026-07-04 — [REPAIR] Temp/wind recurrence ROOT-CAUSED: OWM 1.0 tiles are intrinsically near-invisible on dark basemaps (v1.0.69)
 
 - RECURRENCE (v2.4 touched this surface once — per loop-health rule 4,
