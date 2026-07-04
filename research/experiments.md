@@ -13,6 +13,29 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RESEARCH] Satellite multi-sensor roadmap filed + angle-hunting amendment proposed (docs)
+
+- Satellite directive filed as the major roadmap in open_questions.md:
+  resolution reality stated first (10m = facility-scale change, never
+  object counting; the wall is attacked with MORE SENSORS, not more
+  optical); S1 SAR + S2 optical + Landsat thermal fusion with
+  per-sensor licenses and revisit cadences; LIDAR = one-time
+  calibration only; Phase 1 free fused change detection (Cushing tank
+  farms vs EIA — extends the existing gate-1 pipeline; steel yards vs
+  AISI; construction vs permits/news); Phase 2 paid counting
+  wishlist-gated on Phase-1 validation + revenue; imagery-age
+  indicator alongside; validation mandatory with priors, multiplicity
+  discounts, out-of-sample.
+- Wishlist: CDSE signup steps filed (one credential → S1+S2; S2
+  already zero-credential; ASF/Earthdata as the S1 fallback to
+  verify); Phase-2 paid imagery entries with build-first analysis and
+  honest price notes.
+- ACTIVE ANGLE-HUNTING amendment PROPOSED in wishlist (exact text,
+  NOT self-applied): recurring EDGE-session mandate to generate novel
+  hypotheses (cross-connections, anomaly mining, foreign-field
+  imports, second-order) with freedom-plus-rigor discipline — every
+  angle logged with its ladder path.
+
 ## 2026-07-04 — [REPAIR] Toggle state-desync root-caused two ways: remount delta bug (proven+fixed) + open-tab version skew (guarded) (v1.0.79)
 
 - Directive: prod atlas toggles flip the pill but the label stays "off"

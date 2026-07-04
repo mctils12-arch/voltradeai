@@ -788,6 +788,87 @@ sources), plus what a static atlas can't do: live movement, entity
 fusion, market-validated signals, and full API access." Live-vs-coming
 stated per feature; no claim to Google's proprietary imagery.
 
+## SATELLITE OBJECT DETECTION & MULTI-SENSOR CHANGE INFERENCE (major
+roadmap, directive 2026-07-04 — build in stated order; extends
+SENTINEL2_CHANGE_SPEC and the gate-1 Cushing pipeline)
+
+RESOLUTION & SENSOR REALITY (the honest boundary, stated first): free
+optical imagery (Sentinel-2, 10m) supports FACILITY-SCALE CHANGE
+DETECTION, not individual-object counting/classification.
+Fixed-vs-floating roof discrimination, coil counting, ship-type
+classification require sub-meter PAID imagery — filed as build-first
+wishlist items, gated on the free version proving a signal first. The
+wall is "individual-object identification from free data," and it is
+NOT beaten by resolution alone — it is attacked with MORE SENSORS of
+the same scene.
+
+MULTI-SENSOR FUSION (the free unlock — never rely on optical alone):
+1. Sentinel-1 SAR (radar; free, ESA) — metal (steel yards, tanks,
+   ships, railcars) is radar-bright; sees through clouds and at night
+   (~doubles usable observations); responds to structure/volume
+   optical can't capture. Revisit: ~6 days (S1A alone since S1B loss;
+   S1C ramping 2025-26 restores denser cadence). License: Copernicus
+   free full use with attribution.
+2. Sentinel-2 optical (10m) — reflectance/shadow/color change.
+   Revisit ~5 days (2A+2B+2C). License: same Copernicus terms.
+   Zero-credential access PROVEN (#158: Element84 STAC + AWS COGs).
+3. Landsat 8/9 thermal (TIRS ~100m) — facility activity and tank fill
+   correlate with heat signature. Revisit ~8 days combined. License:
+   USGS public domain.
+LIDAR (USGS 3DEP where available) is a ONE-TIME CALIBRATION input for
+fixed site geometry (tank empty-height baselines) — NOT a
+change-detection sensor; no free frequent satellite LIDAR exists.
+FUSION PRINCIPLE: agreement across independent sensors raises
+confidence; disagreement flags noise. Fusion improves change-detection
+CONFIDENCE — it still does not enable per-object counting. Explicitly
+validate whether the fused free signal is tradeable BEFORE assuming
+paid sub-meter is required.
+
+PHASE 1 (free, build first) — FUSED CHANGE DETECTION:
+- Tank farms (Cushing first): S2 cluster reflectance/shadow + S1
+  backscatter + Landsat thermal over time as a fill proxy → "fill
+  trend up/down". LADDER: gate 1 vs EIA weekly crude storage (the
+  existing prior/criteria from the 2026-07-04 kickoff entry carry
+  over; fusion is the next iteration alongside per-tank annulus
+  geometry).
+- Steel yards: yard/stockpile reflectance + SAR metal-brightness +
+  area change week-over-week → "activity up/down". LADDER: gate 1 vs
+  AISI weekly raw-steel production / company shipment reports.
+- Construction: new/expanded footprint at tracked facilities →
+  "possible expansion, verify". LADDER: gate 1 vs building permits +
+  local news for a sample of detections.
+Every output labeled ESTIMATE with a confidence score and an evidence
+list (the approved envelope); nothing surfaces as a SIGNAL before
+ladder gate 2.
+
+PHASE 2 (paid, wishlist-gated) — OBJECT COUNTING: only after a Phase-1
+signal validates AND revenue justifies it: sub-meter imagery for tank
+roof-type + count, ship type + count, vehicle/coil counts. Wishlist
+entries carry cost, expected accuracy gain over the free fused proxy,
+and a counts-vs-ground-truth validation plan.
+
+IMAGERY-AGE INDICATOR (build alongside Phase 1): every imagery-derived
+layer displays its capture date per zoom/location where the source
+exposes it (S1/S2 scenes carry dates; Esri base tiles do not — show
+"date unavailable", per the existing DESIGN.md imagery-honesty rule).
+Inference freshness ties to it: new imagery → change detection re-runs
+→ indicator + estimate timestamp update.
+
+VALIDATION IS MANDATORY: every detected quantity/change validates
+against an independent ground truth before surfacing (tank fill vs
+EIA; port/ship counts vs published port stats; construction vs
+permits/news). Confidence + evidence on every inference; earlier
+estimates re-evaluated as new imagery arrives. Priors stated BEFORE
+testing (Reasoning Standard #10); discount by combinations tried;
+out-of-sample confirmation required.
+
+ACCESS: CDSE (one signup) covers S1+S2 — exact steps filed in
+wishlist.md; S2 also has the proven zero-credential path; S1
+zero-credential alternatives to verify (ASF DAAC with free NASA
+Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
+USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
+alternatives to verify). Per-sensor licensing above.
+
 ## GIP BUILD QUEUE (directive 2026-07-04 Parts 3-6 — territory-tagged
 per the WORKSTREAM PARTITION proposal in wishlist.md; routines claim a
 territory in their first commit)
