@@ -55,6 +55,19 @@ test("forest layer: JRC attribution + static-vintage honesty + opacity inheritan
   assert.equal(f.field, true, "atlas rasters inherit the registry opacity slider");
 });
 
+test("legend rule pinned: DESIGN.md carries the approved text; legend renders from the shared registry", () => {
+  const design = fs.readFileSync(path.join(here, "..", "DESIGN.md"), "utf8");
+  assert.ok(
+    design.includes("Every map symbol ships with its legend entry in the same PR, drawn from\nthe shared icon registry"),
+    "DESIGN.md must carry the approved legend rule verbatim",
+  );
+  const page = fs.readFileSync(path.join(here, "..", "client", "src", "pages", "datamap.tsx"), "utf8");
+  assert.ok(page.includes("iconDataURL"), "legend must render registry shapes via iconDataURL");
+  assert.ok(page.includes("data-vt-icon"), "legend entries must carry the parity hook");
+  // the divergence the rule kills: hand-drawn SVG copies of registry shapes
+  assert.ok(!/vt-legend[\s\S]{0,400}<svg/.test(page), "no hand-drawn SVG icon duplicates inside the legend");
+});
+
 test("boundaries layer: Natural Earth public domain + generalized-resolution honesty (atlas parity 3)", () => {
   const b = registry.layers.find((x: any) => x.id === "boundaries");
   assert.ok(b, "boundaries layer missing");

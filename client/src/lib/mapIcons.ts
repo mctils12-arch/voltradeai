@@ -331,6 +331,33 @@ export function registerIcons(map: any) {
   }
 }
 
+/** Render a registry shape to a tinted data-URL for the LEGEND (and any
+ *  other UI). Draws the SAME ImageData the map registers, then tints it the
+ *  way maplibre tints SDF icons (icon-color) — legend and map are the same
+ *  source of truth by construction and can never diverge (DESIGN.md legend
+ *  rule). Cached per (name,color): the legend re-renders freely. */
+const iconUrlCache = new Map<string, string>();
+export function iconDataURL(name: string, color: string, out = 18): string {
+  const key = `${name}|${color}|${out}`;
+  const hit = iconUrlCache.get(key);
+  if (hit) return hit;
+  const make = shapes[name];
+  if (!make) return "";
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const ctx = c.getContext("2d")!;
+  ctx.putImageData(make(), 0, 0);
+  ctx.globalCompositeOperation = "source-in";
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, S, S);
+  const o = document.createElement("canvas");
+  o.width = o.height = out;
+  o.getContext("2d")!.drawImage(c, 0, 0, out, out);
+  const url = o.toDataURL();
+  iconUrlCache.set(key, url);
+  return url;
+}
+
 export const AIRCRAFT_ICON: Record<AircraftClass, string> = {
   jet: "vt-jet", turboprop: "vt-prop", piston: "vt-prop",
   helicopter: "vt-heli", unknown: "vt-plane",

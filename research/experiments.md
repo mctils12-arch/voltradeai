@@ -13,6 +13,43 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Legend v3: real registry symbols, grouped, collapsible, parity-enforced (v1.0.78)
+
+- Legend directive executed. The old legend hand-duplicated three site
+  icons as inline SVGs and showed color dots for everything else —
+  exactly the divergence-by-construction the directive kills. New:
+  mapIcons.ts exports iconDataURL(name,color) which rasterizes THE SAME
+  ImageData registerIcons feeds maplibre (SDF tint emulated with
+  source-in compositing, cached per name+color) — legend and map share
+  one source of truth and cannot diverge.
+- Structure: sections mirror the panel groups (Live Tracking /
+  Facilities / Environmental / Fields), Title Case labels, entries
+  render ONLY while their layer is on, whole block collapses as one
+  unit (open desktop / collapsed phone by default; 44px toggle).
+  Color-only chips (altitude tints, raster ramps) stay chips — they
+  are color MEANINGS, not symbols.
+- DESIGN.md rule added VERBATIM as approved: "Every map symbol ships
+  with its legend entry in the same PR, drawn from the shared icon
+  registry — a symbol on the map without a matching legend entry (or
+  vice versa) is a failed build."
+- HARNESS parity assertion, both directions, computed from the LIVE
+  style (literal icon-image values + ["get",prop] resolved via
+  querySourceFeatures) vs legend [data-vt-icon] DOM: (a) every drawn
+  icon has an entry, (b) every entry names a registered icon, (c) no
+  empty icon renders. Measured 7–8 icons in use / 16 entries per
+  width. A/B-PROVEN: a planted bogus entry failed all three ways
+  ("map draws 'vt-train' with NO legend entry", "legend claims
+  'vt-bogus' but no such icon is registered", "empty icon render").
+  Node pin: DESIGN.md rule text verbatim + iconDataURL usage + no
+  hand-drawn SVG duplicates inside the legend.
+- Harness note: the taller open legend pushed field-layer rows to the
+  scroll edge at 1440 in the fields-on battery (Playwright
+  actionability timeout) — battery now collapses the legend and
+  center-scrolls rows before clicking. New standing artifact:
+  data-legend-{w}.png screenshots (legend beside the live map).
+- Gates: node 111/111; harness 0 hard failures ×3 + developers +
+  all-off; screenshots reviewed (390px legend fully legible).
+
 ## 2026-07-04 — [PRODUCT] Positioning copy on /developers (atlas-parity Part 4) (v1.0.77)
 
 - The directive's honest not-a-basemap framing added to the /developers

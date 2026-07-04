@@ -144,6 +144,22 @@ zero layer-data API calls plus an interactive-time budget (the
 regression guard for "the site got slower"). Heavy default-on layers
 mount deferred, after the map's first idle.
 
+## Legend rule (human-approved 2026-07-04)
+
+Every map symbol ships with its legend entry in the same PR, drawn from
+the shared icon registry — a symbol on the map without a matching
+legend entry (or vice versa) is a failed build.
+
+Implementation: legend entries render the SAME canvas shapes the map
+registers (mapIcons.ts iconDataURL — one source of truth, divergence
+impossible by construction). Enforcement: the harness computes the set
+of icon names the live style actually uses (literal icon-image values
+plus ["get",prop] values resolved from source features) and asserts
+(a) every used name has a legend node [data-vt-icon] and (b) every
+legend node names an icon registered on the map. Color-only chips
+(altitude tints, raster ramps) are color meanings, not symbols — chips,
+not icons.
+
 ## Imagery metadata honesty (human-approved 2026-07-04)
 
 Where capture dates are available (Sentinel-2 scenes when that pipeline

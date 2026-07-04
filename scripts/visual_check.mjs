@@ -514,6 +514,58 @@ async function main() {
           return fails;
         }, layerIds);
         checks.failures.push(...selfSee);
+        // ── LEGEND PARITY (DESIGN.md legend rule, human-approved 2026-07-04):
+        // every icon the live style draws must have a legend entry, and every
+        // legend entry must name an icon registered on the map. Both
+        // directions, computed from the LIVE style + source features — not
+        // from the legend's own code.
+        try {
+          await page.click('.vt-legend-head[aria-expanded="false"]', { timeout: 800 }).catch(() => {});
+          await page.waitForTimeout(200);
+          const parity = await page.evaluate(() => {
+            const fails = [];
+            const m = window.__vtMap;
+            if (!m) return ["legend-parity: __vtMap hook missing"];
+            const used = new Set();
+            for (const l of (m.getStyle().layers || [])) {
+              if (l.type !== "symbol") continue;
+              const ii = (l.layout || {})["icon-image"];
+              if (!ii) continue;
+              if (typeof ii === "string") { used.add(ii); continue; }
+              if (Array.isArray(ii) && ii[0] === "get") {
+                const prop = ii[1];
+                try {
+                  for (const f of m.querySourceFeatures(l.source)) {
+                    const v = f && f.properties && f.properties[prop];
+                    if (v) used.add(String(v));
+                  }
+                } catch {}
+              }
+            }
+            const legend = new Set(
+              [...document.querySelectorAll("[data-vt-icon]")].map((e) => e.getAttribute("data-vt-icon")),
+            );
+            for (const name of used) {
+              if (!legend.has(name)) fails.push(`legend-parity: map draws '${name}' with NO legend entry — failed build per the legend rule`);
+            }
+            for (const name of legend) {
+              if (!m.hasImage || !m.hasImage(name)) fails.push(`legend-parity: legend claims '${name}' but no such icon is registered on the map`);
+            }
+            for (const img of document.querySelectorAll("[data-vt-icon] img")) {
+              if (!img.getAttribute("src")) fails.push("legend-parity: legend entry with empty icon render");
+            }
+            return fails.length ? fails : [`legend-parity-ok:${used.size} used / ${legend.size} entries`];
+          });
+          const ok = parity.find((p) => String(p).startsWith("legend-parity-ok:"));
+          if (ok) checks.info.legendParity = ok;
+          else checks.failures.push(...parity);
+          // PR evidence: the legend itself, scrolled into view beside the map
+          await page.evaluate(() => document.querySelector("[data-vt-legend]")?.scrollIntoView({ block: "center" }));
+          await page.waitForTimeout(200);
+          await page.screenshot({ path: path.join(OUT, `${name}-legend-${vp.w}.png`) });
+        } catch (e) {
+          checks.failures.push("legend-parity: driver error — " + (e?.message || e));
+        }
         // restore collapsed-by-default state for the phone screenshot honesty
         if (vp.touch) await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]').catch(() => {});
       } catch (e) {
@@ -541,10 +593,17 @@ async function main() {
           await btn.click().catch(() => {});
           await page.waitForTimeout(120);
         }
+        // collapse the legend so the taller v3 block can't push the target
+        // rows under the sticky panel head, then center each row before
+        // clicking (edge-scrolled switches fail Playwright actionability)
+        await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+        await page.waitForTimeout(150);
         for (const id of ["weather_temp", "weather_wind"]) {
-          const sw = page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first();
-          await sw.scrollIntoViewIfNeeded().catch(() => {});
-          await sw.click({ timeout: 2000 });
+          await page.evaluate((lid) => {
+            document.querySelector(`[data-vt-layer="${lid}"]`)?.scrollIntoView({ block: "center" });
+          }, id);
+          await page.waitForTimeout(120);
+          await page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first().click({ timeout: 4000 });
           await page.waitForTimeout(150);
         }
         // wait until tiles are loaded AND arrow symbols are actually PLACED
