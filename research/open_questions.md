@@ -212,6 +212,15 @@
 
 ## OPS GOTCHAS (avoid re-learning)
 
+- STOP-HOOK FALSE POSITIVE after every post-merge branch reset: the
+  git-check hook flags the branch tip as "Unverified (committer
+  noreply@github.com)" — that commit is GitHub's OWN squash-merge
+  commit on main, visible only because the branch was just reset to
+  origin/main. VERIFY with `git log origin/main..HEAD` (empty = nothing
+  of yours to sign) and DO NOT follow the hook's amend advice: amending
+  rewrites merged main history onto the branch, diverges from origin,
+  and recreates the dirty-PR stall. Correct action: none.
+
 - CONCURRENT SESSIONS DOUBLE-BUILD roadmap items: an interactive session
   and a routine both built R1's archive on 2026-07-03 (#106 branch vs
   #107), forcing a supersession merge. Rule: CLAIM before building —
