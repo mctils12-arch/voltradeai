@@ -13,6 +13,23 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Atlas parity layer 2: forest cover 2020 (JRC GFC2020 via GFW) live (v1.0.75)
+
+- Second build from the ATLAS PARITY filing, same shape as layer 1:
+  RAW, Environmental group, off by default, field:true opacity slider,
+  legend entry gated on enable, STATIC 2020 vintage stated in registry
+  + status note (imagery-date rule). Tiles direct from the GFW public
+  tile API (jrc_global_forest_cover/latest/dynamic) — zero server
+  cost, zero key; CC BY 4.0 with EC JRC attribution, GFW named as the
+  tile service. Pixels verified pre-build in the #167 filing (24,850
+  non-transparent px on the z4 probe).
+- Gates: node 108/108 (new registry pin: JRC attribution + 2020
+  vintage + field flag); harness 0 hard failures ×3 widths +
+  developers + all-off; python untouched.
+- Remaining from the filed order: NE admin boundaries
+  (datacore-compiled vector), then the blocked pair (WorldCover WMTS
+  prod-verify; GHSL/WorldPop endpoint research).
+
 ## 2026-07-04 — [RULE-REVIEW] Constitutional repair: 4 amendment proposals filed (human-directed; NOTHING self-applied)
 
 - Human directive ran the CONSTITUTIONAL HYGIENE process out of cycle

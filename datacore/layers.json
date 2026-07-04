@@ -126,6 +126,15 @@
       "field": true
     },
     {
+      "id": "forest",
+      "name": "Forest cover (2020)",
+      "kind": "raw",
+      "status": "live",
+      "source": "EC JRC Global Forest Cover 2020 (10m, CC BY 4.0) — tiles via Global Forest Watch",
+      "description": "Where forest stood in 2020 at 10m resolution. STATIC dataset, not live conditions: 2020 vintage stated per the imagery-date honesty rule. Atlas-parity layer; tiles served directly from the GFW public tile API — zero server cost.",
+      "field": true
+    },
+    {
       "id": "tank_fill",
       "name": "Tank-fill % (Sentinel-2)",
       "kind": "signal",
