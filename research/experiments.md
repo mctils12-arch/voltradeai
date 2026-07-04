@@ -798,3 +798,24 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   US bounds, CC BY attribution present, route/layers.json wiring.
   Harness fixture serves the REAL compiled dataset so the perf window
   now measures 10k aircraft + 9.8k clustered plants together.
+
+## 2026-07-03 — [PRODUCT] M4 mobile performance pass: fill-rate fix from per-layer profile (v1.0.51)
+- Method (compiled: scripts/perf_profile.mjs): pan-frame medians at 390px
+  under SwiftShader (mid-range-phone proxy), per-layer A/B at two views.
+  PRIOR (stated before profiling): expected the new 9.8k-plant layer or
+  its clustering to be the top cost.
+- PROFILE REJECTED THE PRIOR: at global zoom, base=17.7ms, +plants+sites
+  =17.5ms (clustering is FREE — supercluster renders only ~40 blobs),
+  +aircraft=33.8ms. The 10k-aircraft symbol layer was the only
+  meaningful cost, and it is FILL-RATE bound (software rasterizer +
+  phone GPUs pay per drawn pixel; 10k icons at constant 0.5 scale).
+  Continental zoom (z4.5) was already smooth for all combos (21ms).
+- Fix: zoom-interpolated icon-size on the two 10k-class live layers
+  (aircraft 0.32@z2 -> 0.55@z7; vessels 0.30 -> 0.50) — ~60% fewer
+  drawn pixels where icons are dense, full size where you can tap them.
+- Measured effect: all-layers global-zoom median 32.8 -> 27.3ms in the
+  A/B; full harness at 390px median 33ms p95 67ms (previous runs were
+  ~117ms class); 768px 83ms; 1440px 117ms — all far inside the 300ms
+  budget. Icons re-verified legible at the new global-zoom size.
+- Tile prefetch not measurable offline (harness aborts CDN) — noted
+  honestly; raster layer cost showed as flat base across combos.

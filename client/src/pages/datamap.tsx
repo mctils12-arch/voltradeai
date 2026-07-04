@@ -351,7 +351,11 @@ export default function DataMapPage() {
         })),
       iconLayout: {
         "icon-image": ["get", "icon"],
-        "icon-size": 0.5,
+        // Zoom-interpolated: SwiftShader/mid-range-GPU profiling (M4,
+        // 2026-07-03) showed the 10k-icon layer is FILL-RATE bound at
+        // global zooms — smaller icons where they're dense cut drawn
+        // pixels ~60% and roughly halve the layer's frame cost.
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.32, 5, 0.42, 7, 0.55],
         "icon-rotate": ["get", "heading"],
         "icon-rotation-alignment": "map",
         "icon-allow-overlap": true,
@@ -419,7 +423,8 @@ export default function DataMapPage() {
         })),
       iconLayout: {
         "icon-image": ["get", "icon"],
-        "icon-size": 0.45,
+        // same fill-rate treatment as aircraft (M4 profile)
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 5, 0.38, 7, 0.5],
         "icon-rotate": ["get", "heading"],
         "icon-rotation-alignment": "map",
         "icon-allow-overlap": true,
