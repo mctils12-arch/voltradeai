@@ -841,3 +841,25 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - AUDIT CYCLE consolidation proposal filed in wishlist.md per the
   hygiene process (three scattered periodic triggers -> one SESSION
   BUDGET clause + register; policies untouched; human decides).
+
+## 2026-07-03 — [PIPELINE] Aircraft chain three deep: adsb.fi third leg (v1.0.52)
+- Human directive (multi-modal expansion): self-hosted receivers OFF the
+  table (declined; logged in open_questions so no session re-proposes
+  hardware); software-only third provider instead. LICENSING FIRST per
+  the standing rule: adsb.fi = personal/non-commercial + attribution
+  (same class as airplanes.live; MONETIZATION TRIPWIRE list updated to
+  cover it); adsb.one rejected (Cloudflare blocks server egress); ADS-B
+  Exchange rejected for the free chain (community API non-commercial +
+  keyed; commercial tier is paid Enterprise).
+- Integration: PROVIDERS gains per-provider response-array key (adsb.fi
+  returns "aircraft" where the others return "ac"; URL pattern
+  /api/v2/lat/{lat}/lon/{lon}/dist/{nm}); shared-upstream pattern,
+  backoff, cause-capture all inherited. layers.json attribution updated.
+- INTERNATIONAL COVERAGE VERIFIED through the new leg (the directive's
+  requirement): Tokyo 130, Sydney 146, São Paulo 69 aircraft from
+  adsb.fi; legs 1-2 verified global in prior sessions (all three are
+  worldwide community networks — coverage everywhere feeders exist).
+- Tests updated: aircraftChain.test.ts pins the three-deep order
+  (ODbL leader first); providerCompliance.test.ts pins that BOTH
+  non-commercial legs are in the tripwire list (sync test caught the
+  edit requirement immediately).

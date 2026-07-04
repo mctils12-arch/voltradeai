@@ -18,7 +18,7 @@
 // do NOT permit commercial use. Kept in sync with the chain by
 // server/providerCompliance.test.ts. Empty this list only by dropping the
 // provider from the chain or upgrading to a commercial arrangement.
-export const NON_COMMERCIAL_AIRCRAFT_PROVIDERS = ["airplaneslive"];
+export const NON_COMMERCIAL_AIRCRAFT_PROVIDERS = ["airplaneslive", "adsbfi"];
 
 // Billing counts as active when the operator flips BILLING_ENABLED
 // explicitly, or when Stripe is configured at all — server/billing.ts

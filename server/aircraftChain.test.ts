@@ -24,13 +24,15 @@ test("OpenSky is fully removed from the runtime chain (no dead 12s attempt)", ()
   assert.ok(!src.includes('backoffActive("opensky")'), "OpenSky backoff branch still present");
 });
 
-test("adsb.lol precedes airplanes.live in the provider chain", () => {
+test("chain is three deep and adsb.lol (ODbL) leads", () => {
   const adsblol = src.indexOf("api.adsb.lol/v2/point");
   const airplaneslive = src.indexOf("api.airplanes.live/v2/point");
+  const adsbfi = src.indexOf("opendata.adsb.fi/api/v2");
   assert.ok(adsblol > 0, "adsb.lol provider missing");
   assert.ok(airplaneslive > 0, "airplanes.live provider missing");
-  assert.ok(adsblol < airplaneslive,
-    "adsb.lol (ODbL, monetization-lawful) must be tried before airplanes.live (non-commercial)");
+  assert.ok(adsbfi > 0, "adsb.fi provider missing (third leg, human directive 2026-07-03)");
+  assert.ok(adsblol < airplaneslive && airplaneslive < adsbfi,
+    "order must be adsb.lol (ODbL, monetization-lawful) -> airplanes.live -> adsb.fi (both non-commercial)");
 });
 
 test("coverage note no longer promises OpenSky credentials", () => {

@@ -667,11 +667,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ layers });
   });
 
-  // Live aircraft overlay (RAW) — community ADS-B chain: adsb.lol primary
-  // (ODbL 1.0, the only provider lawful under monetization), airplanes.live
-  // fallback (non-commercial license — fine for the current no-revenue POC,
-  // must be dropped/upgraded before billing goes live; see wishlist
-  // MONETIZATION TRIPWIRE). OpenSky removed 2026-07-03 (human decision):
+  // Live aircraft overlay (RAW) — community ADS-B chain, THREE deep
+  // (human directive 2026-07-03; self-hosted receivers declined):
+  // adsb.lol primary (ODbL 1.0, the only provider lawful under
+  // monetization) -> airplanes.live -> adsb.fi (both non-commercial
+  // licenses — fine for the current no-revenue POC, must be dropped or
+  // upgraded before billing goes live; see wishlist MONETIZATION
+  // TRIPWIRE). All three are global community networks sharing the
+  // readsb point+radius JSON shape (adsb.fi differs only in URL pattern
+  // and array key). OpenSky removed 2026-07-03 (human decision):
   // Railway egress rejects it even with OAuth creds, and its operational-use
   // clause requires a written agreement — requested by the human; reinstate
   // and re-verify Railway connectivity if granted. One shared upstream
@@ -729,8 +733,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       coverage_note = `feed covers ~250nm around view center (viewport needs ~${neededNm}nm) — zoom in for full coverage`;
     }
     const PROVIDERS = [
-      { key: "adsblol", url: `https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "adsb.lol (ADS-B, community)" },
-      { key: "airplaneslive", url: `https://api.airplanes.live/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "airplanes.live (ADS-B, community)" },
+      { key: "adsblol", url: `https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "adsb.lol (ADS-B, community)", arr: "ac" },
+      { key: "airplaneslive", url: `https://api.airplanes.live/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "airplanes.live (ADS-B, community)", arr: "ac" },
+      { key: "adsbfi", url: `https://opendata.adsb.fi/api/v2/lat/${clat.toFixed(3)}/lon/${clon.toFixed(3)}/dist/${radiusNm}`, label: "adsb.fi (ADS-B, community)", arr: "aircraft" },
     ];
     const errs: string[] = [];
     for (const fb of PROVIDERS) {
@@ -740,7 +745,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const r2 = await fetch(fb.url, { headers: UA, signal: AbortSignal.timeout(12000) });
         if (!r2.ok) throw new Error(`${fb.key} ${r2.status}`);
         const raw2: any = await r2.json();
-        aircraft = (raw2.ac || []).slice(0, 5000).map((a: any) => ({
+        aircraft = (raw2[fb.arr] || []).slice(0, 5000).map((a: any) => ({
           icao24: a.hex,
           callsign: String(a.flight || "").trim(),
           origin_country: a.r || "",
