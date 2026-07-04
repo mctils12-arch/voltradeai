@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -66,6 +66,7 @@ const PANEL_GROUPS = [
 ] as const;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", weather: "base",
+  weather_temp: "base", weather_wind: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   insider: "filings", shadowstats: "filings", portdwell: "filings",
@@ -346,6 +347,75 @@ export default function DataMapPage() {
     }, 300_000);
     return () => { window.clearInterval(iv); };
   }, [enabled.weather, mapReady, setStatus]);
+
+  // ── OpenWeatherMap GLOBAL weather fields (temp/wind) — Tier-1(b) global
+  // half, unblocked when the human set OPENWEATHERMAP_KEY (2026-07-04).
+  // Tiles come through OUR proxy (/api/data/wxtile) so the key stays
+  // server-side and the 60-calls/min free budget is shared-cache bounded.
+  // FRESH-KEY RULE (human directive): while OWM activates a new key (~2h,
+  // upstream 401), the status is "activating" -> shown as LOADING with a
+  // retry note and re-probed every 10 min — never an error state. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const FIELDS: Array<{ id: "weather_temp" | "weather_wind"; owm: string }> = [
+      { id: "weather_temp", owm: "temp_new" },
+      { id: "weather_wind", owm: "wind_new" },
+    ];
+    const anyOn = FIELDS.some((f) => enabled[f.id]);
+    const removeField = (f: { id: string; owm: string }) => {
+      try {
+        if (map?.getLayer(`wx-${f.owm}`)) map.removeLayer(`wx-${f.owm}`);
+        if (map?.getSource(`wx-${f.owm}`)) map.removeSource(`wx-${f.owm}`);
+      } catch {}
+    };
+    for (const f of FIELDS) if (!enabled[f.id]) { removeField(f); setStatus(f.id, "off"); }
+    if (!anyOn) return;
+    if (!map || !mapReady) return;
+    let stop = false;
+    const probe = async () => {
+      for (const f of FIELDS) if (enabled[f.id]) setStatus(f.id, "loading");
+      try {
+        const r = await fetch("/api/data/weather/global/status");
+        const d = await r.json();
+        if (stop) return;
+        for (const f of FIELDS) {
+          if (!enabled[f.id]) continue;
+          if (d.status === "ok") {
+            if (!map.getSource(`wx-${f.owm}`)) {
+              map.addSource(`wx-${f.owm}`, {
+                type: "raster",
+                tiles: [`/api/data/wxtile/${f.owm}/{z}/{x}/{y}`],
+                tileSize: 256, maxzoom: 7,
+                attribution: "Weather data © OpenWeatherMap",
+              } as any);
+              const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+              map.addLayer({
+                id: `wx-${f.owm}`, type: "raster", source: `wx-${f.owm}`,
+                paint: { "raster-opacity": 0.6 },
+              } as any, firstMarker?.id);
+            }
+            setStatus(f.id, "active", undefined, "global field · Weather data © OpenWeatherMap");
+          } else if (d.status === "awaiting_key") {
+            removeField(f);
+            setStatus(f.id, "awaiting_key");
+          } else if (d.status === "activating") {
+            // fresh-key delay is NOT an error: keep it in loading with the
+            // retry note; the 10-min interval below re-probes.
+            removeField(f);
+            setStatus(f.id, "loading", undefined, d.note);
+          } else {
+            removeField(f);
+            setStatus(f.id, "error", undefined, d.note || "upstream error — retrying");
+          }
+        }
+      } catch {
+        if (!stop) for (const f of FIELDS) if (enabled[f.id]) setStatus(f.id, "error");
+      }
+    };
+    probe();
+    const iv = window.setInterval(probe, 10 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.weather_temp, enabled.weather_wind, mapReady, setStatus]);
 
   // ── generic live-points wiring (aircraft + vessels share the machinery) ──
   const wireLivePoints = useCallback((opts: {
@@ -968,6 +1038,8 @@ export default function DataMapPage() {
     id === "imagery" ? <Satellite size={15} /> :
     id === "terrain" ? <Mountain size={15} /> :
     id === "weather" ? <CloudRain size={15} /> :
+    id === "weather_temp" ? <Thermometer size={15} /> :
+    id === "weather_wind" ? <Wind size={15} /> :
     id === "aircraft" ? <Plane size={15} /> :
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> :

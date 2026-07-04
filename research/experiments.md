@@ -13,6 +13,33 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] OWM global temp/wind fields — key-proxied tiles, activation-aware status (v1.0.63)
+
+- Human set OPENWEATHERMAP_KEY in Railway (fresh key, ~2h activation
+  on OWM's side). Wired the Tier-1(b) global half: two RAW layers
+  (Temperature/Wind, model-derived labeling pinned by test) served
+  through OUR tile proxy /api/data/wxtile/... — key never reaches the
+  client, and the shared TTL cache bounds upstream calls to
+  unique-tiles-per-10min across ALL visitors (free tier is 60
+  calls/min; client-direct tiles would blow it on one panning user).
+  Zoom capped at 7 (fields are smooth; bounds the cache universe).
+- FRESH-KEY RULE implemented exactly as directed: upstream 401/403
+  classifies as "activating" -> layer shows LOADING with the note
+  "key set — OpenWeatherMap activates fresh keys within ~2h;
+  auto-retrying" and re-probes every 10 min; a 5-min negative cache
+  stops us hammering OWM meanwhile. Never marked error for a
+  fresh-key delay; the note itself says when to re-check the key.
+- Tests (5 new): tile validation (allowlist/zoom ceiling/range/
+  traversal-shaped input), URL builder key-encoding, the
+  401->activating classification with ~2h note, TTL cache expiry +
+  bounded eviction, wiring/registry pins (attribution + model-derived
+  honesty). OWM's 401-for-inactive-key behavior confirmed live by
+  curl (invalid-key probe -> 401), so the activating path is the
+  real upstream behavior, not an assumption.
+- Verification plan: prod probe of /api/data/weather/global/status
+  after the deploy; "activating" expected if the key is under ~2h
+  old — recorded as such, not as a failure.
+
 ## 2026-07-04 — [PRODUCT] Session close-out: charter + geospatial directive — 10 PRs, queue handed to routines. STARVED.
 
 - Directive execution summary (#136-#145): approved consolidations

@@ -344,12 +344,15 @@
   for the 5 existing streams + a test (every archive kind must have a
   manifest — enforced).
 
-- **HUMAN ACTION — OpenWeatherMap free API key (free signup):** set as
-  OPENWEATHERMAP_KEY in Railway to activate GLOBAL temp/wind/precip
-  fields on the weather layer (Tier-1(b) shipped US-radar-only —
-  nowCOAST is public domain but US-only; OWM free tier is
-  commercial-lawful WITH visible attribution, 60 calls/min, 1M/mo,
-  model-derived tiles labeled as such per the licensing register).
+- **[DONE BY HUMAN 2026-07-04]** ~~OpenWeatherMap free API key~~ — set
+  in Railway as OPENWEATHERMAP_KEY (fresh key; OWM activates within
+  ~2h). Global temperature + wind field layers wired same day
+  (v1.0.63): key stays server-side behind a tile proxy with shared
+  cache (60-calls/min budget), "Weather data © OpenWeatherMap"
+  attribution, model-derived labeling, and fresh-key-aware status
+  (401 = "activating" with retry note, never an error state).
+  Verification: prod probe post-deploy; if still "activating" well
+  past ~2h from key creation, re-check the key value.
 - **HUMAN ACTION — NASA FIRMS MAP_KEY (free registration):** needed for
   Tier-1(c) active-fires layer (free, commercial-lawful, VIIRS 375m,
   ~3h latency); layer will ship awaiting_key without it. Detections
