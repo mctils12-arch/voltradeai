@@ -1,5 +1,64 @@
 # Data / Access Wishlist — human reviews weekly
 
+- **HUMAN ACTION — Copernicus Data Space (CDSE) free account (satellite
+  directive 2026-07-04): ONE credential unlocks the fused-sensor engine
+  (Sentinel-1 SAR + Sentinel-2).** Exact steps: (1)
+  dataspace.copernicus.eu → "Register" (top right); (2) email +
+  password, verify the confirmation email; (3) no approval wait — the
+  account is immediately active on the free tier (generous monthly
+  download/processing quotas, sufficient for weekly AOI chips); (4)
+  create an OAuth client under Account → "OData / API access" (or we
+  can use plain username+password S3-compatible access) and set
+  CDSE_USER / CDSE_PASSWORD (or client id/secret) in Railway. NOTE:
+  Sentinel-2 already works WITHOUT credentials (Element84 STAC + AWS
+  COGs, proven in the gate-1 pipeline); CDSE matters for SENTINEL-1
+  SAR. Zero-credential S1 fallback we will verify first: ASF DAAC
+  (free NASA Earthdata login — also a HUMAN ACTION if preferred:
+  urs.earthdata.nasa.gov signup, same shape). Either credential works;
+  CDSE is the single-signup option the directive named.
+- **⚖ AMENDMENT PROPOSAL — ACTIVE ANGLE-HUNTING (satellite/EDGE
+  directive 2026-07-04; human approval required; NOT self-applied).**
+  Proposed addition to CLAUDE.md STANDING BEHAVIORS, exact text:
+
+  "- ACTIVE ANGLE-HUNTING (human-approved YYYY-MM-DD): the system does
+  not only execute directed roadmaps — it generates its OWN novel
+  hypotheses. Every EDGE session not consumed by repair or a
+  higher-priority queued item deliberately hunts new angles: (1)
+  CROSS-CONNECTIONS — join two or more existing data streams in ways
+  not yet tried (insider-buying × facility SAR-activity × port-dwell;
+  corporate-fleet aircraft utilization × earnings timing; plant
+  thermal-activity × commodity prices) — the Everything Graph is the
+  substrate; (2) ANOMALY MINING — scan the archives for unexplained
+  recurring patterns, especially ones preceding price moves, and ask
+  why; (3) FOREIGN-FIELD IMPORTS — borrow techniques from outside
+  finance (epidemiology, ecology, signal processing, aviation
+  failure-analysis) and test whether they reveal structure others
+  miss; (4) SECOND-ORDER — for any edge found, ask who is on the other
+  side and why it has not been arbitraged. FREEDOM + RIGOR:
+  unconventional, speculative, even weird hypotheses are explicitly
+  wanted — AND every one enters the ROOT VALIDATION LADDER before it
+  is believed or traded. Every generated angle is logged in
+  open_questions.md with its testable form and ladder path, even the
+  speculative ones; priors stated before testing; edges discounted by
+  the number of combinations tried; out-of-sample confirmation
+  required; a beautiful story never substitutes for validation."
+- **Phase-2 PAID sub-meter imagery (satellite directive 2026-07-04 —
+  BUILD-FIRST analysis attached; gated on a Phase-1 fused free signal
+  passing gate 1 AND revenue justification; do NOT purchase yet):**
+  the raw material (sub-meter optical) is genuinely inaccessible free
+  — build-first step 4 applies. Candidates: Planet SkySat archive
+  (~50cm, historically ~$10+/km², tasking higher; pricing on inquiry),
+  Maxar/Vantor 30-50cm archive (historically ~$10–25/km² via
+  resellers), Airbus Pléiades 50cm (similar). What paid adds over the
+  free fused proxy: individual tank roof-type + count, ship type +
+  count, vehicle/coil counts — object identity, not just facility
+  change. Validation plan on purchase: counts vs port statistics /
+  EIA / operator disclosures on a labeled sample BEFORE any trading
+  use. Free version first: the fused S1+S2+thermal change signal must
+  prove or fail at gate 1 — if it trades, paid imagery may be
+  unnecessary; if it almost-trades, paid imagery is the upgrade with a
+  measured accuracy target.
+
 - **⚖ [APPROVED BY HUMAN 2026-07-04 — ALL FOUR: "Constitutional
   amendments approved — ship all four in order 1→2→3→4"] CONSTITUTIONAL
   REPAIR — FOUR AMENDMENT PROPOSALS (directive 2026-07-04; shipping in
