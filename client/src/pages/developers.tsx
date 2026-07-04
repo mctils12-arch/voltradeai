@@ -67,6 +67,14 @@ export default function DevelopersPage() {
           API. <strong>Access is invite-only during the preview</strong> — join
           the waitlist below.
         </p>
+        <p className="vt-dev-positioning">
+          We are not a basemap competitor: the atlas layers rest on the same
+          open geospatial foundation as any Earth viewer, and we name every
+          source. What a static atlas can&apos;t offer is what this API is
+          for — live movement, entity fusion, market-validated signals, and
+          programmatic access to all of it. Live vs. coming is stated per
+          endpoint below; no claim is made to proprietary imagery.
+        </p>
       </header>
 
       <section className="vt-dev-section">
