@@ -217,3 +217,22 @@
   Finding-2 sketch (PERIODIC AUDITS register) with a concrete location.
   If approved: one docs PR adds the clause + the register, and trims
   the two in-place trigger sentences to point at it.
+
+- **Satellite AIS (mid-ocean vessel coverage) — PRICED, deferred; filed
+  per the ships directive 2026-07-04.** Verified: our aisstream.io
+  subscription is already configured GLOBAL (BoundingBoxes ±90/±180),
+  so the coverage gap is physical, not configuration — aisstream
+  aggregates TERRESTRIAL receivers, which see ~40-60nm offshore; ships
+  mid-ocean go dark between coasts. BUILD-FIRST analysis: (1) the raw
+  material (satellite AIS downlink) is inaccessible free — genuinely
+  paid class per the EDGE DOCTRINE; (2) accumulation helps at the
+  EDGES: our archive records port arrivals/departures + coastal
+  transits, which is where R2 transit-analytics value concentrates;
+  (3) inference substitute EXISTS for specific questions: a ship that
+  left port A heading for port B (destination field) can be
+  dead-reckoned mid-ocean and confirmed on coastal reacquisition —
+  label as predicted track, never ground truth. (4) Paid adds: true
+  mid-ocean positions. Vendors: Spire Maritime, Kpler/exactEarth,
+  ORBCOMM — pricing is quote-only, entry commonly $500+/mo class.
+  RECOMMENDATION: do not buy unless a specific gated signal needs
+  mid-ocean truth (none does today; port-transit signals don't).
