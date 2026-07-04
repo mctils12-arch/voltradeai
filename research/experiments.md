@@ -13,6 +13,28 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] /developers page + waitlist + pricing designed-not-enabled (v1.0.71)
+
+- API directive part 2: client/src/pages/developers.tsx renders the
+  API reference FROM /api/v1/meta (self-documenting — the page cannot
+  drift from the deployed API), a live archive-stats sample fetched by
+  the page itself, license marks as they travel with responses, curl
+  examples, honest coming_gated list, API pricing tiers marked
+  "preview — not for sale yet" (numbers TBA; NO buy buttons, NO
+  billing anywhere — tripwire test pins that stripe/checkout/billing
+  strings cannot appear on the page), and the waitlist form (email
+  only). server/waitlist.ts: validated, deduped (restart-surviving
+  seed), day-JSONL PII stream with a manifest that states the
+  handling contract (never exposed via API, never in git).
+- TRIPWIRE: this session touched pricing DESIGN — the compliance
+  re-run was executed and recorded in the MONETIZATION READINESS
+  CHECKLIST (wishlist.md) before this shipped; billing remains dark.
+- Harness upgraded for the multi-page era: PAGES now carry per-page
+  config ({route, map}) — map/perf/self-see batteries run on map
+  pages; layout + touch-target checks run everywhere. /developers
+  green at 390/768/1440 (screenshots reviewed: theme tokens, live
+  sample rendering, 44px targets). 4 new node tests (101/101).
+
 ## 2026-07-04 — [PRODUCT] API product foundation — /api/v1 over the archives, key scaffolding, metering, license marks (v1.0.70)
 
 - API directive part 1 built pre-revenue, last mile explicitly gated:

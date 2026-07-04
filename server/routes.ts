@@ -31,6 +31,7 @@ import {
 import {
   parseApiKeys, makeRateLimiter, meterUsage, apiMeta, LICENSE_MARKS, ApiTier,
 } from "./apiProduct";
+import { addToWaitlist } from "./waitlist";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1279,6 +1280,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/v1/meta", (_req, res) => res.json(apiMeta())); // reference is public — docs, not data
+
+  // Waitlist capture (/developers) — email only, no billing, "coming soon".
+  // The monetization tripwire stays untripped: no pricing enablement here.
+  app.post("/api/waitlist", (req, res) => {
+    const result = addToWaitlist(String(req.body?.email || ""), String(req.body?.source || "developers"));
+    if (result === "invalid") return res.status(400).json({ ok: false, error: "valid email required" });
+    res.json({ ok: true, status: result });
+  });
 
   app.get("/api/v1/tracks/:kind/:id", (req, res) => {
     const auth = requireApiKey(req, res);
