@@ -819,3 +819,25 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   budget. Icons re-verified legible at the new global-zoom size.
 - Tile prefetch not measurable offline (harness aborts CDN) — noted
   honestly; raster layer cost showed as flat base across combos.
+
+## 2026-07-03 — [PRODUCT] Map v2.1 ops items: delivery channel fixed, tripwire verified, audit-cycle proposal
+- GMAIL DRAFT-ONLY FIX (human directive): both calibration routines
+  (usage-check daily 21:30, weekly-review Sun 10:00) now deliver via
+  their FINAL SESSION OUTPUT — read from the Claude Code Notifications
+  tab, the one channel verified to reach the human (routine completions
+  land there by platform design). The Gmail-draft step was dropped from
+  both canonical prompts as a dead letterbox (connector verified
+  draft-only, no send tool; drafts sat unread). usage_log.md prompts +
+  CLAUDE.md KNOWN STATE updated. Honest limit: no push-to-phone channel
+  is verifiable from a session; if the Notifications tab proves too
+  passive in practice, the human should say so and we revisit.
+- TRIPWIRE FALSE-ALARM CHECK: production /api/health shows
+  checks.licensing = ok -> STRIPE_SECRET_KEY is NOT set in Railway and
+  the compliance warning is NOT firing. Condition for changing the
+  trigger ("if firing falsely") unmet — guard unchanged. Residual
+  behavior documented: setting a Stripe TEST key without charging would
+  fire it; that is by design (earliest observable signal) and the
+  warning text says exactly what to do.
+- AUDIT CYCLE consolidation proposal filed in wishlist.md per the
+  hygiene process (three scattered periodic triggers -> one SESSION
+  BUDGET clause + register; policies untouched; human decides).

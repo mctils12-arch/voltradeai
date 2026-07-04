@@ -22,8 +22,15 @@ STATE, human-approved 2026-07-03).
 Full 8-run/day menu (all ET): daily-am 7:00 · product-am 9:00 ·
 daily-midday 12:30 (hold merges to close) · product-pm 14:00 (hold
 merges) · daily-close 16:15 · edge 17:30 · product-eve 20:00 ·
-edge-late 22:30. Plus voltrade-weekly-review Sun 10:00 (C1 briefing +
-Gmail draft; not a build slot).
+edge-late 22:30. Plus voltrade-weekly-review Sun 10:00 (C1 briefing;
+not a build slot).
+
+DELIVERY CHANNEL (fixed 2026-07-03, human directive): routine
+deliverables go in the FINAL SESSION OUTPUT, which lands in the Claude
+Code Notifications tab — the one channel verified to reach the human.
+The Gmail connector is draft-only (no send tool); drafts sat unread in
+the Drafts folder, so the Gmail step was dropped from both routine
+prompts as a dead letterbox.
 
 - DROP ORDER under quota pressure: product-pm → edge-late → product-eve.
   Irreducible core (4/day): daily-am, product-am, daily-close, edge.
@@ -35,9 +42,9 @@ Gmail draft; not a build slot).
 ## voltrade-usage-check routine (DAILY 21:30 ET) — canonical prompt text
 
 Routine description field: "Daily usage nudge — two-line day summary +
-screenshot reminder draft. REVISIT CADENCE ~2026-07-24: once usage
-readings flatten, delete this daily routine and let
-voltrade-weekly-review carry the loop."
+screenshot reminder in session output (Notifications tab). REVISIT
+CADENCE ~2026-07-24: once usage readings flatten, delete this daily
+routine and let voltrade-weekly-review carry the loop."
 
 > [USAGE-CHECK] Read research/usage_log.md and today's entries in
 > research/experiments.md. Report only — no code changes, no PRs.
@@ -46,17 +53,14 @@ voltrade-weekly-review carry the loop."
 > with their tags ([REPAIR]/[PIPELINE]/[PRODUCT]/...); (line 2) the
 > current top queued item and whether any session today logged STARVED.
 >
-> 2. With the Gmail connector, create a DRAFT to mctils12@gmail.com,
-> subject "VolTrade Daily — usage screenshot". Body = the two-line
-> summary, then: "REMINDER: paste your current Plan usage panel
-> screenshot into any Claude Code session on voltradeai — same-day
-> schedule recalibration per the USAGE-CALIBRATION LOOP." The connector
-> is draft-only (verified 2026-07-03): the draft lands in the Drafts
-> folder, not the Inbox — the Claude Code Notifications tab is the
-> reliable place to see this routine completed. If Gmail tools are
-> unavailable in this routine context, state that prominently at the top
-> of the session output and continue — the summary itself is the
-> deliverable.
+> 2. END the session with exactly this block as your final output — it
+> is the deliverable, read from the Claude Code Notifications tab (do
+> NOT use the Gmail connector; it cannot send, only draft):
+>
+> "USAGE CHECK <date> — <the two-line summary>.
+> ACTION: paste your current Plan usage panel screenshot into any
+> session on voltradeai — same-day schedule recalibration per the
+> USAGE-CALIBRATION LOOP."
 
 ## voltrade-weekly-review routine (Sun 10:00 ET) — canonical prompt text
 
@@ -74,17 +78,14 @@ voltrade-weekly-review carry the loop."
 > the calibration rule in usage_log.md fires, name the exact routine
 > slots to add or drop per its add/drop order.
 >
-> 2. Email it: with the Gmail connector, create a DRAFT to
-> mctils12@gmail.com, subject "VolTrade Weekly — reply with usage
-> screenshot". Body = the briefing from step 1, then this reminder:
-> "REMINDER: paste your current Plan usage panel screenshot into any
-> Claude Code session on voltradeai — it will be appended to
+> 2. END the session with the briefing as your final output, opening
+> with the line "VOLTRADE WEEKLY <date> — reply with usage screenshot"
+> and closing with: "ACTION: paste your current Plan usage panel
+> screenshot into any session on voltradeai — it will be appended to
 > research/usage_log.md and the schedule recalibrated per the standing
-> rule." Note: the connector is draft-only (verified 2026-07-03) — the
-> email lands in the Drafts folder, not the Inbox. If Gmail tools are
-> unavailable in this routine context, state that prominently at the
-> top of the session output and continue — the briefing itself is the
-> deliverable.
+> rule." The final output IS the deliverable — it is read from the
+> Claude Code Notifications tab. Do NOT use the Gmail connector; it
+> cannot send, only draft, and drafts go unread.
 
 ## Log (append-only; newest row last)
 

@@ -194,3 +194,26 @@
   connector remains DRAFT-ONLY (no send tool exists) — daily nudge lands
   in Drafts; the Claude Code Notifications tab is the recommended
   completion signal instead. Bookkept per the amendment rule.
+
+- **⚖ CONSOLIDATION PROPOSAL — AUDIT CYCLE (filed 2026-07-03 per the
+  CONSTITUTIONAL HYGIENE process; human approval required; nothing
+  changed yet).** Three periodic hygiene duties live in three places:
+  (1) DEAD CODE POLICY's staleness sweep ("fall-through reaches the
+  research tier and the codebase hasn't had a staleness audit in 30+
+  days"); (2) CONSTITUTIONAL HYGIENE's rule audit ("monthly, or as a
+  fall-through action when 30+ days since last review"); (3) the
+  December market_calendar year-add (FROZEN PATHS exception + KNOWN
+  STATE note). PROPOSED AFTER-TEXT — one clause appended to SESSION
+  BUDGET, replacing neither policy body (only the scattered TRIGGERS):
+  "AUDIT CYCLE: when a session's fall-through reaches the research
+  tier, check the audit register at the top of research/experiments.md
+  {audit · cadence · last run}: staleness audit (code/deps/config/
+  expired adapters — 30d; DEAD CODE POLICY governs), constitutional
+  audit (rules — 30d; CONSTITUTIONAL HYGIENE governs), market_calendar
+  year-add (December; FROZEN PATHS exception governs). Run the most
+  overdue one and update the register." Preserves: every cadence and
+  both policy bodies verbatim. Drops: nothing. Resolves: three triggers
+  nobody checks in one place; also supersedes the first audit's
+  Finding-2 sketch (PERIODIC AUDITS register) with a concrete location.
+  If approved: one docs PR adds the clause + the register, and trims
+  the two in-place trigger sentences to point at it.

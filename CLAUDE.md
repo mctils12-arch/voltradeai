@@ -514,10 +514,12 @@ look busy remains forbidden.
   (research/usage_log.md: product-pm → edge-late → product-eve; 4-run
   irreducible core). Bias toward aggressive slot addition while weekly
   readings are under 50%. Cadence: voltrade-usage-check (DAILY 21:30 ET)
-  + voltrade-weekly-review (Sun 10:00 ET, C1 briefing); both emit Gmail
-  DRAFTS — the connector is draft-only (verified 2026-07-03), no send
-  capability. Revisit ~2026-07-24: once readings flatten, drop the daily
-  check back to weekly mode.
+  + voltrade-weekly-review (Sun 10:00 ET, C1 briefing); DELIVERY = the
+  routine's final session output, read from the Claude Code
+  Notifications tab (fixed 2026-07-03 — the Gmail connector is
+  draft-only with no send capability, so drafts sat unread and the
+  Gmail step was dropped from both prompts). Revisit ~2026-07-24: once
+  readings flatten, drop the daily check back to weekly mode.
 - MONETIZATION TRIPWIRE (standing, human-approved 2026-07-03): any
   session touching billing, pricing, subscriptions, ads, or paid-feature
   gating MUST first re-run the aircraft-provider compliance check in
