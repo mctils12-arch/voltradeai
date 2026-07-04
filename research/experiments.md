@@ -13,6 +13,19 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] Ops: wrong-merge reset emptied PR #148 — recovered, monitor pattern hardened (docs)
+
+- Recurrence of the documented "verify WHICH PR merged" gotcha, now
+  with a mechanical fix instead of a re-note (loop-health rule 4:
+  recurrence escalates). Sequence: #147 (human-created from a branch
+  commit) merged while #148 (v2.4) waited; the hash-only monitor
+  fired; the reflexive reset force-push emptied #148's branch and
+  GitHub auto-closed it. Recovery: cherry-pick from the local object
+  store -> reopened as #149 -> merged clean, zero work lost. Ratchet:
+  merge monitors now print the merged commit subject and gate "safe
+  to reset" on it matching the expected PR (template proven live on
+  #149's watch); OPS GOTCHAS entry strengthened from advice to rule.
+
 ## 2026-07-04 — [PRODUCT] Map v2.4 — three production defects fixed, each with A/B-proven enforcement (v1.0.64)
 
 - (1) ETERNAL LOADING root cause: the OWM key WAS fine (activation
