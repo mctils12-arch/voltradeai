@@ -101,6 +101,36 @@ the 2026-07-04 defect — the panel's height constraint resolved against
 an auto-height wrapper, rows below the fold were unreachable, and the
 harness passed because it never asserted reachability.
 
+v2.4 additions (human-approved 2026-07-04): with the panel OPEN, no map
+control (zoom in/out, fullscreen, FAB) may be occluded at any test
+width — same elementFromPoint hit-test as the toggle check (precedent:
+the open panel covered the zoom buttons in production). Plus the armed
+eternal-spinner check: any layer row in "loading" longer than 30s must
+carry a designed note.
+
+## Loading-state rule (human-approved 2026-07-04)
+
+No loading state lives longer than 30s without resolving to a designed
+status: retrying / source unavailable / awaiting key. Eternal spinners
+are a failed build.
+
+Implementation: every layer-status change is timestamped; a client
+watchdog upgrades any bare "loading" older than 30s to an explicit
+retrying note, and status notes RENDER on loading rows (precedent: the
+2026-07-04 defect — the OWM "key activating, auto-retrying" note
+existed in state but the panel dropped notes on loading rows, so
+production showed a bare eternal spinner for the whole activation
+window).
+
+## Zero-cost-when-off (human-approved 2026-07-04)
+
+A toggled-off layer must do no work — no tile prefetch, no websocket,
+no polling, no render pass; initialization is lazy on first enable.
+Enforcement: the harness loads the map with ALL layers off and asserts
+zero layer-data API calls plus an interactive-time budget (the
+regression guard for "the site got slower"). Heavy default-on layers
+mount deferred, after the map's first idle.
+
 ## Imagery metadata honesty (human-approved 2026-07-04)
 
 Where capture dates are available (Sentinel-2 scenes when that pipeline
