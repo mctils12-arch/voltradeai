@@ -5,7 +5,7 @@ import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText
 // its controls render unpositioned. The JS stays dynamically imported below.
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  registerIcons, classifyAircraft, classifyVessel, velocityEndpoint,
+  registerIcons, classifyAircraft, classifyVessel, velocityEndpoint, iconDataURL,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
 } from "@/lib/mapIcons";
@@ -93,6 +93,18 @@ const VESSEL_COLOR: Record<string, string> = {
   fishing: "#7cc4ff", tug: "#b3c2d8", other: "#4ade80",
 };
 
+// Legend entry that renders THE ACTUAL registry shape the map draws
+// (iconDataURL rasterizes the same ImageData registerIcons feeds maplibre).
+// data-vt-icon is the parity hook the harness checks in both directions.
+function LegendIcon({ icon, color, label }: { icon: string; color: string; label: string }) {
+  return (
+    <span className="vt-legend-item" data-vt-icon={icon}>
+      <img src={iconDataURL(icon, color)} width={15} height={15} alt="" aria-hidden />
+      {label}
+    </span>
+  );
+}
+
 export default function DataMapPage() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -109,6 +121,10 @@ export default function DataMapPage() {
   const [mapSettled, setMapSettled] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  // Legend v3: collapsible as one unit so it never fights the panel for
+  // space — open on desktop, collapsed on phone by default.
+  const [legendOpen, setLegendOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -1661,81 +1677,118 @@ export default function DataMapPage() {
                 </div>
               );
             })}
-            <div className="vt-legend">
-              <span>
-                <svg width="13" height="13" viewBox="0 0 40 40" style={{ color: "#4ade80" }} aria-hidden>
-                  <g stroke="currentColor" strokeWidth="3.5" fill="none">
-                    <circle cx="20" cy="9" r="3.5" /><path d="M20 12.5V32" /><path d="M12 18h16" />
-                    <path d="M11 21a9.5 9.5 0 0 0 18 0" fill="none" />
-                  </g>
-                </svg> ports
-              </span>
-              <span>
-                <svg width="13" height="13" viewBox="0 0 40 40" style={{ color: "#fbb24c" }} aria-hidden>
-                  <g fill="currentColor">
-                    <circle cx="13" cy="26" r="6.5" /><circle cx="27" cy="26" r="6.5" /><circle cx="20" cy="13" r="6.5" />
-                  </g>
-                </svg> tank farms
-              </span>
-              <span>
-                <svg width="13" height="13" viewBox="0 0 40 40" style={{ color: "#ff5a6e" }} aria-hidden>
-                  <g fill="currentColor">
-                    <rect x="8" y="22" width="24" height="12" />
-                    <path d="M8 22v-7l8 7v-7l8 7v-7l8 7z" />
-                    <rect x="26" y="6" width="4.5" height="12" />
-                  </g>
-                </svg> steel mills
-              </span>
-              <span><i style={{ background: "#4d9fff" }} /> jet/cruise</span>
-              <span><i style={{ background: "#fbb24c" }} /> low alt · tanker</span>
-              <span><i style={{ background: "#6680a0" }} /> ground</span>
-              <span><i style={{ background: "#4ade80" }} /> cargo</span>
-              <span><i style={{ background: "#c084fc" }} /> passenger</span>
-              <span><i style={{ background: "#2dd4bf" }} /> trains</span>
-              <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
-              <span style={{ color: "var(--text-tertiary)" }}>plants:</span>
-              <span><i style={{ background: "#c084fc" }} /> nuclear</span>
-              <span><i style={{ background: "#94a3b8" }} /> coal</span>
-              <span><i style={{ background: "#fbb24c" }} /> gas</span>
-              <span><i style={{ background: "#ff8a5c" }} /> oil</span>
-              <span><i style={{ background: "#4d9fff" }} /> hydro</span>
-              <span><i style={{ background: "#7cc4ff" }} /> wind</span>
-              <span><i style={{ background: "#fde047" }} /> solar</span>
-              {enabled.weather_temp && (
-                <>
-                  <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
-                  <span style={{ color: "var(--text-tertiary)" }}>temp:</span>
-                  {([["-40", "#821692"], ["-20", "#208CEC"], ["0", "#23DDDD"],
-                     ["10", "#C2FF28"], ["20", "#FFF028"], ["30+", "#FC8014"]] as const)
-                    .map(([t, c]) => (
-                      <span key={t}><i style={{ background: c }} /> {tempUnitF ? `${Math.round(Number(t.replace("+", "")) * 9 / 5 + 32)}${t.includes("+") ? "+" : ""}°F` : `${t}°C`}</span>
-                    ))}
-                  <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(approx — amplified for dark basemap)</span>
-                </>
+            {/* LEGEND v3 (legend directive 2026-07-04): symbol entries render
+                the SAME registry shapes the map draws (iconDataURL — one
+                shared icon source; DESIGN.md legend rule). Sections mirror
+                the panel groups, entries appear ONLY while their layer is on,
+                and the block collapses as one unit so it never fights the
+                panel for space. Color-only chips are color MEANINGS (altitude
+                tints, raster ramps), not symbols — chips by design. */}
+            <div className="vt-legend" data-vt-legend>
+              <button className="vt-legend-head" aria-expanded={legendOpen}
+                      onClick={() => setLegendOpen((v) => !v)}>
+                <span className={`vt-layer-group-chev${legendOpen ? "" : " closed"}`}>▾</span>
+                <span>Legend</span>
+              </button>
+              {legendOpen && (
+                <div className="vt-legend-body">
+                  {(enabled.aircraft || enabled.vessels || enabled.trains) && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Live Tracking</div>
+                      <div className="vt-legend-items">
+                        {enabled.aircraft && (
+                          <>
+                            <LegendIcon icon={AIRCRAFT_ICON.jet} color="#4d9fff" label="Jet" />
+                            <LegendIcon icon={AIRCRAFT_ICON.turboprop} color="#4d9fff" label="Turboprop / Piston" />
+                            <LegendIcon icon={AIRCRAFT_ICON.helicopter} color="#4d9fff" label="Helicopter" />
+                            <LegendIcon icon={AIRCRAFT_ICON.unknown} color="#4d9fff" label="Unclassified Aircraft" />
+                            <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> Cruise</span>
+                            <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
+                            <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
+                          </>
+                        )}
+                        {enabled.vessels && (
+                          <>
+                            <LegendIcon icon={VESSEL_ICON.tanker} color={VESSEL_COLOR.tanker} label="Tanker" />
+                            <LegendIcon icon={VESSEL_ICON.cargo} color={VESSEL_COLOR.cargo} label="Cargo" />
+                            <LegendIcon icon={VESSEL_ICON.passenger} color={VESSEL_COLOR.passenger} label="Passenger" />
+                            <LegendIcon icon={VESSEL_ICON.fishing} color={VESSEL_COLOR.fishing} label="Fishing / Tug / Small" />
+                          </>
+                        )}
+                        {enabled.trains && <LegendIcon icon="vt-train" color="#2dd4bf" label="Train" />}
+                      </div>
+                    </div>
+                  )}
+                  {(enabled.sites || enabled.powerplants) && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Facilities</div>
+                      <div className="vt-legend-items">
+                        {enabled.sites && (
+                          <>
+                            <LegendIcon icon={SITE_ICON.port} color="#4ade80" label="Port" />
+                            <LegendIcon icon={SITE_ICON.tank_farm} color="#fbb24c" label="Tank Farm" />
+                            <LegendIcon icon={SITE_ICON.steel_mill} color="#ff5a6e" label="Steel Mill" />
+                          </>
+                        )}
+                        {enabled.powerplants && Object.keys(POWER_FUEL_ICON).map((fuel) => (
+                          <LegendIcon key={fuel} icon={POWER_FUEL_ICON[fuel]}
+                                      color={POWER_FUEL_COLOR[fuel]}
+                                      label={`${POWER_FUEL_LABEL[fuel]} Plant`} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(enabled.fires || enabled.surfacewater || enabled.forest) && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Environmental</div>
+                      <div className="vt-legend-items">
+                        {enabled.fires && (
+                          <>
+                            <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.high} label="Fire — High Confidence" />
+                            <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.nominal} label="Fire — Nominal" />
+                            <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.low} label="Fire — Low Confidence" />
+                          </>
+                        )}
+                        {enabled.surfacewater && (
+                          <>
+                            {([["Rare", "#ffcccc"], ["Seasonal", "#8683ff"], ["Permanent", "#0000ff"]] as const)
+                              .map(([t, c]) => (
+                                <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t} Water</span>
+                              ))}
+                            <span className="vt-legend-note">(1984–2021, JRC GSW)</span>
+                          </>
+                        )}
+                        {enabled.forest && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#2e7d32" }} /> Forest Extent</span>
+                            <span className="vt-legend-note">(2020 10m, JRC GFC2020)</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {(enabled.weather_temp || (enabled.weather_wind && windArrows)) && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Fields</div>
+                      <div className="vt-legend-items">
+                        {enabled.weather_wind && windArrows && (
+                          <LegendIcon icon="vt-wind-arrow" color="#eef3fb" label="Wind (Direction + kt)" />
+                        )}
+                        {enabled.weather_temp && (
+                          <>
+                            {([["-40", "#821692"], ["-20", "#208CEC"], ["0", "#23DDDD"],
+                               ["10", "#C2FF28"], ["20", "#FFF028"], ["30+", "#FC8014"]] as const)
+                              .map(([t, c]) => (
+                                <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {tempUnitF ? `${Math.round(Number(t.replace("+", "")) * 9 / 5 + 32)}${t.includes("+") ? "+" : ""}°F` : `${t}°C`}</span>
+                              ))}
+                            <span className="vt-legend-note">(approx — amplified for dark basemap)</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
-              {enabled.surfacewater && (
-                <>
-                  <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
-                  <span style={{ color: "var(--text-tertiary)" }}>water occurrence:</span>
-                  {([["rare", "#ffcccc"], ["seasonal", "#8683ff"], ["permanent", "#0000ff"]] as const)
-                    .map(([t, c]) => (
-                      <span key={t}><i style={{ background: c }} /> {t}</span>
-                    ))}
-                  <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(1984–2021, JRC GSW)</span>
-                </>
-              )}
-              {enabled.forest && (
-                <>
-                  <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
-                  <span><i style={{ background: "#2e7d32" }} /> forest extent</span>
-                  <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(2020 10m, JRC GFC2020)</span>
-                </>
-              )}
-              <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
-              <span style={{ color: "var(--text-tertiary)" }}>fires:</span>
-              <span><i style={{ background: FIRE_CONFIDENCE_COLOR.high }} /> high conf.</span>
-              <span><i style={{ background: FIRE_CONFIDENCE_COLOR.nominal }} /> nominal</span>
-              <span><i style={{ background: FIRE_CONFIDENCE_COLOR.low }} /> low conf.</span>
             </div>
           </div>
         )}

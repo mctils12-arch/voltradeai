@@ -2224,15 +2224,34 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-switch.on i { transform: translateX(18px); background: var(--accent); }
 .vt-switch:disabled { cursor: not-allowed; }
 
-/* Legend */
+/* Legend v3 — real registry symbols, grouped, collapsible (390px-legible:
+   11px+ labels, 44px toggle target; DESIGN.md legend rule) */
 .vt-legend {
-  display: flex; flex-wrap: wrap; gap: 6px 12px;
-  padding: 10px 14px 4px; margin-top: 4px;
+  margin-top: 4px;
   border-top: 1px solid rgba(77, 159, 255, 0.12);
-  font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono);
+  color: var(--text-tertiary); font-family: var(--font-mono);
 }
-.vt-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.vt-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.vt-legend-head {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; min-height: 44px; padding: 4px 14px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-secondary); font-family: var(--font-mono);
+  font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.vt-legend-body { padding: 0 14px 10px; }
+.vt-legend-sec { margin-bottom: 8px; }
+.vt-legend-sec-head {
+  font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-tertiary); margin: 6px 0 4px;
+}
+.vt-legend-items { display: flex; flex-wrap: wrap; gap: 5px 12px; }
+.vt-legend-item, .vt-legend-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--text-secondary);
+}
+.vt-legend-item img { display: inline-block; }
+.vt-legend-chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.vt-legend-note { font-size: 9.5px; color: var(--text-tertiary); display: inline-flex; align-items: center; }
 
 /* Site detail card — side card on desktop, bottom sheet on phone */
 .vt-site-card {
