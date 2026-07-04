@@ -32,14 +32,16 @@ The Gmail connector is draft-only (no send tool); drafts sat unread in
 the Drafts folder, so the Gmail step was dropped from both routine
 prompts as a dead letterbox.
 
-NORTH-STAR LINE (human-approved 2026-07-04): every PRODUCT (B4) and
-EDGE (B3) routine prompt must include, immediately after its CLAUDE.md
-read instruction: "Then read VISION.md (repo root) — the product north
-star for WHAT to build; CLAUDE.md still governs HOW." The B1/B3/B4
-canonical texts live only in the routine platform (delivered 2026-07-03
-as session output, never committed) — HUMAN ACTION NEEDED: append the
-quoted line to the voltrade-product-am/pm/eve and voltrade-edge/
-edge-late routine prompts. Sessions cannot edit the routine platform.
+NORTH-STAR LINE (human-approved 2026-07-04; UPDATED same day — GIP.md
+joined the rule): every PRODUCT (B4) and EDGE (B3) routine prompt must
+include, immediately after its CLAUDE.md read instruction: "Then read
+VISION.md and GIP.md (repo root) — the product north star for WHAT to
+build; CLAUDE.md still governs HOW." The B1/B3/B4 canonical texts live
+only in the routine platform (delivered 2026-07-03 as session output,
+never committed) — HUMAN ACTION NEEDED: append the quoted line to the
+voltrade-product-am/pm/eve and voltrade-edge/edge-late routine
+prompts (or update it if the earlier VISION.md-only line was already
+added). Sessions cannot edit the routine platform.
 
 - DROP ORDER under quota pressure: product-pm → edge-late → product-eve.
   Irreducible core (4/day): daily-am, product-am, daily-close, edge.

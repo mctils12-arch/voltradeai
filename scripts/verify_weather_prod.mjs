@@ -31,7 +31,13 @@ const WIDTHS = [
 const MIN_MEAN_DIFF = 3; // 0-255 scale, over the whole canvas — invisible ≈ 0.1
 
 mkdirSync(OUT, { recursive: true });
-const browser = await chromium.launch({ args: ["--use-gl=swiftshader"] });
+// Sandboxed sessions route egress through an agent proxy (HTTPS_PROXY);
+// Chromium ignores the env var unless passed explicitly. The proxy CA is
+// already in the browser trust store per /root/.ccr/README.md.
+const browser = await chromium.launch({
+  args: ["--use-gl=swiftshader"],
+  ...(process.env.HTTPS_PROXY ? { proxy: { server: process.env.HTTPS_PROXY } } : {}),
+});
 let failures = 0;
 
 for (const vp of WIDTHS) {
