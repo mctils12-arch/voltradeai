@@ -162,6 +162,38 @@ const shapes: Record<string, () => ImageData> = {
     ctx.lineTo(m - 5, s - 12);
     ctx.closePath(); ctx.fill();
   }),
+  // ── strategic-site category silhouettes (upright, never rotated) ──
+  // port: anchor — ring, shank, stock, curved flukes
+  "vt-port": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.arc(m, 9, 3.5, 0, Math.PI * 2); ctx.stroke();   // ring
+    ctx.beginPath(); ctx.moveTo(m, 12.5); ctx.lineTo(m, s - 8); ctx.stroke(); // shank
+    ctx.beginPath(); ctx.moveTo(m - 8, 18); ctx.lineTo(m + 8, 18); ctx.stroke(); // stock
+    ctx.beginPath(); ctx.arc(m, s - 16, 9.5, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke(); // flukes
+  }),
+  // tank farm: cylinder cluster — three tank tops seen from above
+  "vt-tank": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    for (const [cx, cy, r] of [[m - 7, m + 6, 6.5], [m + 7, m + 6, 6.5], [m, m - 7, 6.5]] as const) {
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      // punch a small hole so clusters read as rings at map scale
+      ctx.save(); ctx.globalCompositeOperation = "destination-out";
+      ctx.beginPath(); ctx.arc(cx, cy, 2.4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+  }),
+  // steel mill: factory — building block, sawtooth roof, chimney
+  "vt-mill": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.fillRect(m - 12, m + 2, 24, 12);                    // main block
+    ctx.beginPath();                                        // sawtooth roof
+    ctx.moveTo(m - 12, m + 2);
+    ctx.lineTo(m - 12, m - 5); ctx.lineTo(m - 4, m + 2);
+    ctx.lineTo(m - 4, m - 5); ctx.lineTo(m + 4, m + 2);
+    ctx.lineTo(m + 4, m - 5); ctx.lineTo(m + 12, m + 2);
+    ctx.closePath(); ctx.fill();
+    ctx.fillRect(m + 6, m - 14, 4.5, 12);                   // chimney
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -180,6 +212,11 @@ export const AIRCRAFT_ICON: Record<AircraftClass, string> = {
 export const VESSEL_ICON: Record<VesselClass, string> = {
   tanker: "vt-tanker", cargo: "vt-cargo", passenger: "vt-cargo",
   fishing: "vt-boat", tug: "vt-boat", other: "vt-boat",
+};
+
+/** Strategic-site category (raw id from datacore/sites) -> silhouette. */
+export const SITE_ICON: Record<string, string> = {
+  port: "vt-port", tank_farm: "vt-tank", steel_mill: "vt-mill",
 };
 
 /** Project a short velocity-vector endpoint from position/heading/speed.
