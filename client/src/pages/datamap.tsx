@@ -547,11 +547,11 @@ export default function DataMapPage() {
           cluster: true, clusterMaxZoom: 7, clusterRadius: 50,
           data: {
             type: "FeatureCollection",
-            features: d.plants.map(([name, mw, fuel, owner, lat, lon]: [string, number, string, string, number, number]) => ({
+            features: d.plants.map(([name, mw, fuel, owner, lat, lon, verified]: [string, number, string, string, number, number, number]) => ({
               type: "Feature",
               geometry: { type: "Point", coordinates: [lon, lat] },
               properties: {
-                name, mw, fuel, owner,
+                name, mw, fuel, owner, verified: verified === 1,
                 icon: POWER_FUEL_ICON[fuel] || "vt-power",
                 color: POWER_FUEL_COLOR[fuel] || "#6680a0",
               },
@@ -610,14 +610,19 @@ export default function DataMapPage() {
             kind: "powerplant",
             title: p.name,
             subtitle: `${POWER_FUEL_LABEL[p.fuel] || p.fuel} · ${Number(p.mw).toLocaleString()} MW`,
-            body: `${p.owner ? `Operator: ${p.owner}\n` : ""}Static reference data — Global Power Plant Database v1.3.0 (WRI, CC BY 4.0).`,
+            body: `${p.owner ? `Operator: ${p.owner}\n` : ""}` +
+                  `${p.verified === true || p.verified === "true"
+                     ? "Position imagery-verified.\n"
+                     : "Position approximate (registry-reported — GPPD/EIA-860).\n"}` +
+                  `Static reference data — WRI GPPD v1.3.0 (CC BY 4.0) + EIA-860.`,
           });
         });
         for (const l of ["pp-clusters", "pp-points"]) {
           map.on("mouseenter", l, () => { map.getCanvas().style.cursor = "pointer"; });
           map.on("mouseleave", l, () => { map.getCanvas().style.cursor = ""; });
         }
-        setStatus("powerplants", "active", d.count ?? d.plants.length);
+        setStatus("powerplants", "active", d.count ?? d.plants.length,
+          `top ${d.verified_count ?? 100} by MW imagery-verified · rest approximate`);
       } catch {
         if (!cancelled) setStatus("powerplants", "error");
       }
