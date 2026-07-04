@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -35,12 +35,12 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train";
   title: string;
   subtitle: string;
   body: string;
   trailId?: string;      // archive id for the trail (aircraft icao24 / mmsi)
-  trailKind?: "aircraft" | "vessels";
+  trailKind?: "aircraft" | "vessels" | "trains";
   trailNote?: string;
 }
 
@@ -48,7 +48,7 @@ const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
-const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true };
+const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true };
 
 interface InsiderRow {
   issuer: string;
@@ -191,7 +191,7 @@ export default function DataMapPage() {
     } catch {}
   };
 
-  const showTrail = async (kind: "aircraft" | "vessels", id: string) => {
+  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string) => {
     const map = mapRef.current;
     if (!map) return "";
     try {
@@ -625,6 +625,88 @@ export default function DataMapPage() {
     return () => { cancelled = true; };
   }, [enabled.powerplants, mapReady, setStatus]);
 
+  // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
+  // per-source status from the server keeps coverage labeling honest) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.trains) {
+      try {
+        if (map.getLayer("trains-icons")) map.removeLayer("trains-icons");
+        if (map.getSource("trains")) map.removeSource("trains");
+      } catch {}
+      setStatus("trains", "off");
+      return;
+    }
+    setStatus("trains", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/trains");
+        const d = await r.json();
+        if (stop || !d.trains) return;
+        const fc = {
+          type: "FeatureCollection",
+          features: d.trains.map((t: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [t.lon, t.lat] },
+            properties: {
+              id: t.id, country: t.country, label: t.label || t.id,
+              speed: t.speed_kmh,
+              // numeric always: Entur publishes bearing, Digitraffic doesn't
+              // (those render upright at 0)
+              bearing: t.bearing ?? 0,
+            },
+          })),
+        };
+        const src: any = map.getSource("trains");
+        if (src) src.setData(fc);
+        else {
+          map.addSource("trains", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "trains-icons", type: "symbol", source: "trains",
+            layout: {
+              "icon-image": "vt-train",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.4, 8, 0.7],
+              "icon-rotate": ["get", "bearing"],
+              "icon-rotation-alignment": "map",
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: {
+              "icon-color": "#2dd4bf",
+              "icon-halo-color": "rgba(5,10,19,0.95)",
+              "icon-halo-width": 1.3,
+            },
+          });
+          map.on("click", "trains-icons", async (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            setDetail({
+              kind: "train",
+              title: `${p.label}`,
+              subtitle: `${p.country === "FI" ? "Finland · Digitraffic (CC BY 4.0)" : "Norway · Entur (NLOD)"}`,
+              body: `${p.speed != null && p.speed !== "null" ? `Speed: ${p.speed} km/h\n` : ""}Live passenger-rail position, shown as received.`,
+              trailId: p.id, trailKind: "trains",
+            });
+            const note = await showTrail("trains", p.id);
+            setDetail(prev => prev && prev.trailId === p.id ? { ...prev, trailNote: note } : prev);
+          });
+          map.on("mouseenter", "trains-icons", () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", "trains-icons", () => { map.getCanvas().style.cursor = ""; });
+        }
+        const per = (d.sources || []).map((s: any) => `${s.country} ${s.status === "ok" ? s.count : s.status}`).join(" · ");
+        setStatus("trains", "active", d.count, per || undefined);
+      } catch {
+        if (!stop) setStatus("trains", "error");
+      }
+    };
+    load();
+    const iv = window.setInterval(load, 30_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.trains, mapReady, setStatus]);
+
   // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
   // markers, an inline list inside the layer panel instead) ──
   useEffect(() => {
@@ -662,6 +744,7 @@ export default function DataMapPage() {
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> :
     id === "powerplants" ? <Zap size={15} /> :
+    id === "trains" ? <TrainFront size={15} /> :
     id === "insider" ? <FileText size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
@@ -672,7 +755,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -803,6 +886,7 @@ export default function DataMapPage() {
               <span><i style={{ background: "#6680a0" }} /> ground</span>
               <span><i style={{ background: "#4ade80" }} /> cargo</span>
               <span><i style={{ background: "#c084fc" }} /> passenger</span>
+              <span><i style={{ background: "#2dd4bf" }} /> trains</span>
               <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
               <span style={{ color: "var(--text-tertiary)" }}>plants:</span>
               <span><i style={{ background: "#c084fc" }} /> nuclear</span>

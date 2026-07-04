@@ -56,7 +56,7 @@ Constitution: CLAUDE.md → KNOWN STATE → SPINOUT-READY DATA LAYER
   ARCHIVE EVERYTHING amendment): adaptive thinning (full resolution near
   strategic sites and low-altitude flight / near-port vessels; sparser
   oceanic cruise; per-entity cadence clocks), hourly JSONL under
-  `${DATA_DIR}/datacore_archive/`, gzip after 2h, 7-day raw retention with
+  `${DATA_DIR}/datacore_archive/` (kinds: aircraft, vessels, trains), gzip after 2h, 7-day raw retention with
   rollup into per-entity daily track summaries (bbox + coarse polyline).
   Growth estimate at current thinning: ~100MB/mo combined (volume watch in
   wishlist; observe via `/api/data/archive/stats`). Recent trails served

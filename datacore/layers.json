@@ -26,6 +26,14 @@
       "description": "Live ship positions via AIS websocket. Goes live automatically when AISSTREAM_KEY is set (free signup — see wishlist)."
     },
     {
+      "id": "trains",
+      "name": "Live trains (rail)",
+      "kind": "raw",
+      "status": "live",
+      "source": "Digitraffic Finland (CC BY 4.0) + Entur Norway (NLOD)",
+      "description": "Live passenger-rail positions. Coverage: Finland + Norway (launch). US freight positions are proprietary — no free source exists."
+    },
+    {
       "id": "sites",
       "name": "Strategic sites",
       "kind": "raw",

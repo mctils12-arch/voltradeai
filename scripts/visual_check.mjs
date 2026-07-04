@@ -48,6 +48,7 @@ const FIXTURES = {
       { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", source: "Esri World Imagery", description: "Base imagery." },
       { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
       { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
+      { id: "trains", name: "Live trains (rail)", kind: "raw", status: "live", source: "Digitraffic FI + Entur NO", description: "FI+NO launch coverage." },
       { id: "sites", name: "Strategic sites", kind: "raw", status: "live", source: "datacore/sites", description: "Reference sites." },
       { id: "powerplants", name: "US power plants", kind: "raw", status: "live", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
@@ -104,6 +105,19 @@ const FIXTURES = {
     ],
   },
   "/api/health": { status: "ok", checks: {} },
+  "/api/data/trains": {
+    kind: "raw", source: "Digitraffic Finland (CC BY 4.0) + Entur Norway (NLOD)",
+    time: 1, coverage: "FI + NO (launch)", count: 3,
+    sources: [
+      { key: "digitraffic", country: "FI", status: "ok", count: 2 },
+      { key: "entur", country: "NO", status: "ok", count: 1 },
+    ],
+    trains: [
+      { id: "FI-62-2026-07-04", country: "FI", lat: 63.7632, lon: 27.3121, speed_kmh: 139, bearing: null, label: "Train 62", ts: 1 },
+      { id: "FI-104-2026-07-04", country: "FI", lat: 62.5036, lon: 29.8569, speed_kmh: 129, bearing: null, label: "Train 104", ts: 1 },
+      { id: "NO-71-12", country: "NO", lat: 59.741, lon: 10.2016, speed_kmh: 108, bearing: 45, label: "FLY1", ts: 1 },
+    ],
+  },
   // The real compiled dataset (repo file, deterministic): ~9.8k plants
   // exercises the clustering path at full production scale in the perf
   // window, on top of the 10k-aircraft budget check.

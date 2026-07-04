@@ -863,3 +863,34 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   (ODbL leader first); providerCompliance.test.ts pins that BOTH
   non-commercial legs are in the tripwire list (sync test caught the
   edit requirement immediately).
+
+## 2026-07-04 — [PRODUCT] Live trains layer: Finland + Norway launch, archived, iconed (v1.0.53)
+- Multi-modal directive, TRAINS part. Free real-time rail positions with
+  clean licenses (checked FIRST): Finland Digitraffic (CC BY 4.0, no
+  key, plain JSON) + Norway Entur (NLOD-class open, ET-Client-Name
+  header only, GraphQL mode:RAIL) — both verified live before build.
+  US freight rail positions are PROPRIETARY (Class I railroads sell
+  them; no free source) — stated in layers.json where users read it AND
+  pinned by test so no session chases it. Amtrak has no clean official
+  free JSON — future source evaluation, not launch.
+- Server: /api/data/trains — pure mapping module server/trainsFeed.ts
+  (unit-tested with real captured payloads; m/s->km/h for Entur;
+  Digitraffic has no bearing -> null -> upright icon), shared 30s cache
+  + in-flight dedup + per-source backoff, per-source status in the
+  response so the panel labels coverage HONESTLY ("FI 47 · NO 12").
+  Positions feed the permanent archive: datacoreArchive gains the
+  trains kind end-to-end (2-min fixed cadence; hourly JSONL; gzip;
+  rollup; recentTrack -> click-through trail like aircraft/vessels).
+- Client: vt-train SDF locomotive (teal #2dd4bf; rotates to bearing
+  where published), 30s poll, detail card with speed + per-country
+  source attribution + archive trail, legend entry, panel row with
+  count badge + per-source note.
+- BUG CAUGHT BY SELF-REVIEW (rule 6 render check, would have shipped
+  invisible): a ["case",["get","rotate"],...] icon-rotate expression
+  silently killed symbol rendering (source had features, image
+  registered, zero rendered). Fix: always-numeric bearing property +
+  plain ["get","bearing"]. Lesson: maplibre expression rejection is
+  SILENT — any new expression-driven layer needs a rendered-count
+  assertion in review, not just "layer exists".
+- Gates: node 41/41 (5 new trains tests incl. archive round-trip via the
+  shared machinery), CI python 114, harness green 390/768/1440.

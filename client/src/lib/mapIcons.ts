@@ -273,6 +273,22 @@ const shapes: Record<string, () => ImageData> = {
     ctx.lineTo(m - 4, s - 5); ctx.lineTo(m + 8, m - 2); ctx.lineTo(m + 1, m - 2);
     ctx.closePath(); ctx.fill();
   }),
+  // train: locomotive nose-up — rounded body, cab window notch, nose taper
+  // (points "up"/north so icon-rotate can turn it to bearing when known)
+  "vt-train": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 4);                          // nose tip
+    ctx.lineTo(m + 7, 12);
+    ctx.lineTo(m + 7, s - 8);
+    ctx.lineTo(m - 7, s - 8);
+    ctx.lineTo(m - 7, 12);
+    ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.globalCompositeOperation = "destination-out";
+    ctx.fillRect(m - 4.5, 14, 9, 4);           // cab window
+    ctx.fillRect(m - 4.5, s - 16, 9, 3);       // body seam
+    ctx.restore();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
