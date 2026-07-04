@@ -35,7 +35,12 @@ const WIDTHS = [
 ];
 
 // Pages under test: name -> app hash route
-const PAGES = { data: "/app#/data" };
+// Pages under test: map pages get the full map/perf/self-see battery;
+// non-map pages get layout + interaction checks only.
+const PAGES = {
+  data: { route: "/app#/data", map: true },
+  developers: { route: "/developers", map: false },
+};
 const only = process.argv.includes("--page")
   ? process.argv[process.argv.indexOf("--page") + 1]
   : null;
@@ -112,6 +117,25 @@ const FIXTURES = {
     ],
   },
   "/api/health": { status: "ok", checks: {} },
+  "/api/v1/meta": {
+    version: "v1",
+    auth: "x-api-key header (or ?api_key=). Keys are invite-only during the preview — join the waitlist on /developers.",
+    endpoints: [
+      { path: "/api/v1/tracks/:kind/:id", params: "kind; id; ?hours<=168", desc: "Recent position track from our archive." },
+      { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics." },
+      { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics." },
+      { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata." },
+      { path: "/api/v1/meta", params: "-", desc: "This document." },
+    ],
+    coming_gated: ["entity timelines (Graph v1)", "tank-fill readings (gate 2)"],
+    limits: { dev: { perMinute: 60, perDay: 10000 } },
+    license_marks: {
+      "tracks/aircraft": { license: "ODbL 1.0 share-alike (fixture)", attribution: "adsb.lol", resell: "share-alike" },
+      "stats/archive": { license: "VolTradeAI operational metadata", attribution: "VolTradeAI", resell: "ok" },
+    },
+    disclaimer: "Data as-is; not for safety-of-life use (fixture).",
+  },
+  "/api/data/archive/stats": { kinds: { aircraft: { days: 2, samples: 96 }, vessels: { days: 2, samples: 96 } }, totalBytes: 12582912 },
   "/api/data/portdwell": {
     kind: "raw", source: "Derived from our own AIS position archive (fixture)",
     window_hours: 168, vessels_seen: 240, visits_completed: 23, in_port_now: 7, anomaly_count: 1,
@@ -201,7 +225,7 @@ function startServer() {
 }
 
 // ── mechanical checks (run in-page) ────────────────────────────────────────
-const CHECKS_SNIPPET = (width, touch) => `(() => {
+const CHECKS_SNIPPET = (width, touch, mapPage = true) => `(() => {
   const out = { failures: [], warnings: [], info: {} };
   const vw = window.innerWidth, vh = window.innerHeight;
 
@@ -210,9 +234,11 @@ const CHECKS_SNIPPET = (width, touch) => `(() => {
     out.failures.push("horizontal overflow: scrollWidth " + document.documentElement.scrollWidth + " > viewport " + vw);
   }
 
-  // 2. map root fills its viewport region (marker: [data-vt-map])
+  // 2. map root fills its viewport region (marker: [data-vt-map]) — map pages only
   const map = document.querySelector('[data-vt-map]');
-  if (!map) {
+  if (!${mapPage}) {
+    // non-map page: no map assertions
+  } else if (!map) {
     out.failures.push("[data-vt-map] marker missing — map root not found");
   } else {
     const r = map.getBoundingClientRect();
@@ -294,7 +320,8 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
 
   const results = [];
-  for (const [name, route] of Object.entries(PAGES)) {
+  for (const [name, cfg] of Object.entries(PAGES)) {
+    const route = cfg.route;
     if (only && only !== name) continue;
     for (const vp of WIDTHS) {
       const ctx = await browser.newContext({
@@ -333,7 +360,7 @@ async function main() {
       // PERF BUDGET: drive pans through the __vtMap hook while sampling rAF
       // frame deltas. Software-GL thresholds are regression guards, not the
       // on-device budget (that's DESIGN.md's number).
-      const perf = await page.evaluate(async () => {
+      const perf = !cfg.map ? {} : await page.evaluate(async () => {
         const map = window.__vtMap;
         if (!map) return { error: "__vtMap hook missing" };
         const c = map.getCenter();
@@ -361,7 +388,7 @@ async function main() {
       });
       const shot = path.join(OUT, `${name}-${vp.w}.png`);
       await page.screenshot({ path: shot });
-      const checks = await page.evaluate(CHECKS_SNIPPET(vp.w, vp.touch));
+      const checks = await page.evaluate(CHECKS_SNIPPET(vp.w, vp.touch, cfg.map));
       checks.failures.push(...errors);
 
       // ── SELF-SEE (DESIGN.md, human-approved 2026-07-04): after any panel/
@@ -370,6 +397,7 @@ async function main() {
       // grew past the viewport with lower rows unreachable while this harness
       // passed. These assertions check what the human actually checks.
       try {
+        if (!cfg.map) throw { skip: true };
         // open the panel via its own on-screen control (as a user would)
         await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {});
         await page.waitForTimeout(250);
@@ -431,13 +459,13 @@ async function main() {
         // restore collapsed-by-default state for the phone screenshot honesty
         if (vp.touch) await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]').catch(() => {});
       } catch (e) {
-        checks.failures.push("self-see: driver error — " + (e?.message || e));
+        if (!e?.skip) checks.failures.push("self-see: driver error — " + (e?.message || e));
       }
       // Perf budget (headless regression guards; on-device budget in DESIGN.md)
       if (tti == null) checks.failures.push("TTI: skeleton never cleared (>15s)");
       else if (tti > 12000) checks.failures.push(`TTI ${tti}ms > 12s headless guard`);
-      if (perf.error) checks.failures.push("perf: " + perf.error);
-      else {
+      if (cfg.map && perf.error) checks.failures.push("perf: " + perf.error);
+      else if (cfg.map) {
         // Software-GL (SwiftShader) is 10-50x slower than any real GPU —
         // REGRESSION GUARDS calibrated to headless, not the on-device budget
         // (DESIGN.md owns that; the S24 is the acceptance device). MEDIAN =
@@ -473,7 +501,7 @@ async function main() {
       return route.abort();
     });
     const t0 = Date.now();
-    await page.goto(`http://127.0.0.1:${port}${PAGES.data}`, { waitUntil: "load", timeout: 30000 });
+    await page.goto(`http://127.0.0.1:${port}${PAGES.data.route}`, { waitUntil: "load", timeout: 30000 });
     let ttiOff = null;
     for (let i = 0; i < 60; i++) {
       const gone = await page.evaluate(() => !document.querySelector(".vt-map-skeleton"));
