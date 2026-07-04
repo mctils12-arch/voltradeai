@@ -714,3 +714,47 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   expect small positive edge in officer/director open-market buys on
   small/mid caps, near-zero on mega-caps, kill if no separation from
   random-entry baseline after >=90 days of accumulated history.
+
+## 2026-07-03 — [PRODUCT] Strategic-sites accuracy audit: 16/16 imagery-verified, 11 corrected (v1.0.48)
+- Human reported Port of Charleston mispositioned; full audit ordered.
+  Method (now compiled as scripts/site_verify.py + site_candidate_verify.py
+  per EDGE DOCTRINE #3): render every stored coordinate on Esri World
+  Imagery with a crosshair; the facility must be visibly present.
+  DESIGN.md gains the human-approved REFERENCE DATA ACCURACY rule.
+- VERIFIED UNCHANGED (5): cushing_enbridge (tanks under crosshair),
+  cushing_plains (tank rows), port_la (wharf/cranes, San Pedro),
+  port_nynj (Elizabeth container yard), port_savannah (Garden City
+  stacks).
+- CORRECTED (11) — old -> new (offset, what the old pin actually was):
+  - port_charleston (32.921,-79.86) -> (32.8325,-79.8800): ~10km — pin
+    was residential Mount Pleasant; now on Wando Welch container yards.
+  - cushing_hub (35.985,-96.767) -> (35.9487,-96.7587): ~4.1km — pin was
+    downtown Cushing street grid; now mid-tank-farm in the main district.
+  - stld_butler (41.428,-84.855) -> (41.3705,-84.9170): ~8.2km — pin was
+    farmland; now on the SDI Butler mill (scrap yard + melt shop visible).
+  - stld_columbus (33.532,-88.415) -> (33.4473,-88.5768): ~17.9km(!) —
+    pin was Columbus MS suburbs; mill is actually at the Golden Triangle
+    megasite next to GTR airport.
+  - stld_sinton (28.041,-97.56) -> (28.0563,-97.4493): ~11.0km — pin was
+    ranch land W of town; mill is NE along the rail line.
+  - stld_columbia_city (41.157,-85.488) -> (41.1199,-85.3484): ~12.4km —
+    pin was downtown Columbia City; mill is E of town (structural mill +
+    rail sidings visible).
+  - port_houston (29.681,-94.942) -> (29.6770,-95.0060): ~6.2km — pin
+    was open water in Trinity Bay; now on Barbours Cut yard.
+  - port_oakland (37.796,-122.279) -> (37.7980,-122.3145): ~3.1km — pin
+    was Jack London Square; now on OICT container yard.
+  - port_norfolk (36.877,-76.328) -> (36.9155,-76.3275): ~4.3km — pin
+    was Lambert's Point COAL pier (wrong facility); now on NIT apron.
+  - port_lb (33.754,-118.216) -> (33.7515,-118.2130): ~370m — pin was in
+    the channel; now on Pier J stacks.
+  - port_seattle (47.582,-122.352) -> (47.5820,-122.3474): ~340m — pin
+    was Harbor Island's fuel tank farm; now on T18 container yard.
+- Lesson (feeds the geofence future): "researched coordinates" from
+  memory/public materials produced town centroids, not facilities — the
+  archive's site-proximity thinning (nearAnySite) has been using these
+  wrong positions, so near-site full-resolution sampling was mistargeted
+  for 6 of 16 sites by >4km. Corrected data fixes that silently.
+- Downstream chain: sites layer markers move -> archive adaptive
+  thinning now samples the RIGHT areas at full resolution -> future R2
+  transit counters + tank-shadow work inherit verified ground truth.

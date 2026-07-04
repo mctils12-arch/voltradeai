@@ -84,6 +84,23 @@ mobile so browser chrome doesn't cause overflow.
 - Detail interactions: site markers open a clean detail card (name, type,
   what it's watching and why); aircraft/vessels open compact popovers.
 
+## Reference data accuracy (human-approved 2026-07-03)
+
+REFERENCE DATA ACCURACY: raw reference data (site coordinates, facility
+metadata) must be verified against imagery or an authoritative source
+before shipping; RAW layers skip the signal ladder, not fact-checking.
+Anything feeding future geofences gets coordinate verification
+mandatory.
+
+Tooling: `scripts/site_verify.py` (all sites from a JSON) and
+`scripts/site_candidate_verify.py` (ad-hoc id/lat/lon/zoom quads) render
+each coordinate on Esri World Imagery with a crosshair — the facility
+must be visibly present (a port shows docks/cranes, a tank farm shows
+tanks, a mill shows the plant). Requires `pillow` (session-local
+install; not a runtime dependency). Precedent: the 2026-07-03 audit
+found 11 of 16 strategic sites mispositioned (worst ~18km) — town
+centroids and water instead of facilities.
+
 ## Performance budget (human-approved 2026-07-03)
 
 - Map interactions stay smooth on mid-range phone hardware at 10k+
