@@ -344,16 +344,14 @@ reinstatement is plausibly pending (e.g., awaiting a license agreement),
 a minimal disabled adapter MAY be retained if it is (a) fully out of the
 execution path with zero runtime cost, (b) clearly marked with the
 reason and a review-by date, and (c) logged in open_questions.md; past
-its review date, the next session deletes it. Additionally: periodic
-hygiene — when a session's fall-through reaches the research tier and
-the codebase hasn't had a staleness audit in 30+ days, auditing for
-orphaned code, unused dependencies, dead config, and expired disabled
-adapters is a valid fall-through action; findings become removal PRs.
+its review date, the next session deletes it. Periodic staleness audits
+run on the AUDIT CYCLE register (SESSION BUDGET); findings become
+removal PRs.
 
 ## CONSTITUTIONAL HYGIENE (human-approved 2026-07-03)
 
-THE CONSTITUTION IS ALSO CODE: rule debt is debt. Monthly (or as a
-fall-through action when 30+ days since last review), a session performs
+THE CONSTITUTION IS ALSO CODE: rule debt is debt. On the AUDIT CYCLE
+register's cadence (SESSION BUDGET), a session performs
 a constitutional audit: identify rules that are redundant (restating
 others), obsolete (governing removed features), conflicting (two rules
 disagreeing on the same case), or consolidatable (multiple amendments
@@ -473,6 +471,14 @@ remains correct only when the queue is empty AND research would
 duplicate existing filed work; the anti-churn rule stands — padding to
 look busy remains forbidden.
 
+AUDIT CYCLE (human-approved 2026-07-04): when a session's fall-through
+reaches the research tier, check the audit register at the top of
+research/experiments.md {audit · cadence · last run}: staleness audit
+(code/deps/config/expired adapters — 30d; DEAD CODE POLICY governs),
+constitutional audit (rules — 30d; CONSTITUTIONAL HYGIENE governs),
+market_calendar year-add (December; FROZEN PATHS exception governs).
+Run the most overdue one and update the register.
+
 ## KNOWN STATE (update as things change)
 
 - Backtest engine REBUILT 2026-07-03 (v1.0.34): `backtest_v2.py` is the
@@ -482,6 +488,13 @@ look busy remains forbidden.
 - `market_calendar.py` has 2026 dates only. Add 2027 in December 2026.
 - ML feedback records are version-gated; legacy records weighted 0.4x.
   Poisoned-record cleanup runs on startup (`ml_model_v2.py`).
+
+## STANDING BEHAVIORS (each human-approved, dated)
+
+Rules that govern ongoing session behavior. Moved here from KNOWN STATE
+verbatim (consolidation approved 2026-07-04) so KNOWN STATE stays pure
+facts; changing anything below is a constitutional amendment.
+
 - SPINOUT-READY DATA LAYER (human-approved 2026-07-03) — all data pipelines
   built under the EDGE DOCTRINE live in datacore/ with no imports from or
   knowledge of trading logic; signals are exposed only through an internal
