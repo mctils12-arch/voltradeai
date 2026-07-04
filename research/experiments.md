@@ -13,6 +13,32 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] VISION.md installed — platform charter (reconstruction), north-star reading rule
+
+- Charter-installation directive executed. HONESTY NOTE: the human's
+  verbatim charter text did not arrive (paste placeholder came through
+  unfilled; confirmed absent from the session transcript) — VISION.md
+  is a clearly-labeled session reconstruction from the directive's own
+  enumeration, with a provenance banner asking the human to supply the
+  original for verbatim replacement. Installing a labeled
+  reconstruction now beats waiting: the north star exists for tonight's
+  routines.
+- Reconciliation annotations: every charter item marked
+  DONE/IN-PROGRESS/QUEUED/NEW/BLOCKED-BY-ACCESS citing the existing
+  mechanism (archive doctrine, ladder, DESIGN.md rules, roadmap slots).
+  BLOCKED-BY-ACCESS register: card panels, private fleet telemetry,
+  sub-meter counting, mid-ocean satellite AIS (declined), filed flight
+  plans, US freight-rail positions.
+- Reading rule: STANDING BEHAVIORS gains the VISION.md north-star line
+  (approved 2026-07-04); KNOWN STATE carries the existence fact.
+  Placement reasoning recorded in the rule text itself (directive said
+  KNOWN STATE; same message approved the facts-vs-rules split — rule
+  goes to STANDING BEHAVIORS, fact to KNOWN STATE).
+- Routine prompts: B4/B3 canonical texts exist only in the routine
+  platform — usage_log.md now carries the exact north-star line to
+  append, flagged HUMAN ACTION NEEDED.
+- Docs-only PR, no version bump.
+
 ## 2026-07-04 — [RULE-REVIEW] Approved consolidations applied: AUDIT CYCLE + STANDING BEHAVIORS (docs PR)
 
 - Human approvals received 2026-07-04 for: (1) the AUDIT CYCLE
