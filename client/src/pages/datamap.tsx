@@ -11,6 +11,10 @@ import {
 } from "@/lib/mapIcons";
 import FilingsView from "./filings";
 import { mmsiFlag } from "@/lib/mmsiFlag";
+// Baked-in build version — compared against the registry's server_version
+// to detect open-tab skew (old bundle + fresh registry = layer rows the
+// bundle has no wiring for; the 2026-07-04 production toggle desync).
+import { version as CLIENT_VERSION } from "../../../package.json";
 
 /**
  * /data — the data-intelligence map (v2).
@@ -210,11 +214,17 @@ export default function DataMapPage() {
     return () => window.clearInterval(iv);
   }, []);
 
-  // Layer registry (datacore boundary)
+  // Layer registry (datacore boundary) + open-tab version-skew detection
+  const [versionSkew, setVersionSkew] = useState<string | null>(null);
   useEffect(() => {
     fetch("/api/data/layers")
       .then(r => r.json())
-      .then(d => setLayers(Array.isArray(d.layers) ? d.layers : []))
+      .then(d => {
+        setLayers(Array.isArray(d.layers) ? d.layers : []);
+        if (d.server_version && d.server_version !== CLIENT_VERSION) {
+          setVersionSkew(String(d.server_version));
+        }
+      })
       .catch(() => setLayers([]));
   }, []);
 
@@ -774,6 +784,12 @@ export default function DataMapPage() {
 
     const teardown = () => {
       stop = true;
+      // Clear the delta cursor: a re-enabled layer must fetch a FULL
+      // snapshot. With a stale ?since= the server answers {unchanged:true}
+      // and the early return skips addSource/addLayer entirely — the layer
+      // stays absent until upstream data changes (toggle-repair 2026-07-04,
+      // caught by the toggle-consistency battery).
+      delete sinceRef.current[id];
       try {
         if (map.getLayer(layerId)) map.removeLayer(layerId);
         if (map.getLayer(vecLayer)) map.removeLayer(vecLayer);
@@ -792,7 +808,13 @@ export default function DataMapPage() {
         const d = await r.json();
         if (stop) return;
         if (d.enabled === false) { setStatus(id, "awaiting_key"); return; }
-        if (d.unchanged) { return; } // delta: nothing new to draw
+        if (d.unchanged) {
+          // delta says nothing new — but if the layer isn't mounted yet the
+          // cursor is stale (fresh mount): drop it so the next tick fetches
+          // the full snapshot instead of staying invisible forever.
+          if (!map.getSource(srcId)) delete sinceRef.current[id];
+          return;
+        }
         if (d.time != null) sinceRef.current[id] = String(d.time);
 
         // Honest feed states (DESIGN.md): partial coverage + staleness shown.
@@ -1499,6 +1521,11 @@ export default function DataMapPage() {
     const st = statusFor(l);
     const on = !!enabled[l.id] && toggleable(l);
     const descIsOpen = !!descOpen[l.id];
+    // Open-tab skew guard: a live layer id this bundle has NO wiring for
+    // (registry newer than the running code) must not render a
+    // functional-looking toggle — pill would flip while the label stays
+    // "off" and nothing paints (the 2026-07-04 production desync).
+    const unwired = !(l.id in LAYER_GROUP) && l.kind !== "signal" && l.status !== "planned";
     return (
       <div key={l.id}>
         <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`} data-vt-layer={l.id}
@@ -1512,15 +1539,16 @@ export default function DataMapPage() {
             </button>
             <span className={`vt-kind-badge ${l.kind}`}>{l.kind === "raw" ? "RAW" : "SIGNAL"}</span>
             <span className="vt-layer-status">
-              <i style={{ background: st.dot }} /> {st.text}
+              <i style={{ background: st.dot }} /> {unwired ? "reload to enable" : st.text}
             </span>
-            {st.note && <span className="vt-layer-covnote">{st.note}</span>}
+            {unwired && <span className="vt-layer-covnote">site updated — reload the page to enable this new layer</span>}
+            {!unwired && st.note && <span className="vt-layer-covnote">{st.note}</span>}
           </span>
           <button
             role="switch"
             aria-checked={on}
             aria-label={`Toggle ${l.name}`}
-            disabled={!toggleable(l)}
+            disabled={!toggleable(l) || unwired}
             className={`vt-switch${on ? " on" : ""}`}
             onClick={() => setEnabled(s => ({ ...s, [l.id]: !s[l.id] }))}
           >
@@ -1658,6 +1686,12 @@ export default function DataMapPage() {
                 statistical validation (ladder gate 2). Coverage limits are
                 stated per layer (terrestrial AIS has mid-ocean gaps; ADS-B
                 follows receiver density).
+              </div>
+            )}
+            {versionSkew && (
+              <div className="vt-skew-note" role="status">
+                Site updated to v{versionSkew} (you're on v{CLIENT_VERSION}) —
+                reload the page to enable the newest layers.
               </div>
             )}
             {PANEL_GROUPS.map((g) => {

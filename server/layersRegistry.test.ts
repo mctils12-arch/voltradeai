@@ -55,6 +55,17 @@ test("forest layer: JRC attribution + static-vintage honesty + opacity inheritan
   assert.equal(f.field, true, "atlas rasters inherit the registry opacity slider");
 });
 
+test("toggle-desync guard pinned: version skew detected, unwired rows disabled, delta cursor cleared on teardown", () => {
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes("server_version: pkgVersion"), "registry response must carry server_version");
+  const page = fs.readFileSync(path.join(here, "..", "client", "src", "pages", "datamap.tsx"), "utf8");
+  assert.ok(page.includes("CLIENT_VERSION"), "client must bake in its build version");
+  assert.ok(page.includes("setVersionSkew"), "client must detect registry-vs-bundle skew");
+  assert.ok(page.includes("reload the page to enable this new layer"), "unwired rows must say why they cannot toggle");
+  assert.ok(page.includes("disabled={!toggleable(l) || unwired}"), "unwired rows must not render a functional-looking toggle");
+  assert.ok(page.includes("delete sinceRef.current[id]"), "live-points teardown must clear the delta cursor (remount invisibility bug)");
+});
+
 test("legend rule pinned: DESIGN.md carries the approved text; legend renders from the shared registry", () => {
   const design = fs.readFileSync(path.join(here, "..", "DESIGN.md"), "utf8");
   assert.ok(

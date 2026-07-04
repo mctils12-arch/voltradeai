@@ -13,6 +13,53 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] Toggle state-desync root-caused two ways: remount delta bug (proven+fixed) + open-tab version skew (guarded) (v1.0.79)
+
+- Directive: prod atlas toggles flip the pill but the label stays "off"
+  and nothing renders. State model: pill = enabled[id] (local), label =
+  runtime[id].status (set ONLY by each layer's effect), map = the
+  effect's add/remove — three views that desync exactly when the
+  EFFECT IS MISSING for a rendered row.
+- NEW RATCHET first (repro before patch): harness TOGGLE-CONSISTENCY
+  battery flips EVERY live registry layer (13) and asserts
+  pill+label+map move together, both directions. Result: 13/13 CLEAN
+  locally — the atlas desync does NOT reproduce in the current code.
+  But the sweep EXPOSED a different real bug:
+- BUG A (proven + fixed): live-points layers (aircraft/vessels) toggled
+  off→on never re-render — teardown kept sinceRef's delta cursor, the
+  refetch sent a stale ?since=, the server answered {unchanged:true},
+  and the early return skipped addSource/addLayer entirely. In prod
+  this self-heals on the next data tick (~10s aircraft) but is
+  indefinite for static feeds and deterministic in the harness (the
+  fields-on battery failed with "no aircraft rendered" + a -1 indexOf
+  masquerading as an ordering violation). Fix: teardown deletes the
+  cursor; the unchanged path also drops it when the source isn't
+  mounted. A/B: battery red before, green after.
+- BUG B (prod vector, guarded): PROD EVIDENCE — deployed bundle hash
+  equals this session's local v1.0.78 build (index--vjwcN8a.js,
+  Last-Modified 21:55:30Z), registry + /api/data/boundaries current,
+  atlas effects present in every bundle ≥v1.0.74. So no single fresh
+  deploy shows the symptom. The coherent vector: an OPEN TAB running an
+  old bundle remounts the /data page (hash navigation) → registry
+  re-fetches (fresh rows incl. atlas ids) → the old bundle has NO
+  effects for those ids → pill flips, label stuck "off", no render.
+  Structural guard shipped: /api/data/layers now carries
+  server_version; the client compares its baked-in build version and
+  (a) shows a "reload to enable the newest layers" notice on mismatch,
+  (b) renders rows whose id the bundle has no wiring for
+  (id ∉ LAYER_GROUP) as DISABLED with "reload to enable" — a
+  functional-looking toggle for an unwired layer is now impossible.
+- FALSIFIABILITY: if the desync recurs on a FRESH reload of v1.0.79+,
+  the skew hypothesis is wrong — per loop-health rule 4 that recurrence
+  becomes a root-cause-only session, no re-patching.
+- LEGEND half of the directive: SUPERSEDED before it arrived — v1.0.78
+  (#173) replaced the dot legend with registry-drawn symbols + the
+  both-directions parity battery; prod had it deployed at 21:55:30Z.
+  The "generic dots" observation predates that deploy/reload.
+- Gates: node 112/112 (new pins: server_version, skew banner, unwired
+  guard, cursor clear); harness 0 hard failures ×3 + developers +
+  all-off; toggle battery 13/13; fields diffs 46–65.
+
 ## 2026-07-04 — [RULE-REVIEW] Amendment 4 SHIPPED: bloat consolidation (docs) — honest shortfall vs estimate
 
 - Fix 4 applied: DEAD CODE POLICY + CONSTITUTIONAL HYGIENE + the AUDIT
