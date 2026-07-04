@@ -49,6 +49,7 @@ const FIXTURES = {
       { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
       { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
       { id: "sites", name: "Strategic sites", kind: "raw", status: "live", source: "datacore/sites", description: "Reference sites." },
+      { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", source: "Copernicus", description: "Gate-2 locked." },
     ],
   },
@@ -84,6 +85,21 @@ const FIXTURES = {
     sites: [
       { id: "cushing", name: "Cushing Oil Hub", category: "tank_farm", lat: 35.985, lon: -96.767, operator: "Multiple", relevance: "WTI delivery point; Sentinel-2 tank-fill signal ground (EIA benchmark).", note: "" },
       { id: "port_la", name: "Port of Los Angeles", category: "port", lat: 33.74, lon: -118.272, operator: "POLA", relevance: "#1 US container port.", note: "" },
+    ],
+  },
+  "/api/data/insider": {
+    kind: "raw", source: "SEC EDGAR (Form 4)", time: 1, count: 2,
+    filings: [
+      {
+        issuerName: "CYPHERPUNK TECHNOLOGIES INC.", issuerTradingSymbol: "CYPH",
+        owners: [{ cik: "1645967", name: "Richard Christian M", isDirector: true, isOfficer: false, isTenPercentOwner: false, officerTitle: null }],
+        transactions: [{ table: "derivative", kind: "award_grant", shares: 75000, pricePerShare: 0, transactionDate: "2026-07-01" }],
+      },
+      {
+        issuerName: "STRATUS PROPERTIES INC", issuerTradingSymbol: "STRS",
+        owners: [{ cik: "1317904", name: "Oasis Management Co Ltd.", isDirector: false, isOfficer: false, isTenPercentOwner: true, officerTitle: null }],
+        transactions: [{ table: "nonDerivative", kind: "open_market_sale", shares: 10000, pricePerShare: 28.9, transactionDate: "2026-06-30" }],
+      },
     ],
   },
   "/api/health": { status: "ok", checks: {} },

@@ -20,6 +20,7 @@ import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
+import { bootForm4Poll, latestForm4Filings } from "./edgarForm4";
 
 const execAsync = promisify(exec);
 
@@ -991,6 +992,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/sites", (_req, res) => {
     const d = datacoreSites as any;
     res.json({ kind: "raw", categories: d.categories || {}, sites: d.sites || [] });
+  });
+
+  // SEC EDGAR Form 4 (insider transactions) — RAW as-filed display (EDGE
+  // DOCTRINE #1 "build data, don't buy it"; ROOT VALIDATION LADDER gate 1
+  // passed, see server/edgarForm4.test.ts). No API key needed. Polls the
+  // public "getcurrent" feed on a background timer started at boot (same
+  // eager-boot pattern as vessels, KNOWN BROKEN #9's lesson: don't wait for
+  // the first request to start collecting). This is a display of what was
+  // filed, not an interpreted claim — the "does clustering predict returns"
+  // question is gate 2, unattempted, tracked in research/open_questions.md.
+  bootForm4Poll();
+  app.get("/api/data/insider", (_req, res) => {
+    const hit = latestForm4Filings();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "SEC EDGAR (Form 4)", warming_up: true, count: 0, filings: [] });
+    }
+    res.json({
+      kind: "raw",
+      source: "SEC EDGAR (Form 4) — sec.gov/cgi-bin/browse-edgar",
+      time: hit.at,
+      count: hit.filings.length,
+      filings: hit.filings,
+    });
   });
 
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────

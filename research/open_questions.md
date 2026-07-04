@@ -133,6 +133,30 @@
 
 ## OPEN RESEARCH QUESTIONS
 
+- **Insider Form 4 clustering as a signal** (gate 1 PASSED 2026-07-03 — see
+  `server/edgarForm4.ts` / `edgarForm4.test.ts` / `datacore/README.md`; the
+  feed is live at `/api/data/insider`, surfaced as RAW only, no predictive
+  claim). Gate 2 hypothesis, not yet attempted: do clusters of open-market
+  insider BUYS (transaction code P specifically — code A grants/RSU vesting
+  and code M option exercises are not discretionary purchases and would
+  dilute the signal; code S sales are the mirror case worth testing
+  separately for predictive shorts) at a given issuer, within a short
+  window, predict forward N/20/60-day excess return over a size-matched
+  random-entry baseline (REASONING STANDARD #3 — demand the base rate, not
+  the raw number)? PRIOR stated before any run: expect a small positive
+  edge concentrated in officer/director (not 10%-owner fund) buys on
+  small/mid caps specifically (EDGE DOCTRINE #2 — capacity-constrained
+  corners), close to zero or negative on mega-caps where the signal is
+  already arbitraged; kill the hypothesis if officer/director open-market
+  buys show no separation from the random-entry baseline after >=90 days
+  of accumulated feed history (need real history first — the feed only
+  started polling today, no backtest possible yet from filing text alone
+  without a paid historical EDGAR bulk-data source or accumulating our own
+  archive from here forward, per BUILD-FIRST rule #2). Ladder: gate 1 DATA
+  done; gate 2 SIGNAL blocked on accumulating enough live filing history
+  (or sourcing free historical Form 4 index files from SEC's bulk data
+  page, `www.sec.gov/Archives/edgar/full-index/`, which is public and free
+  — worth trying before waiting on live accumulation, unexplored).
 - **Options fill realism.** The synthetic slippage haircut in bot.ts is
   volume-tiered with a random component — good for stocks, weak for
   options. Replace for options with quote-based fills: short premium

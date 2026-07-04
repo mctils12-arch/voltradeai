@@ -32,11 +32,26 @@ Constitution: CLAUDE.md → KNOWN STATE → SPINOUT-READY DATA LAYER
 
 - `sites/` — static reference data (strategic sites: tank farms, mills,
   ports) with coordinates, metadata, and sources. RAW.
-- `pipelines/` — one module per data root (future: sentinel2_tanks,
-  adsb_flows, ais_vessels, edgar_form4, trends_demand). Each exposes
+- In practice every pipeline shipped so far (aircraft, vessels, position
+  archive, `edgarForm4`) lives directly in `server/*.ts` as a pure,
+  independently-testable module exposing fetch + cache + gate status —
+  the `pipelines/` Python package layout below was the original plan but
+  was never followed; documented here for history, not as the live shape.
+  Original plan: `pipelines/` — one module per data root (future:
+  sentinel2_tanks, adsb_flows, ais_vessels, trends_demand), each exposing
   `fetch()` (raw), `latest()` (cached most-recent), and gate status.
 - Node-side serving lives in `server/routes.ts` under `/api/data/*` — thin
   proxies/caches over this package's outputs. Keep them dumb.
+- `server/edgarForm4.ts` — SEC EDGAR Form 4 (insider transactions) pipeline.
+  No API key required. Ladder gate 1 (DATA) PASSED: the dependency-free XML
+  parser was verified field-by-field against two real, live-fetched Form 4
+  filings (see `server/edgarForm4.test.ts`). Polls the public "getcurrent"
+  feed on a 15-min background timer started at boot, dedupes the feed's
+  filer/issuer entry pairs by accession number, and serves the latest N
+  parsed filings at `/api/data/insider` as a RAW-DATA overlay (as-filed
+  display, no predictive claim). Gate 2 (does insider-buy clustering predict
+  forward returns better than base rate) is open — see
+  research/open_questions.md.
 - `server/datacoreArchive.ts` — the position archive (MAP V2 ROADMAP R1;
   ARCHIVE EVERYTHING amendment): adaptive thinning (full resolution near
   strategic sites and low-altitude flight / near-port vessels; sparser

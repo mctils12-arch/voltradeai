@@ -34,6 +34,14 @@
       "description": "Cushing OK tank farms, major steel mills, top US ports."
     },
     {
+      "id": "insider",
+      "name": "Insider transactions (Form 4)",
+      "kind": "raw",
+      "status": "live",
+      "source": "SEC EDGAR (no API key required)",
+      "description": "Recent Form 4 filings (insider buys/sells/grants) as filed. As-is display, no predictive claim — clustering-vs-returns is an open gate-2 question, not yet surfaced as a signal."
+    },
+    {
       "id": "tank_fill",
       "name": "Tank-fill % (Sentinel-2)",
       "kind": "signal",

@@ -2290,3 +2290,27 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono);
   margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(77, 159, 255, 0.12);
 }
+
+/* Insider transactions (Form 4) — inline list inside the layer panel row
+   (non-geospatial data has no map marker to click, so it expands in place). */
+.vt-filings-list {
+  max-height: 220px; overflow-y: auto;
+  margin: 0 14px 8px; padding: 4px 0;
+  border-top: 1px solid rgba(77, 159, 255, 0.12);
+}
+.vt-filings-empty {
+  padding: 10px 2px; font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono);
+}
+.vt-filings-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 5px 2px; font-size: 11px; font-family: var(--font-mono);
+  border-bottom: 1px solid rgba(77, 159, 255, 0.06);
+}
+.vt-filings-row:last-child { border-bottom: none; }
+.vt-filings-issuer { font-weight: 700; color: var(--text-primary); min-width: 44px; }
+.vt-filings-owner {
+  flex: 1; color: var(--text-secondary); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.vt-filings-kind { font-weight: 700; min-width: 52px; text-align: right; }
+.vt-filings-shares { color: var(--text-tertiary); min-width: 70px; text-align: right; }
