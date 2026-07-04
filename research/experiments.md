@@ -13,6 +13,28 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RULE-REVIEW] Amendment 4 SHIPPED: bloat consolidation (docs) — honest shortfall vs estimate
+
+- Fix 4 applied: DEAD CODE POLICY + CONSTITUTIONAL HYGIENE + the AUDIT
+  CYCLE paragraph merged into ONE "AUDITS & DEBT" section (2,171 →
+  1,662); SESSION BUDGET 2,025 → 1,447; STANDING BEHAVIORS 4,169 →
+  2,952 (history moved to experiments.md, every clause kept); EDGE
+  DOCTRINE 4,369 → 3,867 (framing cut; every example name, precedent,
+  and the full build-first ladder kept). NO rule lost force — each
+  compressed section preserves every normative clause, approval date,
+  and exception.
+- HONEST SHORTFALL: the filed estimate promised ~27.3K; the file is
+  31,062 bytes. Two reasons: (a) Amendments 1–3 ADDED ~1,700 chars of
+  approved rule text (platform mission, liveness alarm, sovereignty);
+  (b) the filed per-section targets (e.g. EDGE DOCTRINE −1,250)
+  assumed cutting example detail that turned out to BE the rule's
+  force (standing data-source names, precedents) — cutting further
+  trades force for length, which the approval explicitly forbade. Net
+  prose cut ~4.0K vs the filed ~4.3K; net file −630 from pre-repair
+  because the new rules are net-additive. If a harder target matters
+  more than the preserved wording, that is a human call — the next
+  30d constitutional audit can propose deeper cuts item-by-item.
+
 ## 2026-07-04 — [RULE-REVIEW] Amendment 3 SHIPPED: human-sovereignty clause (docs)
 
 - Fix 3 applied exactly as filed: the verbatim HUMAN SOVEREIGNTY
