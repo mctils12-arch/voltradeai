@@ -152,8 +152,12 @@
   proposals here, never self-applies; live conflicts resolved by GOAL
   priority order and filed). Bookkept per the amendment rule.
 
-- **⚖ FIRST CONSTITUTIONAL AUDIT (2026-07-03) — consolidation proposal
-  for human approval (audit changes nothing itself):**
+- **⚖ FIRST CONSTITUTIONAL AUDIT (2026-07-03) — [APPROVED BY HUMAN
+  2026-07-04: Findings 1 AND 2, shipped as one docs PR same day. F1 =
+  STANDING BEHAVIORS section added, rule paragraphs moved verbatim out
+  of KNOWN STATE. F2 = delivered via the AUDIT CYCLE register in
+  experiments.md (the AUDIT CYCLE proposal's concrete superseding form —
+  one register, not two).]**
   - **Finding 1 — rules living in KNOWN STATE.** KNOWN STATE now hosts
     four standing behavior RULES (SPINOUT-READY DATA LAYER, RAW-vs-SIGNAL
     surface rules, USAGE-CALIBRATION LOOP, MONETIZATION TRIPWIRE, plus
@@ -195,9 +199,10 @@
   in Drafts; the Claude Code Notifications tab is the recommended
   completion signal instead. Bookkept per the amendment rule.
 
-- **⚖ CONSOLIDATION PROPOSAL — AUDIT CYCLE (filed 2026-07-03 per the
-  CONSTITUTIONAL HYGIENE process; human approval required; nothing
-  changed yet).** Three periodic hygiene duties live in three places:
+- **⚖ CONSOLIDATION PROPOSAL — AUDIT CYCLE (filed 2026-07-03; [APPROVED
+  BY HUMAN 2026-07-04 — applied same day, one docs PR with audit
+  Findings 1+2: clause in SESSION BUDGET, register at top of
+  experiments.md, both trigger sentences trimmed to pointers]).** Three periodic hygiene duties live in three places:
   (1) DEAD CODE POLICY's staleness sweep ("fall-through reaches the
   research tier and the codebase hasn't had a staleness audit in 30+
   days"); (2) CONSTITUTIONAL HYGIENE's rule audit ("monthly, or as a

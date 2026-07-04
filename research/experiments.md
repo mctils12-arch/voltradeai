@@ -3,6 +3,34 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## AUDIT REGISTER (maintained in place per the AUDIT CYCLE clause,
+CLAUDE.md SESSION BUDGET — this block is updatable state, the only
+exception to append-only; the log below it stays append-only)
+
+| audit | cadence | last run |
+|---|---|---|
+| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | never — due (2026-07-03 OpenSky sweep was targeted, not a full audit) |
+| constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
+| market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
+
+## 2026-07-04 — [RULE-REVIEW] Approved consolidations applied: AUDIT CYCLE + STANDING BEHAVIORS (docs PR)
+
+- Human approvals received 2026-07-04 for: (1) the AUDIT CYCLE
+  consolidation proposal (wishlist.md, filed 2026-07-03) and (2) first
+  constitutional audit Findings 1 (STANDING BEHAVIORS section) and 2
+  (PERIODIC AUDITS register). Applied exactly as proposed: AUDIT CYCLE
+  clause appended to SESSION BUDGET; this register created; DEAD CODE
+  POLICY and CONSTITUTIONAL HYGIENE trigger sentences trimmed to point
+  here (policy bodies untouched); KNOWN STATE's five standing-behavior
+  rule paragraphs moved verbatim into a new STANDING BEHAVIORS section.
+- F2 note: the AUDIT CYCLE register IS Finding 2's register in the
+  concrete form the AUDIT CYCLE proposal specified ("supersedes the
+  first audit's Finding-2 sketch") — one register, in experiments.md,
+  not a second one in SESSION BUDGET. Shipping both literally would have
+  created the exact redundancy the hygiene rule exists to kill.
+- Docs-only PR: no behavior change, no version bump (per docs-PR
+  precedent #132/#133), no backtest applicable.
+
 ## 2026-07-03 — [PIPELINE] Position archive — MAP V2 ROADMAP R1 (PR 2/3 of the Map v2 directive)
 
 - Session start check: read CLAUDE.md, all of research/, per the [PRODUCT]
