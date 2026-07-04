@@ -344,6 +344,16 @@
   for the 5 existing streams + a test (every archive kind must have a
   manifest — enforced).
 
+- **HUMAN ACTION — OpenWeatherMap free API key (free signup):** set as
+  OPENWEATHERMAP_KEY in Railway to activate GLOBAL temp/wind/precip
+  fields on the weather layer (Tier-1(b) shipped US-radar-only —
+  nowCOAST is public domain but US-only; OWM free tier is
+  commercial-lawful WITH visible attribution, 60 calls/min, 1M/mo,
+  model-derived tiles labeled as such per the licensing register).
+- **HUMAN ACTION — NASA FIRMS MAP_KEY (free registration):** needed for
+  Tier-1(c) active-fires layer (free, commercial-lawful, VIIRS 375m,
+  ~3h latency); layer will ship awaiting_key without it. Detections
+  archive from day one — no free history exists.
 - **HUMAN ACTION — USPTO Open Data Portal API key (free, ~15 min):**
   create a USPTO.gov account with ID.me identity verification —
   sessions cannot do identity verification. Unblocks the patents root
