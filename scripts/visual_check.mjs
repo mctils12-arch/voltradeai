@@ -403,6 +403,26 @@ async function main() {
               fails.push(`self-see: '${id}' toggle covered by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'>`);
             }
           }
+          // v2.4 CONTROL OCCLUSION: with the panel OPEN, no map control may
+          // sit under it (the production defect: zoom buttons covered).
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]"]) {
+            const el = document.querySelector(sel);
+            if (!el) { fails.push(`self-see: map control ${sel} missing`); continue; }
+            const r = el.getBoundingClientRect();
+            if (r.width < 4 || r.height < 4) { fails.push(`self-see: map control ${sel} has no size`); continue; }
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            if (hit && !el.contains(hit) && hit !== el && !hit.contains(el)) {
+              fails.push(`self-see: map control ${sel} OCCLUDED by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'> with panel open`);
+            }
+          }
+          // v2.4 ETERNAL-SPINNER rule (armed): any row loading >30s must
+          // carry a designed note (retrying / activating / awaiting).
+          for (const row of panel.querySelectorAll('[data-vt-rt="loading"]')) {
+            const since = Number(row.getAttribute("data-vt-since") || 0);
+            if (since && Date.now() - since > 30_000 && !row.querySelector(".vt-layer-covnote")) {
+              fails.push(`self-see: '${row.getAttribute("data-vt-layer")}' bare loading spinner >30s — eternal-spinner rule`);
+            }
+          }
           return fails;
         }, layerIds);
         checks.failures.push(...selfSee);
@@ -429,6 +449,45 @@ async function main() {
       await ctx.close();
     }
   }
+  // ── v2.4 ZERO-COST-WHEN-OFF + interactive budget (all layers off) ────────
+  // With every layer toggled off, the page must (a) make NO layer-data API
+  // calls (registry + auth are the only allowed /api hits) and (b) go
+  // interactive fast — the regression guard for "the site got slower".
+  if (!only || only === "data") {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    const page = await ctx.newPage();
+    await page.addInitScript(() => sessionStorage.setItem("vt-layers-all-off", "1"));
+    const disallowed = [];
+    const ALLOWED = new Set(["/api/data/layers", "/api/auth/me", "/api/health"]);
+    page.on("request", (r) => {
+      try {
+        const u = new URL(r.url());
+        if (u.pathname.startsWith("/api/") && !ALLOWED.has(u.pathname)) disallowed.push(u.pathname);
+      } catch {}
+    });
+    await page.route("**/*", (route) => {
+      const u = route.request().url();
+      if (u.startsWith(`http://127.0.0.1:${port}`)) return route.continue();
+      return route.abort();
+    });
+    const t0 = Date.now();
+    await page.goto(`http://127.0.0.1:${port}${PAGES.data}`, { waitUntil: "load", timeout: 30000 });
+    let ttiOff = null;
+    for (let i = 0; i < 60; i++) {
+      const gone = await page.evaluate(() => !document.querySelector(".vt-map-skeleton"));
+      if (gone) { ttiOff = Date.now() - t0; break; }
+      await page.waitForTimeout(100);
+    }
+    await page.waitForTimeout(4500); // deferred-mount window: violations would fire here
+    const failures = [];
+    if (ttiOff == null) failures.push("all-off: skeleton never cleared");
+    else if (ttiOff > 2500) failures.push(`all-off TTI ${ttiOff}ms > 2500ms budget (headless)`);
+    if (disallowed.length) failures.push(`ZERO-COST-WHEN-OFF violated: layer-data calls with all layers off: ${[...new Set(disallowed)].join(", ")}`);
+    results.push({ page: "data-all-off", width: 1440, label: "zero-cost", screenshot: "-", tti: ttiOff,
+                   failures, warnings: [], info: { disallowed: disallowed.length } });
+    await ctx.close();
+  }
+
   await browser.close();
   srv.close();
 

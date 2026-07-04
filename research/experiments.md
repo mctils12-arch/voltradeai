@@ -13,6 +13,41 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Map v2.4 — three production defects fixed, each with A/B-proven enforcement (v1.0.64)
+
+- (1) ETERNAL LOADING root cause: the OWM key WAS fine (activation
+  verified on prod same day — see entry below) — the defect was
+  client-side: statusFor DROPPED status notes on loading rows, so the
+  designed "key activating — auto-retrying" note never rendered and
+  the human saw a bare spinner for the whole ~2h activation window.
+  Fix: loading rows render their notes; every status change is
+  timestamped; a 10s-cadence watchdog upgrades any bare loading >30s
+  to an explicit retrying note. DESIGN.md gains the approved
+  loading-state rule verbatim. A/B PROOF: probe with a HANGING status
+  endpoint — bare loading at t+1.5s, designed retrying note attached
+  after crossing 30s (+scan cadence). Harness carries an armed
+  assertion (any row loading >30s must have a covnote).
+- (2) PERFORMANCE: zero-cost-when-off AUDIT result — all 13 layer
+  effects already tear down before any fetch/interval when off; no
+  violators found. The real load cost was seven default-ON layers
+  fetching at mount. Fix: heavy default-on layers (powerplants,
+  insider, shadowstats, portdwell, trains) mount DEFERRED after the
+  map's first idle (4s failsafe); base map + aircraft + sites win the
+  initial contention. NEW HARNESS STEP: all-layers-off run asserts
+  ZERO layer-data API calls (mechanical zero-cost proof) + TTI budget
+  2500ms — measured 852ms all-off vs 1016-1579ms with the default
+  stack. DESIGN.md gains the zero-cost-when-off rule.
+- (3) CONTROL OCCLUSION: zoom controls moved bottom-LEFT (the open
+  panel AND the legend both live right-side — bottom-right zoom was
+  under the LEGEND, a second occluder the directive didn't know
+  about). Self-see now hit-tests zoom/fullscreen controls with the
+  panel open. A/B PROOF: reverting to bottom-right fails the harness
+  at ALL THREE widths with "map control OCCLUDED by <div
+  class='vt-legend'>".
+- Gates: node 65/65, python 114/1 skipped, harness green x3 + the new
+  zero-cost step, screenshots reviewed (zoom bottom-left at 390).
+  Version 1.0.63 -> 1.0.64.
+
 ## 2026-07-04 — [PRODUCT] OWM v1.0.63 VERIFIED LIVE on prod (follow-up to the entry below)
 
 - Prod probe sequence: deploy live -> /api/data/weather/global/status

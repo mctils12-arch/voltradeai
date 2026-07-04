@@ -53,7 +53,13 @@ const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
-const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
+// Harness kill switch (v2.4 ZERO-COST-WHEN-OFF assertion): with
+// vt-layers-all-off set, only the base imagery mounts — the harness then
+// asserts NO layer-data API calls fire and measures interactive time.
+const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
+const DEFAULT_ON: Record<string, boolean> = ALL_OFF
+  ? { imagery: true }
+  : { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -94,6 +100,11 @@ export default function DataMapPage() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>(DEFAULT_ON);
   const [runtime, setRuntime] = useState<Record<string, { status: RuntimeStatus; count?: number; note?: string }>>({});
   const [mapReady, setMapReady] = useState(false);
+  // v2.4 load-perf: heavy default-on layers (registry data, pollers) mount
+  // AFTER the map's first idle so the base map + aircraft win the initial
+  // network/CPU contention. Safety timeout keeps a tile-erroring session
+  // from never mounting them.
+  const [mapSettled, setMapSettled] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
@@ -128,8 +139,30 @@ export default function DataMapPage() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // v2.4 eternal-spinner rule (DESIGN.md): every status change is
+  // timestamped; a watchdog upgrades any bare "loading" older than 30s to a
+  // designed retrying note so no spinner ever lives unexplained.
+  const statusAtRef = useRef<Record<string, number>>({});
   const setStatus = useCallback((id: string, status: RuntimeStatus, count?: number, note?: string) => {
+    statusAtRef.current[id] = Date.now();
     setRuntime(s => ({ ...s, [id]: { status, count, note } }));
+  }, []);
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      setRuntime((s) => {
+        let changed = false;
+        const next: typeof s = { ...s };
+        for (const [id, rt] of Object.entries(s)) {
+          if (rt.status === "loading" && !rt.note &&
+              Date.now() - (statusAtRef.current[id] || 0) > 30_000) {
+            next[id] = { ...rt, note: "no response in 30s — still retrying automatically" };
+            changed = true;
+          }
+        }
+        return changed ? next : s;
+      });
+    }, 10_000);
+    return () => window.clearInterval(iv);
   }, []);
 
   // Layer registry (datacore boundary)
@@ -166,7 +199,10 @@ export default function DataMapPage() {
           attributionControl: { compact: true } as any,
           keyboard: true,
         });
-        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+        // v2.4 control occlusion: zoom lives bottom-LEFT — the layers panel
+        // (right side, full-height allowance) can never cover it at any
+        // width. Self-see asserts non-occlusion mechanically.
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
         map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
@@ -179,6 +215,11 @@ export default function DataMapPage() {
           try { map.resize(); } catch {}
           try { registerIcons(map); } catch {}
           setMapReady(true);
+          // v2.4 deferred mount: heavy default-on layers wait for the first
+          // post-ready idle (base map + aircraft win the initial contention);
+          // 4s failsafe so tile errors can't starve them forever.
+          map.once("idle", () => { if (!cancelled) setMapSettled(true); });
+          window.setTimeout(() => { if (!cancelled) setMapSettled(true); }, 4000);
         };
         map.once("load", ready);
         map.once("idle", ready);
@@ -741,6 +782,7 @@ export default function DataMapPage() {
       setStatus("powerplants", "off");
       return;
     }
+    if (!mapSettled) { setStatus("powerplants", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("powerplants", "loading");
     let cancelled = false;
     (async () => {
@@ -834,7 +876,7 @@ export default function DataMapPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [enabled.powerplants, mapReady, setStatus]);
+  }, [enabled.powerplants, mapReady, mapSettled, setStatus]);
 
   // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
   // per-source status from the server keeps coverage labeling honest) ──
@@ -849,6 +891,7 @@ export default function DataMapPage() {
       setStatus("trains", "off");
       return;
     }
+    if (!mapSettled) { setStatus("trains", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("trains", "loading");
     let stop = false;
     const load = async () => {
@@ -916,13 +959,14 @@ export default function DataMapPage() {
     load();
     const iv = window.setInterval(load, 30_000);
     return () => { stop = true; window.clearInterval(iv); };
-  }, [enabled.trains, mapReady, setStatus]);
+  }, [enabled.trains, mapReady, mapSettled, setStatus]);
 
   // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
   // archive — counts only, per-vessel claims stay ladder-gated) ──
   const [shadowStats, setShadowStats] = useState<any>(null);
   useEffect(() => {
     if (!enabled.shadowstats) { setStatus("shadowstats", "off"); setShadowStats(null); return; }
+    if (!mapSettled) { setStatus("shadowstats", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("shadowstats", "loading");
     let stop = false;
     const load = async () => {
@@ -940,7 +984,7 @@ export default function DataMapPage() {
     load();
     const iv = window.setInterval(load, 10 * 60_000);
     return () => { stop = true; window.clearInterval(iv); };
-  }, [enabled.shadowstats, setStatus]);
+  }, [enabled.shadowstats, mapSettled, setStatus]);
 
   // ── port dwell RAW statistics (fusion directive 2026-07-04) — per-port
   // arrivals/dwell from our own AIS archive, rendered as small text labels
@@ -959,6 +1003,7 @@ export default function DataMapPage() {
       return;
     }
     if (!map || !mapReady) return;
+    if (!mapSettled) { setStatus("portdwell", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("portdwell", "loading");
     let stop = false;
     const load = async () => {
@@ -1009,12 +1054,13 @@ export default function DataMapPage() {
     load();
     const iv = window.setInterval(load, 10 * 60_000);
     return () => { stop = true; window.clearInterval(iv); };
-  }, [enabled.portdwell, mapReady, setStatus]);
+  }, [enabled.portdwell, mapReady, mapSettled, setStatus]);
 
   // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
   // markers, an inline list inside the layer panel instead) ──
   useEffect(() => {
     if (!enabled.insider) { setStatus("insider", "off"); return; }
+    if (!mapSettled) { setStatus("insider", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("insider", "loading");
     let stop = false;
     const load = async () => {
@@ -1031,7 +1077,7 @@ export default function DataMapPage() {
     load();
     const iv = window.setInterval(load, 60_000);
     return () => { stop = true; window.clearInterval(iv); };
-  }, [enabled.insider, setStatus]);
+  }, [enabled.insider, mapSettled, setStatus]);
 
   // ── panel helpers ──
   const layerIcon = (id: string) =>
@@ -1052,7 +1098,9 @@ export default function DataMapPage() {
     if (l.status === "planned") return { dot: "var(--text-tertiary)", text: "coming soon" };
     if (l.status === "awaiting_key" || rt?.status === "awaiting_key") return { dot: "var(--accent-orange)", text: "awaiting API key" };
     if (rt?.status === "error") return { dot: "var(--accent-red)", text: rt.note || "feed error — retrying" };
-    if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
+    // v2.4 eternal-spinner rule: loading always carries its note (the OWM
+    // "activating" retry note was being dropped here — the production defect).
+    if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
       const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id;
@@ -1069,7 +1117,8 @@ export default function DataMapPage() {
     const descIsOpen = !!descOpen[l.id];
     return (
       <div key={l.id}>
-        <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`} data-vt-layer={l.id}>
+        <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`} data-vt-layer={l.id}
+             data-vt-rt={runtime[l.id]?.status || "none"} data-vt-since={statusAtRef.current[l.id] || 0}>
           <span className="vt-layer-ic">{layerIcon(l.id)}</span>
           <span className="vt-layer-name">
             <button className="vt-layer-namebtn" aria-expanded={descIsOpen}
