@@ -606,3 +606,111 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   throttle trigger stated (5-hour peaks >~80% → drop order).
 - STARVED: no — directive fully executed this session (PRs #114 #115
   #116 + this).
+
+## 2026-07-04 — [PIPELINE] SEC EDGAR Form 4 (insider transactions) — first datacore pipeline beyond aircraft/vessels
+
+- Session start: read CLAUDE.md, all of research/, per [PRODUCT] session
+  protocol. Loop-health ratio over the last 10 entries: 0 [REPAIR], 3
+  [PIPELINE]/[PRODUCT], 3 [RULE-REVIEW], 1 [RESEARCH] — well below the 7/10
+  escalation threshold. KNOWN BROKEN #3/#4/#5 remain open (owner-gated
+  diagnostics, per wishlist) but don't touch datacore/ or block product
+  work, per this session's brief. Prior branch (#117, daily usage-calibration
+  docs) was already merged to main — reset claude/quirky-hopper-u5pdl1 onto
+  origin/main fresh per the merged-PR restart protocol, no stacking.
+- Chose this action (option (a): advance a datacore/ pipeline through gate
+  1) over the other three (UI-only work with no new signal, a proposal-only
+  new-root writeup, or API/docs hardening) because EDGE DOCTRINE #1 ("BUILD
+  DATA, DON'T BUY IT") names SEC EDGAR real-time Form 4 as a standing
+  example, `datacore/layers.json` had exactly one non-"live" candidate
+  (`tank_fill`, gated on Sentinel-2 satellite image processing — infeasible
+  to attempt end-to-end in one session, no image-analysis toolchain
+  available here), and no datacore pipeline had shipped since aircraft/
+  vessels/archive — Form 4 requires no API key, no image processing, and no
+  new paid access, purely free-data processing (the labor-not-ingredient
+  edge the doctrine calls out).
+- PRIOR (before writing any parser code, REASONING STANDARD #10): expected
+  the main design risk to be SEC's fair-access rate limiting (10 req/s) and
+  the feed's atom format double-listing each filing (once per filer, once
+  per issuer) causing double-counted/double-fetched filings; expected the
+  fix to be accession-number dedup plus a small per-request delay, and
+  expected a hand-rolled tag-scoped regex extractor to be sufficient given
+  no XML parsing library exists in package.json today (matches CLAUDE.md's
+  "don't add unneeded abstractions" — Form 4's schema is flat and stable).
+  Both priors held; see design below.
+- Verified network reachability first (Bash curl, not a guess): SEC EDGAR
+  is directly reachable from this environment. Live-fetched two REAL,
+  current Form 4 filings (accessions 0001104659-26-080497 — a derivative
+  RSU grant, code A — and 0000902664-26-003001 — a 3-reporting-owner
+  non-derivative open-market SALE, code S, two transactions) and
+  hand-verified every field (issuer, owner relationship flags, transaction
+  code/shares/price/shares-owned-after) by reading the raw filed XML myself
+  before writing a single assertion. This IS ladder gate 1 (DATA — verified
+  against an external truth source): for a filings parser, the filed
+  document itself, read directly, is the only ground truth there is to
+  check against — there's no separate "official" source above the filing.
+- Design: `server/edgarForm4.ts` (pure module, zero imports from trading
+  logic — datacore boundary rule) — a dependency-free tag-scoped XML
+  extractor (`parseForm4Xml`), a transaction-code classifier
+  (`classifyTransactionCode`: P=open_market_buy the informative discretionary
+  case, S=open_market_sale, A=award_grant, M=option_exercise, G=gift,
+  F=tax_withholding, else other), an atom-feed parser that dedupes by
+  accession number (`parseFilingFeed`), an index.json XML-document picker
+  (`pickOwnershipXmlName`), a sequential fetch-with-delay batch fetcher
+  (`fetchLatestForm4Filings`), and an in-memory cache + 15-min poll loop
+  booted eagerly at route registration (`bootForm4Poll`) — same eager-boot
+  shape as `vesselStream.ts`, deliberately avoiding KNOWN BROKEN #9's lazy-
+  first-request gap. Wired at `/api/data/insider` in `server/routes.ts`,
+  kind: raw (as-filed display, no predictive claim — the interpreted
+  "clustering predicts returns" question is gate 2, unattempted, logged as
+  a new hypothesis in open_questions.md). Registered in
+  `datacore/layers.json`. `datacore/README.md` updated to correct its
+  stale aspirational `pipelines/` Python layout note (every real pipeline,
+  including this one, lives in `server/*.ts` — DEAD CODE POLICY spirit:
+  don't let docs claim an unbuilt structure is authoritative).
+- Client (MUTABLE rule: new user-visible bot function needs UI in the same
+  PR): `client/src/pages/datamap.tsx` — the insider feed has no lat/lon, so
+  rather than force it into the maplibre marker machinery (`wireLivePoints`,
+  built for geospatial layers), it renders as an inline expandable list
+  directly under its row in the existing layer panel (new `.vt-filings-*`
+  CSS in `index.css`), scoped to avoid the floating-panel collision risk a
+  new independently-positioned overlay would add on phone widths (site-card
+  and layer-panel already claim opposite corners / the mobile bottom sheet).
+  Defaulted on (`DEFAULT_ON.insider = true`) — matches aircraft/sites, the
+  other no-key-required RAW layers.
+- Downstream chain (REASONING STANDARD #1): pipeline ships gate-1-verified
+  -> `/api/data/insider` serves real filings today -> the feed accumulates
+  its own history from this point forward (no live trading impact —
+  datacore boundary rule holds, verified zero imports from bot_engine.py /
+  system_config.py / strategies/ / server/bot.ts) -> once enough history
+  accumulates (or the free SEC bulk full-index is pulled in, unexplored,
+  logged in open_questions.md), gate 2 (does insider-buy clustering predict
+  forward returns vs. a random-entry base rate, REASONING STANDARD #3) can
+  be attempted -> only then would this ever become a SIGNAL eligible for
+  the tournament in strategies/, per the ladder — no shortcut taken.
+- Regression tests FIRST (loop-health rule 3): `server/edgarForm4.test.ts`
+  — 6 tests: the two gate-1 field-by-field fixture checks against the real
+  filings above, transaction-code classification for all 7 codes, feed
+  dedup against a real (trimmed) atom-feed snippet proving the actual
+  filer/issuer double-listing collapses to one entry, and two
+  `pickOwnershipXmlName` cases (found / not-found) against a real
+  index.json shape. All 6 pass; `npm run test:node` is 33/33 (27
+  pre-existing + 6 new) — no existing assertion touched or weakened.
+- Verified: `npx tsc --noEmit` — identical 45 pre-existing errors with and
+  without this change, zero new errors, none in touched/new files.
+  `npm run build` succeeds (same chunk/warning profile as documented).
+  `npm run visual` (client/ touched — PROMOTION RULES rule 6): added
+  `insider` to the layers + a 2-filing fixture in
+  `scripts/visual_check.mjs`; PASS at 390/768/1440 with 0 hard failures
+  (touch-target warnings present are pre-existing global-nav elements, not
+  from this change) — screenshots reviewed, the new layer row and its
+  inline filings list render correctly with GRANT/SELL badges and RAW
+  labeling, no overflow or overlay-coverage regression.
+- No backtest applies (data pipeline, not a strategy/parameter change) —
+  PROMOTION RULES item 3 is N/A here, same as the aircraft/vessel PRs.
+- Version: 1.0.47 (from 1.0.46, read-then-incremented).
+- Hypothesis: gate 1 stands permanently verified (parser correctness is a
+  static property, not a market claim). Gate 2 hypothesis and prior stated
+  in research/open_questions.md ("Insider Form 4 clustering as a signal") —
+  expect small positive edge in officer/director open-market buys on
+  small/mid caps, near-zero on mega-caps, kill if no separation from
+  random-entry baseline after >=90 days of accumulated history.

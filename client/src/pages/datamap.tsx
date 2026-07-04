@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -47,7 +47,24 @@ const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
-const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true };
+const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true };
+
+interface InsiderRow {
+  issuer: string;
+  owner: string;
+  kind: string;
+  shares: number | null;
+  price: number | null;
+  date: string | null;
+}
+
+const INSIDER_KIND_LABEL: Record<string, string> = {
+  open_market_buy: "BUY", open_market_sale: "SELL", award_grant: "GRANT",
+  option_exercise: "EXERCISE", gift: "GIFT", tax_withholding: "TAX WH", other: "OTHER",
+};
+const INSIDER_KIND_COLOR: Record<string, string> = {
+  open_market_buy: "var(--accent-green)", open_market_sale: "var(--accent-red)",
+};
 
 // altitude → tint for aircraft icons (SDF icon-color)
 const ALT_COLOR: any = ["case",
@@ -74,6 +91,7 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [insiderRows, setInsiderRows] = useState<InsiderRow[]>([]);
 
   const setStatus = useCallback((id: string, status: RuntimeStatus, count?: number, note?: string) => {
     setRuntime(s => ({ ...s, [id]: { status, count, note } }));
@@ -487,12 +505,43 @@ export default function DataMapPage() {
     return () => { cancelled = true; };
   }, [enabled.sites, mapReady, setStatus]);
 
+  // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
+  // markers, an inline list inside the layer panel instead) ──
+  useEffect(() => {
+    if (!enabled.insider) { setStatus("insider", "off"); return; }
+    setStatus("insider", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/insider");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("insider", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const rows: InsiderRow[] = (d.filings || []).flatMap((f: any) =>
+          (f.transactions || []).map((t: any) => ({
+            issuer: f.issuerTradingSymbol || f.issuerName || "—",
+            owner: f.owners?.[0]?.name || "—",
+            kind: t.kind, shares: t.shares, price: t.pricePerShare, date: t.transactionDate,
+          }))
+        ).slice(0, 40);
+        setInsiderRows(rows);
+        setStatus("insider", "active", d.count ?? (d.filings || []).length);
+      } catch {
+        if (!stop) setStatus("insider", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(load, 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.insider, setStatus]);
+
   // ── panel helpers ──
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
     id === "aircraft" ? <Plane size={15} /> :
     id === "vessels" ? <Ship size={15} /> :
-    id === "sites" ? <MapPin size={15} /> : <LayersIcon size={15} />;
+    id === "sites" ? <MapPin size={15} /> :
+    id === "insider" ? <FileText size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
     const rt = runtime[l.id];
@@ -502,7 +551,8 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
     if (rt?.status === "active") {
       const c = rt.count;
-      return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${l.id === "sites" ? "sites" : l.id}` : "active", note: rt.note };
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id;
+      return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
   };
@@ -558,26 +608,47 @@ export default function DataMapPage() {
               const st = statusFor(l);
               const on = !!enabled[l.id] && toggleable(l);
               return (
-                <div key={l.id} className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`}>
-                  <span className="vt-layer-ic">{layerIcon(l.id)}</span>
-                  <span className="vt-layer-name">
-                    {l.name}
-                    <span className={`vt-kind-badge ${l.kind}`}>{l.kind === "raw" ? "RAW" : "SIGNAL"}</span>
-                    <span className="vt-layer-status">
-                      <i style={{ background: st.dot }} /> {st.text}
+                <div key={l.id}>
+                  <div className={`vt-layer-row${toggleable(l) ? "" : " vt-layer-row-disabled"}`}>
+                    <span className="vt-layer-ic">{layerIcon(l.id)}</span>
+                    <span className="vt-layer-name">
+                      {l.name}
+                      <span className={`vt-kind-badge ${l.kind}`}>{l.kind === "raw" ? "RAW" : "SIGNAL"}</span>
+                      <span className="vt-layer-status">
+                        <i style={{ background: st.dot }} /> {st.text}
+                      </span>
+                      {st.note && <span className="vt-layer-covnote">{st.note}</span>}
                     </span>
-                    {st.note && <span className="vt-layer-covnote">{st.note}</span>}
-                  </span>
-                  <button
-                    role="switch"
-                    aria-checked={on}
-                    aria-label={`Toggle ${l.name}`}
-                    disabled={!toggleable(l)}
-                    className={`vt-switch${on ? " on" : ""}`}
-                    onClick={() => setEnabled(s => ({ ...s, [l.id]: !s[l.id] }))}
-                  >
-                    <i />
-                  </button>
+                    <button
+                      role="switch"
+                      aria-checked={on}
+                      aria-label={`Toggle ${l.name}`}
+                      disabled={!toggleable(l)}
+                      className={`vt-switch${on ? " on" : ""}`}
+                      onClick={() => setEnabled(s => ({ ...s, [l.id]: !s[l.id] }))}
+                    >
+                      <i />
+                    </button>
+                  </div>
+                  {l.id === "insider" && on && (
+                    <div className="vt-filings-list" role="log" aria-label="Recent Form 4 insider transactions">
+                      {insiderRows.length === 0 ? (
+                        <div className="vt-filings-empty">no filings yet — polls every ~15min</div>
+                      ) : insiderRows.map((r, i) => (
+                        <div className="vt-filings-row" key={i}>
+                          <span className="vt-filings-issuer">{r.issuer}</span>
+                          <span className="vt-filings-owner">{r.owner}</span>
+                          <span className="vt-filings-kind" style={{ color: INSIDER_KIND_COLOR[r.kind] || "var(--text-tertiary)" }}>
+                            {INSIDER_KIND_LABEL[r.kind] || r.kind}
+                          </span>
+                          <span className="vt-filings-shares">
+                            {r.shares != null ? r.shares.toLocaleString() : "—"}
+                            {r.price ? ` @ $${r.price}` : ""}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
