@@ -1,8 +1,10 @@
 # Data / Access Wishlist — human reviews weekly
 
-- **⚖ CONSTITUTIONAL REPAIR — FOUR AMENDMENT PROPOSALS (directive
-  2026-07-04; human approval required item-by-item; NOTHING applied;
-  ship order after approval: 1 → 2 → 3 → 4, each its own docs PR).**
+- **⚖ [APPROVED BY HUMAN 2026-07-04 — ALL FOUR: "Constitutional
+  amendments approved — ship all four in order 1→2→3→4"] CONSTITUTIONAL
+  REPAIR — FOUR AMENDMENT PROPOSALS (directive 2026-07-04; shipping in
+  order, each its own docs PR; Fix 2's runtime half additionally ships
+  as its own [REPAIR] PR with a regression test).**
 
   AUDIT SUMMARY: The constitution has one live contradiction and three
   structural gaps. (1) The GOAL/MISSION still defines the paper account
