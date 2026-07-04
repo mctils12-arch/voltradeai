@@ -13,6 +13,20 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RULE-REVIEW] Amendment 1 SHIPPED: mission reconciled with the charters (docs)
+
+- Human approved all four constitutional-repair amendments ("ship all
+  four in order 1→2→3→4"). This PR applies Fix 1 exactly as filed:
+  GOAL section replaced — intelligence-platform mission with the bot
+  and API customers as the two first-class consumers; priority ORDER
+  preserved; P1 gains "archives recording"; P2 gains ladder-validation
+  before trust/trade/sale; P3 = GROW BOTH COMPOUNDING LINES with the
+  tend-the-bot-vs-advance-the-platform weighing rule; honesty metric
+  two-sided; anti-goals extended with never-sell-unvalidated.
+- Wishlist entry annotated APPROVED. Fixes 2 (constitution sentence +
+  separate runtime [REPAIR] PR), 3 (sovereignty), 4 (bloat) follow in
+  order, each its own PR.
+
 ## 2026-07-04 — [PRODUCT] Legend v3: real registry symbols, grouped, collapsible, parity-enforced (v1.0.78)
 
 - Legend directive executed. The old legend hand-duplicated three site
