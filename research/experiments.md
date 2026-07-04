@@ -13,6 +13,131 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] Daemon RPC route bug fixed (shadow_stats) + counterfactual-logging dead-config audit finding (v1.0.71)
+
+- Session-start protocol followed in order: CLAUDE.md, experiments.md,
+  open_questions.md, wishlist.md all read this session. Loop-health ratio
+  over the last 10 entries (API product foundation back through KNOWN
+  BROKEN #5): 4 REPAIR / 2 RESEARCH / 2 PRODUCT / 2 PIPELINE — well under
+  the 7/10 REPAIR-thrash threshold, no meta-problem to address.
+  `/api/health` on prod: all-ok (server/database/alpaca ACTIVE/python/
+  licensing all "ok", bot active, equityPeak=108151.39, drawdownPct=0.0%
+  — the persisted high-water mark still holding, memory nominal at
+  163MB RSS). No live break visible from the public surface; deeper
+  audit-log/trade_feedback access remains gated behind requireOwner per
+  KNOWN BROKEN #4's unchanged ACCESS LIMITATION, so "fix a bug seen in
+  audit logs" (SESSION BUDGET tier 1) was not directly actionable. No
+  experiment has matured to a judgeable state this session (Insider
+  Form-4, port-dwell, and shadow-fleet gate-2 work are all still
+  accumulating history; Sentinel-2 explicitly deferred its next check to
+  the June-reversal window, not yet reached).
+- Per the KNOWN BROKEN #5 precedent (2026-07-04, same session-budget
+  bind: no live audit access, nothing matured to judge), fell through to
+  a READ-BEFORE-WRITE static audit as the next best "fix a bug" action —
+  this time targeting `shadow_portfolio.py`, since CLAUDE.md's RULE
+  REVIEW section names counterfactual logging as the standing evidence
+  requirement for every open RULE COST AUDIT question, and no session's
+  log had ever mentioned whether that infrastructure exists.
+- PRIOR (REASONING STANDARD #10, stated before reading `shadow_portfolio.py`):
+  expected counterfactual logging to be wholly unbuilt (open_questions.md's
+  RULE COST AUDIT section is headed "after counterfactual logging
+  exists," implying it doesn't yet).
+- FINDING vs. prior — WRONG, in an interesting way: `shadow_portfolio.py`
+  (240+ lines, thorough docstring) already implements almost exactly the
+  CLAUDE.md RULE REVIEW spec — `log_candidate()` records
+  {ticker, timestamp, score, decision, decision_reason, entry_price,
+  regime, 34 ML features} for candidates, and `backfill_outcomes()` is
+  wired into `server/bot.ts`'s Tier-1 daily cycle (10pm UTC, confirmed
+  live in bot.ts:2717-2733) to fill in forward +5d/+10d/+20d hypothetical
+  outcomes via real Alpaca bars, using PATH-DEPENDENT labeling that walks
+  the bot's actual take-profit/stop-loss rules rather than close-only
+  returns. This has apparently been running daily and accumulating data
+  without ever being logged in research/ — a documentation gap, not a
+  code gap. HOWEVER: `log_candidate()` is only actually CALLED from one
+  place (`bot_engine.py` deep_score(), decision values `taken` /
+  `rejected_score`) — the four other decision buckets its own docstring
+  names (`rejected_heat`/`rejected_halt`/`rejected_earnings`/
+  `rejected_other`) have ZERO call sites anywhere in the repo (grepped).
+  So today the shadow archive can only ever answer the MIN_SCORE RULE
+  COST AUDIT question, not the spread/correlation/regime/kill-switch
+  ones — logged as the natural next PR (open_questions.md KNOWN BROKEN
+  #10/RULE COST AUDIT update), not built this session (scope: this
+  session's action is the audit + the one confirmed bug, not a new
+  wiring project across bot_engine.py's many gate points).
+- SECOND FINDING (the confirmed, fixed bug): while checking every
+  consumer of `shadow_portfolio.py` per READ BEFORE WRITE, found
+  `voltrade_daemon.py`'s RPC route table maps
+  `"shadow_stats": ("shadow_portfolio", "get_stats")` — but the real
+  function is `get_shadow_stats()`; `get_stats` does not exist. Any RPC
+  call to `shadow_stats` would silently return a "Method not found"
+  error at runtime. Confirmed via grep that nothing in `server/bot.ts`/
+  `server/routes.ts` currently calls this RPC method (latent, not an
+  active live break) — `backfill_outcomes` (the piece that actually
+  writes data) is unaffected and confirmed working via its own bot.ts
+  wiring. This is precisely the "Python signature change with an
+  un-updated caller fails silently at runtime, not in CI" class READ
+  BEFORE WRITE warns about — except here the caller-side name was wrong
+  from the start, not a later rename.
+- THIRD FINDING (surfaced investigating why the RULE COST AUDIT
+  questions read as unanswerable): `system_config.py`'s `SCORE_BAND_MAX`,
+  `MAX_CHANGE_PCT`, `SCORE_BAND_OPTIMAL_LO`, `SCORE_BAND_OPTIMAL_HI` are
+  read NOWHERE outside `system_config.py` itself (grepped the entire
+  repo) — dead config with comments that claim they gate trades
+  ("Skip stocks already up/down 35%+", "Scores above this are often fake
+  breakouts") when nothing in `bot_engine.py` enforces either as a hard
+  block; `bot_engine.py` only applies a soft score PENALTY for extreme
+  `change_pct`, never a skip, and never checks `combined_score` against
+  `SCORE_BAND_MAX`/`SCORE_BAND_OPTIMAL_LO/HI` anywhere. Full detail,
+  honesty-metric relevance, and the deliberate decision NOT to
+  unilaterally wire a hard skip back in (that would be a rule/threshold
+  CHANGE requiring RULE REVIEW's evidence-or-ablation gate, which
+  neither exists nor can be quickly built — bot_backtest.py/backtest_v2.py
+  model ETF rotation, not per-candidate stock selection) are in
+  open_questions.md KNOWN BROKEN #10.
+- FIX SHIPPED (one logical change): `voltrade_daemon.py`'s `shadow_stats`
+  route corrected to `get_shadow_stats`. Regression test added FIRST per
+  loop-health rule 3: new `test_voltrade_daemon.py` (no daemon test file
+  existed before this PR) walks every route in `RPCDispatcher._routes`
+  whose target module exists on disk and asserts the attribute resolves
+  to a real callable — confirmed FAILING against the pre-fix code (2/4
+  tests failed, pinpointing exactly `shadow_stats` -> `get_stats`), then
+  confirmed PASSING (4/4) after the one-line fix. This ratchets against
+  the entire class of bug (any future route rename), not just this
+  instance — the two genuinely-placeholder routes (`ml_status_impl`/
+  `ml_toggle_impl`, which have no corresponding .py file by design and
+  fall back to local methods) are explicitly pinned as expected-absent
+  so they're never silently miscounted as "checked."
+- Verified: full offline CI-gate subset + the new file —
+  `python3 -m pytest -q test_risk_controls.py test_audit_critical.py
+  test_diagnostic_false_positives.py test_patches_verification.py
+  test_voltrade_daemon.py` — 124 passed, 1 skipped (120 pre-existing + 4
+  new, identical baseline otherwise; KNOWN BROKEN #6's full-repo
+  collection issue is pre-existing and untouched). No `.ts`/`.tsx` files
+  touched — Node test suite and the visual harness are out of this PR's
+  scope (PROMOTION RULES rule 5, one logical change).
+- Downstream chain (REASONING STANDARD #1): fixing the route ->
+  `shadow_stats` becomes callable the moment any caller (a future
+  dashboard, the still-pending DIAG_TOKEN route, or a CLI probe) wires
+  it up -> that caller sees real win-rate-by-decision numbers instead of
+  a silent error -> the KNOWN BROKEN #10 dead-config finding gives any
+  future session the accurate mental model of which RULE COST AUDIT
+  questions are actually answerable today (MIN_SCORE, once ~90 days of
+  shadow history accumulate) vs. not (SCORE_BAND_MAX/MAX_CHANGE_PCT,
+  which govern nothing yet). Zero live-trading-behavior change from this
+  PR — nothing in `bot_engine.py`/`system_config.py`/`strategies/`
+  changed, and the daemon route was never called by anything live.
+  Version bumped 1.0.70 -> 1.0.71 (read-and-increment) per convention,
+  though PROMOTION RULES rule 3's backtest requirement doesn't apply
+  (no strategy/parameter change).
+- STARVED: no — this session's scope (audit + confirmed-bug fix +
+  honest documentation of the dead-config finding) shipped in full.
+  High-value work remains queued: KNOWN BROKEN #3/#6, wiring the
+  remaining `log_candidate()` decision buckets (spread/correlation/
+  regime/kill-switch) so the RULE COST AUDIT's other questions become
+  answerable, the SCORE_BAND_MAX/MAX_CHANGE_PCT evidence-or-retire
+  decision once shadow history or an ablation harness exists, the
+  GEOSPATIAL LICENSING REGISTER items (d)-(g), and the GIP BUILD QUEUE.
+
 ## 2026-07-04 — [PRODUCT] API product foundation — /api/v1 over the archives, key scaffolding, metering, license marks (v1.0.70)
 
 - API directive part 1 built pre-revenue, last mile explicitly gated:
