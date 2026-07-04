@@ -494,6 +494,15 @@
   — the pipeline is script-side, never runtime). Re-verify their
   free-tier transfer quota at need per the licensing rule.
 
+- **HUMAN ACTION (or non-proxied routine) — Australia CASA data-files
+  licence check:** casa.gov.au consistently 503s via our egress proxy;
+  the register CSVs are free but the applicable licence may be CC
+  BY-NC (non-commercial — would exclude product use). Fetch
+  https://www.casa.gov.au/aircraft/aircraft-registration/data-files-registered-aircraft
+  ("Downloading and using our data files" conditions) from a normal
+  network and paste the licence text into a session. Until verified,
+  the aircraft-registry spine ships without Australia.
+
 - **HUMAN ACTION — Apple Performance Partners / Enterprise Partner
   Feed enrollment (free):** sanctioned bulk feed that hedges the
   undocumented Apple RSS endpoints the app-store archiver uses

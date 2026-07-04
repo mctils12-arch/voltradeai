@@ -638,10 +638,50 @@ territory in their first commit)
 - [T-DATACORE] **Sentinel-2 iteration**: per-tank annulus geometry at
   Cushing (the gate-1 path — facility index logged, confounded);
   weekly runs continue via scripts/sentinel2_tankfill.py.
-- [T-DATACORE] **Part 5 research results** (workflow running:
-  international registries / county GIS / vessel identity prior art /
-  multi-date imagery architecture) — file as entries here when they
-  land; licensing first, always.
+- [T-DATACORE] **Part 5 research results (4-agent workflow, primary
+  sources, filed 2026-07-04):**
+  1. AIRCRAFT REGISTRIES — BUILD the 4-registry spine pipeline: FAA
+     ReleasableAircraft + Transport Canada ccarcsdb.zip (VERIFIED
+     downloaded: daily, Open Government Licence incl. redistribution,
+     Mode-S hex + owner + address, 34,948 aircraft) + Brazil ANAC RAB
+     CSV (daily, CC-BY, owners+operators with ownership %, hex
+     derivable) + NZ CAA CSV (hex + owner; licence probably NZGOAL
+     CC-BY — verify before product surface). Overlay
+     wiedehopf/tar1090-db aircraft.csv.gz (ODC-By, weekly, 621k rows)
+     as the global hex→reg→type backbone. NEGATIVES recorded so no
+     session re-chases: UK CAA bulk is PAID with a
+     no-redistribution licence (unusable even if bought); Ireland's
+     monthly file froze at Sep-2025 (use as static lessor snapshot);
+     Australia CASA files exist free but the licence page 503'd via
+     our egress — VERIFY from another network before use (wishlist);
+     Germany/France/Spain/Italy unevaluated (next research pass).
+  2. COUNTY PERMITS — GIP annotation CONFIRMED AND STRENGTHENED:
+     no free national permit layer exists; coverage is bimodal
+     (big port cities have open portals; our small industrial sites
+     mostly have nothing). Do NOT budget a per-county campaign. Build
+     two cheap things only: Census BPS monthly ingest (public domain,
+     residential-only macro layer, small-place imputation labeled)
+     and a generic ArcGIS-REST/Socrata permit adapter proven against
+     Seattle (Socrata 76t5-zqzr, public domain, daily) + Savannah
+     SAGIS — per-target verification stays manual.
+  3. VESSEL IDENTITY — every authoritative registry (ITU MARS,
+     Equasis, GISIS) is free-to-view but CLOSED to programmatic use;
+     the upgrade path is METHODS, not data: GFW/Park et al. 2023
+     over OUR archive — parse IMO/callsign/dimensions from archived
+     AIS static messages, IMO checksum validation (checksum-valid IMO
+     agreement across two MMSIs = strongest hull-match evidence),
+     replace guessed nearKm/withinHours with published thresholds,
+     emit envelope-carrying confidence-scored inferences.
+     Zero licence exposure; survives monetization.
+  4. MULTI-DATE IMAGERY — architecture decided: weekly OFFLINE chip
+     pipeline (STAC per AOI, lowest-cloud scene per ISO week, TCI COG
+     window read from s3://sentinel-cogs, WebP chip + metadata JSON
+     {sensingDatetimeUTC, cloudPct, productId}) served FIRST-PARTY
+     from the volume; never live-proxy third-party tiles. Honesty:
+     ~40-70% of weeks yield a usable scene — the timeline UI must
+     show "no usable capture this week" gaps, never silently reuse
+     stale chips (extends the imagery-date rule). CDSE Processing API
+     as validation/backup (free tier ample).
 - [SHARED→T-DATACORE] **API product foundation (throughput directive
   2026-07-04)**: /api/v1 versioned read endpoints + key scaffolding +
   metering + per-endpoint license marks; /developers page [T-CLIENT];
