@@ -1009,3 +1009,19 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Tests: 4 hermetic synthetic-archive cases (gap yes/no discrimination,
   both identity heuristics, loiter vs fast-transit, aggregation +
   caveat + wiring pins). 49/49 node; harness green.
+
+## 2026-07-04 — [RESEARCH] Fusion hypotheses filed + collect-everything audit (Map v2.2 close-out)
+- Three fusion hypotheses filed in open_questions with pairings,
+  testable claims, and gate-1 ground truths (insider x facility at the
+  verified SDI mills; generation shifts x operator tickers with the
+  registry->ticker mapping as gate-1 work; ship-movement anomalies x
+  tanker/retail names with TEU reports as truth). Logged, not built —
+  per the directive.
+- COLLECT-EVERYTHING verified in code for every layer: aircraft/
+  vessels/trains stream to JSONL; Form 4 archives per poll; static
+  reference data (plants/sites/zones) is git-versioned by doctrine;
+  derived stats (shadowstats) intentionally not archived (recomputable
+  from archived ingredients); imagery honestly not archived until the
+  Sentinel-2 pipeline lands. Doctrine line added to open_questions.
+- Map v2.2 directive fully executed across PRs #127-#131 + this docs
+  close-out. STARVED: no.

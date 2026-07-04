@@ -376,3 +376,56 @@ R4. **3D globe mode.** MapLibre globe projection (or Cesium only if
   desks; the trade-relevant LAG (compliance buyers act on sanctions
   risk, not tanker-rate positioning) is the structural reason a small
   player can still extract the market signal.
+
+## FUSION HYPOTHESES (Map v2.2 directive 2026-07-04 — logged, NOT built; each with ladder path)
+
+- **(a) Insider × facility activity (STLD first).** PAIRING: Form 4
+  archive (officer/director open-market buys at STLD) × Sentinel-2
+  change detection at the four imagery-verified SDI mills (Butler,
+  Columbus, Sinton, Columbia City — coordinates fixed 2026-07-03).
+  TESTABLE CLAIM: quarters where insider open-market buying co-occurs
+  with visible yard-inventory drawdown (finished-steel yard shrinking =
+  shipments outpacing production) beat single-signal quarters for
+  forward 1-2q returns. GATE 1 GROUND TRUTH: Sentinel-2 yard readings
+  reconcile against STLD's disclosed quarterly shipment volumes before
+  any return test; Form 4 side is already gate-1-passed (as-filed).
+- **(b) Generation shifts × utility tickers.** PAIRING: EIA-930 hourly
+  generation by fuel/region × our EIA-located plant registry × operator
+  equity tickers. TESTABLE CLAIM: sustained regional gas-utilization
+  spikes with a single dominant listed operator lead that operator's
+  earnings surprises vs the XLU base rate. GATE 1 GROUND TRUTH: a
+  registry-owner -> ticker mapping table (build once, verify against
+  10-K subsidiary lists) + EIA-930 totals reconciling to registry
+  capacity within ~5% per region. Extends the POWER-PLANT hypotheses
+  entry; the fusion is the operator-concentration conditioning.
+- **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
+  our port-transit stats (arrivals at the 9 imagery-verified ports from
+  the vessel archive) + shadow-fleet zone rates × (i) tanker basket
+  FRO/STNG/TNK, (ii) retail-import names (XRT) for container ports.
+  TESTABLE CLAIM: container-port arrival-rate anomalies lead XRT
+  earnings-season surprises; dirty-STS zone rates lead tanker rates.
+  GATE 1 GROUND TRUTH: monthly port TEU reports (containers) and
+  published tanker-rate indices (Baltic Dirty) reconciling with our
+  archive-derived counts.
+- Discipline: three hypotheses = three separate gate-1 efforts; none
+  advances without its reconciliation; REASONING STANDARD #4 applies
+  (discount for every variant tried when any reaches gate 2).
+
+## COLLECT-EVERYTHING AUDIT (verified 2026-07-04, Map v2.2 directive)
+
+Every layer's data path to permanent storage, verified in code:
+- aircraft -> archiveAircraft on every fresh upstream fetch ✓
+- vessels -> archiveVessels on the 60s snapshot tick ✓
+- trains -> archiveTrains on every fetch (2-min cadence gate) ✓ (v1.0.53)
+- Form 4 filings -> archiveFilings on every 15-min poll, gzip after 2d ✓
+  (v1.0.55 — history accumulates, never display-only)
+- power plants / strategic sites / shadow zones (STATIC reference data)
+  -> git-versioned in datacore/ — the repo history IS the snapshot
+  archive; the builder is re-runnable and every change is a commit. No
+  runtime archiving needed; DOCTRINE: static reference layers are
+  archived by versioning, streamed layers by JSONL.
+- shadowstats (DERIVED) -> not separately archived BY DESIGN: it is a
+  pure function of the vessel archive and recomputable for any window;
+  archiving ingredients, not derivations, is the rule.
+- imagery -> NOT archived (CDN tiles; licensing + volume); the
+  Sentinel-2 pipeline will archive scene IDs + readings when it lands.
