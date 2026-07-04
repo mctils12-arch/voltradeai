@@ -13,6 +13,29 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] /api/diag shipped: token-gated read-only diagnostics (option d, human-approved) (v1.0.81)
+
+- Territory: T-BOT (server/bot.ts route + pure server/diag.ts). Closes
+  the session-self-diagnosis gap: KNOWN BROKEN #3/#4 verification
+  (fills firing? feedback accumulating? retrain green?) no longer
+  needs the human to paste JSON.
+- Shape per the approved option (d): GET /api/diag/:probe, HARD
+  WHITELIST {audit tail (time/type/message only), ml status
+  (model age + fills/feedback counts), daemon health, positions
+  SUMMARY (counts + gross/net exposure — never symbols)}. Closed by
+  default: no DIAG_TOKEN or <24 chars ⇒ 404; timing-safe token
+  compare; every response passes sanitizeDiag (key-like strings, long
+  hex/base64, emails → [redacted]) as defense-in-depth over the
+  whitelist shaping. auth.ts (frozen) untouched — pinned by test.
+- Token generated and handed to the human (Railway + Claude Code
+  session env, header x-diag-token). Test file uses a dummy — the real
+  value never enters the repo.
+- Gates: node 121/121 (4 new: closed-by-default + token check,
+  summary-has-no-symbols, sanitizer A/B incl. survivor timestamps,
+  wiring pin incl. auth.ts-untouched); build clean; tsc unchanged (61
+  pre-existing). Verification plan: once DIAG_TOKEN is set in Railway,
+  next session curls /api/diag/ml and logs the first live reading.
+
 ## 2026-07-04 — [PRODUCT] Decisions batch executed: monetization 2+3 delivered, options pilot decided, DIAG approved, CDSE/AIS verified (docs)
 
 - Human decision batch (five items) recorded and executed:
