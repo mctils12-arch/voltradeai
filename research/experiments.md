@@ -13,6 +13,34 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Tier-1(a): terrain hillshade layer — Mapterhorn DEM (v1.0.61)
+
+- First geospatial Tier-1 layer, built against the licensing register
+  (Mapterhorn: commercial-OK, terrarium 512px z0-17, attribution via
+  TileJSON — verified live this session, TileJSON declares encoding +
+  © Mapterhorn). MapTiler free tier rejected per register
+  (non-commercial). RAW layer, default OFF (imagery base already
+  carries relief; hillshade is the opt-in accent), inserted beneath
+  the lowest data layer (symbol/circle/LINE — first probe run caught
+  hillshade sitting above the aircraft velocity-vector line layer;
+  finder widened, re-verified).
+- Also wires the raster-dem source that R4's 3D terrain toggle will
+  reuse (setTerrain on the same source) — R4's terrain-source
+  prerequisite is now done.
+- New test file layersRegistry.test.ts: registry-wide invariants
+  (every layer carries kind/status/source/description; SIGNAL layers
+  may never be status live — the RAW-vs-SIGNAL rule is now
+  machine-enforced) + Mapterhorn attribution pin. This ratchets ALL
+  future layers, not just terrain.
+- RENDER PROBE (new-layer lesson): toggled via the real panel switch,
+  jumped to the Rockies at z9 — source attached, layer ordered under
+  data layers, isSourceLoaded=true (DEM webp tiles actually fetched).
+  Gates: node 59/59, python 114/1 skipped, harness green x3 with
+  self-see. Version 1.0.60 -> 1.0.61.
+- Queued follow-up (register note): archive a PMTiles extract of our
+  AOIs for provider-disappearance resilience — accumulation
+  substitutes for dependency.
+
 ## 2026-07-04 — [RESEARCH] Five new data roots filed + geospatial licensing register + universal-envelope proposal (docs PR)
 
 - Charter gap execution items 2-3: a 10-agent research workflow

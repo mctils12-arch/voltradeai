@@ -46,6 +46,7 @@ const FIXTURES = {
   "/api/data/layers": {
     layers: [
       { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", source: "Esri World Imagery", description: "Base imagery." },
+      { id: "terrain", name: "Terrain (hillshade)", kind: "raw", status: "live", source: "Mapterhorn (© Mapterhorn)", description: "Global hillshade, off by default." },
       { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
       { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
       { id: "trains", name: "Live trains (rail)", kind: "raw", status: "live", source: "Digitraffic FI + Entur NO", description: "FI+NO launch coverage." },
