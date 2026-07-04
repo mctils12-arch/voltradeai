@@ -13,6 +13,17 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RULE-REVIEW] Amendment 2 SHIPPED: liveness alarm in Priority 1 (docs; runtime half queued as [REPAIR])
+
+- Fix 2 constitution half applied exactly as filed: LIVENESS ALARM
+  appended to GOAL Priority 1 — loop paused/halted/broker-unreadable
+  for >2 market hours (or 24h wall-clock) = top-of-report alarm in
+  every DAILY session + degraded /api/health.
+- Runtime half ships next as its own [REPAIR] PR with a regression
+  test: persist state.inactiveSince; /api/health Check 5
+  (bot.ts:1049) degrades overall status past the thresholds — the
+  hook-confirmed gap that let the loop sit paused unflagged.
+
 ## 2026-07-04 — [RULE-REVIEW] Amendment 1 SHIPPED: mission reconciled with the charters (docs)
 
 - Human approved all four constitutional-repair amendments ("ship all
