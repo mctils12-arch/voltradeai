@@ -13,6 +13,23 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Positioning copy on /developers (atlas-parity Part 4) (v1.0.77)
+
+- The directive's honest not-a-basemap framing added to the /developers
+  hero: same open geospatial foundation as any Earth viewer, every
+  source named, differentiation = live movement + entity fusion +
+  market-validated signals + API access; explicit "no claim is made to
+  proprietary imagery". Live-vs-coming honesty already per-endpoint on
+  the page (meta.coming_gated).
+- Pinned by test (waitlist.test.ts): "not a basemap competitor" +
+  the no-proprietary-imagery disclaimer must stay on the page; the
+  monetization-tripwire string pins are untouched.
+- The landing-page additive section (task queue: approved copy from
+  the three-part directive) will carry the same positioning when
+  built — this PR covers the developer-facing half only.
+- Gates: node 110/110; harness developers ×3 clean, 390px screenshot
+  reviewed; python untouched.
+
 ## 2026-07-04 — [PRODUCT] Atlas parity layer 3: country borders (Natural Earth, self-hosted) live (v1.0.76)
 
 - Third build from the ATLAS PARITY filing: Natural Earth 1:110m

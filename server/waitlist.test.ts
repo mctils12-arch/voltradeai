@@ -51,3 +51,9 @@ test("wiring pinned: waitlist route + manifest exist; NO billing anywhere in the
   }
   assert.ok(page.includes("not for sale yet"), "pricing must be explicitly marked not-enabled");
 });
+
+test("positioning copy pinned: honest not-a-basemap framing on /developers (atlas-parity Part 4)", () => {
+  const page = fs.readFileSync(path.join(here, "..", "client", "src", "pages", "developers.tsx"), "utf8");
+  assert.ok(page.includes("not a basemap competitor"), "positioning line missing");
+  assert.ok(page.includes("no claim is made to proprietary imagery"), "the honest no-proprietary-imagery disclaimer must stay");
+});
