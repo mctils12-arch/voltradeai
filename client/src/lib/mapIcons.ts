@@ -273,6 +273,23 @@ const shapes: Record<string, () => ImageData> = {
     ctx.lineTo(m - 4, s - 5); ctx.lineTo(m + 8, m - 2); ctx.lineTo(m + 1, m - 2);
     ctx.closePath(); ctx.fill();
   }),
+  // active-fire detection: teardrop flame, upright (never rotated) —
+  // per-feature icon-color carries the confidence tint (see FIRE_COLOR)
+  "vt-fire": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 3);
+    ctx.bezierCurveTo(m + 10, m - 6, m + 8, m + 4, m + 4, m + 6);
+    ctx.bezierCurveTo(m + 7, m - 2, m + 2, m - 4, m, m - 9);
+    ctx.bezierCurveTo(m - 2, m - 4, m - 7, m - 2, m - 4, m + 6);
+    ctx.bezierCurveTo(m - 8, m + 4, m - 10, m - 6, m, 3);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(m, m + 2);
+    ctx.bezierCurveTo(m + 5, m + 5, m + 4, s - 6, m, s - 5);
+    ctx.bezierCurveTo(m - 4, s - 6, m - 5, m + 5, m, m + 2);
+    ctx.closePath(); ctx.fill();
+  }),
   // train: locomotive nose-up — rounded body, cab window notch, nose taper
   // (points "up"/north so icon-rotate can turn it to bearing when known)
   "vt-train": () => draw(S, (ctx, s) => {
@@ -326,6 +343,11 @@ export const POWER_FUEL_COLOR: Record<string, string> = {
 export const POWER_FUEL_LABEL: Record<string, string> = {
   nuclear: "Nuclear", coal: "Coal", gas: "Gas", oil: "Oil",
   hydro: "Hydro", wind: "Wind", solar: "Solar", other: "Other",
+};
+
+/** FIRMS confidence (low/nominal/high) -> marker tint. */
+export const FIRE_CONFIDENCE_COLOR: Record<string, string> = {
+  low: "#fde047", nominal: "#fb923c", high: "#ff3b30",
 };
 
 /** Project a short velocity-vector endpoint from position/heading/speed.

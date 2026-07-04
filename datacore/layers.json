@@ -106,6 +106,14 @@
       "description": "Per-port vessel dwell statistics from our own archive: completed calls, ships in port now, median/p90 dwell, and 3x-median anomaly FLAGS (suppressed under 10 completed calls — thin history). Dwell figures are lower bounds (coverage gaps split visits). The dwell-anomaly SIGNAL (congestion predicts returns) stays gated at ladder gate 2 vs published congestion indices."
     },
     {
+      "id": "fires",
+      "name": "Active fires (VIIRS)",
+      "kind": "raw",
+      "status": "awaiting_key",
+      "source": "NASA FIRMS / LANCE (VIIRS 375m NRT; free MAP_KEY)",
+      "description": "Active-fire detections, ~3h latency. Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration — see wishlist). No free history exists upstream — detections archive from the day the key activates."
+    },
+    {
       "id": "tank_fill",
       "name": "Tank-fill % (Sentinel-2)",
       "kind": "signal",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -7,7 +7,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
-  POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL,
+  POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
 } from "@/lib/mapIcons";
 import FilingsView from "./filings";
 import { mmsiFlag } from "@/lib/mmsiFlag";
@@ -37,7 +37,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire";
   title: string;
   subtitle: string;
   body: string;
@@ -67,6 +67,7 @@ const PANEL_GROUPS = [
   { id: "base", label: "Base" },
   { id: "live", label: "Live tracking" },
   { id: "facilities", label: "Facilities" },
+  { id: "environmental", label: "Environmental" },
   { id: "filings", label: "Filings & flows" },
   { id: "signals", label: "Signals — coming soon" },
 ] as const;
@@ -75,6 +76,7 @@ const LAYER_GROUP: Record<string, string> = {
   weather_temp: "base", weather_wind: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
+  fires: "environmental",
   insider: "filings", shadowstats: "filings", portdwell: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
@@ -116,7 +118,7 @@ export default function DataMapPage() {
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away.
   const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>({
-    facilities: true, filings: true, signals: true,
+    facilities: true, environmental: true, filings: true, signals: true,
   });
   // v2.3 fullscreen map mode — nav hidden via a body class; remembered per
   // session; the map needs a resize after the container jumps.
@@ -961,6 +963,90 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.trains, mapReady, mapSettled, setStatus]);
 
+  // ── active fires (RAW; NASA FIRMS/LANCE VIIRS 375m NRT — Tier-1(c)
+  // geospatial root, key-gated exactly like vessels. No free history exists
+  // upstream, so the server archives every fetch from day one. NOT FOR
+  // SAFETY-OF-LIFE USE per the LANCE data-use disclaimer, restated in every
+  // detection's detail card, not just the layer description.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const meta = layers.find(l => l.id === "fires");
+    if (meta && meta.status === "awaiting_key") setStatus("fires", "awaiting_key");
+    if (!enabled.fires) {
+      try {
+        if (map?.getLayer("fires-sym")) map.removeLayer("fires-sym");
+        if (map?.getSource("fires")) map.removeSource("fires");
+      } catch {}
+      if (!meta || meta.status !== "awaiting_key") setStatus("fires", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("fires", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/fires");
+        const d = await r.json();
+        if (stop) return;
+        if (d.enabled === false) { setStatus("fires", "awaiting_key"); return; }
+        if (d.warming_up) { setStatus("fires", "loading", 0, "warming up — first poll can take a few minutes"); return; }
+        const fc = {
+          type: "FeatureCollection",
+          features: (d.fires || []).map((f: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+            properties: {
+              color: FIRE_CONFIDENCE_COLOR[f.confidence] || FIRE_CONFIDENCE_COLOR.nominal,
+              confidence: f.confidence, brightness: f.brightness, frp: f.frp,
+              acq_date: f.acq_date, acq_time: f.acq_time, satellite: f.satellite,
+              daynight: f.daynight || "",
+            },
+          })),
+        };
+        const src: any = map.getSource("fires");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("fires", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "fires-sym", type: "symbol", source: "fires",
+            layout: {
+              "icon-image": "vt-fire",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.28, 6, 0.5],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": ["get", "color"], "icon-opacity": 0.9 },
+          });
+          map.on("click", "fires-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            setDetail({
+              kind: "fire",
+              title: "Active fire detection",
+              subtitle: `${p.confidence} confidence · ${p.satellite}${p.daynight ? ` · ${p.daynight === "D" ? "day" : "night"}` : ""}`,
+              body: `Detected ${p.acq_date} ${String(p.acq_time).padStart(4, "0")} UTC` +
+                    `${p.brightness != null ? `\nBrightness: ${Math.round(p.brightness)} K` : ""}` +
+                    `${p.frp != null ? `\nFire radiative power: ${p.frp} MW` : ""}\n\n` +
+                    `NASA FIRMS/LANCE — for informational purposes only, NOT for safety-of-life use.`,
+              links: [{ label: "NASA FIRMS map", href: "https://firms.modaps.eosdis.nasa.gov/map/" }],
+            });
+          });
+          map.on("mouseenter", "fires-sym", () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", "fires-sym", () => { map.getCanvas().style.cursor = ""; });
+        }
+        setStatus("fires", "active", d.count ?? (d.fires || []).length,
+          "NASA FIRMS/LANCE · VIIRS 375m · ~3h latency · not for safety-of-life use");
+      } catch {
+        if (!stop) setStatus("fires", "error");
+      }
+    };
+    load();
+    const iv = window.setInterval(load, 15 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.fires, mapReady, layers, setStatus]);
+
   // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
   // archive — counts only, per-vessel claims stay ladder-gated) ──
   const [shadowStats, setShadowStats] = useState<any>(null);
@@ -1091,6 +1177,7 @@ export default function DataMapPage() {
     id === "sites" ? <MapPin size={15} /> :
     id === "powerplants" ? <Zap size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
+    id === "fires" ? <Flame size={15} /> :
     id === "insider" ? <FileText size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
@@ -1103,7 +1190,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -1295,6 +1382,11 @@ export default function DataMapPage() {
               <span><i style={{ background: "#4d9fff" }} /> hydro</span>
               <span><i style={{ background: "#7cc4ff" }} /> wind</span>
               <span><i style={{ background: "#fde047" }} /> solar</span>
+              <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
+              <span style={{ color: "var(--text-tertiary)" }}>fires:</span>
+              <span><i style={{ background: FIRE_CONFIDENCE_COLOR.high }} /> high conf.</span>
+              <span><i style={{ background: FIRE_CONFIDENCE_COLOR.nominal }} /> nominal</span>
+              <span><i style={{ background: FIRE_CONFIDENCE_COLOR.low }} /> low conf.</span>
             </div>
           </div>
         )}

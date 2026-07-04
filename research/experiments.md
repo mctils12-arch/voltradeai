@@ -13,6 +13,124 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] NASA FIRMS active-fires layer scaffolded (v1.0.65)
+
+- Session start check: read CLAUDE.md, all of research/, KNOWN BROKEN.
+  Nothing there blocks product work: #3 (CSP cascade) and #5 (orphaned
+  data modules) both need live-only diagnostics this session can't reach
+  (KNOWN BROKEN #4's ACCESS LIMITATION, unchanged since 2026-07-04); #6
+  (pytest collection) is a pre-existing, already-scoped-around gap. Per
+  the task's own instruction ("product sessions do not preempt the DAILY
+  routines' repair duty"), proceeded with product work. Loop-health ratio
+  over the last 10 entries: well under the 7/10 REPAIR-thrash threshold
+  (mostly PRODUCT/RESEARCH) — no meta-problem to address first.
+- Chose the concrete next queued item from the GEOSPATIAL LICENSING
+  REGISTER's explicit build-order list (open_questions.md): "(c) FIRMS
+  fires — awaiting MAP_KEY human action, may ship scaffolded awaiting_key
+  like vessels did, ARCHIVE detections from day one." (a) terrain and (b)
+  weather were already shipped; no session had claimed (c) yet (checked
+  for a [CLAIMED] tag first per the OPS GOTCHAS double-build rule — none
+  found). This is squarely ladder-gate-1-adjacent PRODUCT work (a) from
+  the task menu: a RAW-DATA overlay ships ungated per the RAW-vs-SIGNAL
+  surface rule (as-is detections + attribution, zero predictive claim),
+  and the licensing homework was already done in the 2026-07-04 register
+  — no re-research needed, matched the build-order rationale exactly.
+- BUILT: `server/nasaFirms.ts` — pure fetch/parse/archive/poll module,
+  same shape as `edgarForm4.ts` (discrete dated events, not continuous
+  tracks, so it reuses that module's day-file-JSONL-with-dedup archive
+  pattern rather than `datacoreArchive.ts`'s adaptive-thinning position-
+  track pattern). Key-gated exactly like `vesselStream.ts`
+  (`NASA_FIRMS_MAP_KEY`) — `bootFirmsPoll()` no-ops entirely without a
+  key, so there is zero upstream traffic or archive writes pre-key.
+  `parseFirmsCsv` reads FIRMS' area-CSV by column NAME (not fixed index),
+  so it handles both the VIIRS (`bright_ti4`, letter confidence l/n/h)
+  and MODIS (`brightness`, numeric 0-100 confidence) column layouts
+  without knowing in advance which source served a row — both classify
+  through `classifyFirmsConfidence` into the same three-bucket scale.
+  Dedup identity (`fireDetectionId`) is satellite+rounded-position+
+  acquisition-timestamp, because FIRMS has no stable per-row id of its
+  own and re-serves the same detections across overlapping day-range
+  polls — verified by the archive test (identical set re-archived writes
+  zero the second time).
+- Wired in `server/routes.ts`: `/api/data/fires` (enabled:false + reason
+  when no key, mirroring `/api/data/vessels`'s shape exactly so the
+  client's existing awaiting-key handling needs no new cases) and the
+  `/api/data/layers` dynamic-status mapping (fires goes `live` the moment
+  the key exists, same as vessels).
+- Client (`client/src/pages/datamap.tsx`): new "Environmental" panel
+  group (collapsed by default, positioned after Facilities — this group
+  now also holds the future R3 roadmap layers: USDA CDL crops, drought/
+  soil moisture, USGS groundwater, per open_questions.md); a fires
+  useEffect following the vessels awaiting-key pattern; a new `vt-fire`
+  SDF icon (mapIcons.ts) tinted by confidence bucket
+  (`FIRE_CONFIDENCE_COLOR`); detail card states the LANCE "not for
+  safety-of-life use" disclaimer on every detection, not just the layer
+  description (the licensing register's stated requirement).
+- Downstream chain (REASONING STANDARD #1): key set on Railway -> next
+  poll (<=30 min) populates the cache -> `/api/data/fires` flips
+  enabled:true -> the layer's `awaiting_key` badge clears to `live` with
+  no further code change -> every detection from that point forward is
+  archived (no free history exists upstream, so this is the only
+  archive-from-day-one window that will ever exist for this root) ->
+  a future gate-1/gate-2 signal hypothesis (insurer/utility/timber
+  exposure near sustained fire activity) has ground truth to validate
+  against once enough history accumulates. Zero effect on the trading
+  loop today — this module has no import path into `bot_engine.py`,
+  `system_config.py`, `strategies/`, or `server/bot.ts` (SPINOUT-READY
+  DATA LAYER boundary), and the layer defaults OFF (opt-in), so
+  ZERO-COST-WHEN-OFF holds without any special-casing.
+- Regression tests: `server/nasaFirms.test.ts`, 12 cases — VIIRS vs MODIS
+  column-name parsing, confidence-scale classification (letter + three
+  numeric bands + garbage-input default), dedup-id stability, the
+  documented URL shape, key-gating (both `firmsEnabled` and
+  `bootFirmsPoll`'s no-op-without-a-key path), a non-ok upstream response
+  throwing (no silent empty result), and the archive/gzip/history
+  round-trip through real temp-directory I/O (mirroring
+  `edgarForm4.test.ts`'s dedup-across-poll-overlap test, with distinct
+  synthetic lat/lon per test case — the archive's dedup set is module-
+  level and content-keyed, so reusing identical detection content across
+  test cases would falsely dedup across unrelated temp dirs, exactly the
+  trap edgarForm4.test.ts avoids with unique accession numbers per case).
+  `server/layersRegistry.test.ts`'s existing schema-invariant test covers
+  the new `layers.json` entry automatically (kind/status/source/
+  description all present). All 12 new + 65 pre-existing node tests pass
+  (`npm run test:node`, 77/77); Python CI-gate suite untouched by this
+  PR (no `.py` files touched) — not re-run, per CLAUDE.md's PROMOTION
+  RULE 5 scoping (one logical change; this change has zero Python
+  surface).
+- Visual verification (PROMOTION RULES rule 6): `npm run build` clean;
+  `node scripts/visual_check.mjs --page data` — 0 hard failures at
+  390/768/1440 plus the zero-cost-when-off pass. Added the new `fires`
+  layer + its `/api/data/fires` fixture to the harness's own FIXTURES
+  (it was missing for `shadowstats` too, pre-existing gap, out of this
+  PR's one-logical-change scope, not fixed here) specifically so the
+  SELF-SEE check exercises the brand-new "Environmental" group's
+  collapse/expand/reachability at all three widths — this is exactly the
+  defect class the Map v2.4 PR fixed (a panel section existing in code
+  but unreachable on screen), so proving it mechanically here rather
+  than trusting the pattern by inspection. Screenshots reviewed: new
+  "ENVIRONMENTAL 0/1 ON" group renders correctly, collapsed, between
+  Facilities and Filings & Flows at 1440px; phone view unaffected
+  (panel collapsed by default). Pre-existing warnings only (nav touch
+  targets, "Signals — coming soon" clipped-below-fold — the check
+  function's own comment says elements that scroll into view below the
+  fold are expected to warn, not fail; SELF-SEE's reachability assertion
+  for every registered layer, including fires, passed with 0 failures).
+- No backtest required (PROMOTION RULES rule 3 scopes that to strategy/
+  parameter changes) — this PR touches zero files under `bot_engine.py`,
+  `system_config.py`, `strategies/`, or Python at all.
+- Version 1.0.64 -> 1.0.65 (read-and-increment, checked against the
+  OPS GOTCHAS collision history first).
+- Merge timing: 2026-07-04 is a Saturday (confirmed via date computation)
+  — markets closed all day, well outside the 9:30-16:00 ET deploy-
+  coupling window. Safe to merge immediately.
+- STARVED: no — this session's scope (ship the queued FIRMS layer)
+  shipped in full: server module, tests, route, client layer, registry
+  entry, harness fixture, and doc updates. High-value work remains
+  queued: KNOWN BROKEN #3/#5/#6, the counterfactual logger, R2 maritime
+  transit analytics, the remaining GEOSPATIAL LICENSING REGISTER items
+  (d)-(g), and R5/R6 (Everything Graph, dashboards).
+
 ## 2026-07-04 — [RESEARCH] Dual-momentum SPY/QQQ judged out-of-sample — KILLED
 
 - Session start check: `/api/health` all-ok (Alpaca ACTIVE, python bridge ok,

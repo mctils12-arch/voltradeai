@@ -355,8 +355,15 @@
   past ~2h from key creation, re-check the key value.
 - **HUMAN ACTION — NASA FIRMS MAP_KEY (free registration):** needed for
   Tier-1(c) active-fires layer (free, commercial-lawful, VIIRS 375m,
-  ~3h latency); layer will ship awaiting_key without it. Detections
-  archive from day one — no free history exists.
+  ~3h latency). **[SCAFFOLDED 2026-07-04 — v1.0.65]** shipped exactly
+  as planned: `server/nasaFirms.ts` (key-gated fetch/parse/archive,
+  same shape as vesselStream.ts), `/api/data/fires`, and a map layer in
+  the new "Environmental" panel group all report `awaiting_key` until
+  the key exists. Free registration: firms.modaps.eosdis.nasa.gov ->
+  set `NASA_FIRMS_MAP_KEY` in Railway — the layer and its archive
+  activate automatically on the next request/poll, no redeploy-time
+  code change needed. Detections archive from day one once active — no
+  free history exists upstream, so every day before activation is lost.
 - **HUMAN ACTION — USPTO Open Data Portal API key (free, ~15 min):**
   create a USPTO.gov account with ID.me identity verification —
   sessions cannot do identity verification. Unblocks the patents root
