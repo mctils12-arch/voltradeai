@@ -379,6 +379,35 @@ def run_diagnostics() -> dict:
             "message": f"Some API sources unavailable: {failed_apis}",
         })
 
+    # 4b. Extended API health — social_data.py (reddit_/gtrends_) and
+    # finnhub_data.py (fh_) had ZERO freshness monitoring until this check
+    # (KNOWN BROKEN #5 audit, 2026-07-04): bot_engine.py's deep_score()
+    # swallows their fetch exceptions silently (`except Exception: return {}`)
+    # with no logging anywhere, so a dead Reddit RSS feed or an expired/never-
+    # set FINNHUB_KEY degrades those two signal groups to permanent no-op with
+    # no trace. Kept in its OWN warnings-only bucket, deliberately NOT merged
+    # into `failed_apis` above: that list feeds `reduce_position_size` at >=3
+    # failures, and folding in 2 more monitored sources would silently change
+    # when that risk-affecting auto-fix fires — a threshold-behavior change
+    # RULE REVIEW requires evidence + one-at-a-time for, which this audit-
+    # driven visibility fix does not carry. This is observability only.
+    _finnhub_key = os.environ.get("FINNHUB_KEY", "")
+    _finnhub_configured = bool(_finnhub_key) and _finnhub_key != "YOUR_FINNHUB_KEY_HERE"
+    _cache_files = os.listdir(CACHE_DIR) if os.path.exists(CACHE_DIR) else []
+    extended_checks = {
+        "reddit": any(f.startswith("reddit_") for f in _cache_files),
+        # Unconfigured key is expected-degraded, not a break — matches the
+        # ml_model dynamic-criticality fix's "only flag what could actually
+        # be wrong" precedent (test_diagnostic_false_positives.py).
+        "finnhub": (not _finnhub_configured) or any(f.startswith("fh_") for f in _cache_files),
+    }
+    failed_extended = [name for name, ok in extended_checks.items() if not ok]
+    if failed_extended:
+        report["warnings"].append({
+            "system": "api",
+            "message": f"Extended data sources unavailable: {failed_extended}",
+        })
+
     # 5. Determine overall status
     high_problems = [p for p in report["problems"] if p.get("severity") == "high"]
     if high_problems:

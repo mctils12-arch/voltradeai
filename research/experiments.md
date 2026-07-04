@@ -13,6 +13,132 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] KNOWN BROKEN #5 audit: data modules confirmed wired; closed a real silent-failure blind spot in diagnostics.py (v1.0.66)
+
+- Session start check: CLAUDE.md + all of research/ read this session.
+  Loop-health ratio over the last 10 entries (NASA FIRMS back through Port
+  Dwell): 1 REPAIR, 1 RESEARCH, 8 PRODUCT — well under the 7/10 thrash
+  threshold, no meta-problem to address. `/api/health` on prod: all-ok
+  (Alpaca ACTIVE, python bridge ok, bot active, equityPeak=108151.39,
+  drawdownPct=0.0% — the persisted high-water mark still holding). No
+  critical live break to fix. KNOWN BROKEN #4's ACCESS LIMITATION still
+  stands (no DIAG_TOKEN route exists — see wishlist HOLD), so "fix a bug
+  seen in audit logs" was not actionable; no experiment has matured to a
+  judgeable state this session (Insider Form-4 gate 2, port-dwell gate 2,
+  and shadow-fleet gate 1 are all still accumulating history). Per SESSION
+  BUDGET, fell through to the next tier: start a new (small, evidence-
+  gathering) action. Chose KNOWN BROKEN #5 over a fresh web-research
+  fall-through because it is (a) squarely REPAIR MANDATE territory — a
+  standing, unresolved constitutional TODO — and (b) fully resolvable via
+  READ BEFORE WRITE static analysis alone, unlike #3 (CSP cascade), which
+  needs live audit-log access this session doesn't have.
+- PRIOR (REASONING STANDARD #10, stated before reading any call sites):
+  expected to find at least one of `alt_data.py`/`social_data.py`/
+  `institutional_data.py` genuinely orphaned (imported nowhere, or
+  imported but never actually invoked) given how many alt-data modules
+  this repo accumulated over time, and expected the audit itself to be
+  the full session's output with nothing to build.
+- FINDING: prior was WRONG on the orphan question — grepped every call
+  site for `alt_data`, `macro_data`, `social_data`, `institutional_data`,
+  `intelligence`, `finnhub_data`, `alphadesk`, `instrument_selector`,
+  `diagnostics`, `tiered_strategy`, `analyze`. All are live-consumed:
+  macro/alt/social/finnhub/intel are fetched in parallel inside
+  `bot_engine.py:deep_score()` (lines 543-608) with every field read
+  downstream into scoring (`macro.get(...)`, `intel.get(...)`, etc. —
+  verified past line 609, not just imported-and-discarded);
+  `institutional_data.py` feeds `insights.py`, wired to the site's
+  `/api/insights/:ticker` route (a user-facing feature, correctly
+  separate from the trading loop per GOAL priority 4, not a defect);
+  `alphadesk/` wired via routes.ts; `instrument_selector.py` imported at
+  bot_engine.py:3026 (note for future sessions: its `intelligence`
+  parameter is a DIFFERENT, options-specific dataset from
+  `intelligence.py`'s `get_full_intelligence` — same name, unrelated
+  data, a naming collision that could mislead a future audit);
+  `diagnostics.py` wired into `server/bot.ts`'s Tier-2 cycle (every 5th
+  cycle) and its output actually sets `state.positionSizeMultiplier` /
+  `state.minScoreThreshold` and can trigger a pause. Nothing in this
+  KNOWN BROKEN item was dead code — CLOSED, no wire/retire work needed on
+  that front. Prior vs actual, stated per REASONING STANDARD #10: I
+  expected an orphan and found none; the correct update is to trust the
+  evidence over the prior, not to manufacture a finding.
+- REAL GAP FOUND (not what I went looking for, but what the audit
+  surfaced): `bot_engine.py`'s five parallel data-source fetchers each
+  wrap their call in a bare `except Exception: return {}` with **no
+  logging anywhere** — a silent failure by design for graceful
+  degradation, which is fine for the SCORE (missing data already degrades
+  to neutral), but leaves ZERO trail that a source is down. Cross-checked
+  against `diagnostics.py`'s existing API-health monitor
+  (`run_diagnostics()` section 4, `api_checks`) and found it already
+  tracks polygon/sec_edgar/wikipedia/gdelt/fred cache freshness — but had
+  never been extended to cover `social_data.py` (reddit_/gtrends_/
+  news_multi_ cache prefixes) or `finnhub_data.py` (fh_ prefix), the two
+  sources added later than the original five. This is a live, unmonitored
+  blind spot directly adjacent to KNOWN BROKEN #3 (CSP cascade) and the
+  HONESTY METRIC: if either source silently died, live scoring would
+  quietly run on 3-of-5 signal groups indefinitely with no audit-log
+  trace and no session able to tell without re-doing this exact grep.
+- FIX (one logical change, `diagnostics.py` only): added `extended_checks`
+  (reddit_/fh_ cache-file presence) as a **separate, warnings-only
+  bucket** in `run_diagnostics()` #4b — explicitly NOT merged into the
+  existing `api_checks`/`failed_apis` list, which drives
+  `reduce_position_size` at >=3 failures. Downstream chain (REASONING
+  STANDARD #1, traced before writing the diff): merging the two new
+  checks into `failed_apis` would silently change the count of monitored
+  sources feeding an existing risk-affecting auto-fix -> a position-size
+  cut could newly fire in situations that previously wouldn't have
+  triggered it -> that is a threshold-behavior change, and RULE REVIEW
+  requires evidence + one-at-a-time for exactly this class of change,
+  which an audit-driven visibility fix does not carry. Keeping the new
+  checks in their own warnings-only bucket means: `problems_summary` (and
+  thus the `audit("DIAGNOSTIC", ...)` line bot.ts already logs every 5th
+  Tier-2 cycle) will now surface "Extended data sources unavailable:
+  [...]" if reddit/finnhub go dark, but `position_size_multiplier` and
+  `should_pause` are mathematically untouched by this change — zero
+  effect on live trading behavior, pure observability gain. FINNHUB_KEY
+  unconfigured (empty or the shipped `YOUR_FINNHUB_KEY_HERE` placeholder)
+  is treated as expected-degraded, not a break — mirrors the existing
+  ml_model dynamic-criticality false-positive fix
+  (test_diagnostic_false_positives.py already exists specifically to
+  catch this class of bug).
+- Regression tests FIRST (loop-health rule 3), added to
+  `test_diagnostic_false_positives.py` (the existing, purpose-built home
+  for this exact bug class) rather than a new file: 6 new tests —
+  reddit+finnhub both flagged when down; no false-positive warning when
+  FINNHUB_KEY is unset (with reddit cached); the shipped placeholder key
+  treated as unconfigured; healthy when configured+cached; a
+  source-inspection test pinning that `"reddit"`/`"finnhub"` never enter
+  the `api_checks` dict literal (the isolation guarantee, verified by
+  parsing `run_diagnostics`'s own source — this would have caught a
+  future session accidentally merging the buckets); and a
+  reduce_position_size isolation test. All 27 tests in the file pass;
+  full CI-gate subset (`test_risk_controls.py test_audit_critical.py
+  test_diagnostic_false_positives.py test_patches_verification.py`) —
+  120 passed, 1 skipped, identical baseline to the pre-existing gate
+  (KNOWN BROKEN #6, untouched by this PR).
+- Verified: no other file touched (diagnostics.py + its test file only);
+  no import cycle introduced (`os.environ` read directly, no new import
+  of `finnhub_data`/`social_data` into `diagnostics.py`, avoiding any
+  coupling to their heavier dependency surface).
+- Version 1.0.65 -> 1.0.66 (read-and-increment). Rollback trigger: if the
+  new "Extended data sources unavailable" warning fires persistently in
+  production for a source that's actually healthy (a cache-prefix
+  mismatch this session's static read missed), revert the `extended_checks`
+  block — it is fully additive and isolated, so reverting restores
+  exactly the pre-PR observability level with no other side effects.
+- MARKET-HOURS NOTE: this session's directive stated the run occurs
+  during market hours, so per instruction this PR is left UNMERGED and
+  states explicitly that merge should wait until after 4:00 PM ET unless
+  the change fixes a critical live break (it does not — pure
+  observability addition, isolated from every auto-fix threshold, zero
+  live-trading behavior change either way). Not self-merged this session
+  regardless of the AUTONOMY AUTHORIZATION default, per the run's own
+  instruction.
+- STARVED: no — this session's scope (the KNOWN BROKEN #5 audit + the
+  gap it surfaced) shipped in full. High-value work remains queued:
+  KNOWN BROKEN #3 (CSP cascade, needs live audit-log access) and #6
+  (pytest collection), the counterfactual logger, R2 maritime transit
+  analytics, and the remaining GEOSPATIAL LICENSING REGISTER items.
+
 ## 2026-07-04 — [PRODUCT] NASA FIRMS active-fires layer scaffolded (v1.0.65)
 
 - Session start check: read CLAUDE.md, all of research/, KNOWN BROKEN.
