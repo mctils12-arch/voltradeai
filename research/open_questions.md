@@ -347,3 +347,32 @@ R4. **3D globe mode.** MapLibre globe projection (or Cesium only if
   Archive-first rule applies to all four: start recording now, judge
   after a quarter. None surfaces on the map until ladder gate 2 (they
   are SIGNALS, not raw overlays).
+
+## SHADOW-FLEET SIGNAL (Map v2.2 directive 2026-07-04; RAW stats live, per-vessel claims GATED)
+
+- **What ships now (RAW)**: server/shadowFleet.ts computes from OUR OWN
+  AIS archive — gap events (silent >6h, reappeared >100km), identity
+  candidates (name under two MMSIs; new MMSI first seen near another's
+  last position), loitering in 7 public STS zones
+  (datacore/shadow_zones.json). Surface: counts only, caveat attached
+  ("a gap can be coverage loss"). Archive grows the sample daily.
+- **GATE 1 (DATA) — validation plan**: build a reference list of
+  publicly documented shadow-fleet vessels (OFAC SDN vessel annexes +
+  KSE Institute dark-fleet publications provide MMSIs/IMOs). Gate
+  passes if our gap/loiter detections are significantly ENRICHED for
+  reference-list vessels vs a size-matched random tanker sample from
+  the same archive window (odds ratio with CI, not eyeballing).
+  Terrestrial-coverage ambiguity is controlled by the comparison: both
+  cohorts suffer identical coverage loss.
+- **GATE 2 (SIGNAL) hypothesis + trading relevance**: sanctioned-oil
+  flow volume (proxied by gap+loiter event rates in Laconian/Kerch/
+  Fujairah zones) leads (a) tanker-rate proxies (FRO, STNG, TNK — clean
+  vs dirty rates diverge when shadow capacity absorbs dirty trade) and
+  (b) crude spreads (Urals-Brent proxied via RSX-era instruments is
+  gone; use Brent-WTI + tanker basket). Test: weekly event-rate series
+  vs forward 1-4w returns of the tanker basket, vs base rate.
+- **Second-order (REASONING STANDARD #5)**: who's on the other side —
+  commercial maritime-intel vendors sell this at $$$$ to compliance
+  desks; the trade-relevant LAG (compliance buyers act on sanctions
+  risk, not tanker-rate positioning) is the structural reason a small
+  player can still extract the market signal.

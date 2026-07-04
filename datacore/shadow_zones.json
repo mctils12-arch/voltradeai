@@ -1,0 +1,12 @@
+{
+  "_doc": "Known STS/transshipment zones associated in public reporting with sanctioned-oil ship-to-ship transfers and dark-fleet activity. RAW reference data — zone presence is context, not an accusation. Sources: public maritime-intelligence reporting (KSE Institute dark-fleet coverage, Lloyd's List, Reuters) on STS hotspots; positions are area centroids with generous radii, approximate by design.",
+  "zones": [
+    { "id": "laconian_gulf", "name": "Laconian Gulf (Greece STS)", "lat": 36.55, "lon": 22.75, "radius_km": 45 },
+    { "id": "ceuta_opl", "name": "Ceuta/Gibraltar OPL", "lat": 35.95, "lon": -5.35, "radius_km": 40 },
+    { "id": "malta_opl", "name": "Hurd Bank / Malta OPL", "lat": 35.95, "lon": 14.75, "radius_km": 35 },
+    { "id": "fujairah_opl", "name": "Fujairah/Khor Fakkan OPL", "lat": 25.3, "lon": 56.6, "radius_km": 60 },
+    { "id": "singapore_opl", "name": "Singapore/Riau OPL", "lat": 1.1, "lon": 104.2, "radius_km": 60 },
+    { "id": "kerch_strait", "name": "Kerch Strait approaches", "lat": 45.1, "lon": 36.5, "radius_km": 50 },
+    { "id": "sokhna_said", "name": "Port Said anchorage", "lat": 31.45, "lon": 32.35, "radius_km": 45 }
+  ]
+}

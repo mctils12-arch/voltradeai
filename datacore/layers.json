@@ -58,6 +58,14 @@
       "description": "Recent Form 4 filings (insider buys/sells/grants) as filed. As-is display, no predictive claim — clustering-vs-returns is an open gate-2 question, not yet surfaced as a signal."
     },
     {
+      "id": "shadowstats",
+      "name": "Dark-ship statistics",
+      "kind": "raw",
+      "status": "live",
+      "source": "Derived from our own AIS archive (terrestrial coverage)",
+      "description": "Event COUNTS from our own vessel archive: AIS gap events (silent >6h, reappeared >100km away), identity-change candidates, loitering in known STS/transshipment zones. A gap can be coverage loss, not dark sailing — per-vessel shadow-fleet claims are SIGNAL-class and stay gated until validated (ladder gate 1)."
+    },
+    {
       "id": "tank_fill",
       "name": "Tank-fill % (Sentinel-2)",
       "kind": "signal",

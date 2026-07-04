@@ -987,3 +987,25 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   otherwise; no imagery surface may imply currency it cannot prove.
 - Verified at 390/768/1440 (rule 6): desktop screenshot shows all four
   groups with honest per-layer notes; phone keeps the collapsed FAB.
+
+## 2026-07-04 — [PIPELINE] Shadow-fleet analytics from our own AIS archive (v1.0.58)
+- Map v2.2 SHADOW FLEET directive. server/shadowFleet.ts derives from
+  the vessel archive (first payoff of ARCHIVE EVERYTHING beyond trails):
+  gap events (silent >6h AND reappeared >100km), identity candidates
+  (name under two MMSIs; new-MMSI-near-last-position hull-swap
+  heuristic), loitering (>=4h, median <2kts) in 7 public STS zones
+  (datacore/shadow_zones.json: Laconian, Ceuta, Malta, Fujairah,
+  Singapore OPL, Kerch, Port Said).
+- RAW/SIGNAL boundary enforced: the surface shows COUNTS ONLY with the
+  coverage-loss caveat attached (panel row in Filings & flows, zone
+  breakdown when loitering >0); per-vessel claims stay OFF until gate 1.
+  Gate-1 plan filed (open_questions): enrichment of detections for
+  publicly documented shadow vessels (OFAC SDN annexes, KSE lists) vs a
+  size-matched random tanker cohort — identical coverage loss in both
+  cohorts controls the terrestrial-AIS ambiguity. Gate-2 hypothesis:
+  zone event rates lead tanker-rate names (FRO/STNG/TNK basket) +
+  crude spreads; second-order reason the edge survives: maritime-intel
+  vendors sell to compliance desks, not rate traders.
+- Tests: 4 hermetic synthetic-archive cases (gap yes/no discrimination,
+  both identity heuristics, loiter vs fast-transit, aggregation +
+  caveat + wiring pins). 49/49 node; harness green.
