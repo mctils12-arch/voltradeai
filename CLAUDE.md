@@ -488,6 +488,10 @@ Run the most overdue one and update the register.
 - `market_calendar.py` has 2026 dates only. Add 2027 in December 2026.
 - ML feedback records are version-gated; legacy records weighted 0.4x.
   Poisoned-record cleanup runs on startup (`ml_model_v2.py`).
+- VISION.md (repo root) installed 2026-07-04 — the human-authored
+  platform charter, currently a labeled session reconstruction (the
+  verbatim charter paste was dropped from the directive); replace with
+  the original text when the human supplies it.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 
@@ -495,6 +499,13 @@ Rules that govern ongoing session behavior. Moved here from KNOWN STATE
 verbatim (consolidation approved 2026-07-04) so KNOWN STATE stays pure
 facts; changing anything below is a constitutional amendment.
 
+- VISION.md NORTH STAR (human-approved 2026-07-04): PRODUCT and EDGE
+  sessions read VISION.md after CLAUDE.md as the product north star —
+  it names WHAT the platform is building toward; CLAUDE.md still
+  governs HOW everything ships. (Directive said "add to KNOWN STATE";
+  placed here because the same message approved the facts-vs-rules
+  boundary — the FACT of VISION.md's existence is in KNOWN STATE, the
+  reading RULE lives here. Placement decision recorded, not silent.)
 - SPINOUT-READY DATA LAYER (human-approved 2026-07-03) — all data pipelines
   built under the EDGE DOCTRINE live in datacore/ with no imports from or
   knowledge of trading logic; signals are exposed only through an internal
