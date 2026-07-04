@@ -478,7 +478,18 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
 (free and deep but the public-slice bias confound attacks the premise).
 
 1. **Earnings language from SEC 8-K Item 2.02 (Exhibit 99) — the lawful
-   transcript substitute.** LICENSING VERDICTS (fetched 2026-07-04):
+   transcript substitute.** **[GATE 1 (DATA) SHIPPED 2026-07-04 — v1.0.67]**
+   `server/sec8kEarnings.ts` polls the getcurrent 8-K feed, filters Item
+   2.02, resolves the Exhibit 99 press release, and extracts plain text
+   (dependency-free HTML->text, verified against two real, live-fetched
+   filings across two distinct filer-agent HTML formats — see
+   `server/sec8kEarnings.test.ts` and research/experiments.md for the
+   full trace). Live at `/api/data/earnings-language` (+ `/history`),
+   RAW-DATA overlay only, no predictive claim. No UI page yet — same
+   sequencing edgarForm4.ts used (pipeline+API first, a view once archive
+   history exists) — queued as the next PRODUCT action once a few days
+   of archive accumulate. Gate 2 below is UNSTARTED, unchanged.
+   LICENSING VERDICTS (fetched 2026-07-04):
    Motley Fool and Seeking Alpha transcripts PROHIBITED as pipelines
    (both ToS bar automated access + commercial use); FMP transcripts
    effectively paid+restricted (personal-use free tier; data-deletion
@@ -582,8 +593,12 @@ drought.gov tiles); (f) USGS groundwater points; (g) oil/gas infra
 pipeline vector exists); then Tier-2 buildings v1 (OpenFreeMap render
 layer + client-side viewport stats). Also queued: PMTiles AOI extract
 (terrain resilience), Alpaca options-chain daily archiver ([PIPELINE],
-free, from the options HOLD package), and NEW DATA ROOTS #1 (8-K
-language pipeline) as the top research build.
+free, from the options HOLD package). NEW DATA ROOTS #1 (8-K language
+pipeline), the former top research build, SHIPPED gate 1 (DATA)
+2026-07-04 (v1.0.67, server/sec8kEarnings.ts — see this section's #1
+entry above and research/experiments.md); its natural follow-up (a
+filings-language view once archive history accumulates, mirroring
+filings.tsx) is now the next queued PRODUCT item alongside (d)-(g).
 
 - (a) TERRAIN: **Mapterhorn** primary (free, no key, commercial OK —
   Copernicus + CC-BY national sources; terrarium 512px z0-17;
