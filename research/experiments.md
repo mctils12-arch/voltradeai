@@ -758,3 +758,19 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Downstream chain: sites layer markers move -> archive adaptive
   thinning now samples the RIGHT areas at full resolution -> future R2
   transit counters + tank-shadow work inherit verified ground truth.
+
+## 2026-07-03 — [PRODUCT] Site category icons: anchor/tanks/factory silhouettes + legend (v1.0.49)
+- Map v2.1 SYMBOLS directive: strategic-site markers upgraded from
+  generic colored dots to category silhouettes in the existing SDF icon
+  system (per-feature icon-color on GPU, upright, dark halo for imagery
+  contrast): vt-port anchor, vt-tank 3-cylinder cluster, vt-mill
+  factory-with-chimney. Legend now leads with the three shapes (inline
+  SVG twins of the canvas shapes); aircraft/vessel color entries kept.
+- Promotion rule 6: npm run visual green at 390/768/1440 (0 hard
+  failures; pre-existing site-shell nav warnings unchanged). Icon
+  legibility self-reviewed via isolated render (sites-only fixture,
+  US view, 390px + 1440px): three shapes distinct at phone size,
+  correct category colors, legend aligned.
+- Perf unchanged: same symbol-layer path as aircraft (16 features is
+  noise next to the 10k-aircraft budget); harness perf medians 117ms
+  unchanged from v1.0.48 baseline.

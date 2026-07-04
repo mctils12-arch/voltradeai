@@ -6,7 +6,7 @@ import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint,
-  AIRCRAFT_ICON, VESSEL_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
+  AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
 } from "@/lib/mapIcons";
 
 /**
@@ -447,7 +447,7 @@ export default function DataMapPage() {
     if (!map || !mapReady) return;
     if (!enabled.sites) {
       try {
-        if (map.getLayer("sites-dots")) map.removeLayer("sites-dots");
+        if (map.getLayer("sites-icons")) map.removeLayer("sites-icons");
         if (map.getSource("sites")) map.removeSource("sites");
       } catch {}
       setStatus("sites", "off");
@@ -472,20 +472,28 @@ export default function DataMapPage() {
               name: s.name, category: catLabels[s.category] || s.category,
               operator: s.operator, relevance: s.relevance,
               color: colors[s.category] || "#4d9fff",
+              icon: SITE_ICON[s.category] || "vt-tank",
             },
           })),
         } as any });
+        // Category silhouettes (anchor / tank cluster / factory), same SDF
+        // system as aircraft/vessel classes — per-feature icon + icon-color,
+        // upright (sites don't rotate), dark halo for imagery contrast.
         map.addLayer({
-          id: "sites-dots", type: "circle", source: "sites",
+          id: "sites-icons", type: "symbol", source: "sites",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.55, 8, 0.85],
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+          },
           paint: {
-            "circle-color": ["get", "color"],
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 5, 8, 8],
-            "circle-opacity": 0.9,
-            "circle-stroke-width": 1.5,
-            "circle-stroke-color": "rgba(238,243,251,0.9)",
+            "icon-color": ["get", "color"],
+            "icon-halo-color": "rgba(5,10,19,0.95)",
+            "icon-halo-width": 1.4,
           },
         });
-        map.on("click", "sites-dots", (e: any) => {
+        map.on("click", "sites-icons", (e: any) => {
           const f = e.features?.[0];
           if (!f) return;
           setDetail({
@@ -495,8 +503,8 @@ export default function DataMapPage() {
             body: f.properties.relevance,
           });
         });
-        map.on("mouseenter", "sites-dots", () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", "sites-dots", () => { map.getCanvas().style.cursor = ""; });
+        map.on("mouseenter", "sites-icons", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "sites-icons", () => { map.getCanvas().style.cursor = ""; });
         setStatus("sites", "active", d.sites.length);
       } catch {
         if (!cancelled) setStatus("sites", "error");
@@ -653,12 +661,35 @@ export default function DataMapPage() {
               );
             })}
             <div className="vt-legend">
+              <span>
+                <svg width="13" height="13" viewBox="0 0 40 40" style={{ color: "#4ade80" }} aria-hidden>
+                  <g stroke="currentColor" strokeWidth="3.5" fill="none">
+                    <circle cx="20" cy="9" r="3.5" /><path d="M20 12.5V32" /><path d="M12 18h16" />
+                    <path d="M11 21a9.5 9.5 0 0 0 18 0" fill="none" />
+                  </g>
+                </svg> ports
+              </span>
+              <span>
+                <svg width="13" height="13" viewBox="0 0 40 40" style={{ color: "#fbb24c" }} aria-hidden>
+                  <g fill="currentColor">
+                    <circle cx="13" cy="26" r="6.5" /><circle cx="27" cy="26" r="6.5" /><circle cx="20" cy="13" r="6.5" />
+                  </g>
+                </svg> tank farms
+              </span>
+              <span>
+                <svg width="13" height="13" viewBox="0 0 40 40" style={{ color: "#ff5a6e" }} aria-hidden>
+                  <g fill="currentColor">
+                    <rect x="8" y="22" width="24" height="12" />
+                    <path d="M8 22v-7l8 7v-7l8 7v-7l8 7z" />
+                    <rect x="26" y="6" width="4.5" height="12" />
+                  </g>
+                </svg> steel mills
+              </span>
               <span><i style={{ background: "#4d9fff" }} /> jet/cruise</span>
-              <span><i style={{ background: "#fbb24c" }} /> low alt · tanker · tanks</span>
+              <span><i style={{ background: "#fbb24c" }} /> low alt · tanker</span>
               <span><i style={{ background: "#6680a0" }} /> ground</span>
-              <span><i style={{ background: "#4ade80" }} /> cargo · ports</span>
+              <span><i style={{ background: "#4ade80" }} /> cargo</span>
               <span><i style={{ background: "#c084fc" }} /> passenger</span>
-              <span><i style={{ background: "#ff5a6e" }} /> mills</span>
             </div>
           </div>
         )}
