@@ -10,8 +10,38 @@ exception to append-only; the log below it stays append-only)
 | audit | cadence | last run |
 |---|---|---|
 | staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | never — due (2026-07-03 OpenSky sweep was targeted, not a full audit) |
-| constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
+| constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
+
+## 2026-07-04 — [RULE-REVIEW] Constitutional repair: 4 amendment proposals filed (human-directed; NOTHING self-applied)
+
+- Human directive ran the CONSTITUTIONAL HYGIENE process out of cycle
+  (register updated). Four proposals filed in wishlist.md with exact
+  text / placement / counts, awaiting item-by-item approval; ship
+  order after approval: 1 → 2 → 3 → 4, each its own docs PR.
+  1. MISSION RECONCILIATION — GOAL still names the paper account as
+     the whole mission while VISION.md/GIP.md define the intelligence
+     platform with the bot as one consumer (a live contradiction at
+     the top of the constitution). Full replacement GOAL text drafted:
+     platform mission, both compounding lines first-class in P3,
+     two-sided honesty metric, anti-goals extended with "never sell or
+     surface an unvalidated signal". Priority ORDER preserved.
+  2. LIVENESS ALARM — proposed N = 2 market hours (+24h wall-clock
+     ceiling); HOOK CONFIRMED: /api/health Check 5 (bot.ts:1049)
+     already reads killed/active/stopped but never degrades overall
+     status — the exact gap that let the loop sit paused unflagged;
+     Check 6 (licensing) is the degrade precedent to mirror. Runtime
+     half specced as its own [REPAIR] PR with regression test.
+  3. SOVEREIGNTY CLAUSE — verbatim human text; placement: first
+     paragraph inside AUTONOMY AUTHORIZATION.
+  4. BLOAT — measured by section (31,694 bytes total): STANDING
+     BEHAVIORS 4,169 (−1,750 of history/narrative), EDGE DOCTRINE
+     4,369 (−1,250 of restated precedent), three audit rules in three
+     places 2,171 (merge to one AUDITS & DEBT section, −770), SESSION
+     BUDGET 2,025 (−520). Net target ~27.3K including Fixes 1–3
+     additions; NO rule loses force — only words.
+- This session may not self-apply any of it (amendments); the audit's
+  only self-applied artifact is the register timestamp + this entry.
 
 ## 2026-07-04 — [PRODUCT] Atlas parity layer 1: surface water (JRC GSW v2021) live (v1.0.74)
 
