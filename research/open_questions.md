@@ -50,11 +50,48 @@
    completing or erroring? Diagnose from `/data/voltrade` state files and
    the persisted audit log before assuming any subsystem works.
 
-5. **Data modules not wired to live scoring.** The repo contains
-   `alphadesk/` (EDGAR filings, catalyst detection, LLM filing reader),
-   `macro_data.py`, `alt_data.py`, `social_data.py`,
-   `institutional_data.py` — audit which of these actually feed
-   `deep_score`/tier decisions vs. which are orphaned. Wire or retire.
+5. **[RESOLVED 2026-07-04 — audit, no orphans found; one real gap closed]**
+   ~~Data modules not wired to live scoring.~~ Traced every named module's
+   call sites (READ BEFORE WRITE, static analysis only — no live access
+   needed): `macro_data.py`, `alt_data.py`, `social_data.py`,
+   `finnhub_data.py`, `intelligence.py` are all imported and consumed
+   inside `bot_engine.py:deep_score()`'s parallel 5-source fetch
+   (`_fetch_macro`/`_fetch_intel`/`_fetch_alt`/`_fetch_social`/
+   `_fetch_finnhub`, bot_engine.py:543-608) and their fields are read
+   downstream into `reasons`/score/regime features (verified: macro.*,
+   intel.*, alt.*, social.*, finnhub.* all have live read sites past
+   line 609). `institutional_data.py` feeds `insights.py`, which is wired
+   to the site's `/api/insights/:ticker` endpoint (server/routes.ts:573)
+   — a user-facing feature, not the trading loop, by design (GOAL
+   priority 4), not orphaned. `alphadesk/` is wired via server/routes.ts.
+   `instrument_selector.py` (a separate options-specific intelligence
+   layer keyed on the SAME variable name `intelligence` but a distinct
+   dataset from `intelligence.py`'s `get_full_intelligence` — a naming
+   collision worth remembering, not a bug) is imported at
+   bot_engine.py:3026. `diagnostics.py` is wired into
+   `server/bot.ts`'s Tier-2 cycle (every 5th cycle) and actually drives
+   `state.positionSizeMultiplier`/`state.minScoreThreshold`/pause.
+   **Nothing named in this item is dead code.**
+   GAP FOUND DURING THE AUDIT (fixed same PR, v1.0.66): `diagnostics.py`'s
+   API-health check (`run_diagnostics()` #4) monitored polygon/sec_edgar/
+   wikipedia/gdelt/fred cache freshness but had ZERO monitoring for
+   `social_data.py` (reddit_/gtrends_ cache) or `finnhub_data.py` (fh_
+   cache) — meaning `bot_engine.py`'s silent `except Exception: return {}`
+   around those two fetches had no failure trail anywhere: a dead Reddit
+   RSS feed or an expired/never-set FINNHUB_KEY would degrade those
+   signals to permanent silent no-ops with zero visibility, exactly the
+   HONESTY METRIC risk (live results diverging from backtest expectation
+   for an unexplained reason). Added `extended_checks` (reddit_/fh_ cache
+   presence) as a **separate, warnings-only bucket** — deliberately NOT
+   folded into `api_checks`/`failed_apis`, which drives the existing
+   `reduce_position_size` auto-fix at >=3 failures; merging them would
+   have silently changed when that risk-affecting auto-fix fires, which
+   RULE REVIEW requires evidence + one-at-a-time for, not an audit
+   side-effect. FINNHUB_KEY unconfigured is treated as expected-degraded,
+   not a break (mirrors the existing ml_model dynamic-criticality
+   false-positive fix). 6 new regression tests in
+   test_diagnostic_false_positives.py, isolation explicitly pinned by a
+   source-inspection test. See experiments.md for the full trace.
 
 6. **Full-repo pytest is broken at collection (pre-existing).**
    `test_auto_discovery.py` calls sys.exit() at module level, killing

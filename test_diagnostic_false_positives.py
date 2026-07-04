@@ -5,11 +5,15 @@ Tests for diagnostic false positive fixes:
   3. Feedback filter: entry records (pnl_pct=0, outcome=None) filtered out
   4. Performance endpoint matches diagnostics filter
   5. Overall diagnostic status not "degraded" when only non-critical items missing
+  6. Extended API health (reddit_/fh_ cache monitoring) doesn't false-positive
+     on an unconfigured FINNHUB_KEY, and stays isolated from the >=3
+     reduce_position_size auto-fix trigger (KNOWN BROKEN #5 audit, 2026-07-04)
 
 Run: python3 -m pytest test_diagnostic_false_positives.py -v
 """
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -290,6 +294,96 @@ class TestOverallDiagnosticStatus(unittest.TestCase):
             self.assertEqual(len(ml_cache_problems), 0)
         finally:
             diagnostics.EXPECTED_CACHE_FRESHNESS["ml_model"]["critical"] = original
+
+
+# ── 7. Extended API health checks (reddit_/fh_) — KNOWN BROKEN #5 audit ──────
+# social_data.py and finnhub_data.py were the two live-scoring data sources
+# (deep_score() in bot_engine.py) with ZERO freshness/health monitoring —
+# unlike macro/insider/wiki/gdelt/fred, which diagnostics.py already tracked.
+# A dead Reddit RSS feed or an expired FINNHUB_KEY degraded those signals to
+# permanent silent no-ops (bot_engine.py's `except Exception: return {}`
+# swallows the failure with no logging). These tests pin the new checks and,
+# critically, the same false-positive discipline #1 above established for
+# ml_model: an unconfigured key is an expected state, not a break.
+
+
+class TestExtendedApiHealthChecks(unittest.TestCase):
+    """reddit_/fh_ cache monitoring, isolated from the api_checks/failed_apis
+    bucket that drives reduce_position_size at >=3 failures."""
+
+    def setUp(self):
+        import diagnostics
+        self.diagnostics = diagnostics
+        self._orig_cache_dir = diagnostics.CACHE_DIR
+        self._tmp_dir = tempfile.mkdtemp(prefix="voltrade_ext_health_test_")
+        diagnostics.CACHE_DIR = self._tmp_dir
+
+    def tearDown(self):
+        self.diagnostics.CACHE_DIR = self._orig_cache_dir
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+
+    def test_reddit_and_finnhub_flagged_when_both_down(self):
+        """Key configured but no cache written yet -> both sources listed."""
+        with patch.dict(os.environ, {"FINNHUB_KEY": "real_test_key"}):
+            report = self.diagnostics.run_diagnostics()
+        api_warnings = [w for w in report["warnings"] if w.get("system") == "api"
+                        and "Extended data sources" in w.get("message", "")]
+        self.assertEqual(len(api_warnings), 1)
+        self.assertIn("reddit", api_warnings[0]["message"])
+        self.assertIn("finnhub", api_warnings[0]["message"])
+
+    def test_no_extended_warning_when_finnhub_unconfigured_and_reddit_cached(self):
+        """Unconfigured FINNHUB_KEY must NOT be flagged (expected state, not a
+        break) — the exact false-positive class this test file exists for."""
+        with open(os.path.join(self._tmp_dir, "reddit_AAPL.json"), "w") as f:
+            json.dump({}, f)
+        with patch.dict(os.environ, {"FINNHUB_KEY": ""}):
+            report = self.diagnostics.run_diagnostics()
+        api_warnings = [w for w in report["warnings"] if w.get("system") == "api"
+                        and "Extended data sources" in w.get("message", "")]
+        self.assertEqual(len(api_warnings), 0)
+
+    def test_finnhub_placeholder_key_treated_as_unconfigured(self):
+        """YOUR_FINNHUB_KEY_HERE (the shipped placeholder) must read as
+        unconfigured, matching finnhub_data.py's own gate."""
+        with open(os.path.join(self._tmp_dir, "reddit_AAPL.json"), "w") as f:
+            json.dump({}, f)
+        with patch.dict(os.environ, {"FINNHUB_KEY": "YOUR_FINNHUB_KEY_HERE"}):
+            report = self.diagnostics.run_diagnostics()
+        api_warnings = [w for w in report["warnings"] if w.get("system") == "api"
+                        and "Extended data sources" in w.get("message", "")]
+        self.assertEqual(len(api_warnings), 0)
+
+    def test_finnhub_healthy_when_configured_and_cached(self):
+        with open(os.path.join(self._tmp_dir, "reddit_AAPL.json"), "w") as f:
+            json.dump({}, f)
+        with open(os.path.join(self._tmp_dir, "fh_insider_AAPL.json"), "w") as f:
+            json.dump({}, f)
+        with patch.dict(os.environ, {"FINNHUB_KEY": "real_test_key"}):
+            report = self.diagnostics.run_diagnostics()
+        api_warnings = [w for w in report["warnings"] if w.get("system") == "api"
+                        and "Extended data sources" in w.get("message", "")]
+        self.assertEqual(len(api_warnings), 0)
+
+    def test_extended_checks_isolated_from_failed_apis_threshold(self):
+        """reddit/finnhub must never enter the api_checks dict that feeds
+        failed_apis -> reduce_position_size(>=3) — that would silently
+        change when the risk-affecting auto-fix fires."""
+        import inspect
+        source = inspect.getsource(self.diagnostics.run_diagnostics)
+        start = source.index("api_checks = {")
+        end = source.index("failed_apis = [")
+        api_checks_block = source[start:end]
+        self.assertNotIn('"reddit"', api_checks_block)
+        self.assertNotIn('"finnhub"', api_checks_block)
+
+    def test_extended_down_never_triggers_reduce_position_size(self):
+        with patch.dict(os.environ, {"FINNHUB_KEY": "real_test_key"}):
+            report = self.diagnostics.run_diagnostics()
+        for problem in report["problems"]:
+            if problem.get("auto_fix") == "reduce_position_size":
+                self.assertNotIn("reddit", problem["message"])
+                self.assertNotIn("finnhub", problem["message"])
 
 
 if __name__ == "__main__":
