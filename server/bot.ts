@@ -6,6 +6,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
+import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { aircraftProviderCompliance } from "./providerCompliance";
@@ -437,6 +438,52 @@ function saveEquityPeak() {
 // protection. If no file exists yet (first boot), the existing lazy seeding
 // at the kill-switch sites behaves exactly as before.
 state.equityPeak = loadEquityPeak();
+
+// ─── LIVENESS ALARM (Amendment 2 runtime half, human-approved 2026-07-04) ──
+// The loop paused/halted >2 market hours (or 24h wall-clock) degrades
+// /api/health. Heartbeat persisted like equityPeak so deploys never reset
+// the darkness clock; Railway's healthcheck polling drives the assessment,
+// the 60s touch below keeps the stamp fresh regardless.
+const LIVENESS_PATH = "/data/voltrade/voltrade_liveness.json";
+const LIVENESS_FALLBACK = "/tmp/voltrade_liveness.json";
+
+function loadLiveness(): LivenessFile | null {
+  for (const p of [LIVENESS_PATH, LIVENESS_FALLBACK]) {
+    try {
+      if (fs.existsSync(p)) {
+        const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+        if (Number.isFinite(parsed?.lastActiveAt)) return { lastActiveAt: parsed.lastActiveAt };
+      }
+    } catch (e: any) {
+      console.error(`[liveness] could not load ${p}:`, e?.message || e);
+    }
+  }
+  return null;
+}
+
+function saveLiveness(v: LivenessFile) {
+  for (const p of [LIVENESS_PATH, LIVENESS_FALLBACK]) {
+    try {
+      const dir = p.substring(0, p.lastIndexOf("/"));
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      fs.writeFileSync(p, JSON.stringify({ ...v, savedAt: new Date().toISOString() }));
+      return;
+    } catch (e: any) {
+      console.error(`[liveness] could not save to ${p}:`, e?.message || e);
+    }
+  }
+}
+
+let livenessState: LivenessFile | null = loadLiveness();
+
+setInterval(() => {
+  try {
+    // active → fresh stamp (new object) → saved each minute; inactive →
+    // same object back (or a one-time seed) → no disk churn while dark.
+    const next = nextLiveness(livenessState, state.active && !state.killSwitch, Date.now());
+    if (next !== livenessState) { livenessState = next; saveLiveness(next); }
+  } catch {}
+}, 60_000);
 
 // ─── Email Alerts (Resend) ────────────────────────────────────────────────────
 const RESEND_KEY = process.env.RESEND_KEY || "";
@@ -1079,12 +1126,23 @@ print(json.dumps(data))
       checks.status = "degraded";
     }
     
-    // Check 5: Bot state
+    // Check 5: Bot state + LIVENESS ALARM (Amendment 2 runtime half): a
+    // loop paused/halted >2 market hours (or 24h wall-clock) DEGRADES
+    // overall health — this exact gap let the bot sit paused unflagged
+    // while every routine read "all ok".
+    const activeNow = state.active && !state.killSwitch;
+    const nextLv = nextLiveness(livenessState, activeNow, Date.now());
+    if (nextLv !== livenessState) { livenessState = nextLv; saveLiveness(nextLv); }
+    const lv = loopDark(livenessState, activeNow, Date.now());
     checks.checks.bot = {
       status: state.killSwitch ? "killed" : state.active ? "active" : "stopped",
       equityPeak: state.equityPeak,
       drawdownPct: state.equityPeak > 0 ? (((state.equityPeak - parseFloat(state.lastEquity || String(state.equityPeak))) / state.equityPeak) * 100).toFixed(1) : "N/A",
+      liveness: lv.dark
+        ? { dark: true, marketHours: +lv.marketHours.toFixed(1), wallHours: +lv.wallHours.toFixed(1), detail: lv.detail }
+        : { dark: false },
     };
+    if (lv.dark) checks.status = "degraded";
 
     // Check 6: data-provider licensing (monetization tripwire, CLAUDE.md
     // KNOWN STATE 2026-07-03) — non-commercial providers must leave the
