@@ -13,6 +13,33 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RESEARCH] Five new data roots filed + geospatial licensing register + universal-envelope proposal (docs PR)
+
+- Charter gap execution items 2-3: a 10-agent research workflow
+  (primary-source license verification — every verdict from the
+  provider's own ToS/license page, fetched 2026-07-04; ~507k subagent
+  tokens, 247 tool uses) produced: (1) five NEW DATA ROOTS entries in
+  open_questions.md (8-K earnings language, ATS job postings,
+  app-store rankings, USPTO patents, GitHub org activity), each with
+  licensing verdicts, honest gaps, priors, and concrete ladder paths;
+  build order stated with rationale (8-K first — EDGAR history exists,
+  gate 2 not time-blocked). (2) GEOSPATIAL LICENSING REGISTER for
+  Tier-1 layers a-g + Tier-2 buildings — notable findings: Open-Meteo
+  and RainViewer free tiers unlawful for us; MapTiler free tier
+  non-commercial (rejected); NO free current national US pipeline
+  vector exists anymore (EIA Atlas dead, HIFLD Open discontinued
+  2025) — layer (g) builds from GEM/TX-RRC/OSM with per-source
+  coverage honesty. (3) UNIVERSAL ARCHIVE ENVELOPE proposal in
+  wishlist (two-tier: dataset manifests retroactively + datum-level
+  fields on new pipelines; avoids 3x-ing position-archive volume) —
+  awaiting human approval. (4) Two free HUMAN ACTION items filed
+  (USPTO ID.me key; Apple EPF enrollment) + Sensor Tower priced
+  not-recommended entry with build-first analysis.
+- Key licensing kills recorded so no session re-chases them: Motley
+  Fool + Seeking Alpha transcripts (ToS bar pipelines), LinkedIn/
+  Indeed scraping, Google Play programmatic charts, Appfigures free
+  tier, USAJOBS derived use, Apple reviews RSS (verified dead).
+
 ## 2026-07-04 — [RESEARCH] Wishlist decisions recorded + options/diagnostics decision packages (docs PR)
 
 - Human decisions 2026-07-04 recorded in wishlist.md: satellite-AIS

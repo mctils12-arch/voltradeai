@@ -318,6 +318,50 @@
   and shadow-fleet statistics all live in terrestrial-coverage
   waters — none qualifies.]**
 
+- **⚖ PROPOSAL — UNIVERSAL ARCHIVE ENVELOPE (charter directive
+  2026-07-04; human approval required; nothing changed yet).** INTENT:
+  every archived datum carries {timestamp UTC, source, confidence,
+  geo, entity/ticker linkage, sentiment where applicable}. HONEST
+  ENGINEERING CONSTRAINT: position archives are compact POSITIONAL
+  records by design (~105MB/mo volume budget); repeating constant
+  envelope fields on every 2-min position point would ~3x volume for
+  zero information (source/confidence are constant per stream).
+  PROPOSED TWO-TIER FORM: (1) DATASET-LEVEL manifests —
+  datacore/manifests/{kind}.json, one envelope per stream {source,
+  license, attribution, schema_version, field_map, confidence_model,
+  geo_fields, entity_key (MMSI/icao24/CIK/ticker), started, cadence} —
+  covers EXISTING archives retroactively without rewriting append-only
+  history (manifests are new files, not edits). (2) DATUM-LEVEL where
+  information actually varies per record: t (already UTC epoch
+  everywhere), geo (la/lo), entity key (already present) — and
+  REQUIRED first-class fields {source, confidence, entity/ticker
+  linkage, sentiment where applicable} on ALL NEW pipelines
+  (8-K language, jobs, patents, app ranks) from birth. MIGRATION:
+  existing JSONL stays byte-stable; readers pick up field_map from
+  manifests in a later refactor PR; the Everything Graph's edge
+  metadata {source, confidence, first_seen, last_seen} is this same
+  envelope applied to derived data. IF APPROVED: PR 1 writes manifests
+  for the 5 existing streams + a test (every archive kind must have a
+  manifest — enforced).
+
+- **HUMAN ACTION — USPTO Open Data Portal API key (free, ~15 min):**
+  create a USPTO.gov account with ID.me identity verification —
+  sessions cannot do identity verification. Unblocks the patents root
+  (open_questions NEW DATA ROOTS #4); until then the BigQuery backfill
+  path works within the 1TB/mo free budget.
+- **HUMAN ACTION — Apple Performance Partners / Enterprise Partner
+  Feed enrollment (free):** sanctioned bulk feed that hedges the
+  undocumented Apple RSS endpoints the app-store archiver uses
+  (NEW DATA ROOTS #3); its store-linking requirement (App Store
+  badges/links on the /data surface) is acceptable and noted.
+- **Sensor Tower (app downloads/revenue ESTIMATES) — PRICED, not
+  recommended.** ~$6K/yr entry module to ~$42K+/yr realistic.
+  BUILD-FIRST: even paid data here is panel-model ESTIMATES, not
+  truth; our free archiver (ranks + rating-count velocity + Apple
+  top-grossing as revenue proxy) captures the testable core of the
+  hypothesis. Revisit only if the free root passes gate 2 AND the
+  residual specifically needs download estimates.
+
 - **[APPROVED BY HUMAN 2026-07-04 — applied same message]** DESIGN.md
   amendment: SELF-SEE RULE — "UI changes must verify their own
   rendering: after any change to a panel or overlay, the harness

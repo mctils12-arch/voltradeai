@@ -411,6 +411,159 @@ R6. **Dashboards from monitoring we already emit (charter directive
   risk, not tanker-rate positioning) is the structural reason a small
   player can still extract the market signal.
 
+## NEW DATA ROOTS (charter gap execution 2026-07-04 — licensing verified from primary sources by a 10-agent research pass; build order = expected signal × coverage × time-to-testable)
+
+BUILD ORDER RATIONALE: 8-K language first because EDGAR history already
+exists (gate 2 testable immediately, not time-blocked) with complete
+small/micro-cap coverage and exact timestamps; jobs second (uniquely
+un-arbitraged free panel, but 2 quarters of accumulation before gate 2);
+app-store third (archiver is ~30 HTTP calls/day — trivial cost, heavily
+arbitraged category so expectations low); USPTO fourth (clean licensing,
+18-month publication hole, blocked on a human signup); GitHub fifth
+(free and deep but the public-slice bias confound attacks the premise).
+
+1. **Earnings language from SEC 8-K Item 2.02 (Exhibit 99) — the lawful
+   transcript substitute.** LICENSING VERDICTS (fetched 2026-07-04):
+   Motley Fool and Seeking Alpha transcripts PROHIBITED as pipelines
+   (both ToS bar automated access + commercial use); FMP transcripts
+   effectively paid+restricted (personal-use free tier; data-deletion
+   clause on termination); EDGAR is public-record, free, "no
+   restrictions on public domain use," 10 req/s + declared User-Agent.
+   WHAT WE GET: results + guidance language, same-day, timestamp-exact
+   (acceptance-datetime = lookahead-free), EVERY reporting company incl.
+   micro caps. HONEST GAP: Q&A sessions (where much academic signal
+   lives) are almost never filed; the build-first path to true
+   transcripts is self-ASR of public IR webcasts (Whisper, MIT) for a
+   small watchlist — per-platform ToS check before any bulk automation,
+   gray zone labeled honestly. PRIOR: modest post-earnings-drift
+   prediction from guidance-language deltas (Lazy-Prices-style QoQ
+   changes), strongest where analyst coverage is thin. LADDER — DATA:
+   extract Exhibit 99 text; verify 50-filing sample vs actual exhibits +
+   IR press releases; SIGNAL: L-M tone + language-delta features vs
+   forward returns against size-matched random entry, regime-split;
+   self-ASR side gates on guidance-sentence WER ≈ 0 vs 20
+   company-published texts.
+2. **Job postings via ATS public JSON (hiring velocity / role mix).**
+   LICENSING: Greenhouse/Lever/Ashby/SmartRecruiters public postings
+   endpoints carry no express third-party grant — CONDITIONAL: polite
+   cadence, derived signals only on any paid surface (counts/deltas/
+   ratios, never raw posting text), added to the provider-compliance
+   checklist; LinkedIn/Indeed scraping PROHIBITED (and no scraped
+   derivatives); USAJOBS restricted (OPM approval needed); Indeed
+   Hiring Lab aggregates CC BY 4.0 (the panel ground truth). HONEST
+   GAP: Russell-2000 ATS coverage is UNMEASURED — gate 0 exists to
+   kill that unknown. LADDER — GATE 0 (week 1): ATS resolver probes
+   the four endpoints per ticker, outputs a measured coverage table;
+   if coverage <~10% and Workday stays blocked, downgrade to
+   covered-universe-only and log it. GATE 1: sampled counts vs the
+   company's own careers page; panel vs Hiring Lab index + JOLTS.
+   GATE 2 (after ~2 quarters of archive): posting-count deltas,
+   freeze-detection (abnormal deletion rates), role-mix shifts vs
+   forward returns/restructuring announcements vs base rate. Archive
+   starts with the resolver — collect-everything, diff-based.
+3. **App-store rankings + review velocity (DUOL/BMBL/MTCH/HOOD/COIN/
+   RBLX class).** LICENSING: Apple RSS/marketingtools top-chart JSON +
+   iTunes Lookup rating counts CONDITIONAL (existing public feeds,
+   low-volume internal use; Enterprise Partner Feed is the sanctioned
+   bulk hedge — free program, human enrollment); Google Play
+   PROHIBITED programmatically (robots.txt + ToS — Android side is
+   dark, stated honestly); Appfigures free tier REJECTED (no
+   commercial license); Apple customer-reviews RSS VERIFIED DEAD.
+   HONEST GAPS: no downloads/revenue anywhere free (ordinal ranks +
+   top-grossing as revenue proxy); rank history must be self-built —
+   every day not archived is lost. SOBER PRIOR: the MOST arbitraged
+   alt-data category; expect near-zero on large caps; residual only in
+   thin-coverage small caps. LADDER — DATA: daily archiver (~30
+   calls/day: genre top-free/top-grossing × 4-5 storefronts + Lookup
+   rating counts for an app→ticker map); rating-count deltas vs
+   product-page displayed counts; GATE 2: quarterly rank/velocity
+   aggregates vs company-REPORTED metrics (DUOL DAU/bookings, RBLX
+   bookings) — the EIA-equivalent ground truth — then vs returns.
+4. **USPTO patents (filing velocity / topic shifts).** LICENSING: USPTO
+   ODP public domain (redistribution OK) but API key needs a HUMAN
+   ID.me signup (wishlist action filed); PatentsView CC BY 4.0
+   (disambiguated assignees — the entity-resolution shortcut); Google
+   Patents BigQuery CC BY 4.0 (1TB/mo free scan budget backfill path
+   while the key waits); EPO OPS free ≤4GB/week. STRUCTURAL HONESTY:
+   the 18-month publication hole is universal (filing velocity is
+   really publication velocity of ~18-month-old filings; ~7%
+   non-publication requesters never appear pre-grant); grants publish
+   weekly Tuesdays, applications Thursdays — THOSE are the timely
+   events. PRIOR: large-cap patent factors are crowded/near-zero;
+   residual in small-cap assignee-resolution quality. LADDER — DATA:
+   weekly XML → per-assignee counts + CPC mix; reconcile vs
+   PatentsView quarterly (~99% on top-500 grant counts); assignee→
+   ticker map vs KPSS match file (>95% top-500 agreement, small-cap
+   disagreement quantified, never hidden); SIGNAL: allowance/grant
+   velocity anomalies vs forward returns vs base rate.
+5. **GitHub org activity (engineering momentum, small-cap devtools).**
+   LICENSING: GitHub API conditional (aggregated non-personal metrics
+   OK; 5k req/hr authed); GH Archive free (redistribution ambiguous —
+   internal computation + derived aggregates only); OSS Insight
+   treated prohibited-by-default; Libraries.io CC BY-SA. HONEST
+   CONFOUND (attacks the premise): public activity is a strategic,
+   biased slice that varies by company — meaningful for
+   develop-in-public names (ESTC, MDB), a rounding error elsewhere;
+   private repos invisible everywhere. LADDER — DATA: weekly per-org
+   metrics (merged PRs, pushes, bot-filtered unique actors) from GH
+   Archive for a hand-verified ~15-org→ticker watchlist + mega-cap
+   controls; cross-verify vs GitHub REST; known-event replay
+   (HashiCorp BSL Aug-2023 discontinuity, announced layoffs) must
+   appear at the right dates; SIGNAL: velocity deltas vs forward
+   returns, develop-in-public names only.
+
+## GEOSPATIAL LICENSING REGISTER (Tier 1/2, verified from primary sources 2026-07-04 — build PRs cite this)
+
+- (a) TERRAIN: **Mapterhorn** primary (free, no key, commercial OK —
+  Copernicus + CC-BY national sources; terrarium 512px z0-17;
+  attribution "© Mapterhorn"); AWS/Mapzen Terrarium fallback (free,
+  public-domain sources). MapTiler free tier REJECTED (non-commercial
+  — tripwire class). Resilience: archive a PMTiles extract of our AOIs
+  (accumulation substitutes for dependency).
+- (b) WEATHER: NWS api.weather.gov + NOAA nowCOAST WMS (public domain,
+  US-only, no key, no SLA — degrade gracefully); global fields:
+  OpenWeatherMap free tier (commercial OK with visible attribution,
+  60 calls/min, 1M/mo; tiles are model-derived — label as such).
+  Open-Meteo free tier PROHIBITED (non-commercial only); RainViewer
+  DISQUALIFIED (personal/educational; API gutted Jan 2026). HONEST
+  GAP: no free lawful GLOBAL true-radar exists — US radar only.
+- (c) FIRES: NASA FIRMS free MAP_KEY, commercial lawful, VIIRS 375m,
+  NRT ~3h latency, LANCE attribution + "not for safety-of-life"
+  disclaimer; NO free history — archive detections from day one.
+- (d) CROPS: USDA NASS CDL public domain ("free to redistribute"),
+  30m, ANNUAL + retrospective (Feb release covers prior season) —
+  label vintage; CropScape WMS for display; no free intra-season
+  crop map (NASS Crop Progress = state-level text only).
+- (e) DROUGHT/SOIL MOISTURE: US Drought Monitor weekly GeoJSON
+  (mandatory NDMC/USDA/NOAA credit line, permanent); drought.gov XYZ
+  tiles (NOAA open, daily); NASA SMAP L4 CC0 (9km MODEL product —
+  label; native 36km). No free field-scale soil moisture.
+- (f) GROUNDWATER: USGS NWIS / api.waterdata.usgs.gov (public domain;
+  free key on the new API) — POINT data (wells), labeled as points
+  with per-well trend + last-measured date, never a surface.
+- (g) OIL/GAS INFRA — MAJOR FINDING: **no free, current, national US
+  pipeline vector source exists anymore.** EIA Energy Atlas geospatial
+  layers verified DEAD (DCAT absent, about-pages 404, maps.eia.gov DNS
+  dead); HIFLD Open discontinued Aug-Sep 2025 (survivors gov-only);
+  PHMSA NPMS restricts bulk access by policy. BUILD FROM: Global
+  Energy Monitor trackers (CC BY 4.0, global, major infra), TX RRC
+  bulk (public records; wells + TX pipelines), ND DMR public tier,
+  OSM pipeline tags (ODbL — share-alike on derived DB), DataLumos
+  archived HIFLD gas-pipeline snapshot (static — label vintage).
+  Anything shipped states coverage per source honestly.
+- (Tier 2) BUILDINGS: render via **OpenFreeMap** OSM building layer
+  (public instance explicitly allows commercial use; sustainability
+  risk noted) + client-side queryRenderedFeatures viewport stats at
+  z13+ labeled "estimate — rendered features only, heights where
+  mapped"; HONEST HEIGHT GAP: MS footprints have heights for only
+  ~12% of corpus, Google 2.5D excludes the US, OSM tags sparse —
+  viewport height stats are partial estimates by construction. Bulk
+  analysis later: VIDA combined Google-MS-OSM (ODbL) or Overture
+  GeoParquet (ODbL; hosted PMTiles is a beta convenience bucket, not
+  an SLA). Hypotheses (ladder-pathed): metro-level footprint-vintage
+  deltas ↔ homebuilder/REIT tickers — gate 1 = vintage deltas vs
+  Census building permits reconciliation.
+
 ## PORT DWELL ANALYTICS (fusion directive 2026-07-04 — RAW live, SIGNAL gated)
 
 - **What ships now (RAW, v1.0.60)**: server/portDwell.ts computes from OUR
