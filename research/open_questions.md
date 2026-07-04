@@ -287,6 +287,31 @@ R4. **3D globe mode.** MapLibre globe projection (or Cesium only if
     context) — hypothesis only, no build until a use case passes the
     ladder.
 
+R5. **THE EVERYTHING GRAPH — flagship (charter directive 2026-07-04).**
+    Design doc: datacore/EVERYTHING_GRAPH.md. v1 links ONLY what we
+    already collect: person(CIK) —insider_of→ company(ticker)
+    —operates→ facility(sites/plants via entity_map) ←calls_at—
+    vessel(MMSI, from port-dwell visits). Storage v1 = pure builder +
+    cache (recompute-from-archives doctrine; sqlite materialization
+    only past the stated evolution trigger). Build order (each own PR):
+    (1) datacore/entity_map.json verified operator→ticker table [also
+    unblocks fusion (b) gate 1], (2) server/entityGraph.ts +
+    /api/data/graph + tests, (3) /data graph panel + company→facility
+    map highlighting. Graph queries become a /data feature when v1
+    lands — RAW with provenance; interpretations on top stay
+    ladder-gated.
+
+R6. **Dashboards from monitoring we already emit (charter directive
+    2026-07-04).** Three /data panels, no new collection: (a)
+    SIGNAL-STRENGTH — ladder position of every root (gate passed/date/
+    next gate, from research/ bookkeeping made machine-readable); (b)
+    DATA-QUALITY — feed freshness + per-provider status (runtime layer
+    statuses), archive growth (/api/data/archive/stats), verification
+    coverage (sites 16/16, plants 100/9833 imagery-verified); (c)
+    PIPELINE-HEALTH — /api/health checks history, provider backoff
+    states, compliance status. DESIGN.md applies (self-see, three
+    widths); each panel its own PR.
+
 ## ARCHIVE-ENABLED SIGNAL HYPOTHESES (raw material accumulating from R1;
    each still validates through the full ladder)
 

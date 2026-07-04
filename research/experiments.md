@@ -13,6 +13,26 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Everything Graph v1 spec filed (flagship) + R5/R6 roadmap slots — docs PR
+
+- Charter directive items 4-5 executed as design artifacts (no build):
+  datacore/EVERYTHING_GRAPH.md specs entity types (company/person/
+  facility/vessel; aircraft_operator PLANNED pending tail→operator
+  gate 1), relationship types (insider_of, operates, located_at,
+  calls_at from port-dwell visits), storage (v1 = pure builder +
+  cache per the recompute-derivations doctrine; sqlite only past a
+  stated size/latency trigger; never auth.ts's db), the entity_map
+  resolution table (shared infrastructure with fusion (b) gate 1),
+  and a 3-PR build order. Roadmap: R5 (graph, flagship) + R6
+  (signal-strength / data-quality / pipeline-health dashboards, all
+  sourced from monitoring we already emit) added to MAP V2 ROADMAP.
+- Key design call, recorded: the graph is RAW (relationships as filed/
+  registered, with provenance + confidence on every edge) — any
+  interpretation on top is SIGNAL-class and ladder-gated; and v1 is a
+  materialized view, not a store — losing it loses nothing
+  (ARCHIVE-ingredients doctrine).
+- Docs-only PR, no version bump.
+
 ## 2026-07-04 — [PRODUCT] Port dwell analytics from our own AIS archive (v1.0.60) — fusion directive, highest-immediate-value item
 
 - PRIOR (REASONING STANDARD #10, stated before reading any archive
