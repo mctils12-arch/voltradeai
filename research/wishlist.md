@@ -201,10 +201,10 @@
   in the amendment PR for line-by-line review; nothing is applied
   before approval.
 
-- **⚖ AMENDMENT PROPOSAL — WORKSTREAM PARTITION (throughput directive
-  2026-07-04; human approval required; exact text below; nothing
-  applied).** Proposed addition to CLAUDE.md as a new section after
-  SESSION BUDGET:
+- **⚖ [APPROVED BY HUMAN 2026-07-04 — "WORKSTREAM PARTITION amendment
+  — ship it"; applied to CLAUDE.md same day as a new section after
+  SESSION BUDGET, dated 2026-07-04.] AMENDMENT — WORKSTREAM PARTITION
+  (throughput directive 2026-07-04).** Applied text (as proposed):
 
   "## WORKSTREAM PARTITION (human-approved YYYY-MM-DD)
 

@@ -493,6 +493,36 @@ rigor never relaxes for later actions; [NO-ACTION] is correct only when
 the queue is empty AND research would duplicate filed work; the
 anti-churn rule stands — padding to look busy remains forbidden.
 
+## WORKSTREAM PARTITION (human-approved 2026-07-04)
+
+Concurrent sessions build in disjoint FILE TERRITORIES; a session
+declares its territory in its first experiments.md entry and stays
+inside it:
+- T-DATACORE: datacore/**, the datacore server modules
+  (datacoreArchive, shadowFleet, portDwell, nasaFirms, edgarForm4,
+  sec8kEarnings, trainsFeed, owmTiles, future entity/graph modules)
+  + their tests, scripts/ pipeline tooling.
+- T-CLIENT: client/src/**, index.css, scripts/visual_check.mjs and
+  visual tooling. DESIGN.md rule changes remain amendments.
+- T-BOT: bot_engine.py, ml_model_v2.py, system_config.py,
+  strategies/, analyze/insights/instrument_selector/tiered_strategy,
+  server/bot.ts outside frozen paths.
+SHARED (any session, serialize + minimize): server/routes.ts,
+datacore/layers.json, package.json, research/*. MERGE-ORDER
+PROTOCOL: (1) shared-file edits are the LAST commit before the PR
+and as small as possible; (2) version = read-and-increment at
+commit time, never planned ahead; (3) research/* conflicts resolve
+keep-both-sides (append-only spirit); (4) merge monitors verify
+WHICH PR merged before any branch reset (ops rule); (5) a
+cross-territory change belongs wholly to the session owning its
+PRIMARY territory — never split one logical change across sessions;
+(6) collisions discovered late follow the supersession precedent:
+first-merged wins, the duplicate salvages its unique delta.
+Within a session, parallel subagents fan out labor (research,
+per-source builds, test generation) while judgment stays in the
+parent — subagent output ships only after the session's own
+read-before-write review.
+
 ## KNOWN STATE (update as things change)
 
 - Backtest engine REBUILT 2026-07-03 (v1.0.34): `backtest_v2.py` is the
