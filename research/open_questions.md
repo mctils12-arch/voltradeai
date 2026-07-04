@@ -535,9 +535,11 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
 NEXT ACTIONS (queued for [PRODUCT] routines, build in order, one layer
 per PR; licensing below is DONE — do not re-research): (a) terrain
 SHIPPED v1.0.61; (b) weather SHIPPED v1.0.62 (US radar; OWM global
-fields await the key); (c) FIRMS fires — awaiting MAP_KEY human action,
-may ship scaffolded awaiting_key like vessels did, ARCHIVE detections
-from day one; (d) USDA CDL crops; (e) drought/soil moisture (USDM +
+fields await the key); (c) FIRMS fires SHIPPED v1.0.65 scaffolded
+awaiting_key (server/nasaFirms.ts — same key-gated shape as vessels;
+polls + archives from day one the moment NASA_FIRMS_MAP_KEY is set;
+new "Environmental" panel group added for it and future R3 layers);
+(d) USDA CDL crops; (e) drought/soil moisture (USDM +
 drought.gov tiles); (f) USGS groundwater points; (g) oil/gas infra
 (GEM + TX RRC + OSM; per-source coverage honesty — no free national
 pipeline vector exists); then Tier-2 buildings v1 (OpenFreeMap render

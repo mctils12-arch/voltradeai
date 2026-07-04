@@ -30,6 +30,7 @@ import {
 } from "./owmTiles";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
+import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 
 const execAsync = promisify(exec);
 
@@ -667,9 +668,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // metadata from datacore/layers.json; overlay routes land one per slice.
   app.get("/api/data/layers", (_req, res) => {
     const layers = ((datacoreLayers as any).layers || []).map((l: any) =>
-      // vessels goes live automatically the moment AISSTREAM_KEY exists
+      // vessels/fires go live automatically the moment their key exists
       l.id === "vessels"
         ? { ...l, status: vesselStreamEnabled() ? "live" : "awaiting_key" }
+      : l.id === "fires"
+        ? { ...l, status: firmsEnabled() ? "live" : "awaiting_key" }
         : l
     );
     res.json({ layers });
@@ -1138,6 +1141,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
     }
+  });
+
+  // NASA FIRMS active fires (RAW) — Tier-1(c) geospatial root, key-gated
+  // exactly like vessels (research/wishlist.md: free MAP_KEY, commercial-
+  // lawful, VIIRS 375m NRT ~3h latency, LANCE attribution + "not for
+  // safety-of-life" disclaimer required). No free history exists upstream,
+  // so every fetch archives from day one (see server/nasaFirms.ts). Boots
+  // eagerly (KNOWN BROKEN #9 lesson) but only actually polls once a key is
+  // present — bootFirmsPoll no-ops without NASA_FIRMS_MAP_KEY.
+  bootFirmsPoll();
+  app.get("/api/data/fires", (_req, res) => {
+    if (!firmsEnabled()) {
+      return res.json({
+        enabled: false,
+        kind: "raw",
+        reason: "NASA_FIRMS_MAP_KEY not set — free registration at firms.modaps.eosdis.nasa.gov (see research/wishlist.md)",
+        fires: [],
+      });
+    }
+    const hit = latestFirms();
+    if (!hit) {
+      return res.json({ enabled: true, kind: "raw", warming_up: true, count: 0, fires: [] });
+    }
+    res.json({
+      enabled: true,
+      kind: "raw",
+      source: "NASA FIRMS / LANCE — VIIRS 375m NRT (not for safety-of-life use)",
+      time: Math.floor(hit.at / 1000),
+      count: hit.detections.length,
+      fires: hit.detections.slice(0, 8000),
+    });
   });
 
   // Dark-ship RAW statistics — derived from OUR OWN AIS archive (shadow-fleet
