@@ -179,12 +179,21 @@
 - Earnings/FOMC calendar awareness: verify positions are actually
   gated around scheduled events, not just theoretically supported.
 
-- **Dual-momentum SPY/QQQ** (from 2026-07-03 harness run, `bot_backtest.py`):
-  in-sample 2016-2026 beat SPY (16.3% vs 14.1% CAGR, Sharpe 0.90 vs 0.83,
-  DD -28.6% vs -33.7%). 1-of-~7 variants tried — discount per REASONING
-  STANDARD #4. PRIOR stated before any out-of-sample run (#10): edge shrinks
-  but survives ~+1% CAGR over SPY ex-2020-21; kill if negative in >=2
-  sub-periods. Candidate tournament entrant once #1 lands.
+- **[KILLED 2026-07-04 — see experiments.md]** ~~Dual-momentum SPY/QQQ~~
+  (from 2026-07-03 harness run, `bot_backtest.py`): in-sample 2016-2026 beat
+  SPY (16.3% vs 14.1% CAGR, Sharpe 0.90 vs 0.83, DD -28.6% vs -33.7%).
+  1-of-~7 variants tried — discount per REASONING STANDARD #4. PRIOR stated
+  before any out-of-sample run (#10): edge shrinks but survives ~+1% CAGR
+  over SPY ex-2020-21; kill if negative in >=2 sub-periods. OUT-OF-SAMPLE
+  RESULT (`bot_backtest_subperiods.py`, calendar sub-period split): negative
+  alpha vs SPY in 2/3 non-2020-21 sub-periods (2016-2019: -1.09pp; 2024-2026:
+  -11.49pp; only 2022-2023 positive at +19.44pp) — kill threshold met. The
+  pooled decade number was REASONING STANDARD #2 in action: almost the
+  entire in-sample edge was concentrated in the single 2022-2023 regime
+  (tech underperforming, so the SPY/QQQ winner-take-all rotation avoided
+  the 2022 drawdown), not a persistent property of the strategy. NOT a
+  tournament candidate. Do not re-propose without a materially different
+  variant and a fresh out-of-sample test — this exact config is closed.
 
 - **Aircraft/vessel provider redundancy** — AIRCRAFT SIDE EXECUTED
   2026-07-03 (v1.0.52): chain is now THREE deep — adsb.lol (ODbL,

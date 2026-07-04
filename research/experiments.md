@@ -13,6 +13,87 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RESEARCH] Dual-momentum SPY/QQQ judged out-of-sample — KILLED
+
+- Session start check: `/api/health` all-ok (Alpaca ACTIVE, python bridge ok,
+  bot active, equityPeak=108151.39/drawdownPct=0.0% — the 2026-07-03
+  persistence fix still holding). Loop-health ratio over the last 10
+  experiments.md entries: 1 REPAIR, 7 PRODUCT, 2 RESEARCH — below the 7/10
+  thrash-escalation threshold. No DIAG_TOKEN route exists yet (still a
+  wishlist HOLD pending human decision), so audit-log/trade_feedback
+  inspection remains unavailable to autonomous sessions per KNOWN BROKEN #4's
+  access limitation — SESSION BUDGET's "fix a bug seen in audit logs" tier
+  was not actionable this session. Chose the next tier: judging a matured
+  experiment. The Dual-momentum SPY/QQQ candidate (open_questions.md) had a
+  PRIOR and an explicit kill rule recorded 2026-07-03, blocked only on the
+  backtest engine (#1), which was rebuilt the same day — the out-of-sample
+  test was runnable and simply hadn't been executed yet, buried under a run
+  of [PRODUCT] map/geospatial sessions. Judging it outranks starting a new
+  experiment or researching new ideas per the SESSION BUDGET order, and it
+  is squarely GOAL priority 3 (grow the account) work using REASONING
+  STANDARD #2/#4 rigor (regime-split, out-of-sample, discount for variants).
+- PRIOR (restated from the 2026-07-03 entry, before running anything this
+  session, REASONING STANDARD #10): "edge shrinks but survives ~+1% CAGR
+  over SPY ex-2020-21; kill if negative in >=2 sub-periods."
+- Built `bot_backtest_subperiods.py`: reuses `bot_backtest.py`'s existing
+  pure `fetch()`/`backtest()`/`metrics()` (zero duplication) to split the
+  same 2016-2026 SPY/QQQ window into four calendar sub-periods (2016-2019,
+  2020-2021 isolated as a known outlier confound, 2022-2023, 2024-2026) and
+  compare the dual-momentum (top_n=1, winner-take-all SPY-vs-QQQ, no regime
+  filter) config against SPY buy-and-hold in each, applying the
+  pre-committed kill rule mechanically (`judge()`) rather than eyeballing.
+- RESULT: alpha vs SPY was 2016-2019 -1.09pp, 2020-2021 -13.24pp (excluded
+  from the kill count per the prior's own "ex-2020-21" framing), 2022-2023
+  +19.44pp, 2024-2026 -11.49pp. **2 of 3 counted sub-periods negative ->
+  kill threshold met -> VERDICT: KILL.**
+- Prior vs actual (REASONING STANDARD #10): prior expected the edge to
+  *shrink but survive*; actual is a clean kill. The pooled 2016-2026 in-
+  sample number (+2.2pp CAGR alpha) was almost entirely manufactured by the
+  single 2022-2023 sub-period (+19.44pp) — a textbook instance of REASONING
+  STANDARD #2 ("works overall often means works in the regime that
+  dominated the sample"): 2022 was a rare year where a 2-asset SPY/QQQ
+  winner-take-all rotation sidesteps a tech-specific drawdown by holding
+  SPY; outside that one regime the strategy underperforms simple SPY
+  buy-and-hold. This is exactly the failure mode REASONING STANDARD #4
+  warns about in a 1-of-~7-variants-tried search.
+- Disposition: NOT promoted to the future strategy tournament. Marked
+  KILLED in open_questions.md with the full result and an explicit "do not
+  re-propose this exact config" note — prevents a future session from
+  re-discovering the same pooled-decade number and shipping it on the
+  strength of a single dominant regime.
+- Regression tests (new behavior, no existing tests to extend since
+  `bot_backtest.py` itself has none — REASONING STANDARD-consistent, pure
+  functions only, no network mocking needed): `test_bot_backtest_subperiods.py`,
+  9 cases covering `split_dates` inclusive-boundary slicing, `slice_data`
+  gap handling (must not synthesize missing dates), `run_subperiod`'s
+  insufficient-history guard (must return `{}` rather than crash inside the
+  252-day momentum lookback), and `judge()`'s kill-threshold arithmetic
+  including the 2020-2021 exclusion and empty-sub-period skipping. All 9
+  pass (`python3 -m pytest -q test_bot_backtest_subperiods.py`).
+- Verified: full existing CI gate still green after adding the new files —
+  `python3 -m pytest -q test_risk_controls.py test_audit_critical.py
+  test_diagnostic_false_positives.py test_patches_verification.py` — 114
+  passed, 1 skipped (identical to the pre-existing baseline; KNOWN BROKEN
+  #6's full-repo-collection issue is pre-existing and untouched by this PR).
+- No version bump: this is an offline research/judgment script (network
+  fetch of SPY/QQQ closes + pure in-memory backtest), same class as the
+  original `bot_backtest.py` — it imports nothing from and is imported by
+  nothing in `bot_engine.py`/`system_config.py`/`strategies/`/`server/bot.ts`,
+  so it cannot affect live trade attribution (PROMOTION RULES rule 4 exists
+  to separate live-code changes' `code_version`, which doesn't apply here).
+- Downstream chain (REASONING STANDARD #1): killing this candidate now ->
+  it never enters the future strategy tournament on the strength of an
+  overfit pooled number -> the tournament's baseline-vs-SPY comparisons stay
+  honest (HONESTY METRIC) -> no wasted live-paper capital allocation cycles
+  spent proving out a strategy that offline evidence already refutes. Zero
+  trading-path impact today (nothing in `bot_engine.py`/`system_config.py`
+  changed) — the only effect is closing an open research question with
+  evidence instead of leaving it to decay as unexamined backlog.
+- STARVED: no — this session's scope (judge the matured dual-momentum
+  candidate) fully shipped. High-value work remains queued: KNOWN BROKEN
+  #3/#5/#6, the counterfactual logger, Sentinel-2 gate 1, R2 maritime
+  transit analytics, and the rest of the geospatial roadmap.
+
 ## 2026-07-04 — [REPAIR] Ops: wrong-merge reset emptied PR #148 — recovered, monitor pattern hardened (docs)
 
 - Recurrence of the documented "verify WHICH PR merged" gotcha, now
