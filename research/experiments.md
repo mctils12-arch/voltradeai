@@ -13,6 +13,55 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Charters installed: verbatim VISION.md + GIP.md companion (GIP directive Parts 0a + 2)
+
+- VISION.md: the human's verbatim charter text received and installed,
+  replacing the labeled reconstruction exactly as its provenance
+  banner promised; reconciliation annotations kept; a deltas section
+  annotates items the verbatim text adds (tick/futures/crypto data,
+  news velocity, web traffic, supply chain, embeddings/RL, five more
+  dashboard ideas) with honest statuses.
+- GIP.md: full verbatim "Expansion of the Global Intelligence
+  Platform" text under its own headings + a session-maintained
+  reconciliation annex citing real artifacts
+  (SENTINEL2_CHANGE_SPEC.md, EVERYTHING_GRAPH.md, shadowFleet.ts,
+  datacoreArchive.ts, the licensing register, the approved inference
+  envelope). Honest BLOCKED marks per the directive: object/vehicle
+  counting blocked at free 10m (change detection is the lawful free
+  version); per-county permit verification is per-target, not global;
+  bulk maintenance records and manifest-level cargo data have no free
+  lawful source.
+- Reading rule extended (human-approved in the directive): PRODUCT and
+  EDGE sessions read BOTH charters after CLAUDE.md; usage_log.md
+  carries the updated routine-prompt line (HUMAN ACTION to paste).
+- Part 0c recorded: options data stays HOLD; the free options-chain
+  archiver covers go-forward; revisit only when a gated strategy
+  needs deep history.
+
+## 2026-07-04 — [REPAIR] Temp/wind v1.0.69 fix VERIFIED — fields render vividly with real prod tiles at all three widths
+
+- Deploy verified: prod wind tile went 0 → 37,811 strong-alpha pixels
+  (the amplification is live). PROOF NOTE (environment honesty): this
+  sandbox blocks ALL browser egress (even example.com resets — probed
+  with and without the agent proxy), so the "screenshots on
+  production" proof ran as a faithful MIRROR: 48 REAL production
+  tiles (curl-fetched through the sanctioned proxy, amplification
+  confirmed per-tile) rendered by the IDENTICAL client build (same
+  merged commit as prod) at 390/768/1440. Result: mean off-vs-on
+  pixel diff 156.9 / 151.4 / 157.6 (an invisible layer scores ~0.1;
+  floor 3) — screenshots in .visual/prod-weather-{w}-{off,on}.png,
+  reviewed: temperature gradients and wind structure clearly legible,
+  © OpenWeatherMap attribution rendered, basemap survives through the
+  230-alpha cap. Both-layers-stacked is the deliberately-tested worst
+  case and is close to saturating — if the human prefers a lighter
+  blend, raster-opacity 0.85 → ~0.7 is the single tunable, filed as a
+  taste knob, not a defect. scripts/verify_weather_prod.mjs gained
+  proxy passthrough for environments where browser egress works.
+- Key validity + budget re-checked per the directive: prod status
+  endpoint "ok"; the 60-calls/min free budget is shared-cache bounded
+  (upstream calls = unique tiles per 10-min TTL; the 48-tile world
+  sweep is the practical ceiling per window).
+
 ## 2026-07-04 — [PIPELINE] Sentinel-2 tank-fill gate-1 kickoff — PRIOR STATED BEFORE FIRST COMPARISON
 
 - PRIOR (REASONING STANDARD #10 — this entry is written BEFORE running

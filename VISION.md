@@ -1,28 +1,71 @@
 # VISION.md — the platform north star
 
-> **PROVENANCE (read this first):** the human authored the platform
-> charter on 2026-07-04, but the verbatim text did not survive into the
-> directive (the paste placeholder arrived unfilled). This document is a
-> session RECONSTRUCTION from the directive's own enumeration, installed
-> so the north star exists on day one rather than waiting. **Human: paste
-> the original charter text into a session and it replaces the vision
-> statement below verbatim; the reconciliation annotations survive.**
+> **PROVENANCE:** human-authored charter, verbatim text received
+> 2026-07-04 (GLOBAL INTELLIGENCE PLATFORM DIRECTIVE Part 0a) —
+> replacing the earlier labeled reconstruction exactly as its
+> provenance banner promised. The reconciliation annotations below the
+> charter are session-maintained and survive. Companion charter:
+> **GIP.md** (the Global Intelligence Platform expansion, installed the
+> same day) — PRODUCT and EDGE sessions read BOTH after CLAUDE.md.
 >
 > Precedence: CLAUDE.md is the constitution and always wins. VISION.md
-> answers WHAT the platform is becoming; CLAUDE.md governs HOW every
-> change ships (ladder, promotion rules, honesty standards). PRODUCT and
-> EDGE sessions read this file immediately after CLAUDE.md.
+> and GIP.md answer WHAT the platform is becoming; CLAUDE.md governs HOW
+> every change ships (ladder, promotion rules, honesty standards).
 
-## The vision
+## The vision (human's charter, verbatim)
 
-One system that ingests every free, lawful, honest data stream about the
-physical and corporate economy — what moves (aircraft, ships, trains),
-what stands (facilities, plants, buildings), what companies do (filings,
-hiring, patents, code, earnings language, app traction), and what the
-planet does around them (weather, fire, drought, water, crops) — archives
-all of it forever, links it into one entity graph, validates every
-interpretation through the ladder, trades the validated signals with the
-bot, and surfaces the whole thing as a product a customer could buy.
+Project Vision: Build an AI-driven investment intelligence platform.
+Collect every potentially useful market signal before deciding whether
+it's useful. Treat data as a long-term asset. Every data source: market
+data (minute, tick, options, futures, crypto), SEC filings, earnings
+calls, news, macroeconomic data, web traffic, job postings, shipping,
+aircraft, satellite imagery, weather, Google Trends, Reddit, GitHub,
+patent filings, commodity data, energy consumption, supply chain data,
+credit card trend data (where legally available), mobile app rankings,
+and many more. Every variable to collect: timestamp, source, confidence,
+sentiment, geographic location, company, sector, market cap, volatility,
+liquidity, news velocity, social velocity, institutional ownership,
+insider buying, web visits, search volume, hundreds of engineered
+features. How every source gets synchronized: everything timestamped to
+UTC, event windows, lead/lag calculations, correlation testing, causal
+inference experiments. AI architecture: data ingestion, cleaning,
+storage, feature engineering, embeddings, model training, reinforcement
+learning, prediction engine, continuous retraining. Dashboard ideas:
+live market map, signal strength, data quality monitor, pipeline health,
+alternative data monitor, news timeline, satellite event viewer,
+portfolio AI, model performance, feature importance. Future ideas:
+detect SaaS demand before earnings, estimate customer growth from public
+signals, infer industrial production from imagery, correlate hiring with
+future revenue, track developer activity, monitor product launches,
+build an 'everything graph' connecting companies, events, suppliers,
+executives, customers, and macro factors.
+
+## Verbatim-charter reconciliation deltas (2026-07-04)
+
+Items the verbatim text names that the reconstruction hadn't
+explicitly carried, annotated:
+
+- **Minute/tick/options/futures/crypto market data** — IN-PROGRESS
+  (equity/ETF OHLCV live via Alpaca; options chains = the queued free
+  archiver from the options-HOLD package; tick/futures/crypto NEW —
+  unfiled, lands in open_questions via the routine queue).
+- **News + news velocity / web traffic / supply chain / energy
+  consumption** — PARTIAL (news via finnhub/social modules feeding
+  deep_score; EIA-930 energy hypothesis filed; web-traffic and
+  supply-chain roots NEW — no free lawful source verified yet, needs
+  its own licensing pass before filing).
+- **Credit card trend data "(where legally available)"** — matches the
+  BLOCKED-BY-ACCESS register verbatim (no free lawful raw material;
+  paid panels only).
+- **Embeddings / reinforcement learning / continuous retraining** —
+  PARTIAL (LightGBM + trade-feedback retraining live in ml_model_v2;
+  embeddings/RL are NEW roadmap items, unfiled).
+- **Dashboards (signal strength / data quality / pipeline health)** —
+  QUEUED as roadmap R6; **news timeline, satellite event viewer,
+  portfolio AI, model performance, feature importance** — NEW, join R6
+  scope.
+- **Everything graph** — SPEC'D (datacore/EVERYTHING_GRAPH.md, R5
+  flagship; aircraft continuity spine directed 2026-07-04).
 
 The compounding asset is the accumulation: archives nobody can back-buy,
 pipelines nobody bills us for, verified reference data, and the graph
