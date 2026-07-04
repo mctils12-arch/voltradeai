@@ -13,6 +13,32 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RESEARCH] Throughput: workstream-partition amendment proposed + velocity metric + GIP queue territory-tagged (docs)
+
+- Throughput directive executed as filed artifacts: (1) WORKSTREAM
+  PARTITION amendment proposal in wishlist.md (exact CLAUDE.md text
+  for approval — T-DATACORE / T-CLIENT / T-BOT territories, shared-
+  file serialization, 6-point merge-order protocol; rationale: 40 PRs
+  merged today across concurrent sessions with 4 recovered collisions
+  — territories prevent the class). NOT applied — constitutional
+  amendments await approval. (2) VELOCITY metric table in
+  usage_log.md (PRs merged/day + queue-depth trend; seeded 32
+  yesterday / 40 today). (3) GIP BUILD QUEUE in open_questions.md,
+  territory-tagged: aircraft continuity spine [T-DATACORE], UI
+  scalability + landing section [T-CLIENT], Sentinel-2 per-tank
+  iteration [T-DATACORE], API foundation [SHARED→split]. Parallel-
+  subagent use is already standing practice (two research workflows
+  this session); codified in the proposal's last clause.
+- MONETIZATION READINESS CHECKLIST filed in wishlist.md for approval
+  (API-product directive): provider-compliance re-run executed for
+  this directive (pricing-design touch trips the tripwire — chain is
+  adsb.lol primary/lawful + two non-commercial fallbacks that must
+  drop at switch), per-source resell-vs-display licensing audit
+  drafted (ODbL share-alike marks on aircraft-derived endpoints; OWM
+  excluded from API entirely; aisstream CONDITIONAL pending ToS
+  re-read), ToS draft + Stripe wiring plan itemized. Rule restated:
+  last mile waits for the human's item-by-item go.
+
 ## 2026-07-04 — [PRODUCT] Charters installed: verbatim VISION.md + GIP.md companion (GIP directive Parts 0a + 2)
 
 - VISION.md: the human's verbatim charter text received and installed,

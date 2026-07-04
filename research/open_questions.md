@@ -606,6 +606,46 @@ pipeline), the former top research build, SHIPPED gate 1 (DATA)
 entry above and research/experiments.md); its natural follow-up (a
 filings-language view once archive history accumulates, mirroring
 filings.tsx) is now the next queued PRODUCT item alongside (d)-(g).
+STATUS UPDATE: FIRMS is ACTIVE (key set as FIRMS_MAP_KEY + env-name
+alias fix v1.0.68 — archive recording live).
+
+## GIP BUILD QUEUE (directive 2026-07-04 Parts 3-6 — territory-tagged
+per the WORKSTREAM PARTITION proposal in wishlist.md; routines claim a
+territory in their first commit)
+
+- [T-DATACORE] **Aircraft entity-continuity spine (GIP Part 3b, next
+  flagship build)**: FAA Releasable Aircraft download (free full DB:
+  registry.faa.gov ReleasableAircraft.zip — MASTER.txt has N-number,
+  MODE S CODE HEX, serial, owner, registrant dates) × our ADS-B
+  archive icao24s × hex/tail cross-refs → ONE identity per airframe
+  with a life timeline; every inference carries the approved envelope
+  (confidence + evidence, never bare facts). v1 scope: US registry ×
+  archived hexes (small derived artifact, not the full 300k-row dump
+  committed); international registries per the Part 5a research
+  results. Timeline endpoint + click-through UI [T-CLIENT half] ride
+  the Everything Graph R5 build order.
+- [T-CLIENT] **UI scalability architecture (GIP Part 4, performance
+  non-negotiable)**: lazy per-layer loading (exists — zero-cost-
+  when-off), panel VIRTUALIZATION for hundreds of rows, per-layer
+  cost budgets in the registry schema, timeline-slider + confidence-
+  display as registry-native capabilities; harness synthetic
+  registries at 50/100/200 layers asserting interactive budget;
+  measure before/after — no regression to current map speed.
+- [T-CLIENT] **Landing-page data-intelligence section** (directive
+  2026-07-04, additive only): globe (or pre-rendered fallback per
+  phone budget), approved copy (verbatim in the directive/task #50),
+  live stats, /data CTA, waitlist tie-in with /developers.
+- [T-DATACORE] **Sentinel-2 iteration**: per-tank annulus geometry at
+  Cushing (the gate-1 path — facility index logged, confounded);
+  weekly runs continue via scripts/sentinel2_tankfill.py.
+- [T-DATACORE] **Part 5 research results** (workflow running:
+  international registries / county GIS / vessel identity prior art /
+  multi-date imagery architecture) — file as entries here when they
+  land; licensing first, always.
+- [SHARED→T-DATACORE] **API product foundation (throughput directive
+  2026-07-04)**: /api/v1 versioned read endpoints + key scaffolding +
+  metering + per-endpoint license marks; /developers page [T-CLIENT];
+  monetization readiness checklist awaits human approval (wishlist).
 
 - (a) TERRAIN: **Mapterhorn** primary (free, no key, commercial OK —
   Copernicus + CC-BY national sources; terrarium 512px z0-17;
