@@ -1,0 +1,21 @@
+{
+ "stream": "waitlist",
+ "storage": "volume JSONL <archive>/waitlist/YYYY-MM-DD.jsonl",
+ "written_by": "server/waitlist.ts addToWaitlist",
+ "source": "API-product waitlist form (/developers)",
+ "license": "first-party PII \u2014 NEVER exposed via any API, never committed to git, contact-use only",
+ "attribution": "VolTradeAI",
+ "schema_version": 1,
+ "field_map": {
+  "t": "unix sec UTC",
+  "e": "email RAW (PII \u2014 the contact list itself)",
+  "s": "capture source page"
+ },
+ "confidence_model": "user-submitted (validated format, deduped)",
+ "geo_fields": [],
+ "entity_key": "e (email)",
+ "sentiment": null,
+ "started": "2026-07-04",
+ "cadence": "per signup",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}
