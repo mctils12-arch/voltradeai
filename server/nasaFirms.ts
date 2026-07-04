@@ -27,8 +27,16 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 
+/** The key env var accepts BOTH names: the module shipped reading
+ *  NASA_FIRMS_MAP_KEY, but the human set the key in Railway as
+ *  FIRMS_MAP_KEY (2026-07-04) — the code adapts to the action already
+ *  taken rather than requiring a Railway rename. */
+export function firmsKey(env: NodeJS.ProcessEnv = process.env): string {
+  return env.NASA_FIRMS_MAP_KEY || env.FIRMS_MAP_KEY || "";
+}
+
 export function firmsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.NASA_FIRMS_MAP_KEY);
+  return Boolean(firmsKey(env));
 }
 
 // VIIRS 375m NRT is the higher-resolution source the licensing register
@@ -241,7 +249,7 @@ export function latestFirms(): { at: number; detections: FireDetection[] } | nul
 }
 
 export async function refreshFirmsCache(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  const key = env.NASA_FIRMS_MAP_KEY || "";
+  const key = firmsKey(env);
   if (!key) return;
   try {
     const detections = await fetchFirmsDetections(key);

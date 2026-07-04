@@ -1157,7 +1157,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.json({
         enabled: false,
         kind: "raw",
-        reason: "NASA_FIRMS_MAP_KEY not set — free registration at firms.modaps.eosdis.nasa.gov (see research/wishlist.md)",
+        reason: "FIRMS key not set (NASA_FIRMS_MAP_KEY or FIRMS_MAP_KEY) — free registration at firms.modaps.eosdis.nasa.gov (see research/wishlist.md)",
         fires: [],
       });
     }
