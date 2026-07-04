@@ -31,6 +31,7 @@ import {
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
+import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 
 const execAsync = promisify(exec);
 
@@ -1172,6 +1173,54 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.detections.length,
       fires: hit.detections.slice(0, 8000),
     });
+  });
+
+  // SEC 8-K Item 2.02 earnings-language (RAW as-filed exhibit display —
+  // NEW DATA ROOTS #1 in research/open_questions.md: EDGAR is
+  // public-record/free, no key required, same fair-access terms
+  // edgarForm4.ts already relies on. ROOT VALIDATION
+  // LADDER gate 1 (DATA) passed for extraction — see
+  // server/sec8kEarnings.test.ts. Gate 2 (does guidance/results language
+  // predict forward returns) is NOT attempted; this is a display of the
+  // issuer's own as-filed press release, no predictive claim. HONEST GAP:
+  // Q&A sessions are almost never filed as an exhibit — prepared remarks/
+  // guidance language only. Boots eagerly (KNOWN BROKEN #9 lesson).
+  bootEarnings8kPoll();
+  app.get("/api/data/earnings-language", (_req, res) => {
+    const hit = latestEarnings8Ks();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99)", warming_up: true, count: 0, filings: [] });
+    }
+    res.json({
+      kind: "raw",
+      source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99) — sec.gov/cgi-bin/browse-edgar",
+      time: hit.at,
+      count: hit.filings.length,
+      filings: hit.filings,
+    });
+  });
+
+  // Accumulated earnings-language history from the archive (COLLECT-
+  // EVERYTHING: the poll loop appends every extracted filing to disk; free
+  // substitute for a paid transcript-history product per BUILD-FIRST rule
+  // #2 — every day not archived is permanently lost).
+  app.get("/api/data/earnings-language/history", (req, res) => {
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    try {
+      const archived = readEarnings8kHistory(days);
+      const live = latestEarnings8Ks()?.filings || [];
+      const seen = new Set(archived.map((f) => f.accession));
+      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
+      res.json({
+        kind: "raw",
+        source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99) — accumulated archive (began 2026-07-04)",
+        days,
+        count: merged.length,
+        filings: merged,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "history read failed" });
+    }
   });
 
   // Dark-ship RAW statistics — derived from OUR OWN AIS archive (shadow-fleet
