@@ -514,6 +514,20 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
 
 ## GEOSPATIAL LICENSING REGISTER (Tier 1/2, verified from primary sources 2026-07-04 — build PRs cite this)
 
+NEXT ACTIONS (queued for [PRODUCT] routines, build in order, one layer
+per PR; licensing below is DONE — do not re-research): (a) terrain
+SHIPPED v1.0.61; (b) weather SHIPPED v1.0.62 (US radar; OWM global
+fields await the key); (c) FIRMS fires — awaiting MAP_KEY human action,
+may ship scaffolded awaiting_key like vessels did, ARCHIVE detections
+from day one; (d) USDA CDL crops; (e) drought/soil moisture (USDM +
+drought.gov tiles); (f) USGS groundwater points; (g) oil/gas infra
+(GEM + TX RRC + OSM; per-source coverage honesty — no free national
+pipeline vector exists); then Tier-2 buildings v1 (OpenFreeMap render
+layer + client-side viewport stats). Also queued: PMTiles AOI extract
+(terrain resilience), Alpaca options-chain daily archiver ([PIPELINE],
+free, from the options HOLD package), and NEW DATA ROOTS #1 (8-K
+language pipeline) as the top research build.
+
 - (a) TERRAIN: **Mapterhorn** primary (free, no key, commercial OK —
   Copernicus + CC-BY national sources; terrarium 512px z0-17;
   attribution "© Mapterhorn"); AWS/Mapzen Terrarium fallback (free,
