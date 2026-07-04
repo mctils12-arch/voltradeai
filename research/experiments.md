@@ -13,6 +13,17 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [RULE-REVIEW] WORKSTREAM PARTITION amendment SHIPPED (docs)
+
+- Human approved ("WORKSTREAM PARTITION amendment — ship it"). Applied
+  to CLAUDE.md as a new section after SESSION BUDGET exactly as
+  proposed, dated 2026-07-04: T-DATACORE / T-CLIENT / T-BOT
+  territories, SHARED serialize-and-minimize list, and the 6-point
+  merge-order protocol (shared edits last, read-and-increment
+  versioning, keep-both research merges, identity-gated monitors,
+  primary-territory ownership, supersession). Sessions declare their
+  territory in their first experiments entry from now on.
+
 ## 2026-07-04 — [RULE-REVIEW] ACTIVE ANGLE-HUNTING amendment SHIPPED (docs)
 
 - Human approved ("ANGLE-HUNTING amendment — ship it"). Applied to
