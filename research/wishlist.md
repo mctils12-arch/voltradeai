@@ -4,6 +4,48 @@
   the options leg honestly. Without it, only the equity/ETF logic can be
   validated — and the options leg is the suspected main performance drag.
   Candidates: ORATS, CBOE DataShop, historicaloptiondata.com.
+  **[HOLD BY HUMAN 2026-07-04 — decision package delivered same day; no
+  spend until you pick.]**
+  - WHAT IT UNLOCKS THAT CURRENT BACKTESTING CANNOT: backtest_v2 is
+    equity/ETF OHLCV only — the options leg (CSP selection, convexity
+    QQQ puts, options_scanner) is unbacktestable against ANY history:
+    no historical chains, no IV, no bid/ask (REASONING STANDARD #6
+    makes mid-price options backtests fiction even with marks). The leg
+    currently validates only through live paper accumulation.
+  - QUEUED WORK DEPENDING ON IT: KNOWN BROKEN #3 (CSP cascade — today
+    verifiable live-only); open_questions "Options fill realism"
+    (validating the synthetic haircut needs historical quotes); this
+    entry's own origin ("suspected main performance drag" — judging
+    the suspicion needs history); options entrants in the future
+    strategy tournament. Regime honesty: Alpaca's free history starts
+    Feb 2024 — all bull tape; a CSP strategy validated only on it is
+    regime-blind (STANDARD #2).
+  - BUILD-FIRST HALF (free, queue as a [PIPELINE] item): start
+    archiving full Alpaca option chains for our universe DAILY now
+    (free on paper accounts, feed=indicative — LABELED indicative, not
+    NBBO). Forward-only: it can never recover 2016-2023. Every day not
+    archiving is history permanently lost.
+  - PRICES (verified from vendor pages 2026-07-04):
+    ThetaData $40/$80/$160 per mo (Value 4y / Standard 8y / Pro 12y
+    history, real NBBO; one-shot: 1-2 months of Pro + bulk download ≈
+    $160-320 total for 2014→present — retention-after-cancel terms
+    unverified, confirm before relying on this path); ORATS $99/mo
+    delayed BUT 20k req/mo makes a 100-underlying 10y pull ~13 months
+    of quota — effectively unfit; Polygon $29-199/mo (quotes only on
+    upper tiers, short history on lower); Cboe DataShop quote-only
+    (sales contact); historicaloptiondata.com ONE-OFF: Level 2 (bid/
+    ask + greeks + IV) 24y $1,495, 5y $945; Databento OPRA usage-based
+    with $125 free signup credits (1-min NBBO back to 2013-04),
+    business-friendly license, exact cost only visible in-portal.
+  - RECOMMENDATION (ranked): (1) run the FREE Databento pilot — use
+    the $125 credits to price + pull a closing-minute NBBO slice for
+    the ~100-underlying CSP universe 2016→present; if the full pull
+    quotes under ~$1,500, it is the highest-integrity buy. (2) else
+    historicaloptiondata.com L2 24y one-off $1,495 (single EOD
+    snapshot quality, all regimes to 2002; confirm internal-business
+    use by email). (3) budget option: ThetaData Pro churn ~$160-320
+    if retention-after-cancel is confirmed in their terms. Start the
+    free Alpaca archive regardless of which (or none) you pick.
 
 - **[APPROVED BY HUMAN 2026-07-03 — queued as next [REPAIR], see open_questions #7]**
   **Persist the max-drawdown high-water mark** (`state.equityPeak`,
@@ -13,12 +55,39 @@
   equityPeak via the existing /data/voltrade state files. Touches frozen
   kill-switch machinery -> needs explicit human approval (this entry).
   Evidence: /api/health shows equityPeak 0 after today's deploys.
-- **Read-only diagnostics access for autonomous sessions**: all diagnostic
-  routes are owner-cookie gated (auth.ts — frozen). Options for human:
-  (a) paste /api/bot/audit + /api/bot/ml-status JSON into sessions when
-  diagnosis is needed, (b) approve a scoped read-only token path in
-  auth.ts, or (c) a nightly job that snapshots key state JSON into the
-  repo. Until then KNOWN BROKEN #3/#4 can only be verified by the human.
+- **Read-only diagnostics access for autonomous sessions — ANALYSIS
+  DELIVERED 2026-07-04 (human asked "explain, I'll decide"); decision
+  pending, nothing built.** WHAT IS GATED TODAY: /api/bot/audit,
+  /positions, /performance, /api/daemon/health, /api/bot/ml-status,
+  /api/monitoring/* — all requireOwner (session cookie must belong to
+  OWNER_EMAIL; auth.ts, frozen). Sessions cannot verify KNOWN BROKEN
+  #3/#4 (CSP fills firing? feedback accumulating? retrain green?) from
+  outside. FOUR OPTIONS, RISK-ASSESSED:
+  (a) STATUS QUO — human pastes JSON on request. Zero new risk; blocks
+      routine self-diagnosis; scales badly at 8 runs/day.
+  (b) Token path inside auth.ts — touches the FROZEN file; highest
+      regression risk in the most sensitive module; no advantage over
+      (d); not recommended.
+  (c) Nightly sanitized snapshot committed to the repo (repo verified
+      PRIVATE 2026-07-04) — zero new attack surface, but up to 24h
+      stale, bloats git history permanently, and a future
+      repo-visibility change would silently expose all history.
+      Viable fallback.
+  (d) RECOMMENDED: scoped read-only route in routes.ts (auth.ts
+      untouched): GET /api/diag/* gated by a DIAG_TOKEN env var,
+      HARD WHITELIST only — audit-log tail, ml-status, daemon health,
+      positions SUMMARY (counts/exposure) — plus a sanitizer test
+      pinning that responses never contain key-like strings, user
+      emails, or env contents. GRANT MECHANICS: you set DIAG_TOKEN in
+      Railway AND in the Claude Code environment settings; sessions
+      curl the prod endpoint. RISK IF LEAKED: reader sees paper
+      positions/P&L/audit entries/ML metrics — strategy-IP disclosure
+      on a PAPER account; NO order placement (read-only), NO Alpaca
+      keys, NO user data (whitelist excludes the auth db), NO billing.
+      Rotation = change the env var. HONESTY NOTE: this deliberately
+      routes around the owner gate whose intent auth.ts encodes — which
+      is exactly why it ships only on your explicit approval, never as
+      an autonomous change.
 
 - **[APPROVED BY HUMAN 2026-07-03 — applied same message]** Constitutional
   amendments A1-A3 + STARVED metric (PROMPTS.md Section A): SPINOUT-READY
@@ -241,6 +310,13 @@
   ORBCOMM — pricing is quote-only, entry commonly $500+/mo class.
   RECOMMENDATION: do not buy unless a specific gated signal needs
   mid-ocean truth (none does today; port-transit signals don't).
+  **[DECLINED BY HUMAN 2026-07-04 — entry retained with this revisit
+  trigger: reconsider ONLY if a gated signal specifically requires
+  open-ocean coverage. Any future proposal must name that gated signal
+  and show why coastal reacquisition + dead-reckoned predicted tracks
+  (the free inference substitute above) fail it. Port-transit, dwell,
+  and shadow-fleet statistics all live in terrestrial-coverage
+  waters — none qualifies.]**
 
 - **[APPROVED BY HUMAN 2026-07-04 — applied same message]** DESIGN.md
   amendment: SELF-SEE RULE — "UI changes must verify their own
