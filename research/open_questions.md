@@ -290,3 +290,25 @@ R4. **3D globe mode.** MapLibre globe projection (or Cesium only if
   historical route patterns -> predicted destination (labeled PREDICTED).
   Gate 1 = predictions scored against actually-observed landings from our
   own archive (self-labeling ground truth — free).
+
+## POWER-PLANT SIGNAL HYPOTHESES (raw layer live 2026-07-03; WRI GPPD CC BY 4.0)
+
+- **Generation-mix shift trades.** The static plant registry (capacity by
+  fuel per region) is the denominator for a future flow signal: EIA-930
+  hourly generation by fuel (free API) against installed capacity gives
+  regional utilization by fuel. Hypothesis: sustained gas-burn
+  utilization spikes (heat waves, coal retirements) lead regional
+  utility earnings surprises and nat-gas demand (UNG, XLU components).
+  LADDER PATH — DATA: EIA-930 vs the registry (this layer) reconciles
+  within ~5% of EIA-860 capacity; SIGNAL: utilization anomalies vs
+  forward utility/gas returns; LOGIC: entry rules by anomaly magnitude;
+  SIZING: vs equal-weight utility basket; EXECUTION: fills tracker.
+- **Outage-adjacent trades.** Nuclear plants (58 sites, now geolocated)
+  file NRC daily status reports (free). Unplanned outages at large units
+  move regional power prices and the operator's stock same-week.
+  Hypothesis: NRC event reports + this registry (unit MW + operator) =
+  same-day operator-impact estimate nobody prices for small utilities.
+  LADDER: DATA gate = NRC report parse matches registry units; then as
+  above. Capacity-constrained corner: mid-cap single-plant operators.
+- Both hypotheses use the archive-first pattern: start recording EIA-930
+  + NRC dailies NOW (cheap cron), judge after a quarter of history.

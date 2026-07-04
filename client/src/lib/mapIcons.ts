@@ -194,6 +194,85 @@ const shapes: Record<string, () => ImageData> = {
     ctx.closePath(); ctx.fill();
     ctx.fillRect(m + 6, m - 14, 4.5, 12);                   // chimney
   }),
+  // ── power-plant fuel silhouettes (upright) ──
+  // nuclear: atom — nucleus + two crossed orbital ellipses
+  "vt-nuclear": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(m, m, 3.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(m, m, 13, 5.5, Math.PI / 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(m, m, 13, 5.5, -Math.PI / 4, 0, Math.PI * 2); ctx.stroke();
+  }),
+  // coal: mound of lumps
+  "vt-coal": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath(); ctx.arc(m - 6.5, m + 6, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(m + 6.5, m + 6, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(m, m - 4, 6.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(m - 10, m + 6, 20, 6);
+  }),
+  // gas: flame
+  "vt-gas": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 5);
+    ctx.bezierCurveTo(m + 12, m - 4, m + 9, s - 8, m, s - 6);
+    ctx.bezierCurveTo(m - 9, s - 8, m - 12, m - 4, m, 5);
+    ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath(); ctx.ellipse(m, s - 12, 3.5, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }),
+  // oil: derrick — narrow A-frame tower
+  "vt-oil": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(m - 9, s - 6); ctx.lineTo(m, 6); ctx.lineTo(m + 9, s - 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m - 6, m + 2); ctx.lineTo(m + 6, m + 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m - 9, s - 6); ctx.lineTo(m + 9, s - 6); ctx.stroke();
+  }),
+  // hydro: water drop
+  "vt-hydro": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 5);
+    ctx.bezierCurveTo(m + 11, m + 1, m + 9, s - 9, m, s - 7);
+    ctx.bezierCurveTo(m - 9, s - 9, m - 11, m + 1, m, 5);
+    ctx.closePath(); ctx.fill();
+  }),
+  // wind: turbine — mast + three blades
+  "vt-wind": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    const hx = m, hy = m - 3;
+    ctx.lineWidth = 3.2;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx, s - 5); ctx.stroke(); // mast
+    for (const a of [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6]) {         // blades
+      ctx.beginPath(); ctx.moveTo(hx, hy);
+      ctx.lineTo(hx + 12 * Math.cos(a), hy + 12 * Math.sin(a)); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(hx, hy, 3, 0, Math.PI * 2); ctx.fill();
+  }),
+  // solar: sun — disc + rays
+  "vt-solar": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath(); ctx.arc(m, m, 6.5, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      ctx.beginPath();
+      ctx.moveTo(m + 10 * Math.cos(a), m + 10 * Math.sin(a));
+      ctx.lineTo(m + 15 * Math.cos(a), m + 15 * Math.sin(a));
+      ctx.stroke();
+    }
+  }),
+  // other/unknown power: lightning bolt
+  "vt-power": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m + 4, 5); ctx.lineTo(m - 8, m + 4); ctx.lineTo(m - 1, m + 4);
+    ctx.lineTo(m - 4, s - 5); ctx.lineTo(m + 8, m - 2); ctx.lineTo(m + 1, m - 2);
+    ctx.closePath(); ctx.fill();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -217,6 +296,20 @@ export const VESSEL_ICON: Record<VesselClass, string> = {
 /** Strategic-site category (raw id from datacore/sites) -> silhouette. */
 export const SITE_ICON: Record<string, string> = {
   port: "vt-port", tank_farm: "vt-tank", steel_mill: "vt-mill",
+};
+
+/** Power-plant fuel code (datacore/powerplants) -> silhouette + color. */
+export const POWER_FUEL_ICON: Record<string, string> = {
+  nuclear: "vt-nuclear", coal: "vt-coal", gas: "vt-gas", oil: "vt-oil",
+  hydro: "vt-hydro", wind: "vt-wind", solar: "vt-solar", other: "vt-power",
+};
+export const POWER_FUEL_COLOR: Record<string, string> = {
+  nuclear: "#c084fc", coal: "#94a3b8", gas: "#fbb24c", oil: "#ff8a5c",
+  hydro: "#4d9fff", wind: "#7cc4ff", solar: "#fde047", other: "#6680a0",
+};
+export const POWER_FUEL_LABEL: Record<string, string> = {
+  nuclear: "Nuclear", coal: "Coal", gas: "Gas", oil: "Oil",
+  hydro: "Hydro", wind: "Wind", solar: "Solar", other: "Other",
 };
 
 /** Project a short velocity-vector endpoint from position/heading/speed.

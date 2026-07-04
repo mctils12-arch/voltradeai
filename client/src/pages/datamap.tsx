@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -7,6 +7,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
+  POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL,
 } from "@/lib/mapIcons";
 
 /**
@@ -34,7 +35,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel";
+  kind: "site" | "aircraft" | "vessel" | "powerplant";
   title: string;
   subtitle: string;
   body: string;
@@ -47,7 +48,7 @@ const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
-const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true };
+const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true };
 
 interface InsiderRow {
   issuer: string;
@@ -513,6 +514,112 @@ export default function DataMapPage() {
     return () => { cancelled = true; };
   }, [enabled.sites, mapReady, setStatus]);
 
+  // ── US power plants (RAW; static reference data, WRI GPPD CC BY 4.0) ──
+  // ~9.8k plants: maplibre native clustering keeps low zooms legible and
+  // cheap on phones (DESIGN.md performance budget — clustering is
+  // client-side, the server serves one cached static JSON). Unclustered
+  // points render fuel-type SDF silhouettes with per-feature tint.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.powerplants) {
+      try {
+        for (const l of ["pp-points", "pp-cluster-count", "pp-clusters"]) if (map.getLayer(l)) map.removeLayer(l);
+        if (map.getSource("powerplants")) map.removeSource("powerplants");
+      } catch {}
+      setStatus("powerplants", "off");
+      return;
+    }
+    setStatus("powerplants", "loading");
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/data/powerplants");
+        const d = await r.json();
+        if (cancelled || !d.plants || map.getSource("powerplants")) return;
+        map.addSource("powerplants", {
+          type: "geojson",
+          cluster: true, clusterMaxZoom: 7, clusterRadius: 50,
+          data: {
+            type: "FeatureCollection",
+            features: d.plants.map(([name, mw, fuel, owner, lat, lon]: [string, number, string, string, number, number]) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [lon, lat] },
+              properties: {
+                name, mw, fuel, owner,
+                icon: POWER_FUEL_ICON[fuel] || "vt-power",
+                color: POWER_FUEL_COLOR[fuel] || "#6680a0",
+              },
+            })),
+          } as any,
+        });
+        map.addLayer({
+          id: "pp-clusters", type: "circle", source: "powerplants",
+          filter: ["has", "point_count"],
+          paint: {
+            "circle-color": "rgba(77,159,255,0.28)",
+            "circle-stroke-color": "rgba(124,196,255,0.85)",
+            "circle-stroke-width": 1.4,
+            "circle-radius": ["step", ["get", "point_count"], 12, 25, 16, 100, 21, 500, 27],
+          },
+        });
+        map.addLayer({
+          id: "pp-cluster-count", type: "symbol", source: "powerplants",
+          filter: ["has", "point_count"],
+          layout: {
+            "text-field": ["get", "point_count_abbreviated"],
+            "text-font": ["Open Sans Semibold"],
+            "text-size": 11,
+            "text-allow-overlap": true,
+          },
+          paint: { "text-color": "#eef3fb" },
+        });
+        map.addLayer({
+          id: "pp-points", type: "symbol", source: "powerplants",
+          filter: ["!", ["has", "point_count"]],
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 10, 0.8],
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+          },
+          paint: {
+            "icon-color": ["get", "color"],
+            "icon-halo-color": "rgba(5,10,19,0.95)",
+            "icon-halo-width": 1.3,
+          },
+        });
+        map.on("click", "pp-clusters", (e: any) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          const src: any = map.getSource("powerplants");
+          src.getClusterExpansionZoom(f.properties.cluster_id, (err: any, zoom: number) => {
+            if (!err) map.easeTo({ center: f.geometry.coordinates, zoom: zoom + 0.3 });
+          });
+        });
+        map.on("click", "pp-points", (e: any) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          const p = f.properties;
+          setDetail({
+            kind: "powerplant",
+            title: p.name,
+            subtitle: `${POWER_FUEL_LABEL[p.fuel] || p.fuel} · ${Number(p.mw).toLocaleString()} MW`,
+            body: `${p.owner ? `Operator: ${p.owner}\n` : ""}Static reference data — Global Power Plant Database v1.3.0 (WRI, CC BY 4.0).`,
+          });
+        });
+        for (const l of ["pp-clusters", "pp-points"]) {
+          map.on("mouseenter", l, () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", l, () => { map.getCanvas().style.cursor = ""; });
+        }
+        setStatus("powerplants", "active", d.count ?? d.plants.length);
+      } catch {
+        if (!cancelled) setStatus("powerplants", "error");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [enabled.powerplants, mapReady, setStatus]);
+
   // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
   // markers, an inline list inside the layer panel instead) ──
   useEffect(() => {
@@ -549,6 +656,7 @@ export default function DataMapPage() {
     id === "aircraft" ? <Plane size={15} /> :
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> :
+    id === "powerplants" ? <Zap size={15} /> :
     id === "insider" ? <FileText size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
@@ -559,7 +667,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -690,6 +798,15 @@ export default function DataMapPage() {
               <span><i style={{ background: "#6680a0" }} /> ground</span>
               <span><i style={{ background: "#4ade80" }} /> cargo</span>
               <span><i style={{ background: "#c084fc" }} /> passenger</span>
+              <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
+              <span style={{ color: "var(--text-tertiary)" }}>plants:</span>
+              <span><i style={{ background: "#c084fc" }} /> nuclear</span>
+              <span><i style={{ background: "#94a3b8" }} /> coal</span>
+              <span><i style={{ background: "#fbb24c" }} /> gas</span>
+              <span><i style={{ background: "#ff8a5c" }} /> oil</span>
+              <span><i style={{ background: "#4d9fff" }} /> hydro</span>
+              <span><i style={{ background: "#7cc4ff" }} /> wind</span>
+              <span><i style={{ background: "#fde047" }} /> solar</span>
             </div>
           </div>
         )}
