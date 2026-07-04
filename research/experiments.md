@@ -13,6 +13,26 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Tier-3 spec filed: Sentinel-2 facility change detection (docs PR)
+
+- Geospatial directive Tier 3 executed as a spec (build queued for a
+  [PIPELINE] session): datacore/SENTINEL2_CHANGE_SPEC.md — weekly
+  facility-scale activity indices (yard occupancy, tank shadows, berth
+  occupancy) from free Copernicus Sentinel-2 L2A via CDSE windowed COG
+  reads; "activity index up/down at facility X," NEVER object counts
+  (10m honesty). Generalizes the Cushing tank-shadow idea + the
+  imagery-verified facility footprints into one system; port berth
+  masks cross-verify the port-dwell AIS counts.
+- Ladder paths per facility class stated (tank farms vs EIA Cushing
+  weekly; steel yards vs STLD disclosed shipments; ports vs our own
+  AIS counts). Nothing surfaces before gate 2 except RAW scene
+  metadata (imagery-date honesty rule).
+- Sub-meter paid imagery (actual counting) is EXPLICITLY GATED: may
+  not enter wishlist with quotes until the free 10m version passes
+  gate 2 on any facility class — priced classes noted in the spec
+  (archive ~$10-25/km² minimums; monitoring $1000s/mo).
+- Docs-only PR, no version bump.
+
 ## 2026-07-04 — [PRODUCT] Everything Graph v1 spec filed (flagship) + R5/R6 roadmap slots — docs PR
 
 - Charter directive items 4-5 executed as design artifacts (no build):
