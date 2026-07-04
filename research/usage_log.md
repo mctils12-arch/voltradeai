@@ -98,6 +98,14 @@ routine and let voltrade-weekly-review carry the loop."
 > Claude Code Notifications tab. Do NOT use the Gmail connector; it
 > cannot send, only draft, and drafts go unread.
 
+## VELOCITY metric (throughput directive 2026-07-04; sessions append a
+row when they close; the weekly review reads the trend)
+
+| date | PRs merged (main commits that day) | queue depth (actionable open_questions/roadmap items) | note |
+|---|---|---|---|
+| 2026-07-03 | 32 | ~14 | bootstrap day |
+| 2026-07-04 | 40 (through the GIP directive session) | ~18 (GIP expanded the queue faster than builds drain it — intended) | 4 concurrency collisions, all recovered; partition amendment proposed |
+
 ## Log (append-only; newest row last)
 
 | date | 5-hour peak % | weekly % | sessions that week | STARVED count | schedule changes made |

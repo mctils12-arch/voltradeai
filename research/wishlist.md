@@ -1,5 +1,80 @@
 # Data / Access Wishlist — human reviews weekly
 
+- **⚖ AMENDMENT PROPOSAL — WORKSTREAM PARTITION (throughput directive
+  2026-07-04; human approval required; exact text below; nothing
+  applied).** Proposed addition to CLAUDE.md as a new section after
+  SESSION BUDGET:
+
+  "## WORKSTREAM PARTITION (human-approved YYYY-MM-DD)
+
+  Concurrent sessions build in disjoint FILE TERRITORIES; a session
+  declares its territory in its first experiments.md entry and stays
+  inside it:
+  - T-DATACORE: datacore/**, the datacore server modules
+    (datacoreArchive, shadowFleet, portDwell, nasaFirms, edgarForm4,
+    sec8kEarnings, trainsFeed, owmTiles, future entity/graph modules)
+    + their tests, scripts/ pipeline tooling.
+  - T-CLIENT: client/src/**, index.css, scripts/visual_check.mjs and
+    visual tooling. DESIGN.md rule changes remain amendments.
+  - T-BOT: bot_engine.py, ml_model_v2.py, system_config.py,
+    strategies/, analyze/insights/instrument_selector/tiered_strategy,
+    server/bot.ts outside frozen paths.
+  SHARED (any session, serialize + minimize): server/routes.ts,
+  datacore/layers.json, package.json, research/*. MERGE-ORDER
+  PROTOCOL: (1) shared-file edits are the LAST commit before the PR
+  and as small as possible; (2) version = read-and-increment at
+  commit time, never planned ahead; (3) research/* conflicts resolve
+  keep-both-sides (append-only spirit); (4) merge monitors verify
+  WHICH PR merged before any branch reset (ops rule); (5) a
+  cross-territory change belongs wholly to the session owning its
+  PRIMARY territory — never split one logical change across sessions;
+  (6) collisions discovered late follow the supersession precedent:
+  first-merged wins, the duplicate salvages its unique delta.
+  Within a session, parallel subagents fan out labor (research,
+  per-source builds, test generation) while judgment stays in the
+  parent — subagent output ships only after the session's own
+  read-before-write review."
+
+  RATIONALE: 40 PRs merged 2026-07-04 across concurrent
+  sessions/routines with 4 live collisions (2 version, 1 double-build,
+  1 wrong-merge reset) — all recovered but each cost a cycle;
+  territories prevent the class instead of patching instances.
+
+- **⚖ MONETIZATION READINESS CHECKLIST (API-product directive
+  2026-07-04; for human approval BEFORE any switch flips — everything
+  buildable pre-revenue is being built now, the last mile waits).**
+  1. PROVIDER COMPLIANCE RE-RUN (the tripwire, executed for this
+     directive since it touches pricing design): aircraft chain is
+     adsb.lol (ODbL — monetization-lawful) primary with
+     airplanes.live + adsb.fi fallbacks (both non-commercial).
+     AT SWITCH: drop or upgrade both fallbacks; the runtime guard
+     (providerCompliance.ts) enforces this if billing activates first.
+  2. DATA-LICENSING AUDIT — what we may RESELL vs DISPLAY, per source
+     (drafted; verify each at switch): SEC EDGAR + NWS/NOAA + USGS +
+     EIA + USDA (US public domain — resellable); NASA FIRMS (open,
+     attribution — resellable with credit, safety-of-life disclaimer
+     travels); Digitraffic CC BY 4.0 + Entur NLOD (resellable with
+     attribution); adsb.lol ODbL (SHARE-ALIKE: an API reselling
+     ODbL-derived aircraft data must license that derived database
+     ODbL and attribute — compatible with a paid API but constrains
+     exclusivity claims; positions endpoints marked accordingly);
+     aisstream.io (their ToS on redistribution must be re-read at
+     switch — vessel endpoints marked CONDITIONAL); OpenWeatherMap
+     tiles (display product — NOT resellable as data; excluded from
+     the API); Copernicus (free/open incl. commercial, attribution);
+     OUR DERIVED datasets (port dwell, shadow stats, transit counts,
+     tank-fill readings, entity timelines) — our own work product over
+     mixed inputs; ODbL inputs taint derived DATABASES with
+     share-alike, so derived-stat endpoints over aircraft positions
+     carry the same mark; AIS-derived stats depend on aisstream terms.
+  3. TERMS-OF-SERVICE DRAFT for API customers (attribution
+     passthrough, no safety-of-life use, rate/fair-use, data-as-is).
+  4. STRIPE WIRING PLAN: BILLING_ENABLED + STRIPE_SECRET_KEY flip,
+     key issuance flow bound to billing customer, the runtime
+     compliance guard already trips /api/health if flipped early.
+  RULE RESTATED: no billing wiring, no pricing enablement, no key
+  sales until you approve this checklist item-by-item.
+
 - **Historical options prices** (EOD chains + marks, ~2016→present) to backtest
   the options leg honestly. Without it, only the equity/ETF logic can be
   validated — and the options leg is the suspected main performance drag.
