@@ -27,6 +27,7 @@ import path from "path";
 import zlib from "zlib";
 
 export const RAW_RETENTION_DAYS = 7;
+export type ArchiveKind = "aircraft" | "vessels" | "trains";
 
 // Strategic sites (lat, lon) — near these we keep full resolution. Loaded
 // from the bundled datacore sites JSON at import time by the caller and
@@ -62,7 +63,7 @@ function defaultBase(): string {
   return path.join(dataDir, "datacore_archive");
 }
 
-function hourFile(kind: "aircraft" | "vessels", when: Date, base: string): string {
+function hourFile(kind: ArchiveKind, when: Date, base: string): string {
   const d = when.toISOString().slice(0, 13); // YYYY-MM-DDTHH
   return path.join(base, kind, `${d.replace("T", "-")}.jsonl`);
 }
@@ -94,6 +95,14 @@ export function vesselIntervalMs(p: VesselPoint, sites: SitePoint[]): number {
   return 10 * 60_000;                                            // open water: 10 min
 }
 
+/** Sampling interval (ms) for a train point: fixed cadence — trains are
+ *  few (hundreds, not 10k), slow relative to aircraft, and not near-site
+ *  weighted (no rail strategic sites yet). 2 min balances track fidelity
+ *  against volume. */
+export function trainIntervalMs(): number {
+  return 2 * 60_000;
+}
+
 // Per-entity last-write clock (in-memory; a restart just writes one extra
 // sample per entity, which is harmless).
 const lastWrite: Map<string, number> = new Map();
@@ -107,7 +116,7 @@ function shouldWrite(key: string, intervalMs: number, now: number): boolean {
 }
 
 // ── append ───────────────────────────────────────────────────────────────────
-function appendLines(kind: "aircraft" | "vessels", lines: string[], base: string, now: Date) {
+function appendLines(kind: ArchiveKind, lines: string[], base: string, now: Date) {
   if (!lines.length) return;
   const fp = hourFile(kind, now, base);
   fs.mkdirSync(path.dirname(fp), { recursive: true });
@@ -164,12 +173,43 @@ export function archiveVessels(points: VesselPoint[], sites: SitePoint[],
   return lines.length;
 }
 
+export interface TrainPoint {
+  id: string;            // country-prefixed, e.g. "FI-62" / "NO-71-12"
+  country: string;       // coverage tag shown on the map
+  lat: number; lon: number;
+  speed_kmh?: number | null;
+  bearing?: number | null;
+  label?: string | null; // train number / line ref
+}
+
+export function archiveTrains(points: TrainPoint[], baseDir?: string, nowMs?: number): number {
+  const base = baseDir || defaultBase();
+  const now = nowMs ?? Date.now();
+  const t = Math.floor(now / 1000);
+  const lines: string[] = [];
+  for (const p of points) {
+    if (p.lat == null || p.lon == null || !p.id) continue;
+    if (!shouldWrite(`t:${p.id}`, trainIntervalMs(), now)) continue;
+    lines.push(JSON.stringify({
+      t, i: p.id, c: p.label || undefined, co: p.country,
+      la: +p.lat.toFixed(4), lo: +p.lon.toFixed(4),
+      v: p.speed_kmh == null ? undefined : Math.round(p.speed_kmh),
+      h: p.bearing == null ? undefined : Math.round(p.bearing),
+    }));
+  }
+  try { appendLines("trains", lines, base, new Date(now)); } catch (e: any) {
+    console.error("[archive] trains append:", e?.message || e);
+    return 0;
+  }
+  return lines.length;
+}
+
 // ── compression + rollup (maintenance; call periodically) ───────────────────
 export function compressOldHours(baseDir?: string, nowMs?: number): number {
   const base = baseDir || defaultBase();
   const now = nowMs ?? Date.now();
   let done = 0;
-  for (const kind of ["aircraft", "vessels"] as const) {
+  for (const kind of ["aircraft", "vessels", "trains"] as const) {
     const dir = path.join(base, kind);
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
@@ -200,7 +240,7 @@ export function rollupOldDays(baseDir?: string, nowMs?: number): number {
   const now = nowMs ?? Date.now();
   const cutoff = now - RAW_RETENTION_DAYS * 86400_000;
   let rolled = 0;
-  for (const kind of ["aircraft", "vessels"] as const) {
+  for (const kind of ["aircraft", "vessels", "trains"] as const) {
     const dir = path.join(base, kind);
     if (!fs.existsSync(dir)) continue;
     // group files by day
@@ -253,7 +293,7 @@ export function rollupOldDays(baseDir?: string, nowMs?: number): number {
 
 // ── reads ────────────────────────────────────────────────────────────────────
 /** Recent trail for one entity from today's + yesterday's raw hours. */
-export function recentTrack(kind: "aircraft" | "vessels", id: string,
+export function recentTrack(kind: ArchiveKind, id: string,
                             baseDir?: string, nowMs?: number, maxPoints = 500): Array<{ t: number; la: number; lo: number; al?: number }> {
   const base = baseDir || defaultBase();
   const now = nowMs ?? Date.now();
@@ -282,7 +322,7 @@ export function recentTrack(kind: "aircraft" | "vessels", id: string,
 export function archiveStats(baseDir?: string): any {
   const base = baseDir || defaultBase();
   const out: any = { base, kinds: {} };
-  for (const kind of ["aircraft", "vessels", "aircraft_tracks", "vessels_tracks"]) {
+  for (const kind of ["aircraft", "vessels", "trains", "aircraft_tracks", "vessels_tracks", "trains_tracks"]) {
     const dir = path.join(base, kind);
     if (!fs.existsSync(dir)) { out.kinds[kind] = { files: 0, bytes: 0 }; continue; }
     let bytes = 0, files = 0, oldest: string | null = null, newest: string | null = null;

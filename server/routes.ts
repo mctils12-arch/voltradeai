@@ -14,13 +14,14 @@ import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import {
-  archiveAircraft, archiveVessels, compressOldHours, rollupOldDays,
+  archiveAircraft, archiveVessels, archiveTrains, compressOldHours, rollupOldDays,
   recentTrack, archiveStats,
 } from "./datacoreArchive";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
+import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { bootForm4Poll, latestForm4Filings } from "./edgarForm4";
 
 const execAsync = promisify(exec);
@@ -977,7 +978,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Recent trail for one entity (serves the client's track-on-click).
   app.get("/api/data/track/:kind/:id", (req, res) => {
-    const kind = req.params.kind === "vessels" ? "vessels" : "aircraft";
+    const kind = req.params.kind === "vessels" ? "vessels"
+               : req.params.kind === "trains" ? "trains" : "aircraft";
     const id = String(req.params.id || "").slice(0, 24);
     if (!id) return res.status(400).json({ error: "id required" });
     try {
@@ -1008,6 +1010,81 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/powerplants", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     res.json({ kind: "raw", ...(datacorePowerplants as any) });
+  });
+
+  // Live trains overlay (RAW) — Finland Digitraffic (CC BY 4.0) + Norway
+  // Entur (NLOD); mapping in server/trainsFeed.ts (pure, unit-tested).
+  // Shared 30s cache + in-flight dedup + per-source backoff; the response
+  // carries per-source status so the panel labels coverage HONESTLY
+  // (launch coverage is FI+NO only). US freight rail positions are
+  // proprietary — no free source exists (open_questions; do not chase).
+  // Every fresh snapshot feeds the permanent position archive.
+  let trainsCache: { at: number; data: any } | null = null;
+  let trainsInflight: Promise<any> | null = null;
+  async function fetchTrains() {
+    const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
+    const sources: any[] = [];
+    const trains: any[] = [];
+    await Promise.all([
+      (async () => {
+        if (backoffActive("digitraffic")) { sources.push({ key: "digitraffic", country: "FI", status: "backoff", count: 0 }); return; }
+        try {
+          const r = await fetch("https://rata.digitraffic.fi/api/v1/train-locations/latest",
+            { headers: { ...UA, "Digitraffic-User": "voltradeai-datacore" }, signal: AbortSignal.timeout(12000) });
+          if (!r.ok) throw new Error(`digitraffic ${r.status}`);
+          const mapped = mapDigitraffic(await r.json());
+          trains.push(...mapped);
+          backoffClear("digitraffic");
+          sources.push({ key: "digitraffic", country: "FI", status: "ok", count: mapped.length });
+        } catch (e: any) {
+          backoffBump("digitraffic");
+          sources.push({ key: "digitraffic", country: "FI", status: "error", count: 0, error: e?.message });
+        }
+      })(),
+      (async () => {
+        if (backoffActive("entur")) { sources.push({ key: "entur", country: "NO", status: "backoff", count: 0 }); return; }
+        try {
+          const r = await fetch("https://api.entur.io/realtime/v1/vehicles/graphql", {
+            method: "POST",
+            headers: { ...UA, "Content-Type": "application/json", "ET-Client-Name": "voltradeai-datacore" },
+            body: JSON.stringify({ query: ENTUR_VEHICLES_QUERY }),
+            signal: AbortSignal.timeout(12000),
+          });
+          if (!r.ok) throw new Error(`entur ${r.status}`);
+          const mapped = mapEntur(await r.json());
+          trains.push(...mapped);
+          backoffClear("entur");
+          sources.push({ key: "entur", country: "NO", status: "ok", count: mapped.length });
+        } catch (e: any) {
+          backoffBump("entur");
+          sources.push({ key: "entur", country: "NO", status: "error", count: 0, error: e?.message });
+        }
+      })(),
+    ]);
+    try { archiveTrains(trains); } catch {}
+    return {
+      source: "Digitraffic Finland (CC BY 4.0) + Entur Norway (NLOD)",
+      kind: "raw",
+      time: Math.floor(Date.now() / 1000),
+      coverage: "FI + NO (launch); US freight positions are proprietary — no free source",
+      sources,
+      count: trains.length,
+      trains,
+    };
+  }
+  app.get("/api/data/trains", async (_req, res) => {
+    if (trainsCache && Date.now() - trainsCache.at < 30_000) return res.json(trainsCache.data);
+    if (!trainsInflight) trainsInflight = fetchTrains().finally(() => { trainsInflight = null; });
+    try {
+      const data = await trainsInflight;
+      trainsCache = { at: Date.now(), data };
+      res.json(data);
+    } catch (e: any) {
+      // fetchTrains never throws by design (per-source status instead);
+      // this is a last-resort stale-over-error path.
+      if (trainsCache) return res.json({ ...trainsCache.data, stale: true });
+      res.status(502).json({ error: e?.message || "trains fetch failed" });
+    }
   });
 
   // SEC EDGAR Form 4 (insider transactions) — RAW as-filed display (EDGE
