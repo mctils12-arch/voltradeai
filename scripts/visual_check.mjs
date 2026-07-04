@@ -571,6 +571,65 @@ async function main() {
       } catch (e) {
         if (!e?.skip) checks.failures.push("self-see: driver error — " + (e?.message || e));
       }
+      // ── TOGGLE CONSISTENCY (state-desync repair 2026-07-04): for EVERY
+      // toggleable registry layer, flipping the switch must move pill,
+      // label, and actual map state TOGETHER — pill ON with a label still
+      // reading "off" (the production defect) is a failed build. Runs at
+      // 1440 only: it exercises state wiring, not layout.
+      try {
+        if (!cfg.map || vp.w !== 1440) throw { skip: true };
+        await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(250);
+        for (let round = 0; round < 6; round++) {
+          const btn = page.locator('.vt-layer-group-head[aria-expanded="false"]').first();
+          if (!(await btn.count())) break;
+          await btn.click().catch(() => {});
+          await page.waitForTimeout(120);
+        }
+        await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+        const toggleables = FIXTURES["/api/data/layers"].layers
+          .filter((l) => l.status === "live" && l.id !== "imagery") // imagery is the base — stays on
+          .map((l) => l.id);
+        const desyncs = [];
+        for (const id of toggleables) {
+          const sw = page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first();
+          const before = await sw.getAttribute("aria-checked");
+          await page.evaluate((lid) => {
+            document.querySelector(`[data-vt-layer="${lid}"]`)?.scrollIntoView({ block: "center" });
+          }, id);
+          await page.waitForTimeout(100);
+          await sw.click({ timeout: 4000 }).catch(() => desyncs.push(`toggle-consistency: '${id}' switch UNCLICKABLE`));
+          // wait for the layer's effect to settle: label must leave "off"
+          // (loading/active/error all acceptable — but never stuck at off)
+          let state = null;
+          for (let i = 0; i < 30; i++) {
+            state = await page.evaluate((lid) => {
+              const row = document.querySelector(`[data-vt-layer="${lid}"]`);
+              const swEl = row?.querySelector('[role="switch"]');
+              return {
+                pill: swEl?.getAttribute("aria-checked"),
+                rt: row?.getAttribute("data-vt-rt"),
+                label: row?.querySelector(".vt-layer-status")?.textContent?.trim() || "",
+              };
+            }, id);
+            if (state && state.rt && state.rt !== "off" && state.rt !== "none") break;
+            await page.waitForTimeout(200);
+          }
+          if (!state || state.pill !== (before === "true" ? "false" : "true")) {
+            desyncs.push(`toggle-consistency: '${id}' pill did not flip (before=${before}, after=${state?.pill})`);
+          } else if (state.pill === "true" && (state.rt === "off" || state.rt === "none")) {
+            desyncs.push(`toggle-consistency: '${id}' pill ON but runtime '${state.rt}' / label '${state.label}' — the production desync`);
+          }
+          // flip back to leave the page in its default state
+          await sw.click({ timeout: 4000 }).catch(() => {});
+          await page.waitForTimeout(150);
+        }
+        checks.failures.push(...desyncs);
+        if (!desyncs.length) checks.info.toggleConsistency = `${toggleables.length} layers toggled clean`;
+        if (vp.touch) {} // (1440 only — no panel-state restore needed)
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("toggle-consistency: driver error — " + (e?.message || e));
+      }
       // ── U1 FIELDS-ON VISIBILITY (weather-upgrade directive 2026-07-04):
       // with temp + wind toggled ON at the DEFAULT opacity, the fields must
       // visibly render (canvas pixel diff) while the base map and

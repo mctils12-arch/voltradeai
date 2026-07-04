@@ -14,6 +14,7 @@ import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
+import { version as pkgVersion } from "../package.json";
 import {
   archiveAircraft, archiveVessels, archiveTrains, compressOldHours, rollupOldDays,
   recentTrack, archiveStats,
@@ -685,7 +686,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ? { ...l, status: firmsEnabled() ? "live" : "awaiting_key" }
         : l
     );
-    res.json({ layers });
+    // server_version lets the client detect an OPEN-TAB VERSION SKEW: a
+    // long-lived tab that remounts the /data page re-fetches this registry
+    // (new layer rows) while still running an old bundle (no effects for
+    // them) — pill flips, label stays "off", nothing renders (the
+    // 2026-07-04 production desync). The client compares against its
+    // baked-in version and tells the user to reload.
+    res.json({ layers, server_version: pkgVersion });
   });
 
   // Live aircraft overlay (RAW) — community ADS-B chain, THREE deep
