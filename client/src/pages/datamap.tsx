@@ -76,7 +76,7 @@ const LAYER_GROUP: Record<string, string> = {
   weather_temp: "base", weather_wind: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
-  fires: "environmental",
+  fires: "environmental", surfacewater: "environmental",
   insider: "filings", shadowstats: "filings", portdwell: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
@@ -141,6 +141,7 @@ export default function DataMapPage() {
   // (directive: the field is context, never a curtain).
   const FIELD_MAP_LAYER: Record<string, string> = {
     weather: "weather-radar", weather_temp: "wx-temp_new", weather_wind: "wx-wind_new",
+    surfacewater: "gsw-occurrence",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -369,6 +370,46 @@ export default function DataMapPage() {
       setStatus("terrain", "error");
     }
   }, [enabled.terrain, mapReady, setStatus]);
+
+  // ── surface water (RAW; JRC Global Surface Water v2021 — atlas-parity
+  // layer 1, licensing per open_questions ATLAS PARITY: free with EC
+  // JRC/Google attribution + Pekel et al. 2016 citation. STATIC dataset —
+  // 1984–2021 occurrence, stated in the status note per the imagery-date
+  // honesty rule. Tiles direct from the JRC public bucket: zero server
+  // cost, zero key. field:true — opacity slider inherited.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.surfacewater) {
+      try {
+        if (map.getLayer("gsw-occurrence")) map.removeLayer("gsw-occurrence");
+        if (map.getSource("gsw-occurrence")) map.removeSource("gsw-occurrence");
+      } catch {}
+      setStatus("surfacewater", "off");
+      return;
+    }
+    try {
+      if (!map.getSource("gsw-occurrence")) {
+        map.addSource("gsw-occurrence", {
+          type: "raster",
+          tiles: ["https://storage.googleapis.com/global-surface-water/tiles2021/occurrence/{z}/{x}/{y}.png"],
+          tileSize: 256, maxzoom: 13,
+          attribution: "Surface water © EC JRC/Google",
+        } as any);
+      }
+      if (!map.getLayer("gsw-occurrence")) {
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: "gsw-occurrence", type: "raster", source: "gsw-occurrence",
+          paint: { "raster-opacity": opacityOf("surfacewater") / 100 },
+        } as any, firstMarker?.id);
+      }
+      setStatus("surfacewater", "active", undefined,
+        "water occurrence 1984–2021 (static, v2021) · EC JRC/Google, Pekel et al. 2016");
+    } catch {
+      setStatus("surfacewater", "error");
+    }
+  }, [enabled.surfacewater, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in
@@ -1586,6 +1627,17 @@ export default function DataMapPage() {
                       <span key={t}><i style={{ background: c }} /> {tempUnitF ? `${Math.round(Number(t.replace("+", "")) * 9 / 5 + 32)}${t.includes("+") ? "+" : ""}°F` : `${t}°C`}</span>
                     ))}
                   <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(approx — amplified for dark basemap)</span>
+                </>
+              )}
+              {enabled.surfacewater && (
+                <>
+                  <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
+                  <span style={{ color: "var(--text-tertiary)" }}>water occurrence:</span>
+                  {([["rare", "#ffcccc"], ["seasonal", "#8683ff"], ["permanent", "#0000ff"]] as const)
+                    .map(([t, c]) => (
+                      <span key={t}><i style={{ background: c }} /> {t}</span>
+                    ))}
+                  <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(1984–2021, JRC GSW)</span>
                 </>
               )}
               <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />

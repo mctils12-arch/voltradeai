@@ -13,6 +13,30 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Atlas parity layer 1: surface water (JRC GSW v2021) live (v1.0.74)
+
+- First build from the ATLAS PARITY filing: JRC Global Surface Water
+  occurrence tiles as a RAW layer — Environmental group, off by
+  default, field:true (inherits the v1.0.72 opacity slider at 60%),
+  legend ramp (rare→seasonal→permanent) gated on the layer being on.
+- Zero server cost: tiles direct from the JRC public bucket (like Esri
+  imagery) — no proxy, no key, no Railway budget. Zero-cost-when-off
+  by the same lazy effect pattern as terrain (source+layer added on
+  enable, removed on disable); all-off harness run stays green.
+- HONESTY: status note and registry description state the STATIC
+  1984–2021 vintage (imagery-date rule) — this shows where water HAS
+  occurred, not live conditions. Attribution EC JRC/Google on-map.
+- Tile pixels verified server-side pre-build (open_questions ATLAS
+  PARITY: 41,840 non-transparent px on the z4 occurrence probe);
+  harness can't render external tiles (aborted for determinism) so the
+  in-map screenshot proof is panel/registry/self-see — same evidence
+  class as terrain/imagery shipped with.
+- Gates: node 107/107 (new registry pin: JRC attribution + vintage
+  wording + field flag); harness 0 hard failures ×3 widths + all-off;
+  python untouched (green per v1.0.73 repair).
+- Next in the filed order: forest cover 2020 (JRC GFC2020 via GFW,
+  verified), then NE admin boundaries (datacore-compiled).
+
 ## 2026-07-04 — [RESEARCH] Atlas parity filed: free-layer endpoints verified, licenses checked, build order set (docs)
 
 - Geospatial-parity directive Part 1/2 filing (open_questions.md ATLAS

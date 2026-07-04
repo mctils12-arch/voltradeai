@@ -37,6 +37,15 @@ test("terrain layer registered with Mapterhorn attribution (Tier-1(a), licensing
   assert.ok(t.source.includes("Mapterhorn"), "attribution must name Mapterhorn");
 });
 
+test("surface-water layer: JRC attribution + static-vintage honesty + opacity inheritance (atlas parity 1)", () => {
+  const s = registry.layers.find((x: any) => x.id === "surfacewater");
+  assert.ok(s, "surfacewater layer missing");
+  assert.equal(s.kind, "raw");
+  assert.ok(s.source.includes("JRC"), "attribution must name EC JRC");
+  assert.ok(/1984|2021|static/i.test(s.description), "description must state the static 1984–2021 vintage (imagery-date honesty)");
+  assert.equal(s.field, true, "atlas rasters inherit the registry opacity slider");
+});
+
 test("weather layer states US-only coverage honestly (Tier-1(b), licensing register 2026-07-04)", () => {
   const w = registry.layers.find((x: any) => x.id === "weather");
   assert.ok(w, "weather layer missing");

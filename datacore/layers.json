@@ -117,6 +117,15 @@
       "description": "Active-fire detections, ~3h latency. Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration \u2014 see wishlist). No free history exists upstream \u2014 detections archive from the day the key activates."
     },
     {
+      "id": "surfacewater",
+      "name": "Surface water (1984–2021)",
+      "kind": "raw",
+      "status": "live",
+      "source": "EC JRC/Google — Global Surface Water v2021 (Pekel et al. 2016; free with attribution)",
+      "description": "Where surface water occurred over 1984–2021 (occurrence % — rare to permanent). STATIC dataset, not live conditions: v2021 vintage stated per the imagery-date honesty rule. Atlas-parity layer; tiles served directly from the JRC public bucket — zero server cost.",
+      "field": true
+    },
+    {
       "id": "tank_fill",
       "name": "Tank-fill % (Sentinel-2)",
       "kind": "signal",
