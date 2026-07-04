@@ -959,3 +959,15 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 - Tests: archive dedup round-trip, gzip-day readback, route + poll-loop
   wiring pins (45/45 node). Harness green all widths; both view states
   (empty + populated) screenshot-reviewed.
+
+## 2026-07-04 — [PRODUCT] Detail-card link-outs + vessel flag states (v1.0.56)
+- Map v2.2 SHIP DETAIL CARDS directive. Vessels: flag state now shown,
+  computed locally from the MMSI MID prefix (ITU table baked into
+  client/src/lib/mmsiFlag.ts — data derived from the AIS message itself,
+  no external lookup); dimensions honestly OMITTED (our aisstream
+  subscription doesn't carry them reliably); destination/type/speed
+  already shown. LINK OUT (never embed — photo copyright): MarineTraffic
+  + VesselFinder by MMSI. Aircraft: Planespotters (photos/registry) by
+  hex + adsb.lol live-track link. Rendered as pill links in the detail
+  card, 32px min height, external target with rel=noreferrer.
+- Gates: build, node 45/45, harness green all widths.

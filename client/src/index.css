@@ -2377,3 +2377,13 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   }
   .vt-filings-table td[data-l=""]::before, .vt-filings-table td:last-child::before { content: none; }
 }
+
+/* Detail-card external link-outs (profiles/photos — links only, no embeds) */
+.vt-site-card-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
+.vt-site-card-links a {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px;
+  border-radius: 7px; font-size: 11.5px; text-decoration: none;
+  color: var(--accent-bright); background: rgba(77, 159, 255, 0.08);
+  border: 1px solid rgba(77, 159, 255, 0.2);
+}
+.vt-site-card-links a:hover { background: rgba(77, 159, 255, 0.16); }
