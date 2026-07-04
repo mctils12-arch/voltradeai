@@ -911,3 +911,30 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   carrier census, port TEU monthlies) — archive-first, gate-2 gated.
 - STARVED: no — directive fully executed across PRs #124 (aircraft
   third leg), #125 (trains layer), and this docs bundle.
+
+## 2026-07-04 — [PRODUCT] Power-plant position accuracy: EIA-860 coords + top-100 imagery-verified (v1.0.54)
+- Directive (Map v2.2): human confirmed Hardeeville mispositioned.
+  KEY FINDING that shaped the protocol: GPPD and EIA-860 AGREE on
+  Hardeeville's wrong position — the registries share self-reported
+  geocodes (address/office, not the plant), so registry cross-agreement
+  is NOT verification; imagery is the only ground truth. Rule text
+  ("imagery or an authoritative source") interpreted accordingly:
+  authoritative-source checks fix DISAGREEMENTS, imagery establishes
+  VERIFIED.
+- Data work: joined all 9,833 GPPD-US plants to EIA-860 2024 by plant
+  code (9,557 matched; 276 GPPD-only = mostly retired since 2021).
+  67 disagreements >300m (median 1.6km, worst 13.4km — wind-farm
+  centroid vs substation ambiguity dominates); EIA 2024 coordinates now
+  preferred for ALL matched plants.
+- Imagery verification of the TOP 100 BY MW (directive): composite
+  4x4 verification sheets (7 sheets, z14 crops with crosshairs) —
+  98/100 passed on sheet review; 2 borderline resolved PASS at z15/z16
+  close-up (Bath County = crosshair on the pumped-storage intake works;
+  Ravenswood = on the station). 100/100 verified; audit artifact
+  checked in (datacore/powerplants/imagery_verified.json).
+- Product honesty: row format gains a verified flag; detail card says
+  "Position imagery-verified." or "Position approximate
+  (registry-reported — GPPD/EIA-860)."; the layer panel row notes
+  "top 100 by MW imagery-verified · rest approximate".
+- Tests: 7-element row validation + top-100-all-verified + audit
+  artifact + EIA-860 credited. 42/42 node, 114 python, harness green.

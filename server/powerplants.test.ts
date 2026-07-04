@@ -14,7 +14,7 @@ test("compiled dataset is US-scale with valid compact rows", () => {
   assert.equal(data.count, data.plants.length);
   const fuels = new Set(data.fuels);
   for (const p of data.plants) {
-    const [name, mw, fuel, _owner, lat, lon] = p;
+    const [name, mw, fuel, _owner, lat, lon, verified] = p;
     assert.ok(typeof name === "string" && name.length > 0);
     assert.ok(typeof mw === "number" && mw >= 0);
     assert.ok(fuels.has(fuel), `unknown fuel code ${fuel}`);
@@ -22,7 +22,18 @@ test("compiled dataset is US-scale with valid compact rows", () => {
     // (GPPD counts Guam/N. Marianas as USA — lon ~144-146 E)
     assert.ok(lat > 12 && lat < 72, `lat out of range: ${lat} (${name})`);
     assert.ok((lon > -180 && lon < -60) || (lon > 140 && lon <= 180), `lon out of range: ${lon} (${name})`);
+    assert.ok(verified === 0 || verified === 1, `verified flag must be 0/1 (${name})`);
   }
+});
+
+test("position provenance: top plants imagery-verified, audit artifact present", () => {
+  assert.equal(data.verified_count, 100, "top-100 verification count");
+  // every one of the 100 largest plants carries the verified flag
+  const top100 = [...data.plants].sort((a: any, b: any) => b[1] - a[1]).slice(0, 100);
+  assert.ok(top100.every((p: any) => p[6] === 1), "a top-100-by-MW plant lost its verified flag");
+  const audit = JSON.parse(fs.readFileSync(path.join(here, "..", "datacore", "powerplants", "imagery_verified.json"), "utf8"));
+  assert.equal(audit.ids.length, 100);
+  assert.ok(String(data.source).includes("EIA-860"), "EIA-860 must be credited as coordinate source");
 });
 
 test("attribution ships with the data (CC BY 4.0 requires it)", () => {
