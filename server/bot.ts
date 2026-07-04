@@ -7,6 +7,7 @@ import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag } from "./diag";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { aircraftProviderCompliance } from "./providerCompliance";
@@ -1903,6 +1904,60 @@ print(json.dumps(result, default=str))
   app.get("/api/bot/audit", requireOwner, (_req, res) => {
     const persisted = getPersistedAuditLog(100);
     res.json(persisted.map((e: any) => ({ time: e.time, action: e.type, type: e.type, detail: e.message, message: e.message })));
+  });
+
+  // ── Token-gated READ-ONLY diagnostics (wishlist option (d), human-
+  // approved 2026-07-04). HARD WHITELIST: audit tail, ml status, daemon
+  // health, positions SUMMARY (counts/exposure — never symbols). Closed
+  // by default (no/short DIAG_TOKEN ⇒ 404); auth.ts untouched; every
+  // response passes sanitizeDiag. Sessions send x-diag-token. ──
+  app.get("/api/diag/:probe", async (req, res) => {
+    if (!diagEnabled(process.env)) return res.status(404).json({ error: "not enabled" });
+    const provided = String(req.headers["x-diag-token"] || req.query.token || "");
+    if (!checkDiagToken(process.env, provided)) return res.status(401).json({ error: "unauthorized" });
+    try {
+      switch (req.params.probe) {
+        case "audit": {
+          const entries = getPersistedAuditLog(50).map((e: any) => ({ time: e.time, type: e.type, message: e.message }));
+          return res.json(sanitizeDiag({ probe: "audit", entries }));
+        }
+        case "ml": {
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json, os, time
+try:
+    from storage_config import ML_MODEL_PATH, FILLS_PATH, TRADE_FEEDBACK_PATH
+except ImportError:
+    ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'; FILLS_PATH = '/tmp/voltrade_fills.json'; TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
+s = {'model_exists': os.path.exists(ML_MODEL_PATH)}
+if s['model_exists']: s['model_age_hours'] = round((time.time() - os.path.getmtime(ML_MODEL_PATH)) / 3600, 1)
+for name, p in (('fills', FILLS_PATH), ('feedback', TRADE_FEEDBACK_PATH)):
+    try:
+        with open(p) as f: s[name + '_count'] = len(json.load(f))
+    except Exception: s[name + '_count'] = 0
+print(json.dumps(s))
+"`, { timeout: 15000 });
+          return res.json(sanitizeDiag({ probe: "ml", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
+        case "daemon": {
+          if (!DAEMON_ENABLED) return res.json({ probe: "daemon", alive: false, reason: "disabled via env" });
+          try {
+            const r = await pythonRpc("health", {});
+            return res.json(sanitizeDiag({ probe: "daemon", alive: r.status === "ok", ...(r.status === "ok" ? r.result : { reason: r.error_message }) }));
+          } catch (e: any) {
+            return res.json({ probe: "daemon", alive: false, reason: sanitizeDiag(String(e?.message || e)) });
+          }
+        }
+        case "positions": {
+          const positions = await alpaca("/v2/positions");
+          return res.json(sanitizeDiag({ probe: "positions", ...positionsSummary(Array.isArray(positions) ? positions : []) }));
+        }
+        default:
+          return res.status(404).json({ error: "unknown probe", probes: ["audit", "ml", "daemon", "positions"] });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: sanitizeDiag(String(e?.message || e)) });
+    }
   });
 
   // Place a trade (manual or from bot signals)
