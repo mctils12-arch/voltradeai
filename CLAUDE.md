@@ -24,6 +24,12 @@ When priorities conflict, the higher number NEVER wins over the lower:
 1. KEEP THE SYSTEM ALIVE. Site up, trading loop running, daemon
    healthy, data flowing, archives recording. A dead system learns
    nothing, and an archive gap never refills.
+   LIVENESS ALARM (human-approved 2026-07-04): the trading loop
+   paused, halted, or broker-account-unreadable for more than 2
+   market hours (or 24 hours wall-clock) is a TOP-OF-REPORT alarm in
+   every DAILY session and a degraded state on /api/health — the
+   loop going dark must be surfaced loudly, never discovered by the
+   human on a dashboard.
 2. PROTECT THE INTEGRITY OF LEARNING. Every result attributable to
    a specific change. Every evaluation honest: out-of-sample, no
    lookahead, no leaked data. Every signal ladder-validated before
