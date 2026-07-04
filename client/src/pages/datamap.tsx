@@ -9,6 +9,7 @@ import {
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL,
 } from "@/lib/mapIcons";
+import FilingsView from "./filings";
 
 /**
  * /data — the data-intelligence map (v2).
@@ -93,6 +94,14 @@ export default function DataMapPage() {
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [insiderRows, setInsiderRows] = useState<InsiderRow[]>([]);
+  // Full filings view (#/data/filings) — overlay on top of the map page so
+  // the map stays mounted; hash-driven so it deep-links and back-buttons.
+  const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
+  useEffect(() => {
+    const onHash = () => setFilingsOpen(window.location.hash === "#/data/filings");
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const setStatus = useCallback((id: string, status: RuntimeStatus, count?: number, note?: string) => {
     setRuntime(s => ({ ...s, [id]: { status, count, note } }));
@@ -770,6 +779,9 @@ export default function DataMapPage() {
 
   return (
     <div className="vt-map-page" data-vt-map>
+      {filingsOpen && (
+        <FilingsView onBack={() => { window.location.hash = "#/data"; setFilingsOpen(false); }} />
+      )}
       <div ref={mapContainer} className="vt-map-canvas" />
 
       {!mapReady && !mapError && (
@@ -841,6 +853,10 @@ export default function DataMapPage() {
                   </div>
                   {l.id === "insider" && on && (
                     <div className="vt-filings-list" role="log" aria-label="Recent Form 4 insider transactions">
+                      <button className="vt-filings-openfull"
+                              onClick={() => { window.location.hash = "#/data/filings"; setFilingsOpen(true); }}>
+                        Open full view — history, filters, SEC links →
+                      </button>
                       {insiderRows.length === 0 ? (
                         <div className="vt-filings-empty">no filings yet — polls every ~15min</div>
                       ) : insiderRows.map((r, i) => (

@@ -105,6 +105,23 @@ const FIXTURES = {
     ],
   },
   "/api/health": { status: "ok", checks: {} },
+  "/api/data/insider/history": {
+    kind: "raw", source: "SEC EDGAR (Form 4) — accumulated archive", days: 30, count: 2,
+    filings: [
+      {
+        accession: "0001-26-1", filedAt: "2026-07-03", indexUrl: "https://www.sec.gov/x/1/",
+        issuerName: "CYPHERPUNK TECHNOLOGIES INC.", issuerTradingSymbol: "CYPH",
+        owners: [{ cik: "1", name: "Richard Christian M", isDirector: true, isOfficer: false, isTenPercentOwner: false, officerTitle: null }],
+        transactions: [{ table: "derivative", kind: "award_grant", shares: 75000, pricePerShare: 0, transactionDate: "2026-07-01" }],
+      },
+      {
+        accession: "0001-26-2", filedAt: "2026-07-02", indexUrl: "https://www.sec.gov/x/2/",
+        issuerName: "STRATUS PROPERTIES INC", issuerTradingSymbol: "STRS",
+        owners: [{ cik: "2", name: "Oasis Management Co Ltd.", isDirector: false, isOfficer: false, isTenPercentOwner: true, officerTitle: null }],
+        transactions: [{ table: "nonDerivative", kind: "open_market_sale", shares: 10000, pricePerShare: 28.9, transactionDate: "2026-06-30" }],
+      },
+    ],
+  },
   "/api/data/trains": {
     kind: "raw", source: "Digitraffic Finland (CC BY 4.0) + Entur Norway (NLOD)",
     time: 1, coverage: "FI + NO (launch)", count: 3,
@@ -133,7 +150,10 @@ function startServer() {
   return new Promise((resolve) => {
     const srv = createServer((req, res) => {
       const [u, qs] = (req.url || "/").split("?");
-      const fx = Object.keys(FIXTURES).find((k) => u === k || u.startsWith(k + "/"));
+      // exact match wins before prefix match — otherwise /api/data/insider
+      // shadows /api/data/insider/history
+      const fx = Object.keys(FIXTURES).find((k) => u === k) ||
+                 Object.keys(FIXTURES).find((k) => u.startsWith(k + "/"));
       if (fx) {
         res.writeHead(200, { "content-type": "application/json" });
         // Exercise the real ?since= delta path: an unchanged snapshot returns

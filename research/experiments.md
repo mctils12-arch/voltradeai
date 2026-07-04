@@ -938,3 +938,24 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
   "top 100 by MW imagery-verified · rest approximate".
 - Tests: 7-element row validation + top-100-all-verified + audit
   artifact + EIA-860 credited. 42/42 node, 114 python, harness green.
+
+## 2026-07-04 — [PRODUCT] Form 4 full view + filings archive (v1.0.55)
+- Map v2.2 FORM 4 UI directive. Server: filings now ARCHIVED
+  (COLLECT-EVERYTHING) — every 15-min poll appends new accessions to
+  daily JSONL under the datacore archive volume (restart-safe dedup via
+  day-file seeding), days >2 gzipped; /api/data/insider/history?days=N
+  merges archive + live cache (history accumulates from 2026-07-04).
+- Client: #/data/filings full view (hash-driven overlay; deep-linkable;
+  back-button works): readable table at 768/1440 (ticker+company,
+  insider+role, color-coded BUY/SELL/GRANT/EXERCISE, shares, price,
+  computed value, date, SEC-filing link per row), stacked labeled cards
+  at 390; filters all/open-market/buys/sells; designed empty/loading/
+  error states. Panel keeps the compact list + "Open full view" button.
+- TWO BUGS CAUGHT BY SELF-REVIEW: (1) home.tsx's tab-hash sync stomped
+  #/data/filings back to #/data on mount — sync now rewrites only when
+  the hash ROOT differs (subpaths survive); (2) the harness fixture
+  matcher's startsWith let /api/data/insider shadow .../insider/history
+  — exact-match-first fix in visual_check.mjs.
+- Tests: archive dedup round-trip, gzip-day readback, route + poll-loop
+  wiring pins (45/45 node). Harness green all widths; both view states
+  (empty + populated) screenshot-reviewed.

@@ -258,6 +258,103 @@ export async function fetchLatestForm4Filings(
   return out;
 }
 
+// ── Filings archive (COLLECT-EVERYTHING doctrine, human directive
+// 2026-07-04: accumulate history, never just display latest). Append-only
+// JSONL per UTC day under <archive>/filings/, deduped by accession; days
+// older than 2 are gzipped in place. Same volume as the position archive
+// so archiveStats/volume-watch cover it. ──────────────────────────────────
+import fs from "fs";
+import path from "path";
+import zlib from "zlib";
+import { archiveBaseDir } from "./datacoreArchive";
+
+const archivedAccessions = new Set<string>();
+
+function filingsDir(baseDir?: string): string {
+  return path.join(baseDir || archiveBaseDir(), "filings");
+}
+
+/** Loads accession ids already archived today/yesterday so restarts don't
+ *  duplicate rows (append-only files are never rewritten). */
+function seedSeen(dir: string, nowMs: number): void {
+  for (const dayMs of [nowMs, nowMs - 86400_000]) {
+    const fp = path.join(dir, `${new Date(dayMs).toISOString().slice(0, 10)}.jsonl`);
+    try {
+      for (const line of fs.readFileSync(fp, "utf8").split("\n")) {
+        if (!line) continue;
+        try { archivedAccessions.add(JSON.parse(line).accession); } catch {}
+      }
+    } catch {}
+  }
+}
+
+let seeded = false;
+export function archiveFilings(filings: Form4Filing[], baseDir?: string, nowMs?: number): number {
+  const dir = filingsDir(baseDir);
+  const now = nowMs ?? Date.now();
+  if (!seeded) { seedSeen(dir, now); seeded = true; }
+  const fresh = filings.filter((f) => f.accession && !archivedAccessions.has(f.accession));
+  if (!fresh.length) return 0;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const fp = path.join(dir, `${new Date(now).toISOString().slice(0, 10)}.jsonl`);
+    fs.appendFileSync(fp, fresh.map((f) => JSON.stringify(f)).join("\n") + "\n");
+    fresh.forEach((f) => archivedAccessions.add(f.accession));
+    if (archivedAccessions.size > 50_000) archivedAccessions.clear(); // bound memory
+    return fresh.length;
+  } catch (e: any) {
+    console.error("[datacore] filings archive:", e?.message || e);
+    return 0;
+  }
+}
+
+export function gzipOldFilingDays(baseDir?: string, nowMs?: number): number {
+  const dir = filingsDir(baseDir);
+  const now = nowMs ?? Date.now();
+  let n = 0;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".jsonl")) continue;
+      const day = f.slice(0, 10);
+      if (now - Date.parse(day) < 2 * 86400_000) continue;
+      const fp = path.join(dir, f);
+      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+      fs.unlinkSync(fp);
+      n++;
+    }
+  } catch {}
+  return n;
+}
+
+/** Reads archived filings for the last N days (newest first), transparently
+ *  handling gzipped days. Powers the /data/filings history view. */
+export function readFilingHistory(days = 30, baseDir?: string, nowMs?: number, maxFilings = 2000): Form4Filing[] {
+  const dir = filingsDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const out: Form4Filing[] = [];
+  const seen = new Set<string>();
+  for (let d = 0; d < days && out.length < maxFilings; d++) {
+    const day = new Date(now - d * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try {
+          const f = JSON.parse(line);
+          if (f.accession && !seen.has(f.accession)) { seen.add(f.accession); out.push(f); }
+        } catch {}
+      }
+    }
+  }
+  out.sort((a, b) => String(b.filedAt || "").localeCompare(String(a.filedAt || "")));
+  return out.slice(0, maxFilings);
+}
+
 // ── In-memory cache + poll loop (mirrors vesselStream.ts's boot pattern) ───
 
 let cache: { at: number; filings: Form4Filing[] } | null = null;
@@ -271,6 +368,8 @@ export async function refreshForm4Cache(limit = 25): Promise<void> {
   try {
     const filings = await fetchLatestForm4Filings(limit);
     if (filings.length > 0 || !cache) cache = { at: Date.now(), filings };
+    try { archiveFilings(filings); } catch {}
+    try { gzipOldFilingDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgarForm4 refresh:", e?.message || e);
   }
