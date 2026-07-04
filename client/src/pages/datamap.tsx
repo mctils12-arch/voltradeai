@@ -73,7 +73,7 @@ const PANEL_GROUPS = [
 ] as const;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", weather: "base",
-  weather_temp: "base", weather_wind: "base",
+  weather_temp: "base", weather_wind: "base", boundaries: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -449,6 +449,51 @@ export default function DataMapPage() {
       setStatus("forest", "error");
     }
   }, [enabled.forest, mapReady, setStatus]);
+
+  // ── country borders (RAW; Natural Earth 1:110m admin-0, PUBLIC DOMAIN —
+  // atlas-parity layer 3. Self-hosted datacore compile served by our own
+  // API: zero external dependency. Fetched ONLY on enable (zero-cost-
+  // when-off); generalized-resolution honesty in the status note.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.boundaries) {
+      try {
+        if (map.getLayer("ne-boundaries")) map.removeLayer("ne-boundaries");
+        if (map.getSource("ne-boundaries")) map.removeSource("ne-boundaries");
+      } catch {}
+      setStatus("boundaries", "off");
+      return;
+    }
+    let stop = false;
+    (async () => {
+      setStatus("boundaries", "loading");
+      try {
+        const r = await fetch("/api/data/boundaries");
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (stop) return;
+        if (!map.getSource("ne-boundaries")) {
+          map.addSource("ne-boundaries", { type: "geojson", data: d as any } as any);
+        }
+        if (!map.getLayer("ne-boundaries")) {
+          const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+          map.addLayer({
+            id: "ne-boundaries", type: "line", source: "ne-boundaries",
+            paint: {
+              "line-color": "rgba(179,194,216,0.55)",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.7, 8, 1.6],
+            },
+          } as any, firstMarker?.id);
+        }
+        setStatus("boundaries", "active", d?.features?.length,
+          "1:110m generalized (Natural Earth, public domain) — reference, not survey-grade");
+      } catch {
+        if (!stop) setStatus("boundaries", "error");
+      }
+    })();
+    return () => { stop = true; };
+  }, [enabled.boundaries, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in

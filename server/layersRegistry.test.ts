@@ -55,6 +55,15 @@ test("forest layer: JRC attribution + static-vintage honesty + opacity inheritan
   assert.equal(f.field, true, "atlas rasters inherit the registry opacity slider");
 });
 
+test("boundaries layer: Natural Earth public domain + generalized-resolution honesty (atlas parity 3)", () => {
+  const b = registry.layers.find((x: any) => x.id === "boundaries");
+  assert.ok(b, "boundaries layer missing");
+  assert.equal(b.kind, "raw");
+  assert.ok(/Natural Earth/i.test(b.source), "attribution must name Natural Earth");
+  assert.ok(/public domain/i.test(b.source), "source must state public domain");
+  assert.ok(/generalized|110m/i.test(b.description), "description must state the generalized resolution");
+});
+
 test("weather layer states US-only coverage honestly (Tier-1(b), licensing register 2026-07-04)", () => {
   const w = registry.layers.find((x: any) => x.id === "weather");
   assert.ok(w, "weather layer missing");

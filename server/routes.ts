@@ -13,6 +13,7 @@ import cookieParser from "cookie-parser";
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
+import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import {
   archiveAircraft, archiveVessels, archiveTrains, compressOldHours, rollupOldDays,
   recentTrack, archiveStats,
@@ -1029,6 +1030,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/powerplants", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     res.json({ kind: "raw", ...(datacorePowerplants as any) });
+  });
+
+  // Admin boundaries (RAW; Natural Earth 1:110m admin-0, PUBLIC DOMAIN —
+  // atlas-parity layer 3). Self-hosted datacore compile (254KB slim):
+  // no external dependency, no license constraint on resale. Day-cached,
+  // fetched only when the layer is enabled (zero-cost-when-off).
+  app.get("/api/data/boundaries", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json({ kind: "raw", source: "Natural Earth 1:110m admin-0 (public domain)", ...(datacoreBoundaries as any) });
   });
 
   // Live trains overlay (RAW) — Finland Digitraffic (CC BY 4.0) + Norway
