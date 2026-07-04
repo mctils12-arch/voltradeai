@@ -290,6 +290,21 @@ const shapes: Record<string, () => ImageData> = {
     ctx.bezierCurveTo(m - 4, s - 6, m - 5, m + 5, m, m + 2);
     ctx.closePath(); ctx.fill();
   }),
+  // wind arrow: slim shaft + head, points "up"/north — icon-rotate turns it
+  // to the wind bearing (direction wind blows TOWARD, so rotate = deg+180
+  // from OWM's from-direction; the caller owns that conversion)
+  "vt-wind-arrow": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 4);                 // tip
+    ctx.lineTo(m + 6, 14);
+    ctx.lineTo(m + 2, 12.5);
+    ctx.lineTo(m + 2, s - 6);
+    ctx.lineTo(m - 2, s - 6);
+    ctx.lineTo(m - 2, 12.5);
+    ctx.lineTo(m - 6, 14);
+    ctx.closePath(); ctx.fill();
+  }),
   // train: locomotive nose-up — rounded body, cab window notch, nose taper
   // (points "up"/north so icon-rotate can turn it to bearing when known)
   "vt-train": () => draw(S, (ctx, s) => {

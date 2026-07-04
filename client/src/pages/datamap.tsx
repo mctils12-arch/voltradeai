@@ -135,6 +135,32 @@ export default function DataMapPage() {
     };
   }, [fullscreen]);
   const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
+  // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
+  // Field layers (registry flag `field: true`) get a per-layer opacity
+  // slider; default 60% so the basemap + live layers stay visible beneath
+  // (directive: the field is context, never a curtain).
+  const FIELD_MAP_LAYER: Record<string, string> = {
+    weather: "weather-radar", weather_temp: "wx-temp_new", weather_wind: "wx-wind_new",
+  };
+  const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
+  });
+  const opacityOf = (id: string) => fieldOpacity[id] ?? 60;
+  const setFieldOpacity = (id: string, v: number) => {
+    setFieldOpacityState((s) => {
+      const next = { ...s, [id]: v };
+      try { sessionStorage.setItem("vt-field-opacity", JSON.stringify(next)); } catch {}
+      return next;
+    });
+    try { mapRef.current?.setPaintProperty(FIELD_MAP_LAYER[id], "raster-opacity", v / 100); } catch {}
+  };
+  // Wind vectors + temperature labels — sampled point grid (HONEST: OWM
+  // tiles carry no vector data; numbers come from point samples, arrows
+  // never denser than the sampling — the note shows real spacing).
+  const [windArrows, setWindArrows] = useState(true);
+  const [tempLabels, setTempLabels] = useState(false);
+  const [tempUnitF, setTempUnitF] = useState(true);
+  const [wxGrid, setWxGrid] = useState<any>(null);
   useEffect(() => {
     const onHash = () => setFilingsOpen(window.location.hash === "#/data/filings");
     window.addEventListener("hashchange", onHash);
@@ -375,7 +401,7 @@ export default function DataMapPage() {
         const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
         map.addLayer({
           id: "weather-radar", type: "raster", source: "weather-radar",
-          paint: { "raster-opacity": 0.72 },
+          paint: { "raster-opacity": opacityOf("weather") / 100 },
         } as any, firstMarker?.id);
       }
       setStatus("weather", "active", undefined, "US radar mosaic (NOAA nowCOAST) · refreshes ~5 min · US-only — no free lawful global radar exists");
@@ -390,6 +416,134 @@ export default function DataMapPage() {
     }, 300_000);
     return () => { window.clearInterval(iv); };
   }, [enabled.weather, mapReady, setStatus]);
+
+  // ── sampled weather grid: fetch when arrows or labels are wanted;
+  // refetch on pan (debounced) + 10-min interval; stale beats spinner ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const want = (enabled.weather_wind && windArrows) || (enabled.weather_temp && tempLabels);
+    if (!want || !map || !mapReady) { setWxGrid(null); return; }
+    let stop = false;
+    let debounce: number | undefined;
+    const load = async () => {
+      try {
+        const b = map.getBounds();
+        const r = await fetch(`/api/data/weather/grid?bbox=${b.getSouth().toFixed(2)},${b.getWest().toFixed(2)},${b.getNorth().toFixed(2)},${b.getEast().toFixed(2)}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!stop) setWxGrid(d);
+      } catch {}
+    };
+    const onMove = () => { window.clearTimeout(debounce); debounce = window.setTimeout(load, 600); };
+    load();
+    map.on("moveend", onMove);
+    const iv = window.setInterval(load, 10 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); window.clearTimeout(debounce); try { map.off("moveend", onMove); } catch {} };
+  }, [enabled.weather_wind, enabled.weather_temp, windArrows, tempLabels, mapReady]);
+
+  // ── wind arrows layer (static grid — redraws on pan; no animation by
+  // design: phone budget over spectacle) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const on = enabled.weather_wind && windArrows && wxGrid?.points?.length;
+    if (!map || !mapReady) return;
+    if (!on) {
+      try {
+        if (map.getLayer("wx-wind-arrows")) map.removeLayer("wx-wind-arrows");
+        if (map.getSource("wx-grid-wind")) map.removeSource("wx-grid-wind");
+      } catch {}
+      return;
+    }
+    const fc = {
+      type: "FeatureCollection",
+      features: (wxGrid.points as any[])
+        .filter((p) => p.wd != null && p.ws != null)
+        .map((p) => ({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [p.lo, p.la] },
+          properties: {
+            rot: (p.wd + 180) % 360,             // OWM reports FROM-direction; arrow points TO
+            kts: Math.round((p.ws || 0) * 1.944),
+            sz: Math.max(0.45, Math.min(1.0, 0.45 + (p.ws || 0) / 25)),
+          },
+        })),
+    };
+    try {
+      const src: any = map.getSource("wx-grid-wind");
+      if (src) src.setData(fc as any);
+      else {
+        map.addSource("wx-grid-wind", { type: "geojson", data: fc as any } as any);
+        map.addLayer({
+          id: "wx-wind-arrows", type: "symbol", source: "wx-grid-wind",
+          layout: {
+            "icon-image": "vt-wind-arrow",
+            "icon-rotate": ["get", "rot"],       // always-numeric (MapLibre lesson)
+            "icon-size": ["get", "sz"],
+            "icon-allow-overlap": true,
+            "text-field": ["concat", ["to-string", ["get", "kts"]], " kt"],
+            "text-font": ["Open Sans Semibold"],
+            "text-size": 9.5,
+            "text-offset": [0, 1.3],
+            "text-anchor": "top",
+            "text-optional": true,
+          },
+          paint: {
+            "icon-color": "#eef3fb",
+            "icon-halo-color": "rgba(5,10,19,0.95)",
+            "icon-halo-width": 1.2,
+            "text-color": "#b3c2d8",
+            "text-halo-color": "rgba(5,10,19,0.95)",
+            "text-halo-width": 1.1,
+          },
+        } as any);
+      }
+    } catch {}
+  }, [wxGrid, enabled.weather_wind, windArrows, mapReady]);
+
+  // ── temperature value labels (°F default, °C toggle) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const on = enabled.weather_temp && tempLabels && wxGrid?.points?.length;
+    if (!map || !mapReady) return;
+    if (!on) {
+      try {
+        if (map.getLayer("wx-temp-labels")) map.removeLayer("wx-temp-labels");
+        if (map.getSource("wx-grid-temp")) map.removeSource("wx-grid-temp");
+      } catch {}
+      return;
+    }
+    const fc = {
+      type: "FeatureCollection",
+      features: (wxGrid.points as any[])
+        .filter((p) => p.tc != null)
+        .map((p) => ({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [p.lo, p.la] },
+          properties: { lbl: tempUnitF ? `${Math.round(p.tc * 9 / 5 + 32)}°F` : `${Math.round(p.tc)}°C` },
+        })),
+    };
+    try {
+      const src: any = map.getSource("wx-grid-temp");
+      if (src) src.setData(fc as any);
+      else {
+        map.addSource("wx-grid-temp", { type: "geojson", data: fc as any } as any);
+        map.addLayer({
+          id: "wx-temp-labels", type: "symbol", source: "wx-grid-temp",
+          layout: {
+            "text-field": ["get", "lbl"],
+            "text-font": ["Open Sans Semibold"],
+            "text-size": 11,
+            "text-allow-overlap": false,
+          },
+          paint: {
+            "text-color": "#eef3fb",
+            "text-halo-color": "rgba(5,10,19,0.95)",
+            "text-halo-width": 1.4,
+          },
+        } as any);
+      }
+    } catch {}
+  }, [wxGrid, enabled.weather_temp, tempLabels, tempUnitF, mapReady]);
 
   // ── OpenWeatherMap GLOBAL weather fields (temp/wind) — Tier-1(b) global
   // half, unblocked when the human set OPENWEATHERMAP_KEY (2026-07-04).
@@ -434,10 +588,9 @@ export default function DataMapPage() {
               const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
               map.addLayer({
                 id: `wx-${f.owm}`, type: "raster", source: `wx-${f.owm}`,
-                // 0.85 (was 0.6): tiles arrive alpha-amplified from the proxy
-                // (owmTiles.ts root-cause fix) — this is a mild blend, not the
-                // visibility mechanism.
-                paint: { "raster-opacity": 0.85 },
+                // registry-native field opacity (default 60%): tiles arrive
+                // alpha-amplified from the proxy; the slider owns the blend.
+                paint: { "raster-opacity": opacityOf(f.id) / 100 },
               } as any, firstMarker?.id);
             }
             setStatus(f.id, "active", undefined, "global field · Weather data © OpenWeatherMap");
@@ -1239,6 +1392,44 @@ export default function DataMapPage() {
             <span className="vt-layer-desc-src">Source: {l.source}</span>
           </div>
         )}
+        {(l as any).field && on && (
+          <div className="vt-field-controls" role="group" aria-label={`${l.name} display controls`}>
+            <label className="vt-field-slider">
+              <span>intensity {opacityOf(l.id)}%</span>
+              <input
+                type="range" min={0} max={100} step={5}
+                value={opacityOf(l.id)}
+                aria-label={`${l.name} opacity`}
+                onChange={(e) => setFieldOpacity(l.id, Number(e.target.value))}
+              />
+            </label>
+            {l.id === "weather_wind" && (
+              <label className="vt-field-check">
+                <input type="checkbox" checked={windArrows} onChange={() => setWindArrows(!windArrows)} />
+                <span>arrows (direction + kt)</span>
+              </label>
+            )}
+            {l.id === "weather_temp" && (
+              <>
+                <label className="vt-field-check">
+                  <input type="checkbox" checked={tempLabels} onChange={() => setTempLabels(!tempLabels)} />
+                  <span>value labels</span>
+                </label>
+                {tempLabels && (
+                  <button className="vt-field-unit" onClick={() => setTempUnitF(!tempUnitF)}
+                          aria-label="Toggle temperature unit">
+                    {tempUnitF ? "°F" : "°C"}
+                  </button>
+                )}
+              </>
+            )}
+            {(l.id === "weather_wind" && windArrows) || (l.id === "weather_temp" && tempLabels) ? (
+              <span className="vt-field-note">
+                {wxGrid?.note || "sampling grid…"}
+              </span>
+            ) : null}
+          </div>
+        )}
         {l.id === "shadowstats" && on && shadowStats && shadowStats.loiter_events > 0 && (
           <div className="vt-layer-desc" role="note">
             {Object.entries(shadowStats.loiter_by_zone as Record<string, number>)
@@ -1385,6 +1576,18 @@ export default function DataMapPage() {
               <span><i style={{ background: "#4d9fff" }} /> hydro</span>
               <span><i style={{ background: "#7cc4ff" }} /> wind</span>
               <span><i style={{ background: "#fde047" }} /> solar</span>
+              {enabled.weather_temp && (
+                <>
+                  <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
+                  <span style={{ color: "var(--text-tertiary)" }}>temp:</span>
+                  {([["-40", "#821692"], ["-20", "#208CEC"], ["0", "#23DDDD"],
+                     ["10", "#C2FF28"], ["20", "#FFF028"], ["30+", "#FC8014"]] as const)
+                    .map(([t, c]) => (
+                      <span key={t}><i style={{ background: c }} /> {tempUnitF ? `${Math.round(Number(t.replace("+", "")) * 9 / 5 + 32)}${t.includes("+") ? "+" : ""}°F` : `${t}°C`}</span>
+                    ))}
+                  <span style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>(approx — amplified for dark basemap)</span>
+                </>
+              )}
               <span style={{ flexBasis: "100%", height: 0 }} aria-hidden />
               <span style={{ color: "var(--text-tertiary)" }}>fires:</span>
               <span><i style={{ background: FIRE_CONFIDENCE_COLOR.high }} /> high conf.</span>

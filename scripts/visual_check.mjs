@@ -21,6 +21,8 @@ import { createServer } from "http";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import pngjs from "pngjs";
+const { PNG } = pngjs;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -52,9 +54,9 @@ const FIXTURES = {
     layers: [
       { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", source: "Esri World Imagery", description: "Base imagery." },
       { id: "terrain", name: "Terrain (hillshade)", kind: "raw", status: "live", source: "Mapterhorn (© Mapterhorn)", description: "Global hillshade, off by default." },
-      { id: "weather", name: "Weather radar (US)", kind: "raw", status: "live", source: "NOAA nowCOAST (public domain)", description: "US radar mosaic, off by default." },
-      { id: "weather_temp", name: "Temperature (global)", kind: "raw", status: "live", source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global temp field, off by default." },
-      { id: "weather_wind", name: "Wind (global)", kind: "raw", status: "live", source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global wind field, off by default." },
+      { id: "weather", name: "Weather radar (US)", kind: "raw", status: "live", field: true, source: "NOAA nowCOAST (public domain)", description: "US radar mosaic, off by default." },
+      { id: "weather_temp", name: "Temperature (global)", kind: "raw", status: "live", field: true, source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global temp field, off by default." },
+      { id: "weather_wind", name: "Wind (global)", kind: "raw", status: "live", field: true, source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global wind field, off by default." },
       { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
       { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
       { id: "trains", name: "Live trains (rail)", kind: "raw", status: "live", source: "Digitraffic FI + Entur NO", description: "FI+NO launch coverage." },
@@ -117,6 +119,17 @@ const FIXTURES = {
     ],
   },
   "/api/health": { status: "ok", checks: {} },
+  "/api/data/weather/global/status": { status: "ok", note: "fixture: key active" },
+  "/api/data/weather/grid": {
+    kind: "raw", source: "OpenWeatherMap current-weather point samples (fixture)",
+    note: "sampled grid — one observation per ~310 km; arrows/labels never denser than the data",
+    spacing_km: 310, sampled: 6,
+    points: [
+      { la: 30, lo: -110, tc: 31.5, wd: 200, ws: 6.2 }, { la: 30, lo: -95, tc: 29.0, wd: 180, ws: 4.0 },
+      { la: 30, lo: -80, tc: 27.4, wd: 150, ws: 5.1 }, { la: 42, lo: -110, tc: 22.1, wd: 250, ws: 8.8 },
+      { la: 42, lo: -95, tc: 24.7, wd: 230, ws: 7.3 }, { la: 42, lo: -80, tc: 21.9, wd: 270, ws: 9.9 },
+    ],
+  },
   "/api/v1/meta": {
     version: "v1",
     auth: "x-api-key header (or ?api_key=). Keys are invite-only during the preview — join the waitlist on /developers.",
@@ -187,10 +200,44 @@ const FIXTURES = {
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json", ".woff2": "font/woff2", ".ico": "image/x-icon" };
 
+// Deterministic weather tile standing in for the proxy's OUTPUT (alpha-
+// amplified, per owmTiles.ts): a colored gradient at the strength production
+// serves. The amplification itself is unit-tested against a real captured
+// prod tile; this fixture exercises the CLIENT half — mount, blend, opacity.
+const WX_TILE_PNG = (() => {
+  const png = new PNG({ width: 256, height: 256 });
+  for (let y = 0; y < 256; y++) {
+    for (let x = 0; x < 256; x++) {
+      const i = (y * 256 + x) * 4;
+      png.data[i] = Math.round(40 + x * 0.8);
+      png.data[i + 1] = 60;
+      png.data[i + 2] = Math.round(200 - y * 0.6);
+      png.data[i + 3] = 190; // amplified-output strength (cap 230 upstream)
+    }
+  }
+  return PNG.sync.write(png);
+})();
+
+// Mean per-channel pixel difference between two PNG buffers — the same
+// metric verify_weather_prod.mjs uses for the prod pixel proof.
+function pngMeanDiff(a, b) {
+  const A = PNG.sync.read(a), B = PNG.sync.read(b);
+  if (A.width !== B.width || A.height !== B.height) return 255;
+  let sum = 0; const n = A.width * A.height;
+  for (let i = 0; i < n * 4; i += 4) {
+    sum += Math.abs(A.data[i] - B.data[i]) + Math.abs(A.data[i + 1] - B.data[i + 1]) + Math.abs(A.data[i + 2] - B.data[i + 2]);
+  }
+  return sum / (n * 3);
+}
+
 function startServer() {
   return new Promise((resolve) => {
     const srv = createServer((req, res) => {
       const [u, qs] = (req.url || "/").split("?");
+      if (u.startsWith("/api/data/wxtile/")) {
+        res.writeHead(200, { "content-type": "image/png" });
+        return res.end(WX_TILE_PNG);
+      }
       // exact match wins before prefix match — otherwise /api/data/insider
       // shadows /api/data/insider/history
       const fx = Object.keys(FIXTURES).find((k) => u === k) ||
@@ -460,6 +507,96 @@ async function main() {
         if (vp.touch) await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]').catch(() => {});
       } catch (e) {
         if (!e?.skip) checks.failures.push("self-see: driver error — " + (e?.message || e));
+      }
+      // ── U1 FIELDS-ON VISIBILITY (weather-upgrade directive 2026-07-04):
+      // with temp + wind toggled ON at the DEFAULT opacity, the fields must
+      // visibly render (canvas pixel diff) while the base map and
+      // live-tracking layers stay visible: aircraft still rendered, rasters
+      // BELOW symbols, opacity at the 60% default, arrows from the sampled
+      // grid present. Pixel proof, never HTTP 200s (DESIGN.md tile rule).
+      try {
+        if (!cfg.map) throw { skip: true };
+        // clean OFF capture: collapse the panel so both captures share chrome
+        await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]', { timeout: 1200 }).catch(() => {});
+        await page.waitForTimeout(400);
+        const canvas = page.locator("[data-vt-map] canvas").first();
+        const offShot = await canvas.screenshot();
+        // toggle the two field layers as a user would (panel -> group -> switch)
+        await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(250);
+        for (let round = 0; round < 6; round++) {
+          const btn = page.locator('.vt-layer-group-head[aria-expanded="false"]').first();
+          if (!(await btn.count())) break;
+          await btn.click().catch(() => {});
+          await page.waitForTimeout(120);
+        }
+        for (const id of ["weather_temp", "weather_wind"]) {
+          const sw = page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first();
+          await sw.scrollIntoViewIfNeeded().catch(() => {});
+          await sw.click({ timeout: 2000 });
+          await page.waitForTimeout(150);
+        }
+        // wait until tiles are loaded AND arrow symbols are actually PLACED
+        // (getLayer succeeds before the SDF icon rasterizes — querying placed
+        // features is the only honest "it renders" signal)
+        let mounted = false;
+        for (let i = 0; i < 48; i++) {
+          mounted = await page.evaluate(() => {
+            const m = window.__vtMap;
+            if (!(m && m.getLayer("wx-temp_new") && m.getLayer("wx-wind_new") &&
+                  m.getLayer("wx-wind-arrows") && m.areTilesLoaded())) return false;
+            try { return m.queryRenderedFeatures({ layers: ["wx-wind-arrows"] }).length > 0; } catch { return false; }
+          });
+          if (mounted) break;
+          await page.waitForTimeout(250);
+        }
+        if (!mounted) checks.failures.push("fields-on: wx layers/tiles/arrows never rendered (status probe, tile fixture, or arrow grid broken)");
+        await page.waitForTimeout(400); // settle one render pass
+        const fieldChecks = await page.evaluate(() => {
+          const fails = [];
+          const m = window.__vtMap;
+          if (!m) return ["fields-on: __vtMap hook missing"];
+          for (const l of ["wx-temp_new", "wx-wind_new"]) {
+            const op = m.getLayer(l) ? m.getPaintProperty(l, "raster-opacity") : null;
+            if (op !== 0.6) fails.push(`fields-on: ${l} raster-opacity ${op} != 0.6 default — registry default broken`);
+          }
+          const order = (m.getStyle().layers || []).map((l) => l.id);
+          if (order.indexOf("wx-temp_new") > order.indexOf("aircraft-sym"))
+            fails.push("fields-on: temp raster ABOVE aircraft symbols — live tracking obscured");
+          let aircraft = 0, arrows = 0;
+          try { aircraft = m.queryRenderedFeatures({ layers: ["aircraft-sym"] }).length; } catch {}
+          try { arrows = m.queryRenderedFeatures({ layers: ["wx-wind-arrows"] }).length; } catch {}
+          if (!aircraft) fails.push("fields-on: no aircraft rendered with fields on — live tracking not visible");
+          if (!arrows) fails.push("fields-on: no wind arrows rendered from the sampled grid");
+          // v2.4 occlusion rule re-checked WITH fields on: enabling a layer
+          // grows the attribution strip — it may not spread under controls
+          // (the 390px defect this caught: 2-line attribution over zoom-out).
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]"]) {
+            const el = document.querySelector(sel);
+            if (!el) { fails.push(`fields-on: map control ${sel} missing`); continue; }
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            if (hit && !el.contains(hit) && hit !== el && !hit.contains(el)) {
+              fails.push(`fields-on: map control ${sel} OCCLUDED by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 40)}'> with fields on`);
+            }
+          }
+          return fails;
+        });
+        checks.failures.push(...fieldChecks);
+        // ON capture with identical chrome, then the pixel proof
+        await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]', { timeout: 1200 }).catch(() => {});
+        await page.waitForTimeout(400);
+        const onShot = await canvas.screenshot();
+        const meanDiff = pngMeanDiff(offShot, onShot);
+        checks.info.fieldsMeanDiff = Math.round(meanDiff * 10) / 10;
+        if (meanDiff < 3) checks.failures.push(`fields-on: canvas mean diff ${meanDiff.toFixed(2)} < 3 — fields not visibly rendering at default opacity`);
+        // PR evidence: full page with fields on (panel open on desktop,
+        // collapsed on touch — same honesty convention as the main shots)
+        if (!vp.touch) await page.click(".vt-map-fab", { timeout: 1200 }).catch(() => {});
+        await page.waitForTimeout(300);
+        await page.screenshot({ path: path.join(OUT, `${name}-fields-${vp.w}.png`) });
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("fields-on: driver error — " + (e?.message || e));
       }
       // Perf budget (headless regression guards; on-device budget in DESIGN.md)
       if (tti == null) checks.failures.push("TTI: skeleton never cleared (>15s)");
