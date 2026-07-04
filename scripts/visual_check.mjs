@@ -67,6 +67,7 @@ const FIXTURES = {
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
       { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
+      { id: "boundaries", name: "Country borders", kind: "raw", status: "live", source: "Natural Earth 1:110m (public domain)", description: "Reference borders, off by default." },
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", source: "Copernicus", description: "Gate-2 locked." },
     ],
   },
@@ -121,6 +122,14 @@ const FIXTURES = {
     ],
   },
   "/api/health": { status: "ok", checks: {} },
+  "/api/data/boundaries": {
+    kind: "raw", source: "Natural Earth 1:110m admin-0 (public domain, fixture)",
+    type: "FeatureCollection",
+    features: [
+      { type: "Feature", properties: { name: "United States of America", iso3: "USA" },
+        geometry: { type: "LineString", coordinates: [[-125, 49], [-66, 49], [-66, 25], [-125, 25], [-125, 49]] } },
+    ],
+  },
   "/api/data/weather/global/status": { status: "ok", note: "fixture: key active" },
   "/api/data/weather/grid": {
     kind: "raw", source: "OpenWeatherMap current-weather point samples (fixture)",

@@ -135,6 +135,15 @@
       "field": true
     },
     {
+      "id": "boundaries",
+      "name": "Country borders",
+      "kind": "raw",
+      "status": "live",
+      "source": "Natural Earth 1:110m admin-0 (public domain) — compiled into datacore",
+      "description": "Country boundary lines as a reference overlay. Generalized 1:110m coastlines/borders (not survey-grade); de-facto boundaries per Natural Earth policy. Self-hosted — zero external dependency.",
+      "field": false
+    },
+    {
       "id": "tank_fill",
       "name": "Tank-fill % (Sentinel-2)",
       "kind": "signal",

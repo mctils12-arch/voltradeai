@@ -13,6 +13,26 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Atlas parity layer 3: country borders (Natural Earth, self-hosted) live (v1.0.76)
+
+- Third build from the ATLAS PARITY filing: Natural Earth 1:110m
+  admin-0 compiled into datacore (254KB slim — properties stripped to
+  name+iso3, 177 countries) and served by OUR OWN /api/data/boundaries
+  route, day-cached. PUBLIC DOMAIN: zero external dependency, zero
+  license constraint on resale (GADM was rejected in the filing for
+  its non-commercial clause).
+- Base panel group, off by default, fetched ONLY on enable (zero-cost-
+  when-off); line layer above rasters / below all data symbols; count
+  shown as 177 features; HONESTY note: "1:110m generalized — reference,
+  not survey-grade" (+ de-facto boundary policy stated in the registry).
+- Gates: node 109/109 (new pin: NE attribution + public-domain wording
+  + generalized-resolution honesty); harness 0 hard failures ×3 widths
+  + developers + all-off (fixture route added); python untouched.
+- ATLAS PARITY buildable trio now COMPLETE (water v1.0.74, forest
+  v1.0.75, borders v1.0.76). Remaining are the blocked pair (WorldCover
+  WMTS prod-verify; GHSL/WorldPop endpoint research) + positioning
+  copy + USDA CDL from the Tier-1 register.
+
 ## 2026-07-04 — [PRODUCT] Atlas parity layer 2: forest cover 2020 (JRC GFC2020 via GFW) live (v1.0.75)
 
 - Second build from the ATLAS PARITY filing, same shape as layer 1:
