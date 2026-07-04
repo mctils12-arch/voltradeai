@@ -77,9 +77,13 @@ test("firmsUrl: builds the documented area-CSV endpoint shape", () => {
   assert.match(url, /^https:\/\/firms\.modaps\.eosdis\.nasa\.gov\/api\/area\/csv\/TESTKEY\/VIIRS_SNPP_NRT\/-180,-90,180,90\/1$/);
 });
 
-test("firmsEnabled: key-gated exactly like AISSTREAM_KEY", () => {
+test("firmsEnabled: key-gated exactly like AISSTREAM_KEY — BOTH env names accepted", () => {
   assert.equal(firmsEnabled({}), false);
   assert.equal(firmsEnabled({ NASA_FIRMS_MAP_KEY: "abc" }), true);
+  // The human set the Railway var as FIRMS_MAP_KEY (2026-07-04) — the code
+  // accepts the action already taken; regression here would silently
+  // deactivate the live layer.
+  assert.equal(firmsEnabled({ FIRMS_MAP_KEY: "abc" }), true);
 });
 
 test("fetchFirmsDetections: non-ok upstream response throws (no silent empty result)", async () => {

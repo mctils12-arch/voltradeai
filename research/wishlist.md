@@ -353,17 +353,21 @@
   (401 = "activating" with retry note, never an error state).
   Verification: prod probe post-deploy; if still "activating" well
   past ~2h from key creation, re-check the key value.
-- **HUMAN ACTION — NASA FIRMS MAP_KEY (free registration):** needed for
-  Tier-1(c) active-fires layer (free, commercial-lawful, VIIRS 375m,
-  ~3h latency). **[SCAFFOLDED 2026-07-04 — v1.0.65]** shipped exactly
-  as planned: `server/nasaFirms.ts` (key-gated fetch/parse/archive,
-  same shape as vesselStream.ts), `/api/data/fires`, and a map layer in
-  the new "Environmental" panel group all report `awaiting_key` until
-  the key exists. Free registration: firms.modaps.eosdis.nasa.gov ->
-  set `NASA_FIRMS_MAP_KEY` in Railway — the layer and its archive
-  activate automatically on the next request/poll, no redeploy-time
-  code change needed. Detections archive from day one once active — no
-  free history exists upstream, so every day before activation is lost.
+- **[DONE BY HUMAN 2026-07-04]** ~~NASA FIRMS MAP_KEY~~ — key set in
+  Railway as `FIRMS_MAP_KEY`. **ENV-NAME MISMATCH CAUGHT SAME DAY**:
+  the scaffolded implementation (v1.0.65, `server/nasaFirms.ts` —
+  key-gated fetch/parse/archive, `/api/data/fires`, Environmental
+  panel group) read `NASA_FIRMS_MAP_KEY`, so the set key would never
+  have activated it. Fixed code-side (v1.0.68): `firmsKey()` accepts
+  BOTH names — the code adapts to the action already taken, no Railway
+  rename needed; regression pinned by test. Detections archive from
+  day one of activation (no free history exists upstream).
+  DOUBLE-BUILD NOTE (concurrent-sessions gotcha, logged honestly): an
+  interactive session built a parallel FIRMS implementation while the
+  routine's merged first — the duplicate was abandoned unmerged (PR
+  #155 closed), the routine's implementation stands; the interactive
+  session's unique salvage is this activation fix + the live-key prod
+  verification.
 - **HUMAN ACTION — USPTO Open Data Portal API key (free, ~15 min):**
   create a USPTO.gov account with ID.me identity verification —
   sessions cannot do identity verification. Unblocks the patents root

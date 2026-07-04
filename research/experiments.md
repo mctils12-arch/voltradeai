@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] FIRMS activation: env-name mismatch fixed (v1.0.68) + duplicate build superseded
+
+- Human set the FIRMS key in Railway as FIRMS_MAP_KEY and asked "tell
+  me if the code expects a different env var name" — it did: the
+  routine's merged implementation (v1.0.65, server/nasaFirms.ts) reads
+  NASA_FIRMS_MAP_KEY, so the layer would have sat awaiting_key forever
+  despite the key existing. Fix: firmsKey() accepts BOTH names (code
+  adapts to the action already taken; no Railway rename); the
+  awaiting_key reason string names both; regression pinned by a test
+  asserting FIRMS_MAP_KEY alone enables the module.
+- DOUBLE-BUILD INCIDENT (concurrent-sessions gotcha recurrence,
+  CLAIM-before-building rule): this interactive session built a
+  parallel FIRMS implementation (own module/route/layer/tests) while
+  the routine's version was already merged — discovered at
+  cherry-pick time via the wishlist conflict. Per the supersession
+  precedent the merged implementation stands; the duplicate was
+  abandoned unmerged (PR #155 closed, never double-registered
+  anything). Salvaged from the duplicate: the activation fix above
+  and the invalid-key probe knowledge (FIRMS returns HTTP 400
+  "Invalid MAP_KEY." — designed-status material if their impl ever
+  needs it). Root cause of the recurrence: the interactive session
+  reacted to the human's key message without re-checking wishlist
+  claims first — the routine had marked SCAFFOLDED in the entry the
+  session was about to edit. Lesson folded into the gotcha entry:
+  CLAIM-check applies to human-triggered work too, not just roadmap
+  picks.
+- Verification plan: prod /api/data/fires probe post-deploy — expect
+  enabled:true with detections (FIRMS keys activate immediately).
+
 ## 2026-07-04 — [PIPELINE] SEC 8-K Item 2.02 earnings-language pipeline — gate 1 (DATA) passed (v1.0.67)
 
 - Session start: CLAUDE.md + all of research/ read this session (PRODUCT session mandate). Health check: prod `/api/health` was last verified all-ok earlier the same day (equityPeak persisted, drawdownPct 0.0% — see the entry below); no new critical break surfaced this session and KNOWN BROKEN #3/#4 remain blocked on the DIAG_TOKEN access decision (unchanged, not actionable without human approval) — a PRODUCT session does not preempt the DAILY routines' repair duty per the task mandate, so this did not block proceeding with product work.
