@@ -308,3 +308,44 @@ test("pickOwnershipXmlName returns null when a filing has no XML document", () =
   const indexJson = { directory: { item: [{ name: "0001-index.html", type: "text.gif" }] } };
   assert.equal(pickOwnershipXmlName(indexJson), null);
 });
+
+// ── Filings archive (COLLECT-EVERYTHING, 2026-07-04) ────────────────────────
+import fs2 from "node:fs";
+import os2 from "node:os";
+import path2 from "node:path";
+import { archiveFilings, readFilingHistory, gzipOldFilingDays } from "./edgarForm4";
+
+const mkFiling = (acc: string, filedAt: string): any => ({
+  accession: acc, filedAt, cik: "1", indexUrl: `https://www.sec.gov/x/${acc}/`,
+  issuerCik: "2", issuerName: "TEST CO", issuerTradingSymbol: "TST",
+  periodOfReport: filedAt, owners: [], transactions: [],
+});
+
+test("archiveFilings appends once per accession (restart-safe dedup) and history reads back", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-filings-"));
+  const t0 = Date.UTC(2026, 6, 4, 12, 0, 0);
+  assert.equal(archiveFilings([mkFiling("A-1", "2026-07-04"), mkFiling("A-2", "2026-07-04")], base, t0), 2);
+  assert.equal(archiveFilings([mkFiling("A-1", "2026-07-04"), mkFiling("A-3", "2026-07-04")], base, t0 + 1000), 1,
+    "already-archived accession must not duplicate");
+  const hist = readFilingHistory(7, base, t0 + 2000);
+  assert.equal(hist.length, 3);
+  assert.ok(hist.every((f: any) => f.issuerTradingSymbol === "TST"));
+});
+
+test("gzipped old days remain readable through readFilingHistory", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-filings-gz-"));
+  const t0 = Date.UTC(2026, 6, 1, 12, 0, 0);
+  archiveFilings([mkFiling("B-1", "2026-07-01")], base, t0);
+  const gz = gzipOldFilingDays(base, t0 + 3 * 86400_000);
+  assert.equal(gz, 1, "old day file should gzip");
+  const hist = readFilingHistory(7, base, t0 + 3 * 86400_000);
+  assert.equal(hist.length, 1);
+  assert.equal(hist[0].accession, "B-1");
+});
+
+test("history route + poll-loop archiving are wired", () => {
+  const routes = fs2.readFileSync(path2.join(path2.dirname(new URL(import.meta.url).pathname), "routes.ts"), "utf8");
+  assert.ok(routes.includes("/api/data/insider/history"), "history route missing");
+  const mod = fs2.readFileSync(path2.join(path2.dirname(new URL(import.meta.url).pathname), "edgarForm4.ts"), "utf8");
+  assert.ok(mod.includes("archiveFilings(filings)"), "refresh loop must archive every poll");
+});

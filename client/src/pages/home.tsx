@@ -119,7 +119,10 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     if (activeTab === "analyze") {
       window.location.hash = `#/analyze/${analyzeSection}`;
     } else {
-      window.location.hash = "#/" + activeTab;
+      // Only rewrite when the hash ROOT disagrees with the tab — tabs may own
+      // subpaths (e.g. #/data/filings) that this sync must not stomp.
+      const curRoot = window.location.hash.replace("#/", "").split("/")[0];
+      if (curRoot !== activeTab) window.location.hash = "#/" + activeTab;
     }
   }, [activeTab, analyzeSection]);
 

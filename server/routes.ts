@@ -22,7 +22,7 @@ import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
-import { bootForm4Poll, latestForm4Filings } from "./edgarForm4";
+import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 
 const execAsync = promisify(exec);
 
@@ -1108,6 +1108,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.filings.length,
       filings: hit.filings,
     });
+  });
+
+  // Accumulated Form 4 history from the filings archive (COLLECT-EVERYTHING:
+  // the poll loop appends every filing to disk; this serves the /data/filings
+  // full view). Merges the live cache on top so the newest poll shows even
+  // before its day file is re-read.
+  app.get("/api/data/insider/history", (req, res) => {
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    try {
+      const archived = readFilingHistory(days);
+      const live = latestForm4Filings()?.filings || [];
+      const seen = new Set(archived.map((f: any) => f.accession));
+      const merged = [...live.filter((f: any) => !seen.has(f.accession)), ...archived];
+      res.json({
+        kind: "raw",
+        source: "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04)",
+        days,
+        count: merged.length,
+        filings: merged,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "history read failed" });
+    }
   });
 
   // ── TAX ESTIMATOR ─────────────────────────────────────────────────────────

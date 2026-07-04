@@ -58,7 +58,7 @@ export interface VesselPoint {
   destination?: string | null;
 }
 
-function defaultBase(): string {
+export function archiveBaseDir(): string {
   const dataDir = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp");
   return path.join(dataDir, "datacore_archive");
 }
@@ -125,7 +125,7 @@ function appendLines(kind: ArchiveKind, lines: string[], base: string, now: Date
 
 export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
                                 baseDir?: string, nowMs?: number): number {
-  const base = baseDir || defaultBase();
+  const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   const t = Math.floor(now / 1000);
   const lines: string[] = [];
@@ -151,7 +151,7 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
 
 export function archiveVessels(points: VesselPoint[], sites: SitePoint[],
                                baseDir?: string, nowMs?: number): number {
-  const base = baseDir || defaultBase();
+  const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   const t = Math.floor(now / 1000);
   const lines: string[] = [];
@@ -183,7 +183,7 @@ export interface TrainPoint {
 }
 
 export function archiveTrains(points: TrainPoint[], baseDir?: string, nowMs?: number): number {
-  const base = baseDir || defaultBase();
+  const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   const t = Math.floor(now / 1000);
   const lines: string[] = [];
@@ -206,7 +206,7 @@ export function archiveTrains(points: TrainPoint[], baseDir?: string, nowMs?: nu
 
 // ── compression + rollup (maintenance; call periodically) ───────────────────
 export function compressOldHours(baseDir?: string, nowMs?: number): number {
-  const base = baseDir || defaultBase();
+  const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   let done = 0;
   for (const kind of ["aircraft", "vessels", "trains"] as const) {
@@ -236,7 +236,7 @@ export function compressOldHours(baseDir?: string, nowMs?: number): number {
  *  summaries, then delete the raw files. Summary: one JSON line per entity per
  *  day: {i, d, n, t0, t1, bbox, pl: coarse polyline (max ~50 pts)}. */
 export function rollupOldDays(baseDir?: string, nowMs?: number): number {
-  const base = baseDir || defaultBase();
+  const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   const cutoff = now - RAW_RETENTION_DAYS * 86400_000;
   let rolled = 0;
@@ -295,7 +295,7 @@ export function rollupOldDays(baseDir?: string, nowMs?: number): number {
 /** Recent trail for one entity from today's + yesterday's raw hours. */
 export function recentTrack(kind: ArchiveKind, id: string,
                             baseDir?: string, nowMs?: number, maxPoints = 500): Array<{ t: number; la: number; lo: number; al?: number }> {
-  const base = baseDir || defaultBase();
+  const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   const dir = path.join(base, kind);
   if (!fs.existsSync(dir)) return [];
@@ -320,7 +320,7 @@ export function recentTrack(kind: ArchiveKind, id: string,
 }
 
 export function archiveStats(baseDir?: string): any {
-  const base = baseDir || defaultBase();
+  const base = baseDir || archiveBaseDir();
   const out: any = { base, kinds: {} };
   for (const kind of ["aircraft", "vessels", "trains", "aircraft_tracks", "vessels_tracks", "trains_tracks"]) {
     const dir = path.join(base, kind);
