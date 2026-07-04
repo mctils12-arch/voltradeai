@@ -13,6 +13,43 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Port dwell analytics from our own AIS archive (v1.0.60) — fusion directive, highest-immediate-value item
+
+- PRIOR (REASONING STANDARD #10, stated before reading any archive
+  output): with the archive only ~1 day old, expected near-zero
+  completed calls and mostly in-port-now counts; the v1's value is the
+  MACHINERY being correct from day one so history accrues into it —
+  medians/anomalies become meaningful in 2-4 weeks. Expected design
+  risks: (a) harbor craft polluting call counts (mitigated: median SOG
+  <=3kts filter), (b) LA/LB fence overlap double-counting (mitigated:
+  nearest-port assignment), (c) coverage gaps inflating dwell
+  (mitigated: gaps SPLIT visits — lower-bound property, tested).
+- Built: server/portDwell.ts (pure, baseDir-injectable, reuses
+  shadowFleet.readVesselTracks); /api/data/portdwell (10-min cache);
+  geofences = the 9 imagery-verified port terminals from
+  datacore/sites (REFERENCE DATA ACCURACY: only verified coordinates
+  may become geofences — these are the only port coordinates in the
+  repo that qualify). UI: per-port text labels under port sites +
+  panel row with per-port note ("X in port · med Yh"), RAW-labeled,
+  filings-&-flows group. Anomaly flags 3x-median, suppressed <10
+  completed calls/port.
+- Tests: 7 new node tests (visit detection, right-censoring,
+  nearest-port overlap, speed filter, anomaly threshold + thin-history
+  suppression, gap-splits-visit lower-bound, wiring pins). Gates: node
+  56/56, python 114 passed / 1 skipped, harness green 390/768/1440
+  with self-see. NEW-LAYER RENDER PROBE (MapLibre silent-expression
+  lesson): standalone playwright probe jumped to San Pedro Bay at z9
+  and asserted queryRenderedFeatures on portdwell-labels — rendered=1
+  with correct label text ("Los Angeles / 4 in port · med 22.5h");
+  second label collision-hidden as designed (text-allow-overlap off).
+- Downstream chain (#1): dwell stats surface -> port calls accumulate
+  into distributions -> gate-2 test plan (open_questions.md PORT DWELL)
+  becomes runnable in weeks; zero trading-path impact (datacore
+  boundary: no bot_engine/system_config imports; worst failure mode is
+  an empty stats endpoint).
+- Backtest: not applicable (no trading logic changed); version bumped
+  1.0.59 -> 1.0.60 for attribution.
+
 ## 2026-07-04 — [PRODUCT] VISION.md installed — platform charter (reconstruction), north-star reading rule
 
 - Charter-installation directive executed. HONESTY NOTE: the human's

@@ -386,6 +386,41 @@ R4. **3D globe mode.** MapLibre globe projection (or Cesium only if
   risk, not tanker-rate positioning) is the structural reason a small
   player can still extract the market signal.
 
+## PORT DWELL ANALYTICS (fusion directive 2026-07-04 — RAW live, SIGNAL gated)
+
+- **What ships now (RAW, v1.0.60)**: server/portDwell.ts computes from OUR
+  OWN AIS archive against the 9 imagery-verified port geofences (5km,
+  nearest-port assignment resolves LA/Long Beach overlap): completed port
+  calls (arrival/departure detection: >=3 in-fence points, >=2h span,
+  median SOG <=3kts), dwell distributions (median/p90/max), ships in port
+  now (right-censored, excluded from distributions), and 3x-median anomaly
+  FLAGS suppressed below 10 completed calls per port (thin-history
+  honesty). Dwell figures are LOWER BOUNDS: an archive coverage gap >6h
+  splits a visit, never bridges it.
+- **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
+  anomalies at container ports lead (a) retail-import names (XRT) and
+  (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay
+  queue was the famous instance; the open question is whether the
+  post-2022 normalized regime still carries a tradable residual. PRIOR:
+  weak-positive at container ports, near-zero at energy ports (Houston)
+  where dwell reflects terminal ops, not demand.
+- **GATE 2 test plan (vs published congestion indices)**: weekly
+  archive-derived series {median dwell, in-port count} per port vs (1)
+  the port authority's published monthly TEU + vessel-call stats
+  (ground truth for our counters — also gate 1 for R2 transit), and (2)
+  a published congestion proxy (e.g. Kiel Trade Indicator / port-call
+  datasets) — our series must correlate with the established measure
+  before any return test. Then anomaly weeks vs forward XRT/IYT returns
+  against a random-entry base rate (REASONING STANDARD #3), regime-split
+  (#2), discounted for variants tried (#4).
+- **Second-order (#5)**: congestion nowcasts are sold commercially at
+  container-line scale; the retail-ticker LAG (buyers of those products
+  hedge freight, not equities) is the structural room. Capacity: XRT-class
+  liquidity is fine at our size.
+- **Imagery enrichment (later)**: Sentinel-2 berth occupancy at the same
+  9 ports verifies AIS-derived in-port counts when that pipeline lands
+  (Tier-3 spec) — imagery verifies, AIS remains primary.
+
 ## FUSION HYPOTHESES (Map v2.2 directive 2026-07-04 — logged, NOT built; each with ladder path)
 
 - **(a) Insider × facility activity (STLD first).** PAIRING: Form 4

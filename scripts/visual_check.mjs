@@ -52,6 +52,7 @@ const FIXTURES = {
       { id: "sites", name: "Strategic sites", kind: "raw", status: "live", source: "datacore/sites", description: "Reference sites." },
       { id: "powerplants", name: "US power plants", kind: "raw", status: "live", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
+      { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", source: "Copernicus", description: "Gate-2 locked." },
     ],
   },
@@ -105,6 +106,16 @@ const FIXTURES = {
     ],
   },
   "/api/health": { status: "ok", checks: {} },
+  "/api/data/portdwell": {
+    kind: "raw", source: "Derived from our own AIS position archive (fixture)",
+    window_hours: 168, vessels_seen: 240, visits_completed: 23, in_port_now: 7, anomaly_count: 1,
+    ports: [
+      { id: "port_la", name: "Port of Los Angeles", lat: 33.74, lon: -118.272, visits_completed: 12, unique_vessels: 11, in_port_now: 4, dwell_median_h: 22.5, dwell_p90_h: 41, dwell_max_h: 78, anomaly_count: 1, anomaly_examples: [{ mmsi: "366999707", name: "FIXTURE STAR", dwell_h: 78, median_h: 22.5 }] },
+      { id: "port_lb", name: "Port of Long Beach", lat: 33.7515, lon: -118.213, visits_completed: 8, unique_vessels: 8, in_port_now: 2, dwell_median_h: 19, dwell_p90_h: 30, dwell_max_h: 33, anomaly_count: 0, anomaly_examples: [] },
+      { id: "port_savannah", name: "Port of Savannah (Garden City)", lat: 32.129, lon: -81.144, visits_completed: 3, unique_vessels: 3, in_port_now: 1, dwell_median_h: 15, dwell_p90_h: 18, dwell_max_h: 18, anomaly_count: 0, anomaly_examples: [] },
+    ],
+    caveat: "RAW statistics; dwell figures are lower bounds; anomaly flags suppressed on thin history (fixture).",
+  },
   "/api/data/insider/history": {
     kind: "raw", source: "SEC EDGAR (Form 4) — accumulated archive", days: 30, count: 2,
     filings: [

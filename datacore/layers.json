@@ -66,6 +66,14 @@
       "description": "Event COUNTS from our own vessel archive: AIS gap events (silent >6h, reappeared >100km away), identity-change candidates, loitering in known STS/transshipment zones. A gap can be coverage loss, not dark sailing — per-vessel shadow-fleet claims are SIGNAL-class and stay gated until validated (ladder gate 1)."
     },
     {
+      "id": "portdwell",
+      "name": "Port dwell (arrivals/departures)",
+      "kind": "raw",
+      "status": "live",
+      "source": "Derived from our own AIS archive + imagery-verified port geofences",
+      "description": "Per-port vessel dwell statistics from our own archive: completed calls, ships in port now, median/p90 dwell, and 3x-median anomaly FLAGS (suppressed under 10 completed calls — thin history). Dwell figures are lower bounds (coverage gaps split visits). The dwell-anomaly SIGNAL (congestion predicts returns) stays gated at ladder gate 2 vs published congestion indices."
+    },
+    {
       "id": "tank_fill",
       "name": "Tank-fill % (Sentinel-2)",
       "kind": "signal",

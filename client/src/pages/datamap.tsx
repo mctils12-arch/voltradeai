@@ -53,7 +53,7 @@ const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 
-const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true, shadowstats: true };
+const DEFAULT_ON: Record<string, boolean> = { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -68,7 +68,7 @@ const LAYER_GROUP: Record<string, string> = {
   imagery: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
-  insider: "filings", shadowstats: "filings",
+  insider: "filings", shadowstats: "filings", portdwell: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
   l.kind === "signal" || l.status === "planned" ? "signals" : LAYER_GROUP[l.id] || "live";
@@ -781,6 +781,75 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.shadowstats, setStatus]);
 
+  // ── port dwell RAW statistics (fusion directive 2026-07-04) — per-port
+  // arrivals/dwell from our own AIS archive, rendered as small text labels
+  // under the 9 imagery-verified port sites plus a per-port panel note.
+  // Anomaly FLAGS only (3x median, thin-history suppressed); the congestion
+  // SIGNAL stays ladder-gated. ──
+  const [dwellStats, setDwellStats] = useState<any>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.portdwell) {
+      try {
+        if (map?.getLayer("portdwell-labels")) map.removeLayer("portdwell-labels");
+        if (map?.getSource("portdwell")) map.removeSource("portdwell");
+      } catch {}
+      setStatus("portdwell", "off"); setDwellStats(null);
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("portdwell", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/portdwell");
+        const d = await r.json();
+        if (stop) return;
+        setDwellStats(d);
+        const fc = {
+          type: "FeatureCollection",
+          features: (d.ports || []).map((p: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+            properties: {
+              label: `${String(p.name).replace(/^Port of /, "")}\n` +
+                     `${p.in_port_now} in port · ` +
+                     (p.dwell_median_h != null ? `med ${p.dwell_median_h}h` : `${p.visits_completed} calls`),
+            },
+          })),
+        };
+        const src: any = map.getSource("portdwell");
+        if (src) src.setData(fc as any);
+        else {
+          map.addSource("portdwell", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "portdwell-labels", type: "symbol", source: "portdwell",
+            layout: {
+              "text-field": ["get", "label"],
+              "text-font": ["Open Sans Semibold"],
+              "text-size": 10,
+              "text-anchor": "top",
+              "text-offset": [0, 1.4],
+            },
+            paint: {
+              "text-color": "#4ade80",
+              "text-halo-color": "rgba(5,10,19,0.95)",
+              "text-halo-width": 1.3,
+            },
+          });
+        }
+        setStatus("portdwell", "active", d.visits_completed,
+          `${Math.round(d.window_hours / 24)}d: ${d.visits_completed} completed calls · ${d.in_port_now} in port now · ` +
+          `${d.anomaly_count} anomaly flag${d.anomaly_count === 1 ? "" : "s"} (${d.vessels_seen} vessels archived)`);
+      } catch {
+        if (!stop) setStatus("portdwell", "error");
+      }
+    };
+    load();
+    const iv = window.setInterval(load, 10 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.portdwell, mapReady, setStatus]);
+
   // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
   // markers, an inline list inside the layer panel instead) ──
   useEffect(() => {
@@ -821,7 +890,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…" };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -874,6 +943,15 @@ export default function DataMapPage() {
                 const z = (shadowStats.zones || []).find((x: any) => x.id === zid);
                 return `${z?.name || zid}: ${n} loitering`;
               }).join(" · ")}
+          </div>
+        )}
+        {l.id === "portdwell" && on && dwellStats && (dwellStats.ports || []).length > 0 && (
+          <div className="vt-layer-desc" role="note">
+            {(dwellStats.ports as any[])
+              .filter((p) => p.in_port_now > 0 || p.visits_completed > 0)
+              .map((p) => `${String(p.name).replace(/^Port of /, "")}: ${p.in_port_now} in port` +
+                          (p.dwell_median_h != null ? ` · med ${p.dwell_median_h}h` : ""))
+              .join(" · ") || "no port calls in window yet (archive accumulating)"}
           </div>
         )}
         {l.id === "insider" && on && (

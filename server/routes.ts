@@ -23,6 +23,7 @@ import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStats } from "./shadowFleet";
+import { computePortDwell, portsFromSites } from "./portDwell";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 
@@ -1154,6 +1155,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "shadowstats failed" });
+    }
+  });
+
+  // Port dwell analytics (RAW) — arrival/departure detection + dwell
+  // distributions per imagery-verified port geofence, from OUR OWN AIS
+  // archive (fusion directive 2026-07-04). Anomaly FLAGS are 3x-median,
+  // suppressed on thin history; the dwell-anomaly SIGNAL stays ladder-gated.
+  // 10-min cache — the computation reads up to 7d of archive JSONL.
+  let dwellCache: { at: number; data: any } | null = null;
+  app.get("/api/data/portdwell", (_req, res) => {
+    if (dwellCache && Date.now() - dwellCache.at < 10 * 60_000) return res.json(dwellCache.data);
+    try {
+      const ports = portsFromSites((datacoreSites as any).sites || []);
+      const data = {
+        kind: "raw",
+        source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
+        ...computePortDwell(ports),
+      };
+      dwellCache = { at: Date.now(), data };
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "portdwell failed" });
     }
   });
 
