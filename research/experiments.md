@@ -13,6 +13,34 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [REPAIR] Liveness alarm RUNTIME half live: dark loop now degrades /api/health (v1.0.80)
+
+- Completes approved Amendment 2: server/liveness.ts (pure,
+  node:test-safe) computes NYSE-session overlap (weekdays 9:30–16:00
+  ET, DST-correct via Intl; HOLIDAYS deliberately not excluded — the
+  alarm errs loud and market_calendar.py stays the single holiday
+  source of truth) and the dark verdict (>2 market hours OR >24h
+  wall-clock since last seen active).
+- Heartbeat persisted like equityPeak (volume + /tmp fallback) so
+  DEPLOYS NEVER RESET THE DARKNESS CLOCK — the equityPeak lesson
+  applied preemptively. Fresh installs seed now (no instant false
+  alarm). Railway's healthcheck polling drives the assessment; a 60s
+  interval touch keeps the stamp fresh regardless; zero disk churn
+  while dark (same-object return skips writes).
+- /api/health Check 5 now carries checks.bot.liveness {dark,
+  marketHours, wallHours, detail} and sets overall status=degraded
+  when dark → HTTP 503 → every DAILY routine's health read surfaces
+  it top-of-report. This closes the exact gap of the incident: bot
+  paused, health "ok", human found it on a dashboard.
+- Regression tests (5): heartbeat transitions incl. restart-keeps-
+  clock, intraday market-hours math, weekend-spans-no-session, the
+  2h/24h thresholds A/B (3h dark, 1.5h not; weekend halt trips 24h
+  before Monday, Saturday-night check stays quiet), and a bot.ts
+  wiring pin (nextLiveness + loopDark + degraded consumption +
+  approved constants 2/24).
+- Gates: node 117/117; tsc error count identical to main (61 — all
+  pre-existing); build clean; server-only (no harness required).
+
 ## 2026-07-04 — [RESEARCH] Satellite multi-sensor roadmap filed + angle-hunting amendment proposed (docs)
 
 - Satellite directive filed as the major roadmap in open_questions.md:
