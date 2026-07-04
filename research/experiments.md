@@ -13,6 +13,30 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-03 (first audit; findings approved + applied 2026-07-04) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-04 — [PRODUCT] Session close-out: charter + geospatial directive — 10 PRs, queue handed to routines. STARVED.
+
+- Directive execution summary (#136-#145): approved consolidations
+  applied (AUDIT CYCLE register + STANDING BEHAVIORS); VISION.md
+  installed (labeled reconstruction — verbatim charter still needed
+  from the human); wishlist decisions recorded (satellite-AIS
+  declined, options HOLD package with verified prices, diagnostics
+  EXPLAIN); five new data roots + geospatial licensing register +
+  universal-envelope proposal filed (10-agent primary-source research
+  pass); Everything Graph v1 spec (flagship, R5) + R6 dashboards;
+  Tier-3 Sentinel-2 spec; BUILDS: port dwell analytics v1.0.60
+  (directive's highest-value item), terrain hillshade v1.0.61,
+  US weather radar v1.0.62.
+- STARVED: yes — high-value work remains queued at close (Tier-1
+  c-g, Tier-2 buildings, 8-K pipeline, options-chain archiver), all
+  with licensing pre-cleared and next-actions filed for the
+  [PRODUCT]/[PIPELINE] routines. This is capacity starvation, not
+  queue exhaustion.
+- Awaiting human: verbatim charter paste; universal-envelope
+  approval; options purchase pick (or explicit "stay held"); DIAG
+  route approval; four free key/signup actions (OWM, FIRMS, USPTO
+  ID.me, Apple EPF); north-star line appended to B3/B4 routine
+  prompts (usage_log.md has the exact text).
+
 ## 2026-07-04 — [PRODUCT] Tier-1(b): US weather radar layer — NOAA nowCOAST WMS (v1.0.62)
 
 - Built against the licensing register: NOAA nowCOAST base-reflectivity
