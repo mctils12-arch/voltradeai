@@ -1,0 +1,30 @@
+{
+ "stream": "vessels",
+ "storage": "volume JSONL <archive>/vessels/YYYY-MM-DD-HH.jsonl(.gz)",
+ "written_by": "server/datacoreArchive.ts archiveVessels",
+ "source": "aisstream.io websocket (terrestrial AIS)",
+ "license": "aisstream.io free API terms; terrestrial coverage only (mid-ocean dark)",
+ "attribution": "aisstream.io",
+ "schema_version": 1,
+ "field_map": {
+  "t": "unix sec UTC",
+  "i": "MMSI (entity key)",
+  "c": "vessel name (as-broadcast, mutable)",
+  "la": "lat (4dp)",
+  "lo": "lon (4dp)",
+  "v": "SOG knots (1dp)",
+  "h": "COG deg",
+  "st": "AIS shiptype code",
+  "de": "destination (as-broadcast)"
+ },
+ "confidence_model": "as-broadcast AIS; name/destination are self-reported (shadow-fleet lesson: identity is a claim, not a fact)",
+ "geo_fields": [
+  "la",
+  "lo"
+ ],
+ "entity_key": "i (MMSI)",
+ "sentiment": null,
+ "started": "2026-07-03",
+ "cadence": "2min near sites / 10min open water / 30min anchored",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

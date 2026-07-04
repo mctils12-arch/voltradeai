@@ -1,0 +1,31 @@
+{
+ "stream": "fires",
+ "storage": "volume JSONL <archive>/fires/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/nasaFirms.ts (archive block)",
+ "source": "NASA FIRMS (LANCE) VIIRS_SNPP_NRT, world/1-day",
+ "license": "NASA open data; LANCE attribution; not for safety-of-life decisions",
+ "attribution": "NASA FIRMS (LANCE)",
+ "schema_version": 1,
+ "field_map": {
+  "id": "detection dedup key",
+  "lat": "latitude",
+  "lon": "longitude",
+  "brightness": "bright_ti4 K",
+  "confidence": "low|nominal|high (datum-level confidence)",
+  "frp": "fire radiative power MW",
+  "acq_date": "YYYY-MM-DD UTC",
+  "acq_time": "HHMM UTC",
+  "satellite": "platform",
+  "daynight": "D|N"
+ },
+ "confidence_model": "VIIRS per-detection confidence carried verbatim; archive keeps ALL levels (display filters, the record does not)",
+ "geo_fields": [
+  "lat",
+  "lon"
+ ],
+ "entity_key": "id (detection)",
+ "sentiment": null,
+ "started": "2026-07-04",
+ "cadence": "30-min poll; ~3h upstream NRT latency",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}
