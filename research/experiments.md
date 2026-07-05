@@ -13,6 +13,32 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] FINRA short-volume GATE 1 PASSED — 100.000% sum-of-parts identity, n=12,240 (scripts/finra_gate1.ts, session-run)
+
+- LADDER GATE 1 (DATA layer) for the v1.0.133 stream, run the same
+  day it shipped. CRITERIA PRE-STATED before running (in the script
+  header, committed): sample day 2026-07-02; truth = FINRA's four
+  independent per-facility files (FNYX=N NYSE TRF, FNSQ=Q Nasdaq
+  Carteret, FNQC=B Nasdaq Chicago, FORF=O ORF) parsed with the SAME
+  parser under test and summed per symbol over exactly the
+  facilities each CNMS row's own Market column names; PASS bar
+  >=99.9% within 0.01 shares on BOTH short_vol and total_vol;
+  unknown market codes reported, never silently skipped. PRIOR:
+  ~90% (accounting identity FINRA itself maintains).
+- RESULT: checked=12,240 (every CNMS symbol), matched=12,240 —
+  100.000%. Zero unknown market codes (the four-file map covers the
+  entire consolidated tape), zero mismatches at 0.01-share
+  tolerance including the fractional-share rows. Facility coverage
+  observed: FNSQ 12,196 / FNYX 7,917 / FNQC 5,541 / FORF 3,048
+  symbols.
+- MEANING (and its limits): our parse of FINRA's published files is
+  faithful — layer 1 verified. This says NOTHING about the signal
+  (gate 2: short-ratio extremes vs forward returns needs archive
+  depth) and does not upgrade the flow-proxy caveat: this is
+  short-marked execution volume, not short interest.
+- Next on this root: 1-2y session-side backfill (dated files
+  persist), then gate-2 design pre-stated before any scoring.
+
 ## 2026-07-05 — [RESEARCH] BUILD ORDER 5 CLOSED — 5/5 buildable items shipped same-day; USPTO probe verdict filed as BLOCKED-FOR-MIKE #7 (docs)
 
 - SCOREBOARD (filed #253 and closed the same day): #1 FINRA short
