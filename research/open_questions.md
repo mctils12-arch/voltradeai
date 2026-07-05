@@ -319,32 +319,53 @@
   tier3Strategic, step 5) but self-guards to hit the network at most
   once per ~20h, so the other 23 hourly calls are a free file check.
   NOT wired into deep_score/macro_data — this is DATA-LADDER GATE 1
-  ONLY. Gate 2 hypothesis, not yet attempted: does an extreme COT index
-  (the standard 0-100 Larry-Williams-style trailing-156-week positioning
-  percentile, already computed and archived per record) on the
-  non-commercial (speculator) side predict a forward mean-reversion move
-  in the underlying ETF, beating a same-holding-period random-entry
-  baseline (REASONING STANDARD #3)? PRIOR stated before any run: expect
-  a small, real edge on the commodity contracts (GLD/SLV/USO/CORN — the
-  classic hedger/speculator literature is strongest here, and REASONING
-  STANDARD #5's "who's on the other side" answer is structural:
-  commercial hedgers have production/inventory information speculators
-  don't) and little-to-no edge on the two equity-index contracts
-  (SPY/QQQ — the legacy report's noncomm/comm split is a much weaker
-  economic classification for financial futures than for physical
-  commodities; CFTC's newer TFF report categories may separate signal
-  better there, worth an A/B before trusting legacy-report SPY/QQQ
-  results either way). Discount per REASONING STANDARD #4 — this is 7
-  symbols x 2 series (noncomm/comm) tried at once; do not cherry-pick
-  the best-performing symbol into a rule without out-of-sample
-  confirmation. Kill the hypothesis for a symbol if its COT-index
-  extremes show no separation from the random-entry baseline after the
-  backtest engine (already built) is run against the archived series
-  with >=1 year of accumulated weekly history (156 weeks already
-  backfilled from CFTC's public history, so gate 2 could start as soon
-  as next session — this is unlike the EDGAR Form4 pipeline, which had
-  to wait on live-forward accumulation because no free historical bulk
-  source existed).
+  ONLY.
+  **GATE 2 SCREEN RUN 2026-07-05** (`cot_gate2_test.py` /
+  `test_cot_gate2.py`; PRIOR restated above was written before this run).
+  Non-commercial COT-index extremes (>=80 / <=20 over the trailing
+  156-week window) vs. a same-symbol all-weeks baseline, forward 20d/60d
+  returns, entry anchored to the first trading day STRICTLY AFTER the
+  Friday publish date (no lookahead — the Tuesday as-of date is never
+  used as an entry). Full mean table lives in experiments.md; verdicts:
+  - **KILLED — no separation from baseline**: GLD, CORN, SPY, QQQ (SPY/
+    QQQ matches the stated prior; GLD's low-extreme bucket was also only
+    n=7, too thin to have shown anything either way). TLT killed too:
+    its one large deviation (extreme_low, 20d, -4.18% vs +0.07% baseline)
+    did not hold at 60d (-0.16% vs +0.35%, both near zero) — a single-
+    horizon flash with no cross-horizon confirmation is exactly the
+    fishing pattern REASONING STANDARD #4 warns about, not a real effect.
+  - **NOT killed — carried to further work, NOT a gate-2 pass**: SLV
+    (extreme_high, n=44, consistently below baseline at both horizons:
+    20d 1.85% vs 3.41%, 60d 7.78% vs 11.40%) and especially USO
+    (extreme_low, n=58, 60d 15.48% vs 7.22% baseline; extreme_high,
+    n=14, 60d -4.54% vs 7.22% — both legs point the same
+    mean-reversion direction the prior predicted, and USO/oil is exactly
+    where REASONING STANDARD #5's hedger-information-asymmetry argument
+    is strongest).
+  - **METHODOLOGICAL FINDING that limits belief in the two "not killed"
+    cases and applies to every future weekly/monthly-cadence gate-2
+    test in this repo (FINRA short-volume, COT itself, Wikimedia
+    attention, CBP border waits, any future daily/weekly signal)**:
+    forward-return windows computed at weekly sampling with a 60-trading-
+    day (~12-week) horizon overlap ~11/12 between consecutive
+    observations — they are NOT 58 independent draws. Effective
+    independent sample size for the 60d horizon is roughly n/12 (USO's
+    n=58 -> ~5 effectively independent windows), for the 20d horizon
+    roughly n/4. This screen used raw means only (no significance test,
+    no autocorrelation-adjusted standard error) — exactly why it can
+    only KILL (a flat/opposite-signed mean is disqualifying regardless
+    of overlap) but cannot PASS (a large raw mean gap can come from a
+    handful of correlated episodes, e.g. one persistent oil rally).
+    NEXT STEP before SLV/USO get anywhere near LOGIC gate 3: either (a)
+    a block-bootstrap or Newey-West-style test that accounts for the
+    overlap, or (b) a non-overlapping-window design (one observation per
+    resolved horizon, not per week) — n=58 becomes ~n=5-13 either way,
+    so also keep accumulating weekly history to raise the useful sample
+    over time. Do not promote SLV/USO on raw means alone.
+  - Discount applied throughout per REASONING STANDARD #4: 7 symbols x
+    2 buckets x 2 horizons = 28 comparisons run in one pass; 2 "hits"
+    out of 28 is within what noise alone would produce, which is exactly
+    why neither is called a pass here.
 - **Options fill realism.** The synthetic slippage haircut in bot.ts is
   volume-tiered with a random component — good for stocks, weak for
   options. Replace for options with quote-based fills: short premium

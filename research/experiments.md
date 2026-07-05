@@ -5120,3 +5120,96 @@ exception to append-only; the log below it stays append-only)
 - STARVED: no — recovering already-validated, already-tested work that
   was about to be silently lost was higher expected value than starting
   a brand-new pipeline from zero this session.
+
+## 2026-07-05 — [RESEARCH] CFTC COT gate 2 (SIGNAL) screen: 2 of 7 symbols not killed, 5 killed; overlapping-window caution filed (docs + cot_gate2_test.py)
+
+- Territory: none of T-DATACORE/T-CLIENT/T-BOT touched — this session
+  ran a pure statistical screen (`cot_gate2_test.py`, no imports of
+  bot_engine.py/system_config.py/server code) against the COT gate-1
+  archive (`cftc_cot.py`, merged the same day by a concurrent session
+  this session found and did not duplicate — see below). No version
+  bump: nothing on the live trading or server path changed, matching
+  the repo's existing "docs(research)"/verification-PR convention
+  (e.g. #252) rather than PROMOTION RULES #4, which exists for
+  `code_version` attribution of LIVE-behavior changes only.
+- CONCURRENCY CHECK (before picking work): a second, concurrent session
+  (session_01BAU2qmw3UYfhQ6sG9MjfMv) was actively merging BUILD ORDER 5
+  items #1-4 (FINRA short-volume #254, CFTC COT disaggregated #255,
+  Wikimedia attention #256, FAA airport status #257 — all merged
+  2026-07-05 19:54-20:16 UTC) and had PR #258 (CBP border waits, B5 #5)
+  open at 20:18 UTC, discovered via `list_pull_requests` before any
+  local edit was made. Rather than duplicate that T-DATACORE queue or
+  race it on shared files, this session picked the next item the
+  SESSION BUDGET priority order actually ranks higher than "start a new
+  pipeline": judging the COT gate-2 hypothesis already on file with its
+  prior pre-stated (open_questions.md), using data that was fully
+  backfillable NOW (no forward-accumulation wait, unlike EDGAR Form4).
+  Branch `claude/funny-fermat-ic1oms` was stale relative to `main` (it
+  predated #253-257); reset to `origin/main` before starting, per the
+  merged-branch restart rule, rather than rebasing old history that was
+  already superseded.
+- PRIOR (restated from open_questions.md, written before this run):
+  expect a small real edge on the commodity contracts (GLD/SLV/USO/
+  CORN) and little-to-no edge on SPY/QQQ.
+- METHOD: `cot_gate2_test.py` (new; `test_cot_gate2.py` 12/12 pure-
+  function unit tests, no network). For each of the 7 tracked symbols,
+  fetched the full 156-week COT history live from CFTC's Socrata API
+  and daily price bars via `backtest_v2.fetch_bars` (Yahoo path — no
+  Alpaca keys in this sandbox); entry anchored to the first trading day
+  STRICTLY AFTER the Friday publish date (report_date + 3d), never the
+  Tuesday as-of date (no-lookahead, REASONING STANDARD #7). Bucketed by
+  the already-computed non-commercial COT index: extreme_high >=80,
+  extreme_low <=20, vs. the same-symbol all-weeks baseline, at 20d and
+  60d forward horizons.
+- RESULTS (mean forward return %, baseline vs. extreme buckets; n =
+  weeks in bucket with a resolved forward return):
+  | Symbol | 20d base (n) | 20d high (n) | 20d low (n) | 60d base (n) | 60d high (n) | 60d low (n) |
+  |---|---|---|---|---|---|---|
+  | GLD | 2.31 (152) | 1.94 (52) | 2.45 (7) | 7.70 (144) | 7.02 (52) | 5.97 (7) |
+  | SLV | 3.41 (152) | 1.85 (44) | 1.98 (6) | 11.40 (144) | 7.78 (44) | 9.99 (6) |
+  | USO | 2.16 (152) | 2.24 (14) | 1.57 (58) | 7.22 (144) | -4.54 (14) | 15.48 (58) |
+  | CORN | -0.81 (152) | -0.38 (29) | -0.84 (41) | -1.83 (144) | 0.42 (25) | -2.30 (41) |
+  | TLT | 0.07 (152) | 1.06 (42) | -4.18 (11) | 0.36 (144) | 0.89 (42) | -0.16 (10) |
+  | SPY | 1.51 (152) | 0.94 (26) | 0.84 (14) | 4.84 (144) | 6.24 (26) | 3.00 (14) |
+  | QQQ | 1.93 (152) | 2.14 (43) | 0.44 (15) | 6.00 (144) | 4.20 (43) | 2.99 (10) |
+- VERDICT (kill criterion: no separation from baseline): **KILLED** —
+  GLD, CORN, SPY, QQQ (SPY/QQQ exactly as the prior expected; GLD's
+  low-extreme bucket was n=7, too thin to have shown anything either
+  direction), and TLT (its one large deviation, extreme_low 20d -4.18
+  vs +0.07 baseline, evaporated at 60d, -0.16 vs +0.35 — a single-
+  horizon flash, not a cross-horizon-confirmed effect — REASONING
+  STANDARD #4 in action). **NOT KILLED, carried forward, NOT a gate-2
+  pass**: SLV (extreme_high consistently below baseline both horizons,
+  n=44) and USO (both legs point the same mean-reversion direction the
+  prior predicted, n=58 on the low side, 60d gap more than double
+  baseline — the largest effect in the table, and oil is exactly where
+  REASONING STANDARD #5's hedger-information-asymmetry argument is
+  strongest).
+- METHODOLOGICAL FINDING (compiled into open_questions.md so it applies
+  to every future weekly-cadence gate-2 test, not just COT): weekly
+  sampling with a 60-trading-day forward horizon means consecutive
+  observations overlap ~11/12 — USO's raw n=58 is roughly 5 effectively
+  independent windows once autocorrelation is accounted for. This
+  screen used raw means only, which is enough to KILL (a flat or
+  wrong-signed mean is disqualifying regardless of overlap) but NOT
+  enough to PASS (a large raw gap can come from a handful of correlated
+  episodes — one persistent oil rally, say). SLV/USO stay open pending
+  either a block-bootstrap/overlap-adjusted significance test or a
+  non-overlapping-window redesign, not promoted on this result alone.
+  Discount stated per REASONING STANDARD #4: 28 symbol x bucket x
+  horizon comparisons run in one pass; 2 surviving out of 28 is within
+  what pure noise would produce.
+- Gates: `python3 -m pytest -q test_cot_gate2.py test_cftc_cot.py` 30/30
+  pass (this sandbox lacks numpy/lightgbm/the full requirements set, so
+  the repo-wide bare `pytest -q` could not be re-verified end-to-end
+  this session — noted honestly, matching the precedent in the
+  2026-07-05 earnings-language entry, rather than claimed; `cot_gate2_test.py`
+  and its test module import only `cftc_cot`/`backtest_v2`/stdlib, so
+  this gap does not affect the tested surface). Live-verified against
+  the real CFTC Socrata API and Yahoo Finance from this sandbox — 156/
+  156 weeks and 0 rejected COT records for all 7 symbols this run too
+  (matches the concurrent session's contemporaneous verification of the
+  same archive).
+- STARVED: no — this was a fully-specified queued gate-2 judgment,
+  executed start to finish, that avoided colliding with the concurrent
+  session's T-DATACORE build-order work.
