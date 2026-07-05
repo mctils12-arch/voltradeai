@@ -1,0 +1,24 @@
+{
+ "stream": "railep724",
+ "storage": "git-versioned keyed JSON datacore/rail/ep724_carloads.json — WHOLE-FILE REBUILD per run (the STB workbook republishes the full weekly history since 2017-03 every week; git history keeps vintages), NOT append-only",
+ "written_by": "scripts/stb_rail.py (Python, session-run ~weekly; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "source": "STB EP724 consolidated rail service data workbook (stb.gov/reports-data/rail-service-data), discovered by link scrape (newest 'Consolidated Data through' date wins; format change = hard exit, never guessed)",
+ "license": "US government work, public domain; attribution 'Surface Transportation Board (EP 724 rail service data)'",
+ "attribution": "Surface Transportation Board (EP 724 rail service data)",
+ "schema_version": 1,
+ "field_map": {
+  "weeks": "shared week-ending axis (ISO dates, 2017-03-29 onward, ~weekly)",
+  "series.<RAILROAD|MEASURE|VARIABLE>": "value array aligned to the axis; null where the railroad did not report (non-numeric cells become null, NEVER zero)",
+  "selection": "SELECTION HONESTY, restated per record set: cat 11 Weekly Carloads By 22 Commodity Categories (all railroads x 22 commodities — the volume spine), cat 1 Average Train Speed System only, cat 3 Cars On Line all car types. Terminal dwell, grain-car metrics, Chicago gateway and the rest of EP724 are deliberately NOT archived in v1 (workbook is public and re-pullable)",
+  "n_weeks/n_series/built": "artifact provenance"
+ },
+ "confidence_model": "RAW carrier-reported EP724 filings, no derived quantities. Railroad set changes over the era (KCS/CP -> CPKC merger appears as separate keys with disjoint null spans) — consumers must not treat key presence as continuity; the entity-continuity join is Everything Graph work, not this stream's.",
+ "geo_fields": [
+  "(none — carrier-level national series)"
+ ],
+ "entity_key": "railroad + measure + variable + week",
+ "sentiment": null,
+ "started": "2026-07-05 (history to 2017-03-29 captured in the first build)",
+ "cadence": "source updates weekly (Wednesdays); session-run refresh ~weekly",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 2 #6 (final item); hypothesis (carload deltas by commodity lead rail earnings + industrial regime) stays gate-locked — archive only."
+}
