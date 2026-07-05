@@ -13,6 +13,167 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Everything Graph R5 step 1 — datacore/entity_map.json (operator→ticker table), unblocks the flagship graph build + fusion (b) gate 1 (v1.0.131) [T-DATACORE]
+
+- [T-DATACORE] Territory: datacore/entity_map.json (new),
+  scripts/build_entity_map.py (new), server/entityMap.test.ts (new) —
+  per WORKSTREAM PARTITION. SHARED files touched minimally, last:
+  package.json (version bump), research/open_questions.md +
+  EVERYTHING_GRAPH.md (status update), this entry.
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md, this file (tail),
+  open_questions.md (full), wishlist.md (full). Loop-health ratio over
+  the last 10 entries: 3 PRODUCT/PIPELINE-class, 2 RULE-REVIEW, 2
+  RESEARCH, 2 REPAIR-class among the DATACORE DEFECT QUEUE closure —
+  well under the 7/10 REPAIR thrash threshold. `git`/GitHub state
+  checked directly (list_commits on `main` via the GitHub API, not
+  just local `git fetch`, after the prior session's own note about a
+  stale local ref cache): branch head 99921a6 already equals origin
+  main's head — this session starts clean, no reset needed. KNOWN
+  BROKEN: no unresolved trading-loop-threatening item found in
+  open_questions.md's KNOWN BROKEN section (items 1-2, 5-11 resolved;
+  item 3 CSP cascade and item 4 general-health remain ACCESS-LIMITED
+  verification gaps unchanged from prior sessions, not new breaks, and
+  per the task framing a [PRODUCT] session does not preempt DAILY's
+  repair duty for them — noted, not chased this session).
+- PRIMARY ACTION SELECTION: surveyed BUILD ORDER 4 (items 1-2 shipped
+  today already, item 3 international registries deferred pending a
+  fresh per-country session, item 4 blocked until ~2026-09-27, item 5
+  blocked until 2026-07-06 close, item 6 counterfactual logger already
+  extended this same day in v1.0.130) — every BUILD ORDER 4 item was
+  either done or genuinely time/access-blocked. Went to the GIP BUILD
+  QUEUE / MAP V2 ROADMAP R5 (THE EVERYTHING GRAPH, explicitly named
+  "flagship" by the 2026-07-04 charter directive) and found its own
+  design doc (datacore/EVERYTHING_GRAPH.md) names an exact, unbuilt,
+  fully-specified next step: build-plan item 1,
+  `datacore/entity_map.json`. Confirmed via `ls`/`grep` that no such
+  file existed yet and that today's earlier aircraft
+  registrant→operator work (v1.0.127, `datacore/aircraft/entity_spine.json`)
+  is a DIFFERENT table for a different roadmap item (BUILD ORDER 4 #1,
+  aircraft tail→operating-airline resolution) — confusingly similar
+  name, distinct scope; did not double-build.
+- WHAT WAS BUILT: `scripts/build_entity_map.py` reads the exact
+  `operator` strings from `datacore/sites/strategic_sites.json` (13,
+  all sites) and the exact `owner` strings from the top-100-by-
+  capacity_mw plants in `datacore/powerplants/us_power_plants.json`
+  (56) — 69 total distinct registry strings, asserts every one has a
+  researched entry (fails loudly if a source registry changes and
+  introduces a new unresearched string), and emits
+  `datacore/entity_map.json` with `{operator, ticker, confidence,
+  parent, note}` per REASONING STANDARD #10 discipline stated in the
+  design doc ("confidence: exact-name match (high) / alias match
+  (medium) / manual research"). RESEARCH METHOD (REFERENCE DATA
+  ACCURACY rule): every entry is backed by a live WebSearch this
+  session against SEC filings, company investor-relations pages, or
+  primary-sourced summaries — not recalled from training data alone.
+  This mattered: regulated-utility subsidiary structures (PG&E→PCG,
+  Duke Energy Carolinas/Progress/Florida/Indiana→DUK, Southern Company
+  subsidiaries→SO, AEP/Entergy/Dominion/PPL/Ameren/Xcel/NiSource/
+  FirstEnergy/CMS/DTE/Pinnacle West/IDACORP-class operating companies,
+  Evergy Kansas Central→EVRG, AES Indiana→AES) are decades-stable and
+  matched prior knowledge, but merchant/IPP generators churn fast and
+  TWO SEARCHES CAUGHT STALE ASSUMPTIONS BEFORE THEY SHIPPED: (1)
+  `NRG Homer City Services LLC` — the plant retired June 2023 and was
+  physically demolished in 2025 (now a gas-fired/data-center
+  redevelopment); NRG was the contracted OPERATOR, never the OWNER
+  (ownership sat with a hedge-fund vehicle from the plant's bankruptcy
+  era) — mapping this to NRG would have been a confidently-wrong
+  ticker on a plant that no longer exists. (2) `Louisiana Generating
+  LLC` — sold by NRG to Cleco in Feb 2019; Cleco itself has been
+  privately held since a 2016 investor buyout, so there is NO current
+  public-ticker mapping at all, not even Cleco. Also resolved
+  correctly via search rather than guesswork: the Feb-2022 Exelon→
+  Constellation spinoff (`Exelon Nuclear`/`Constellation Mystic Power
+  LLC`→CEG, not EXC), the 2018 Dynegy→Vistra merger (`Dynegy Midwest
+  Generation Inc`→VST), Talen Energy's 2022 bankruptcy-emergence
+  relisting (NASDAQ: TLN), and the fragmented, no-single-public-parent
+  ownership of South Texas Project (`STP Nuclear Operating Co` —
+  Constellation 42% / CPS Energy 42% municipal / Austin Energy 16%
+  municipal as of a 2024 transaction) and Keystone/Conemaugh (`KeyCon
+  Operating LLC` — multiple PE holders + a ~12-16% Talen minority
+  stake). RESULT: 44/69 mapped (34 "high" confidence wholly-owned
+  regulated-utility or clean-merger cases, 1 "medium" —
+  `PacifiCorp`→BRK.B, two levels removed via Berkshire Hathaway
+  Energy, confidence deliberately held down), 25/69 honest unmapped
+  gaps — federal agencies (TVA, USACE, Bureau of Reclamation), state/
+  municipal port and power authorities (8 of the 13 site operators),
+  and privately-held or fragmented-JV merchant generators (GenOn,
+  Gavin Power, Helix Ravenswood, LaFrontera, Midland Cogeneration
+  Venture, Cardinal Operating, KeyCon, plus the two stale entries
+  above). Zero guessed tickers anywhere — every unmapped entry carries
+  a one-line reason.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): this table -> unblocks
+  EVERYTHING_GRAPH.md build-plan step 2 (`server/entityGraph.ts`, the
+  `operates` edge type company→facility) for whichever session claims
+  it next -> ALSO unblocks the independently-filed fusion hypothesis
+  (b) "Generation shifts × utility tickers" (open_questions.md FUSION
+  HYPOTHESES section), whose own gate-1 ground truth explicitly
+  required "a registry-owner→ticker mapping table" — this is that
+  table, built once and shared, per the design doc's stated intent
+  ("removes the join labor, grants no evidential shortcut" — gate 1
+  for that hypothesis still requires the separate EIA-930-vs-registry-
+  capacity reconciliation, not done here). No trading behavior changed
+  (RAW reference data only, no SIGNAL claim, nothing wired into
+  deep_score or any live route yet — step 2 is what serves it).
+- REGRESSION TESTS: `server/entityMap.test.ts` (new, 5 cases) — every
+  entity has required fields + valid confidence tier + no duplicate
+  keys; unmapped entities never carry a ticker; the `coverage` block
+  in the JSON matches the actual entity list (catches stale
+  bookkeeping); COVERAGE HONESTY — every operator string currently in
+  `strategic_sites.json` and every top-100-plant owner in
+  `us_power_plants.json` has an entry (fails if either source registry
+  grows a new unresearched operator, forcing the next session to
+  research it rather than silently under-covering); the doc text
+  carries the "re-verify" honesty warning and is marked "no predictive
+  claim" (RAW not SIGNAL); a fifth test spot-checks that named federal/
+  municipal operators are specifically `unmapped`, not silently
+  dropped.
+- PROMOTION RULES: (1) `npm run test:node` — 214/217 passed; the 3
+  failures (`compression.test.ts`, `gdeltEvents.test.ts`,
+  `owmTiles.test.ts`) are PRE-EXISTING and unrelated, confirmed via
+  `git stash` A/B on the exact same command (209/212 passed on the
+  pre-PR commit, identical 3 failures) — this session's 5 new tests
+  all pass, no regression. `python3 -m pytest -q` — this sandbox
+  started with NO python deps installed at all (`voltrade_daemon.py`
+  hard `sys.exit(2)`s if numpy/pandas/requests import fails, which
+  crashed pytest's collector entirely); installed `requirements.txt`
+  to get a real signal rather than skip the gate, then confirmed via
+  the same `git stash` A/B that the result (392 passed, 2 skipped, 2
+  pre-existing failures in
+  `test_options_v134_fixes.py::TestFix7_EarningsAlwaysIronCondor` —
+  the same `KeyError: 'opt_type'` in `options_scanner.py:490` a prior
+  session already logged) is identical before and after this PR — this
+  PR touches zero files that pytest's suite exercises. (2) new tests
+  ship with the new file (rule 2). (3) not a strategy/parameter change
+  — no backtest required (this is RAW reference data, not a trading
+  rule). (4) version bumped 1.0.130 -> 1.0.131, read-and-increment,
+  confirmed against the GitHub API's live `main` HEAD (99921a6,
+  identical to this branch's parent) immediately before bumping — the
+  prior session's OPS GOTCHA about a stale local `git fetch` cache
+  reproduced again this session (a first `git log origin/main` showed
+  main 50 commits "behind" after a plain `git fetch`; the GitHub API's
+  `list_commits(sha=main)` immediately showed main's HEAD already
+  matched local HEAD, i.e. no actual divergence) — worth a permanent
+  note: prefer the GitHub API or `git ls-remote` over a bare
+  `git fetch && git log origin/main` when this repo's mirror seems
+  stale, since the cache artifact has now recurred twice. (5) one
+  logical change (one new registry file + its builder + its test);
+  research/doc updates and the version bump are the SHARED-file tail
+  of the same PR, not a second logical change. (6) VISUAL VERIFICATION
+  not applicable — no client/ files touched.
+- LIVE HEALTH CHECK (task-mandated, done before the primary action):
+  `GET https://voltradeai-production.up.railway.app/api/health`
+  returned `status: ok` across the board — server, database, Alpaca
+  ACTIVE, python bridge, bot `active`, equityPeak $108,151.39,
+  drawdownPct 0.0, `liveness.dark: false`. No LIVENESS ALARM
+  condition, nothing to surface top-of-report; unchanged from the
+  prior session's reading a few hours earlier.
+- NOT IN SCOPE, FLAGGED HONESTLY: step 2 (`server/entityGraph.ts` +
+  `/api/data/graph` + tests) and step 3 (the `/data` graph panel) are
+  the natural next PRs for whichever session (interactive or routine)
+  claims R5 next — this entry's build-plan update in
+  EVERYTHING_GRAPH.md and open_questions.md is the claim-before-
+  building marker for step 1 only, step 2/3 remain open and unclaimed.
+
 ## 2026-07-05 — [RULE-REVIEW] Counterfactual logger: correlation/spread rejections now labeled truthfully in the shadow archive (BUILD ORDER 4 #6 continuation) (v1.0.130) [T-BOT]
 
 - [T-BOT] Territory: bot_engine.py, shadow_portfolio.py (a data module,

@@ -1,0 +1,474 @@
+{
+  "_doc": "Everything Graph R5 build-plan step 1 (datacore/EVERYTHING_GRAPH.md). Operator/owner strings from datacore/sites/strategic_sites.json (all sites) and datacore/powerplants/us_power_plants.json (top-100-by-capacity_mw plants) mapped to public tickers, hand-verified against SEC filings / company investor-relations pages via live search 2026-07-05. RAW reference data (per the graph's own RAW-vs-SIGNAL rule): asserts a relationship with provenance, no predictive claim. Unmapped entries (government/municipal/federal authorities, privately held merchant generators, fragmented joint ventures) are honest gaps, never guessed tickers \u2014 corporate structures change (subsidiaries are sold, spun off, or taken private; this build already caught two registry entries stale for that exact reason), so re-verify before trading on any inference built atop this table.",
+  "schema_version": 1,
+  "built": "2026-07-05",
+  "sources": [
+    "datacore/sites/strategic_sites.json (operator field, all 16 sites)",
+    "datacore/powerplants/us_power_plants.json (owner field, top-100-by-capacity_mw plants)"
+  ],
+  "coverage": {
+    "total": 69,
+    "mapped": 44,
+    "unmapped": 25
+  },
+  "entities": [
+    {
+      "operator": "City of LA (POLA)",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Municipal port authority (Port of LA), no public equity."
+    },
+    {
+      "operator": "Enbridge",
+      "ticker": "ENB",
+      "confidence": "high",
+      "note": "Publicly traded pipeline/midstream operator (NYSE/TSX: ENB); named on-site at the Cushing hub.",
+      "parent": "Enbridge Inc."
+    },
+    {
+      "operator": "Georgia Ports Authority",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "State port authority, no public equity."
+    },
+    {
+      "operator": "Multiple (Enbridge, Plains, ONEOK, Energy Transfer)",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Cushing hub is genuinely multi-operator; forcing one of the four constituent tickers (ENB/PAA/OKE/ET, each individually public) would misattribute the site to a single company. Left as an honest multi-operator gap, not guessed."
+    },
+    {
+      "operator": "NWSA",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Northwest Seaport Alliance, a Seattle/Tacoma joint public authority, no public equity."
+    },
+    {
+      "operator": "PANYNJ",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Port Authority of NY & NJ, bi-state public authority, no public equity."
+    },
+    {
+      "operator": "POLB",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Port of Long Beach, municipal department, no public equity."
+    },
+    {
+      "operator": "Plains All American",
+      "ticker": "PAA",
+      "confidence": "high",
+      "note": "Publicly traded (NASDAQ: PAA); named on-site at the Cushing hub.",
+      "parent": "Plains All American Pipeline, L.P."
+    },
+    {
+      "operator": "Port Houston",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Port of Houston Authority, county-level public authority, no public equity."
+    },
+    {
+      "operator": "Port of Oakland",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Municipal department of the City of Oakland, no public equity."
+    },
+    {
+      "operator": "SC Ports",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "South Carolina Ports Authority, state authority, no public equity."
+    },
+    {
+      "operator": "Steel Dynamics (STLD)",
+      "ticker": "STLD",
+      "confidence": "high",
+      "note": "Ticker is literally in the registry string; NASDAQ: STLD.",
+      "parent": "Steel Dynamics, Inc."
+    },
+    {
+      "operator": "Virginia Port Authority",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Virginia state authority, no public equity."
+    },
+    {
+      "operator": "Alabama Power Co",
+      "ticker": "SO",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "The Southern Company"
+    },
+    {
+      "operator": "Appalachian Power Co",
+      "ticker": "AEP",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "American Electric Power Co., Inc."
+    },
+    {
+      "operator": "Arizona Public Service Co",
+      "ticker": "PNW",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Pinnacle West Capital Corp."
+    },
+    {
+      "operator": "Cardinal Operating Company",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Joint-venture operator (AEP-affiliate + Buckeye Power municipal/cooperative interests); no single controlling public parent."
+    },
+    {
+      "operator": "Constellation Mystic Power LLC",
+      "ticker": "CEG",
+      "confidence": "high",
+      "note": "Verified via WebSearch 2026-07-05.",
+      "parent": "Constellation Energy Corp."
+    },
+    {
+      "operator": "Consumers Energy Co",
+      "ticker": "CMS",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "CMS Energy Corp."
+    },
+    {
+      "operator": "DTE Electric Company",
+      "ticker": "DTE",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "DTE Energy Co."
+    },
+    {
+      "operator": "Dominion Energy Nuclear Conn Inc",
+      "ticker": "D",
+      "confidence": "high",
+      "note": "Wholly owned subsidiary; operates Millstone.",
+      "parent": "Dominion Energy, Inc."
+    },
+    {
+      "operator": "Duke Energy Carolinas  LLC",
+      "ticker": "DUK",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Duke Energy Corp."
+    },
+    {
+      "operator": "Duke Energy Florida  LLC",
+      "ticker": "DUK",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Duke Energy Corp."
+    },
+    {
+      "operator": "Duke Energy Indiana  LLC",
+      "ticker": "DUK",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Duke Energy Corp."
+    },
+    {
+      "operator": "Duke Energy Progress - (NC)",
+      "ticker": "DUK",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Duke Energy Corp."
+    },
+    {
+      "operator": "Dynegy Midwest Generation Inc",
+      "ticker": "VST",
+      "confidence": "high",
+      "note": "Dynegy merged into Vistra Energy Corp. April 2018. Verified via WebSearch 2026-07-05.",
+      "parent": "Vistra Corp."
+    },
+    {
+      "operator": "Entergy Arkansas LLC",
+      "ticker": "ETR",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Entergy Corp."
+    },
+    {
+      "operator": "Entergy Louisiana LLC",
+      "ticker": "ETR",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Entergy Corp."
+    },
+    {
+      "operator": "Entergy Texas Inc.",
+      "ticker": "ETR",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "Entergy Corp."
+    },
+    {
+      "operator": "Evergy Kansas Central  Inc",
+      "ticker": "EVRG",
+      "confidence": "high",
+      "note": "Verified via WebSearch 2026-07-05 (Evergy Inc. investor pages): subsidiary of NASDAQ: EVRG.",
+      "parent": "Evergy, Inc."
+    },
+    {
+      "operator": "Exelon Nuclear",
+      "ticker": "CEG",
+      "confidence": "high",
+      "note": "The nuclear fleet moved to Constellation Energy Corp. (NASDAQ: CEG) in the Feb-2022 Exelon spinoff. Verified via WebSearch 2026-07-05 (Peach Bottom now Constellation-operated). NOTE: some plants under this label are jointly owned (e.g. Peach Bottom 50/50 with PSEG) \u2014 confidence reflects OPERATOR attribution, not exclusive economic ownership.",
+      "parent": "Constellation Energy Corp."
+    },
+    {
+      "operator": "FirstEnergy Generation Corp",
+      "ticker": "FE",
+      "confidence": "high",
+      "note": "Wholly owned subsidiary.",
+      "parent": "FirstEnergy Corp."
+    },
+    {
+      "operator": "FirstEnergy Nuclear Operating Company",
+      "ticker": "FE",
+      "confidence": "high",
+      "note": "Wholly owned subsidiary.",
+      "parent": "FirstEnergy Corp."
+    },
+    {
+      "operator": "Florida Power & Light Co",
+      "ticker": "NEE",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "NextEra Energy, Inc."
+    },
+    {
+      "operator": "Gavin Power  LLC",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Privately held merchant generator (Lightstone Generation lineage; press reports as of 2026 describe a further private-equity-to-private-equity sale in progress). Not SEC-registered. Verified via WebSearch 2026-07-05."
+    },
+    {
+      "operator": "GenOn Chalk Point  LLC",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "GenOn Energy emerged from its 2018 Chapter 11 bankruptcy as a privately held company (ArcLight Capital-affiliated); WebSearch 2026-07-05 found no evidence of a public listing."
+    },
+    {
+      "operator": "Georgia Power Co",
+      "ticker": "SO",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "The Southern Company"
+    },
+    {
+      "operator": "Helix Ravenswood  LLC",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Privately held merchant generator (GenOn/Helix Generation lineage), no public ticker."
+    },
+    {
+      "operator": "Indiana Michigan Power Co",
+      "ticker": "AEP",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "American Electric Power Co., Inc."
+    },
+    {
+      "operator": "Indianapolis Power & Light Co",
+      "ticker": "AES",
+      "confidence": "high",
+      "note": "Renamed AES Indiana in 2021; wholly owned subsidiary of NYSE: AES since 2001. Verified via WebSearch 2026-07-05. Registry uses the pre-2021 legal name.",
+      "parent": "The AES Corporation"
+    },
+    {
+      "operator": "Kentucky Utilities Co",
+      "ticker": "PPL",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "PPL Corp."
+    },
+    {
+      "operator": "KeyCon Operating LLC",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Keystone/Conemaugh joint operating entity; ownership is fragmented across multiple private-equity holders plus a minority (~12-16%) Talen Energy stake \u2014 no single controlling public parent. Verified via WebSearch 2026-07-05."
+    },
+    {
+      "operator": "LaFrontera Holdings LLC",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Privately held merchant generator (LS Power-affiliated lineage), no public ticker."
+    },
+    {
+      "operator": "Louisiana Generating LLC",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Sold by NRG Energy to Cleco in Feb 2019; Cleco Corporate Holdings has been privately held since a 2016 investor buyout \u2014 registry attribution to NRG is STALE (a live example of the WRI GPPD ownership-vintage lag; see manifest note). Verified via WebSearch 2026-07-05."
+    },
+    {
+      "operator": "Louisville Gas & Electric Co",
+      "ticker": "PPL",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "PPL Corp."
+    },
+    {
+      "operator": "Luminant Generation Company LLC",
+      "ticker": "VST",
+      "confidence": "high",
+      "note": "Verified via WebSearch 2026-07-05 (Vistra Corp. investor pages / Comanche Peak coverage).",
+      "parent": "Vistra Corp."
+    },
+    {
+      "operator": "Midland Cogeneration Venture",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Complex private joint venture, no single controlling public parent."
+    },
+    {
+      "operator": "Mississippi Power Co",
+      "ticker": "SO",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "The Southern Company"
+    },
+    {
+      "operator": "Monongahela Power Co",
+      "ticker": "FE",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary (WV/OH).",
+      "parent": "FirstEnergy Corp."
+    },
+    {
+      "operator": "NRG Homer City Services LLC",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "STALE registry entry: Homer City Generating Station retired June 2023 and was physically demolished in 2025 (site now a gas-fired/data-center redevelopment); NRG was the contracted OPERATOR, never the owner (ownership sat with hedge funds via the plant's bankruptcy-era ownership vehicle). No going-concern operator to map. Verified via WebSearch 2026-07-05."
+    },
+    {
+      "operator": "NRG Oswego Harbor Power Operations Inc",
+      "ticker": "NRG",
+      "confidence": "high",
+      "note": "Wholly owned operating subsidiary.",
+      "parent": "NRG Energy, Inc."
+    },
+    {
+      "operator": "NRG Texas Power LLC",
+      "ticker": "NRG",
+      "confidence": "high",
+      "note": "Wholly owned operating subsidiary.",
+      "parent": "NRG Energy, Inc."
+    },
+    {
+      "operator": "New York Power Authority",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "NY State public-benefit corporation, no public equity."
+    },
+    {
+      "operator": "Northern Indiana Pub Serv Co",
+      "ticker": "NI",
+      "confidence": "high",
+      "note": "NIPSCO; NiSource retains 80.1% after a 2023 minority (19.9%) sale to Blackstone Infrastructure Partners \u2014 majority public-parent attribution still holds. Verified via WebSearch 2026-07-05.",
+      "parent": "NiSource Inc."
+    },
+    {
+      "operator": "Northern States Power Co - Minnesota",
+      "ticker": "XEL",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary (NSP-Minnesota).",
+      "parent": "Xcel Energy Inc."
+    },
+    {
+      "operator": "PSEG Nuclear LLC",
+      "ticker": "PEG",
+      "confidence": "high",
+      "note": "Wholly owned subsidiary.",
+      "parent": "Public Service Enterprise Group Inc."
+    },
+    {
+      "operator": "PacifiCorp",
+      "ticker": "BRK.B",
+      "confidence": "medium",
+      "note": "Wholly owned but two levels removed: PacifiCorp -> Berkshire Hathaway Energy -> Berkshire Hathaway Inc. Confidence held at medium \u2014 BHE's other assets dwarf any single plant's materiality to BRK's share price; discount heavily before use in any trading inference. Verified via WebSearch 2026-07-05.",
+      "parent": "Berkshire Hathaway Inc."
+    },
+    {
+      "operator": "Pacific Gas & Electric Co.",
+      "ticker": "PCG",
+      "confidence": "high",
+      "note": "Wholly owned regulated operating subsidiary.",
+      "parent": "PG&E Corp."
+    },
+    {
+      "operator": "STP Nuclear Operating Co",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "South Texas Project is jointly owned (Constellation Energy 42%, CPS Energy 42% municipal, Austin Energy 16% municipal per the 2024 ownership transaction) \u2014 no single controlling public ticker. Verified via WebSearch 2026-07-05."
+    },
+    {
+      "operator": "South Carolina Public Service Authority",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Santee Cooper; SC state-owned utility, no public equity."
+    },
+    {
+      "operator": "Southern Power Co",
+      "ticker": "SO",
+      "confidence": "high",
+      "note": "Wholly owned wholesale-generation subsidiary.",
+      "parent": "The Southern Company"
+    },
+    {
+      "operator": "Talen Montana LLC",
+      "ticker": "TLN",
+      "confidence": "high",
+      "note": "Talen re-listed on Nasdaq (TLN) after its 2022 Chapter 11 emergence. Verified via WebSearch 2026-07-05.",
+      "parent": "Talen Energy Corp."
+    },
+    {
+      "operator": "TalenEnergy Susquehanna LLC",
+      "ticker": "TLN",
+      "confidence": "high",
+      "note": "Verified via WebSearch 2026-07-05.",
+      "parent": "Talen Energy Corp."
+    },
+    {
+      "operator": "Tampa Electric Co",
+      "ticker": "EMA",
+      "confidence": "high",
+      "note": "Wholly owned subsidiary of Emera Inc., dual-listed NYSE/TSX: EMA since May 2025. Verified via WebSearch 2026-07-05.",
+      "parent": "Emera Inc."
+    },
+    {
+      "operator": "Tennessee Valley Authority",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "US federal government corporation; issues bonds, has no publicly traded equity."
+    },
+    {
+      "operator": "U S Bureau of Reclamation",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "US federal agency, no public equity."
+    },
+    {
+      "operator": "USACE Northwestern Division",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "US Army Corps of Engineers, federal agency, no public equity."
+    },
+    {
+      "operator": "Union Electric Co - (MO)",
+      "ticker": "AEE",
+      "confidence": "high",
+      "note": "d/b/a Ameren Missouri; wholly owned regulated operating subsidiary.",
+      "parent": "Ameren Corp."
+    },
+    {
+      "operator": "Virginia Electric & Power Co",
+      "ticker": "D",
+      "confidence": "high",
+      "note": "d/b/a Dominion Energy Virginia; wholly owned regulated operating subsidiary.",
+      "parent": "Dominion Energy, Inc."
+    }
+  ]
+}
