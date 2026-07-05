@@ -45,6 +45,7 @@ import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { fleetSeriesCached } from "./fleetUtilization";
+import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1515,6 +1516,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         count: kept.length,
         note: "owners are FAA registrants (trustee/leasing entities hide beneficial owners); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without coverage are absent, not zero; single-airframe registrants excluded from this payload (top= caps at 200)",
         owners: kept,
+      });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Everything Graph R1 (BUILD ORDER 3 #5, [PRODUCT]): per-site event
+  // timeline composed from archives we already record (alerts, fires,
+  // gauges, own traffic density). Raw overlay composition — each element
+  // labeled at its source stream; no ladder gate (standing rule).
+  app.get("/api/data/site-timeline/:siteId", async (req, res) => {
+    try {
+      const sites: SiteRef[] = ((datacoreSites as any).sites || [])
+        .filter((s: any) => s.lat != null && s.lon != null)
+        .map((s: any) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon }));
+      const wanted = sites.find((s) => s.id === req.params.siteId);
+      if (!wanted) { res.status(404).json({ error: "unknown site" }); return; }
+      res.set("Cache-Control", "public, max-age=1800");
+      const { timelines, as_of } = await siteTimelineCached(sites);
+      const t = timelines.get(wanted.id);
+      res.json({
+        kind: "raw",
+        source: "own archives: NWS alerts + FIRMS fires + USGS gauges + position density",
+        as_of,
+        site: wanted.id,
+        window_days: 7,
+        note: "events capped at 12 (newest first); zone-only alerts have no geometry and are excluded; density = archived points within 50 km under adaptive sampling (near-site is full-resolution); absent days are absent, not zero",
+        events: t?.events ?? [],
+        density: t?.density ?? {},
       });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });

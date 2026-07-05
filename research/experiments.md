@@ -13,6 +13,28 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PRODUCT] Everything Graph R1 PR-A: site event timeline route (BUILD ORDER 3 #5) (v1.0.123)
+
+- [T-DATACORE] First user-visible cross-stream join, composed
+  entirely from archives we already record. server/siteTimeline.ts:
+  per strategic site, last-7-day NWS alerts + FIRMS fire detections
+  + USGS gauge readings within 50 km (event-stream day-files), plus
+  our own aircraft/vessel archived-point density per day. ONE scan
+  pass computes all sites together, 6h-cached stale-served. Route
+  /api/data/site-timeline/:siteId (events capped 12 newest-first —
+  stated; zone-only alerts excluded per their stream's honesty;
+  absent days absent, never zero; density fairness note: near-site
+  traffic archives at full resolution by design, so day-over-day
+  comparisons are fair). Battery 4 tests on writer-shaped fixtures.
+- BUILD ORDER 3 #4 (CBP container imports) ROUTED AROUND:
+  api.census.gov now requires a key on every request (probed —
+  porths redirects to missing_key). Free instant signup =
+  BLOCKED-FOR-MIKE #6 with build-first analysis (port-authority
+  HTML scraping = 2 ports, fragile, materially worse; recommend the
+  key). Nothing blocked — the queue moved on per the directive.
+- PR-B next: compact timeline section in the /data site detail card
+  + harness (client half, own PR).
+
 ## 2026-07-05 — [PIPELINE] NOAA CPC degree days (BUILD ORDER 3 #3) (v1.0.122)
 
 - [T-DATACORE] scripts/cpc_degree_days.py: StatesCONUS
