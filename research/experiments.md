@@ -13,6 +13,38 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] FINRA short-volume deep backfill — ~2y history self-fills on prod (v1.0.138)
+
+- TERRITORY: T-DATACORE. Follows gate 1 (passed, entry below):
+  dated CNMS files persist for years, so history someone else
+  recorded is history we can still capture — accumulation
+  substitutes for purchase. Sessions are ephemeral; the honest home
+  for ~500 trading days (~75MB gz) is the PROD VOLUME via the stream
+  itself: bootShortVolPoll now runs a one-shot 750-calendar-day
+  backfill AFTER the normal 7-day refresh (route serves current data
+  within seconds; history fills in the background, ~4 min at 300ms
+  spacing, one file in memory at a time).
+- COMPLETION-MARKER SEMANTICS (a count trigger was designed and
+  REJECTED mid-build): a threshold like "skip if >=30 day-files"
+  would mistake an INTERRUPTED backfill for a finished one. Instead
+  a completed pass writes backfill_done.json (with rt + file count);
+  an interrupted pass leaves no marker, so the next boot re-runs and
+  date-level dedup resumes it for free. Test pins all three states
+  (complete -> marker; marker -> zero refetches; marker removed ->
+  idempotent resume).
+- EVENT-LOOP GUARD (shadowstats class, caught at design time): the
+  post-backfill gzip sweep would gzipSync ~500 x 1.5MB files in one
+  synchronous loop — tens of seconds of blocked loop. The poller
+  path now uses gzipOldShortVolDaysAsync (yields via setImmediate
+  between files); the sync variant remains for tests.
+- TEST LESSON (small): archivedDates is module state shared across
+  a test file's cases by design (date-level dedup) — fixtures must
+  use disjoint dates; the backfill test initially collided with an
+  earlier case's 2026-07-02 and read 2/3.
+- Tests 8/8; tsc 64 baseline; pytest 397/1. Next on this root:
+  verify backfill_done.json on prod after deploy (day_files should
+  read ~490-510), then pre-state the gate-2 design before scoring.
+
 ## 2026-07-05 — [PIPELINE] FINRA short-volume GATE 1 PASSED — 100.000% sum-of-parts identity, n=12,240 (scripts/finra_gate1.ts, session-run)
 
 - LADDER GATE 1 (DATA layer) for the v1.0.133 stream, run the same
