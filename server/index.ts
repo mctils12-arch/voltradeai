@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
 import { registerRoutes } from "./routes";
 import { registerBillingRoutes } from "./billing";
 import { registerNewsletterRoutes } from "./newsletter";
@@ -7,6 +8,13 @@ import { createServer } from "http";
 
 const app = express();
 app.set("trust proxy", true); // Bug 36: Railway runs behind a reverse proxy
+// [REPAIR 2026-07-05, /data load perf] Response compression. Railway's edge
+// does NOT gzip for us — an aircraft snapshot was ~0.8MB raw (~120KB
+// gzipped) and the powerplants static JSON 800KB (~200KB), refetched by
+// every fresh visitor. The default filter skips already-compressed types
+// (the wxtile PNG proxy stays untouched). Response-side only, so the
+// Stripe webhook's raw-body parsing below is unaffected.
+app.use(compression());
 const httpServer = createServer(app);
 
 declare module "http" {

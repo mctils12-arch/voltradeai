@@ -715,7 +715,14 @@ async function main() {
             const m = window.__vtMap;
             if (!(m && m.getLayer("wx-temp_new") && m.getLayer("wx-wind_new") &&
                   m.getLayer("wx-wind-arrows") && m.areTilesLoaded())) return false;
-            try { return m.queryRenderedFeatures({ layers: ["wx-wind-arrows"] }).length > 0; } catch { return false; }
+            // wait for BOTH label sets to actually place — sampling after
+            // only the arrows placed raced ahead of temp-label placement at
+            // 1440 (flaky false-fail seen 2026-07-05; labels were visibly
+            // rendered in the screenshot taken a second later)
+            try {
+              return m.queryRenderedFeatures({ layers: ["wx-wind-arrows"] }).length > 0 &&
+                     m.queryRenderedFeatures({ layers: ["wx-temp-labels"] }).length > 0;
+            } catch { return false; }
           });
           if (mounted) break;
           await page.waitForTimeout(250);
