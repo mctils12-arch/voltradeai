@@ -104,9 +104,14 @@ no separate site.
 
 ## Build plan (each its own PR)
 
-1. `datacore/entity_map.json` for the ~30 operators in sites +
-   top-100 plants, verified; builder test pins coverage honesty
-   (unmapped stays unmapped). [also unblocks fusion (b) gate 1]
+1. **[SHIPPED 2026-07-05, v1.0.131]** `datacore/entity_map.json` for
+   the sites + top-100 plants (69 operator strings total, 44 mapped/25
+   honest-unmapped), verified via live search against SEC filings/IR
+   pages; `scripts/build_entity_map.py` is the builder,
+   `server/entityMap.test.ts` pins coverage honesty (unmapped stays
+   unmapped; fails if either source registry grows an unresearched
+   operator string). Also unblocks fusion (b) gate 1. See
+   research/open_questions.md R5 for the full trace.
 2. `server/entityGraph.ts` + `/api/data/graph` + tests (fixture
    archives → expected nodes/edges; provenance/confidence pins).
 3. /data graph panel per DESIGN.md (self-see, three widths, theme

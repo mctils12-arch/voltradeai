@@ -507,6 +507,33 @@ R5. **THE EVERYTHING GRAPH — flagship (charter directive 2026-07-04).**
     lands — RAW with provenance; interpretations on top stay
     ladder-gated.
 
+    **[STEP 1 SHIPPED 2026-07-05, v1.0.131]** `datacore/entity_map.json`
+    built via `scripts/build_entity_map.py`: every `operator` string in
+    `strategic_sites.json` (13) + every `owner` string among
+    `us_power_plants.json`'s top-100-by-capacity plants (56) = 69
+    entities, hand-verified against SEC filings/investor-relations
+    pages via live search this session (not recalled from training
+    data alone — regulated-utility subsidiary structures are stable
+    but merchant-generator ownership churns; the search caught two
+    registry entries that are now STALE: `NRG Homer City Services LLC`
+    (plant retired 2023, demolished 2025 — NRG was the contracted
+    operator, never the owner) and `Louisiana Generating LLC` (sold by
+    NRG to the now-private Cleco in 2019)). 44/69 mapped (high or
+    medium confidence + parent + provenance note), 25/69 honest
+    unmapped gaps (federal/state/municipal authorities, privately-held
+    post-bankruptcy/PE-owned merchant generators, fragmented joint
+    ventures like Keystone/Conemaugh's KeyCon Operating LLC) — no
+    guessed tickers anywhere. `server/entityMap.test.ts` pins
+    structure, the RAW/no-predictive-claim doc language, and coverage
+    honesty (every current site operator + top-100 plant owner has an
+    entry; the test fails loudly if either source registry grows a new
+    operator string this table hasn't researched yet). ALSO UNBLOCKS:
+    fusion hypothesis (b) generation×operator gate 1 (its own
+    registry-owner→ticker mapping requirement is now satisfied by this
+    same table). NEXT (unclaimed): step (2) `server/entityGraph.ts` +
+    `/api/data/graph` — reads this map + the Form4/sites/plants/
+    portDwell sources per the design doc's exact node/edge shapes.
+
 R6. **Dashboards from monitoring we already emit (charter directive
     2026-07-04).** Three /data panels, no new collection: (a)
     SIGNAL-STRENGTH — ladder position of every root (gate passed/date/
