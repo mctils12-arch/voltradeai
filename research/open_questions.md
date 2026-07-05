@@ -931,6 +931,18 @@ the archives we now have — the compounding asset is the accumulation)
    join accuracy vs >=20 hand-verified known corporate tails; GATE 2:
    utilization deltas vs subsequent 5/20d returns and earnings-date
    proximity, base-rate-controlled.
+
+   GATE-1 CRITERIA (pre-stated 2026-07-05 BEFORE sampling, per
+   Reasoning Standard #10): sample 20 archived hexes stratified as
+   10 highest-point-count spine-corporate/llc hexes + 10 uniform-
+   random spine hexes; fetch INDEPENDENT registration via
+   api.adsbdb.com (probed: returns registration + owner; both known
+   test hexes matched exactly); PASS = >=90% exact N-number match
+   among hexes adsbdb can resolve, with every mismatch investigated
+   and logged. Unresolvable hexes are excluded from the denominator
+   and counted honestly. The Mode S join itself is deterministic —
+   this gate tests whether the FAA snapshot's hex assignments match
+   independent reality (stale registrations, hex reuse).
 2. EIA WEEKLY PETROLEUM + NATGAS STORAGE (new root, keyless XLS
    family PROVEN by the Cushing comparator; ngs.html 302s — exact
    endpoint verified at build like STB was). Archive the weekly

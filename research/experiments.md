@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Fleet utilization v1 + GATE 1 PASS 20/20 (BUILD ORDER 3 #1) (v1.0.120)
+
+- [T-DATACORE] GATE 1 (spine join accuracy) PASSED under criteria
+  pre-stated in open_questions.md BEFORE sampling: 20 stratified
+  hexes (10 top-count corporate/llc + 10 seeded-random spine hexes)
+  vs INDEPENDENT adsbdb registrations -> 20/20 exact N-number
+  matches, 0 unresolvable (criteria floor was 90%). First ladder
+  gate to PASS tonight after three honest kills.
+- FINDING FOR GATE 2 (logged now, before the study): the top
+  corporate hexes are dominated by TRUSTEE/LEASING shells (TVPX x3,
+  UMB Bank trustee, leasing LLCs) — FAA registrants hide beneficial
+  owners, so the utilization x earnings join will need a
+  registrant->operator resolution step (or restrict to
+  self-registered operators like the airlines). Payload labels
+  owners as REGISTRANTS, never "the company flying it".
+- server/fleetUtilization.ts: airborne-point sessionization per hex
+  (gap > 45 min = new flight; hours = session span sums, LOWER
+  BOUNDS under adaptive thinning; ground points excluded), weekly
+  Monday buckets (absent weeks stay absent, never zero), per-owner
+  aggregation over spine corporations+LLCs; 6h-cached scan;
+  /api/data/fleet-utilization (kind: derived, >=2 airframes).
+  Battery 4 tests (week bucketing, sessionization ground truth incl.
+  a test-fixture bug where the 'second flight' itself exceeded the
+  gap — the code was right, the fixture was wrong; spine join with
+  ground/non-corporate exclusions; missing-input grace).
+- GATE 2 (not attempted): utilization deltas vs 5/20d returns +
+  earnings proximity, base-rate-controlled; needs archive depth +
+  the registrant->operator step above.
+
 ## 2026-07-05 — [RESEARCH] BUILD ORDER 3 filed — fusion-forward (docs)
 
 - [T-DATACORE] Standing directive: queue emptied (Build Order 2 went
