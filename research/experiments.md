@@ -13,6 +13,29 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RULE-REVIEW] Counterfactual-logger check-in + natgas gate-2 design pre-stated (BUILD ORDER 4 #4+#6) (docs)
+
+- [RULE-REVIEW] B4-6 VERDICT: the CLAUDE.md counterfactual mandate is
+  SUBSTANTIALLY BUILT — shadow_portfolio.log_candidate() records
+  every scanned candidate with features + nightly-backfilled
+  +5/+10/+20d outcomes, so threshold rules get prevention-P&L
+  post-hoc by re-applying predicates to the archive (strictly better
+  than block-event logging for those rules). THE GAP: block-reason
+  tags for rules whose predicates need non-logged state (correlation
+  blocks, halts, quote-time spreads) — build plan filed for a T-BOT
+  session (logging-only at rejection sites, mechanisms untouched);
+  first readout unchanged at >=90d shadow history (~2026-10-02).
+- [RESEARCH] B4-4: natgas-storage x degree-day gate-2 design
+  PRE-STATED before any overlapping live week exists (expanding-
+  window degree-day-implied draw; residual sign vs UNG Thu->Wed
+  returns vs base rate, regime-split; PASS = >=60% sign hit on
+  n>=12 out-of-sample weeks + positive excess; prior ~30% with the
+  tank-fill posterior stated). Runs ~2026-09-27.
+- Territory note: both filed as docs because the remaining B4 build
+  items are T-BOT (#6 gap) and T-CLIENT (#2 UI scalability) — this
+  session declared T-DATACORE; the partition holds and nothing
+  idles (SESSION BUDGET rule 3).
+
 ## 2026-07-05 — [PIPELINE] Operator resolution — gate PASSED 98.4% group-aware, n=2,498 (BUILD ORDER 4 #1) (v1.0.127)
 
 - [T-DATACORE] server/operatorResolution.ts: callsign-prefix
