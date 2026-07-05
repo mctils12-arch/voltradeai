@@ -13,6 +13,33 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] BUILD ORDER 5 CLOSED — 5/5 buildable items shipped same-day; USPTO probe verdict filed as BLOCKED-FOR-MIKE #7 (docs)
+
+- SCOREBOARD (filed #253 and closed the same day): #1 FINRA short
+  volume v1.0.133 (LIVE on prod, 12,240 symbols), #2 CFTC COT
+  v1.0.134 (LIVE, 274 markets), #3 Wikimedia attention v1.0.135,
+  #4 FAA airport status v1.0.136, #5 CBP border waits v1.0.137.
+  Five new always-on archives; every hypothesis gate-locked with
+  priors stated at filing; map layers for #4/#5 deferred honestly
+  (need coordinate tables — filed as next slices).
+- #6 USPTO probe (per its probe-first instruction): PatentsView has
+  required a free API key since 2021 (legacy keyless endpoint 301s
+  away; the request form is human-facing) — BLOCKED-FOR-MIKE #7
+  filed with the free-alternative analysis (weekly bulk XML,
+  keyless but heavy). ALSO: search.patentsview.org 502s through the
+  session proxy and developer.uspto.gov 503s — first build session
+  after the key re-probes reachability (Railway-side may differ;
+  the key-gated pattern covers either).
+- Probe-discipline lessons this build order (now standing): a
+  status-200 probe is not a BODY probe (CBP's RSS path served an
+  HTML SPA); named-field sources beat headerless positional files
+  even when the flat file probed fine (COT); per-item live probes
+  before seeding curated maps (RIOT's renamed article).
+- GATE-1 QUEUE created by this build order: FINRA parsed ratios vs
+  FINRA monthly aggregates (sampled month); attention views vs
+  known events on 10 tickers (~2 weeks of archive); COT archived
+  weeks vs CFTC historical annual files (when depth allows).
+
 ## 2026-07-05 — [PIPELINE] CBP border wait times stream (BUILD ORDER 5 #5) — change-only archiver + /api/data/border-waits (v1.0.137)
 
 - TERRITORY: T-DATACORE. server/cbpBorderWait.ts polls
