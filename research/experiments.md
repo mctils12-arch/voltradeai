@@ -2842,3 +2842,83 @@ exception to append-only; the log below it stays append-only)
   SPINOUT-READY / RAW-vs-SIGNAL rule.
 - STARVED: no — this was a fully-specified queued item, executed start
   to finish in one PR.
+
+## 2026-07-05 — [PIPELINE] CFTC Commitments of Traders (COT) — rescued from a stalled dirty PR and merged (v1.0.86)
+
+- Territory: T-BOT (new top-level Python module wired into
+  server/bot.ts's tier3Strategic; storage_config.py path additions).
+- SESSION-START CHECK (Repair Mandate + system health): full offline
+  Python gate re-verified green (328 passed, 1 skipped, after this PR's
+  17 new tests — was 311/1 before). No KNOWN BROKEN item required
+  [REPAIR] this session; #10 (dead SCORE_BAND config) stays correctly
+  deferred pending shadow_portfolio history, per its own entry.
+- FINDING (the actual highest-value action this session): PR #134
+  ("CFTC Commitments of Traders — free positioning-data pipeline,
+  v1.0.58") was opened 2026-07-04 from a since-abandoned branch
+  (claude/dazzling-planck-64joy2), fully built (`cftc_cot.py`,
+  `test_cftc_cot.py`, 17/17 offline tests, live-verified 156/156-week
+  backfill across all 7 symbols, 0 validation rejections), but never
+  merged — `mergeable_state: "dirty"`, `total_count: 0` check runs, main
+  never advanced past its pre-PR base. This is a live instance of the
+  OPS GOTCHA already on file ("a dirty claude/* PR stalls SILENTLY: no
+  merge ref -> pull_request workflows never start -> no checks, no
+  automerge, no error"). Consequence: an entire validated EDGE DOCTRINE
+  #1 pipeline sat invisible for a full day — zero references anywhere
+  in this file or open_questions.md on main (`grep -rn cftc` across
+  both confirmed zero hits before this entry), meaning any session that
+  read research/ before this one would have had no idea the work
+  existed and could have duplicated it from scratch.
+- WHY REBUILD-FROM-DIFF INSTEAD OF A GIT MERGE/CHERRY-PICK: the stale
+  branch's base predates ~50 merged PRs (package.json version 1.0.57 vs
+  current 1.0.85; research/experiments.md and open_questions.md have
+  been rewritten under it many times over) — a cherry-pick would
+  conflict on every touched shared file. Per EDGE DOCTRINE #3 (COMPILE
+  KNOWLEDGE INTO CODE — never re-reason what's already been reasoned),
+  the code itself (`cftc_cot.py`, `test_cftc_cot.py`, the
+  storage_config.py path additions, the tier3Strategic wiring diff) was
+  reused byte-for-byte from the stale PR's diff; only the
+  version-dependent surroundings (package.json bump, this log, the
+  open_questions.md entry, the bot.ts insertion point) were re-applied
+  fresh against current main.
+- RE-VERIFIED FRESH (did not just trust the year-old PR description):
+  `python3 -m pytest -q test_cftc_cot.py` 17/17 pass; CI's 4-file
+  offline subset 120 passed/1 skipped (unchanged baseline); full bare
+  `pytest -q` 328 passed/1 skipped (was 311/1 — net +17, zero
+  regressions); `npx tsc --noEmit` diffed before/after the bot.ts change
+  line-for-line: exactly one new error, `cotOut.trim()` on a `Buffer`
+  return type, the identical pre-existing pattern already present at
+  every other `execPythonSerialized(...).stdout.trim()` call site in
+  this same function (12 such errors already existed; now 13) — no new
+  error *category*; `npm run build` clean. LIVE-VERIFIED against the
+  real CFTC Socrata API from this session's sandbox: 156/156 weeks
+  backfilled for all 7 symbols (GLD/SLV/USO/CORN/TLT/SPY/QQQ), 0
+  accounting-identity rejections; second immediate call confirmed the
+  20h staleness guard returns `{"status": "skipped"}` with zero network
+  calls. Local test-run archive/checkpoint files removed after
+  verification (not part of the repo; would only ever live on the
+  Railway volume).
+- WIRED AT GATE 1 ONLY: `server/bot.ts` `tier3Strategic()` step 5 calls
+  `run_daily_update()` every hourly cycle; the module's own guard makes
+  23 of 24 calls a free file-mtime check. Deliberately NOT wired into
+  `deep_score`/`macro_data` — gate 2 (does COT-index positioning predict
+  forward returns vs. a random-entry baseline) is unstarted, logged with
+  a stated prior and kill criteria in open_questions.md.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): one more hourly subprocess
+  call in tier3Strategic -> guarded to a cheap file check on 23/24 calls
+  -> zero effect on deep_score/scoring/sizing/position count (nothing
+  reads COT data yet) -> zero live-trading behavior change from this PR.
+  The only observable effect until gate 2 ships is a growing archive
+  file on the Railway volume.
+- PR #134 (the stalled original) is being closed as superseded by this
+  session's PR, which carries its full delta forward — no unique work
+  from #134 is lost. Recorded here so the supersession is traceable from
+  the log, not just the PR close comment.
+- GATE 2 NOT ATTEMPTED THIS SESSION — same prior and kill criteria as
+  the original 2026-07-04 build (real edge expected on the commodity
+  contracts, weak-to-none expected on SPY/QQQ given the legacy report's
+  weaker financial-futures classification); ready to run next session
+  now that the backtest engine already exists and 156 weeks are
+  archived from day one.
+- STARVED: no — recovering already-validated, already-tested work that
+  was about to be silently lost was higher expected value than starting
+  a brand-new pipeline from zero this session.

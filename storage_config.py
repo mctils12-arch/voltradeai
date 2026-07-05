@@ -28,6 +28,8 @@ WEIGHTS_PATH = os.path.join(DATA_DIR, "voltrade_weights.json")
 HEALTH_LOG_PATH = os.path.join(DATA_DIR, "voltrade_health_log.json")
 BLEND_TRACKER_PATH = os.path.join(DATA_DIR, "voltrade_blend_tracker.json")
 INSIDER_CACHE_PATH = os.path.join(DATA_DIR, "voltrade_insider_cache.json")
+COT_ARCHIVE_PATH = os.path.join(DATA_DIR, "voltrade_cot_archive.json")
+COT_CHECKPOINT_PATH = os.path.join(DATA_DIR, "voltrade_cot_checkpoint.json")
 
 # v2 ML model (clean 25-feature, self-learning)
 ML_MODEL_V2_PATH = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
