@@ -13,6 +13,54 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] ✅ PRIORITY-1 ROOT CAUSE FIXED — Railway logs (via human) showed Node OOM at ~509MB under the 512 cap; boot archive folds now stream with bounded state + cgroup-aware heap (v1.0.143)
+
+- ROOT CAUSE (from Railway logs, human-read — closing the loop on the
+  v1.0.141 alarm): "JavaScript heap out of memory" at ~509MB, ~20s
+  after startup, under run_with_daemon.sh's hardcoded
+  --max-old-space-size=512. Local repro was clean because local
+  lacks prod's data volume.
+- THE OFFENDER: readVesselTracksAsync — the R4/R5 "streaming" fix
+  streamed for the EVENT LOOP but MATERIALIZED every in-window point
+  of every vessel into a Map before analytics. The eager boot
+  pollers (shadowstats 72h + portdwell 168h) fed it the vessel
+  archive, which grew to ~141MB gz (~7M points, >800MB as JS
+  objects) — heap crossed the cap the moment boot folds ran. Same
+  "works at day-0 size, dies as archives grow" class as the
+  event-loop defect, in the MEMORY dimension. The metronomic ~61s
+  was OOM-abort + Railway ALWAYS-restart; the healthcheckTimeout=60
+  match was coincidence. The FINRA backfill was an amplifier, not
+  the cause (loop survived its default-off — posterior updated as
+  pre-stated).
+- FIX 1 (stream, don't slurp): new foldVesselArchiveAsync hands each
+  parsed point to a callback and retains NOTHING. ShadowAggregator
+  (online gap/loiter/identity with per-vessel bounded state: last
+  point, first point, name sets, in-zone speed runs only) and
+  VisitDetector (the exact detectVisits state machine fed
+  point-by-point, retaining only the current in-port run) replace
+  the materializing path in BOTH async pipelines. The materializing
+  readers remain ONLY for tests; the pre-existing async-vs-sync
+  deepEqual ratchets pin the online folds output-identical (13/13).
+  Shared aggregateVisits tail = one stats engine, no divergence.
+- FIX 2 (heap fits the container): run_with_daemon.sh (FROZEN —
+  HUMAN-AUTHORIZED this edit) now reads the cgroup memory limit and
+  sets --max-old-space-size to 60% of it (floor 512, cap 6144,
+  override VOLTRADE_NODE_HEAP_MB), logging the choice at boot.
+- DETECTION RATCHETS: /api/health server check now carries
+  heap_used_mb + rss_mb next to uptime_s (growth visible BEFORE the
+  cap); NEW server/archiveFoldMemory.test.ts — behavioral (folding a
+  synthetic 300K-point archive must retain <30MB heap; a slurp
+  measures >40MB) + source (no runtime module may CALL the
+  materializing readers; async paths in the two modules asserted
+  clean).
+- VERIFICATION (pre-stated): after deploy, /api/health uptime_s must
+  climb past 300s; then heap_used_mb observed at steady state.
+- LESSON (standing candidate): "streaming" has TWO dimensions — a
+  reader can yield the event loop and still slurp the heap. Archive
+  consumers must state BOTH bounds: compute off the request path AND
+  memory bounded in archive size. The scan-class rule (v1.0.125)
+  should be read as covering both.
+
 ## 2026-07-05 — [REPAIR] Durability audit (human-directed) — every write path swept vs the /data volume; 2 strays (1 migrated, 1 wishlisted); loss report; ratchets both runtimes (v1.0.142)
 
 - VOLUME MOUNT VERIFIED: /data (storage_config.py DATA_DIR ->

@@ -1102,7 +1102,15 @@ print(json.dumps(data))
     // ~61s for 2+ hours on 2026-07-05 while every health probe read "ok"
     // (each probe hit a young-but-alive process). Low uptime on repeated
     // reads IS the restart-loop signal; the DAILY check must alarm on it.
-    checks.checks.server = { status: "ok", uptime_s: Math.round(process.uptime()) };
+    // heap/rss (OOM postmortem): the crash driver was heap exhaustion —
+    // memory must be readable from outside so growth is seen BEFORE the cap.
+    const mu = process.memoryUsage();
+    checks.checks.server = {
+      status: "ok",
+      uptime_s: Math.round(process.uptime()),
+      heap_used_mb: Math.round(mu.heapUsed / 1048576),
+      rss_mb: Math.round(mu.rss / 1048576),
+    };
     
     // Check 2: SQLite database
     try {

@@ -201,11 +201,150 @@ export function readVesselTracksAsync(windowHours: number, baseDir?: string, now
   });
 }
 
-/** Async stats over the streaming reader — the only variant routes may use. */
+/** [OOM REPAIR 2026-07-05] Generic streaming fold over the vessel archive:
+ *  parses each in-window point and hands it to `onPoint` WITHOUT retaining
+ *  it. The materializing reader above collects every point of every vessel
+ *  into a Map — at the archive's current size (~141MB gz, ~7M points) that
+ *  is >800MB of JS objects, and prod OOM-crash-looped every ~61s under the
+ *  512MB heap cap the moment the eager boot pollers ran (Railway log:
+ *  "JavaScript heap out of memory" ~20s after startup). Async analytics now
+ *  fold online with bounded per-vessel state; the materializing reader
+ *  stays ONLY for tests and is pinned equal by the async-vs-sync ratchets.
+ *  Points arrive per-vessel in near-chronological order (hourly files,
+ *  append-ordered); residual disorder is minutes, far under the 2h/6h
+ *  analytic thresholds. */
+export function foldVesselArchiveAsync(windowHours: number,
+                                       onPoint: (mmsi: string, p: Pt) => void,
+                                       baseDir?: string, nowMs?: number): Promise<void> {
+  const base = baseDir || archiveBaseDir();
+  const dir = path.join(base, "vessels");
+  const now = nowMs ?? Date.now();
+  const cutoff = Math.floor((now - windowHours * 3600_000) / 1000);
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir).sort(); } catch { return Promise.resolve(); }
+  const wanted = files.filter((f) => {
+    const stamp = Date.parse(`${f.slice(0, 10)}T${f.slice(11, 13)}:00:00Z`);
+    return Number.isFinite(stamp) && stamp >= now - (windowHours + 1) * 3600_000;
+  });
+  const readOne = (f: string) => new Promise<void>((resolve) => {
+    try {
+      let stream: NodeJS.ReadableStream = fs.createReadStream(path.join(dir, f));
+      if (f.endsWith(".gz")) stream = stream.pipe(zlib.createGunzip());
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+      rl.on("line", (line) => {
+        if (!line) return;
+        try {
+          const p = JSON.parse(line);
+          if (p.t < cutoff || p.la == null || p.lo == null || !p.i) return;
+          onPoint(p.i, { t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
+        } catch {}
+      });
+      rl.on("close", () => resolve());
+      stream.on("error", () => resolve());
+    } catch { resolve(); }
+  });
+  return wanted.reduce((p, f) => p.then(() => readOne(f)), Promise.resolve()).then(() => undefined);
+}
+
+/** Online shadow-stats aggregator — bounded state per vessel:
+ *  last point (gap detection), first point (identity hull-swap), name set
+ *  membership, and per-zone in-zone speed runs (in-zone points only — a
+ *  tiny subset of the archive). Produces output IDENTICAL to
+ *  statsFromTracks on time-ordered input (pinned by the ratchet test). */
+export class ShadowAggregator {
+  private zones: ShadowZone[];
+  private points = 0;
+  private prev = new Map<string, Pt>();       // last point per vessel
+  private first = new Map<string, Pt>();      // first point per vessel
+  private byName = new Map<string, Set<string>>();
+  private inZone = new Map<string, { t0: number; t1: number; speeds: number[] }>(); // key mmsi|zone
+  private gaps: GapEvent[] = [];
+  constructor(zones: ShadowZone[], private minGapHours = 6, private minDistanceKm = 100) {
+    this.zones = zones;
+  }
+  push(mmsi: string, p: Pt): void {
+    this.points++;
+    if (!this.first.has(mmsi)) this.first.set(mmsi, p);
+    const prev = this.prev.get(mmsi);
+    if (prev && p.t > prev.t) {
+      const dtH = (p.t - prev.t) / 3600;
+      if (dtH >= this.minGapHours) {
+        const dKm = kmBetween(prev.la, prev.lo, p.la, p.lo);
+        if (dKm >= this.minDistanceKm) {
+          this.gaps.push({
+            mmsi, name: p.c || prev.c,
+            darkAt: prev.t, reappearAt: p.t,
+            gapHours: Math.round(dtH * 10) / 10, distanceKm: Math.round(dKm),
+            from: [prev.la, prev.lo], to: [p.la, p.lo],
+          });
+        }
+      }
+    }
+    if (!prev || p.t >= prev.t) this.prev.set(mmsi, p);
+    if (p.c) {
+      let s = this.byName.get(p.c);
+      if (!s) { s = new Set(); this.byName.set(p.c, s); }
+      s.add(mmsi);
+    }
+    for (const z of this.zones) {
+      if (kmBetween(p.la, p.lo, z.lat, z.lon) > z.radius_km) continue;
+      const key = `${mmsi}|${z.id}`;
+      const run = this.inZone.get(key);
+      if (!run) this.inZone.set(key, { t0: p.t, t1: p.t, speeds: [p.v ?? 0] });
+      else { run.t1 = Math.max(run.t1, p.t); run.speeds.push(p.v ?? 0); }
+    }
+  }
+  finish(windowHours: number, minLoiterHours = 4, maxMedianKts = 2): ShadowStats {
+    const loiter: Record<string, number> = {};
+    for (const z of this.zones) loiter[z.id] = 0;
+    this.inZone.forEach((run, key) => {
+      if (run.speeds.length < 3) return;
+      if ((run.t1 - run.t0) / 3600 < minLoiterHours) return;
+      const speeds = run.speeds.sort((a, b) => a - b);
+      if (speeds[Math.floor(speeds.length / 2)] > maxMedianKts) return;
+      const zid = key.slice(key.indexOf("|") + 1);
+      loiter[zid] = (loiter[zid] || 0) + 1;
+    });
+    let identity = 0;
+    this.byName.forEach((s) => { if (s.size > 1) identity += s.size - 1; });
+    const entries: string[] = [];
+    this.prev.forEach((_v, k) => entries.push(k));
+    for (const aM of entries) {
+      const lastA = this.prev.get(aM)!;
+      for (const bM of entries) {
+        if (aM === bM) continue;
+        const firstB = this.first.get(bM)!;
+        const dtH = (firstB.t - lastA.t) / 3600;
+        if (dtH <= 0 || dtH > 12) continue;
+        if (kmBetween(lastA.la, lastA.lo, firstB.la, firstB.lo) <= 20) identity++;
+      }
+    }
+    const gaps = this.gaps.sort((a, b) => b.gapHours - a.gapHours);
+    return {
+      window_hours: windowHours,
+      vessels_seen: this.prev.size,
+      points_read: this.points,
+      gap_events: gaps.length,
+      gap_examples: gaps.slice(0, 5),
+      identity_candidates: identity,
+      loiter_events: Object.values(loiter).reduce((s, n) => s + n, 0),
+      loiter_by_zone: loiter,
+      caveat: "RAW statistics from our own terrestrial-AIS archive. A gap can be " +
+              "coverage loss, not dark sailing — per-vessel claims are SIGNAL-class " +
+              "and gated until validated against documented shadow-fleet vessels " +
+              "(ladder gate 1; see research/open_questions.md).",
+    };
+  }
+}
+
+/** Async stats — the only variant routes may use. Online fold, bounded
+ *  memory; output pinned identical to the materializing sync path by the
+ *  ratchet test. */
 export async function computeShadowStatsAsync(zones: ShadowZone[], windowHours = 72,
                                               baseDir?: string, nowMs?: number): Promise<ShadowStats> {
-  const tracks = await readVesselTracksAsync(windowHours, baseDir, nowMs);
-  return statsFromTracks(tracks, zones, windowHours);
+  const agg = new ShadowAggregator(zones);
+  await foldVesselArchiveAsync(windowHours, (mmsi, p) => agg.push(mmsi, p), baseDir, nowMs);
+  return agg.finish(windowHours);
 }
 
 export function computeShadowStats(zones: ShadowZone[], windowHours = 72,

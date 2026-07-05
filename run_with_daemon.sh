@@ -10,7 +10,25 @@
 
 set -e
 
-NODE_CMD="node --max-old-space-size=512 dist/index.cjs"
+# Heap sizing (2026-07-05, HUMAN-AUTHORIZED edit of this frozen file —
+# Priority-1 postmortem): the hardcoded 512MB cap OOM-crash-looped prod
+# every ~61s once the vessel archive outgrew what the boot folds could
+# hold ("JavaScript heap out of memory" at ~509MB in Railway logs). Read
+# the container's cgroup memory limit and give Node 60% of it, reserving
+# headroom for the Python daemon (self-capped 1GB) + OS. Override with
+# VOLTRADE_NODE_HEAP_MB; floor 512, cap 6144.
+LIMIT_BYTES=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo "")
+if [[ "$LIMIT_BYTES" =~ ^[0-9]+$ ]] && [ "$LIMIT_BYTES" -lt 274877906944 ]; then
+  LIMIT_MB=$((LIMIT_BYTES / 1048576))
+else
+  LIMIT_MB=2048   # unknown or unlimited cgroup: conservative default
+fi
+HEAP_MB=${VOLTRADE_NODE_HEAP_MB:-$((LIMIT_MB * 6 / 10))}
+[ "$HEAP_MB" -lt 512 ] && HEAP_MB=512
+[ "$HEAP_MB" -gt 6144 ] && HEAP_MB=6144
+echo "[supervisor] cgroup limit ${LIMIT_MB}MB -> node --max-old-space-size=${HEAP_MB}"
+
+NODE_CMD="node --max-old-space-size=$HEAP_MB dist/index.cjs"
 
 if [ "$VOLTRADE_DAEMON_ENABLED" = "false" ]; then
   echo "[supervisor] VOLTRADE_DAEMON_ENABLED=false — running Node only"
