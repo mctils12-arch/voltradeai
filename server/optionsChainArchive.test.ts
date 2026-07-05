@@ -96,3 +96,43 @@ test("wiring pinned: manifest exists with the indicative label; routes boots the
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
   assert.ok(routes.includes("bootChainArchive"), "routes.ts must boot the daily chain archiver");
 });
+
+// ── [REPAIR 2026-07-05, audit defect #4] day-loss + holiday + gzip ──────────
+import { parseMarketHolidays, shouldClaimDay, gzipOldChainDays } from "./optionsChainArchive";
+import zlibT from "zlib";
+
+test("parseMarketHolidays reads the real market_calendar.py (frozen source of truth, parsed not duplicated)", () => {
+  const py = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "..", "market_calendar.py"), "utf8");
+  const h = parseMarketHolidays(py);
+  assert.ok(h.has("2026-07-03"), "July 3 (the holiday the archiver wrongly ran on) must parse");
+  assert.ok(h.has("2026-12-25") && h.has("2026-01-01"));
+  assert.ok(h.size >= 10, `expected >=10 NYSE closures, got ${h.size}`);
+});
+
+test("shouldRunNow skips market holidays", () => {
+  // Fri 2026-07-03 17:00 ET = 21:00 UTC — after the close, weekday, but a full closure
+  const holidayEvening = Date.parse("2026-07-03T21:00:00Z");
+  const h = new Set(["2026-07-03"]);
+  assert.equal(shouldRunNow(null, holidayEvening, h).run, false, "holiday must not run");
+  assert.equal(shouldRunNow(null, holidayEvening, new Set()).run, true, "same instant runs when not a holiday");
+});
+
+test("shouldClaimDay: crash-safety semantics — total failure never claims, partial success does", () => {
+  assert.equal(shouldClaimDay({ underlyings: 120, contracts: 50000, failures: 3 }), true, "partial failure claims");
+  assert.equal(shouldClaimDay({ underlyings: 120, contracts: 0, failures: 120 }), false, "total failure retries");
+  assert.equal(shouldClaimDay({ underlyings: 0, contracts: 0, failures: 0 }), true, "empty universe is not a failure");
+});
+
+test("gzipOldChainDays compresses 2-day-old files (the manifest's promised lifecycle)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtchain-"));
+  const sub = path.join(dir, "optionchains");
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, "2026-07-01.jsonl"), '{"s":"X"}\n');
+  fs.writeFileSync(path.join(sub, "2026-07-05.jsonl"), '{"s":"Y"}\n');
+  const n = gzipOldChainDays(dir, Date.parse("2026-07-05T12:00:00Z"));
+  assert.equal(n, 1);
+  assert.ok(fs.existsSync(path.join(sub, "2026-07-01.jsonl.gz")), "old day gzipped");
+  assert.ok(fs.existsSync(path.join(sub, "2026-07-05.jsonl")), "recent day untouched");
+  assert.equal(zlibT.gunzipSync(fs.readFileSync(path.join(sub, "2026-07-01.jsonl.gz"))).toString(), '{"s":"X"}\n');
+  fs.rmSync(dir, { recursive: true, force: true });
+});

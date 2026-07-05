@@ -13,6 +13,26 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] Optionchains: crash-safe day claim, gzip lifecycle, holiday skip (v1.0.103) [T-DATACORE]
+
+- Audit defect #4, three parts: (a) .last_run_day was claimed BEFORE
+  the run — any crash/total failure permanently lost that trading day
+  (forward-only archive; a lost day can never be re-bought). Now an
+  in-memory guard prevents double-fire and the day is claimed AFTER a
+  run that wasn't a total failure (shouldClaimDay: empty universe
+  claims, partial failure claims + logs, all-failed retries next
+  hourly tick). (b) The manifest promised .jsonl(.gz) but nothing
+  gzipped the dir (~3-5MB/day raw) — gzipOldChainDays now runs the
+  standard 2-day lifecycle after each run. (c) The archiver ran on
+  July 3 (full NYSE closure), burning ~120 API calls to archive stale
+  quotes as a fresh day — shouldRunNow now skips holidays PARSED from
+  market_calendar.py (frozen source of truth read at boot, never
+  duplicated — December's year-add flows through automatically; parse
+  failure degrades to weekend-only, never a crash).
+- 4 new tests incl. parsing the real market_calendar.py (July 3
+  present), the exact holiday-evening skip, claim semantics, and the
+  gzip round-trip. 10/10 suite green.
+
 ## 2026-07-05 — [REPAIR] archiveStats enumerates from disk — archive-gap rule now covers every kind (v1.0.102) [T-DATACORE]
 
 - Audit defect #3: archiveStats() hardcoded six position kinds, so
