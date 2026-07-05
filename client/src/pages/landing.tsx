@@ -125,6 +125,136 @@ export default function LandingPage() {
       cleanups.push(() => form.removeEventListener("submit", onSubmit));
     }
 
+    // ── HERO GLOBE (directive 2026-07-05, #data-intel only): live rotating
+    // globe as the section background — REAL aircraft/vessels/sites on a
+    // land silhouette from OUR self-hosted boundaries (no external tiles).
+    // Gated on: section approaching the viewport (no cost until scrolled
+    // near), WebGL availability, and maplibre's lazy chunk loading. Any
+    // failure leaves the styled dark backdrop — never a janky globe.
+    // Rotation pauses off-screen, on hidden tabs, and under
+    // prefers-reduced-motion. interactive:false + pointer-events:none —
+    // the hero can never hijack scroll.
+    (() => {
+      const slot = document.getElementById("di-globe");
+      if (!slot) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      let booted = false;
+      let inView = false;
+      let raf = 0;
+      let refreshIv = 0;
+      let globeMap: any = null;
+
+      const webglOk = () => {
+        try {
+          const c = document.createElement("canvas");
+          return Boolean(c.getContext("webgl2") || c.getContext("webgl"));
+        } catch { return false; }
+      };
+
+      const bootGlobe = async () => {
+        if (booted || cancelled) return;
+        booted = true;
+        if (!webglOk()) return; // graceful: backdrop stays
+        try {
+          const maplibregl = (await import("maplibre-gl")).default;
+          if (cancelled) return;
+          globeMap = new maplibregl.Map({
+            container: slot,
+            interactive: false,
+            attributionControl: false,
+            style: {
+              version: 8,
+              projection: { type: "globe" } as any,
+              sources: {},
+              layers: [{ id: "space", type: "background", paint: { "background-color": "#04070f" } }],
+            } as any,
+            center: [-55, 24],
+            zoom: 1.05,
+          });
+          globeMap.on("load", async () => {
+            if (cancelled) return;
+            const safeJson = (u: string) => fetch(u).then((r) => r.json()).catch(() => null);
+            const [land, sites, aircraft, vessels] = await Promise.all([
+              safeJson("/api/data/boundaries"),
+              safeJson("/api/data/sites"),
+              safeJson("/api/data/aircraft?lamin=-85&lamax=85&lomin=-180&lomax=180"),
+              safeJson("/api/data/vessels?lamin=-85&lamax=85&lomin=-180&lomax=180"),
+            ]);
+            if (cancelled || !globeMap) return;
+            if (land?.features) {
+              globeMap.addSource("di-land", { type: "geojson", data: land });
+              globeMap.addLayer({
+                id: "di-land-fill", type: "fill", source: "di-land",
+                paint: { "fill-color": "#12233f", "fill-outline-color": "#23406b" },
+              });
+            }
+            const pts = (rows: any[], la: string, lo: string) => ({
+              type: "FeatureCollection",
+              features: (rows || []).map((r: any) => ({
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [r[lo], r[la]] },
+                properties: {},
+              })),
+            });
+            if (aircraft?.aircraft?.length) {
+              globeMap.addSource("di-air", { type: "geojson", data: pts(aircraft.aircraft.slice(0, 400), "lat", "lon") });
+              globeMap.addLayer({ id: "di-air-p", type: "circle", source: "di-air",
+                paint: { "circle-radius": 1.4, "circle-color": "#4d9fff", "circle-opacity": 0.9 } });
+            }
+            if (vessels?.vessels?.length) {
+              globeMap.addSource("di-sea", { type: "geojson", data: pts(vessels.vessels.slice(0, 300), "lat", "lon") });
+              globeMap.addLayer({ id: "di-sea-p", type: "circle", source: "di-sea",
+                paint: { "circle-radius": 1.4, "circle-color": "#4ade80", "circle-opacity": 0.9 } });
+            }
+            if (sites?.sites?.length) {
+              globeMap.addSource("di-sites", { type: "geojson", data: pts(sites.sites, "lat", "lon") });
+              globeMap.addLayer({ id: "di-sites-p", type: "circle", source: "di-sites",
+                paint: { "circle-radius": 3, "circle-color": "#fbb24c",
+                         "circle-stroke-color": "rgba(251,178,76,0.35)", "circle-stroke-width": 3 } });
+            }
+            // live movement: refresh aircraft positions while the hero is on
+            // screen (30s — one light request; the visual motion between
+            // refreshes comes from the rotation)
+            refreshIv = window.setInterval(async () => {
+              if (!inView || document.hidden || cancelled || !globeMap) return;
+              const d = await safeJson("/api/data/aircraft?lamin=-85&lamax=85&lomin=-180&lomax=180");
+              const src: any = globeMap.getSource("di-air");
+              if (d?.aircraft?.length && src) src.setData(pts(d.aircraft.slice(0, 400), "lat", "lon"));
+            }, 30_000);
+            if (!reduced) {
+              const spin = () => {
+                if (cancelled || !globeMap) return;
+                if (inView && !document.hidden) {
+                  const c = globeMap.getCenter();
+                  globeMap.setCenter([c.lng + 0.02, c.lat]);
+                }
+                raf = requestAnimationFrame(spin);
+              };
+              raf = requestAnimationFrame(spin);
+            }
+          });
+        } catch {
+          /* graceful: styled backdrop stays */
+        }
+      };
+
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          inView = e.isIntersecting;
+          if (e.isIntersecting) bootGlobe();
+        }
+      }, { rootMargin: "400px" });
+      const section = document.getElementById("data-intel");
+      if (section) io.observe(section);
+      cleanups.push(() => {
+        io.disconnect();
+        if (raf) cancelAnimationFrame(raf);
+        if (refreshIv) window.clearInterval(refreshIv);
+        try { globeMap?.remove(); } catch {}
+        globeMap = null;
+      });
+    })();
+
     return () => {
       cancelled = true;
       cleanups.forEach((fn) => fn());
