@@ -48,6 +48,7 @@ import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { bootShortVolPoll, latestShortVol } from "./finraShortVolume";
 import { bootCotPoll, latestCot } from "./cftcCot";
 import { bootAttentionPoll, latestAttention, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
+import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1640,6 +1641,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.day.tickers.length,
       note: "RAW daily user pageviews for a curated ticker->article seed (stated size above); an attention PROXY, not a signal — no spike claims until the archive holds trailing history and gate 1 passes",
       tickers: hit.day.tickers,
+    });
+  });
+
+  // FAA national airspace status (RAW — BUILD ORDER 5 #4, keyless).
+  // Ground stops / GDPs / delays / closures; an empty list is a real
+  // state (clear NAS), not an error.
+  bootFaaPoll();
+  app.get("/api/data/airport-status", (_req, res) => {
+    const hit = latestFaaStatus();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "FAA National Airspace System Status", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "FAA National Airspace System Status (public domain)",
+      attribution: "FAA National Airspace System Status",
+      time: hit.at,
+      update_time: hit.update_time,
+      count: hit.events.length,
+      note: "rolling snapshot (15-min poll); durations as published (human-readable); an empty events list means a clear NAS, not missing data",
+      events: hit.events,
     });
   });
 
