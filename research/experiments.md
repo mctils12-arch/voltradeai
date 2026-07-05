@@ -13,6 +13,23 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] BUILD ORDER 3 filed — fusion-forward (docs)
+
+- [T-DATACORE] Standing directive: queue emptied (Build Order 2 went
+  6/6 same-day), so the next order is self-proposed. Emphasis
+  deliberately shifts from new roots to FUSION of the archives now in
+  hand — the compounding asset is the accumulation, and five of six
+  B2 items were ingestion; the graph earns its keep by joining them.
+- Order (hypotheses + ladder paths in open_questions.md): (1)
+  corporate-fleet utilization series (aircraft archive x entity
+  spine — gate-1 criteria to be pre-stated before scoring), (2) EIA
+  weekly petroleum + natgas storage (keyless XLS family proven),
+  (3) NOAA CPC degree days (probed keyless 2026-07-05), (4) CBP
+  container imports (format at build), (5) Everything Graph R1 site
+  event timeline ([PRODUCT], existing archives only), (6) [RESEARCH]
+  anomaly-mining pass per the angle-hunting mandate.
+- Each item its own PR under the established stream rules.
+
 ## 2026-07-05 — [PIPELINE] STB EP724 rail stream — BUILD ORDER 2 COMPLETE (v1.0.119)
 
 - [T-DATACORE] #6, the final Build Order 2 item. scripts/stb_rail.py:
