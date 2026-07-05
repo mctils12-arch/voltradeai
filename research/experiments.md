@@ -13,6 +13,40 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Stream #2: EDGAR 13F-HR institutional-holdings archiver (v1.0.88) [T-DATACORE]
+
+- Built stream #2 of the DATA STREAM EXPANSION build order end-to-end:
+  server/edgar13f.ts — getcurrent-feed fetcher (reuses Form 4's Atom
+  parser), namespace-tolerant primary-doc + information-table parsers,
+  append-only JSONL archive under <archive>/filings13f/ (accession
+  dedup, old days gzipped), 15-min eager-boot poll, routes
+  /api/data/filings13f + /history, envelope manifest.
+- LADDER gate 1 (DATA): PASSED for the parser — fixtures are two real
+  live-fetched filings (BURKETT 0001762716-26-000003, ATMOS
+  0001905162-26-000005), every asserted field hand-checked against the
+  filed XML; live end-to-end pull of 4 real filings verified (periods
+  normalized, totals match, archive round-trips). Gate 2 (new-position
+  clustering vs forward returns, 45-day lag modeled) NOT attempted —
+  RAW as-filed records only, no predictive claim.
+- FOCUSED-MANAGER CAP (explicit, never silent): filings with >250
+  positions archive summary-only (holdings omitted; info table not
+  even fetched). This encodes the hypothesis — capacity-constrained
+  managers in small caps (EDGE DOCTRINE #2); mega-manager index
+  tables would dominate archive bytes with no cluster signal. Stated
+  in the manifest (_cap), the API (focused_cap), and pinned by test.
+- Data notes for gate 2: value field is FULL USD (post-2023 rule, not
+  thousands — manifest documents it); periodOfReport normalized from
+  EDGAR's MM-DD-YYYY; amendments (13F-HR/A) flagged via
+  submissionType, never merged into originals.
+- Tests: 10 new (parsers on real XML, doc-name picker on both real
+  directory shapes, cap behavior incl. no-fetch assertion, archive
+  round-trip + dedup, wiring pins). Full offline pytest suite green
+  (120 passed); manifest sweep green. No backtest — data pipeline
+  only, no trading-logic change.
+- Timing: Q2-2026 13F season opened this week (deadline Aug 14) —
+  every poll from merge onward lands in the heaviest filing window of
+  the quarter; a season's small-manager tail accumulates from day one.
+
 ## 2026-07-05 — [RESEARCH] Data-stream expansion: audit + 8-stream build order filed, hypotheses before pulls (docs)
 
 - Stream-expansion directive audited and filed (open_questions DATA

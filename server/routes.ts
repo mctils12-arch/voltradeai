@@ -44,6 +44,7 @@ import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
+import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 
 const execAsync = promisify(exec);
 
@@ -1261,6 +1262,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99) — accumulated archive (began 2026-07-04)",
         days,
         count: merged.length,
+        filings: merged,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "history read failed" });
+    }
+  });
+
+  // SEC 13F-HR institutional holdings (RAW as-filed display — stream #2 of
+  // the DATA STREAM EXPANSION build order, directive 2026-07-05; hypothesis
+  // + ladder path filed in research/open_questions.md BEFORE the first
+  // pull). ROOT VALIDATION LADDER gate 1 (DATA) passed for the parser —
+  // see server/edgar13f.test.ts. Gate 2 (new-position clustering vs forward
+  // returns, 45-day lag modeled) NOT attempted; no predictive claim here.
+  // Same EDGAR fair-access terms as Form 4. Boots eagerly (KNOWN BROKEN #9
+  // lesson). Holdings in API responses are trimmed to top rows by value —
+  // the archive keeps the full as-filed table.
+  boot13FPoll();
+  app.get("/api/data/filings13f", (_req, res) => {
+    const hit = latest13FFilings();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "SEC EDGAR (13F-HR)", warming_up: true, count: 0, focused_cap: FOCUSED_MAX_HOLDINGS, filings: [] });
+    }
+    res.json({
+      kind: "raw",
+      source: "SEC EDGAR (13F-HR) — sec.gov/cgi-bin/browse-edgar",
+      time: hit.at,
+      count: hit.filings.length,
+      focused_cap: FOCUSED_MAX_HOLDINGS,
+      filings: hit.filings.map((f) => trimHoldings(f)),
+    });
+  });
+  app.get("/api/data/filings13f/history", (req, res) => {
+    const days = Math.min(120, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    try {
+      const archived = read13FHistory(days);
+      const live = (latest13FFilings()?.filings || []).map((f) => trimHoldings(f));
+      const seen = new Set(archived.map((f) => f.accession));
+      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
+      res.json({
+        kind: "raw",
+        source: "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05)",
+        days,
+        count: merged.length,
+        focused_cap: FOCUSED_MAX_HOLDINGS,
         filings: merged,
       });
     } catch (e: any) {
