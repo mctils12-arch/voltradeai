@@ -30,7 +30,7 @@
  * Pure module: fs reads only (via shadowFleet.readVesselTracks), baseDir-
  * injectable, no trading imports.
  */
-import { readVesselTracks, readVesselTracksAsync } from "./shadowFleet";
+import { readVesselTracks, foldVesselArchiveAsync } from "./shadowFleet";
 
 export interface PortDef { id: string; name: string; lat: number; lon: number; radius_km: number }
 
@@ -145,15 +145,67 @@ const quantile = (sorted: number[], q: number): number | null => {
   return sorted[idx];
 };
 
-/** [REPAIR 2026-07-05] Async variant on the streaming reader — the sync
- *  version scanned 168h of archive on the request path (the shadowstats
- *  event-loop defect, fourth site; this window is even heavier). Routes
- *  must use this one; sync stays for tests, pinned by the ratchet. */
+/** [OOM REPAIR 2026-07-05, supersedes the R5 event-loop fix's memory
+ *  profile] Online visit state machine — the exact detectVisits
+ *  transitions, fed one point at a time. Retains ONLY the current in-port
+ *  run per vessel ({t,v,c} triples — in-port points are a tiny, bounded
+ *  subset); the previous async path materialized the ENTIRE 168h archive
+ *  (~7M points) into a Map first, which OOM-crash-looped prod under the
+ *  512MB heap cap. Output pinned identical by the async-vs-sync ratchet. */
+class VisitDetector {
+  private cur: { portId: string; pts: Array<{ t: number; v?: number; c?: string }> } | null = null;
+  readonly visits: PortVisit[] = [];
+  constructor(private mmsi: string, private ports: PortDef[], private nowSec: number,
+              private minDwellHours = 2, private maxGapHours = 6,
+              private minPoints = 3, private maxMedianKts = 3) {}
+  private flush(): void {
+    if (!this.cur) return;
+    const { portId, pts: run } = this.cur;
+    this.cur = null;
+    if (run.length < this.minPoints) return;
+    const spanH = (run[run.length - 1].t - run[0].t) / 3600;
+    if (spanH < this.minDwellHours) return;
+    const speeds = run.map((p) => p.v ?? 0).sort((a, b) => a - b);
+    if (speeds[Math.floor(speeds.length / 2)] > this.maxMedianKts) return;
+    const ongoing = (this.nowSec - run[run.length - 1].t) / 3600 <= this.maxGapHours;
+    this.visits.push({
+      mmsi: this.mmsi, name: run[run.length - 1].c || run[0].c, portId,
+      firstSeen: run[0].t, lastSeen: run[run.length - 1].t,
+      dwellHours: Math.round(spanH * 10) / 10, points: run.length, ongoing,
+    });
+  }
+  push(p: Pt): void {
+    const portId = assignPort(p.la, p.lo, this.ports);
+    if (!portId) { this.flush(); return; }
+    if (this.cur && (this.cur.portId !== portId ||
+        (p.t - this.cur.pts[this.cur.pts.length - 1].t) / 3600 > this.maxGapHours)) this.flush();
+    if (!this.cur) this.cur = { portId, pts: [] };
+    this.cur.pts.push({ t: p.t, v: p.v, c: p.c });
+  }
+  finish(): PortVisit[] {
+    this.flush();
+    return this.visits;
+  }
+}
+
+/** Async variant — the only one routes may use. Online fold, bounded
+ *  memory; the sync path stays for tests, pinned by the ratchet. */
 export async function computePortDwellAsync(ports: PortDef[], windowHours = 168,
                                             baseDir?: string, nowMs?: number): Promise<PortDwellStats> {
   const now = nowMs ?? Date.now();
-  const tracks = await readVesselTracksAsync(windowHours, baseDir, now);
-  return dwellFromTracks(tracks, ports, now, windowHours);
+  const nowSec = Math.floor(now / 1000);
+  const detectors = new Map<string, VisitDetector>();
+  await foldVesselArchiveAsync(windowHours, (mmsi, p) => {
+    let d = detectors.get(mmsi);
+    if (!d) { d = new VisitDetector(mmsi, ports, nowSec); detectors.set(mmsi, d); }
+    d.push(p);
+  }, baseDir, now);
+  const visitsByPort = new Map<string, PortVisit[]>();
+  for (const p of ports) visitsByPort.set(p.id, []);
+  detectors.forEach((d) => {
+    for (const v of d.finish()) visitsByPort.get(v.portId)?.push(v);
+  });
+  return aggregateVisits(visitsByPort, ports, detectors.size, windowHours);
 }
 
 export function computePortDwell(ports: PortDef[], windowHours = 168,
@@ -172,7 +224,15 @@ function dwellFromTracks(tracks: Map<string, Pt[]>, ports: PortDef[], now: numbe
       visitsByPort.get(v.portId)?.push(v);
     }
   }
+  let vesselsSeen = 0;
+  for (const _ of tracks) vesselsSeen++;
+  return aggregateVisits(visitsByPort, ports, vesselsSeen, windowHours);
+}
 
+/** Shared aggregation tail — one engine for the sync (test) and online
+ *  (prod) paths so the stats math cannot diverge. */
+function aggregateVisits(visitsByPort: Map<string, PortVisit[]>, ports: PortDef[],
+                         vesselsSeen: number, windowHours: number): PortDwellStats {
   const portStats: PortDwellPortStats[] = [];
   let totCompleted = 0, totOngoing = 0, totAnomalies = 0;
   for (const p of ports) {
@@ -203,9 +263,6 @@ function dwellFromTracks(tracks: Map<string, Pt[]>, ports: PortDef[], now: numbe
       anomaly_examples: anomalies.slice(0, 3),
     });
   }
-
-  let vesselsSeen = 0;
-  for (const _ of tracks) vesselsSeen++;
 
   return {
     window_hours: windowHours,
