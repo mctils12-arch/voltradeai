@@ -1034,6 +1034,17 @@ the ladder before belief.)
    assignee->ticker mapping reuses the name-matcher pattern.
    DELIBERATELY LAST: heaviest mapping work, unprobed access.
 
+   STATUS 2026-07-05 — PROBED, BLOCKED-FOR-MIKE #7 FILED (build
+   order otherwise COMPLETE 5/5 built + this decision). PatentsView
+   requires a free API key (since 2021; legacy keyless endpoint
+   301s away; request form is human-facing); additionally
+   search.patentsview.org 502s through the session proxy and
+   developer.uspto.gov 503s, so even with a key the first build
+   session must re-probe reachability (Railway-side may work —
+   the key-gated fredMacro/census pattern covers either). Free
+   fallback if the key path stalls: USPTO weekly bulk XML
+   (keyless, heavy build) — analyzed in the wishlist entry.
+
 ## BUILD ORDER 4 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 3 closed 6/6 same-day; [T-DATACORE] unless noted.
 Theme: DEEPEN what tonight built — the gate-2 unlocks and the queued

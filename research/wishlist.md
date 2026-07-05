@@ -29,6 +29,22 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
 5. **FRED_API_KEY in the Claude Code session env** (2 min, free) —
    already live in Railway; adding it to the session env lets
    research sessions pull FRED directly instead of via prod.
+7. **PATENTSVIEW_API_KEY (free request form) — unblocks BUILD ORDER
+   5 #6 USPTO patents** (probed 2026-07-05 per the item's
+   probe-first instruction): PatentsView has required a free API key
+   since 2021 (the legacy keyless api.patentsview.org 301s away);
+   the request form at patentsview.org/apis/keyrequest is
+   human-facing. ALSO: search.patentsview.org is currently
+   502-blocked through the session proxy and developer.uspto.gov
+   503s — so after the key, first build session must re-probe
+   reachability (server-side from Railway may work where the
+   session proxy fails; the key-gated fredMacro/census pattern
+   handles either). Worth it: grant-rate inflections +
+   citation-weighted grants for small-cap assignees (EDGE DOCTRINE
+   named it day one); assignee->ticker mapping reuses the
+   name-matcher pattern. Free alternative if the key path stalls:
+   USPTO bulk XML weekly files (large but keyless) — materially
+   more build work; recommend the key first.
 6. **[DONE — VERIFIED LIVE 2026-07-05, same day the human added the
    key]** ~~CENSUS_API_KEY (free, instant email signup) — unblocks
    BUILD ORDER 3 #4 container imports~~ — built as
