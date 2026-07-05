@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] STB EP724 rail stream — BUILD ORDER 2 COMPLETE (v1.0.119)
+
+- [T-DATACORE] #6, the final Build Order 2 item. scripts/stb_rail.py:
+  discovers the newest "EP724 Consolidated Data through" workbook on
+  stb.gov (format change = hard exit), parses the wide matrix
+  (~484 week columns since 2017-03), and writes the compact keyed
+  artifact datacore/rail/ep724_carloads.json (0.83 MB: 255 series x
+  484 weeks). SELECTION stated in script + manifest, never silent:
+  cat 11 Weekly Carloads By 22 Commodity Categories (176 series —
+  the volume spine the hypothesis needs), cat 1 System train speed,
+  cat 3 cars-on-line; dwell/grain/Chicago metrics deliberately not
+  archived in v1. Non-numeric cells -> null, NEVER zero. The source
+  republishes full history weekly, so this is a whole-file rebuild —
+  nine years of weekly carloads captured in the first build.
+- FORMAT VERIFIED AT BUILD (the build-order flag): wide matrix
+  confirmed live; openpyxl gotcha encoded (validates by file
+  extension); CPKC-merger key discontinuity documented in the
+  manifest confidence model.
+- LIVE E2E: BNSF coal 18-22k carloads/week latest month — plausible;
+  week axis ends 2026-07-01 (current). Battery 5 tests (selection
+  filter, null honesty, short-row padding, changed-axis refusal,
+  newest-workbook discovery).
+- BUILD ORDER 2 SCOREBOARD: 6/6 resolved same-day — entity spine
+  (live in prod), tank-fill v3 (honest gate-1 kill + v3.1
+  pre-registered), NWS alerts (live), Treasury auctions (live),
+  Drought Monitor (live + label-integrity fix), STB rail (this).
+  Next session: propose BUILD ORDER 3 per the standing directive, or
+  take the GIP queue's next item.
+
 ## 2026-07-05 — [PIPELINE] US Drought Monitor stream (BUILD ORDER 2 #5) (v1.0.118)
 
 - [T-DATACORE] server/droughtMonitor.ts: USDM data services (keyless;
