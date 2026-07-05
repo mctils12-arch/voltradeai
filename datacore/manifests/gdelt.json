@@ -1,0 +1,30 @@
+{
+ "stream": "gdelt",
+ "storage": "volume JSONL <archive>/gdelt/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/gdeltEvents.ts archiveGdeltEvents",
+ "source": "GDELT 2.0 Events 15-min stream (export.CSV.zip via lastupdate.txt pointer). HTTP ONLY — data.gdeltproject.org serves an invalid HTTPS cert (verified 2026-07-05); integrity risk acknowledged for public event data.",
+ "license": "GDELT Project: free for unlimited academic/commercial/governmental use, redistribution permitted. Attribution REQUIRED: 'The GDELT Project' + https://www.gdeltproject.org/.",
+ "attribution": "The GDELT Project (https://www.gdeltproject.org/)",
+ "schema_version": 1,
+ "field_map": {
+  "id": "GlobalEventID (dedup key, col 0)",
+  "day": "event Day YYYYMMDD (col 1)",
+  "code": "CAMEO EventCode (col 26)",
+  "root": "CAMEO EventRootCode (col 28) — ingest filter keeps 14/17/18/19/20 roots + 143x strikes",
+  "gold": "GoldsteinScale conflict intensity (col 30)",
+  "tone": "AvgTone (col 34)",
+  "mentions": "NumMentions (col 31)",
+  "lat": "ActionGeo latitude (col 56) — city/ADM-APPROXIMATE, never facility-exact",
+  "lon": "ActionGeo longitude (col 57)",
+  "site": "matched tracked-facility id within ~0.5 deg (join key to the Everything Graph)",
+  "url": "SOURCEURL (col 60)",
+  "rt": "as-seen UTC timestamp of the 15-min file"
+ },
+ "confidence_model": "raw geo-tagged event MENTIONS from world media; GDELT geocoding is approximate. CAMEO captures strikes/protests/unrest, NOT clean industrial accidents (FIRMS/AIS are the physical sensors). Burst -> own-sensor confirmation is the gate-2 signal; this archive is the alert-trigger raw material only.",
+ "geo_fields": ["lat", "lon"],
+ "entity_key": "id (GlobalEventID) / site (facility join)",
+ "sentiment": "tone (GDELT AvgTone of covering articles)",
+ "started": "2026-07-05",
+ "cadence": "15-min poll of lastupdate.txt; identical republished files skipped; CAMEO x facility-bbox filter at ingest keeps the archive KB-scale; dedup by GlobalEventID",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

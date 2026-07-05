@@ -50,6 +50,7 @@ import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSl
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
+import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 
 const execAsync = promisify(exec);
 
@@ -1337,6 +1338,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
     }
+  });
+
+  // GDELT facility events (RAW display — stream #7 of the DATA STREAM
+  // EXPANSION order): world-media unrest/strike event mentions inside
+  // ~0.5° boxes around OUR strategic sites — the alert-trigger raw
+  // material for burst -> own-sensor confirmation (gate-2). Geo is
+  // city/ADM-approximate (stated); CAMEO can't see industrial accidents
+  // (FIRMS is the fire sensor). Attribution required by license.
+  bootGdeltPoll();
+  app.get("/api/data/facility-events", (_req, res) => {
+    const hit = latestGdeltEvents();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "The GDELT Project", warming_up: true, count: 0, events: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "The GDELT Project (https://www.gdeltproject.org/) — unrest/strike mentions near tracked facilities",
+      attribution: "The GDELT Project",
+      time: hit.at,
+      count: hit.events.length,
+      note: "media event MENTIONS, geo approximate — verification prompts for our own sensors, not confirmations",
+      events: hit.events,
+    });
   });
 
   // USGS river gauges (RAW display — stream #6 of the DATA STREAM
