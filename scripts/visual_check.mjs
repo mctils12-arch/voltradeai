@@ -67,6 +67,7 @@ const FIXTURES = {
       { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
+      { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
       { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
       { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
       { id: "boundaries", name: "Country borders", kind: "raw", status: "live", source: "Natural Earth 1:110m (public domain)", description: "Reference borders, off by default." },
@@ -96,6 +97,13 @@ const FIXTURES = {
   })(),
   "/api/data/vessels": { enabled: false, reason: "AISSTREAM_KEY not set (fixture)", vessels: [] },
   "/api/data/fires": { enabled: false, kind: "raw", reason: "NASA_FIRMS_MAP_KEY not set (fixture)", fires: [] },
+  "/api/data/rivergauges": {
+    kind: "raw", source: "USGS Water Services (fixture)", time: 1, count: 2,
+    gauges: [
+      { site: "07010000", name: "Mississippi River at St. Louis, MO", param: "00065", d: "2026-07-05T00:15:00.000-05:00", v: 15.13, q: "P", lat: 38.62889, lon: -90.17972 },
+      { site: "07032000", name: "Mississippi River at Memphis, TN", param: "00060", d: "2026-07-05T00:15:00.000-06:00", v: 512000, q: "P", lat: 35.12278, lon: -90.0775 },
+    ],
+  },
   "/api/data/sites": {
     kind: "raw",
     categories: {

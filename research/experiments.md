@@ -13,6 +13,19 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PRODUCT] River-gauge /data layer — stream #6's map surface (v1.0.100) [T-CLIENT + shared registry]
+
+- The USGS stream's geographic surface, per the legend same-PR rule:
+  vt-gauge registry icon (staff gauge + water wave, SDF), rivergauges
+  registry entry (environmental group, OFF by default — reference
+  layer, initial-load budget respected), datamap effect (hourly
+  hidden-gated refresh matching the server poll; detail card shows
+  reading + provisional/approved label + USGS monitoring link;
+  discharge-only gauges labeled ft3/s), legend entry gated on enable.
+- Harness: registry + /api/data/rivergauges fixtures; toggle-
+  consistency (1440 exercises every live layer incl. gauges) + legend
+  parity + perf gates all green 10/10.
+
 ## 2026-07-05 — [PIPELINE] Stream #7: GDELT facility-event alerts (v1.0.99) [T-DATACORE]
 
 - Built per the verified brief: server/gdeltEvents.ts — 15-min Events

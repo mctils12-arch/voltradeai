@@ -305,6 +305,22 @@ const shapes: Record<string, () => ImageData> = {
     ctx.lineTo(m - 6, 14);
     ctx.closePath(); ctx.fill();
   }),
+  // river gauge: staff gauge — vertical post with level ticks over a
+  // water wave (upright, never rotated)
+  "vt-gauge": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3.2;
+    ctx.beginPath(); ctx.moveTo(m, 5); ctx.lineTo(m, s - 12); ctx.stroke();   // staff
+    for (const y of [9, 15, 21]) {                                            // level ticks
+      ctx.beginPath(); ctx.moveTo(m, y); ctx.lineTo(m + 7, y); ctx.stroke();
+    }
+    ctx.lineWidth = 3.4;                                                      // water wave
+    ctx.beginPath();
+    ctx.moveTo(6, s - 9);
+    ctx.quadraticCurveTo(m - 7, s - 15, m, s - 9);
+    ctx.quadraticCurveTo(m + 7, s - 3, s - 6, s - 9);
+    ctx.stroke();
+  }),
   // train: locomotive nose-up — rounded body, cab window notch, nose taper
   // (points "up"/north so icon-rotate can turn it to bearing when known)
   "vt-train": () => draw(S, (ctx, s) => {
