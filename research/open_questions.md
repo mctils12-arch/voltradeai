@@ -914,6 +914,57 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## BUILD ORDER 2 (SELF-PROPOSED, standing directive 2026-07-05: "when
+the wishlist is empty, generate the next wishlist yourself" — filed
+2026-07-05 after build order 1 fully resolved; [T-DATACORE]; same
+rules: one stream per PR, licensing first, archive from day one,
+envelope manifest, RAW-labeled until gate 2; access LIVE-PROBED
+keyless before filing where marked)
+
+1. AIRCRAFT ENTITY SPINE v1 (GIP Part 3b — promoted from the GIP
+   queue; queued work outranks new streams). FAA Releasable Aircraft
+   DB (free full download) x our ADS-B archive icao24s -> one
+   identity per airframe (owner, type, registrant dates), committed
+   as a SMALL derived artifact (only archived hexes, not the 300k-row
+   dump). HYPOTHESIS: corporate-fleet aircraft utilization
+   (flights/week of jets registered to listed companies or their
+   subsidiaries) shifts before M&A announcements and earnings
+   surprises — the angle-hunting standing behavior's named
+   cross-connection, unlocked by this join. Ladder: gate 1 = registry
+   join accuracy vs known corporate tails; gate 2 = utilization vs
+   subsequent 5/20d returns.
+2. TANK-FILL v3 GATE-1 PIPELINE (S1 SAR double-bounce — successor
+   root above; CDSE creds proven on S1). Chip client reuses the PR-2
+   pattern (same registry, same EIA comparator, tankfill_gate1.py
+   reusable as-is); estimator = per-tank bright double-bounce line
+   intensity, per-orbit normalized. Criteria pre-stated in its
+   workup before any scoring; discounted prior P(pass) ~25%.
+3. NWS ALERTS stream (api.weather.gov, PROBED 2026-07-05: keyless,
+   US-gov public domain, wants a User-Agent contact). Archive active
+   severe alerts (type, severity, geometry, timing); /data raw
+   overlay (alerts are official warnings — no predictive claim).
+   HYPOTHESIS: severe-alert clusters over strategic sites (refinery
+   freeze-offs, port closures) lead sector moves by hours-days;
+   joins the existing weather + sites layers on the Everything
+   Graph.
+4. TREASURY AUCTION RESULTS (treasurydirect.gov TA_WS, PROBED
+   2026-07-05: keyless JSON, public domain). Archive every auction
+   (bid-to-cover, high yield vs when-issued tail, dealer take).
+   HYPOTHESIS: tail/bid-to-cover deterioration precedes rate-regime
+   shifts the bot's regime classifier consumes; a direct macro input
+   nobody bills for.
+5. US DROUGHT MONITOR weekly (usdmdataservices.unl.edu, PROBED
+   2026-07-05: keyless CSV/JSON; attribution required — NDMC/USDA/
+   NOAA). Archive weekly D0-D4 area % (CONUS + key ag states).
+   HYPOTHESIS: drought severity deltas over ag counties lead ag
+   commodities and food-producer margins by weeks; joins USGS gauges
+   + FIRMS on the environmental axis.
+6. STB WEEKLY RAIL TRAFFIC (stb.gov public-domain weekly carload
+   Excel; format to verify at build time). HYPOTHESIS: carload
+   deltas by commodity group lead rail earnings (UNP/CSX/NSC) and
+   the industrial regime; gives the trains layer an economic-volume
+   spine our live-position feed cannot.
+
 ## DATA STREAM EXPANSION (directive 2026-07-05 — audit + build order;
 [T-DATACORE]; one stream per PR, licensing first, archive from day one,
 envelope manifest required, RAW-labeled; work across sessions)
