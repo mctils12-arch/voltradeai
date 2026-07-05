@@ -13,6 +13,27 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] Anomaly-mining pass run — BUILD ORDER 3 COMPLETE (docs)
+
+- [T-DATACORE] B3-6 executed per the angle-hunting mandate; full
+  findings + pre-registered mining design in open_questions.md
+  (BUILD ORDER 3 item 6 RUN annotation). Summary: (a) the pass found
+  and fixed the event-loop scan class (#237/#238) — platform-eating-
+  itself anomalies outrank market anomalies; (b) honest verdict that
+  2-day-old position archives cannot host market mining (the 32
+  dwell "anomalies" are archive-birth artifacts); (c) airline
+  utilization baselines established under our coverage; (d) mining
+  design PRE-REGISTERED with fixed statistics (z>=3 vs 4-week
+  baselines, multiple-hypothesis discounting, out-of-sample-only
+  belief) and re-run triggers at 30d/60d archive depth (~2026-08-03).
+- BUILD ORDER 3 SCOREBOARD: 6/6 resolved — fleet utilization (gate-1
+  PASS 20/20), EIA weekly (44yr backfill), CPC degree days (10.5yr),
+  CBP imports (routed to BLOCKED-FOR-MIKE: Census key now required),
+  Everything Graph R1 (live end-to-end on the site cards), anomaly
+  pass (this entry). Two build orders proposed and executed to
+  completion in one session; next session proposes BUILD ORDER 4 or
+  takes the GIP queue.
+
 ## 2026-07-05 — [REPAIR] portdwell: the SAME event-loop defect, 4th site, heavier window (v1.0.126)
 
 - [T-DATACORE] Minutes after #237's prod verify, BOTH analytics

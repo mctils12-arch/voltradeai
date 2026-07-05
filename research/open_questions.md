@@ -971,6 +971,34 @@ the archives we now have — the compounding asset is the accumulation)
    commodity moves; terminates in filed open_questions entries with
    ladder paths — never unrecorded browsing.
 
+   RUN 2026-07-05 (closing BUILD ORDER 3) — findings:
+   a. INFRASTRUCTURE ANOMALIES (found + FIXED, #237/#238): the
+      survey itself surfaced the event-loop scan class on both
+      archive-analytics surfaces. Mining that finds the platform
+      eating itself outranks market mining; both repaired with
+      ratchets, class closed.
+   b. ARCHIVE TOO YOUNG FOR MARKET MINING (honest verdict): position
+      archives began 2026-07-03. The 32 port-dwell "anomalies" are
+      window-edge artifacts (visits truncated by archive birth), and
+      2 days cannot host a baseline. Filed, not mined.
+   c. BASELINES ESTABLISHED (the compounding output): airline weekly
+      utilization now measured under OUR coverage (DAL 2018
+      flights/wk / AAL 2196 / UAL 1453 — partial-coverage counts,
+      and that partiality IS the baseline: consistent coverage makes
+      deltas meaningful even when levels undercount).
+   d. MINING DESIGN PRE-REGISTERED (to run at archive depth >=30d;
+      statistics fixed NOW): (1) port-dwell weekly median shifts
+      (z>=3 vs trailing 4-week baseline) vs freight/commodity moves;
+      (2) corridor density z-scores near strategic sites vs the
+      site's commodity; (3) fleet-utilization week-over-week
+      outliers vs earnings-date proximity (needs the
+      registrant->operator step from the B3-1 finding). DISCIPLINE:
+      every hit discounted by the number of series scanned
+      (hundreds — expect ~1 z>=3 artifact per 300 series-weeks by
+      chance); nothing believed without out-of-sample confirmation
+      on data recorded AFTER the pattern is filed. RE-RUN TRIGGERS:
+      first pass at 30d depth (~2026-08-03), delta studies at 60d.
+
 ## BUILD ORDER 2 (SELF-PROPOSED, standing directive 2026-07-05: "when
 the wishlist is empty, generate the next wishlist yourself" — filed
 2026-07-05 after build order 1 fully resolved; [T-DATACORE]; same
