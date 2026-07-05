@@ -64,6 +64,31 @@ exception to append-only; the log below it stays append-only)
 - Bonus verification while probing: the v1.0.80 liveness field is live
   in production health (checks.bot.liveness {dark:false}, bot active).
 
+## 2026-07-05 — [RESEARCH] Databento quality VALIDATED (~$0.30) + CDSE Sentinel-1 verified end-to-end (docs)
+
+- DATABENTO (approved validation stage): 9 stratified days across
+  2016–2017 incl. the selloff/Brexit/election event days, 10-name mix,
+  ~840k closing-window quote rows. Zero crossed quotes anywhere;
+  spreads widen on event days exactly as real markets do (median
+  2.8–5.6%, event p90 40–47%); put-call parity implies SPY 216.50 on
+  election day = the actual close. VERDICT: quality validated; the
+  ~$600 full-history go is now purely a budget call, with ONE
+  engineering prerequisite filed — durable storage for the ~5GB slice
+  (sessions are ephemeral; deliberately sampled instead of burning
+  credits into a disposable container). Details in the wishlist entry.
+- CDSE (item 3 of the directive): OAuth token issued with the real
+  client credentials; catalog search found a fresh S1D GRDH scene over
+  Cushing; a REAL 256×256 Sentinel-1 VV chip of the tank farm pulled
+  via the Sentinel Hub Process API (radar-bright tanks resolved) —
+  the S1 leg of the fused-sensor engine is UNBLOCKED, and Process-API
+  chip windowing is the right primitive (61KB vs 1.7GB products).
+  Zipper bulk downloads 401 (audience) — recorded with fixes, not
+  needed for the chip design. Wishlist item closed with evidence.
+- ALSO VERIFIED this session: /api/diag live with DIAG_TOKEN (401
+  bare, data with header; ml probe shows model 17.8h old, 500
+  feedback records, fills_count 0 — that zero + a TIER3-DIAG
+  "warning — 1 issues" line are follow-ups for a diagnostics session).
+
 ## 2026-07-05 — [PIPELINE] Options-chain daily archiver LIVE — forward history starts today (v1.0.83)
 
 - Territory: T-DATACORE. Executes the human's "start now — every day
