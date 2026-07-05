@@ -68,6 +68,7 @@ const FIXTURES = {
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
+      { id: "alerts", name: "Severe weather alerts (NWS)", kind: "raw", status: "live", source: "National Weather Service (public domain)", description: "Active NWS warnings/watches, colored by severity." },
       { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
       { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
       { id: "boundaries", name: "Country borders", kind: "raw", status: "live", source: "Natural Earth 1:110m (public domain)", description: "Reference borders, off by default." },
@@ -97,6 +98,15 @@ const FIXTURES = {
   })(),
   "/api/data/vessels": { enabled: false, reason: "AISSTREAM_KEY not set (fixture)", vessels: [] },
   "/api/data/fires": { enabled: false, kind: "raw", reason: "NASA_FIRMS_MAP_KEY not set (fixture)", fires: [] },
+  "/api/data/alerts": {
+    kind: "raw", source: "National Weather Service (fixture)", time: 1, count: 2, zone_only: 3,
+    alerts: [
+      { id: "urn:oid:fixture.tornado", event: "Tornado Warning", severity: "Extreme", area: "Payne, OK", ends: "2026-07-05T13:00:00-05:00",
+        rings: [[[-97.2, 35.8], [-96.6, 35.8], [-96.6, 36.2], [-97.2, 36.2], [-97.2, 35.8]]] },
+      { id: "urn:oid:fixture.flood", event: "Flood Watch", severity: "Moderate", area: "St. Louis Metro, MO", ends: null,
+        rings: [[[-90.6, 38.4], [-89.9, 38.4], [-89.9, 38.9], [-90.6, 38.9], [-90.6, 38.4]]] },
+    ],
+  },
   "/api/data/rivergauges": {
     kind: "raw", source: "USGS Water Services (fixture)", time: 1, count: 2,
     gauges: [
