@@ -1,0 +1,27 @@
+{
+ "stream": "cot",
+ "storage": "SINGLE keyed JSON at /data/voltrade/voltrade_cot_archive.json (atomic tmp+replace on each weekly update) — NOT append-only JSONL; the store is keyed by contract code with full weekly history per key. Python-side, outside the <archive> volume subtree.",
+ "written_by": "cftc_cot.py save_archive (Python; runs bot-side, not in server/*.ts — see _note on envelope-test coverage)",
+ "source": "CFTC Commitments of Traders via Socrata (publicreporting.cftc.gov), weekly (published Fridays, data as of Tuesday)",
+ "license": "US government work, public domain; attribution 'CFTC Commitments of Traders'.",
+ "attribution": "CFTC Commitments of Traders",
+ "schema_version": 1,
+ "field_map": {
+  "<contract_code>": "top-level key: CFTC contract code -> weekly history array of the records below",
+  "report_date": "CFTC report date YYYY-MM-DD (Tuesday positions)",
+  "open_interest": "open_interest_all",
+  "noncomm_long/noncomm_short": "non-commercial (speculator) positions",
+  "comm_long/comm_short": "commercial (hedger) positions",
+  "net_noncomm/net_comm": "DERIVED nets (long - short)",
+  "net_noncomm_pct_oi/net_comm_pct_oi": "DERIVED nets as % of open interest",
+  "cot_index": "DERIVED lookback-normalized 0-100 positioning index (attach_cot_index)",
+  "_checkpoint": "separate file (COT_CHECKPOINT_PATH) tracking last successful pull"
+ },
+ "confidence_model": "official CFTC statistics as published; weekly cadence — data is 3 days stale at publication BY DESIGN (Tuesday positions, Friday print); the COT index is DERIVED (lookback normalization) and labeled as such.",
+ "geo_fields": [],
+ "entity_key": "contract code",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "weekly check (Friday publication); checkpoint prevents duplicate pulls",
+ "_note": "AUDIT 2026-07-05: this manifest documents a PYTHON-side archive — the envelope-enforcement test (server/manifests.test.ts) only scrapes server/*.ts writers, so Python archives are documented here by convention, not enforced by that test. Overwrite-style keyed storage is stated honestly above (an exception to the append-only default, justified by the keyed weekly-history shape)."
+}

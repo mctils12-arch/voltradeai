@@ -13,7 +13,8 @@
   "la": "lat (4dp)",
   "lo": "lon (4dp)",
   "al": "altitude m",
-  "gs": "ground flag/speed per writer",
+  "g": "on-ground flag (true or omitted)",
+  "v": "ground speed m/s, rounded (omitted when unknown)",
   "h": "heading deg",
   "ty": "ICAO type",
   "ca": "emitter category"
