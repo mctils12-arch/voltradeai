@@ -13,6 +13,22 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] fredmacro vintage dedup: restart-bloat + revert-drop fixed (v1.0.106) [T-DATACORE]
+
+- Audit defect #6, both halves: (a) seedSeen covered 3 days while each
+  poll fetches 120 days — a restart >3d after backfill re-appended
+  ~120d x 31 series as duplicate vintage rows with fresh rt; (b) the
+  (s,d,v) SET dedup silently dropped a revision that REVERTS to a
+  previously seen value — but a revert IS a vintage transition.
+- FIX: dedup is now LATEST-VALUE per (s,d) — seed the current value
+  from up to 130 days of files (oldest->newest so the last write
+  wins), append only when the published value CHANGES. Duplicates die;
+  every transition including reverts is recorded. Manifest cadence
+  line updated to state the semantics.
+- RATCHET: honest restart simulation via a real state-reset hook
+  (in-memory map cleared, disk seed must carry it) + a
+  revise-then-revert sequence test. 8/8 suite green.
+
 ## 2026-07-05 — [PIPELINE] Tank-fill v2 PR-1: Cushing tank registry from OSM (v1.0.105) [T-DATACORE]
 
 - First build step of the filed tank-fill v2 workup: 333 storage-tank

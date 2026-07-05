@@ -17,6 +17,6 @@
  "entity_key": "s (series id)",
  "sentiment": null,
  "started": "2026-07-05",
- "cadence": "6h poll (daily series publish once per business day; extra cycles catch weekly/monthly releases and revisions); dedup by (s,d,v)",
+ "cadence": "6h poll (daily series publish once per business day; extra cycles catch weekly/monthly releases and revisions); dedup = latest-value transition per (s,d): a row appends whenever the published value CHANGES, including a revert to a prior value (every vintage transition recorded); seed window covers the full 120d fetch window across restarts",
  "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
 }

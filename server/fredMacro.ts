@@ -133,15 +133,32 @@ async function fetchSeries(
 // ── Archive (append-only JSONL day-files; dedup by (series,date,value) so
 // REVISIONS append as new rows — that is the vintage record) ───────────────
 
-const archivedKeys = new Set<string>();
+// [REPAIR 2026-07-05, audit defect #6] Vintage dedup is LATEST-VALUE per
+// (series, date), not set-of-(s,d,v):
+//  - the old Set seeded only 3 days of files while every poll fetches a
+//    120-day window — any restart >3 days after backfill re-appended
+//    ~120d x 31 series as duplicate rows with a fresh rt (vintage noise);
+//  - a revision that REVERTS to a previously-seen value was silently
+//    dropped by the (s,d,v) set — but a revert IS a new vintage event.
+// Now: seed the CURRENT value per (s,d) from up to 130 days of files
+// (covering the fetch window), append only when the value CHANGES —
+// duplicates die, every transition (including reverts) is recorded.
+const latestVal = new Map<string, number>();
 let seeded = false;
+
+/** test hook: simulate a process restart (state re-seeds from disk) */
+export function _resetFredArchiveState(): void {
+  latestVal.clear();
+  seeded = false;
+}
 
 function fredDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "fredmacro");
 }
 
 function seedSeen(dir: string, nowMs: number): void {
-  for (let i = 0; i < 3; i++) {
+  // oldest -> newest so the LAST write per (s,d) wins — the current vintage
+  for (let i = 130; i >= 0; i--) {
     const day = new Date(nowMs - i * 86400_000).toISOString().slice(0, 10);
     for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
       let text: string | null = null;
@@ -152,7 +169,7 @@ function seedSeen(dir: string, nowMs: number): void {
       } catch { continue; }
       for (const line of text.split("\n")) {
         if (!line) continue;
-        try { const o = JSON.parse(line); archivedKeys.add(`${o.s}|${o.d}|${o.v}`); } catch {}
+        try { const o = JSON.parse(line); latestVal.set(`${o.s}|${o.d}`, o.v); } catch {}
       }
     }
   }
@@ -162,14 +179,14 @@ export function archiveFredObs(obs: FredObs[], baseDir?: string, nowMs?: number)
   const dir = fredDir(baseDir);
   const now = nowMs ?? Date.now();
   if (!seeded) { seedSeen(dir, now); seeded = true; }
-  const fresh = obs.filter((o) => !archivedKeys.has(`${o.s}|${o.d}|${o.v}`));
+  const fresh = obs.filter((o) => latestVal.get(`${o.s}|${o.d}`) !== o.v);
   if (!fresh.length) return 0;
   try {
     fs.mkdirSync(dir, { recursive: true });
     const fp = path.join(dir, `${new Date(now).toISOString().slice(0, 10)}.jsonl`);
     fs.appendFileSync(fp, fresh.map((o) => JSON.stringify(o)).join("\n") + "\n");
-    fresh.forEach((o) => archivedKeys.add(`${o.s}|${o.d}|${o.v}`));
-    if (archivedKeys.size > 200_000) archivedKeys.clear(); // bound memory
+    fresh.forEach((o) => latestVal.set(`${o.s}|${o.d}`, o.v));
+    if (latestVal.size > 500_000) latestVal.clear(); // bound memory (~31 series x years)
     return fresh.length;
   } catch (e: any) {
     console.error("[datacore] fredmacro archive:", e?.message || e);
