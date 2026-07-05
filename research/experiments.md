@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] BUILD ORDER 5 filed — new roots at microstructure + attention + freight friction, all sources probed live first (docs)
+
+- Standing directive: T-DATACORE queue emptied (BUILD ORDER 4
+  resolved for this territory; remainders wait on external clocks or
+  belong to T-BOT/T-CLIENT), so the session generated the next build
+  order itself. Full text with per-item hypotheses, priors, and gate
+  designs in open_questions.md BUILD ORDER 5.
+- PROBED BEFORE FILING (all keyless, HTTP status + size recorded):
+  FINRA daily short-sale volume CNMS file 200/540KB; CFTC COT
+  disaggregated f_disagg.txt 200/442KB (legacy deacot.txt 404 — the
+  disaggregated report is the build target); Wikimedia pageviews API
+  200 with real daily counts (Nvidia article, June 2026); FAA
+  airport-status API 200; CBP border-wait API 200. USPTO deliberately
+  filed unprobed-last with a probe-first instruction (may be
+  key-gated → Census/BLOCKED-FOR-MIKE precedent, never build blind).
+- Order rationale: (1) FINRA short volume first — every-equity
+  coverage including the small-cap tail (EDGE DOCTRINE #2), joins
+  13F+Form4 for a free squeeze-candidate screen, and dated files
+  allow 1-2y session-side backfill; (2) CFTC COT — accumulation
+  substitutes for purchase (vendors sell exactly this file recorded
+  over time), named in the EDGE DOCTRINE since day one; (3)
+  Wikimedia pageviews — the pytrends replacement after its gate-1
+  FAIL (#215); (4)/(5) FAA + CBP — cheap honest RAW layers that
+  close the air-ops and road-freight gaps; (6) USPTO last.
+- Priors stated per item (30-35% for the signal-bearing roots, 20%
+  for the friction archives) BEFORE any data is scored, per
+  Reasoning Standard #10; every hypothesis enters the ROOT
+  VALIDATION LADDER before belief or surfacing.
+
 ## 2026-07-05 — [PIPELINE] Census imports VERIFIED LIVE on prod — 686 records, first query variant correct, key confirmed in Railway (docs)
 
 - ~30 min after #249 merged, /api/data/imports served 686 records:
