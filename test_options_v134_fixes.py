@@ -540,68 +540,94 @@ class TestFix7_EarningsAlwaysIronCondor(unittest.TestCase):
     never short_straddle. Naked straddles have unlimited risk which
     destroys drawdown metrics and Sortino ratio."""
 
+    # REPAIR 2026-07-05: these two tests were WALL-CLOCK DEPENDENT — the
+    # deep path only ran 9:30-16:00 ET (any weekday OR weekend, since
+    # _is_regular_hours checks time-of-day only), where a stale fixture
+    # (keys "type"/"expiry", no "delta") crashed _find_by_delta with
+    # KeyError: 'opt_type'. Outside those hours the early return made them
+    # pass vacuously. Fixed: _is_regular_hours patched (deterministic at
+    # any clock time), fixtures rebuilt to the REAL _fetch_options_chain
+    # contract shape, and the skippable "if result is not None" guards
+    # upgraded to hard assertions so a silent None-regression fails.
+
+    @staticmethod
+    def _contract(occ, ticker, opt_type, mid, bid, ask, iv, oi):
+        """Contract dict in the exact shape _fetch_options_chain builds
+        (options_scanner.py contracts.append block)."""
+        return {
+            "occ_symbol": occ, "ticker": ticker, "exp_date": "2026-04-20",
+            "opt_type": opt_type, "strike": 100.0, "bid": bid, "ask": ask,
+            "mid": mid, "iv": iv, "delta": 0.50 if opt_type == "call" else -0.50,
+            "delta_real": True, "oi": oi, "volume": 500, "days_out": 10,
+            "moneyness": 1.0, "spread_pct": (ask - bid) / ask,
+        }
+
     def test_low_iv_move_produces_iron_condor(self):
         """When iv_implied_move <= 8%, strategy must still be iron_condor."""
         # Previously this case returned short_straddle
         from options_scanner import _setup_earnings_iv_crush
 
-        # Mock all the network calls this function makes
+        # Mock all the network calls this function makes; _is_regular_hours
+        # patched so the deep path runs at ANY wall-clock time
         with patch("options_scanner._fetch_options_chain") as mock_chain, \
+             patch("options_scanner._is_regular_hours", return_value=True), \
+             patch("options_scanner._get_spy_vs_ma50", return_value=1.0), \
              patch("options_scanner._fetch_iv_rank", return_value=75.0), \
              patch("options_scanner._build_setup_features", return_value=[0]*10), \
              patch("options_scanner._options_ml_score", return_value=0.8):
 
-            # Simulate liquid ATM options with IV implied move of ~5% (< 8%)
+            # Liquid 50-delta ATM options, IV implied move ~5% (< 8%)
             mock_chain.return_value = [
-                {"strike": 100, "type": "call", "expiry": "2026-04-20",
-                 "mid": 3.50, "bid": 3.40, "ask": 3.60, "iv": 0.50,
-                 "spread_pct": 0.06, "oi": 1000,
-                 "occ_symbol": "AAPL260420C00100000"},
-                {"strike": 100, "type": "put", "expiry": "2026-04-20",
-                 "mid": 1.50, "bid": 1.40, "ask": 1.60, "iv": 0.50,
-                 "spread_pct": 0.07, "oi": 800,
-                 "occ_symbol": "AAPL260420P00100000"},
+                self._contract("AAPL260420C00100000", "AAPL", "call",
+                               mid=3.50, bid=3.40, ask=3.60, iv=0.50, oi=1000),
+                self._contract("AAPL260420P00100000", "AAPL", "put",
+                               mid=1.50, bid=1.45, ask=1.55, iv=0.50, oi=800),
             ]
 
             result = _setup_earnings_iv_crush(
                 ticker="AAPL", price=100.0, days_to_earnings=3, vxx_ratio=1.1
             )
 
-            if result is not None:
-                self.assertEqual(result["options_strategy"], "iron_condor",
-                    "Earnings IV crush must always use iron_condor, never short_straddle")
-                self.assertNotIn("STRADDLE", result["action_label"].upper(),
-                    "Action label should not say STRADDLE")
-                self.assertIn("IRON CONDOR", result["action_label"].upper())
+            self.assertTrue(mock_chain.called, "deep path must actually run")
+            self.assertIsNotNone(result,
+                "liquid 50-delta fixture must produce a setup — None means a "
+                "gate silently rejected the fixture (or the early time-return "
+                "fired); this test previously passed vacuously that way")
+            self.assertEqual(result["options_strategy"], "iron_condor",
+                "Earnings IV crush must always use iron_condor, never short_straddle")
+            self.assertNotIn("STRADDLE", result["action_label"].upper(),
+                "Action label should not say STRADDLE")
+            self.assertIn("IRON CONDOR", result["action_label"].upper())
 
     def test_high_iv_move_produces_iron_condor(self):
         """When iv_implied_move > 8%, strategy must be iron_condor."""
         from options_scanner import _setup_earnings_iv_crush
 
         with patch("options_scanner._fetch_options_chain") as mock_chain, \
+             patch("options_scanner._is_regular_hours", return_value=True), \
+             patch("options_scanner._get_spy_vs_ma50", return_value=1.0), \
              patch("options_scanner._fetch_iv_rank", return_value=80.0), \
              patch("options_scanner._build_setup_features", return_value=[0]*10), \
              patch("options_scanner._options_ml_score", return_value=0.85):
 
-            # Simulate options with high IV implied move > 8%
+            # High IV: straddle 10.00 on a $100 stock = 10% implied move (> 8%)
             mock_chain.return_value = [
-                {"strike": 100, "type": "call", "expiry": "2026-04-20",
-                 "mid": 6.00, "bid": 5.80, "ask": 6.20, "iv": 0.80,
-                 "spread_pct": 0.05, "oi": 1500,
-                 "occ_symbol": "NVDA260420C00100000"},
-                {"strike": 100, "type": "put", "expiry": "2026-04-20",
-                 "mid": 4.00, "bid": 3.80, "ask": 4.20, "iv": 0.80,
-                 "spread_pct": 0.05, "oi": 1200,
-                 "occ_symbol": "NVDA260420P00100000"},
+                self._contract("NVDA260420C00100000", "NVDA", "call",
+                               mid=6.00, bid=5.80, ask=6.20, iv=0.80, oi=1500),
+                self._contract("NVDA260420P00100000", "NVDA", "put",
+                               mid=4.00, bid=3.90, ask=4.10, iv=0.80, oi=1200),
             ]
 
             result = _setup_earnings_iv_crush(
                 ticker="NVDA", price=100.0, days_to_earnings=2, vxx_ratio=1.05
             )
 
-            if result is not None:
-                self.assertEqual(result["options_strategy"], "iron_condor",
-                    "High IV earnings must also use iron_condor")
+            self.assertIsNotNone(result,
+                "liquid high-IV fixture must produce a setup (see low-IV test)")
+            self.assertEqual(result["options_strategy"], "iron_condor",
+                "High IV earnings must also use iron_condor")
+            self.assertIn("wide wings", result["action_label"],
+                ">8% implied move selects the wide-wings condor variant")
 
     def test_no_short_straddle_in_scanner_output(self):
         """The earnings setup detector must never return short_straddle.
