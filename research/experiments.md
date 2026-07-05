@@ -13,6 +13,39 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PRODUCT] Hero refinements: dominant globe, waitlist right, REAL self-updating stats (v1.0.87)
+
+- Territory: T-CLIENT (+ one datacore server module). Hero-refinements
+  directive, scope held to #data-intel.
+- REAL STATS root-caused and fixed: prod archiveStats() returns
+  files/bytes — the hero was summing a `samples` field that only the
+  FIXTURE had, hence the production dash; and it only covers position
+  kinds, undercounting streams. New /api/data/platform/stats
+  (server/platformStats.ts): layers from the live registry;
+  streams_recording = live layers + archive dirs not mapped to a layer
+  (DIR_LAYER_MAP for filings→insider, earnings8k→earnings; waitlist/
+  apiusage operational dirs and *_tracks excluded); observations =
+  REAL line counts across the archive, gz-aware streaming, 10-min TTL
+  cache with stale-beats-recount. Nothing hardcoded — every number
+  grows as the system grows. 3 new tests incl. the phantom-samples
+  regression pin.
+- GLOBE prominence: zoom 1.05→1.45 (1.15 phone), brighter land
+  (#1b3560/#3a67a6), 20° graticule (mission-control read), points
+  2.1px aircraft ≤1200 / 1.9px vessels ≤800 with a GRACEFUL PHONE
+  DENSITY CAP (500/300 under 640px — cap density, never stutter),
+  glowing 4px site markers, legibility shade lightened (right edge
+  0.25→0.04) so the sphere is the centerpiece not a curtain.
+- LAYOUT: waitlist moved to a bordered card on the RIGHT of the hero
+  row; "Open the live map" button REMOVED per directive (its CSS block
+  replaced, not orphaned — dead-code policy). Headline, positioning
+  copy, and the imagery strip untouched.
+- CONCURRENCY NOTE: routine merged #191 (CFTC COT pipeline, v1.0.86)
+  mid-build — stream (2) of the data-expansion directive is theirs;
+  read-and-increment took this PR to v1.0.87, no collision.
+- Gates: node 130/130; harness 0 hard failures ×3 pages ×3 widths +
+  all-off; globe probed under software-GL at 390/1440 (sphere with
+  graticule/land/points dominant, text legible); screenshots reviewed.
+
 ## 2026-07-04 — [REPAIR] /api/diag shipped: token-gated read-only diagnostics (option d, human-approved) (v1.0.81)
 
 - Territory: T-BOT (server/bot.ts route + pure server/diag.ts). Closes

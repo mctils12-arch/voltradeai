@@ -181,13 +181,14 @@
         <p>We are not a basemap competitor &mdash; same open geospatial foundation as any Earth viewer, plus what a static atlas can&rsquo;t do: live movement, entity fusion, market-validated signals, and full API access.</p>
       </div>
     </div>
-    <div class="dataintel-stats" id="dataintel-stats" aria-live="polite">
-      <div class="dataintel-stat"><span class="dataintel-num" id="di-layers">&mdash;</span><span class="dataintel-label">live map layers</span></div>
-      <div class="dataintel-stat"><span class="dataintel-num" id="di-streams">&mdash;</span><span class="dataintel-label">data streams recording</span></div>
-      <div class="dataintel-stat"><span class="dataintel-num" id="di-samples">&mdash;</span><span class="dataintel-label">archived observations</span></div>
-    </div>
-    <div class="dataintel-actions">
-      <a href="/app#/data" class="btn btn-primary btn-xl">Open the live map <span class="arrow">→</span></a>
+    <!-- hero-refinements 2026-07-05: waitlist on the RIGHT; stats left;
+         "Open the live map" button removed per directive -->
+    <div class="di-hero-row">
+      <div class="dataintel-stats" id="dataintel-stats" aria-live="polite">
+        <div class="dataintel-stat"><span class="dataintel-num" id="di-layers">&mdash;</span><span class="dataintel-label">live map layers</span></div>
+        <div class="dataintel-stat"><span class="dataintel-num" id="di-streams">&mdash;</span><span class="dataintel-label">data streams recording</span></div>
+        <div class="dataintel-stat"><span class="dataintel-num" id="di-samples">&mdash;</span><span class="dataintel-label">archived observations</span></div>
+      </div>
       <form class="dataintel-waitlist" id="dataintel-waitlist" novalidate>
         <label for="di-email" class="dataintel-waitlist-label">Want the data as an API? Join the preview waitlist &mdash; email only, no billing.</label>
         <div class="dataintel-waitlist-row">

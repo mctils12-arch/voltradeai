@@ -949,10 +949,19 @@
 #data-intel .dataintel-label {
   font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.7;
 }
-#data-intel .dataintel-actions {
-  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 56px; margin-top: 28px;
+#data-intel .di-hero-row {
+  display: grid; grid-template-columns: 1fr; gap: 32px 56px; margin-top: 28px;
+  align-items: start;
 }
-#data-intel .dataintel-waitlist { max-width: 460px; flex: 1 1 300px; }
+@media (min-width: 900px) {
+  #data-intel .di-hero-row { grid-template-columns: 1.15fr 0.85fr; }
+  #data-intel .dataintel-waitlist { justify-self: end; }
+}
+#data-intel .dataintel-waitlist {
+  max-width: 460px; width: 100%;
+  background: rgba(6, 12, 24, 0.72); border: 1px solid rgba(77, 159, 255, 0.28);
+  border-radius: 14px; padding: 18px;
+}
 #data-intel .dataintel-waitlist-label { display: block; font-size: 14px; opacity: 0.85; margin-bottom: 10px; }
 #data-intel .dataintel-waitlist-row { display: flex; gap: 10px; flex-wrap: wrap; }
 #data-intel .dataintel-waitlist-row input {
@@ -968,7 +977,7 @@
 }
 
 /* ===== HERO GLOBE + imagery strip (directive 2026-07-05, #data-intel only) ===== */
-#data-intel { position: relative; overflow: hidden; }
+#data-intel { position: relative; overflow: hidden; min-height: 720px; }
 #data-intel #di-globe {
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(ellipse at 70% 40%, #0a1428 0%, #04070f 65%);
@@ -976,11 +985,13 @@
 #data-intel #di-globe canvas { pointer-events: none !important; }
 #data-intel .di-globe-shade {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  background: linear-gradient(90deg, rgba(4,7,15,0.88) 0%, rgba(4,7,15,0.55) 55%, rgba(4,7,15,0.25) 100%);
+  /* hero-refinements 2026-07-05: the globe is the centerpiece — the shade
+     only protects text legibility, it no longer curtains the sphere */
+  background: linear-gradient(90deg, rgba(4,7,15,0.72) 0%, rgba(4,7,15,0.34) 55%, rgba(4,7,15,0.04) 100%);
 }
 @media (max-width: 900px) {
   #data-intel .di-globe-shade {
-    background: linear-gradient(180deg, rgba(4,7,15,0.82) 0%, rgba(4,7,15,0.6) 100%);
+    background: linear-gradient(180deg, rgba(4,7,15,0.72) 0%, rgba(4,7,15,0.42) 100%);
   }
 }
 #data-intel .container { position: relative; z-index: 2; }
