@@ -85,11 +85,33 @@ const TTL_MS = 10 * 60_000;
 let cache: { at: number; observations: number } | null = null;
 let inflight: Promise<number> | null = null;
 
+/** [REPAIR 2026-07-05, audit defect #9] Sentinel-2 readings are git-side
+ *  (session-run pipeline; Railway never runs it) — a stall was invisible.
+ *  Surfacing the newest reading date + age here makes staleness a finding
+ *  every DAILY health check and dashboard can see. Reads the bundled repo
+ *  file; parse failure returns nulls, never throws. */
+export function sentinel2Freshness(nowMs = Date.now(), fp = path.resolve(process.cwd(), "datacore/sentinel2/readings.jsonl")): { last: string | null; age_days: number | null } {
+  try {
+    const lines = fs.readFileSync(fp, "utf8").trim().split("\n");
+    let last: string | null = null;
+    for (const line of lines) {
+      try {
+        const d = JSON.parse(line)?.date;
+        if (d && (!last || d > last)) last = d;
+      } catch {}
+    }
+    if (!last) return { last: null, age_days: null };
+    return { last, age_days: Math.floor((nowMs - Date.parse(last)) / 86400_000) };
+  } catch {
+    return { last: null, age_days: null };
+  }
+}
+
 export async function platformStats(
   layers: Array<{ id: string; status: string }>,
   base = archiveBaseDir(),
   nowMs = Date.now(),
-): Promise<{ layers_live: number; layers_total: number; streams_recording: number; observations: number; observations_as_of: string | null }> {
+): Promise<{ layers_live: number; layers_total: number; streams_recording: number; observations: number; observations_as_of: string | null; sentinel2_last_reading: string | null; sentinel2_reading_age_days: number | null }> {
   const live = layers.filter((l) => l.status === "live").map((l) => l.id);
   const dirs = listArchiveDirs(base);
   if (!cache || nowMs - cache.at > TTL_MS) {
@@ -102,12 +124,15 @@ export async function platformStats(
     }
     if (!cache) await inflight; // first call: wait; later calls: serve stale
   }
+  const s2 = sentinel2Freshness(nowMs);
   return {
     layers_live: live.length,
     layers_total: layers.length,
     streams_recording: streamsRecording(live, dirs),
     observations: cache?.observations ?? 0,
     observations_as_of: cache ? new Date(cache.at).toISOString() : null,
+    sentinel2_last_reading: s2.last,
+    sentinel2_reading_age_days: s2.age_days,
   };
 }
 

@@ -13,6 +13,29 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] Audit defects #2/#9/#10 closed: trains health override, sentinel2 staleness surface, silent-cap edges (v1.0.107)
+
+- #2: the layers registry statically claimed trains "live" through the
+  entire outage. /api/data/layers now health-overrides trains to
+  status "down" (+note) when the cache is >45 min stale or no source
+  is ok (the eager tick refreshes every 10 min, so staleness = real
+  outage); the client renders "feed down" red and auto-disables the
+  toggle — a dead feed never advertises live again.
+- #9: sentinel2 readings are git-side/session-run — a stall was
+  invisible. platformStats now exposes sentinel2_last_reading +
+  age_days so every DAILY check and dashboard sees staleness.
+- #10a: edgar13f with a NULL entryTotal that parses exactly to the
+  250 cap can no longer ship 250 rows that look complete — treated as
+  over-cap (summary-only, holdingsOmitted=true) per the never-silent
+  cap doctrine.
+- #10b: nasaFirms bounded its dedup memory with a full clear() — in
+  peak fire season that forgets the entire ~3h NRT window at once and
+  re-appends it as duplicates. Now trims the OLDEST half (insertion
+  order), keeping the recent window intact.
+- ALL TEN audit defects from the 2026-07-05 quality audit are now
+  closed (#209 #210 #211 #212 #214 #216 + this). Harness green; suites
+  green.
+
 ## 2026-07-05 — [REPAIR] Manifest accuracy: aircraft field_map corrected + COT manifest created (docs)
 
 - Audit defects #7 + #8 (both manifest-accuracy, one logical change:

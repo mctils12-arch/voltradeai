@@ -693,6 +693,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ? { ...l, status: vesselStreamEnabled() ? "live" : "awaiting_key" }
       : l.id === "fires"
         ? { ...l, status: firmsEnabled() ? "live" : "awaiting_key" }
+      // [REPAIR 2026-07-05, audit defect #2] trains health override: the
+      // registry statically claimed "live" through the entire trains
+      // outage — a dead feed advertising live is the exact "empty feed
+      // that claims live status" failure mode. The eager archive tick
+      // refreshes trainsCache every 10 min, so a cache >45 min old (or
+      // both sources erroring) means the feed is genuinely down.
+      : l.id === "trains"
+        ? (() => {
+            const fresh = trainsCache && Date.now() - trainsCache.at < 45 * 60_000;
+            const anyOk = (trainsCache?.data?.sources || []).some((s: any) => s.status === "ok");
+            return fresh && anyOk ? l : { ...l, status: "down", status_note: "feed outage — sources unreachable; auto-recovers" };
+          })()
         : l
     );
     // server_version lets the client detect an OPEN-TAB VERSION SKEW: a
