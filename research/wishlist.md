@@ -336,6 +336,25 @@
     use by email). (3) budget option: ThetaData Pro churn ~$160-320
     if retention-after-cancel is confirmed in their terms. Start the
     free Alpaca archive regardless of which (or none) you pick.
+  - **PILOT EXECUTED 2026-07-04 (human provided the key; priced live
+    via metadata.get_cost — free calls, $0 spent): VERDICT GO.**
+    OPRA.PILLAR cbbo-1m (1-min consolidated BBO ≈ NBBO class)
+    confirmed back to 2013-04-01 FROM THE API — all regimes including
+    2015-08, 2018-Q4, 2020-03, 2022. Measured per-day closing-1-min
+    costs: SPY.OPT $0.0129 (largest chain in existence), AAPL.OPT
+    $0.0035, F.OPT $0.0019; batching is cost-neutral (3-symbol batch
+    priced ≈ sum). Universe extrapolation (5 SPY-class + 15
+    AAPL-class + 80 F-class ≈ $0.28/day): 2016→present ≈ **$740**,
+    full 2013→present ≈ **$930** — comfortably under the $1,500 line
+    even at 2x estimation error. statistics schema (OI/settlement) is
+    pricey ($0.36/day for SPY alone) — sample it, don't bulk-pull.
+    STAGED PLAN needing NO new money to start: the $125 free credits
+    cover ~450 universe-days ≈ pull 2016–2017 first, validate quality
+    against known prices, THEN the human green-lights the remaining
+    ~$600 for 2018→present. BLOCKED ON: DATABENTO_KEY added to the
+    Claude Code session environment (key exists, human has it) + the
+    human's go for spend beyond the free credits after the validation
+    stage.
 
 - **[APPROVED BY HUMAN 2026-07-03 — queued as next [REPAIR], see open_questions #7]**
   **Persist the max-drawdown high-water mark** (`state.equityPeak`,
