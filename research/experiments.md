@@ -13,6 +13,30 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] US Drought Monitor stream (BUILD ORDER 2 #5) (v1.0.118)
+
+- [T-DATACORE] server/droughtMonitor.ts: USDM data services (keyless;
+  attribution REQUIRED and carried in every payload: "U.S. Drought
+  Monitor (NDMC/USDA/NOAA)"). CONUS + 8 ag/water states — states by
+  FIPS (probed: abbreviations return empty). Cumulative D0-D4 + the
+  USDM's own published DSCI as the one labeled DERIVED field. 24h
+  eager poll over a 70-day window, dedup aoi|map_date (maps final on
+  publish), per-AOI failure tolerance. Manifest + RAW route
+  /api/data/drought.
+- LIVE-CAUGHT INTEGRITY BUG before shipping: the aoi=us endpoint
+  returns BOTH "CONUS" and "Total" (incl. AK/HI/PR) rows per week —
+  the first parse labeled both CONUS, silently mixing two series.
+  Fixed: a row is kept only when its OWN label matches the requested
+  AOI, never relabeled; regression test pins it. Verified after fix:
+  exactly 9 AOIs per map week (was 11 rows mislabeled into 9 keys).
+- LIVE E2E: 99 aoi-weeks; 2026-06-30 map: NE DSCI 251 (D2+ 62%!),
+  OK 163, CONUS 157, IL 11 — plausible cross-section. Battery 5
+  tests (real-fixture normalization + DSCI math, label honesty,
+  malformed-row drops, FIPS table pin, dedup+gz).
+- Hypothesis (gate-locked): belt drought DELTAS lead ag commodities
+  and food-producer margins by weeks; joins USGS gauges + FIRMS on
+  the environmental axis.
+
 ## 2026-07-05 — [PIPELINE] Treasury auction results stream (BUILD ORDER 2 #4) (v1.0.117)
 
 - [T-DATACORE] server/treasuryAuctions.ts: TreasuryDirect TA_WS
