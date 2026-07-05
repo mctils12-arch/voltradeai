@@ -52,6 +52,12 @@ interface Detail {
   /** FAA-registry identity line (entity spine, exact Mode S hex match) —
    *  arrives async after the card opens; absent for non-US hexes. */
   owner?: string;
+  /** Everything Graph R1: 7-day cross-stream events + own-archive traffic
+   *  density near a strategic site — arrives async after the card opens. */
+  timeline?: {
+    events: Array<{ t: string; kind: string; label: string; severity?: string | null; value?: number | null }>;
+    density: Record<string, { a: number; v: number }>;
+  };
   /** External profile/photo pages — LINK OUT only, never embedded
    *  (third-party photo copyright). */
   links?: { label: string; href: string }[];
@@ -1161,6 +1167,7 @@ export default function DataMapPage() {
             type: "Feature",
             geometry: { type: "Point", coordinates: [s.lon, s.lat] },
             properties: {
+              id: s.id,
               name: s.name, category: catLabels[s.category] || s.category,
               operator: s.operator, relevance: s.relevance,
               color: colors[s.category] || "#4d9fff",
@@ -1194,6 +1201,18 @@ export default function DataMapPage() {
             subtitle: `${f.properties.category} · ${f.properties.operator}`,
             body: f.properties.relevance,
           });
+          // Everything Graph R1: async 7-day cross-stream timeline; any
+          // failure just leaves the section absent — the card never degrades
+          if (f.properties.id) {
+            fetch(`/api/data/site-timeline/${f.properties.id}`)
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => {
+                if (!d) return;
+                setDetail((prev) => prev && prev.title === f.properties.name
+                  ? { ...prev, timeline: { events: d.events || [], density: d.density || {} } } : prev);
+              })
+              .catch(() => {});
+          }
         });
         map.on("mouseenter", "sites-icons", () => { map.getCanvas().style.cursor = "pointer"; });
         map.on("mouseleave", "sites-icons", () => { map.getCanvas().style.cursor = ""; });
@@ -2174,6 +2193,32 @@ export default function DataMapPage() {
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
           {detail.owner && (
             <p className="vt-site-card-trail">Registered: {detail.owner}</p>
+          )}
+          {detail.timeline && (
+            <div>
+              <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>Past 7 days within 50 km (own archives):</p>
+              {detail.timeline.events.length === 0 && (
+                <p className="vt-site-card-trail">No archived alerts, fire detections, or gauge readings.</p>
+              )}
+              {detail.timeline.events.slice(0, 5).map((ev, i) => (
+                <p key={i} className="vt-site-card-trail">
+                  {ev.kind === "alert" ? "⚠" : ev.kind === "fire" ? "▲" : "≈"} {ev.label}
+                  {ev.severity ? ` · ${ev.severity}` : ""} · {String(ev.t).slice(0, 10)}
+                </p>
+              ))}
+              {(() => {
+                const days = Object.keys(detail.timeline.density).sort();
+                if (!days.length) return null;
+                const a = days.reduce((s, d) => s + (detail.timeline!.density[d].a || 0), 0);
+                const v = days.reduce((s, d) => s + (detail.timeline!.density[d].v || 0), 0);
+                return (
+                  <p className="vt-site-card-trail">
+                    Traffic near site: {a.toLocaleString()} aircraft + {v.toLocaleString()} vessel archived points
+                    over {days.length} day{days.length > 1 ? "s" : ""}
+                  </p>
+                );
+              })()}
+            </div>
           )}
           {detail.links && detail.links.length > 0 && (
             <div className="vt-site-card-links">
