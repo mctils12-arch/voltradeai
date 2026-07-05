@@ -29,21 +29,20 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
 5. **FRED_API_KEY in the Claude Code session env** (2 min, free) —
    already live in Railway; adding it to the session env lets
    research sessions pull FRED directly instead of via prod.
-6. **[DONE-PENDING-VERIFICATION 2026-07-05 — human added the key
-   same day; stream built server-side v1.0.132]** ~~CENSUS_API_KEY
-   (free, instant email signup) — unblocks BUILD ORDER 3 #4
-   container imports~~ — built as server/censusImports.ts, key-gated
-   on the fredMacro pattern, NOT the session-run pipeline this entry
-   originally proposed. CORRECTION to the original signup note: the
-   key must live in RAILWAY env vars for prod activation. The key is
-   NOT visible in this session's container (env fixed at start —
-   FRED precedent), so we cannot see WHERE it was set; if it went to
-   the Claude session env config instead of Railway,
-   /api/data/imports will honestly report enabled:false until it is
-   also added to Railway (a session-env copy is still useful for
-   research backfills). First DAILY session after deploy verifies
-   which state we're in and, if the porths query variants 400, fixes
-   the query shape from the logged Census error bodies.
+6. **[DONE — VERIFIED LIVE 2026-07-05, same day the human added the
+   key]** ~~CENSUS_API_KEY (free, instant email signup) — unblocks
+   BUILD ORDER 3 #4 container imports~~ — built as
+   server/censusImports.ts (key-gated, fredMacro pattern, v1.0.132,
+   PR #249). The key IS in Railway: ~30 min after merge,
+   /api/data/imports served 686 live records (April 2026 port-level
+   import values with containerized fields populated — the FIRST
+   query variant was correct; the anticipated shape-fix-from-logs
+   path was never needed). Census's national aggregate row (port
+   "-", "TOTAL FOR ALL PORTS") comes through as published — kept.
+   Archive now accumulates monthly vintages. NOTE: the key is still
+   NOT in the Claude session env (fixed at session start); add it
+   there too only if session-side research pulls are ever wanted —
+   not required for the pipeline.
 
 - **[DONE 2026-07-05 — key set in Railway, stream #3 built same day]**
   ~~HUMAN ACTION — FRED API key~~ — human set FRED_API_KEY in Railway;
