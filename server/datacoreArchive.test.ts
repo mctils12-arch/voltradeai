@@ -107,3 +107,19 @@ test("archiveStats reports files and bytes for volume monitoring", () => {
   assert.equal(s.kinds.aircraft.files, 1);
   assert.ok(s.totalBytes > 0);
 });
+
+// [REPAIR 2026-07-05, audit defect #3] archiveStats must enumerate the
+// archive from disk — new stream directories (fredmacro, optionchains,
+// fda, ...) appear WITHOUT a code change, so the archive-gap rule covers
+// every kind. Position kinds report {files:0} even before first write.
+test("archiveStats discovers new stream directories from disk (no hardcoded kind list)", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-arch-"));
+  fs.mkdirSync(path.join(base, "fredmacro"), { recursive: true });
+  fs.writeFileSync(path.join(base, "fredmacro", "2026-07-05.jsonl"), '{"s":"DGS10"}\n');
+  fs.mkdirSync(path.join(base, "somefuturestream"), { recursive: true });
+  const s = archiveStats(base);
+  assert.equal(s.kinds.fredmacro.files, 1, "disk-discovered kind must be reported");
+  assert.ok(s.kinds.somefuturestream, "never-before-seen dirs appear without a code change");
+  assert.equal(s.kinds.aircraft.files, 0, "position kinds stay loud even before first write");
+  fs.rmSync(base, { recursive: true, force: true });
+});

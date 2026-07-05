@@ -13,6 +13,22 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] archiveStats enumerates from disk — archive-gap rule now covers every kind (v1.0.102) [T-DATACORE]
+
+- Audit defect #3: archiveStats() hardcoded six position kinds, so
+  fires, filings, earnings8k, filings13f, fredmacro, optionchains and
+  every new stream (usaspending, fda, usgswater, gdelt) were INVISIBLE
+  to /api/data/archive/stats — a stalled key or dead archiver would be
+  discovered by accident, and the archive-gap rule was unenforceable
+  for most of the archive.
+- FIX: enumerate directories from disk (new streams appear with ZERO
+  code change), keep the position kinds explicitly listed so they
+  report {files:0} loudly before first write, skip non-files.
+- Side benefit: the landing hero's streams_recording count now grows
+  automatically as the new stream dirs land on the volume.
+- RATCHET: test creates a never-before-seen stream dir and asserts it
+  appears in stats without a code change.
+
 ## 2026-07-05 — [REPAIR] Eager archive tick: aircraft + trains no longer visitor-dependent (v1.0.101) [T-DATACORE]
 
 - Audit defect #1 (the top finding): aircraft and trains archiving was
