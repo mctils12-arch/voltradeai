@@ -27,6 +27,7 @@ import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
 import { loadEntitySpine } from "./aircraftEntities";
+import { resolveOperator, isTrusteeRegistrant, operatorGroup } from "./operatorResolution";
 
 export const SESSION_GAP_MIN = 45;
 const CORPORATE_TYPES = new Set(["corporation", "llc"]);
@@ -72,7 +73,9 @@ export function foldSessions(timesSec: number[], out: HexWeekly = {}, gapMin = S
 
 // ── archive scan (airborne timestamps per hex) ──────────────────────────────
 
-function scanFile(fp: string, acc: Map<string, number[]>): Promise<void> {
+interface HexAcc { times: number[]; calls: string[] }
+
+function scanFile(fp: string, acc: Map<string, HexAcc>): Promise<void> {
   return new Promise((resolve) => {
     try {
       let stream: NodeJS.ReadableStream = fs.createReadStream(fp);
@@ -84,9 +87,12 @@ function scanFile(fp: string, acc: Map<string, number[]>): Promise<void> {
         try { r = JSON.parse(l); } catch { return; }
         if (!r || typeof r.i !== "string" || typeof r.t !== "number" || r.g) return; // ground points excluded
         const hex = r.i.toLowerCase();
-        let arr = acc.get(hex);
-        if (!arr) acc.set(hex, (arr = []));
-        arr.push(r.t);
+        let a = acc.get(hex);
+        if (!a) acc.set(hex, (a = { times: [], calls: [] }));
+        a.times.push(r.t);
+        // occurrences, not distinct strings: one callsign seen twice is two
+        // observations of the same operator (min-samples rule counts these)
+        if (r.c && a.calls.length < 32) a.calls.push(r.c);
       });
       rl.on("close", () => resolve());
       stream.on("error", () => resolve());
@@ -96,33 +102,53 @@ function scanFile(fp: string, acc: Map<string, number[]>): Promise<void> {
 
 export interface OwnerSeries {
   owner: string;
+  /** listed parent group for ticker-level studies (Envoy -> American, ...);
+   *  equals owner when no mapping applies */
+  group: string;
+  /** how airframes joined this series: callsign-resolved operator vs FAA
+   *  registrant (BUILD ORDER 4 #1 — basis always labeled, never mixed
+   *  silently) */
+  resolution: { callsign: number; registrant: number };
+  /** airframes whose FAA registrant is a trustee/leasing shell */
+  trustee_airframes: number;
   registrant_type: string;
   n_airframes: number;
   weekly: HexWeekly;
 }
 
-/** Full scan -> per-owner weekly series (corporations + LLCs from the
- *  bundled spine; unmatched hexes simply don't contribute). */
+/** Full scan -> per-OPERATOR weekly series. A hex joins by callsign-
+ *  resolved operator when its archived callsigns carry a known ICAO
+ *  prefix (works even for non-US hexes the spine can't match); otherwise
+ *  by spine corporate/LLC registrant; otherwise it doesn't contribute. */
 export async function buildFleetSeries(base = archiveBaseDir(), spineFp?: string): Promise<OwnerSeries[]> {
   const spine = loadEntitySpine(spineFp);
-  if (!spine) return [];
   const dir = path.join(base, "aircraft");
   let files: string[] = [];
   try {
     files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl") || f.endsWith(".jsonl.gz")).sort();
   } catch { return []; }
-  const acc = new Map<string, number[]>();
+  const acc = new Map<string, HexAcc>();
   for (const f of files) await scanFile(path.join(dir, f), acc);
 
   const byOwner = new Map<string, OwnerSeries>();
-  acc.forEach((times, hex) => {
-    const e = spine[hex];
-    if (!e || !CORPORATE_TYPES.has(e.registrant_type || "")) return;
-    times.sort((a: number, b: number) => a - b);
-    let s = byOwner.get(e.owner);
-    if (!s) byOwner.set(e.owner, (s = { owner: e.owner, registrant_type: e.registrant_type!, n_airframes: 0, weekly: {} }));
+  acc.forEach((a, hex) => {
+    const e = spine?.[hex];
+    const op = resolveOperator(a.calls);
+    let key: string, rtype: string, basis: "callsign" | "registrant";
+    if (op) {
+      key = op.operator; rtype = "operator"; basis = "callsign";
+    } else if (e && CORPORATE_TYPES.has(e.registrant_type || "")) {
+      key = e.owner; rtype = e.registrant_type!; basis = "registrant";
+    } else {
+      return;
+    }
+    a.times.sort((x: number, y: number) => x - y);
+    let s = byOwner.get(key);
+    if (!s) byOwner.set(key, (s = { owner: key, group: operatorGroup(key), resolution: { callsign: 0, registrant: 0 }, trustee_airframes: 0, registrant_type: rtype, n_airframes: 0, weekly: {} }));
     s.n_airframes++;
-    foldSessions(times, s.weekly);
+    s.resolution[basis]++;
+    if (isTrusteeRegistrant(e?.owner)) s.trustee_airframes++;
+    foldSessions(a.times, s.weekly);
   });
   return Array.from(byOwner.values()).sort((a, b) => b.n_airframes - a.n_airframes);
 }

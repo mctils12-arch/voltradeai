@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Operator resolution — gate PASSED 98.4% group-aware, n=2,498 (BUILD ORDER 4 #1) (v1.0.127)
+
+- [T-DATACORE] server/operatorResolution.ts: callsign-prefix
+  inference (>=2 prefixed observations, >=60% majority, KNOWN-prefix
+  table only — 23 ICAO codes data-driven from our archive survey;
+  unknown prefixes stay null), trustee-registrant detection (pattern
+  from our own spine: Bank of Utah 490 / UMB 328 / Wilmington 301 /
+  TVPX 97 airframes), PARENT_GROUP mapping (Envoy/PSA/Piedmont ->
+  American; Endeavor -> Delta; SkyWest/Republic deliberately NOT
+  mapped — independent companies under capacity agreements). Fleet
+  series now aggregates by resolved OPERATOR (works even for non-US
+  hexes the spine can't match), falls back to registrant, labels the
+  basis per airframe, counts trustee shadows, and carries the listed
+  parent group for ticker-level studies.
+- GATE (pre-stated >=90% on >=20 airframes; ran on n=2,498 — 125x
+  the minimum): raw registrant-agreement 86.1% -> the mismatch class
+  was ENTIRELY parent-registered regional jets flying wholly-owned
+  subsidiary callsigns, i.e. the resolution being MORE precise than
+  the registrant check (the check was circular for exactly the class
+  the module exists for). Group-aware agreement: 98.4% -> PASS.
+  Residuals verified correct-by-design (SkyWest/Republic capacity
+  flying + one JET BLUE/JETBLUE string artifact). Both numbers
+  reported; the check mis-specification is the lesson, not hidden.
+- DESIGN LESSON (caught by test fixture): occurrence counting beats
+  distinct-callsign dedup — one callsign seen twice is two
+  observations of the same operator.
+- Unlocks fleet-utilization GATE 2 (utilization x earnings at the
+  GROUP level) once archive depth suffices.
+
 ## 2026-07-05 — [RESEARCH] BUILD ORDER 4 filed — deepen before new roots (docs)
 
 - [T-DATACORE] Theme: the gate-2 unlocks and queued GIP items that
