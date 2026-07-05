@@ -1,0 +1,25 @@
+{
+ "stream": "faastatus",
+ "storage": "append-only JSONL day-files under <archive>/faastatus/ by CAPTURE date (gz after 2 days)",
+ "written_by": "server/faaStatus.ts archiveFaaEvents (15-min poll — delay programs are intraday phenomena; eager boot)",
+ "source": "FAA National Airspace System status (nasstatus.faa.gov/api/airport-status-information) — keyless XML; ground stops, ground-delay programs, arrival/departure delays, closures. Shape verified live 2026-07-05 (thunderstorm day fixture)",
+ "license": "US government work, public domain; attribution 'FAA National Airspace System Status'",
+ "attribution": "FAA National Airspace System Status",
+ "schema_version": 1,
+ "field_map": {
+  "type|airport|reason|numbers — dedup key (EVENT IDENTITY)": "the feed is a rolling snapshot, not an event log: a program persisting across polls archives ONCE; when its published numbers change, the new state appends vintage-style",
+  "type": "ground_stop | ground_delay | delay | closure",
+  "avg/max/min/end_time/reopen/trend": "as published, human-readable strings ('2 hours and 30 minutes') — NOT normalized to minutes at capture; normalization is analysis-time work so the raw record stays faithful",
+  "duration honesty": "the feed carries no clear/cancel times — program durations are LOWER BOUNDS reconstructed from our capture times, never inferred beyond that",
+  "update_time/rt": "feed's own Update_Time + as-seen UTC timestamp"
+ },
+ "confidence_model": "RAW official operational status. Empty NAS (zero programs nationwide) is a real publishable state, cached and served as such. HYPOTHESIS (gate-locked): sustained delay-program frequency at cargo hubs (MEM/SDF/CVG/ANC) as a parcel-carrier cost-pressure indicator — prior ~20% (weather dominates and is priced); the archive is cheap and honest RAW value regardless.",
+ "geo_fields": [
+  "(airport IATA/FAA code -> coordinates needs an airport table; map layer deliberately deferred)"
+ ],
+ "entity_key": "airport + type + update_time",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "15-min poll (96 light requests/day) so intraday program churn lands in the archive",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 5 #4; XML parsed regex-per-edgarForm4-precedent with a prefix-boundary fix (<Delay> vs <Delay_type>) that the EDGAR helpers never needed."
+}

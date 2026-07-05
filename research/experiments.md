@@ -13,6 +13,48 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] FAA airport status stream (BUILD ORDER 5 #4) — ground stops/GDPs/delays/closures + /api/data/airport-status (v1.0.136)
+
+- TERRITORY: T-DATACORE. server/faaStatus.ts polls the keyless FAA
+  NAS status XML every 15 min (delay programs are intraday — hourly
+  would miss churn; 96 light requests/day). Shape verified live on a
+  thunderstorm day (ground stops DCA/BWI, GDPs JFK/LGA/PHL/EWR) —
+  the test fixture is trimmed from that real capture.
+- PARSER LESSON (new, not in the EDGAR precedent): regex tag
+  extraction per edgarForm4.ts, but this document has PREFIX-
+  COLLIDING tag names — <Delay> vs <Delay_type> — and `<${tag}[^>]*>`
+  matches both. Caught by the battery (delay event came back as DCA
+  instead of LGA); fixed with a name-boundary regex
+  (`<${tag}(?:\s[^>]*)?>`). Any future regex-XML stream should start
+  from the boundary-safe helpers.
+- SNAPSHOT ARCHIVE SEMANTICS: the feed is a rolling snapshot with no
+  clear/cancel times. Dedup by EVENT IDENTITY (type|airport|reason|
+  numbers): a persisting program archives once; changed numbers
+  append vintage-style (test: JFK GDP worsening appends exactly 1).
+  Durations are therefore LOWER BOUNDS from our capture times —
+  stated in the manifest, never inferred. Published delay values stay
+  human-readable strings at capture ("2 hours and 30 minutes");
+  normalization is analysis-time work so the raw record stays
+  faithful.
+- EMPTY-NAS HONESTY: zero programs nationwide is a real publishable
+  state — cached and served as such (test-pinned); transport errors
+  keep the last snapshot instead of faking a clear sky.
+- Map layer DEFERRED honestly: the feed has no coordinates; a
+  layer needs an airport code->lat/lon table — filed as the natural
+  next slice, not half-shipped.
+- HYPOTHESIS (gate-locked): sustained delay-program frequency at
+  cargo hubs (MEM/SDF/CVG/ANC) as a parcel-carrier cost-pressure
+  indicator. Prior ~20% (weather dominates and is priced); the
+  archive is cheap honest RAW value regardless.
+- Tests 4/4 (live-shape parse all four families + prefix-collision
+  regression, empty-NAS + transport-error semantics, event-identity
+  dedup + changed-number append, 403/500 fetch semantics); manifest
+  battery 3/3; tsc 64 baseline; pytest 397/1.
+- PROD VERIFIED same window (B5 running tally): short-volume LIVE
+  (12,240 symbols, 2026-07-02, holiday lookback correct), COT LIVE
+  (274 markets, report 2026-06-23), attention warming at last probe
+  (poller restarts with each deploy; next DAILY session confirms).
+
 ## 2026-07-05 — [PIPELINE] Wikimedia pageviews attention stream (BUILD ORDER 5 #3) — curated seed + /api/data/attention (v1.0.135)
 
 - TERRITORY: T-DATACORE. The PYTRENDS REPLACEMENT (gate-1 FAIL #215):
