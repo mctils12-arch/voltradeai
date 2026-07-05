@@ -1,0 +1,25 @@
+{
+ "stream": "cbpborderwait",
+ "storage": "append-only JSONL day-files under <archive>/cbpborderwait/ by CAPTURE date (gz after 2 days)",
+ "written_by": "server/cbpBorderWait.ts archiveBorderWaits (hourly poll; change-only dedup keeps quiet hours nearly free; eager boot)",
+ "source": "CBP Border Wait Times, bwt.cbp.gov/api/bwtnew — keyless JSON, 83 land crossings. NOTE: the RSS path probed at filing serves an HTML SPA (status-200 probes are not body probes — lesson recorded); bwtnew is the real feed. Verified live 2026-07-05",
+ "license": "US government work, public domain; attribution 'CBP Border Wait Times'",
+ "attribution": "CBP Border Wait Times",
+ "schema_version": 1,
+ "field_map": {
+  "port_number|crossing|lane|values — dedup key (CHANGE-ONLY)": "an unchanged wait re-polled hourly writes nothing; every change appends",
+  "lane": "commercial_standard | commercial_FAST | passenger_standard (flattened per lane class; a crossing WITHOUT commercial lanes contributes no commercial rows — real, not missing)",
+  "delay_min/lanes_open": "numeric, locale-independent; empty published values are null, never zero",
+  "status/border/update_time": "ARCHIVED VERBATIM and LOCALIZED BY SERVING REGION (our probe egress received Spanish; prod may receive English) — parsing never keys on these strings; joins use port_number",
+  "src_date/src_time/rt": "feed's own stamps + as-seen UTC"
+ },
+ "confidence_model": "RAW official operational data. Fills the ROAD leg of the freight-proxy set (sea=AIS, rail=STB, air=ADS-B). HYPOTHESIS (gate-locked): sustained commercial wait anomalies at top freight crossings (Laredo, Otay Mesa, El Paso) lead border-dependent logistics/intermodal volumes — prior ~20%, transmission is indirect; archive-first.",
+ "geo_fields": [
+  "(port_number -> coordinates needs a port-of-entry table; map layer deferred with the FAA one)"
+ ],
+ "entity_key": "port_number + crossing_name + lane",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "hourly poll (waits move intra-day at commercial crossings)",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 5 #5 — completes the five probed-and-buildable items; #6 USPTO stays probe-first."
+}

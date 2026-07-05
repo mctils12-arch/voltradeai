@@ -13,6 +13,41 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] CBP border wait times stream (BUILD ORDER 5 #5) — change-only archiver + /api/data/border-waits (v1.0.137)
+
+- TERRITORY: T-DATACORE. server/cbpBorderWait.ts polls
+  bwt.cbp.gov/api/bwtnew (keyless JSON, 83 land crossings) hourly.
+  Completes the five probed-and-buildable BUILD ORDER 5 items; #6
+  USPTO stays probe-first for a later session. Fills the ROAD leg of
+  the freight-proxy set (sea=AIS, rail=STB, air=ADS-B).
+- PROBE LESSON (new standing caution): the RSS path recorded at
+  filing (bwtRss/HTML) returned 200 — but its BODY is an HTML SPA.
+  A status-only probe is not a body probe; filing-time probes should
+  capture the first bytes too. bwtnew is the real JSON feed.
+- LOCALE HONESTY: the API localizes STATUS STRINGS by serving region
+  — our probe egress received Spanish ("Abierto", "demora"); prod's
+  US egress may receive English. Parsing keys ONLY on
+  locale-independent fields (numeric delay_minutes/lanes_open, port
+  identifiers, structure); localized strings archive VERBATIM,
+  never translated or matched (test fixture uses the actual Spanish
+  capture). Joins use port_number.
+- CHANGE-ONLY ARCHIVE: dedup key = port|crossing|lane|values —
+  unchanged waits re-polled hourly write nothing; every published
+  change appends (test-pinned). Flattened per lane class
+  (commercial standard/FAST + passenger standard); a crossing
+  without commercial lanes contributes no commercial rows — real,
+  not missing. Null delay = not published, never zero.
+- Map layer deferred with the FAA one (needs a port-of-entry
+  coordinate table).
+- HYPOTHESIS (gate-locked): sustained commercial wait anomalies at
+  Laredo/Otay Mesa/El Paso lead border-dependent logistics and rail
+  intermodal volumes (joins STB carloads). Prior ~20% (indirect
+  transmission) — archive-first, stated at filing.
+- Tests 4/4 (live-shape parse with Spanish-capture fixture,
+  absent-lane honesty, change-only dedup + delay-change append,
+  transport-error keeps last snapshot); manifest battery 3/3; tsc 64
+  baseline; pytest 397/1.
+
 ## 2026-07-05 — [PIPELINE] FAA airport status stream (BUILD ORDER 5 #4) — ground stops/GDPs/delays/closures + /api/data/airport-status (v1.0.136)
 
 - TERRITORY: T-DATACORE. server/faaStatus.ts polls the keyless FAA
