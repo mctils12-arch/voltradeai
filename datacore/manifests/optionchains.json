@@ -1,0 +1,29 @@
+{
+ "stream": "optionchains",
+ "storage": "volume JSONL <archive>/optionchains/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/optionsChainArchive.ts (daily post-close snapshot)",
+ "source": "Alpaca Market Data v1beta1 options snapshots, feed=indicative (paper account)",
+ "license": "Alpaca market data terms; INDICATIVE feed — NOT consolidated NBBO; internal research use",
+ "attribution": "Alpaca Markets (indicative feed)",
+ "schema_version": 1,
+ "field_map": {
+  "s": "OCC option symbol",
+  "u": "underlying ticker",
+  "t": "snapshot epoch ms (UTC)",
+  "bid": "indicative bid price (null if absent)",
+  "ask": "indicative ask price (null if absent)",
+  "bsz": "bid size",
+  "asz": "ask size",
+  "iv": "implied volatility (Alpaca-computed)",
+  "delta": "greeks.delta (Alpaca-computed)",
+  "oi": "open interest",
+  "feed": "always 'indicative' — the honesty label travels with every record"
+ },
+ "confidence_model": "quotes are INDICATIVE (single-source), never NBBO; Databento cbbo-1m (2013->present) is the ground-truth complement per the options-data decision 2026-07-04",
+ "geo_fields": [],
+ "entity_key": "u (underlying ticker); s (contract)",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "once per trading day after 16:15 ET; <=120 underlyings (CSP universe cache + open positions), exp <=60d, strikes +/-20% of spot; ~3-5MB/day raw, gzipped by the archive compressor",
+ "_note": "Universal archive envelope (approved 2026-07-04): forward-only history that can never be back-bought — the human's 'start now' mandate 2026-07-04."
+}

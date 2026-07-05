@@ -64,6 +64,34 @@ exception to append-only; the log below it stays append-only)
 - Bonus verification while probing: the v1.0.80 liveness field is live
   in production health (checks.bot.liveness {dark:false}, bot active).
 
+## 2026-07-05 — [PIPELINE] Options-chain daily archiver LIVE — forward history starts today (v1.0.83)
+
+- Territory: T-DATACORE. Executes the human's "start now — every day
+  not archiving is history permanently lost" mandate (options-data
+  decision 2026-07-04). server/optionsChainArchive.ts, FIRMS-poller
+  pattern: once per trading day after 16:15 ET (ET-aware, once-per-day
+  claim persisted so restarts can't double-fire), ≤120 underlyings
+  from the CSP-universe cache (spot prices ride along in the cache
+  tuples — zero extra API calls for the strike band) + open-position
+  symbols, per underlying the Alpaca v1beta1 snapshots endpoint
+  (paginated ≤5 pages, 350ms politeness spacing), filtered to exp ≤60
+  days and strikes ±20% of spot.
+- FEED HONESTY: paper accounts serve feed=indicative — NOT NBBO. The
+  label travels on EVERY record ("feed":"indicative"), in the manifest
+  license line, and the URL pins feed=indicative. Databento cbbo-1m is
+  the ground-truth complement (pilot verdict GO, 2026-07-04).
+- Volume budget stated up front: ~3–5MB/day raw JSONL, gzipped by the
+  existing archive compressor; envelope manifest
+  datacore/manifests/optionchains.json (enforcement test green).
+- Gates: node 127/127 (6 new tests: universe cap/dedup/spot-ridealong,
+  OCC parse + DTE/band filters, indicative-label-never-dropped,
+  day-file + once-per-ET-day scheduling incl. weekend/pre-close cases,
+  pagination + HTTP-error surfacing, manifest + routes wiring pins);
+  build clean; server-only.
+- First real snapshot: next trading day's close (2026-07-06 Mon) after
+  this deploys. Verify via /api/data/archive/stats gaining an
+  optionchains kind, or /api/diag audit tail.
+
 ## 2026-07-04 — [RESEARCH] Databento pilot EXECUTED: options history pull priced at ~$740, verdict GO (docs; $0 spent)
 
 - Human provided the API key; pilot ran same message via free
