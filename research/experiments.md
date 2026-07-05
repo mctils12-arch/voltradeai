@@ -13,6 +13,27 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Tank-fill v2 PR-1: Cushing tank registry from OSM (v1.0.105) [T-DATACORE]
+
+- First build step of the filed tank-fill v2 workup: 333 storage-tank
+  polygons pulled from OSM Overpass -> datacore/sentinel2/
+  cushing_tanks.geojson (git-versioned fixed geometry for the
+  crescent-shadow estimator). Per tank: center, equivalent-circle
+  diameter from polygon area, site assignment (3 tank_farm sites +
+  ring), API-650 48ft default height with an explicit provenance flag
+  (OSM has zero height tags here — assumptions labeled, never silent),
+  measurable_10m flag (234 tanks >= 40m).
+- REGISTRATION VALIDATION (the workup's sanity check): computed ring
+  shell capacity = 74.9M bbl vs EIA's ~76M bbl published Cushing
+  working capacity — the geometry + default height reproduce the known
+  ring within ~1.5%. Strong evidence the registry is sound before any
+  imagery sampling happens.
+- ODbL attribution in the file + pinned by test (counts, provenance
+  flags, bbox bounds, capacity plausibility). Builder script
+  re-runnable: scripts/build_tank_registry.py.
+- Next per the workup: PR-2 CDSE chip client (fixtures in CI), PR-3
+  crescent estimator.
+
 ## 2026-07-05 — [REPAIR] earnings8k manifest drift: acceptanceDatetime + ticker now actually stored (v1.0.104) [T-DATACORE]
 
 - Audit defect #5 — the honesty-critical one: the manifest documented

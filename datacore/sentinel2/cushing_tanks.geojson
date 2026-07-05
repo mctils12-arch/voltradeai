@@ -1,0 +1,6344 @@
+{
+ "type": "FeatureCollection",
+ "license": "ODbL \u2014 \u00a9 OpenStreetMap contributors (openstreetmap.org/copyright)",
+ "built": "2026-07-05T07:17:48.028045+00:00",
+ "bbox": [
+  35.86,
+  -96.84,
+  36.0,
+  -96.68
+ ],
+ "source": "Overpass man_made=storage_tank; equivalent-circle diameters from polygon area",
+ "height_note": "height_m is the API-650 48ft DEFAULT (no OSM height tags exist here); height_src flags it \u2014 calibration (winter shadows / 3DEP lidar) may overwrite per-tank",
+ "count": 333,
+ "measurable_count": 234,
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.7609,
+     35.948701
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925393",
+    "diameter_m": 84.3,
+    "area_m2": 5579.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759452,
+     35.947211
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925410",
+    "diameter_m": 84.3,
+    "area_m2": 5579.3,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.760967,
+     35.947231
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925579",
+    "diameter_m": 84.3,
+    "area_m2": 5579.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.762107,
+     35.947989
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925706",
+    "diameter_m": 84.3,
+    "area_m2": 5579.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.75942,
+     35.948445
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925720",
+    "diameter_m": 84.3,
+    "area_m2": 5579.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.755511,
+     35.932132
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925531",
+    "diameter_m": 83.3,
+    "area_m2": 5445.4,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754163,
+     35.933793
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925599",
+    "diameter_m": 83.3,
+    "area_m2": 5445.4,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.753348,
+     35.934534
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925681",
+    "diameter_m": 83.3,
+    "area_m2": 5445.3,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754997,
+     35.933044
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925695",
+    "diameter_m": 83.3,
+    "area_m2": 5445.4,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.733927,
+     35.942864
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925386",
+    "diameter_m": 83.2,
+    "area_m2": 5440.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.732537,
+     35.942858
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925421",
+    "diameter_m": 83.2,
+    "area_m2": 5440.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.738096,
+     35.936136
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925429",
+    "diameter_m": 83.2,
+    "area_m2": 5441.6,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735303,
+     35.942862
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925499",
+    "diameter_m": 83.2,
+    "area_m2": 5441.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736673,
+     35.94286
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925517",
+    "diameter_m": 83.2,
+    "area_m2": 5440.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73582,
+     35.937416
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925553",
+    "diameter_m": 83.2,
+    "area_m2": 5441.6,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736166,
+     35.935837
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925584",
+    "diameter_m": 83.2,
+    "area_m2": 5441.7,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73467,
+     35.938037
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925653",
+    "diameter_m": 83.2,
+    "area_m2": 5441.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735029,
+     35.936486
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925672",
+    "diameter_m": 83.2,
+    "area_m2": 5441.6,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736936,
+     35.936768
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925685",
+    "diameter_m": 83.2,
+    "area_m2": 5441.6,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742165,
+     35.947459
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925320",
+    "diameter_m": 81.5,
+    "area_m2": 5215.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.741465,
+     35.945859
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925460",
+    "diameter_m": 81.5,
+    "area_m2": 5215.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742726,
+     35.946419
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925574",
+    "diameter_m": 81.5,
+    "area_m2": 5215.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764953,
+     35.929142
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325356",
+    "diameter_m": 76.8,
+    "area_m2": 4631.5,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766192,
+     35.928887
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325357",
+    "diameter_m": 76.8,
+    "area_m2": 4631.7,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764315,
+     35.930032
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325358",
+    "diameter_m": 76.8,
+    "area_m2": 4631.2,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.763684,
+     35.930917
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325359",
+    "diameter_m": 76.8,
+    "area_m2": 4631.4,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.7514,
+     35.93199
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925395",
+    "diameter_m": 69.7,
+    "area_m2": 3815.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.752553,
+     35.932005
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925473",
+    "diameter_m": 69.7,
+    "area_m2": 3815.2,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.750249,
+     35.932021
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925661",
+    "diameter_m": 69.7,
+    "area_m2": 3815.4,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742637,
+     35.939293
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925373",
+    "diameter_m": 69.5,
+    "area_m2": 3789.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.741361,
+     35.941398
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925605",
+    "diameter_m": 69.5,
+    "area_m2": 3789.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742649,
+     35.940216
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925636",
+    "diameter_m": 69.5,
+    "area_m2": 3788.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764108,
+     35.94791
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925345",
+    "diameter_m": 68.6,
+    "area_m2": 3691.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.765033,
+     35.943815
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925355",
+    "diameter_m": 68.6,
+    "area_m2": 3692.3,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766597,
+     35.947602
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925362",
+    "diameter_m": 68.6,
+    "area_m2": 3691.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766602,
+     35.946699
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925377",
+    "diameter_m": 68.6,
+    "area_m2": 3692.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764542,
+     35.948731
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925426",
+    "diameter_m": 68.6,
+    "area_m2": 3691.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766586,
+     35.948483
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925443",
+    "diameter_m": 68.6,
+    "area_m2": 3691.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.763217,
+     35.945721
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925444",
+    "diameter_m": 68.6,
+    "area_m2": 3692.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766554,
+     35.945626
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925459",
+    "diameter_m": 68.6,
+    "area_m2": 3692.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.763679,
+     35.942777
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925480",
+    "diameter_m": 68.6,
+    "area_m2": 3692.5,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.762815,
+     35.94335
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925485",
+    "diameter_m": 68.6,
+    "area_m2": 3692.3,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.763984,
+     35.944075
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925502",
+    "diameter_m": 68.6,
+    "area_m2": 3692.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764585,
+     35.947107
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925516",
+    "diameter_m": 68.6,
+    "area_m2": 3692.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.763813,
+     35.946464
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925523",
+    "diameter_m": 68.6,
+    "area_m2": 3692.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.76443,
+     35.945682
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925543",
+    "diameter_m": 68.6,
+    "area_m2": 3692.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766532,
+     35.944701
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925570",
+    "diameter_m": 68.6,
+    "area_m2": 3692.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.762895,
+     35.944197
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925601",
+    "diameter_m": 68.6,
+    "area_m2": 3692.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766339,
+     35.92985
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325351",
+    "diameter_m": 68.6,
+    "area_m2": 3692.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766097,
+     35.930682
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325352",
+    "diameter_m": 68.6,
+    "area_m2": 3692.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766354,
+     35.931559
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325353",
+    "diameter_m": 68.6,
+    "area_m2": 3692.8,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764463,
+     35.931639
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325354",
+    "diameter_m": 68.6,
+    "area_m2": 3692.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.765336,
+     35.932104
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325355",
+    "diameter_m": 68.6,
+    "area_m2": 3692.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757774,
+     35.943076
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925358",
+    "diameter_m": 66.3,
+    "area_m2": 3457.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757785,
+     35.94405
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925506",
+    "diameter_m": 66.3,
+    "area_m2": 3456.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744505,
+     35.947531
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925360",
+    "diameter_m": 65.2,
+    "area_m2": 3334.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744773,
+     35.945859
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925380",
+    "diameter_m": 65.2,
+    "area_m2": 3334.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744226,
+     35.945112
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925387",
+    "diameter_m": 65.2,
+    "area_m2": 3334.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744932,
+     35.944524
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925654",
+    "diameter_m": 65.2,
+    "area_m2": 3334.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744891,
+     35.946706
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925691",
+    "diameter_m": 65.2,
+    "area_m2": 3334.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.760818,
+     35.950174
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925322",
+    "diameter_m": 64.7,
+    "area_m2": 3285.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754965,
+     35.924824
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925331",
+    "diameter_m": 64.5,
+    "area_m2": 3265.0,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757304,
+     35.92588
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925384",
+    "diameter_m": 64.5,
+    "area_m2": 3265.0,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.756177,
+     35.924822
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925402",
+    "diameter_m": 64.5,
+    "area_m2": 3264.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.756217,
+     35.92588
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925696",
+    "diameter_m": 64.5,
+    "area_m2": 3264.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757288,
+     35.924824
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925714",
+    "diameter_m": 64.5,
+    "area_m2": 3264.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.75915,
+     35.954554
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925537",
+    "diameter_m": 63.2,
+    "area_m2": 3142.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73717,
+     35.944539
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925321",
+    "diameter_m": 63.0,
+    "area_m2": 3120.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736319,
+     35.94652
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925329",
+    "diameter_m": 63.0,
+    "area_m2": 3120.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.737188,
+     35.946081
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925339",
+    "diameter_m": 63.0,
+    "area_m2": 3120.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.738074,
+     35.947328
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925348",
+    "diameter_m": 63.0,
+    "area_m2": 3119.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.738057,
+     35.945677
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925356",
+    "diameter_m": 63.0,
+    "area_m2": 3120.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736325,
+     35.94817
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925366",
+    "diameter_m": 63.0,
+    "area_m2": 3119.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73545,
+     35.9486
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925375",
+    "diameter_m": 63.0,
+    "area_m2": 3120.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736293,
+     35.947336
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925394",
+    "diameter_m": 63.0,
+    "area_m2": 3119.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73544,
+     35.94538
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925398",
+    "diameter_m": 63.0,
+    "area_m2": 3120.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736301,
+     35.944948
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925405",
+    "diameter_m": 63.0,
+    "area_m2": 3120.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746351,
+     35.944335
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925408",
+    "diameter_m": 63.0,
+    "area_m2": 3120.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735418,
+     35.946958
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925412",
+    "diameter_m": 63.0,
+    "area_m2": 3120.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747134,
+     35.944713
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925416",
+    "diameter_m": 63.0,
+    "area_m2": 3120.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.738047,
+     35.946494
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925436",
+    "diameter_m": 63.0,
+    "area_m2": 3120.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.738071,
+     35.944108
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925583",
+    "diameter_m": 63.0,
+    "area_m2": 3120.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.748003,
+     35.944713
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925669",
+    "diameter_m": 63.0,
+    "area_m2": 3120.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.737199,
+     35.947736
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925683",
+    "diameter_m": 63.0,
+    "area_m2": 3120.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735424,
+     35.947762
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925708",
+    "diameter_m": 63.0,
+    "area_m2": 3119.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.737194,
+     35.946928
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925721",
+    "diameter_m": 63.0,
+    "area_m2": 3119.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.729055,
+     35.946604
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163901",
+    "diameter_m": 62.6,
+    "area_m2": 3076.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.729822,
+     35.946221
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163902",
+    "diameter_m": 62.6,
+    "area_m2": 3076.5,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.728916,
+     35.94587
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163903",
+    "diameter_m": 62.6,
+    "area_m2": 3076.6,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.729699,
+     35.945466
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163904",
+    "diameter_m": 62.6,
+    "area_m2": 3076.6,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.730485,
+     35.945103
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163905",
+    "diameter_m": 62.6,
+    "area_m2": 3076.5,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.752256,
+     35.932991
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925535",
+    "diameter_m": 62.3,
+    "area_m2": 3050.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.750126,
+     35.932978
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925603",
+    "diameter_m": 62.3,
+    "area_m2": 3051.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751212,
+     35.932976
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925698",
+    "diameter_m": 62.3,
+    "area_m2": 3051.0,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.756342,
+     35.948092
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925546",
+    "diameter_m": 62.1,
+    "area_m2": 3025.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.756031,
+     35.947318
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925576",
+    "diameter_m": 62.1,
+    "area_m2": 3025.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74002,
+     35.937806
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925363",
+    "diameter_m": 61.9,
+    "area_m2": 3006.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.740908,
+     35.937276
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925381",
+    "diameter_m": 61.9,
+    "area_m2": 3006.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742962,
+     35.937235
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925472",
+    "diameter_m": 61.9,
+    "area_m2": 3006.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745659,
+     35.937999
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925557",
+    "diameter_m": 61.9,
+    "area_m2": 3006.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74003,
+     35.937078
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925679",
+    "diameter_m": 61.9,
+    "area_m2": 3006.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.740916,
+     35.938014
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925693",
+    "diameter_m": 61.9,
+    "area_m2": 3006.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742957,
+     35.937988
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925718",
+    "diameter_m": 61.9,
+    "area_m2": 3005.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74455,
+     35.935415
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925495",
+    "diameter_m": 61.4,
+    "area_m2": 2957.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747434,
+     35.934349
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925658",
+    "diameter_m": 61.4,
+    "area_m2": 2957.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73904,
+     35.935501
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163917",
+    "diameter_m": 61.4,
+    "area_m2": 2957.7,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745085,
+     35.930653
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163918",
+    "diameter_m": 61.4,
+    "area_m2": 2958.5,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744109,
+     35.930918
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163919",
+    "diameter_m": 61.4,
+    "area_m2": 2957.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744919,
+     35.931483
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163920",
+    "diameter_m": 61.4,
+    "area_m2": 2957.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745386,
+     35.93276
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163922",
+    "diameter_m": 61.4,
+    "area_m2": 2957.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74618,
+     35.932295
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163923",
+    "diameter_m": 61.4,
+    "area_m2": 2957.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747097,
+     35.932712
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163924",
+    "diameter_m": 61.4,
+    "area_m2": 2958.3,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746126,
+     35.933529
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163925",
+    "diameter_m": 61.4,
+    "area_m2": 2957.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747167,
+     35.933546
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163926",
+    "diameter_m": 61.4,
+    "area_m2": 2957.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745338,
+     35.934315
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163927",
+    "diameter_m": 61.4,
+    "area_m2": 2957.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746335,
+     35.934328
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163928",
+    "diameter_m": 61.4,
+    "area_m2": 2957.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751774,
+     35.952987
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925545",
+    "diameter_m": 60.4,
+    "area_m2": 2866.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.750342,
+     35.954216
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925575",
+    "diameter_m": 60.4,
+    "area_m2": 2865.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751865,
+     35.955987
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925595",
+    "diameter_m": 60.4,
+    "area_m2": 2865.8,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.753475,
+     35.953
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925642",
+    "diameter_m": 60.4,
+    "area_m2": 2866.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.750401,
+     35.952948
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925666",
+    "diameter_m": 60.4,
+    "area_m2": 2866.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751764,
+     35.954211
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925680",
+    "diameter_m": 60.4,
+    "area_m2": 2865.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.753596,
+     35.956033
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925702",
+    "diameter_m": 60.4,
+    "area_m2": 2866.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.738241,
+     35.939181
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925323",
+    "diameter_m": 60.3,
+    "area_m2": 2854.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.734072,
+     35.941529
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925326",
+    "diameter_m": 60.3,
+    "area_m2": 2854.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735803,
+     35.94157
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925349",
+    "diameter_m": 60.3,
+    "area_m2": 2854.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.737653,
+     35.938503
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925350",
+    "diameter_m": 60.3,
+    "area_m2": 2854.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735749,
+     35.94059
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925367",
+    "diameter_m": 60.3,
+    "area_m2": 2854.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735167,
+     35.939917
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925376",
+    "diameter_m": 60.3,
+    "area_m2": 2854.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.733515,
+     35.940853
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925396",
+    "diameter_m": 60.3,
+    "area_m2": 2854.2,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.737382,
+     35.939646
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925406",
+    "diameter_m": 60.3,
+    "area_m2": 2854.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74212,
+     35.926067
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925422",
+    "diameter_m": 60.3,
+    "area_m2": 2855.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.739096,
+     35.938692
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925423",
+    "diameter_m": 60.3,
+    "area_m2": 2854.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.738482,
+     35.938008
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925432",
+    "diameter_m": 60.3,
+    "area_m2": 2854.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.741627,
+     35.925342
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925437",
+    "diameter_m": 60.3,
+    "area_m2": 2855.5,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.741147,
+     35.924625
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925447",
+    "diameter_m": 60.3,
+    "area_m2": 2855.3,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736846,
+     35.938975
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925448",
+    "diameter_m": 60.3,
+    "area_m2": 2854.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.735985,
+     35.939441
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925450",
+    "diameter_m": 60.3,
+    "area_m2": 2854.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743593,
+     35.925338
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925463",
+    "diameter_m": 60.3,
+    "area_m2": 2855.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.753276,
+     35.932991
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925478",
+    "diameter_m": 60.3,
+    "area_m2": 2854.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744137,
+     35.924612
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925482",
+    "diameter_m": 60.3,
+    "area_m2": 2855.6,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74561,
+     35.925342
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925509",
+    "diameter_m": 60.3,
+    "area_m2": 2855.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742622,
+     35.925351
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925519",
+    "diameter_m": 60.3,
+    "area_m2": 2855.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744097,
+     35.926054
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925528",
+    "diameter_m": 60.3,
+    "area_m2": 2855.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742163,
+     35.924606
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925547",
+    "diameter_m": 60.3,
+    "area_m2": 2855.5,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736572,
+     35.940119
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925551",
+    "diameter_m": 60.3,
+    "area_m2": 2854.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744365,
+     35.926817
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925555",
+    "diameter_m": 60.3,
+    "area_m2": 2855.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.737162,
+     35.94077
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925563",
+    "diameter_m": 60.3,
+    "area_m2": 2854.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743183,
+     35.924632
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925578",
+    "diameter_m": 60.3,
+    "area_m2": 2854.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745334,
+     35.926812
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925582",
+    "diameter_m": 60.3,
+    "area_m2": 2855.3,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744599,
+     35.925364
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925596",
+    "diameter_m": 60.3,
+    "area_m2": 2855.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745149,
+     35.92461
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925608",
+    "diameter_m": 60.3,
+    "area_m2": 2855.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745066,
+     35.926044
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925623",
+    "diameter_m": 60.3,
+    "area_m2": 2854.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743094,
+     35.926065
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925643",
+    "diameter_m": 60.3,
+    "area_m2": 2855.2,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743368,
+     35.926812
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925655",
+    "diameter_m": 60.3,
+    "area_m2": 2855.3,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.7368,
+     35.94158
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925670",
+    "diameter_m": 60.3,
+    "area_m2": 2854.2,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.734907,
+     35.941051
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925684",
+    "diameter_m": 60.3,
+    "area_m2": 2854.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.734325,
+     35.940377
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925709",
+    "diameter_m": 60.3,
+    "area_m2": 2854.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.737991,
+     35.940338
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925716",
+    "diameter_m": 60.3,
+    "area_m2": 2854.1,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745585,
+     35.943984
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925438",
+    "diameter_m": 60.0,
+    "area_m2": 2831.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.719721,
+     35.938697
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925334",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.717532,
+     35.941229
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925392",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.715791,
+     35.94094
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925409",
+    "diameter_m": 59.5,
+    "area_m2": 2778.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.714893,
+     35.940975
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925424",
+    "diameter_m": 59.5,
+    "area_m2": 2777.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.718436,
+     35.941381
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925469",
+    "diameter_m": 59.5,
+    "area_m2": 2777.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716674,
+     35.941086
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925486",
+    "diameter_m": 59.5,
+    "area_m2": 2778.2,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.714903,
+     35.940286
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925494",
+    "diameter_m": 59.5,
+    "area_m2": 2778.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.720693,
+     35.938714
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925504",
+    "diameter_m": 59.5,
+    "area_m2": 2778.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.71666,
+     35.940375
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925514",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.718414,
+     35.940653
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925533",
+    "diameter_m": 59.5,
+    "area_m2": 2777.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716658,
+     35.9394
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925604",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.715762,
+     35.940226
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925612",
+    "diameter_m": 59.5,
+    "area_m2": 2777.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.71751,
+     35.938682
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925620",
+    "diameter_m": 59.5,
+    "area_m2": 2778.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.717519,
+     35.940519
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925628",
+    "diameter_m": 59.5,
+    "area_m2": 2778.2,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.71751,
+     35.939413
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925632",
+    "diameter_m": 59.5,
+    "area_m2": 2778.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.718388,
+     35.938695
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925652",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.719688,
+     35.939487
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925671",
+    "diameter_m": 59.5,
+    "area_m2": 2778.4,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.720675,
+     35.939489
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925677",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716641,
+     35.938699
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925699",
+    "diameter_m": 59.5,
+    "area_m2": 2778.3,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.718406,
+     35.9394
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925725",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716552,
+     35.937977
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163911",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.717464,
+     35.937959
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163912",
+    "diameter_m": 59.5,
+    "area_m2": 2778.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.721638,
+     35.938706
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163913",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.721622,
+     35.939484
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163914",
+    "diameter_m": 59.5,
+    "area_m2": 2778.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751298,
+     35.945532
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925622",
+    "diameter_m": 59.2,
+    "area_m2": 2755.4,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757332,
+     35.926737
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925337",
+    "diameter_m": 58.1,
+    "area_m2": 2647.5,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.75633,
+     35.926728
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925484",
+    "diameter_m": 58.1,
+    "area_m2": 2647.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759071,
+     35.924646
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163935",
+    "diameter_m": 58.1,
+    "area_m2": 2647.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759092,
+     35.925524
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163936",
+    "diameter_m": 58.1,
+    "area_m2": 2647.5,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.758958,
+     35.926401
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163937",
+    "diameter_m": 58.1,
+    "area_m2": 2647.5,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759123,
+     35.953615
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925591",
+    "diameter_m": 58.0,
+    "area_m2": 2644.0,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.750354,
+     35.936418
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925361",
+    "diameter_m": 55.4,
+    "area_m2": 2413.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.750354,
+     35.935501
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925370",
+    "diameter_m": 55.4,
+    "area_m2": 2413.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.75143,
+     35.936468
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925441",
+    "diameter_m": 55.4,
+    "area_m2": 2413.5,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751516,
+     35.935597
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925466",
+    "diameter_m": 55.4,
+    "area_m2": 2413.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751383,
+     35.934221
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925727",
+    "diameter_m": 55.4,
+    "area_m2": 2413.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.752184,
+     35.957269
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925710",
+    "diameter_m": 53.0,
+    "area_m2": 2207.9,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757658,
+     35.946406
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925440",
+    "diameter_m": 51.4,
+    "area_m2": 2074.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.765456,
+     35.931294
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325360",
+    "diameter_m": 51.0,
+    "area_m2": 2041.7,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764766,
+     35.930883
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325361",
+    "diameter_m": 51.0,
+    "area_m2": 2041.6,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.765411,
+     35.929971
+    ]
+   },
+   "properties": {
+    "id": "osm_way_1034325362",
+    "diameter_m": 51.0,
+    "area_m2": 2041.8,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73739,
+     35.934116
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925640",
+    "diameter_m": 50.7,
+    "area_m2": 2017.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.736231,
+     35.93411
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925703",
+    "diameter_m": 50.7,
+    "area_m2": 2016.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.73735,
+     35.932902
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163916",
+    "diameter_m": 50.7,
+    "area_m2": 2017.1,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.766569,
+     35.943053
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925552",
+    "diameter_m": 49.9,
+    "area_m2": 1958.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.764734,
+     35.942956
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925715",
+    "diameter_m": 49.9,
+    "area_m2": 1958.4,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759015,
+     35.951859
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925374",
+    "diameter_m": 47.6,
+    "area_m2": 1776.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759042,
+     35.952701
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925524",
+    "diameter_m": 47.6,
+    "area_m2": 1776.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.753877,
+     35.957245
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925340",
+    "diameter_m": 46.9,
+    "area_m2": 1724.7,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.750503,
+     35.9573
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925559",
+    "diameter_m": 46.9,
+    "area_m2": 1724.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747449,
+     35.926483
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163931",
+    "diameter_m": 46.9,
+    "area_m2": 1723.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.748125,
+     35.926479
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163932",
+    "diameter_m": 46.9,
+    "area_m2": 1723.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.748136,
+     35.927052
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163934",
+    "diameter_m": 46.9,
+    "area_m2": 1723.9,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747454,
+     35.927039
+    ]
+   },
+   "properties": {
+    "id": "osm_way_794163933",
+    "diameter_m": 46.8,
+    "area_m2": 1723.8,
+    "site": "cushing_enbridge",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.751296,
+     35.944815
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925667",
+    "diameter_m": 46.2,
+    "area_m2": 1678.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745441,
+     35.935408
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925343",
+    "diameter_m": 45.7,
+    "area_m2": 1642.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746838,
+     35.935402
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925359",
+    "diameter_m": 45.7,
+    "area_m2": 1642.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746122,
+     35.935419
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925439",
+    "diameter_m": 45.7,
+    "area_m2": 1642.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747558,
+     35.935417
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925705",
+    "diameter_m": 45.7,
+    "area_m2": 1642.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743969,
+     35.939548
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925536",
+    "diameter_m": 45.2,
+    "area_m2": 1604.5,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743954,
+     35.941452
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925701",
+    "diameter_m": 45.2,
+    "area_m2": 1604.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.758876,
+     35.94297
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925328",
+    "diameter_m": 44.5,
+    "area_m2": 1553.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759693,
+     35.943082
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925513",
+    "diameter_m": 44.5,
+    "area_m2": 1553.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.748015,
+     35.941485
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925346",
+    "diameter_m": 43.8,
+    "area_m2": 1503.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.7461,
+     35.941489
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925354",
+    "diameter_m": 43.8,
+    "area_m2": 1503.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74575,
+     35.940076
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925616",
+    "diameter_m": 43.8,
+    "area_m2": 1504.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.741306,
+     35.940196
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925581",
+    "diameter_m": 43.5,
+    "area_m2": 1488.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757173,
+     35.947273
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925468",
+    "diameter_m": 41.4,
+    "area_m2": 1345.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757192,
+     35.948278
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925627",
+    "diameter_m": 41.4,
+    "area_m2": 1345.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757648,
+     35.947759
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925722",
+    "diameter_m": 41.4,
+    "area_m2": 1345.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757583,
+     35.948838
+    ]
+   },
+   "properties": {
+    "id": "osm_way_104010895",
+    "diameter_m": 40.2,
+    "area_m2": 1269.0,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754708,
+     35.947551
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925505",
+    "diameter_m": 40.2,
+    "area_m2": 1268.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754686,
+     35.945519
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925534",
+    "diameter_m": 40.2,
+    "area_m2": 1268.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754695,
+     35.946543
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925613",
+    "diameter_m": 40.2,
+    "area_m2": 1268.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74739,
+     35.937793
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925336",
+    "diameter_m": 38.3,
+    "area_m2": 1152.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746773,
+     35.937302
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925353",
+    "diameter_m": 38.3,
+    "area_m2": 1152.2,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746679,
+     35.936817
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925364",
+    "diameter_m": 38.3,
+    "area_m2": 1152.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747438,
+     35.936318
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925383",
+    "diameter_m": 38.3,
+    "area_m2": 1152.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747446,
+     35.937297
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925435",
+    "diameter_m": 38.3,
+    "area_m2": 1152.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747433,
+     35.936822
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925458",
+    "diameter_m": 38.3,
+    "area_m2": 1152.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744595,
+     35.937124
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925602",
+    "diameter_m": 38.3,
+    "area_m2": 1152.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.744694,
+     35.938123
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925618",
+    "diameter_m": 38.3,
+    "area_m2": 1152.0,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743943,
+     35.937623
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925639",
+    "diameter_m": 38.3,
+    "area_m2": 1152.0,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.746682,
+     35.93631
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925645",
+    "diameter_m": 38.3,
+    "area_m2": 1152.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743951,
+     35.937126
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925649",
+    "diameter_m": 38.3,
+    "area_m2": 1152.0,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743935,
+     35.936615
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925668",
+    "diameter_m": 38.3,
+    "area_m2": 1152.0,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.74467,
+     35.937614
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925697",
+    "diameter_m": 38.3,
+    "area_m2": 1152.0,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.743949,
+     35.938123
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925717",
+    "diameter_m": 38.3,
+    "area_m2": 1152.0,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.75968,
+     35.94427
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925554",
+    "diameter_m": 36.4,
+    "area_m2": 1039.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.758828,
+     35.944269
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925633",
+    "diameter_m": 36.4,
+    "area_m2": 1039.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.755267,
+     35.952833
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925325",
+    "diameter_m": 36.2,
+    "area_m2": 1028.7,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.755293,
+     35.955633
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925333",
+    "diameter_m": 36.2,
+    "area_m2": 1028.6,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745793,
+     35.954869
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925391",
+    "diameter_m": 36.2,
+    "area_m2": 1028.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.745836,
+     35.955968
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925407",
+    "diameter_m": 36.2,
+    "area_m2": 1028.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757112,
+     35.951606
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925414",
+    "diameter_m": 36.2,
+    "area_m2": 1028.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.758888,
+     35.949864
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925456",
+    "diameter_m": 36.2,
+    "area_m2": 1028.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.758904,
+     35.950937
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925475",
+    "diameter_m": 36.2,
+    "area_m2": 1028.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759601,
+     35.958475
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925476",
+    "diameter_m": 36.2,
+    "area_m2": 1028.4,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757107,
+     35.950255
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925489",
+    "diameter_m": 36.2,
+    "area_m2": 1028.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.761369,
+     35.959689
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925491",
+    "diameter_m": 36.2,
+    "area_m2": 1028.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757091,
+     35.952835
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925501",
+    "diameter_m": 36.2,
+    "area_m2": 1028.7,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.761345,
+     35.957327
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925510",
+    "diameter_m": 36.2,
+    "area_m2": 1028.6,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.760363,
+     35.952496
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925532",
+    "diameter_m": 36.2,
+    "area_m2": 1028.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.760347,
+     35.95184
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925540",
+    "diameter_m": 36.2,
+    "area_m2": 1028.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759531,
+     35.957342
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925561",
+    "diameter_m": 36.2,
+    "area_m2": 1028.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759537,
+     35.9597
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925589",
+    "diameter_m": 36.2,
+    "area_m2": 1028.3,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757101,
+     35.955631
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925619",
+    "diameter_m": 36.2,
+    "area_m2": 1028.5,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.714733,
+     35.961342
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925318",
+    "diameter_m": 35.0,
+    "area_m2": 960.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.720484,
+     35.958502
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925338",
+    "diameter_m": 35.0,
+    "area_m2": 961.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.721953,
+     35.959205
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925347",
+    "diameter_m": 35.0,
+    "area_m2": 960.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.723413,
+     35.958641
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925365",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.730923,
+     35.959083
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925379",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.726317,
+     35.957075
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925400",
+    "diameter_m": 35.0,
+    "area_m2": 961.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.727803,
+     35.957755
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925420",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.72945,
+     35.958428
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925430",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.717555,
+     35.957184
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925455",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.726344,
+     35.958452
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925498",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.724947,
+     35.963265
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925500",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.714687,
+     35.958569
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925503",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.729456,
+     35.957049
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925507",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.717587,
+     35.958541
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925511",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.727814,
+     35.959134
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925518",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.714712,
+     35.959939
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925525",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.730912,
+     35.957716
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925526",
+    "diameter_m": 35.0,
+    "area_m2": 961.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.726366,
+     35.961183
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925529",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.717635,
+     35.959913
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925530",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.729246,
+     35.961144
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925548",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.719041,
+     35.961963
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925550",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.720473,
+     35.961246
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925560",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716136,
+     35.957868
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925567",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.730931,
+     35.960462
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925573",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716224,
+     35.963356
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925585",
+    "diameter_m": 35.0,
+    "area_m2": 960.6,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.721937,
+     35.961902
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925588",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.723348,
+     35.961242
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925609",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.724888,
+     35.959162
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925614",
+    "diameter_m": 35.0,
+    "area_m2": 961.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.71616,
+     35.959236
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925621",
+    "diameter_m": 35.0,
+    "area_m2": 960.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.72635,
+     35.95982
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925625",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.717667,
+     35.961307
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925626",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.720468,
+     35.959865
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925635",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716187,
+     35.960603
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925641",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.726511,
+     35.962781
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925646",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.719105,
+     35.960551
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925647",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.716192,
+     35.961989
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925656",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.719073,
+     35.957833
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925657",
+    "diameter_m": 35.0,
+    "area_m2": 961.0,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.714655,
+     35.957184
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925663",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.714744,
+     35.962692
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925673",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.723472,
+     35.962596
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925674",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.723386,
+     35.957095
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925682",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.72198,
+     35.963296
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925686",
+    "diameter_m": 35.0,
+    "area_m2": 960.7,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.724925,
+     35.961893
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925687",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.724925,
+     35.960512
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925707",
+    "diameter_m": 35.0,
+    "area_m2": 960.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.721948,
+     35.960547
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925713",
+    "diameter_m": 35.0,
+    "area_m2": 960.9,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754346,
+     35.944627
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925471",
+    "diameter_m": 34.7,
+    "area_m2": 946.9,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757694,
+     35.944903
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925572",
+    "diameter_m": 34.7,
+    "area_m2": 946.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757696,
+     35.945457
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925724",
+    "diameter_m": 34.7,
+    "area_m2": 946.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.742098,
+     35.941739
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925344",
+    "diameter_m": 34.3,
+    "area_m2": 921.6,
+    "site": "cushing_plains",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.715785,
+     35.941526
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925419",
+    "diameter_m": 31.4,
+    "area_m2": 773.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.715219,
+     35.941528
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925580",
+    "diameter_m": 31.4,
+    "area_m2": 773.8,
+    "site": "ring",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.752667,
+     35.939569
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925464",
+    "diameter_m": 30.9,
+    "area_m2": 750.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.752248,
+     35.941304
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925477",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.75315,
+     35.9408
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925492",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757593,
+     35.940422
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925496",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754322,
+     35.939921
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925512",
+    "diameter_m": 30.9,
+    "area_m2": 750.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754968,
+     35.940685
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925520",
+    "diameter_m": 30.9,
+    "area_m2": 750.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.756135,
+     35.94168
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925539",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.758372,
+     35.941061
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925562",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.752265,
+     35.940387
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925565",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.753099,
+     35.941658
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925590",
+    "diameter_m": 30.9,
+    "area_m2": 750.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.754131,
+     35.941289
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925611",
+    "diameter_m": 30.9,
+    "area_m2": 750.7,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.756116,
+     35.940413
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925637",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.757626,
+     35.941673
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925659",
+    "diameter_m": 30.9,
+    "area_m2": 750.6,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.747922,
+     35.943722
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925487",
+    "diameter_m": 19.1,
+    "area_m2": 287.1,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -96.759473,
+     35.949828
+    ]
+   },
+   "properties": {
+    "id": "osm_way_460925594",
+    "diameter_m": 17.9,
+    "area_m2": 251.8,
+    "site": "cushing_hub",
+    "height_m": 14.6,
+    "height_src": "assumed_api650_48ft",
+    "measurable_10m": false
+   }
+  }
+ ]
+}
