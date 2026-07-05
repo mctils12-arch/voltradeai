@@ -13,6 +13,27 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Census imports VERIFIED LIVE on prod — 686 records, first query variant correct, key confirmed in Railway (docs)
+
+- ~30 min after #249 merged, /api/data/imports served 686 records:
+  April 2026 port-level import values with cnt_val/cnt_wgt POPULATED
+  — the first QUERY_VARIANT (full containerized set) was correct;
+  the anticipated fix-shape-from-prod-logs path was never needed.
+  LIVE VERIFICATION PENDING → COMPLETE, ahead of the planned
+  first-DAILY-session check.
+- Key location resolved: prod answered warming_up (not
+  enabled:false) on the very first probe → CENSUS_API_KEY IS in
+  Railway. A transient 502 mid-verification was #250's redeploy
+  restarting the app, not a stream defect (health 200 immediately
+  after; data followed).
+- Data note: Census publishes a national aggregate row (port "-",
+  "TOTAL FOR ALL PORTS") alongside per-port rows; the header-driven
+  parse keeps it as published — consumers filtering to real ports
+  should exclude port "-". Kept raw per the as-published discipline.
+- Wishlist BLOCKED-FOR-MIKE #6 → DONE-VERIFIED. Ladder status:
+  archive accumulating; gate 1 (readings vs a second official
+  source) still to be designed before any signal claim.
+
 ## 2026-07-05 — [RESEARCH] Staleness audit Python-side pass COMPLETE — deps clean, 6 undeclared session deps filed, 1 dead env write removed, vacuous-pass sweep judged (docs+tests, no runtime change)
 
 - Closes the register's UNSCANNED half (Python deps/config +
