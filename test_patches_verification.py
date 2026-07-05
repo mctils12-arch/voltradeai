@@ -16,7 +16,6 @@ import os
 import sys
 import json
 import math
-import tempfile
 import unittest
 
 # Repo root on sys.path
@@ -231,18 +230,20 @@ class TestPatch7_PeakEquityDefined(unittest.TestCase):
 
     def test_peak_equity_persists(self):
         from risk_kill_switch import get_peak_equity, set_peak_equity
-        # Use a sandbox state dir so we don't pollute production
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["VOLTRADE_STATE_DIR"] = tmp  # if storage_config respects it
-            # Set then read
-            written = set_peak_equity(125_000.0)
-            self.assertGreaterEqual(written, 125_000.0)
-            read_back = get_peak_equity()
-            # Should match what we wrote (or higher if pre-existing peak)
-            self.assertGreaterEqual(read_back, 125_000.0)
-            # Ratchet: lower equity should NOT lower the peak
-            written2 = set_peak_equity(100_000.0)
-            self.assertGreaterEqual(written2, 125_000.0)
+        # NOTE (staleness audit 2026-07-05): a VOLTRADE_STATE_DIR env set
+        # used to live here "if storage_config respects it" — it does not
+        # (storage_config reads no env vars), so the var was write-only and
+        # the sandbox claim was false. Writes go to the local fallback
+        # state dir; the assertions below are >= ratchets, safe either way.
+        # Set then read
+        written = set_peak_equity(125_000.0)
+        self.assertGreaterEqual(written, 125_000.0)
+        read_back = get_peak_equity()
+        # Should match what we wrote (or higher if pre-existing peak)
+        self.assertGreaterEqual(read_back, 125_000.0)
+        # Ratchet: lower equity should NOT lower the peak
+        written2 = set_peak_equity(100_000.0)
+        self.assertGreaterEqual(written2, 125_000.0)
 
     def test_kill_switch_status_no_longer_silently_zeros(self):
         from risk_kill_switch import get_kill_switch_status, set_peak_equity

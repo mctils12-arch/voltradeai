@@ -9,9 +9,48 @@ exception to append-only; the log below it stays append-only)
 
 | audit | cadence | last run |
 |---|---|---|
-| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-07-05 SCOPED (server env-var reads: all 23 wired incl. Polygon dual-name; adapter review-by dates: none expired, next 2026-08-17; pytrends stays per its re-probe trigger). UNSCANNED: Python-side deps/config sweep + requirements.txt-vs-imports — next session completes the full pass |
+| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-07-05 COMPLETE (both sides). Server side: all 23 env reads wired; adapters none expired, next review 2026-08-17. Python side: requirements.txt zero unused; 6 session-run deps undeclared → requirements-dev.txt; VOLTRADE_STATE_DIR dead env write removed; vacuous-pass test sweep 1 low fix, 3 judged acceptable (see log entry). Next full pass due 2026-08-04 |
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
+
+## 2026-07-05 — [RESEARCH] Staleness audit Python-side pass COMPLETE — deps clean, 6 undeclared session deps filed, 1 dead env write removed, vacuous-pass sweep judged (docs+tests, no runtime change)
+
+- Closes the register's UNSCANNED half (Python deps/config +
+  requirements-vs-imports), fanned out to two subagents with judgment
+  retained in the parent per WORKSTREAM PARTITION.
+- DEPS: requirements.txt has ZERO unused entries (every package
+  imported; pytrends stays per its documented re-probe trigger;
+  anthropic conditional behind ANTHROPIC_API_KEY in alphadesk).
+  Reverse direction found 6 imported-but-undeclared packages — all
+  session-run scripts/ or test tooling, none on any runtime path:
+  pytest, xlrd, openpyxl, tifffile, rasterio, Pillow. Filed in NEW
+  requirements-dev.txt (Dockerfile is frozen and installs
+  requirements.txt only — runtime image unchanged by design).
+- ENV VARS (Python side): full inventory taken; every var read at a
+  live call site EXCEPT VOLTRADE_STATE_DIR — written once in
+  test_patches_verification.py ("if storage_config respects it") and
+  read NOWHERE. Worse than dead: the comment claimed a tempdir
+  sandbox protected production state, but the write was a no-op, so
+  peak-equity writes were hitting the real local state dir all along
+  (harmless — the assertions are >= ratchets). Removed the dead
+  write + false comment + now-unused tempfile import; honest NOTE
+  left in place. Two parallel data-dir vars noted (DATA_DIR and
+  VOLTRADE_DATA_DIR both live) — mild inconsistency, not debt; no
+  action.
+- VACUOUS-PASS SWEEP (queued by the R6 lesson): 26 test files
+  swept. Read-before-write review DOWNGRADED the subagent's two
+  loudest findings: t_vxx_panic_setup (test_full_system.py) asserts
+  the hours-gate itself in its outside-hours branch (PASS only on
+  None, WARN otherwise) — deliberate two-mode live harness, NOT the
+  TestFix7 class; the two test_diagnostic_false_positives.py
+  methods are negative-claim tests where an empty match set is the
+  correct pass, with a sibling pinning the source-level invariant
+  unconditionally. One real (low) fix shipped:
+  test_voltrade_daemon.py::test_every_local_route_resolves gained
+  the same checked>0 zero-iteration guard its sibling already had.
+  No AssertionError-swallowing anywhere.
+- No version bump: docs + test files + a dev-only requirements file;
+  nothing in the runtime image changes.
 
 ## 2026-07-05 — [PIPELINE] Everything Graph R5 step 1 — datacore/entity_map.json (operator→ticker table), unblocks the flagship graph build + fusion (b) gate 1 (v1.0.131) [T-DATACORE]
 

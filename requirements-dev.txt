@@ -1,0 +1,19 @@
+# requirements-dev.txt — session-run / test-only Python deps.
+#
+# NOT installed in the Railway image: Dockerfile (frozen) installs
+# requirements.txt only, and nothing here is imported on any runtime
+# path (all imports are inside functions of scripts/ research tooling
+# or test files). Declared here so research sessions can `pip install
+# -r requirements-dev.txt` instead of rediscovering each missing
+# import at traceback time.
+#
+# Found by the 2026-07-05 staleness audit (Python-side sweep):
+# requirements.txt had zero unused entries, but these six were
+# imported yet undeclared anywhere.
+
+pytest              # entire test suite (CI installs it ad hoc in ci.yml)
+xlrd                # scripts/eia_weekly.py, scripts/tankfill_gate1.py (legacy .xls)
+openpyxl            # scripts/stb_rail.py, scripts/build_powerplants.py (.xlsx)
+tifffile            # scripts/tankfill_estimator.py, tankfill_s1_estimator.py (GeoTIFF chips)
+rasterio            # scripts/sentinel2_tankfill.py (geo raster IO)
+Pillow              # scripts/site_verify.py, site_candidate_verify.py (imagery annotation)
