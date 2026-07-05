@@ -64,6 +64,40 @@ exception to append-only; the log below it stays append-only)
 - Bonus verification while probing: the v1.0.80 liveness field is live
   in production health (checks.bot.liveness {dark:false}, bot active).
 
+## 2026-07-05 — [PRODUCT] Landing page: DATA INTELLIGENCE section shipped — the oldest unexecuted directive closes (v1.0.84)
+
+- Territory: T-CLIENT. Task #50 (three-part directive PART 3) finally
+  executed. STRICTLY ADDITIVE as directed: git numstat on the three
+  raw landing files shows insertions only (the two 1-line "deletions"
+  are the no-newline-at-EOF artifact — final lines byte-identical).
+  New section #data-intel between The Bot and Pricing, using the
+  page's existing design system (section.s, prose-grid, accent).
+- COPY PROVENANCE (honesty): the full approved copy block did NOT
+  survive context compaction — verbatim survivors are the HEADLINE
+  ("The physical economy, observed live.") and the atlas-Part-4
+  POSITIONING line ("We are not a basemap competitor — ..."), both
+  used verbatim. The one supporting paragraph is drafted new and
+  FLAGGED in the PR for human review/replacement.
+- GLOBE: the landing already ships a D3 canvas globe as its hero — the
+  directive's globe requirement is satisfied by the existing one; a
+  second globe would be redundant and janky-risk. The new copy points
+  at it ("the globe above isn't decoration — it's the product").
+- LIVE STATS (live map layers / data streams recording / archived
+  observations) from the public /api/data/layers +
+  /api/data/archive/stats endpoints; "Open the live map →" CTA to
+  /app#/data; EMAIL-ONLY waitlist reusing POST /api/waitlist
+  (source "landing"), explicit "no billing" copy — tripwire untouched.
+- GRACEFUL DEGRADATION finding: the landing's script (incl. anything
+  appended to it) is D3-CDN-gated — landing.tsx returns early on CDN
+  failure. The section's wiring therefore lives in landing.tsx itself
+  (React side), so stats degrade to em-dash placeholders and the form
+  still posts even with the CDN dark. Probed both states headless.
+- LANDING NOW UNDER HARNESS: "/" added to visual_check PAGES (it was
+  never tested before) — layout/touch/overflow checks ×3 widths ride
+  every future client PR. Gates: harness 0 hard failures across
+  data+developers+landing+all-off; node 127/127; screenshots reviewed
+  (390 + 1440, section + populated stats).
+
 ## 2026-07-05 — [RESEARCH] Databento quality VALIDATED (~$0.30) + CDSE Sentinel-1 verified end-to-end (docs)
 
 - DATABENTO (approved validation stage): 9 stratified days across
