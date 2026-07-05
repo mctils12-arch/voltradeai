@@ -64,6 +64,24 @@ exception to append-only; the log below it stays append-only)
 - Bonus verification while probing: the v1.0.80 liveness field is live
   in production health (checks.bot.liveness {dark:false}, bot active).
 
+## 2026-07-04 — [RESEARCH] Databento pilot EXECUTED: options history pull priced at ~$740, verdict GO (docs; $0 spent)
+
+- Human provided the API key; pilot ran same message via free
+  metadata.get_cost calls. PRIOR (stated in the wishlist entry before
+  pricing): viable if the full pull quotes under ~$1,500. RESULT:
+  cbbo-1m confirmed to 2013-04-01 from the API; measured closing-1-min
+  per-day costs SPY $0.0129 / AAPL $0.0035 / F $0.0019; batching
+  cost-neutral. Universe estimate ~$0.28/day → 2016→present ≈ $740,
+  2013→present ≈ $930. Under budget even at 2x error → GO.
+- Staged execution filed: $125 free credits cover a 2016–2017
+  validation pull ($0 out of pocket); spend beyond credits waits for
+  the human's go after quality validation. Env dependency: session
+  environment still lacks DATABENTO_KEY (presence-checked this
+  session: DATABENTO_KEY, CDSE_CLIENT_ID, CDSE_CLIENT_SECRET,
+  DIAG_TOKEN all missing) — human walked through the setting.
+- Two-sided honesty note: statistics schema (OI/settlement) priced
+  10-100x the quote slices — sampled, never bulk-pulled.
+
 ## 2026-07-04 — [RULE-REVIEW] WORKSTREAM PARTITION amendment SHIPPED (docs)
 
 - Human approved ("WORKSTREAM PARTITION amendment — ship it"). Applied
