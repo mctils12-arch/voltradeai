@@ -13,6 +13,29 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Stream #5: FDA binary events — approvals + AdCom dates (v1.0.97) [T-DATACORE]
+
+- Built per the verified brief: server/fdaEvents.ts — openFDA drugsfda
+  approvals (30-day rolling window) + Federal Register FDA advisory-
+  committee meeting notices (the FREE forward-looking catalyst that
+  preserves the IV-ramp hypothesis; PDUFA dates are legally
+  unpublishable, 21 CFR 314.430 — stated in manifest + route, and we
+  do NOT scrape aggregator calendars). 6h poll, 2 req/cycle (far under
+  keyless caps), /api/data/fda-events, envelope manifest.
+- Meeting dates parsed from official notice text with a CONFIDENCE
+  LABEL (parsed/unparsed) — an unparsed date stays null, never
+  guessed. pub (FR publication date) = when the public could know.
+- LIVE E2E caught an honesty bug BEFORE ship: openFDA returns whole
+  applications with full submission history, so the naive parse
+  emitted 1,619 "approvals" including years-old supplements; the
+  window filter drops out-of-window AP submissions -> 106 in-window
+  approvals + 40 adcom notices (13 with parsed dates). Regression test
+  pins the window.
+- LADDER: gate 1 = adcom date accuracy vs 20 known events (runnable
+  from the archive + FR links); gate 2 = IV-ramp reproducibility
+  around parsed adcom dates on OUR archived option chains (recording
+  since 2026-07-06). 9 tests green; offline pytest green.
+
 ## 2026-07-05 — [PIPELINE] Stream #4: USAspending contract-awards archiver (v1.0.96) [T-DATACORE]
 
 - Built per the verified brief: server/usaSpending.ts — transaction-
