@@ -8,8 +8,9 @@ import os from "node:os";
 import path from "node:path";
 import {
   parseShortVol, fetchShortVolDay, archiveShortVolDay, gzipOldShortVolDays,
-  summarize, refreshShortVol, latestShortVol, readArchivedDay,
-  TOP_CAP, FLOOR_TOTAL_VOL,
+  gzipOldShortVolDaysAsync, summarize, refreshShortVol, latestShortVol,
+  readArchivedDay, deepBackfillIfSparse, countArchivedDays,
+  TOP_CAP, FLOOR_TOTAL_VOL, DEEP_BACKFILL_DAYS,
 } from "./finraShortVolume";
 
 // Mirrors the live file verified 2026-07-05: pipe header, fractional
@@ -73,6 +74,44 @@ test("summarize: agg ratio + stated floor/cap honesty", () => {
   assert.equal(s.top_ratio[0].symbol, "ZZTOP");
   assert.ok(s.agg_short_ratio! > 0 && s.agg_short_ratio! < 1);
   assert.equal(summarize([]), null);
+});
+
+test("deep backfill: marker completes it, interruption resumes, done-marker short-circuits", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-bf-"));
+  const now = Date.parse("2026-07-05T12:00:00Z");
+  assert.ok(DEEP_BACKFILL_DAYS >= 700, "target ~2 years of trading days");
+  // serve files for 3 specific dates; everything else 403 (non-trading).
+  // Dates deliberately unused by other tests: archivedDates is module
+  // state shared across this file's tests (date-level dedup by design).
+  const SERVED = new Set(["20260615", "20260616", "20260617"]);
+  let calls = 0;
+  const fake = async (url: string) => {
+    calls++;
+    const m = url.match(/CNMSshvol(\d{8})\.txt/);
+    if (!m || !SERVED.has(m[1])) return { ok: false, status: 403, text: async () => "" };
+    const day = m[1];
+    return { ok: true, status: 200, text: async () =>
+      `Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market\n${day}|AA|100|0|200|Q\n1` };
+  };
+  await deepBackfillIfSparse(fake as any, now, base);
+  assert.equal(countArchivedDays(base), 3, "all served days archived");
+  assert.ok(fs.existsSync(path.join(base, "finrashortvol", "backfill_done.json")), "completion marker written");
+  const callsAfterDone = calls;
+  await deepBackfillIfSparse(fake as any, now, base);
+  assert.equal(calls, callsAfterDone, "done marker short-circuits — zero refetches");
+  // interruption semantics: remove the marker -> re-run resumes via dedup
+  fs.unlinkSync(path.join(base, "finrashortvol", "backfill_done.json"));
+  await deepBackfillIfSparse(fake as any, now, base);
+  assert.equal(countArchivedDays(base), 3, "resume run added nothing new (dedup)");
+  assert.ok(fs.existsSync(path.join(base, "finrashortvol", "backfill_done.json")), "marker rewritten");
+});
+
+test("gzip async variant matches sync semantics", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-gz-"));
+  const rows = parseShortVol(FILE.replace(/20260702/g, "20260628"), "2026-07-05");
+  archiveShortVolDay(rows, base);
+  assert.equal(await gzipOldShortVolDaysAsync(base, Date.parse("2026-07-05T12:00:00Z")), 1);
+  assert.ok(fs.existsSync(path.join(base, "finrashortvol", "2026-06-28.jsonl.gz")));
 });
 
 test("refresh: restart with the newest day already archived rebuilds cache from disk, no refetch", async () => {

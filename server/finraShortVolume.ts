@@ -155,20 +155,37 @@ export function archiveShortVolDay(rows: ShortVolRow[], baseDir?: string): numbe
   }
 }
 
-export function gzipOldShortVolDays(baseDir?: string, nowMs?: number): number {
-  const dir = svDir(baseDir);
-  const now = nowMs ?? Date.now();
-  let n = 0;
+function gzTargets(dir: string, now: number): string[] {
   try {
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith(".jsonl")) continue;
-      if (now - Date.parse(f.slice(0, 10)) < 2 * 86400_000) continue;
-      const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
-      n++;
-    }
-  } catch {}
+    return fs.readdirSync(dir)
+      .filter((f) => f.endsWith(".jsonl") && now - Date.parse(f.slice(0, 10)) >= 2 * 86400_000)
+      .map((f) => path.join(dir, f));
+  } catch { return []; }
+}
+
+function gzOne(fp: string): void {
+  fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+  fs.unlinkSync(fp);
+}
+
+export function gzipOldShortVolDays(baseDir?: string, nowMs?: number): number {
+  let n = 0;
+  for (const fp of gzTargets(svDir(baseDir), nowMs ?? Date.now())) {
+    try { gzOne(fp); n++; } catch {}
+  }
+  return n;
+}
+
+/** Poller-path variant: yields the event loop between files — after a
+ *  deep backfill ~500 files gzip in one sweep, and a fully synchronous
+ *  loop would block the loop for tens of seconds (the shadowstats
+ *  lesson, same class). */
+export async function gzipOldShortVolDaysAsync(baseDir?: string, nowMs?: number): Promise<number> {
+  let n = 0;
+  for (const fp of gzTargets(svDir(baseDir), nowMs ?? Date.now())) {
+    try { gzOne(fp); n++; } catch {}
+    await new Promise((res) => setImmediate(res));
+  }
   return n;
 }
 
@@ -274,18 +291,57 @@ export async function refreshShortVol(fetchImpl: FetchFn = fetch as any, nowMs?:
       }
       await new Promise((res) => setTimeout(res, 300)); // polite spacing
     }
-    gzipOldShortVolDays(baseDir, now);
+    await gzipOldShortVolDaysAsync(baseDir, now);
   } catch (e: any) {
     console.error("[datacore] finrashortvol refresh:", e?.message || e);
   }
 }
 
+/** Dated CNMS files persist for years — history someone else recorded
+ *  is history we can still capture (accumulation substitutes for
+ *  purchase, EDGE DOCTRINE). Backfill target ~2 years; ~500 trading-day
+ *  files x ~150KB gz on the volume. Gate-2 (short-ratio extremes vs
+ *  forward returns) needs exactly this depth. */
+export const DEEP_BACKFILL_DAYS = 750; // calendar days (~500 trading days)
+
+export function countArchivedDays(baseDir?: string): number {
+  try {
+    return fs.readdirSync(svDir(baseDir)).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)).length;
+  } catch { return 0; }
+}
+
+const doneMarker = (baseDir?: string) => path.join(svDir(baseDir), "backfill_done.json");
+
+/** One-shot deep backfill (first prod boot / fresh volume). Runs AFTER
+ *  the normal 7-day refresh so the route serves current data within
+ *  seconds; the deep pass then fills history in the background (~4 min
+ *  at 300ms spacing, one file in memory at a time). A COMPLETED pass
+ *  writes a marker file; an INTERRUPTED pass leaves no marker, so the
+ *  next boot re-runs and the date-level dedup resumes it for free —
+ *  a count-based trigger would have mistaken a partial pass for done. */
+export async function deepBackfillIfSparse(fetchImpl: FetchFn = fetch as any, nowMs?: number,
+                                           baseDir?: string): Promise<void> {
+  if (fs.existsSync(doneMarker(baseDir))) return;
+  const have = countArchivedDays(baseDir);
+  console.log(`[datacore] finrashortvol deep backfill: archive has ${have} day-files — fetching ~${DEEP_BACKFILL_DAYS} calendar days`);
+  await refreshShortVol(fetchImpl, nowMs, DEEP_BACKFILL_DAYS, baseDir);
+  try {
+    fs.writeFileSync(doneMarker(baseDir), JSON.stringify({
+      done_rt: new Date().toISOString(),
+      day_files: countArchivedDays(baseDir),
+      calendar_days: DEEP_BACKFILL_DAYS,
+    }));
+  } catch {}
+  console.log(`[datacore] finrashortvol deep backfill done: ${countArchivedDays(baseDir)} day-files`);
+}
+
 /** Files publish evenings after the trading day — poll every 6h so a
  *  publish is picked up same-day without hammering the CDN. Eager boot
- *  per KNOWN BROKEN #9. */
+ *  per KNOWN BROKEN #9; sparse archives trigger the one-shot deep
+ *  backfill after the current data is up. */
 export function bootShortVolPoll(intervalMs = 6 * 60 * 60_000): void {
   if (polling) return;
   polling = true;
-  refreshShortVol();
+  refreshShortVol().then(() => deepBackfillIfSparse());
   setInterval(() => { refreshShortVol(); }, intervalMs).unref?.();
 }
