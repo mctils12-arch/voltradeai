@@ -1,0 +1,30 @@
+{
+ "stream": "sentinel2v2",
+ "storage": "git-versioned JSONL datacore/sentinel2/readings_v2.jsonl (one line per scene; dedup by scene)",
+ "written_by": "scripts/tankfill_estimator.py (Python, session-run; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "source": "PR-2 master chips (datacore/manifests/sentinel2chips.json) x OSM tank registry (cushing_tanks.geojson, ODbL)",
+ "license": "Copernicus free/open data policy (imagery) + ODbL (registry geometry); attribution both",
+ "attribution": "Contains modified Copernicus Sentinel data; tank geometry © OpenStreetMap contributors",
+ "schema_version": 2,
+ "field_map": {
+  "scene": "Sentinel-2 scene id (dedup key)",
+  "date": "capture date UTC",
+  "sun_elev/sun_azim": "solar angles the estimate is conditioned on",
+  "registration": "integer content shift vs the reference chip {dx, dy, r}",
+  "scene_masked_frac": "SCL-masked share of the chip",
+  "n_measured/skipped_tanks": "coverage accounting — skips never silent",
+  "sites[]": "site, n_tanks, fill_d2w (D^2-weighted mean fill), fill_median — the candidate signal level",
+  "tanks[]": "per-tank LOW-CONFIDENCE: id, site, d_m, ratio (up-sun/down-sun), depth_m, fill, px, q (ok|subpixel), height_src",
+  "assumptions": "shadow_k + default shell height carried on every reading",
+  "label": "EXPERIMENTAL marker (ladder gate 1 not attempted)"
+ },
+ "confidence_model": "EXPERIMENTAL derived estimate, assumption-laden (shadow_k=0.35, API-650 default heights). Per-tank q flags sub-pixel readings (expected full-depth reach < 0.5 px — summer high sun); winter scenes carry ~5x more signal. Gate-1 criteria pre-stated in the TANK-FILL v2 workup (open_questions.md); until PASS nothing here is a SIGNAL and nothing surfaces on /data.",
+ "geo_fields": [
+  "(tank id -> lon/lat via datacore/sentinel2/cushing_tanks.geojson)"
+ ],
+ "entity_key": "scene + tank id",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "per usable scene (~weekly after clouds), session-run",
+ "_note": "Universal archive envelope (approved 2026-07-04). Tank-fill v2 PR-3 of 7; PR-4 = backfill + gate-1 attempt vs EIA weekly Cushing stocks."
+}

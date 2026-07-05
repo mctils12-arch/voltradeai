@@ -13,6 +13,46 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Tank-fill v2 PR-3: crescent estimator BUILT + run on the first real chip (v1.0.109)
+
+- [T-DATACORE] scripts/tankfill_estimator.py: per-tank up-sun vs
+  down-sun coverage-weighted B04 ratio (self-normalizing — paint,
+  band, atmosphere cancel), inverted through small-s circle-lens
+  geometry (f = 4s/(piR); s -> depth via tan(sun_elev)) to fill %;
+  SCL per-pixel cloud masking (tank >10% masked skipped, scene >40%
+  skipped whole); integer registration vs a reference chip (+/-3 px
+  Pearson search); D^2-weighted site aggregates; readings_v2.jsonl
+  one line/scene with assumptions (shadow_k=0.35, API-650 heights)
+  and per-tank q flags carried on every record. Manifest
+  sentinel2v2.json. Tests: test_tankfill_estimator.py (12, fully
+  synthetic supersampled rasters with KNOWN crescent geometry —
+  depth recovery + ordering, full-tank reads 1.0, registration
+  recovery restores measurements, masking, D^2 math, subpixel flag,
+  registry load).
+- TWO MEASUREMENT DEFECTS CAUGHT BY THE SYNTHETIC BATTERY before any
+  real data was trusted: (a) a 1 px edge margin (the "obvious" mixed-
+  pixel hygiene) discards exactly the rim pixels carrying the
+  crescent — a 0.5 px-reach crescent read ZERO; replaced with
+  supersampled coverage WEIGHTS, no margin. (b) assigning whole
+  pixels to halves by center puts the proj==0 boundary line in one
+  half -> ~5% false darkening on a synthetic FULL tank (fill read
+  0.81); fractional half-membership fixed it (full tank reads 1.00).
+  Both are exactly the class of silent bias gate-1 would have eaten.
+- FIRST REAL READING (June 17 chip, sun_elev 71.1): 234/234 tanks
+  measured, reg (0,0); site fill_d2w: enbridge 0.42, hub 0.59,
+  plains 0.65, ring 0.58. ALL 234 flagged q=subpixel (June reach
+  0.50 px — the v1-poisoning artifact, now labeled per tank, never
+  hidden). Winter scenes are the signal carriers; PR-4 backfill will
+  weight accordingly.
+- PRIOR (stated before gate-1, Reasoning Standard #10): P(gate-1
+  PASS) ~40% as filed in the workup; sub-pixel summer readings are
+  expected to contribute ~nothing — if gate-1 passes it will be on
+  winter/shoulder deltas.
+- NEXT: PR-4 = 24-month chip backfill (~140 PU, split across runs)
+  + gate-1 attempt vs EIA weekly Cushing stocks (criteria pre-stated
+  in the workup: >=20 matched weeks, >=1 reversal, delta r >= +0.3,
+  delta-sign >= 65%).
+
 ## 2026-07-05 — [PIPELINE] Tank-fill v2 PR-2: CDSE master-chip client BUILT + live-verified (v1.0.108)
 
 - [T-DATACORE] scripts/cdse_chips.py: one 5-band UINT16 GeoTIFF master
