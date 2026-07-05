@@ -566,6 +566,49 @@ exception to append-only; the log below it stays append-only)
   delete outright in a future session; noting it here so that session
   doesn't have to rediscover it.
 
+## 2026-07-05 — [PIPELINE] Census port imports — key-gated stream built (BUILD ORDER 3 #4 unblocked) (v1.0.132)
+
+- TERRITORY: T-DATACORE. Human message "CENSUS_API_KEY added key"
+  unblocked BLOCKED-FOR-MIKE #6 (the only build-order item that was
+  key-blocked). Built server/censusImports.ts + tests + manifest +
+  /api/data/imports.
+- KEY-LOCATION FINDING: the key is NOT in this session's container
+  env (presence-only check; container env is fixed at session start —
+  exact FRED precedent). So instead of a session-run backfill, the
+  stream is SERVER-SIDE key-gated on the fredMacro pattern:
+  censusEnabled() = Boolean(CENSUS_API_KEY), poller no-ops keyless,
+  route returns {enabled:false, reason} honesty, activates
+  automatically on the next deploy IF the key was set in Railway.
+  Wishlist #6 corrected (it originally said "session env; Railway not
+  needed" — the built design inverts that) and marked
+  DONE-PENDING-VERIFICATION.
+- QUERY-SHAPE HONESTY: the intltrade imports/porths parameter set
+  could not be live-verified without the key (keyless probes 302 to
+  missing_key). Mitigations built in: (a) two documented query
+  variants tried in order (full containerized set, then GEN_VAL_MO
+  fallback); (b) HEADER-DRIVEN parsing — column order never assumed;
+  (c) Census's readable error bodies logged verbatim (key never
+  logged, never archived — test-asserted) so a wrong shape is fixed
+  from prod logs, not guesswork. LIVE VERIFICATION PENDING: first
+  DAILY session after deploy checks /api/data/imports.
+- Archive: append-only JSONL day-files under censusimports/, dedup
+  key port|month|values so FT920 revisions append as new vintages;
+  seedSeen 40d; gz after 2d; daily poll (monthly source, ~45d lag —
+  off-days are dedup no-ops); eager boot poll (KNOWN BROKEN #9).
+  Missing values null, never zero. Public domain, attribution
+  "U.S. Census Bureau (USA Trade Online / FT920)".
+- HYPOTHESIS (stays gate-locked; RAW display + archive only): port
+  import value/containerized-weight deltas lead retail inventory
+  cycles; joins with port-dwell analytics for a two-sided port view
+  (demand value × supply friction). Ladder work begins only after
+  live data lands and gate 1 (readings vs a second official source)
+  is designed.
+- Tests: censusImports battery 4/4 (header-driven + shuffled-column
+  identity, ''→null, key gating, variant fallback with
+  key-never-in-records assertion, dedup/vintage/gz lifecycle);
+  manifest envelope battery 3/3 with censusimports.json; tsc at the
+  63-error baseline.
+
 ## 2026-07-05 — [RULE-REVIEW] Counterfactual-logger check-in + natgas gate-2 design pre-stated (BUILD ORDER 4 #4+#6) (docs)
 
 - [RULE-REVIEW] B4-6 VERDICT: the CLAUDE.md counterfactual mandate is
