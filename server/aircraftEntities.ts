@@ -26,6 +26,12 @@ import path from "path";
 import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
+// [REPAIR 2026-07-05] The runtime Docker image copies dist/ but NOT
+// datacore/ (frozen Dockerfile) — a runtime disk read of the artifact
+// returned null on Railway forever while working locally. Static import
+// bundles it into dist like every other datacore JSON (layers, sites,
+// powerplants). The fp-based disk path below remains for tests only.
+import bundledSpine from "../datacore/aircraft/entity_spine.json";
 
 export interface HexSummary {
   i: string;            // icao24 (lowercase hex)
@@ -120,13 +126,19 @@ export function _resetAircraftEntityCache() { cache = null; inflight = null; spi
 // ── spine artifact ──────────────────────────────────────────────────────────
 let spine: Record<string, SpineRecord> | null | undefined;
 
-export function loadEntitySpine(fp = path.resolve(process.cwd(), "datacore", "aircraft", "entity_spine.json")): Record<string, SpineRecord> | null {
+export function loadEntitySpine(fp?: string): Record<string, SpineRecord> | null {
   if (spine !== undefined) return spine;
+  if (fp === undefined) {
+    // production path: the bundled artifact (see import note above)
+    const doc = bundledSpine as any;
+    spine = doc?.entities && typeof doc.entities === "object" ? doc.entities : null;
+    return spine ?? null;
+  }
   try {
     const doc = JSON.parse(fs.readFileSync(fp, "utf8"));
     spine = doc?.entities && typeof doc.entities === "object" ? doc.entities : null;
   } catch {
-    spine = null; // artifact not built yet — every lookup degrades to null
+    spine = null; // missing/corrupt test file — every lookup degrades to null
   }
   return spine ?? null;
 }

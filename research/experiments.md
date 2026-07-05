@@ -13,6 +13,27 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] Entity spine unreachable in prod — artifact now BUNDLED, not disk-read (v1.0.115)
+
+- [T-DATACORE] Prod verification caught it (the watcher never fired):
+  /api/data/aircraft/entity/:hex served entity:null spine_built:false
+  through multiple deploys. ROOT CAUSE: loadEntitySpine read
+  datacore/aircraft/entity_spine.json from cwd at runtime — works
+  locally and in CI (repo = cwd) but the runtime Docker image copies
+  dist/, content/, *.py and NEVER datacore/ (frozen Dockerfile), so
+  prod could never see the artifact. Every other datacore JSON works
+  because it is IMPORTED and bundled into dist — the spine now does
+  the same (static import; dist 1.7MB -> 5.7MB, trivial vs the 1GB
+  daemon ceiling). Disk-read path retained for tests only.
+- RATCHET: new battery test chdirs away from the repo and asserts the
+  spine still serves >10k entities — the exact CI blind spot (cwd =
+  repo) that let this ship. Would have failed on the old code.
+- LESSON ENCODED (module comment + here): server code must NEVER
+  disk-read repo files at runtime; bundled import is the only path
+  that survives the image. CI green ≠ prod green when the failure is
+  in what the image contains — deploy verification is the gate that
+  caught this.
+
 ## 2026-07-05 — [RESEARCH] Tank-fill v3 GATE 1: FAIL — S1 double-bounce deltas carry no signal; v3.1 pre-registered (v1.0.114)
 
 - [T-DATACORE] PR-2: scripts/tankfill_s1_estimator.py (per-tank
