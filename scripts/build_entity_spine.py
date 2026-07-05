@@ -147,8 +147,10 @@ def main():
         "entities": dict(sorted(entities.items())),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    # compact separators: ~10k records commit to git — indentation would
+    # roughly double the artifact for zero reader value (served, not read)
     with open(OUT, "w") as fh:
-        json.dump(doc, fh, indent=1)
+        json.dump(doc, fh, separators=(",", ":"))
     print(f"wrote {os.path.relpath(OUT)} ({os.path.getsize(OUT)/1e6:.2f} MB)")
 
 
