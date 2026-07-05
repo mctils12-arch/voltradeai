@@ -14,8 +14,8 @@
       "name": "Terrain (hillshade)",
       "kind": "raw",
       "status": "live",
-      "source": "Mapterhorn terrain tiles (Copernicus GLO-30 + national open DEMs; \u00a9 Mapterhorn)",
-      "description": "Global elevation hillshade rendered under all data layers. Off by default \u2014 the imagery base already shows relief; this is the opt-in accent (and the DEM source future 3D terrain reuses)."
+      "source": "Mapterhorn terrain tiles (Copernicus GLO-30 + national open DEMs; © Mapterhorn)",
+      "description": "Global elevation hillshade rendered under all data layers. Off by default — the imagery base already shows relief; this is the opt-in accent (and the DEM source future 3D terrain reuses)."
     },
     {
       "id": "weather",
@@ -23,7 +23,7 @@
       "kind": "raw",
       "status": "live",
       "source": "NOAA/NWS nowCOAST WMS (public domain)",
-      "description": "US base-reflectivity radar mosaic, refreshed ~5 min, rendered under all data layers. COVERAGE HONESTY: US + territories only \u2014 no free lawful global radar source exists (RainViewer and Open-Meteo free tiers prohibit our use). Global temp/wind fields can activate later via an OpenWeatherMap free key (human action filed).",
+      "description": "US base-reflectivity radar mosaic, refreshed ~5 min, rendered under all data layers. COVERAGE HONESTY: US + territories only — no free lawful global radar source exists (RainViewer and Open-Meteo free tiers prohibit our use). Global temp/wind fields can activate later via an OpenWeatherMap free key (human action filed).",
       "field": true
     },
     {
@@ -31,8 +31,8 @@
       "name": "Temperature (global)",
       "kind": "raw",
       "status": "live",
-      "source": "OpenWeatherMap free tier (Weather data \u00a9 OpenWeatherMap; attribution required)",
-      "description": "Global surface-temperature field, model-derived (not station truth \u2014 labeled per the licensing register). Tiles proxied server-side so the API key is never exposed and the 60-calls/min free budget is shared-cache bounded. Fresh keys take ~2h to activate on OWM's side \u2014 the layer shows a retry note, not an error, until then.",
+      "source": "OpenWeatherMap free tier (Weather data © OpenWeatherMap; attribution required)",
+      "description": "Global surface-temperature field, model-derived (not station truth — labeled per the licensing register). Tiles proxied server-side so the API key is never exposed and the 60-calls/min free budget is shared-cache bounded. Fresh keys take ~2h to activate on OWM's side — the layer shows a retry note, not an error, until then.",
       "field": true
     },
     {
@@ -40,7 +40,7 @@
       "name": "Wind (global)",
       "kind": "raw",
       "status": "live",
-      "source": "OpenWeatherMap free tier (Weather data \u00a9 OpenWeatherMap; attribution required)",
+      "source": "OpenWeatherMap free tier (Weather data © OpenWeatherMap; attribution required)",
       "description": "Global wind-speed field, model-derived (not station truth). Same proxied-key + shared-cache + fresh-key-retry behavior as the temperature layer.",
       "field": true
     },
@@ -58,7 +58,7 @@
       "kind": "raw",
       "status": "awaiting_key",
       "source": "aisstream.io (free API key)",
-      "description": "Live ship positions via AIS websocket. Goes live automatically when AISSTREAM_KEY is set (free signup \u2014 see wishlist)."
+      "description": "Live ship positions via AIS websocket. Goes live automatically when AISSTREAM_KEY is set (free signup — see wishlist)."
     },
     {
       "id": "trains",
@@ -66,7 +66,7 @@
       "kind": "raw",
       "status": "live",
       "source": "Digitraffic Finland (CC BY 4.0) + Entur Norway (NLOD)",
-      "description": "Live passenger-rail positions. Coverage: Finland + Norway (launch). US freight positions are proprietary \u2014 no free source exists."
+      "description": "Live passenger-rail positions. Coverage: Finland + Norway (launch). US freight positions are proprietary — no free source exists."
     },
     {
       "id": "sites",
@@ -90,7 +90,7 @@
       "kind": "raw",
       "status": "live",
       "source": "SEC EDGAR (no API key required)",
-      "description": "Recent Form 4 filings (insider buys/sells/grants) as filed. As-is display, no predictive claim \u2014 clustering-vs-returns is an open gate-2 question, not yet surfaced as a signal."
+      "description": "Recent Form 4 filings (insider buys/sells/grants) as filed. As-is display, no predictive claim — clustering-vs-returns is an open gate-2 question, not yet surfaced as a signal."
     },
     {
       "id": "earnings",
@@ -98,7 +98,7 @@
       "kind": "raw",
       "status": "live",
       "source": "SEC EDGAR (8-K Item 2.02 / Exhibit 99, no API key required)",
-      "description": "As-filed results/guidance press releases (Item 2.02 exhibits) the moment they hit EDGAR \u2014 the lawful free substitute for paid earnings-call transcripts. As-is display, no predictive claim; Q&A is almost never filed so this is prepared remarks/guidance language only, not the full call. Gate-2 (does language predict forward returns) is an open research question, not yet surfaced as a signal."
+      "description": "As-filed results/guidance press releases (Item 2.02 exhibits) the moment they hit EDGAR — the lawful free substitute for paid earnings-call transcripts. As-is display, no predictive claim; Q&A is almost never filed so this is prepared remarks/guidance language only, not the full call. Gate-2 (does language predict forward returns) is an open research question, not yet surfaced as a signal."
     },
     {
       "id": "shadowstats",
@@ -106,7 +106,7 @@
       "kind": "raw",
       "status": "live",
       "source": "Derived from our own AIS archive (terrestrial coverage)",
-      "description": "Event COUNTS from our own vessel archive: AIS gap events (silent >6h, reappeared >100km away), identity-change candidates, loitering in known STS/transshipment zones. A gap can be coverage loss, not dark sailing \u2014 per-vessel shadow-fleet claims are SIGNAL-class and stay gated until validated (ladder gate 1)."
+      "description": "Event COUNTS from our own vessel archive: AIS gap events (silent >6h, reappeared >100km away), identity-change candidates, loitering in known STS/transshipment zones. A gap can be coverage loss, not dark sailing — per-vessel shadow-fleet claims are SIGNAL-class and stay gated until validated (ladder gate 1)."
     },
     {
       "id": "portdwell",
@@ -114,7 +114,7 @@
       "kind": "raw",
       "status": "live",
       "source": "Derived from our own AIS archive + imagery-verified port geofences",
-      "description": "Per-port vessel dwell statistics from our own archive: completed calls, ships in port now, median/p90 dwell, and 3x-median anomaly FLAGS (suppressed under 10 completed calls \u2014 thin history). Dwell figures are lower bounds (coverage gaps split visits). The dwell-anomaly SIGNAL (congestion predicts returns) stays gated at ladder gate 2 vs published congestion indices."
+      "description": "Per-port vessel dwell statistics from our own archive: completed calls, ships in port now, median/p90 dwell, and 3x-median anomaly FLAGS (suppressed under 10 completed calls — thin history). Dwell figures are lower bounds (coverage gaps split visits). The dwell-anomaly SIGNAL (congestion predicts returns) stays gated at ladder gate 2 vs published congestion indices."
     },
     {
       "id": "fires",
@@ -122,7 +122,15 @@
       "kind": "raw",
       "status": "awaiting_key",
       "source": "NASA FIRMS / LANCE (VIIRS 375m NRT; free MAP_KEY)",
-      "description": "Active-fire detections, ~3h latency. Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration \u2014 see wishlist). No free history exists upstream \u2014 detections archive from the day the key activates."
+      "description": "Active-fire detections, ~3h latency. Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration — see wishlist). No free history exists upstream — detections archive from the day the key activates."
+    },
+    {
+      "id": "rivergauges",
+      "name": "River gauges (barge corridor)",
+      "kind": "raw",
+      "status": "live",
+      "source": "USGS NWIS (public domain)",
+      "description": "Live stage/discharge at 14 Mississippi/Ohio barge-corridor gauges. Raw readings as published (provisional values revise); the low-water freight-stress signal is gate-2-locked."
     },
     {
       "id": "surfacewater",

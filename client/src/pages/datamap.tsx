@@ -42,7 +42,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge";
   title: string;
   subtitle: string;
   body: string;
@@ -82,6 +82,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
+  rivergauges: "environmental",
   insider: "filings", earnings: "filings", shadowstats: "filings", portdwell: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
@@ -1468,6 +1469,87 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.fires, mapReady, layers, setStatus]);
 
+  // ── USGS river gauges (RAW; stream #6 surface — 14 barge-corridor
+  // gauges, raw stage/discharge as published; the low-water SIGNAL stays
+  // gate-2-locked). Off by default (reference layer; initial-load budget). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.rivergauges) {
+      try {
+        if (map?.getLayer("rivergauges-sym")) map.removeLayer("rivergauges-sym");
+        if (map?.getSource("rivergauges")) map.removeSource("rivergauges");
+      } catch {}
+      setStatus("rivergauges", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("rivergauges", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/rivergauges");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("rivergauges", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const fc = {
+          type: "FeatureCollection",
+          features: (d.gauges || []).filter((g: any) => g.lat != null && g.lon != null).map((g: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [g.lon, g.lat] },
+            properties: {
+              site: g.site, name: g.name, param: g.param, v: g.v, q: g.q, d: g.d,
+            },
+          })),
+        };
+        const src: any = map.getSource("rivergauges");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("rivergauges", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "rivergauges-sym", type: "symbol", source: "rivergauges",
+            layout: {
+              "icon-image": "vt-gauge",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.5, 8, 0.8],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: {
+              "icon-color": "#4d9fff",
+              "icon-halo-color": "rgba(5,10,19,0.95)",
+              "icon-halo-width": 1.3,
+            },
+          });
+          map.on("click", "rivergauges-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const unit = p.param === "00060" ? "ft³/s (discharge)" : "ft (gage height)";
+            setDetail({
+              kind: "gauge",
+              title: `≈ ${p.name || p.site}`,
+              subtitle: `USGS ${p.site}`,
+              body: `${p.v} ${unit}\nObserved ${p.d}\n` +
+                    `${p.q === "P" ? "PROVISIONAL — subject to revision" : p.q === "A" ? "Approved reading" : ""}\n\n` +
+                    `Data courtesy U.S. Geological Survey. Raw readings only — ` +
+                    `low-water interpretation is validation-gated.`,
+              links: [{ label: "USGS monitoring page", href: `https://waterdata.usgs.gov/monitoring-location/${p.site}/` }],
+            });
+          });
+          map.on("mouseenter", "rivergauges-sym", () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", "rivergauges-sym", () => { map.getCanvas().style.cursor = ""; });
+        }
+        setStatus("rivergauges", "active", fc.features.length, "USGS NWIS · provisional readings revise");
+      } catch {
+        if (!stop) setStatus("rivergauges", "error");
+      }
+    };
+    load();
+    // hourly refresh, hidden-tab gated (matches the server's 1h poll)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 60 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.rivergauges, mapReady, setStatus]);
+
   // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
   // archive — counts only, per-vessel claims stay ladder-gated) ──
   const [shadowStats, setShadowStats] = useState<any>(null);
@@ -1915,7 +1997,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.rivergauges) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -1926,6 +2008,7 @@ export default function DataMapPage() {
                             <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.low} label="Fire — Low Confidence" />
                           </>
                         )}
+                        {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
                         {enabled.surfacewater && (
                           <>
                             {([["Rare", "#ffcccc"], ["Seasonal", "#8683ff"], ["Permanent", "#0000ff"]] as const)
