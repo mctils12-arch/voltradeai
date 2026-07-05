@@ -47,6 +47,7 @@ import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
+import { bootContractsPoll, latestContracts } from "./usaSpending";
 
 const execAsync = promisify(exec);
 
@@ -1334,6 +1335,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
     }
+  });
+
+  // USAspending federal contract awards (RAW display — stream #4 of the
+  // DATA STREAM EXPANSION order; hypothesis + verified research filed in
+  // open_questions BEFORE the build). Keyless, US-gov data; UEI only
+  // (DUNS is D&B-proprietary and never stored). Ticker matches are
+  // precision-first (cache -> exact name -> award-detail parent), and
+  // unmatched rows carry tkr:null — consumers skip them, never guess.
+  // HONESTY: rt is the event date; DoD publishes ~90 days late (the
+  // manifest carries the full note). Boots eagerly.
+  bootContractsPoll();
+  app.get("/api/data/contracts", (_req, res) => {
+    const hit = latestContracts();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "USAspending.gov", warming_up: true, count: 0, contracts: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "USAspending.gov, U.S. Department of the Treasury (contracts A-D, |amt| >= $25k)",
+      attribution: "Source: USAspending.gov, U.S. Department of the Treasury",
+      time: hit.at,
+      count: hit.txns.length,
+      note: "action dates are signature dates — DoD/USACE publish ~90 days late; rt is the as-seen date",
+      contracts: hit.txns.slice(0, 500),
+    });
   });
 
   // FRED macro series (RAW display — stream #3 of the DATA STREAM
