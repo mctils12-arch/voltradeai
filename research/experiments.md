@@ -13,6 +13,36 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] Parallel subagent batch: streams 4-8 verified, tank-fill v2 workup, datacore quality audit (docs)
+
+- Throughput directive executed: five subagents ran while the main
+  thread shipped repairs. Filings landed in open_questions.md +
+  wishlist BLOCKED-FOR-MIKE; summaries:
+- USAspending (#4, next build): endpoints live-verified incl. a $900M
+  DOE award to a Centrus (LEU) subsidiary as the hypothesis exemplar;
+  DoD publishes ~90 DAYS late (gate-2 cohort/exclude); $25k explicit
+  cap = 99.74% of dollars in 20% of rows; DUNS is D&B-proprietary —
+  UEI only; recipient-profile parent endpoint is vintage-less and
+  WRONG (two proven cases) — parents from award-detail only.
+- FDA (#5): PDUFA dates not freely publishable (21 CFR 314.430) —
+  free substitute preserves the IV-ramp hypothesis: Federal Register
+  AdCom meeting notices (verified) + openFDA approvals.
+- USGS (#6): 14 gauges live-verified (Memphis/Vicksburg are
+  discharge-only; one dead gauge caught); gets a /data layer.
+- GDELT (#7): 15-min export files trivially small after
+  CAMEO x facility-bbox filter; host is HTTP-only; CAMEO can't see
+  industrial accidents — hypothesis reworded to unrest/strikes.
+- pytrends (#8): upstream ARCHIVED 2025-04 — downgraded to a gate-1
+  probe; no archiver/manifest unless stability passes.
+- Tank-fill v2: full crescent-shadow workup filed (sub-pixel aggregate
+  estimator, OSM 333-tank registry verified, 0.4% of CDSE free quota,
+  delta-based gate-1 criteria fixing the v1 trend inflation, 7-PR
+  build plan). BLOCKED-FOR-MIKE: nothing in the core build.
+- Quality audit: 10 prioritized defects filed as the DATACORE DEFECT
+  QUEUE in open_questions (top: request-driven aircraft/trains
+  archiving = permanent gaps; archiveStats blind to 8 of 11 kinds;
+  optionchains loses a day on crashed runs).
+
 ## 2026-07-05 — [REPAIR] /data map performance 3/3: aircraft low-zoom render decimation (v1.0.95) [T-CLIENT]
 
 - Two-layer split on ONE source: aircraft-sym (full, minzoom 4.5) +

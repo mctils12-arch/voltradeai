@@ -1,5 +1,35 @@
 # Data / Access Wishlist — human reviews weekly
 
+## BLOCKED-FOR-MIKE (standing list per the overnight directive
+2026-07-05: items needing paid keys, spend, or a human-only decision.
+Logged and ROUTED AROUND — nothing here blocks the free build order.)
+
+1. **Databento options history, ~$740** (2016→present daily-close
+   chains) — pilot validated GO (parity-perfect sample); ALSO needs
+   your durable-storage decision (~5GB; sessions are ephemeral).
+   Worth it: only affordable path to a decade of chain history for
+   theta/IV research; our free forward archive covers 2026-07-06 on.
+2. **PDUFA target-date calendar** — NOT freely available (FDA legally
+   barred from publishing; aggregator calendars are ToS-protected
+   scrapes we will not touch). Free substitute SHIPPING instead:
+   Federal Register AdCom dates + openFDA approvals; follow-on will
+   mine company-disclosed PDUFA dates from our own 8-K archive as
+   labeled estimates. Paid option if ever wanted: BPIQ-class
+   subscription (~$50-100/mo tier) — low priority given substitutes.
+3. **Tank-fill post-gate-2 enhancements (optional, NOT blocking the
+   build):** sub-meter tasking/archive for roof-type confirmation
+   (Planet/Maxar, ~$10-25/km²-class with minimums) and a paid analyst
+   consensus feed for the EIA-surprise definition. Free versions
+   proceed; per standing rule these may not even be proposed for
+   spend until the free estimator passes gate 2.
+4. **Google Trends production-grade access** — pytrends upstream
+   abandoned (archived 2025-04); if the free gate-1 probe fails, the
+   only reliable paths are paid scrapers (Glimpse/SerpApi-class) or
+   Google's invite-only official API. Await probe result first.
+5. **FRED_API_KEY in the Claude Code session env** (2 min, free) —
+   already live in Railway; adding it to the session env lets
+   research sessions pull FRED directly instead of via prod.
+
 - **[DONE 2026-07-05 — key set in Railway, stream #3 built same day]**
   ~~HUMAN ACTION — FRED API key~~ — human set FRED_API_KEY in Railway;
   server/fredMacro.ts (v1.0.90) polls ~31 regime series, archives

@@ -963,32 +963,190 @@ Reasoning Standard #10):
    recipient→ticker mapping precision on 50 awards; gate 2 =
    award/mcap vs 5-20d returns, small caps only (fish where whales
    can't). PRIOR: positive on micro caps, zero on large.
+   RESEARCH COMPLETE 2026-07-05 (subagent, live-verified): use
+   POST /api/v2/search/spending_by_transaction (transaction level —
+   award level shows LIFETIME totals, useless for events); poll by
+   last_modified_date; dedup (aid,mod,amt) with revisions appending;
+   EXPLICIT cap |amt|>=$25k keeps 99.74% of positive dollars in 20%
+   of rows (measured n=6,691). CRITICAL HONESTY: rt (fetch date) is
+   the only valid event date — DoD/USACE publish ~90 DAYS late
+   (verified: 9 recent-week DoD txns vs 91,999 four months back), so
+   gate 2 must exclude or cohort DoD; "filing beats wires" holds for
+   CIVILIAN agencies only. Mapping: EDGAR company_tickers.json exact
+   normalized name + award-detail parent (NEVER the recipient-profile
+   endpoint — its parent data is vintage-less and demonstrably wrong:
+   NTESS->Resideo, Accenture->Novetta both backwards); unmatched =
+   skipped, never fuzzy; UEI->ticker cache compounds. LICENSE: US-gov
+   free incl. commercial; DUNS is D&B-proprietary — archive UEI ONLY.
 5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
    listable). HYPOTHESIS: binary-event timing for biotech options —
    IV ramps into PDUFA dates; a theta-side input, not directional.
    LADDER: gate 1 = date accuracy vs 20 known events; gate 2 =
    IV-ramp reproducibility on our own archived chains.
+   RESEARCH 2026-07-05 (live-verified): PDUFA target dates are NOT
+   freely available — FDA is barred from confirming pending
+   applications (21 CFR 314.430); every free-looking calendar is a
+   ToS-protected aggregator scrape (do NOT scrape). FREE substitute
+   that preserves the hypothesis: ADVISORY-COMMITTEE meeting dates
+   via the keyless Federal Register API (real notices verified,
+   titles carry committee + sponsor + BLA + drug) — AdCom dates are
+   forward-looking binary catalysts with the same IV-ramp behavior,
+   testable against our own chain archive. Plus openFDA drugsfda
+   approvals (562 real approvals pulled for June; keyless 240/min,
+   1000/day). Follow-on filed separately: mine company-disclosed
+   PDUFA dates from our own 8-K text, labeled estimates.
 6. USGS water levels (keyless): gauges near barge routes/refineries.
    HYPOTHESIS: Mississippi low water → barge freight stress →
    grain/fertilizer basis moves. LADDER: gate 1 = readings vs USGS
    site; gate 2 = low-water episodes vs barge-rate proxies. PRIOR:
    episodic — fires only in drought years; conditional signal.
+   RESEARCH 2026-07-05 (live-verified): waterservices.usgs.gov/nwis/iv
+   keyless; 14 gauges verified returning CURRENT readings (St. Louis,
+   Grafton, Chester, Thebes, Baton Rouge, Belle Chasse, Hermann,
+   Valley City + 4 Ohio R gauges; Memphis 07032000 and Vicksburg
+   07289000 publish DISCHARGE 00060, not stage 00065 — request both
+   params, store whichever returns; Metropolis 03611500 is DEAD,
+   2010-stale, dropped). Gauges have lat/lon → this stream gets a
+   /data registry layer. Provisional→approved revisions append with
+   rt (vintage discipline). 1h poll, one request covers all sites.
 7. GDELT event stream (keyless, 15-min): HYPOTHESIS: geo-tagged event
    bursts near tracked facilities (strikes, outages) as an ALERT
    trigger joined to the Everything Graph — verification prompt, not
    a direct trade. LADDER: gate 1 = geo precision on 30 events;
    gate 2 = burst→own-sensor (imagery/AIS) confirmation rate.
+   RESEARCH 2026-07-05 (live-verified): use the 15-min Events export
+   files (lastupdate.txt pointer; a real export was 24.5KB zipped /
+   428 rows — trivially small), NOT the DOC/GEO APIs. GOTCHAS: host
+   is HTTP-ONLY (data.gdeltproject.org has an invalid HTTPS cert,
+   verified); column indices confirmed against a real file (EventCode
+   col 26, ActionGeo lat/lon 56/57, GlobalEventID col 0 = dedup key).
+   HONESTY: CAMEO is an actor-actor political taxonomy — it captures
+   STRIKES/PROTESTS/UNREST well but NOT clean industrial accidents
+   (FIRMS is our fire sensor); hypothesis reworded to unrest/strike
+   bursts. Filter at ingest: unrest/coercion root codes x ~0.5° boxes
+   around tracked facilities → KB/day archive. License free incl.
+   commercial + redistribution; attribution "The GDELT Project" req'd.
 8. Google Trends via pytrends (no key, dormant in requirements).
    HYPOTHESIS (standing EDGE example): consumer-demand proxy, most
    valuable on small caps. LADDER: gate 1 = series stability across
    re-pulls (pytrends sampling noise measured); gate 2 = inflections
    vs revenue surprises on a 20-name panel. RISK: unofficial API —
    gate 1 may kill it; that is a finding, not a failure.
+   RESEARCH 2026-07-05: the risk is largely CONFIRMED upfront —
+   pytrends upstream was ARCHIVED read-only 2025-04-17 (abandoned;
+   Google's official Trends API is limited-alpha, unavailable).
+   DOWNGRADED from stream build to a one-session GATE-1 PROBE:
+   scripts/gtrends_probe.py pulls a ~20-name small-cap consumer BRAND
+   panel (brand terms, not tickers) 3x at spaced intervals; PASS
+   requires median re-pull correlation > 0.95. NO archiver, NO
+   manifest, NO daemon route unless the probe passes (no dead code
+   for a stream likely dead at gate 1). If it fails: log the
+   layer-of-death and the paid alternatives note goes to wishlist.
 CREDENTIALS: FRED key free/instant (wishlist steps filed); all others
 keyless; patents stays blocked on USPTO ID.me. Every stream ships
 fetcher/parser/archiver + envelope manifest + registry entry where it
 has a geographic surface (USGS gauges, GDELT events, USAspending
 recipient HQs mappable; 13F/FRED are not).
+
+## DATACORE DEFECT QUEUE (quality audit 2026-07-05, subagent-verified;
+each item = own [REPAIR] PR; prioritized)
+
+1. Aircraft + trains archives are REQUEST-DRIVEN — no visitors = no
+   archive; 11 hourly gaps each already permanent. Fix: eager
+   background sampling tick (vessels-tick pattern), routes.ts.
+2. trains needs a health-aware registry status override like
+   vessels/fires (static "live" while dead = dishonest). (The hang
+   itself fixed v1.0.92.)
+3. archiveStats() hardcodes 6 kinds — fires, filings, earnings8k,
+   filings13f, fredmacro, optionchains invisible to
+   /api/data/archive/stats; the archive-gap rule is unenforceable for
+   them. Enumerate dirs on disk.
+4. optionchains: .last_run_day claimed BEFORE the run (crash = day
+   permanently lost); files never gzipped (manifest promises .gz);
+   runs on market holidays. Move claim after success + add gzip +
+   holiday check.
+5. earnings8k manifest documents acceptanceDatetime + ticker that the
+   writer never stores — the lookahead-free claim is unbacked. Add the
+   fields or correct the manifest before any gate-2 work reads it.
+6. fredmacro: seedSeen covers 3 days but each poll fetches 120d — a
+   restart >3d after backfill re-appends ~120d x 31 series as
+   duplicate vintage rows; also (s,d,v) dedup silently drops a
+   revision that REVERTS to a prior value. Extend seed window; decide
+   revert semantics explicitly.
+7. aircraft manifest field_map wrong (gs vs g + undocumented v) —
+   one-line docs fix.
+8. COT stream (Python-side) has NO manifest and escapes the envelope
+   test (which only scrapes server/*.ts) — add cot manifest + test
+   note.
+9. sentinel2 readings stall invisibly (manual-run cadence, newest 8d
+   old) — surface reading age in platform stats or audit register.
+10. edgar13f: null entryTotal can silently truncate holdings at 250
+    without holdingsOmitted (violates never-silent cap); nasaFirms
+    archivedIds.clear() at 200k can mass-re-append in peak season.
+
+## TANK-FILL % v2 — PER-TANK CRESCENT-SHADOW ESTIMATOR (full workup
+2026-07-05, subagent-drafted + session-reviewed; [T-DATACORE];
+supersedes/extends the v1 facility-scale index whose gate-1 was
+honestly NOT claimed — v1's |r|=0.73 was trend-vs-trend inflated)
+
+- ACQUISITION (free, 0.4% of CDSE free tier): ONE master chip per
+  usable S2 scene covering all Cushing tank sites — bbox
+  [-96.80,35.90,-96.72,35.98] (~720x890px @10m), 5 bands (B02/03/04 +
+  B08 NIR + SCL cloud mask), UINT16 TIFF via the PROVEN Sentinel Hub
+  Process API (~4.1 PU/scene; free tier 10,000 PU/mo verified; 24-mo
+  backfill ~500 PU one-time). Sun angles + cloud % from one Catalog
+  API search per run. Cadence: every usable scene (~weekly after
+  clouds; gaps stay honest gaps).
+- TANK REGISTRY (free, verified live): OSM has 333 storage-tank
+  polygons at Cushing (median 60.4m diameter; 234 >= 40m measurable at
+  10m; ZERO height tags). One-time pull -> cushing_tanks.geojson (id,
+  center, diameter, site assignment, default height 14.6m/48ft API-650
+  flagged as assumption; capacity reconciliation vs EIA's ~76M bbl
+  working capacity sanity-checks the registry). ODbL attribution.
+- ESTIMATOR (the physics, known art — Orbital Insight/Ursa method):
+  floating-roof rim casts a crescent shadow INSIDE the shell; reach
+  L = roof_depth/tan(sun_elev); fill = 1 - depth/height. HONESTY AT
+  10m: the crescent is SUB-PIXEL most of the year (0.4px June, 2.2px
+  Dec) — so the estimator is sub-pixel + aggregate: sun-facing vs
+  anti-solar interior sector reflectance ratio (self-normalizing per
+  tank), inverted through circle-lens geometry, D^2-weighted over
+  185-234 tanks (thousands of interior px/scene). Per-tank values
+  archived low-confidence; SITE/RING aggregates are the candidate
+  signal. Readings carry sun-elevation sensitivity weights (June
+  carries ~5x less signal than December — the exact artifact that
+  poisoned v1). Error sources logged per reading: summer sub-pixel,
+  <40m tanks excluded (~10-15% capacity), fixed-roof contamination
+  (classify: interior that never varies across 20+ scenes = not
+  floating), rain ponding (flag scenes <=48h after precip), ~1px
+  registration, SCL residuals.
+- GATE 1 (criteria stated BEFORE the run): >=20 matched scene-weeks
+  spanning >=1 inventory reversal vs EIA weekly Cushing stocks;
+  PASS = delta r >= +0.3 AND delta-sign hit rate >= 65% (levels
+  r >= +0.5 supporting only — deltas are binding; v1 lesson). Scale
+  reconciliation within ~2x of physics.
+- GATE 2: our Delta-estimate is in hand Sat-Mon, 2-4 days before the
+  Wednesday 10:30 ET EIA print. Test A: predicts the print surprise
+  (vs naive free consensus proxy, labeled). Test B: conditional on
+  |predicted surprise| > 1.5M bbl, print-day USO/XLE/XOP returns vs
+  random-entry base rate, regime-split.
+- HYPOTHESIS + PRIOR: predicted draw -> long USO Tue close, exit Wed
+  close (build -> SCO/USO puts); ~25-40 events/yr; prior 20-40bp/event
+  gross IF gate 1 passes; P(gate1) ~40%, P(gate2|gate1) ~30% — the
+  futures reaction is likely arbitraged by the paid vendors selling
+  exactly this; residual edge lives in slower ETF transmission + the
+  multi-week trend form. Even at null trading edge the fill-% layer is
+  a datacore product surface (GOAL priority 3 platform line).
+- COMPUTE: sub-second numpy pixel math per scene; pillow decodes the
+  UINT16 TIFF (no rasterio). Session-run weekly like v1 until gate 1.
+- BUILD PLAN (each own PR): PR-1 tank registry; PR-2 CDSE chip client
+  (fixtures in CI, no live calls); PR-3 crescent estimator + readings
+  schema; PR-4 backfill + gate-1 attempt (prior logged first); PR-5
+  weekly cadence + RAW scene-date surface; PR-6 gate-2 study; PR-7
+  unlock on pass. Follow-on filed: S1 SAR double-bounce fusion
+  (cloud-immune, ~2x cadence) after the optical estimator settles.
+- BLOCKED-FOR-MIKE: NOTHING in the core build. Optional post-gate-2
+  enhancements only (sub-meter imagery ~$10-25/km2-class; paid
+  consensus survey feed) — filed in wishlist, not blocking.
 
 ## GIP BUILD QUEUE (directive 2026-07-04 Parts 3-6 — territory-tagged
 per the WORKSTREAM PARTITION proposal in wishlist.md; routines claim a
