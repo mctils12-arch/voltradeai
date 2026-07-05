@@ -13,6 +13,61 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] ⚠️ TOP-OF-REPORT LIVENESS ALARM: prod restart loop CONTINUES after backfill-off — diagnosis blocked on Railway dashboard access; health now exposes uptime (v1.0.141)
+
+- ⚠️ STATE AT FILING (~21:50Z): the container restarts every ~61s and
+  has since AT LEAST ~20:00Z (possibly earlier — restarts are
+  invisible behind instant-refill caches). Every endpoint answers
+  (each 61s life is enough to serve), archives still record in
+  bursts, and it is Sunday — but the trading loop CANNOT run
+  sustained work. If unresolved by Monday 09:30 ET this is the
+  constitutional LIVENESS ALARM. Mike push-notified at ~21:45Z.
+- EVIDENCE CHAIN (all external — prod logs unreadable from a
+  session): (1) attention last_cycle timestamps = new boot every
+  61-63s, metronomic; (2) INDEPENDENT confirmation: COT + FAA cache
+  ages always <=15s despite 12h/15min refresh intervals (their
+  cache.at only stamps at fill); (3) v1.0.140's backfill default-off
+  deployed and the cadence did NOT change -> the deep backfill is
+  EXONERATED as the driver (v1.0.140's guards remain correct
+  hardening regardless); (4) the prod bundle run LOCALLY under the
+  same node --max-old-space-size=512 survives 150s cleanly (2.5x the
+  prod death period) with graceful 401 handling -> the trigger is
+  ENV-DEPENDENT (prod keys, volume contents, or platform); (5) no
+  ~60s timer exists in server code (grep); railway.json has
+  healthcheckPath /api/health with healthcheckTimeout 60 and
+  restartPolicy ALWAYS — the 61s period matches the healthcheck
+  timeout exactly, but external /api/health probes return 200, so
+  healthcheck-kill vs container-OOM (node 512MB heap cap + Python
+  daemon RSS vs the Railway plan limit) CANNOT be discriminated from
+  outside. (6) python-side system-status: 7/7 checks pass.
+- ONSET BOUND: restarts confirmed by 20:22Z (attention could not
+  fill 24 min after its deploy); earliest possible onset unknown —
+  any deploy today could have crossed a boot-time threshold (data
+  growth on the volume slowing daemon/boot past 60s is a live
+  theory that needs the dashboard to confirm).
+- SHIPPED THIS PR (detection, not another blind patch — recurrence
+  rule respected): /api/health checks.server.uptime_s. A restart
+  loop was INVISIBLE: every probe hit a young-but-alive process
+  reading "ok". Repeated low uptime reads ARE the loop signal; the
+  DAILY health check must alarm on uptime_s staying <120 across
+  reads minutes apart.
+- BLOCKED-FOR-MIKE (URGENT, wishlist #8): read the Railway
+  dashboard deploy logs + restart reason + memory graph. That
+  single read discriminates every remaining theory: healthcheck
+  timeout (logs say "healthcheck failed") vs OOM (memory graph
+  spikes to plan limit) vs crash (stack trace in deploy logs). If
+  healthcheck: likely boot path now exceeds 60s (daemon start +
+  data growth) — remedies are healthcheckTimeout bump (frozen
+  railway.json -> Mike edits) or boot-path lightening. If OOM:
+  container plan limit vs node 512 + daemon RSS — remedies are plan
+  bump or heap-cap tuning in run_with_daemon.sh (frozen -> Mike).
+  If crash: the stack names the module and the next session fixes
+  the actual defect.
+- NEXT-SESSION VERIFICATION PROTOCOL: read /api/health uptime_s 3x
+  two minutes apart. All <120s = loop persists (work the Mike
+  findings); rising past 300s = loop over (then find what changed
+  and write the close-out).
+
 ## 2026-07-05 — [REPAIR] PRIORITY-1: prod crash-looping ~every 60s after the deep backfill — emergency default-off + gz-on-write (v1.0.140)
 
 - DETECTION CHAIN (the R7 diagnostics paid for themselves within the

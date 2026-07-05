@@ -1096,9 +1096,13 @@ print(json.dumps(data))
   // ── Health Check (for Railway and monitoring) ──────────────────────────────
   app.get("/api/health", async (_req, res) => {
     const checks: any = { timestamp: new Date().toISOString(), status: "ok", checks: {} };
-    
+
     // Check 1: Node.js server is running (obviously)
-    checks.checks.server = { status: "ok" };
+    // uptime_s: a restart loop is invisible without it — prod cycled every
+    // ~61s for 2+ hours on 2026-07-05 while every health probe read "ok"
+    // (each probe hit a young-but-alive process). Low uptime on repeated
+    // reads IS the restart-loop signal; the DAILY check must alarm on it.
+    checks.checks.server = { status: "ok", uptime_s: Math.round(process.uptime()) };
     
     // Check 2: SQLite database
     try {
