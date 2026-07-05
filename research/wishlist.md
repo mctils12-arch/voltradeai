@@ -1,17 +1,23 @@
 # Data / Access Wishlist — human reviews weekly
 
-- **[CREDENTIALS SET BY HUMAN 2026-07-04 — status: Railway has the
-  OAuth Client ID + Secret. NAME THEM CDSE_CLIENT_ID / CDSE_CLIENT_SECRET
-  (no code read any CDSE var before this; the S1 pipeline is being
-  built to read exactly those two). ALSO NEEDED: the same two values in
-  the Claude Code environment settings — imagery pipelines run in
-  SESSIONS, not on Railway. Endpoint verified from our egress: CDSE
-  OAuth token endpoint answers the client-credentials flow (401 on
-  dummy creds) and the STAC catalogue responds. Item stays open until
-  an authenticated Sentinel-1 pull succeeds — closes with evidence when
-  the S1 pipeline lands.] Copernicus Data Space (CDSE) free account
+- **[DONE — VERIFIED END-TO-END 2026-07-05]** ~~Copernicus Data Space
+  (CDSE) free account~~ — CDSE_CLIENT_ID / CDSE_CLIENT_SECRET live in
+  the session environment and PROVEN with the real credentials:
+  (1) OAuth client_credentials token issued; (2) OData catalog search
+  found a fresh S1D GRDH scene over Cushing (sensed 2026-06-26);
+  (3) a REAL 256×256 Sentinel-1 VV SAR chip of the Cushing tank farm
+  pulled via the Sentinel Hub Process API on CDSE (61KB PNG,
+  radar-bright tanks clearly resolved) — the fused-sensor engine's S1
+  leg is UNBLOCKED, and the Process API (server-side AOI windowing,
+  free-tier processing units) is the RIGHT primitive for the
+  chip-based change-detection design — better than bulk product
+  downloads. GOTCHA RECORDED: the bulk zipper endpoint returns
+  DAT-ZIP-609 "token audience not allowed" for custom OAuth clients —
+  irrelevant to chips; if whole products ever matter, use S3 keys
+  from the CDSE dashboard or the cdse-public password grant.
+  (Original entry: Copernicus Data Space (CDSE) free account
   (satellite directive 2026-07-04): ONE credential unlocks the
-  fused-sensor engine (Sentinel-1 SAR + Sentinel-2).** Exact steps: (1)
+  fused-sensor engine (Sentinel-1 SAR + Sentinel-2).)** Exact steps: (1)
   dataspace.copernicus.eu → "Register" (top right); (2) email +
   password, verify the confirmation email; (3) no approval wait — the
   account is immediately active on the free tier (generous monthly
@@ -355,6 +361,25 @@
     Claude Code session environment (key exists, human has it) + the
     human's go for spend beyond the free credits after the validation
     stage.
+  - **QUALITY VALIDATION EXECUTED 2026-07-05 (~$0.30 of credits):
+    9 stratified days across 2016–2017 (quarterly + the 2016-01-20
+    selloff, Brexit 2016-06-24, election 2016-11-09), 10-underlying
+    mix, full closing-window chains (~840k quote rows, ~12k contracts
+    per day). RESULTS: ZERO crossed quotes across every row; 13–16%
+    zero-bid rows (real deep-OTM market structure, not corruption);
+    relative spreads median 2.8–5.6% widening exactly on event days
+    (Brexit/election p90 40–47%) — REASONING STANDARD #6's real-cost
+    data, not mid-price fiction; put-call parity internal-consistency
+    on SPY election day: implied spot 215.5–216.5 across 33 strike
+    pairs with textbook American-option drift, and the cleanest pair
+    implies 216.50 = SPY's actual close. VERDICT: data quality
+    VALIDATED — the ~$600 full-history decision is now purely a
+    budget call. ONE ENGINEERING PREREQUISITE before the full pull:
+    durable storage (the full slice is ~5GB — too big for git,
+    sessions are ephemeral; options: Railway volume via an upload
+    path, or confirm Databento's re-download terms so the license
+    IS the storage). Deliberately pulled a SAMPLE, not the full
+    2016–2017, to avoid burning credits into an ephemeral container.**
 
 - **[APPROVED BY HUMAN 2026-07-03 — queued as next [REPAIR], see open_questions #7]**
   **Persist the max-drawdown high-water mark** (`state.equityPeak`,
