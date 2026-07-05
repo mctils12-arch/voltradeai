@@ -8,8 +8,8 @@
  "schema_version": 1,
  "field_map": {
   "accession": "SEC accession (dedup key)",
-  "ticker/issuer": "entity key",
-  "acceptanceDatetime": "EDGAR acceptance ts UTC (lookahead-free event time)",
+  "ticker": "exact CIK match vs SEC company_tickers.json; null = unlisted filer (never guessed). Entity key with accession.",
+  "acceptanceDatetime": "the getcurrent feed entry's <updated> timestamp (ISO with offset) — when this feed made the filing publicly visible; the lookahead-free event time for gate-2 work. filedAt remains the date-only field.",
   "text": "extracted exhibit plain text (truncated at 30k chars with truncated flag)",
   "textLength/truncated": "honesty pair"
  },

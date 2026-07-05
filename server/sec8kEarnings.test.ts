@@ -316,3 +316,31 @@ test("MAX_EXHIBIT_TEXT_LEN truncation is honest — truncated flag set and textL
   assert.equal(results[0].text.length, MAX_EXHIBIT_TEXT_LEN);
   assert.equal(results[0].textLength, MAX_EXHIBIT_TEXT_LEN + 5000);
 });
+
+// ── [REPAIR 2026-07-05, audit defect #5] manifest drift: acceptanceDatetime
+// + ticker were DOCUMENTED in datacore/manifests/earnings8k.json but never
+// stored — downstream gate-2 work reading the manifest would assume a
+// lookahead-free timestamp that didn't exist. These pin the fields for real.
+import { getCikTickerMap } from "./sec8kEarnings";
+
+test("parse8KFeed captures the entry <updated> timestamp as acceptanceDatetime", () => {
+  const atom = `<feed><entry>
+<title>8-K - EXAMPLE CORP (0000320193)</title>
+<link rel="alternate" href="https://www.sec.gov/Archives/edgar/data/320193/000032019326000001/0000320193-26-000001-index.htm"/>
+<summary type="html">&lt;b&gt;Filed:&lt;/b&gt; 2026-07-02 &lt;b&gt;AccNo:&lt;/b&gt; 0000320193-26-000001 &lt;b&gt;Size:&lt;/b&gt; 20 KB Item 2.02: Results of Operations</summary>
+<updated>2026-07-02T16:31:22-04:00</updated>
+</entry></feed>`;
+  const entries = parse8KFeed(atom);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].acceptanceDatetime, "2026-07-02T16:31:22-04:00",
+    "the lookahead-free event time the manifest documents must be stored");
+});
+
+test("getCikTickerMap: exact CIK match, unlisted filers stay null-able, fetch failure degrades to empty", async () => {
+  const good = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({
+    "0": { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." },
+  }) });
+  const map = await getCikTickerMap(good as any);
+  assert.equal(map.get("320193"), "AAPL");
+  assert.equal(map.get("999999999"), undefined, "unlisted CIK resolves to nothing — never guessed");
+});
