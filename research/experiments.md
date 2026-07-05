@@ -13,6 +13,28 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Stream #7: GDELT facility-event alerts (v1.0.99) [T-DATACORE]
+
+- Built per the verified brief: server/gdeltEvents.ts — 15-min Events
+  export files via the lastupdate.txt pointer (HTTP ONLY — the host's
+  HTTPS cert is invalid, verified; acknowledged in the manifest),
+  fflate unzip, column indices pinned against a real export, CAMEO
+  unrest/strike filter (roots 14/17/18/19/20 + 143x) x ~0.5° boxes
+  around the 16 strategic sites -> KB-scale archive, dedup by
+  GlobalEventID, republished-file skip, 15-min eager poll,
+  /api/data/facility-events (48h rolling window), envelope manifest.
+- HONESTY encoded: media event MENTIONS with city/ADM-approximate geo
+  (never facility-exact); CAMEO cannot see clean industrial accidents
+  (FIRMS/AIS are the physical sensors) — hypothesis is unrest/strike
+  bursts as verification prompts, gate-2 = burst->own-sensor
+  confirmation rate. GDELT attribution required and carried.
+- LIVE E2E: real export downloaded/unzipped/parsed; 0 matched events
+  this window (holiday news cycle near 16 sites — the tight filter
+  working as designed, not a defect).
+- 5 tests; offline pytest green. New dep: fflate (pure-JS zip).
+- Stream #8 (pytrends) is a PROBE next, not a build — per the
+  downgraded plan after upstream abandonment.
+
 ## 2026-07-05 — [PIPELINE] Stream #6: USGS river gauges — barge-corridor water levels (v1.0.98) [T-DATACORE]
 
 - Built per the verified brief: server/usgsWater.ts — 14 live-verified
