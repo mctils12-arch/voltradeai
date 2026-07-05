@@ -9,6 +9,7 @@ import {
   FRED_ATTRIBUTION,
   parseObservations,
   archiveFredObs,
+  _resetFredArchiveState,
   buildMacroPayload,
   refreshFredCache,
   latestFredSeries,
@@ -110,4 +111,36 @@ test("routes.ts boots the FRED poll and registers /api/data/macro; manifest exis
   assert.ok(String(manifest.attribution).includes("FRED"), "FRED attribution required by license");
   assert.ok(String(manifest.license).toLowerCase().includes("restricted"), "restricted-series rule stated");
   assert.ok(String(manifest.confidence_model).includes("rt"), "point-in-time vintage rule stated");
+});
+
+// ── [REPAIR 2026-07-05, audit defect #6] latest-value vintage dedup ─────────
+
+test("archive: re-poll of a 120-day window after restart appends NOTHING (the duplicate-bloat bug)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfred6-"));
+  const t0 = Date.parse("2026-07-05T12:00:00Z");
+  const window = Array.from({ length: 10 }, (_, i) => ({
+    s: "DGS10", d: `2026-06-${String(i + 1).padStart(2, "0")}`, v: 4 + i / 100, rt: "2026-07-05",
+  }));
+  assert.equal(archiveFredObs(window, dir, t0), 10);
+  // simulate a REAL restart 10 days later: in-memory state cleared, the
+  // 130-day disk seed must cover the whole fetch window so re-polling
+  // identical values appends zero rows (the old 3-day seed re-appended
+  // ~120d x 31 series as duplicates)
+  _resetFredArchiveState();
+  assert.equal(archiveFredObs(window.map(o => ({ ...o, rt: "2026-07-15" })), dir, t0 + 10 * 86400_000), 0,
+    "restart + identical re-poll must not bloat the vintage record");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("archive: a revision that REVERTS to a prior value is a new vintage row, not a silent drop", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfred6b-"));
+  const t0 = Date.parse("2026-07-05T12:00:00Z");
+  const ob = (v: number, rt: string) => [{ s: "ICSA", d: "2026-06-27", v, rt }];
+  assert.equal(archiveFredObs(ob(215000, "2026-07-05"), dir, t0), 1);
+  assert.equal(archiveFredObs(ob(217000, "2026-07-06"), dir, t0 + 86400_000), 1, "revision appends");
+  assert.equal(archiveFredObs(ob(215000, "2026-07-07"), dir, t0 + 2 * 86400_000), 1,
+    "REVERT to the original value is a vintage transition — must append");
+  assert.equal(archiveFredObs(ob(215000, "2026-07-08"), dir, t0 + 3 * 86400_000), 0,
+    "unchanged value never re-appends");
+  fs.rmSync(dir, { recursive: true, force: true });
 });
