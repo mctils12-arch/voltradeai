@@ -950,7 +950,13 @@ Reasoning Standard #10):
    conditioning of every other stream. LADDER: gate 1 = values match
    the FRED web UI on 10 spot checks; gate 2 = regime-conditioning on
    FRED series improves an EXISTING validated signal's stability
-   (never traded alone).
+   (never traded alone). STATUS 2026-07-05: BUILT (v1.0.90,
+   server/fredMacro.ts) — 31 series, key-gated (FRED_API_KEY in
+   Railway), point-in-time vintage archive (revisions append with rt;
+   free ALFRED substitute compounding from day one), licensing split
+   (CBOE/ICE BofA/UMich restricted = internal-only, never
+   product-surfaced). Gate 1 spot checks vs fredgraph.csv run against
+   prod /api/data/macro after deploy — result in experiments.md.
 4. USAspending contracts (keyless API): daily awards mapped to
    tickers. HYPOTHESIS: large award/market-cap ratios move small caps
    with a lag; the filing feed beats news wires. LADDER: gate 1 =

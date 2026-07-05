@@ -45,6 +45,7 @@ import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
+import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 
 const execAsync = promisify(exec);
 
@@ -1311,6 +1312,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
     }
+  });
+
+  // FRED macro series (RAW display — stream #3 of the DATA STREAM
+  // EXPANSION build order; hypothesis filed BEFORE the build: this is the
+  // REGIME INPUT feed, never a direct signal, never traded alone).
+  // Key-gated: no-ops without FRED_API_KEY (set in Railway 2026-07-05).
+  // LICENSING: the payload builder excludes license:"restricted" series
+  // (CBOE VIX, ICE BofA, UMich) — third-party copyrighted data is archived
+  // for internal regime use only and never reaches a product surface.
+  // Point-in-time vintages live in the archive; this route shows current
+  // published values with FRED attribution.
+  bootFredPoll();
+  app.get("/api/data/macro", (_req, res) => {
+    if (!fredEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "FRED_API_KEY not set", series: [] });
+    }
+    const payload = buildMacroPayload(latestFredSeries());
+    if (!payload) {
+      return res.json({ kind: "raw", source: "FRED API", warming_up: true, series: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json(payload);
   });
 
   // Dark-ship RAW statistics — derived from OUR OWN AIS archive (shadow-fleet
