@@ -566,6 +566,39 @@ exception to append-only; the log below it stays append-only)
   delete outright in a future session; noting it here so that session
   doesn't have to rediscover it.
 
+## 2026-07-05 — [REPAIR] TestFix7 wall-clock-dependent options tests — deterministic time + real contract shape (test-only)
+
+- FOUND BY: the Census-stream ship gate (full pytest at 15:20 ET
+  Sunday) — first full run ever to land inside 9:30-16:00 ET.
+  test_options_v134_fixes.py::TestFix7 (2 tests) failed with
+  KeyError: 'opt_type'.
+- ROOT CAUSE (two stacked defects): (1) _setup_earnings_iv_crush
+  early-returns None outside 9:30-16:00 ET (_is_regular_hours checks
+  time-of-day ONLY — fires on weekends too), and the tests' "if
+  result is not None" guards made them pass VACUOUSLY outside that
+  window — every prior green run never exercised the deep path.
+  (2) Inside the window, the mock fixtures predated the current
+  _fetch_options_chain contract shape (keys "type"/"expiry", no
+  "delta") so _find_by_delta crashed. Production is unaffected —
+  real chains carry opt_type/delta (options_scanner.py contract
+  build); the stale fixture was test-only debt.
+- FIX (test file only, no runtime change → no version bump, same
+  convention as docs PRs): patch _is_regular_hours (deep path runs
+  at any wall-clock time) + _get_spy_vs_ma50 (was an unmocked live
+  fetch inside the patched-feature call's argument list); fixtures
+  rebuilt via a _contract() helper matching the exact
+  _fetch_options_chain dict; vacuous guards upgraded to hard
+  assertIsNotNone + mock_chain.called (RATCHET: a silent
+  None-regression now fails loudly instead of skipping every
+  assertion). High-IV test additionally pins the wide-wings label.
+- Verified: 47/47 in the file and 382 passed / 1 skipped suite-wide,
+  run INSIDE the reproducing ET window.
+- LESSON (recurring class): "if result is not None: assert..." is a
+  vacuous-pass pattern — the test passes forever if the code path
+  dies. Same family as the wall-clock dependence: both make a test's
+  meaning depend on state outside the fixture. Grep for the pattern
+  during the next staleness audit.
+
 ## 2026-07-05 — [PIPELINE] Census port imports — key-gated stream built (BUILD ORDER 3 #4 unblocked) (v1.0.132)
 
 - TERRITORY: T-DATACORE. Human message "CENSUS_API_KEY added key"
