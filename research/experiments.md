@@ -13,6 +13,27 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] NOAA CPC degree days (BUILD ORDER 3 #3) (v1.0.122)
+
+- [T-DATACORE] scripts/cpc_degree_days.py: StatesCONUS
+  Heating+Cooling daily files per year (keyless, public domain,
+  probed 2026-07-05), pipe-delimited parse with format-change refusal
+  (missing Region header or non-YYYYMMDD date columns = hard error,
+  never guessed), non-numeric cells null never zero, only 2-char
+  codes treated as states. Artifact datacore/cpc/degree_days.json
+  (0.96 MB), manifest cpcdegreedays.json, battery 3 tests.
+- FIRST BUILD CAPTURED: 96 series (48 CONUS states x H/C), 3,837
+  daily points each (2016-01-01 .. 2026-07-03), ZERO fetch failures.
+  First DEMAND-side weather series in the archive — pairs with the
+  supply-side NWS alerts + OWM fields.
+- Selection honesty: census-division and fuel-weighted upstream
+  variants deliberately not archived in v1 (stated in script +
+  manifest).
+- Hypothesis (gate-locked): population-weighted degree-day departures
+  lead natgas/power demand and utility earnings surprises; joins the
+  EIA natgas storage series (#233) naturally — storage delta vs
+  degree-day-implied draw is the obvious first gate-2 study.
+
 ## 2026-07-05 — [PIPELINE] EIA weekly petroleum + natgas storage (BUILD ORDER 3 #2) (v1.0.121)
 
 - [T-DATACORE] scripts/eia_weekly.py: five keyless hist_xls series

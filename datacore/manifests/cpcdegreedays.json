@@ -1,0 +1,24 @@
+{
+ "stream": "cpcdegreedays",
+ "storage": "git-versioned keyed JSON datacore/cpc/degree_days.json — WHOLE-FILE REBUILD per run (each yearly source file re-serves its full year; git history keeps vintages), NOT append-only",
+ "written_by": "scripts/cpc_degree_days.py (Python, session-run ~weekly; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "source": "NOAA CPC population-weighted daily degree days, StatesCONUS files (ftp.cpc.ncep.noaa.gov degree_days/weighted/daily_data/<year>/; probed keyless 2026-07-05)",
+ "license": "US government work, public domain; attribution 'NOAA Climate Prediction Center'",
+ "attribution": "NOAA Climate Prediction Center",
+ "schema_version": 1,
+ "field_map": {
+  "axes.H / axes.C": "shared daily date axes per kind (sorted, deduped across years)",
+  "series.<STATE|H> / series.<STATE|C>": "daily heating/cooling degree days aligned to the kind's axis; non-numeric source cells are null, NEVER zero; short rows pad with null",
+  "selection": "StatesCONUS Heating+Cooling 2016->current ONLY — census-division and fuel-weighted upstream variants deliberately not archived in v1",
+  "n_series/built": "artifact provenance"
+ },
+ "confidence_model": "RAW official daily values, population-weighted by CPC. Format changes (missing Region header, non-YYYYMMDD date columns) refuse the file rather than guessing; only 2-char state codes are treated as states.",
+ "geo_fields": [
+  "(state code -> state; no coordinates archived)"
+ ],
+ "entity_key": "state + kind + date",
+ "sentiment": null,
+ "started": "2026-07-05 (history to 2016-01-01 captured in the first build)",
+ "cadence": "source updates daily; session-run refresh ~weekly",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 3 #3; hypothesis (degree-day departures lead natgas/power demand and utility earnings surprises) stays gate-locked — archive only."
+}
