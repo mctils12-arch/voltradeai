@@ -13,6 +13,31 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] shadowstats blocked the whole event loop — async streaming + eager poller (v1.0.125)
+
+- [T-DATACORE] FOUND BY the B3-6 anomaly pass surveying prod
+  analytics: cold /api/data/shadowstats = 90s timeout (Railway 000)
+  then 26s warm. ROOT CAUSE: computeShadowStats ran a SYNCHRONOUS
+  72h gz archive scan on the request path (gunzipSync + full-file
+  parse) — at current archive size (42k vessels seen this week) the
+  scan blocked the ENTIRE Node event loop, starving every other
+  route, health checks included. Same defect on the /api/v1 paid
+  surface (per-request sync scan behind the API key).
+- FIX: readVesselTracksAsync (streaming readline, the proven
+  fleetUtilization/aircraftEntities pattern — the loop keeps
+  breathing) + computeShadowStatsAsync; both routes now serve a
+  10-min EAGER poller cache only (warming_up / 503+Retry-After
+  while the first scan runs). v1 payload gains kind/source/zones
+  fields (additive superset).
+- RATCHET: equivalence test — async streaming reader byte-identical
+  to the sync scan on a fixture archive incl. the gz path; full
+  stats objects deepEqual.
+- PATTERN NOTE (third instance tonight: trains inflight, spine
+  disk-read, this): the failing class is always "works at day-0
+  archive size, dies as archives grow." Every archive-scanning
+  surface now uses the streaming+cached pattern; new ones must
+  start there.
+
 ## 2026-07-05 — [PRODUCT] Everything Graph R1 PR-B: timeline in the site detail card (v1.0.124)
 
 - [T-CLIENT half, primary territory T-DATACORE per the
