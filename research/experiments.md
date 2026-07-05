@@ -64,6 +64,44 @@ exception to append-only; the log below it stays append-only)
 - Bonus verification while probing: the v1.0.80 liveness field is live
   in production health (checks.bot.liveness {dark:false}, bot active).
 
+## 2026-07-05 — [PRODUCT] Hero globe: live rotating 3D Earth behind #data-intel + real facility imagery strip (v1.0.85)
+
+- Territory: T-CLIENT. Hero-globe directive executed within the stated
+  scope (ONLY #data-intel; The Bot/pricing/docs untouched — harness
+  data+developers shots unchanged).
+- GLOBE: MapLibre globe projection (already the /data dependency —
+  lazy chunk, no new library; globe.gl/three.js rejected as +600KB;
+  Cesium rejected per directive). Land silhouettes from OUR
+  self-hosted NE boundaries — ZERO external tiles, so the globe works
+  in the harness and never depends on a CDN. REAL data on the sphere:
+  live aircraft (blue, ≤400) + vessels (green, ≤300) from world-bbox
+  fetches, strategic sites (amber, Cushing/ports/mills) from
+  /api/data/sites. Slow auto-rotation (0.02°/frame) that PAUSES
+  off-screen, on hidden tabs, and under prefers-reduced-motion;
+  aircraft refresh 30s only while visible.
+- PERFORMANCE/DEGRADATION: boot is IntersectionObserver-gated
+  (rootMargin 400px — zero cost until scrolled near), WebGL-checked,
+  interactive:false + pointer-events:none (can never hijack scroll);
+  ~700 points vs the proven 10k budget. Any failure (no WebGL, chunk
+  load, fetch) leaves the styled dark-space backdrop with the existing
+  "Open the live map" CTA — DEVIATION NOTED HONESTLY: the directive's
+  named fallback was a "pre-rendered rotating globe"; a CSS-faked
+  rotation is itself the jank risk, so the fallback is clean-static +
+  live link, per the never-janky principle that motivated the clause.
+- IMAGERY STRIP (in-section): three REAL chips pulled by our own
+  pipelines this session — Sentinel-1 SAR (Cushing tank farm,
+  radar-bright metal), fresh Sentinel-2 true-color of the Cushing
+  tank clusters, Sentinel-2 of the Baytown TX refinery complex; all
+  honestly captioned + "contains modified Copernicus Sentinel data
+  2026" credit; ~290KB total, lazy-loaded.
+- Existing headline/copy/stats/CTA/waitlist untouched (text-shade
+  gradient added behind them for legibility; heavier on phones —
+  text wins over spectacle at 390).
+- Gates: harness 0 hard failures ×3 widths ×3 pages + all-off; node
+  127/127; globe probed rendering under software-GL at 390+1440
+  (sphere, land, points visible; content legible on top); screenshots
+  reviewed.
+
 ## 2026-07-05 — [PRODUCT] Landing page: DATA INTELLIGENCE section shipped — the oldest unexecuted directive closes (v1.0.84)
 
 - Territory: T-CLIENT. Task #50 (three-part directive PART 3) finally

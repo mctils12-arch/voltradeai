@@ -165,8 +165,13 @@
   </div>
 </section>
 
-<!-- ============== DATA INTELLIGENCE — additive section (directive 2026-07-04) ============== -->
+<!-- ============== DATA INTELLIGENCE — additive section (directive 2026-07-04)
+     Hero globe (directive 2026-07-05): #di-globe is the live rotating-globe
+     background slot, booted lazily from landing.tsx (WebGL + in-view gated);
+     without WebGL the dark backdrop simply stays — never a janky globe. ============== -->
 <section class="s" id="data-intel">
+  <div id="di-globe" aria-hidden="true"></div>
+  <div class="di-globe-shade" aria-hidden="true"></div>
   <div class="container">
     <div class="prose-grid">
       <div class="prose-eyebrow-text">The Data Platform</div>
@@ -191,6 +196,23 @@
         </div>
         <p class="dataintel-waitlist-msg" id="di-waitlist-msg" role="status"></p>
       </form>
+    </div>
+    <!-- Real facility imagery (hero-globe directive 2026-07-05): actual
+         chips pulled by our own pipelines, honestly captioned. -->
+    <div class="di-imagery" aria-label="Real facility imagery from our pipelines">
+      <figure class="di-imagery-card">
+        <img src="/facility/cushing-sar.png" alt="Sentinel-1 radar image of the Cushing, Oklahoma tank farm — metal tanks appear as bright points" loading="lazy" width="256" height="256" />
+        <figcaption>Sentinel-1 radar &middot; Cushing, OK tank farm &mdash; metal is radar-bright, through clouds and at night</figcaption>
+      </figure>
+      <figure class="di-imagery-card">
+        <img src="/facility/cushing-tanks-s2.jpg" alt="Sentinel-2 satellite view of crude oil storage tanks at Cushing, Oklahoma" loading="lazy" width="640" height="480" />
+        <figcaption>Sentinel-2 optical &middot; Cushing, OK &mdash; crude storage tanks, the WTI delivery point</figcaption>
+      </figure>
+      <figure class="di-imagery-card">
+        <img src="/facility/baytown-refinery-s2.jpg" alt="Sentinel-2 satellite view of the Baytown, Texas refinery complex" loading="lazy" width="640" height="480" />
+        <figcaption>Sentinel-2 optical &middot; Baytown, TX refinery complex</figcaption>
+      </figure>
+      <p class="di-imagery-credit">Pulled by our own pipelines &middot; contains modified Copernicus Sentinel data 2026</p>
     </div>
   </div>
 </section>
