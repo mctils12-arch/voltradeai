@@ -9,7 +9,7 @@ exception to append-only; the log below it stays append-only)
 
 | audit | cadence | last run |
 |---|---|---|
-| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | never — due (2026-07-03 OpenSky sweep was targeted, not a full audit) |
+| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-07-05 SCOPED (server env-var reads: all 23 wired incl. Polygon dual-name; adapter review-by dates: none expired, next 2026-08-17; pytrends stays per its re-probe trigger). UNSCANNED: Python-side deps/config sweep + requirements.txt-vs-imports — next session completes the full pass |
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
