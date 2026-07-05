@@ -186,7 +186,19 @@ export function archiveFireDetections(dets: FireDetection[], baseDir?: string, n
     const fp = path.join(dir, `${new Date(now).toISOString().slice(0, 10)}.jsonl`);
     fs.appendFileSync(fp, fresh.map((d) => JSON.stringify(d)).join("\n") + "\n");
     fresh.forEach((d) => archivedIds.add(d.id));
-    if (archivedIds.size > 200_000) archivedIds.clear(); // bound memory
+    // [REPAIR 2026-07-05, audit defect #10b] bound memory by trimming the
+    // OLDEST half (Set preserves insertion order) — the old full clear()
+    // forgot every recent detection at once, so the next poll re-appended
+    // the entire ~3h NRT window as duplicates in peak fire season.
+    if (archivedIds.size > 200_000) {
+      let drop = archivedIds.size >> 1;
+      const it = archivedIds.values();
+      let cur = it.next();
+      while (!cur.done && drop-- > 0) {
+        archivedIds.delete(cur.value);
+        cur = it.next();
+      }
+    }
     return fresh.length;
   } catch (e: any) {
     console.error("[datacore] fires archive:", e?.message || e);

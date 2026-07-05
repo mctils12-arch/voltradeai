@@ -193,10 +193,18 @@ export async function fetchLatest13FFilings(
       const { primary, info } = pick13FDocNames(indexJson);
       if (!primary) continue;
       const head = parse13FPrimaryDoc(await fetchText(fetchImpl, `${base}${primary}`));
-      const omit = (head.entryTotal ?? 0) > FOCUSED_MAX_HOLDINGS;
+      let omit = (head.entryTotal ?? 0) > FOCUSED_MAX_HOLDINGS;
       let holdings: Holding13F[] | null = null;
       if (!omit && info) {
         holdings = parse13FInfoTable(await fetchText(fetchImpl, `${base}${info}`));
+        // [REPAIR 2026-07-05, audit defect #10a] null entryTotal + a parse
+        // that HITS the cap means the table may have been truncated — the
+        // never-silent cap doctrine requires marking it, not shipping 250
+        // rows that look complete. Treated as over-cap: summary-only.
+        if (head.entryTotal == null && holdings.length >= FOCUSED_MAX_HOLDINGS) {
+          omit = true;
+          holdings = null;
+        }
       }
       out.push({
         ...head,

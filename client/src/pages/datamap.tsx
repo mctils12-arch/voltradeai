@@ -34,7 +34,7 @@ interface LayerMeta {
   id: string;
   name: string;
   kind: "raw" | "signal";
-  status: "live" | "awaiting_key" | "planned";
+  status: "live" | "awaiting_key" | "planned" | "down";
   source: string;
   description: string;
 }
@@ -1714,6 +1714,10 @@ export default function DataMapPage() {
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
     const rt = runtime[l.id];
     if (l.status === "planned") return { dot: "var(--text-tertiary)", text: "coming soon" };
+    // health-aware registry override ([REPAIR 2026-07-05] audit #2): a feed
+    // the server knows is down says so — never "off", never a dead toggle
+    // pretending the layer is fine
+    if (l.status === "down") return { dot: "var(--accent-red)", text: "feed down", note: (l as any).status_note || "source outage — auto-recovers" };
     if (l.status === "awaiting_key" || rt?.status === "awaiting_key") return { dot: "var(--accent-orange)", text: "awaiting API key" };
     if (rt?.status === "error") return { dot: "var(--accent-red)", text: rt.note || "feed error — retrying" };
     // v2.4 eternal-spinner rule: loading always carries its note (the OWM
