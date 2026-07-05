@@ -21,6 +21,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
 
 export interface ShadowZone { id: string; name: string; lat: number; lon: number; radius_km: number }
@@ -156,9 +157,64 @@ export function detectLoitering(tracks: Map<string, Pt[]>, zones: ShadowZone[],
   return out;
 }
 
+/** [REPAIR 2026-07-05] Async streaming variant of readVesselTracks — the
+ *  synchronous version gunzipSync-ed 72h of archive ON THE REQUEST PATH,
+ *  which at current archive size blocked the entire event loop for tens of
+ *  seconds (prod probe: 90s timeout then 26s; Railway returned 502/000
+ *  because the app could not answer ANY request during the scan). Streams
+ *  line-by-line like fleetUtilization/aircraftEntities so the loop keeps
+ *  breathing; the sync version stays for tests and small archives. */
+export function readVesselTracksAsync(windowHours: number, baseDir?: string, nowMs?: number): Promise<Map<string, Pt[]>> {
+  const base = baseDir || archiveBaseDir();
+  const dir = path.join(base, "vessels");
+  const now = nowMs ?? Date.now();
+  const cutoff = Math.floor((now - windowHours * 3600_000) / 1000);
+  const tracks = new Map<string, Pt[]>();
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir).sort(); } catch { return Promise.resolve(tracks); }
+  const wanted = files.filter((f) => {
+    const stamp = Date.parse(`${f.slice(0, 10)}T${f.slice(11, 13)}:00:00Z`);
+    return Number.isFinite(stamp) && stamp >= now - (windowHours + 1) * 3600_000;
+  });
+  const readOne = (f: string) => new Promise<void>((resolve) => {
+    try {
+      let stream: NodeJS.ReadableStream = fs.createReadStream(path.join(dir, f));
+      if (f.endsWith(".gz")) stream = stream.pipe(zlib.createGunzip());
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+      rl.on("line", (line) => {
+        if (!line) return;
+        try {
+          const p = JSON.parse(line);
+          if (p.t < cutoff || p.la == null || p.lo == null || !p.i) return;
+          let arr = tracks.get(p.i);
+          if (!arr) { arr = []; tracks.set(p.i, arr); }
+          arr.push({ t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
+        } catch {}
+      });
+      rl.on("close", () => resolve());
+      stream.on("error", () => resolve());
+    } catch { resolve(); }
+  });
+  return wanted.reduce((p, f) => p.then(() => readOne(f)), Promise.resolve()).then(() => {
+    tracks.forEach((arr) => arr.sort((a, b) => a.t - b.t));
+    return tracks;
+  });
+}
+
+/** Async stats over the streaming reader — the only variant routes may use. */
+export async function computeShadowStatsAsync(zones: ShadowZone[], windowHours = 72,
+                                              baseDir?: string, nowMs?: number): Promise<ShadowStats> {
+  const tracks = await readVesselTracksAsync(windowHours, baseDir, nowMs);
+  return statsFromTracks(tracks, zones, windowHours);
+}
+
 export function computeShadowStats(zones: ShadowZone[], windowHours = 72,
                                    baseDir?: string, nowMs?: number): ShadowStats {
   const tracks = readVesselTracks(windowHours, baseDir, nowMs);
+  return statsFromTracks(tracks, zones, windowHours);
+}
+
+function statsFromTracks(tracks: Map<string, Pt[]>, zones: ShadowZone[], windowHours: number): ShadowStats {
   let points = 0;
   for (const arr of tracks.values()) points += arr.length;
   const gaps = detectGapEvents(tracks);

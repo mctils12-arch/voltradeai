@@ -24,7 +24,7 @@ import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
-import { computeShadowStats } from "./shadowFleet";
+import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwell, portsFromSites } from "./portDwell";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
@@ -1644,22 +1644,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // directive 2026-07-04). Counts only: per-vessel claims are SIGNAL-class
   // and ladder-gated (validation plan in open_questions). 10-min cache — the
   // computation reads up to 72h of archive JSONL.
+  // [REPAIR 2026-07-05] The scan used to run SYNCHRONOUSLY on the request
+  // path — at current archive size it blocked the whole event loop 26-90s
+  // (prod: 000/502 on cold hit; every other route starved meanwhile). Now:
+  // async streaming scan on an eager 10-min poller; the route serves only
+  // the cache and answers instantly, warming_up before the first pass.
   let shadowCache: { at: number; data: any } | null = null;
-  app.get("/api/data/shadowstats", (_req, res) => {
-    if (shadowCache && Date.now() - shadowCache.at < 10 * 60_000) return res.json(shadowCache.data);
+  let shadowRunning = false;
+  const refreshShadowStats = async () => {
+    if (shadowRunning) return;
+    shadowRunning = true;
     try {
       const zones = (shadowZones as any).zones || [];
       const data = {
         kind: "raw",
         source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
         zones: zones.map((z: any) => ({ id: z.id, name: z.name })),
-        ...computeShadowStats(zones),
+        ...(await computeShadowStatsAsync(zones)),
       };
       shadowCache = { at: Date.now(), data };
-      res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e?.message || "shadowstats failed" });
+      console.error("[datacore] shadowstats refresh:", e?.message || e);
+    } finally {
+      shadowRunning = false;
     }
+  };
+  refreshShadowStats();
+  setInterval(() => { refreshShadowStats(); }, 10 * 60_000).unref?.();
+  app.get("/api/data/shadowstats", (_req, res) => {
+    if (!shadowCache) {
+      return res.json({ kind: "raw", warming_up: true, note: "first archive scan in progress — retry shortly" });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json(shadowCache.data);
   });
 
   // ── /api/v1 — the DATA PRODUCT surface (throughput/API directive
@@ -1737,7 +1754,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const auth = requireApiKey(req, res);
     if (!auth) return;
     try {
-      res.json(v1Envelope("stats/shadow", computeShadowStats(((shadowZones as any).zones || []))));
+      // [REPAIR 2026-07-05] same event-loop defect as /api/data/shadowstats:
+      // this ran the synchronous 72h scan per request. Serves the shared
+      // poller cache now; 503 + Retry-After while the first scan warms.
+      if (!shadowCache) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/shadow", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/shadow", shadowCache.data));
       meterUsage({ key: auth.key, endpoint: "/api/v1/stats/shadow", status: 200, tier: auth.tier });
     } catch (e: any) {
       res.status(500).json({ error: e?.message });

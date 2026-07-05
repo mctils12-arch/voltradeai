@@ -99,3 +99,32 @@ test("computeShadowStats aggregates with the honest caveat; wiring pinned", () =
   const zones = JSON.parse(fs.readFileSync(path.join(here, "..", "datacore", "shadow_zones.json"), "utf8"));
   assert.ok(zones.zones.length >= 5);
 });
+
+test("RATCHET [REPAIR 2026-07-05]: async streaming reader is byte-identical to the sync scan (incl. gz)", async () => {
+  // The sync scan ran ON THE REQUEST PATH and blocked the whole event loop
+  // 26-90s at prod archive size (000/502 on cold hits). Routes now use the
+  // async variant via a poller; equivalence keeps both honest.
+  const zlib = await import("node:zlib");
+  const { readVesselTracksAsync, computeShadowStatsAsync } = await import("./shadowFleet");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-"));
+  writeArchive(base, [
+    { t: t(20), i: "111000111", c: "GAPPER", la: 36.0, lo: 20.0, v: 12 },
+    { t: t(10), i: "111000111", c: "GAPPER", la: 36.0, lo: 24.5, v: 12 },
+    { t: t(5), i: "333000333", c: "LOITER", la: 35.0, lo: 18.0, v: 0.4 },
+  ]);
+  // gzip one hour-file to cover the compressed path
+  const dir = path.join(base, "vessels");
+  const plain = fs.readdirSync(dir)[0];
+  fs.writeFileSync(path.join(dir, `${plain}.gz`), zlib.gzipSync(fs.readFileSync(path.join(dir, plain))));
+  fs.unlinkSync(path.join(dir, plain));
+  const sync = readVesselTracks(72, base, NOW);
+  const asy = await readVesselTracksAsync(72, base, NOW);
+  assert.deepEqual(
+    Array.from(asy.entries()).sort(),
+    Array.from(sync.entries()).sort(),
+    "async streaming reader must return exactly what the sync reader returns");
+  const zones: ShadowZone[] = [{ id: "z1", name: "Zone", lat: 35.0, lon: 18.0, radius_km: 100 }];
+  const a = await computeShadowStatsAsync(zones, 72, base, NOW);
+  const s = computeShadowStats(zones, 72, base, NOW);
+  assert.deepEqual(a, s);
+});
