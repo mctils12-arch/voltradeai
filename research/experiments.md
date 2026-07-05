@@ -13,6 +13,28 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] /data map performance 3/3: aircraft low-zoom render decimation (v1.0.95) [T-CLIENT]
+
+- Two-layer split on ONE source: aircraft-sym (full, minzoom 4.5) +
+  aircraft-sym-lo (maxzoom 4.5, stable rank-hash filter keeps 35%).
+  At the default continent zoom, 10k overlapping icons were pure
+  overdraw; zooming past 4.5 shows every aircraft. Rank hashed from
+  icao24 so a given aircraft never flickers in/out across refreshes.
+  Click/cursor handlers wired to both layers; teardown removes both.
+- NO DATA LOSS by construction and by gate: the source always holds
+  the full feed — the 2/3 gate's data-richness guard read 10,000
+  unique source features while rendering 3,507. This is the profiled
+  fill-rate fix (rendering path), not a data cut.
+- Measured (harness, SwiftShader): median frame 117 -> 83ms @1440,
+  83 -> 67ms @768, 33 -> 17ms @390; p95 200 -> 117ms @1440; sampled
+  frames per pan window 66 -> 116 @390 (smoother). 10/10 green under
+  the v1.0.94 calibrated gates.
+- Harness aircraft samplers now query both layers (mechanical layer-id
+  adaptation; gate thresholds untouched).
+- Queued: apply the same split (or clustering) to fires BEFORE the
+  FIRMS key lands — fires has no low-zoom mitigation and can't be
+  harness-verified until its fixture carries data (noted, not built).
+
 ## 2026-07-05 — [RULE-REVIEW] /data map performance 2/3: calibrated perf gate in the harness (v1.0.94) [T-CLIENT tooling]
 
 - Measurement change, own PR per MEASUREMENT INTEGRITY. Performance
