@@ -1,0 +1,291 @@
+/**
+ * finraShortVolume.ts — FINRA daily consolidated short-sale volume
+ * (BUILD ORDER 5 #1, filed + probed 2026-07-05).
+ *
+ * Source: cdn.finra.org/equity/regsho/daily/CNMSshvolYYYYMMDD.txt —
+ * keyless pipe-delimited daily file (~12.2K symbols), published each
+ * trading day; weekend/holiday URLs 403 (a valid "not published", not an
+ * error). FINRA publishes these files for free use with attribution
+ * ("FINRA Reg SHO daily short sale volume"). Format verified live
+ * 2026-07-05: header Date|Symbol|ShortVolume|ShortExemptVolume|
+ * TotalVolume|Market, fractional share counts, bare row-count trailer.
+ *
+ * HYPOTHESIS (gate-locked in the build order — archive + RAW only):
+ * short-volume-ratio extremes and multi-day deltas precede reversals in
+ * small caps; joins 13F clusters + Form 4 for a squeeze-candidate
+ * screen. Nothing is claimed until ladder gate 2.
+ *
+ * INTEGRITY: the trailer row count must equal parsed data rows or the
+ * file is refused (protects the archive from truncated downloads).
+ * DEDUP is at DATE level — the file is atomic and final once published,
+ * and per-row keys (12K/day x 40d seed) would waste ~50MB in the
+ * RSS-capped process. If FINRA ever reposts a corrected file we keep
+ * the first version; noted in the manifest.
+ */
+
+import fs from "fs";
+import path from "path";
+import zlib from "zlib";
+import { archiveBaseDir } from "./datacoreArchive";
+
+export interface ShortVolRow {
+  date: string;        // YYYY-MM-DD trade date
+  symbol: string;
+  short_vol: number;
+  short_exempt_vol: number;
+  total_vol: number;
+  market: string;      // FINRA facility codes as published, e.g. "B,Q,N"
+  rt: string;          // as-seen UTC date
+}
+
+const FILE_URL = (yyyymmdd: string) =>
+  `https://cdn.finra.org/equity/regsho/daily/CNMSshvol${yyyymmdd}.txt`;
+
+const num = (v: string): number | null => {
+  if (v == null || v === "") return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** Parse a CNMS file. Returns [] when the header is missing/unexpected or
+ *  the trailer row count disagrees with parsed rows (truncation guard). */
+export function parseShortVol(text: string, rt: string): ShortVolRow[] {
+  if (!text) return [];
+  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l.length);
+  if (lines.length < 2) return [];
+  const header = lines[0].split("|").map((h) => h.trim());
+  const idx: Record<string, number> = {};
+  header.forEach((h, i) => { idx[h.toUpperCase()] = i; });
+  if (idx.DATE == null || idx.SYMBOL == null || idx.SHORTVOLUME == null || idx.TOTALVOLUME == null) return [];
+  const out: ShortVolRow[] = [];
+  let trailer: number | null = null;
+  for (const line of lines.slice(1)) {
+    const parts = line.split("|");
+    if (parts.length === 1) {                 // bare row-count trailer
+      trailer = num(parts[0]);
+      continue;
+    }
+    const rawDate = parts[idx.DATE];
+    const symbol = parts[idx.SYMBOL];
+    if (!symbol || !/^\d{8}$/.test(rawDate || "")) continue;
+    const sv = num(parts[idx.SHORTVOLUME]);
+    const tv = num(parts[idx.TOTALVOLUME]);
+    if (sv == null || tv == null) continue;
+    out.push({
+      date: `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`,
+      symbol,
+      short_vol: sv,
+      short_exempt_vol: idx.SHORTEXEMPTVOLUME != null ? (num(parts[idx.SHORTEXEMPTVOLUME]) ?? 0) : 0,
+      total_vol: tv,
+      market: idx.MARKET != null ? (parts[idx.MARKET] || "") : "",
+      rt,
+    });
+  }
+  if (trailer != null && trailer !== out.length) {
+    console.error(`[datacore] finrashortvol trailer says ${trailer} rows, parsed ${out.length} — refusing truncated file`);
+    return [];
+  }
+  return out;
+}
+
+// ── Fetch ────────────────────────────────────────────────────────────────────
+
+type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+
+/** Fetch one trade date's file. Returns [] on 403/404 (weekend/holiday —
+ *  valid "not published") and null on transport errors (retry next poll). */
+export async function fetchShortVolDay(
+  yyyymmdd: string,
+  fetchImpl: FetchFn = fetch as any,
+  nowMs?: number,
+): Promise<ShortVolRow[] | null> {
+  const rt = new Date(nowMs ?? Date.now()).toISOString().slice(0, 10);
+  try {
+    const r = await fetchImpl(FILE_URL(yyyymmdd), {
+      headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+      signal: AbortSignal.timeout(30000) as any,
+    });
+    if (r.status === 403 || r.status === 404) return []; // not a trading day / not yet published
+    if (!r.ok) {
+      console.error(`[datacore] finrashortvol ${yyyymmdd} -> ${r.status}`);
+      return null;
+    }
+    return parseShortVol(await r.text(), rt);
+  } catch (e: any) {
+    console.error(`[datacore] finrashortvol ${yyyymmdd}:`, e?.message || e);
+    return null;
+  }
+}
+
+// ── Archive (date-level dedup; one JSONL day-file per TRADE date) ───────────
+
+const archivedDates = new Set<string>();
+let seeded = false;
+
+function svDir(baseDir?: string): string {
+  return path.join(baseDir || archiveBaseDir(), "finrashortvol");
+}
+
+function seedSeen(dir: string): void {
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      const m = f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/);
+      if (m) archivedDates.add(m[1]);
+    }
+  } catch {}
+}
+
+/** Archive one day's rows under the TRADE date. Returns rows written
+ *  (0 if the date is already archived or rows are empty). */
+export function archiveShortVolDay(rows: ShortVolRow[], baseDir?: string): number {
+  if (!rows.length) return 0;
+  const dir = svDir(baseDir);
+  if (!seeded) { seedSeen(dir); seeded = true; }
+  const date = rows[0].date;
+  if (archivedDates.has(date)) return 0;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${date}.jsonl`),
+                     rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    archivedDates.add(date);
+    return rows.length;
+  } catch (e: any) {
+    console.error("[datacore] finrashortvol archive:", e?.message || e);
+    return 0;
+  }
+}
+
+export function gzipOldShortVolDays(baseDir?: string, nowMs?: number): number {
+  const dir = svDir(baseDir);
+  const now = nowMs ?? Date.now();
+  let n = 0;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".jsonl")) continue;
+      if (now - Date.parse(f.slice(0, 10)) < 2 * 86400_000) continue;
+      const fp = path.join(dir, f);
+      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+      fs.unlinkSync(fp);
+      n++;
+    }
+  } catch {}
+  return n;
+}
+
+// ── Summary cache (computed at poll time — NEVER on the request path) ───────
+
+export interface ShortVolSummary {
+  date: string;
+  symbols: number;
+  agg_short_ratio: number | null;      // sum(short)/sum(total) across all rows
+  top_ratio: Array<{ symbol: string; short_ratio: number; total_vol: number; market: string }>;
+  floor_total_vol: number;             // stated selection floor for top_ratio
+  top_cap: number;                     // stated cap
+}
+
+export const TOP_CAP = 30;
+export const FLOOR_TOTAL_VOL = 500_000;
+
+export function summarize(rows: ShortVolRow[]): ShortVolSummary | null {
+  if (!rows.length) return null;
+  let sSum = 0, tSum = 0;
+  const eligible: Array<{ symbol: string; short_ratio: number; total_vol: number; market: string }> = [];
+  for (const r of rows) {
+    sSum += r.short_vol;
+    tSum += r.total_vol;
+    if (r.total_vol >= FLOOR_TOTAL_VOL && r.total_vol > 0) {
+      eligible.push({
+        symbol: r.symbol,
+        short_ratio: Math.round((r.short_vol / r.total_vol) * 10000) / 10000,
+        total_vol: Math.round(r.total_vol),
+        market: r.market,
+      });
+    }
+  }
+  eligible.sort((a, b) => b.short_ratio - a.short_ratio);
+  return {
+    date: rows[0].date,
+    symbols: rows.length,
+    agg_short_ratio: tSum > 0 ? Math.round((sSum / tSum) * 10000) / 10000 : null,
+    top_ratio: eligible.slice(0, TOP_CAP),
+    floor_total_vol: FLOOR_TOTAL_VOL,
+    top_cap: TOP_CAP,
+  };
+}
+
+let cache: { at: number; summary: ShortVolSummary } | null = null;
+let polling = false;
+
+export function latestShortVol() {
+  return cache;
+}
+
+/** Read one archived day back (plain or gz). Poller-context only —
+ *  a single ~1.5MB file, same budget as the other streams' seedSeen. */
+export function readArchivedDay(iso: string, baseDir?: string): ShortVolRow[] {
+  const dir = svDir(baseDir);
+  for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+    let text: string | null = null;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    const out: ShortVolRow[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch {}
+    }
+    return out;
+  }
+  return [];
+}
+
+/** Try the last `lookbackDays` calendar days newest-first; archive any
+ *  unarchived trading day; cache the newest day's summary. A restart with
+ *  the newest day already on disk rebuilds the cache FROM the archive
+ *  instead of serving warming_up until the next publish. */
+export async function refreshShortVol(fetchImpl: FetchFn = fetch as any, nowMs?: number,
+                                      lookbackDays = 7, baseDir?: string): Promise<void> {
+  const now = nowMs ?? Date.now();
+  try {
+    if (!seeded) { seedSeen(svDir(baseDir)); seeded = true; }
+    let newestSummarized = false;
+    for (let i = 0; i < lookbackDays; i++) {
+      const d = new Date(now - i * 86400_000);
+      const iso = d.toISOString().slice(0, 10);
+      const yyyymmdd = iso.replace(/-/g, "");
+      if (archivedDates.has(iso)) {
+        if (!newestSummarized) {
+          if (cache?.summary.date !== iso) {
+            const s = summarize(readArchivedDay(iso, baseDir));
+            if (s) cache = { at: Date.now(), summary: s };
+          }
+          newestSummarized = true; // newest archived day handled either way
+        }
+        continue;
+      }
+      const rows = await fetchShortVolDay(yyyymmdd, fetchImpl, now);
+      if (rows === null || rows.length === 0) continue; // transport error or non-trading day
+      archiveShortVolDay(rows, baseDir);
+      if (!newestSummarized) {
+        const s = summarize(rows);
+        if (s) { cache = { at: Date.now(), summary: s }; newestSummarized = true; }
+      }
+      await new Promise((res) => setTimeout(res, 300)); // polite spacing
+    }
+    gzipOldShortVolDays(baseDir, now);
+  } catch (e: any) {
+    console.error("[datacore] finrashortvol refresh:", e?.message || e);
+  }
+}
+
+/** Files publish evenings after the trading day — poll every 6h so a
+ *  publish is picked up same-day without hammering the CDN. Eager boot
+ *  per KNOWN BROKEN #9. */
+export function bootShortVolPoll(intervalMs = 6 * 60 * 60_000): void {
+  if (polling) return;
+  polling = true;
+  refreshShortVol();
+  setInterval(() => { refreshShortVol(); }, intervalMs).unref?.();
+}

@@ -45,6 +45,7 @@ import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
+import { bootShortVolPoll, latestShortVol } from "./finraShortVolume";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1569,6 +1570,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.imports.length,
       note: "monthly port-level import values incl. containerized (~45-day lag); revisions append as new vintages in the archive",
       imports: hit.imports,
+    });
+  });
+
+  // FINRA daily short-sale volume summary (RAW — BUILD ORDER 5 #1,
+  // keyless). Serves the poller's cached day summary only — the full
+  // ~12K-row day files live in the archive, never on the request path.
+  // This is short-marked EXECUTION volume (a flow proxy), NOT short
+  // interest — the label matters (manifest confidence_model).
+  bootShortVolPoll();
+  app.get("/api/data/short-volume", (_req, res) => {
+    const hit = latestShortVol();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "FINRA Reg SHO daily short sale volume", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "FINRA Reg SHO daily short sale volume (CNMS consolidated file) — free with attribution",
+      attribution: "FINRA Reg SHO daily short sale volume",
+      time: hit.at,
+      note: "daily short-marked execution volume (flow proxy — NOT short interest); top list floors total volume at " +
+            `${hit.summary.floor_total_vol.toLocaleString()} shares and caps at ${hit.summary.top_cap} symbols (stated, not hidden)`,
+      summary: hit.summary,
     });
   });
 

@@ -1,0 +1,23 @@
+{
+ "stream": "finrashortvol",
+ "storage": "append-only JSONL day-files under <archive>/finrashortvol/, one file per TRADE date (gz after 2 days)",
+ "written_by": "server/finraShortVolume.ts archiveShortVolDay (6h poll, 7-day lookback newest-first, eager boot)",
+ "source": "FINRA Reg SHO daily consolidated short sale volume (CNMS file, cdn.finra.org/equity/regsho/daily) — keyless; ~12.2K symbols/trading day; weekend/holiday URLs 403 = not published (valid). Format verified live 2026-07-05",
+ "license": "FINRA publishes these files for free use with attribution; attribution 'FINRA Reg SHO daily short sale volume'",
+ "attribution": "FINRA Reg SHO daily short sale volume",
+ "schema_version": 1,
+ "field_map": {
+  "date (trade date) — file-level dedup key": "the CNMS file is atomic and final once published; dedup is DATE-level by design (per-row keys at 12K/day would waste RSS). If FINRA reposts a corrected file we keep the first capture — noted honestly",
+  "symbol/market": "as published (market = comma-joined FINRA facility codes, e.g. B,Q,N)",
+  "short_vol/short_exempt_vol/total_vol": "fractional share counts as published (FINRA includes fractional executions)",
+  "trailer integrity": "the file's bare row-count trailer must equal parsed rows or the whole file is refused — truncated downloads never reach the archive",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official venue data (TRF/ADF short-marked volume). NOT total short interest — this is daily short-marked EXECUTION volume, a flow proxy; the route and any UI must not label it 'short interest'. Derived short_ratio views state their selection floor (total_vol >= 500K) and cap (top 30) explicitly.",
+ "geo_fields": [],
+ "entity_key": "symbol + date",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "daily trading-day file, published evenings ET; 6h poll makes off-hours a dedup no-op",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 5 #1; hypothesis (small-cap short-ratio extremes x 13F/Form4 joins) stays gate-locked — archive + RAW display only."
+}
