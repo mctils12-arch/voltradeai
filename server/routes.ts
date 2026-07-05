@@ -40,6 +40,7 @@ import {
 } from "./weatherGrid";
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
+import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1048,6 +1049,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Archive growth observability (volume watch — see wishlist).
   app.get("/api/data/archive/stats", (_req, res) => {
     try { res.json(archiveStats()); } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Aircraft entity spine v1 (GIP Part 3b; BUILD ORDER 2 #1, 2026-07-05).
+  // /hexes = distinct archived icao24s (the join-key list the session-side
+  // FAA build script consumes; 6h-cached scan, stale served during refresh).
+  // /entity/:hex = identity from the committed spine artifact, evidence
+  // envelope included; degrades to entity:null until the artifact ships.
+  app.get("/api/data/aircraft/hexes", async (_req, res) => {
+    try {
+      res.set("Cache-Control", "public, max-age=3600");
+      const { hexes, as_of } = await archivedAircraftCached();
+      res.json({ kind: "raw", count: hexes.length, as_of, hexes });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+  app.get("/api/data/aircraft/entity/:hex", (req, res) => {
+    try {
+      const hex = String(req.params.hex || "").toLowerCase();
+      if (!/^[0-9a-f]{6}$/.test(hex)) { res.status(400).json({ error: "hex must be 6 hex chars" }); return; }
+      res.set("Cache-Control", "public, max-age=3600");
+      res.json({ kind: "raw", hex, entity: entityForHex(hex), spine_built: loadEntitySpine() !== null });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
   // Honest self-updating platform counters for the landing hero

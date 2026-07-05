@@ -13,6 +13,33 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Aircraft entity spine v1 PR-A: hex enumeration + FAA join tooling (v1.0.111)
+
+- [T-DATACORE] BUILD ORDER 2 #1, first of two PRs.
+  server/aircraftEntities.ts: distinct archived icao24s streamed
+  gz-aware from the aircraft archive (first/last seen, counts,
+  callsigns capped at 5, latest type designator; 6h TTL cache,
+  stale-served) + spine artifact serving with per-record evidence
+  envelopes. Routes: /api/data/aircraft/hexes (the join-key list) and
+  /api/data/aircraft/entity/:hex (degrades to entity:null until the
+  artifact ships). scripts/build_entity_spine.py: FAA Releasable
+  MASTER.txt x ACFTREF.txt join by exact Mode S hex, header-name
+  addressing (refuses changed formats), US-gov public domain; ONLY
+  archived hexes emitted — never the 300k-row dump.
+- GOTCHAS ENCODED: registry.faa.gov 403s non-browser User-Agents
+  (probed; browser UA in the script); FAA header cells carry a BOM +
+  stray spaces (caught by the verbatim-fixture test).
+- E2E SMOKE on the real FAA files (73 MB, 314k rows): 3-hex list ->
+  2 matched (SOUTHWEST AIRLINES CO N1801U/737-8 corporate; an LLC's
+  M20C), 1 unmatched (non-US, correctly null). Tests: 5 pytest
+  (verbatim FAA fixture rows) + 5 node (fold semantics, gz archive
+  scan, TTL contract, artifact degradation).
+- PR-B after Railway deploys this: pull prod hex list, build + commit
+  the spine artifact, live-verify /entity/:hex, then wire the map
+  aircraft detail card to it (owner/model/registrant enrichment).
+- HYPOTHESIS (unchanged from the build order): corporate-fleet
+  utilization x earnings timing; the spine is the join substrate.
+
 ## 2026-07-05 — [RESEARCH] BUILD ORDER 2 filed (self-proposed per the standing directive — build order 1 fully resolved) (docs)
 
 - [T-DATACORE] Standing directive 2026-07-05: "when the wishlist is
