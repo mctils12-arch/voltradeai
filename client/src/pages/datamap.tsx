@@ -809,11 +809,19 @@ export default function DataMapPage() {
     onClick: (props: any, lngLat: any) => void;
     iconLayout: any;
     iconPaint: any;
+    /** Low-zoom render decimation ([REPAIR 2026-07-05] perf 3/3): below
+     *  splitZoom draw only features with rank < keepFraction (rank is a
+     *  stable per-feature hash set by toFeatures). RENDER-side only — the
+     *  source always holds every feature (harness data-richness guard
+     *  pins >=9500 in source at 1440), and zooming past splitZoom shows
+     *  everything. At the default z3.6 view, 10k overlapping icons were
+     *  pure overdraw. */
+    lowZoom?: { splitZoom: number; keepFraction: number };
   }) => {
     const map = mapRef.current;
     const { id } = opts;
     let stop = false;
-    const srcId = id, layerId = `${id}-sym`, vecSrc = `${id}-vec`, vecLayer = `${id}-veclines`;
+    const srcId = id, layerId = `${id}-sym`, loLayerId = `${id}-sym-lo`, vecSrc = `${id}-vec`, vecLayer = `${id}-veclines`;
 
     // Named handlers so teardown can map.off() them — listeners are keyed
     // by layerId string and SURVIVE layer removal; without off(), each
@@ -835,12 +843,15 @@ export default function DataMapPage() {
       // caught by the toggle-consistency battery).
       delete sinceRef.current[id];
       try {
-        map.off("click", layerId, onClickLayer);
-        map.off("mouseenter", layerId, onEnter);
-        map.off("mouseleave", layerId, onLeave);
+        for (const l of [layerId, loLayerId]) {
+          map.off("click", l, onClickLayer);
+          map.off("mouseenter", l, onEnter);
+          map.off("mouseleave", l, onLeave);
+        }
       } catch {}
       try {
         if (map.getLayer(layerId)) map.removeLayer(layerId);
+        if (map.getLayer(loLayerId)) map.removeLayer(loLayerId);
         if (map.getLayer(vecLayer)) map.removeLayer(vecLayer);
         if (map.getSource(srcId)) map.removeSource(srcId);
         if (map.getSource(vecSrc)) map.removeSource(vecSrc);
@@ -883,10 +894,26 @@ export default function DataMapPage() {
           src.setData(fc);
         } else {
           map.addSource(srcId, { type: "geojson", data: fc as any });
-          map.addLayer({ id: layerId, type: "symbol", source: srcId, layout: opts.iconLayout, paint: opts.iconPaint });
-          map.on("click", layerId, onClickLayer);
-          map.on("mouseenter", layerId, onEnter);
-          map.on("mouseleave", layerId, onLeave);
+          const lz = opts.lowZoom;
+          map.addLayer({
+            id: layerId, type: "symbol", source: srcId,
+            ...(lz ? { minzoom: lz.splitZoom } : {}),
+            layout: opts.iconLayout, paint: opts.iconPaint,
+          });
+          if (lz) {
+            // same source, same styling — just fewer drawn at continent zoom
+            map.addLayer({
+              id: loLayerId, type: "symbol", source: srcId,
+              maxzoom: lz.splitZoom,
+              filter: ["<", ["get", "rank"], lz.keepFraction],
+              layout: opts.iconLayout, paint: opts.iconPaint,
+            });
+          }
+          for (const l of lz ? [layerId, loLayerId] : [layerId]) {
+            map.on("click", l, onClickLayer);
+            map.on("mouseenter", l, onEnter);
+            map.on("mouseleave", l, onLeave);
+          }
         }
         if (opts.toVectors) {
           const vfc = { type: "FeatureCollection", features: opts.toVectors(d) };
@@ -938,6 +965,7 @@ export default function DataMapPage() {
     if (!enabled.aircraft) {
       try {
         if (map.getLayer("aircraft-sym")) map.removeLayer("aircraft-sym");
+        if (map.getLayer("aircraft-sym-lo")) map.removeLayer("aircraft-sym-lo");
         if (map.getLayer("aircraft-veclines")) map.removeLayer("aircraft-veclines");
         if (map.getSource("aircraft")) map.removeSource("aircraft");
         if (map.getSource("aircraft-vec")) map.removeSource("aircraft-vec");
@@ -946,9 +974,17 @@ export default function DataMapPage() {
       return;
     }
     setStatus("aircraft", "loading");
+    // stable per-aircraft hash for the low-zoom decimation filter — by
+    // icao24 so an aircraft never flickers in/out across refreshes
+    const rankOf = (s: string) => {
+      let h = 0;
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+      return (Math.abs(h) % 100) / 100;
+    };
     return wireLivePoints({
       id: "aircraft",
       intervalMs: 15_000,
+      lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
       toFeatures: (d) => (d.aircraft || []).map((a: any) => {
         const cls = classifyAircraft(a.type, a.category);
         return {
@@ -956,6 +992,7 @@ export default function DataMapPage() {
           geometry: { type: "Point", coordinates: [a.lon, a.lat] },
           properties: {
             icon: AIRCRAFT_ICON[cls], cls,
+            rank: rankOf(String(a.icao24 || a.callsign || "")),
             heading: a.heading ?? 0,
             callsign: a.callsign || a.icao24, icao24: a.icao24,
             country: a.origin_country, type: a.type || "",

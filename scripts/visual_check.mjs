@@ -471,7 +471,9 @@ async function main() {
         const sorted = await runPans(true);   // measured window (warm)
         const q = (f) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * f))] || 0;
         let rendered = 0;
-        try { rendered = map.queryRenderedFeatures({ layers: ["aircraft-sym"] }).length; } catch {}
+        // decimation split (perf 3/3): full layer above z4.5, rank-filtered
+        // twin below — sample whichever is active at the current zoom
+        try { rendered = map.queryRenderedFeatures({ layers: ["aircraft-sym", "aircraft-sym-lo"].filter((l) => map.getLayer(l)) }).length; } catch {}
         return { frames: sorted.length, median: Math.round(q(0.5)), p95: Math.round(q(0.95)),
                  max: Math.round(sorted[sorted.length - 1] || 0), renderedAircraft: rendered };
       });
@@ -741,7 +743,7 @@ async function main() {
           if (order.indexOf("wx-temp_new") > order.indexOf("aircraft-sym"))
             fails.push("fields-on: temp raster ABOVE aircraft symbols — live tracking obscured");
           let aircraft = 0, arrows = 0, tempLabels = 0;
-          try { aircraft = m.queryRenderedFeatures({ layers: ["aircraft-sym"] }).length; } catch {}
+          try { aircraft = m.queryRenderedFeatures({ layers: ["aircraft-sym", "aircraft-sym-lo"].filter((l) => m.getLayer(l)) }).length; } catch {}
           try { arrows = m.queryRenderedFeatures({ layers: ["wx-wind-arrows"] }).length; } catch {}
           try { tempLabels = m.queryRenderedFeatures({ layers: ["wx-temp-labels"] }).length; } catch {}
           if (!aircraft) fails.push("fields-on: no aircraft rendered with fields on — live tracking not visible");
