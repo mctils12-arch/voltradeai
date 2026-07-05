@@ -13,6 +13,28 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Aircraft entity spine v1 PR-B: artifact SHIPPED + map enrichment (v1.0.112)
+
+- [T-DATACORE] Prod hex list pulled after PR-A deployed (15,248
+  distinct archived airframes as of 2026-07-05T08:27Z); spine built
+  against the real FAA files: 11,821 matched (78% — the expected US
+  share), composition 6,689 corporations / 3,370 LLCs / 935
+  individuals / 180 government. Artifact 3.97 MB compact JSON,
+  committed at datacore/aircraft/entity_spine.json; manifest
+  aircraftspine.json. Sample verified: a6faee -> N549SC, SPARTAN
+  EDUCATION LLC, PIPER PA-28-181 (2020) — a flight school owning the
+  archive's most-seen airframe, exactly as base rates predict.
+- Map enrichment: aircraft detail card now shows "Registered:
+  owner · mfr model · year — N-number, FAA registry" via
+  /api/data/aircraft/entity/:hex, async after open; non-US hexes show
+  nothing extra (never guessed). Harness 0 hard failures at
+  390/768/1440; change is click-gated so page visuals are unchanged
+  (screenshots reviewed).
+- NEXT for this root: gate 1 = join accuracy vs known corporate
+  tails; then the utilization x earnings study (BUILD ORDER 2 #1
+  hypothesis). Monthly artifact refresh is a session task (manifest
+  cadence).
+
 ## 2026-07-05 — [PIPELINE] Aircraft entity spine v1 PR-A: hex enumeration + FAA join tooling (v1.0.111)
 
 - [T-DATACORE] BUILD ORDER 2 #1, first of two PRs.

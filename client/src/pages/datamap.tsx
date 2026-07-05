@@ -49,6 +49,9 @@ interface Detail {
   trailId?: string;      // archive id for the trail (aircraft icao24 / mmsi)
   trailKind?: "aircraft" | "vessels" | "trains";
   trailNote?: string;
+  /** FAA-registry identity line (entity spine, exact Mode S hex match) —
+   *  arrives async after the card opens; absent for non-US hexes. */
+  owner?: string;
   /** External profile/photo pages — LINK OUT only, never embedded
    *  (third-party photo copyright). */
   links?: { label: string; href: string }[];
@@ -1038,6 +1041,19 @@ export default function DataMapPage() {
             { label: "Live track (adsb.lol)", href: `https://adsb.lol/?icao=${p.icao24}` },
           ],
         });
+        // entity spine enrichment (BUILD ORDER 2 #1): owner/model from the
+        // FAA registry by exact Mode S hex. Non-US hexes have no entity —
+        // the card simply shows nothing extra, never a guess.
+        fetch(`/api/data/aircraft/entity/${p.icao24}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            const e = d?.entity;
+            if (!e?.owner) return;
+            const bits = [e.owner, [e.mfr, e.model].filter(Boolean).join(" "), e.year_mfr].filter(Boolean);
+            setDetail(prev => prev && prev.trailId === p.icao24
+              ? { ...prev, owner: `${bits.join(" · ")} — ${e.n_number}, FAA registry` } : prev);
+          })
+          .catch(() => {});
         const note = await showTrail("aircraft", p.icao24);
         setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note } : prev);
       },
@@ -2072,6 +2088,9 @@ export default function DataMapPage() {
             </button>
           </div>
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
+          {detail.owner && (
+            <p className="vt-site-card-trail">Registered: {detail.owner}</p>
+          )}
           {detail.links && detail.links.length > 0 && (
             <div className="vt-site-card-links">
               {detail.links.map((l) => (

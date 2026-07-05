@@ -1,0 +1,28 @@
+{
+ "stream": "aircraftspine",
+ "storage": "git-versioned derived artifact datacore/aircraft/entity_spine.json (whole-file rebuild per refresh, NOT append-only — the FAA registry is a snapshot source; history lives in git)",
+ "written_by": "scripts/build_entity_spine.py (Python, session-run; never on Railway — see cot.json _note on envelope-test coverage of Python writers). Served by server/aircraftEntities.ts /api/data/aircraft/entity/:hex.",
+ "source": "FAA Releasable Aircraft DB (MASTER.txt x ACFTREF.txt) joined to OUR archived icao24 hexes from /api/data/aircraft/hexes — only observed airframes, never the full registry dump",
+ "license": "US government work, public domain; attribution 'FAA Aircraft Registry'",
+ "attribution": "FAA Aircraft Registry",
+ "schema_version": 1,
+ "field_map": {
+  "<hex>": "top-level key under entities: icao24 (lowercase) -> record below",
+  "n_number": "FAA registration (N-number)",
+  "owner": "registrant NAME as filed",
+  "registrant_type": "decoded TYPE REGISTRANT (corporation/llc/individual/...)",
+  "mfr/model": "manufacturer + model via ACFTREF join on MFR MDL CODE",
+  "year_mfr": "year manufactured (null when unfiled)",
+  "cert_issue/expiration": "registration certificate dates YYYY-MM-DD",
+  "evidence": "GIP envelope: source, retrieved date, match basis (exact Mode S hex)"
+ },
+ "confidence_model": "Inference-free exact-key join — every record carries its evidence envelope. Unmatched hexes (non-US/unassigned, ~22% of archive) are ABSENT, never guessed. Staleness = evidence.retrieved vs FAA's continuous updates; refresh cadence below.",
+ "geo_fields": [
+  "(none — identity data; positions live in the aircraft stream)"
+ ],
+ "entity_key": "icao24 hex",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "session-run refresh ~monthly (FAA updates continuously; archived-hex set grows daily via /api/data/aircraft/hexes)",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 2 #1 / GIP Part 3b v1: the entity-continuity substrate for the fleet-utilization x earnings hypothesis (gate 1 = join accuracy vs known corporate tails)."
+}
