@@ -200,7 +200,16 @@ export default function DataMapPage() {
   const statusAtRef = useRef<Record<string, number>>({});
   const setStatus = useCallback((id: string, status: RuntimeStatus, count?: number, note?: string) => {
     statusAtRef.current[id] = Date.now();
-    setRuntime(s => ({ ...s, [id]: { status, count, note } }));
+    setRuntime(s => {
+      // No-op bail ([REPAIR 2026-07-05] map perf): five default layers
+      // poll on 15-60s ticks and re-reported identical status every tick —
+      // each write re-rendered the whole page (18 panel rows + legend),
+      // contending with the map's rAF. Identical payload → same state
+      // object → React skips the render.
+      const prev = s[id];
+      if (prev && prev.status === status && prev.count === count && prev.note === note) return s;
+      return { ...s, [id]: { status, count, note } };
+    });
   }, []);
   useEffect(() => {
     const iv = window.setInterval(() => {
@@ -806,6 +815,17 @@ export default function DataMapPage() {
     let stop = false;
     const srcId = id, layerId = `${id}-sym`, vecSrc = `${id}-vec`, vecLayer = `${id}-veclines`;
 
+    // Named handlers so teardown can map.off() them — listeners are keyed
+    // by layerId string and SURVIVE layer removal; without off(), each
+    // toggle cycle stacked another set (N clicks -> N detail cards + N
+    // trail fetches). ([REPAIR 2026-07-05] map perf/correctness.)
+    const onClickLayer = (e: any) => {
+      const f = e.features?.[0];
+      if (f) opts.onClick(f.properties, e.lngLat);
+    };
+    const onEnter = () => { map.getCanvas().style.cursor = "pointer"; };
+    const onLeave = () => { map.getCanvas().style.cursor = ""; };
+
     const teardown = () => {
       stop = true;
       // Clear the delta cursor: a re-enabled layer must fetch a FULL
@@ -815,6 +835,11 @@ export default function DataMapPage() {
       // caught by the toggle-consistency battery).
       delete sinceRef.current[id];
       try {
+        map.off("click", layerId, onClickLayer);
+        map.off("mouseenter", layerId, onEnter);
+        map.off("mouseleave", layerId, onLeave);
+      } catch {}
+      try {
         if (map.getLayer(layerId)) map.removeLayer(layerId);
         if (map.getLayer(vecLayer)) map.removeLayer(vecLayer);
         if (map.getSource(srcId)) map.removeSource(srcId);
@@ -823,6 +848,11 @@ export default function DataMapPage() {
     };
 
     const load = async () => {
+      // Hidden-tab gate ([REPAIR 2026-07-05] map perf): a backgrounded /data
+      // tab kept polling aircraft 4x/min. Skip while hidden; the
+      // visibilitychange listener below refreshes immediately on return
+      // (stale-with-timestamp already covers the gap honestly).
+      if (document.hidden) return;
       try {
         const b = map.getBounds();
         const since = sinceRef.current[id] || "";
@@ -854,12 +884,9 @@ export default function DataMapPage() {
         } else {
           map.addSource(srcId, { type: "geojson", data: fc as any });
           map.addLayer({ id: layerId, type: "symbol", source: srcId, layout: opts.iconLayout, paint: opts.iconPaint });
-          map.on("click", layerId, (e: any) => {
-            const f = e.features?.[0];
-            if (f) opts.onClick(f.properties, e.lngLat);
-          });
-          map.on("mouseenter", layerId, () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; });
+          map.on("click", layerId, onClickLayer);
+          map.on("mouseenter", layerId, onEnter);
+          map.on("mouseleave", layerId, onLeave);
         }
         if (opts.toVectors) {
           const vfc = { type: "FeatureCollection", features: opts.toVectors(d) };
@@ -883,11 +910,23 @@ export default function DataMapPage() {
     };
     load();
     const iv = window.setInterval(load, opts.intervalMs);
-    const onMove = () => load();
+    // Trailing debounce ([REPAIR 2026-07-05] map perf): bare moveend fired a
+    // full fetch + 10k-feature rebuild on EVERY camera settle — each wheel
+    // step during a zoom was a fetch. Same 400ms pattern the wx-grid effect
+    // already used.
+    let moveDebounce: number | undefined;
+    const onMove = () => {
+      window.clearTimeout(moveDebounce);
+      moveDebounce = window.setTimeout(load, 400);
+    };
     map.on("moveend", onMove);
+    const onVisible = () => { if (!document.hidden) load(); };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       teardown();
       window.clearInterval(iv);
+      window.clearTimeout(moveDebounce);
+      document.removeEventListener("visibilitychange", onVisible);
       try { map.off("moveend", onMove); } catch {}
     };
   }, [setStatus]);
@@ -1302,7 +1341,9 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, 30_000);
+    // hidden-tab gate ([REPAIR 2026-07-05] map perf) — refresh resumes on
+    // the next tick after the tab returns; server cache covers the gap
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 30_000);
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.trains, mapReady, mapSettled, setStatus]);
 
@@ -1504,7 +1545,11 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, 60_000);
+    // 300s ([REPAIR 2026-07-05] map perf): this poll only renders a panel
+    // COUNT — the actual feed lives in the overlay view; the server caches
+    // upstream at 15-min anyway. Hidden-tab gated inside load's fetch cost
+    // via the interval guard.
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.insider, mapSettled, setStatus]);
 
@@ -1527,7 +1572,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, 60_000);
+    // 300s + hidden-gate — same rationale as the insider poll above.
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.earnings, mapSettled, setStatus]);
 

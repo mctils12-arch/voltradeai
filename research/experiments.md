@@ -13,6 +13,37 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] /data map performance 1/3: eliminate redundant network + render work (v1.0.93) [T-CLIENT+server/index.ts]
+
+- Priority-repair directive: map slow to initially load, sluggish with
+  all layers on. Constraint honored: NO layer removed, NO data
+  richness reduced — engineering only. Profiled first (subagent
+  report); this PR ships the waste-elimination tier (biggest win per
+  unit risk); the harness perf GATE ships separately next (measurement
+  change = own PR), then low-zoom decimation behind that gate.
+- SERVER: response compression (compression middleware in
+  server/index.ts — Railway's edge does NOT gzip): aircraft snapshot
+  ~0.8MB -> ~120KB, powerplants 800KB -> ~200KB; ~70% of initial-load
+  bytes cut. Default filter skips the already-compressed wxtile PNGs.
+  Pinned by an end-to-end gzip round-trip test.
+- CLIENT (datamap.tsx): (1) moveend fetches debounced 400ms — bare
+  moveend fired a full fetch + 10k-feature rebuild on EVERY camera
+  settle including each wheel step; (2) hidden-tab gating on
+  aircraft/vessels/trains/insider/earnings polls + immediate refresh
+  on visibilitychange return; (3) setStatus no-op bail — five default
+  polls re-rendered the whole page every 15-60s tick with identical
+  payloads; (4) insider/earnings panel-count polls 60s -> 300s (they
+  render a count; server caches upstream at 15-min); (5) map event
+  handlers de-duplicated — click/mouseenter/mouseleave were stacked on
+  every toggle cycle (N clicks -> N detail cards + N trail fetches).
+- Harness: 10/10 green at 390/768/1440; fields-on battery's mounted
+  wait extended to require BOTH arrows AND temp labels placed (fixed a
+  1440 placement-timing flake my re-render reduction exposed — labels
+  were visibly rendered in the screenshot while the sampler read 0).
+- DEPLOY-VERIFY of v1.0.92 (previous entry): prod /api/data/trains
+  responds 200 in 0.8s with 126 live trains (FI 86 ok + NO 40 ok) —
+  the permanent-hang repair holds in production.
+
 ## 2026-07-05 — [REPAIR] /api/data/trains permanent hang: stuck in-flight promise poisoned the route (v1.0.92) [T-DATACORE]
 
 - Production: /api/data/trains returned NOTHING (HTTP 000 at 90s, zero
