@@ -702,9 +702,10 @@ layer + client-side viewport stats). Also queued: PMTiles AOI extract
 free, from the options HOLD package). NEW DATA ROOTS #1 (8-K language
 pipeline), the former top research build, SHIPPED gate 1 (DATA)
 2026-07-04 (v1.0.67, server/sec8kEarnings.ts — see this section's #1
-entry above and research/experiments.md); its natural follow-up (a
-filings-language view once archive history accumulates, mirroring
-filings.tsx) is now the next queued PRODUCT item alongside (d)-(g).
+entry above and research/experiments.md); its natural follow-up, a
+filings-language view mirroring filings.tsx, **SHIPPED 2026-07-05
+(v1.0.82)** — see research/experiments.md. Remaining queue: (d)-(g)
+below.
 STATUS UPDATE: FIRMS is ACTIVE (key set as FIRMS_MAP_KEY + env-name
 alias fix v1.0.68 — archive recording live).
 
