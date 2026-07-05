@@ -1,0 +1,22 @@
+{
+ "stream": "fredmacro",
+ "storage": "volume JSONL <archive>/fredmacro/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/fredMacro.ts archiveFredObs",
+ "source": "FRED API (api.stlouisfed.org) — ~31 regime-relevant series",
+ "license": "FRED terms: free with attribution. Series marked restricted in server/fredMacro.ts FRED_SERIES (CBOE VIX, ICE BofA HY OAS, UMich sentiment) are third-party copyrighted: archived for INTERNAL regime use only, NEVER exposed on /api/data/macro, /data, or /api/v1 product surfaces. Terms re-check at monetization switch.",
+ "attribution": "Source: FRED, Federal Reserve Bank of St. Louis",
+ "schema_version": 1,
+ "field_map": {
+  "s": "FRED series id (entity key; defs in server/fredMacro.ts FRED_SERIES)",
+  "d": "observation date (the period the value describes)",
+  "v": "value as published at fetch time (numeric; FRED '.' missing values are skipped)",
+  "rt": "as-seen date (UTC day WE fetched it) — point-in-time vintage key"
+ },
+ "confidence_model": "official statistics as published; FRED revises history silently — a revision appends a NEW row (same s+d, new v, new rt), never overwrites. 'What was known on day X' = filter rt <= X. Recording forward builds the ALFRED-style vintage archive for free (BUILD-FIRST #2).",
+ "geo_fields": [],
+ "entity_key": "s (series id)",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "6h poll (daily series publish once per business day; extra cycles catch weekly/monthly releases and revisions); dedup by (s,d,v)",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

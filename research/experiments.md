@@ -13,6 +13,36 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Stream #3: FRED macro regime feed (v1.0.90) [T-DATACORE]
+
+- Human set FRED_API_KEY in Railway (not in the session env — noted in
+  wishlist); built stream #3 same day: server/fredMacro.ts — 31
+  regime-relevant series (curve, Fed-produced stress indexes, labor,
+  inflation, activity, liquidity, WTI/dollar), key-gated 6h poll,
+  /api/data/macro route, envelope manifest.
+- POINT-IN-TIME VINTAGE ARCHIVE (the build's real asset): FRED revises
+  history silently; every observation is archived with rt = as-seen
+  date and a revision appends a NEW row (dedup key is (series, date,
+  value), never (series, date)). Recording forward turns the free feed
+  into the paid ALFRED-style vintage dataset (BUILD-FIRST #2) — and
+  protects future regime backtests from lookahead via revised data
+  (Reasoning Standard #7): "known on day X" = filter rt <= X.
+- LICENSING SPLIT (checked first): CBOE VIX, ICE BofA HY OAS, UMich
+  sentiment are third-party copyrighted → license:"restricted",
+  archived for internal regime use only, EXCLUDED from the public
+  payload by buildMacroPayload (pinned by test). All other 28 series
+  are US-gov/Fed-produced. FRED attribution on the route + manifest.
+- Gate 1 (values match FRED web UI on 10 spot checks): runs against
+  prod /api/data/macro vs the keyless fredgraph.csv export after this
+  deploys (API key lives only on Railway) — result appended below when
+  checked. Gate 2 (regime-conditioning improves an existing validated
+  signal) not attempted; no validated signal exists yet to condition.
+- Tests: 6 new (documented-shape parser incl. string values + "."
+  missing, series-table license pins, revision-append vintage
+  behavior, mocked end-to-end refresh + restricted-exclusion pin, key
+  gating, wiring pins). Offline pytest suite green (120 passed). No
+  backtest — data pipeline only.
+
 ## 2026-07-05 — [PRODUCT] Hero globe: real registry symbols instead of dots (v1.0.89) [T-CLIENT]
 
 - Directive 2026-07-05 (#data-intel hero only): the globe's colored

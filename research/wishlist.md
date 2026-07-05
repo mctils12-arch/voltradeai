@@ -1,13 +1,14 @@
 # Data / Access Wishlist — human reviews weekly
 
-- **HUMAN ACTION — FRED API key (free, ~2 minutes; stream-expansion
-  directive 2026-07-05, build-order #3):** (1) fredaccount.stlouisfed.org
-  → create a free account (email + password); (2) once signed in, go to
-  My Account → API Keys → "Request API Key" — issued instantly, no
-  approval queue; (3) add it as FRED_API_KEY in Railway AND in the
-  Claude Code environment settings (the macro archiver runs server-side;
-  research pulls run in sessions). License: FRED data is free for use
-  with attribution ("Source: FRED, Federal Reserve Bank of St. Louis");
+- **[DONE 2026-07-05 — key set in Railway, stream #3 built same day]**
+  ~~HUMAN ACTION — FRED API key~~ — human set FRED_API_KEY in Railway;
+  server/fredMacro.ts (v1.0.90) polls ~31 regime series, archives
+  point-in-time vintages, serves /api/data/macro (public-license series
+  only; CBOE/ICE BofA/UMich stay internal). NOTE: the key is NOT in the
+  Claude Code session env — session-side research pulls will need it
+  there too (same env-var screen as the others) or will keep using the
+  keyless fredgraph.csv export as ground truth. License: free with
+  attribution ("Source: FRED, Federal Reserve Bank of St. Louis");
   terms re-check at monetization switch per the standing rule.
 
 - **[DONE — VERIFIED END-TO-END 2026-07-05]** ~~Copernicus Data Space
