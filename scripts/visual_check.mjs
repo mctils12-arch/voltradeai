@@ -53,26 +53,26 @@ const FIXTURES = {
   "/api/auth/me": { authenticated: false },
   "/api/data/layers": {
     layers: [
-      { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", source: "Esri World Imagery", description: "Base imagery." },
-      { id: "terrain", name: "Terrain (hillshade)", kind: "raw", status: "live", source: "Mapterhorn (© Mapterhorn)", description: "Global hillshade, off by default." },
-      { id: "weather", name: "Weather radar (US)", kind: "raw", status: "live", field: true, source: "NOAA nowCOAST (public domain)", description: "US radar mosaic, off by default." },
-      { id: "weather_temp", name: "Temperature (global)", kind: "raw", status: "live", field: true, source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global temp field, off by default." },
-      { id: "weather_wind", name: "Wind (global)", kind: "raw", status: "live", field: true, source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global wind field, off by default." },
-      { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
-      { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
-      { id: "trains", name: "Live trains (rail)", kind: "raw", status: "live", source: "Digitraffic FI + Entur NO", description: "FI+NO launch coverage." },
-      { id: "sites", name: "Strategic sites", kind: "raw", status: "live", source: "datacore/sites", description: "Reference sites." },
-      { id: "powerplants", name: "US power plants", kind: "raw", status: "live", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
-      { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
-      { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
-      { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
-      { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
-      { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
-      { id: "alerts", name: "Severe weather alerts (NWS)", kind: "raw", status: "live", source: "National Weather Service (public domain)", description: "Active NWS warnings/watches, colored by severity." },
-      { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
-      { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
-      { id: "boundaries", name: "Country borders", kind: "raw", status: "live", source: "Natural Earth 1:110m (public domain)", description: "Reference borders, off by default." },
-      { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", source: "Copernicus", description: "Gate-2 locked." },
+      { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", group: "base", costTier: "light", source: "Esri World Imagery", description: "Base imagery." },
+      { id: "terrain", name: "Terrain (hillshade)", kind: "raw", status: "live", group: "base", costTier: "moderate", source: "Mapterhorn (© Mapterhorn)", description: "Global hillshade, off by default." },
+      { id: "weather", name: "Weather radar (US)", kind: "raw", status: "live", field: true, group: "base", costTier: "heavy", source: "NOAA nowCOAST (public domain)", description: "US radar mosaic, off by default." },
+      { id: "weather_temp", name: "Temperature (global)", kind: "raw", status: "live", field: true, group: "base", costTier: "heavy", source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global temp field, off by default." },
+      { id: "weather_wind", name: "Wind (global)", kind: "raw", status: "live", field: true, group: "base", costTier: "heavy", source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global wind field, off by default." },
+      { id: "aircraft", name: "Live aircraft (ADS-B)", kind: "raw", status: "live", group: "live", costTier: "heavy", source: "adsb.lol/airplanes.live", description: "Live aircraft." },
+      { id: "vessels", name: "Live vessels (AIS)", kind: "raw", status: "awaiting_key", group: "live", costTier: "moderate", source: "aisstream.io", description: "Needs AISSTREAM_KEY." },
+      { id: "trains", name: "Live trains (rail)", kind: "raw", status: "live", group: "live", costTier: "light", source: "Digitraffic FI + Entur NO", description: "FI+NO launch coverage." },
+      { id: "sites", name: "Strategic sites", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "datacore/sites", description: "Reference sites." },
+      { id: "powerplants", name: "US power plants", kind: "raw", status: "live", group: "facilities", costTier: "moderate", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
+      { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
+      { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
+      { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
+      { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
+      { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
+      { id: "alerts", name: "Severe weather alerts (NWS)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "National Weather Service (public domain)", description: "Active NWS warnings/watches, colored by severity." },
+      { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
+      { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
+      { id: "boundaries", name: "Country borders", kind: "raw", status: "live", group: "base", costTier: "light", source: "Natural Earth 1:110m (public domain)", description: "Reference borders, off by default." },
+      { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", group: "signals", costTier: "light", source: "Copernicus", description: "Gate-2 locked." },
     ],
   },
   // 10,000 synthetic aircraft — the DESIGN.md performance budget says map
@@ -681,6 +681,46 @@ async function main() {
       } catch (e) {
         if (!e?.skip) checks.failures.push("toggle-consistency: driver error — " + (e?.message || e));
       }
+      // ── COST-BUDGET BADGE (BUILD ORDER 4 #2, GIP Part 4 cost-budget item):
+      // DEFAULT_ON's registry-native costTier sum is 13 ("light" — badge
+      // silent, proven by every other capture in this file never showing
+      // it). Turning on every remaining real toggleable layer (terrain +
+      // both weather fields + rivergauges/alerts/surfacewater/forest/
+      // boundaries — genuinely wired ids, unlike the scale battery's
+      // synthetic ones) adds 22 more for a 35 total, crossing the >26
+      // "heavy" threshold — proves the badge is an actually-wired consumer
+      // of the registry field, not decorative dead code.
+      try {
+        if (!cfg.map || vp.w !== 1440) throw { skip: true };
+        await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(200);
+        for (let round = 0; round < 6; round++) {
+          const btn = page.locator('.vt-layer-group-head[aria-expanded="false"]').first();
+          if (!(await btn.count())) break;
+          await btn.click().catch(() => {});
+          await page.waitForTimeout(100);
+        }
+        const extraToggle = ["terrain", "weather", "weather_temp", "weather_wind", "rivergauges", "alerts", "surfacewater", "forest", "boundaries"];
+        for (const id of extraToggle) {
+          const sw = page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first();
+          await page.evaluate((lid) => document.querySelector(`[data-vt-layer="${lid}"]`)?.scrollIntoView({ block: "center" }), id);
+          await sw.click({ timeout: 4000 }).catch(() => {});
+          await page.waitForTimeout(60);
+        }
+        await page.waitForTimeout(200);
+        const costNote = await page.evaluate(() => document.querySelector(".vt-cost-note")?.textContent?.trim() || null);
+        checks.info.costBudgetBadge = costNote;
+        if (costNote !== "heavy load") {
+          checks.failures.push(`cost-budget: expected 'heavy load' badge with ${extraToggle.length} extra layers on (weight 35), got '${costNote}' — cost-budget consumer not wired or threshold drifted`);
+        }
+        // flip back off to restore default state for the remaining checks/screenshots
+        for (const id of extraToggle) {
+          await page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first().click({ timeout: 4000 }).catch(() => {});
+        }
+        await page.waitForTimeout(150);
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("cost-budget: driver error — " + (e?.message || e));
+      }
       // ── U1 FIELDS-ON VISIBILITY (weather-upgrade directive 2026-07-04):
       // with temp + wind toggled ON at the DEFAULT opacity, the fields must
       // visibly render (canvas pixel diff) while the base map and
@@ -945,6 +985,123 @@ async function main() {
     results.push({ page: "data-all-off", width: 1440, label: "zero-cost", screenshot: "-", tti: ttiOff,
                    failures, warnings: [], info: { disallowed: disallowed.length } });
     await ctx.close();
+  }
+
+  // ── LAYER-SCALE SYNTHETIC HARNESS (BUILD ORDER 4 #2, GIP Part 4 UI
+  // SCALABILITY): datamap.tsx now reads registry-native `group`/`costTier`
+  // and caps each open panel group at GROUP_ROW_CAP (12) rows behind a
+  // "show all" control, with any group not explicitly opened-by-default
+  // starting collapsed. This battery generates 50/100/200-layer synthetic
+  // registries (round-robin across a mix of real + brand-new group ids and
+  // all three cost tiers) via a per-context route override — the shared
+  // FIXTURES/server are untouched, so every other page's determinism is
+  // unaffected — and MEASURES whether that architecture actually holds real
+  // numbers rather than assuming it does. No silent cap: results are
+  // logged for every scale, not just the pass/fail edges.
+  if (!only || only === "data" || only === "scale") {
+    const SCALE_GROUPS = ["base", "live", "facilities", "environmental", "filings", "signals", "synth_new_a", "synth_new_b"];
+    const SCALE_TIERS = ["light", "moderate", "heavy"];
+    const syntheticLayers = (n) => {
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const g = SCALE_GROUPS[i % SCALE_GROUPS.length];
+        out.push({
+          id: `synth_${i}`, name: `Synthetic layer ${i}`,
+          kind: g === "signals" ? "signal" : "raw",
+          status: g === "signals" ? "planned" : "live",
+          group: g, costTier: SCALE_TIERS[i % SCALE_TIERS.length],
+          source: "layer-scale synthetic harness fixture",
+          description: `Synthetic scale-test layer #${i} in group ${g}.`,
+        });
+      }
+      return out;
+    };
+    const scaleResults = [];
+    for (const n of [50, 100, 200]) {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+      const page = await ctx.newPage();
+      await page.route("**/*", (route) => {
+        const u = route.request().url();
+        if (u.startsWith(`http://127.0.0.1:${port}`)) return route.continue();
+        return route.abort();
+      });
+      // registered AFTER the general handler above so it wins (Playwright
+      // matches most-recently-registered route first) — overrides only the
+      // registry response for this context, nothing else in the app.
+      await page.route("**/api/data/layers", (route) => route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ layers: syntheticLayers(n), server_version: "scale-harness" }),
+      }));
+      const t0 = Date.now();
+      await page.goto(`http://127.0.0.1:${port}${PAGES.data.route}`, { waitUntil: "load", timeout: 30000 });
+      let tti = null;
+      for (let i = 0; i < 60; i++) {
+        const gone = await page.evaluate(() => !document.querySelector(".vt-map-skeleton"));
+        if (gone) { tti = Date.now() - t0; break; }
+        await page.waitForTimeout(100);
+      }
+      await page.waitForTimeout(800);
+      const openT0 = Date.now();
+      await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {});
+      await page.waitForTimeout(200);
+      const openMs = Date.now() - openT0;
+      const defaultDom = await page.evaluate(() => {
+        const panel = document.querySelector(".vt-layer-panel");
+        return { rows: panel ? panel.querySelectorAll("[data-vt-layer]").length : -1,
+                 totalNodes: panel ? panel.querySelectorAll("*").length : -1 };
+      });
+      // expand every group (as the existing self-see battery does) and use
+      // "show all" on each capped group — the real worst case a user causes,
+      // not a hypothetical one — then re-measure.
+      for (let round = 0; round < SCALE_GROUPS.length + 2; round++) {
+        const btn = page.locator('.vt-layer-group-head[aria-expanded="false"]').first();
+        if (!(await btn.count())) break;
+        await btn.click().catch(() => {});
+        await page.waitForTimeout(80);
+      }
+      for (let round = 0; round < SCALE_GROUPS.length + 2; round++) {
+        const more = page.locator(".vt-layer-showmore").first();
+        if (!(await more.count())) break;
+        await more.click().catch(() => {});
+        await page.waitForTimeout(80);
+      }
+      const expandedAllDom = await page.evaluate(() => {
+        const panel = document.querySelector(".vt-layer-panel");
+        return panel ? panel.querySelectorAll("[data-vt-layer]").length : -1;
+      });
+      // NOTE on toggle state: these synthetic rows correctly render DISABLED
+      // ("unwired" guard, datamap.tsx groupOf/unwired) — they have a
+      // registry-native `group`/`costTier` but no real map-data fetch/render
+      // effect exists for a `synth_N` id (that requires an actual client
+      // deploy, not a registry edit alone), so the open-tab-skew guard
+      // correctly refuses to render a functional-looking toggle that would
+      // flip and paint nothing. This battery measures DOM/reachability at
+      // scale, not the cost-badge (that's exercised below with the real
+      // fixture's genuinely wired layers, where toggling isn't blocked).
+      scaleResults.push({ n, tti, openMs, defaultRows: defaultDom.rows, defaultTotalNodes: defaultDom.totalNodes,
+                          expandedAllRows: expandedAllDom });
+      if (n === 200) await page.screenshot({ path: path.join(OUT, "data-scale-200.png") });
+      await ctx.close();
+    }
+    console.log("\n[SCALE HARNESS] synthetic layer-count battery (BUILD ORDER 4 #2):");
+    for (const r of scaleResults) {
+      console.log(`  n=${r.n}: tti=${r.tti}ms panelOpen=${r.openMs}ms defaultRows=${r.defaultRows} defaultDomNodes=${r.defaultTotalNodes} expandedAllRows=${r.expandedAllRows}`);
+    }
+    // BUDGET ASSERTIONS: the default-open view must stay bounded regardless
+    // of total registry size (proves collapse-by-default + GROUP_ROW_CAP
+    // actually hold the DOM down, not just today's small registry), "show
+    // all" must still reach every synthetic layer (self-see holds at scale,
+    // not just for the 21-layer fixture), and TTI must not regress past the
+    // existing 3000ms map-page gate used elsewhere in this file.
+    const scaleFailures = [];
+    for (const r of scaleResults) {
+      if (r.tti == null) scaleFailures.push(`scale n=${r.n}: TTI never settled`);
+      else if (r.tti > 3000) scaleFailures.push(`scale n=${r.n}: TTI ${r.tti}ms > 3000ms map-page gate at synthetic scale`);
+      if (r.defaultRows > 30) scaleFailures.push(`scale n=${r.n}: default-open panel rendered ${r.defaultRows} rows > 30 budget — collapse-by-default/GROUP_ROW_CAP not holding`);
+      if (r.expandedAllRows !== r.n) scaleFailures.push(`scale n=${r.n}: "show all" only reached ${r.expandedAllRows}/${r.n} layers — self-see broken at scale`);
+    }
+    results.push({ page: "data-scale", width: 1440, label: "layer-scale", screenshot: path.join(OUT, "data-scale-200.png"),
+                   tti: null, perf: {}, failures: scaleFailures, warnings: [], info: { scaleResults } });
   }
 
   await browser.close();

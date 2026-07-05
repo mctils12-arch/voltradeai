@@ -933,6 +933,35 @@ GIP items, before any new roots)
    panel virtualization, per-layer cost budgets in the registry
    schema, 50/100/200-layer synthetic harness batteries asserting
    the interactive budget; no regression to current map speed.
+
+   PARTIALLY BUILT + MEASURED 2026-07-05 (v1.0.129, see experiments.md):
+   registry-native `group`/`costTier` fields shipped (datacore/layers.json,
+   groupOf() prefers them over the old hardcoded LAYER_GROUP fallback);
+   `groupCollapsed` now derives from an OPEN_GROUPS_BY_DEFAULT allowlist
+   so any group added later defaults collapsed automatically instead of
+   needing a second hardcoded entry; GROUP_ROW_CAP=12 bounds an open
+   group's DOM behind a "show all" control; an active-cost-budget badge
+   consumes costTier (verified reads "heavy load" when enough
+   heavy/moderate layers are on — real fixture, not synthetic); an
+   unknown-group catch-all prevents a mis-grouped layer from silently
+   vanishing (a real bug the new scale harness caught mid-build, fixed
+   same PR). scripts/visual_check.mjs's new `--page scale` battery
+   MEASURED (not assumed) 50/100/200 synthetic-layer registries:
+   default-open panel rows stayed 14/24/24 (budget 30), "show all" self-
+   see reached 100% at every scale, TTI held 1.2-2.5s (gate 3000ms) — the
+   collapse-by-default + row-cap combination holds with real margin.
+   NOT BUILT: literal windowed DOM virtualization (removing off-screen
+   nodes entirely) — the measured numbers above show it is not yet
+   evidence-justified (CLAUDE.md: don't build for hypothetical
+   requirements). REVISIT TRIGGER (precise, not vague): if any single
+   panel group's real member count approaches ~25 (the largest measured-
+   clean case in the n=200 synthetic run), re-run
+   `node scripts/visual_check.mjs --page scale` first — if defaultRows or
+   TTI approach their budgets, that is the evidence to build real
+   windowing; if they still hold, no action needed yet. STILL OPEN
+   (unchanged from the original item, [T-CLIENT]): a timeline-slider and
+   confidence-display capability (GIP Part 4's other named items) — not
+   touched this session, scoped separately.
 3. INTERNATIONAL AIRCRAFT REGISTRIES v1 (GIP Part 5a filings): UK
    G-INFO + Ireland + Switzerland public registries x our archived
    non-US hexes (22% of archive unmatched tonight); same

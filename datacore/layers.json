@@ -1,11 +1,13 @@
 {
- "_doc": "Registry of /data map layers. Served via /api/data/layers. Every layer is labeled kind: 'raw' (as-is display, source attribution, no predictive claim) or 'signal' (interpreted reading; may not surface before ROOT VALIDATION LADDER gate 2). Status: live | awaiting_key | planned. Layers with field:true are visual FIELD overlays and inherit registry-native display controls (opacity slider, default 60%).",
+ "_doc": "Registry of /data map layers. Served via /api/data/layers. Every layer is labeled kind: 'raw' (as-is display, source attribution, no predictive claim) or 'signal' (interpreted reading; may not surface before ROOT VALIDATION LADDER gate 2). Status: live | awaiting_key | planned. Layers with field:true are visual FIELD overlays and inherit registry-native display controls (opacity slider, default 60%). group: panel section id (BUILD ORDER 4 #2, GIP Part 4 UI SCALABILITY) — the client's PANEL_GROUPS/LAYER_GROUP map is now a fallback only; a new layer can be slotted into an existing panel group by setting this field alone, no client code change required (a brand-new group id needs one addition to client PANEL_GROUPS to get a label, but defaults collapsed automatically). costTier: 'light'|'moderate'|'heavy' — relative client network/render cost (raster fields and high-frequency live streams are 'heavy'; small polled REST lists are 'light'); feeds the panel's active-cost-budget advisory badge (client datamap.tsx costWeightOf/activeCostWeight) and is available for future admission-control budgets as the registry grows toward hundreds of layers.",
  "layers": [
   {
    "id": "imagery",
    "name": "Satellite imagery",
    "kind": "raw",
    "status": "live",
+   "group": "base",
+   "costTier": "light",
    "source": "Esri World Imagery (tiles; attribution on-map)",
    "description": "Base satellite/aerial imagery."
   },
@@ -14,6 +16,8 @@
    "name": "Terrain (hillshade)",
    "kind": "raw",
    "status": "live",
+   "group": "base",
+   "costTier": "moderate",
    "source": "Mapterhorn terrain tiles (Copernicus GLO-30 + national open DEMs; \u00a9 Mapterhorn)",
    "description": "Global elevation hillshade rendered under all data layers. Off by default \u2014 the imagery base already shows relief; this is the opt-in accent (and the DEM source future 3D terrain reuses)."
   },
@@ -22,6 +26,8 @@
    "name": "Weather radar (US)",
    "kind": "raw",
    "status": "live",
+   "group": "base",
+   "costTier": "heavy",
    "source": "NOAA/NWS nowCOAST WMS (public domain)",
    "description": "US base-reflectivity radar mosaic, refreshed ~5 min, rendered under all data layers. COVERAGE HONESTY: US + territories only \u2014 no free lawful global radar source exists (RainViewer and Open-Meteo free tiers prohibit our use). Global temp/wind fields can activate later via an OpenWeatherMap free key (human action filed).",
    "field": true
@@ -31,6 +37,8 @@
    "name": "Temperature (global)",
    "kind": "raw",
    "status": "live",
+   "group": "base",
+   "costTier": "heavy",
    "source": "OpenWeatherMap free tier (Weather data \u00a9 OpenWeatherMap; attribution required)",
    "description": "Global surface-temperature field, model-derived (not station truth \u2014 labeled per the licensing register). Tiles proxied server-side so the API key is never exposed and the 60-calls/min free budget is shared-cache bounded. Fresh keys take ~2h to activate on OWM's side \u2014 the layer shows a retry note, not an error, until then.",
    "field": true
@@ -40,6 +48,8 @@
    "name": "Wind (global)",
    "kind": "raw",
    "status": "live",
+   "group": "base",
+   "costTier": "heavy",
    "source": "OpenWeatherMap free tier (Weather data \u00a9 OpenWeatherMap; attribution required)",
    "description": "Global wind-speed field, model-derived (not station truth). Same proxied-key + shared-cache + fresh-key-retry behavior as the temperature layer.",
    "field": true
@@ -49,6 +59,8 @@
    "name": "Live aircraft (ADS-B)",
    "kind": "raw",
    "status": "live",
+   "group": "live",
+   "costTier": "heavy",
    "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live + adsb.fi (fallbacks)",
    "description": "Live aircraft positions; updates ~10s. No predictive claim."
   },
@@ -57,6 +69,8 @@
    "name": "Live vessels (AIS)",
    "kind": "raw",
    "status": "awaiting_key",
+   "group": "live",
+   "costTier": "moderate",
    "source": "aisstream.io (free API key)",
    "description": "Live ship positions via AIS websocket. Goes live automatically when AISSTREAM_KEY is set (free signup \u2014 see wishlist)."
   },
@@ -65,6 +79,8 @@
    "name": "Live trains (rail)",
    "kind": "raw",
    "status": "live",
+   "group": "live",
+   "costTier": "light",
    "source": "Digitraffic Finland (CC BY 4.0) + Entur Norway (NLOD)",
    "description": "Live passenger-rail positions. Coverage: Finland + Norway (launch). US freight positions are proprietary \u2014 no free source exists."
   },
@@ -73,6 +89,8 @@
    "name": "Strategic sites",
    "kind": "raw",
    "status": "live",
+   "group": "facilities",
+   "costTier": "light",
    "source": "datacore/sites (researched coordinates + metadata)",
    "description": "Cushing OK tank farms, major steel mills, top US ports."
   },
@@ -81,6 +99,8 @@
    "name": "US power plants",
    "kind": "raw",
    "status": "live",
+   "group": "facilities",
+   "costTier": "moderate",
    "source": "Global Power Plant Database v1.3.0 (WRI, CC BY 4.0)",
    "description": "All ~9,800 US plants by fuel type; capacity + operator on click. Static reference data (2021 vintage)."
   },
@@ -89,6 +109,8 @@
    "name": "Insider transactions (Form 4)",
    "kind": "raw",
    "status": "live",
+   "group": "filings",
+   "costTier": "light",
    "source": "SEC EDGAR (no API key required)",
    "description": "Recent Form 4 filings (insider buys/sells/grants) as filed. As-is display, no predictive claim \u2014 clustering-vs-returns is an open gate-2 question, not yet surfaced as a signal."
   },
@@ -97,6 +119,8 @@
    "name": "Earnings language (8-K)",
    "kind": "raw",
    "status": "live",
+   "group": "filings",
+   "costTier": "light",
    "source": "SEC EDGAR (8-K Item 2.02 / Exhibit 99, no API key required)",
    "description": "As-filed results/guidance press releases (Item 2.02 exhibits) the moment they hit EDGAR \u2014 the lawful free substitute for paid earnings-call transcripts. As-is display, no predictive claim; Q&A is almost never filed so this is prepared remarks/guidance language only, not the full call. Gate-2 (does language predict forward returns) is an open research question, not yet surfaced as a signal."
   },
@@ -105,6 +129,8 @@
    "name": "Dark-ship statistics",
    "kind": "raw",
    "status": "live",
+   "group": "filings",
+   "costTier": "light",
    "source": "Derived from our own AIS archive (terrestrial coverage)",
    "description": "Event COUNTS from our own vessel archive: AIS gap events (silent >6h, reappeared >100km away), identity-change candidates, loitering in known STS/transshipment zones. A gap can be coverage loss, not dark sailing \u2014 per-vessel shadow-fleet claims are SIGNAL-class and stay gated until validated (ladder gate 1)."
   },
@@ -113,6 +139,8 @@
    "name": "Port dwell (arrivals/departures)",
    "kind": "raw",
    "status": "live",
+   "group": "filings",
+   "costTier": "light",
    "source": "Derived from our own AIS archive + imagery-verified port geofences",
    "description": "Per-port vessel dwell statistics from our own archive: completed calls, ships in port now, median/p90 dwell, and 3x-median anomaly FLAGS (suppressed under 10 completed calls \u2014 thin history). Dwell figures are lower bounds (coverage gaps split visits). The dwell-anomaly SIGNAL (congestion predicts returns) stays gated at ladder gate 2 vs published congestion indices."
   },
@@ -121,6 +149,8 @@
    "name": "Active fires (VIIRS)",
    "kind": "raw",
    "status": "awaiting_key",
+   "group": "environmental",
+   "costTier": "moderate",
    "source": "NASA FIRMS / LANCE (VIIRS 375m NRT; free MAP_KEY)",
    "description": "Active-fire detections, ~3h latency. Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration \u2014 see wishlist). No free history exists upstream \u2014 detections archive from the day the key activates."
   },
@@ -129,6 +159,8 @@
    "name": "River gauges (barge corridor)",
    "kind": "raw",
    "status": "live",
+   "group": "environmental",
+   "costTier": "light",
    "source": "USGS NWIS (public domain)",
    "description": "Live stage/discharge at 14 Mississippi/Ohio barge-corridor gauges. Raw readings as published (provisional values revise); the low-water freight-stress signal is gate-2-locked."
   },
@@ -137,6 +169,8 @@
    "name": "Severe weather alerts (NWS)",
    "kind": "raw",
    "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
    "source": "National Weather Service (public domain)",
    "description": "Active NWS warnings/watches with polygons, colored by severity, ~10-min refresh. Official alerts displayed as-is; zone-coded alerts without polygons are counted, not drawn (follow-up filed). Not for safety-of-life use."
   },
@@ -145,6 +179,8 @@
    "name": "Surface water (1984\u20132021)",
    "kind": "raw",
    "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
    "source": "EC JRC/Google \u2014 Global Surface Water v2021 (Pekel et al. 2016; free with attribution)",
    "description": "Where surface water occurred over 1984\u20132021 (occurrence % \u2014 rare to permanent). STATIC dataset, not live conditions: v2021 vintage stated per the imagery-date honesty rule. Atlas-parity layer; tiles served directly from the JRC public bucket \u2014 zero server cost.",
    "field": true
@@ -154,6 +190,8 @@
    "name": "Forest cover (2020)",
    "kind": "raw",
    "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
    "source": "EC JRC Global Forest Cover 2020 (10m, CC BY 4.0) \u2014 tiles via Global Forest Watch",
    "description": "Where forest stood in 2020 at 10m resolution. STATIC dataset, not live conditions: 2020 vintage stated per the imagery-date honesty rule. Atlas-parity layer; tiles served directly from the GFW public tile API \u2014 zero server cost.",
    "field": true
@@ -163,6 +201,8 @@
    "name": "Country borders",
    "kind": "raw",
    "status": "live",
+   "group": "base",
+   "costTier": "light",
    "source": "Natural Earth 1:110m admin-0 (public domain) \u2014 compiled into datacore",
    "description": "Country boundary lines as a reference overlay. Generalized 1:110m coastlines/borders (not survey-grade); de-facto boundaries per Natural Earth policy. Self-hosted \u2014 zero external dependency.",
    "field": false
@@ -172,6 +212,8 @@
    "name": "Tank-fill % (Sentinel-2)",
    "kind": "signal",
    "status": "planned",
+   "group": "signals",
+   "costTier": "light",
    "source": "Copernicus Sentinel-2 shadow analysis",
    "description": "GATED: may not surface before ladder gate 2 (statistical validation vs EIA ground truth)."
   }

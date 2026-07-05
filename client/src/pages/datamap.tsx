@@ -37,6 +37,12 @@ interface LayerMeta {
   status: "live" | "awaiting_key" | "planned" | "down";
   source: string;
   description: string;
+  // registry-native panel placement + cost budget (GIP Part 4 UI SCALABILITY
+  // item, BUILD ORDER 4 #2): optional so the visual-harness fixture (and any
+  // older cached registry mid-deploy) keeps working via the LAYER_GROUP/
+  // "light" fallbacks below — additive fields, no breaking migration.
+  group?: string;
+  costTier?: "light" | "moderate" | "heavy";
 }
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
@@ -95,8 +101,33 @@ const LAYER_GROUP: Record<string, string> = {
   alerts: "environmental",
   insider: "filings", earnings: "filings", shadowstats: "filings", portdwell: "filings",
 };
+// registry-native grouping (BUILD ORDER 4 #2): datacore/layers.json now
+// carries `group` per layer directly — a future pipeline can slot a new
+// layer into a panel group by editing the registry alone, no datamap.tsx
+// code change required. LAYER_GROUP above stays as the fallback for the
+// visual-harness fixture and any registry response from an older deploy
+// mid-rollout that predates the field.
 const groupOf = (l: LayerMeta): string =>
-  l.kind === "signal" || l.status === "planned" ? "signals" : LAYER_GROUP[l.id] || "live";
+  l.group || (l.kind === "signal" || l.status === "planned" ? "signals" : LAYER_GROUP[l.id] || "live");
+
+// per-layer relative client cost (network + render), registry-native
+// (BUILD ORDER 4 #2 cost-budget item). Unlabeled layers (fixture, stale
+// registry) default to "light" — never overclaims load.
+const COST_WEIGHT: Record<string, number> = { light: 1, moderate: 2, heavy: 4 };
+const costWeightOf = (l: LayerMeta): number => COST_WEIGHT[l.costTier || "light"] ?? 1;
+// groups shown expanded by default; any group id NOT in this set (including
+// every group a future registry update introduces) defaults COLLAPSED —
+// inverted from the old hardcoded collapsed-list so growth is safe by
+// construction instead of by remembering to update a second list.
+const OPEN_GROUPS_BY_DEFAULT = new Set(["base", "live"]);
+// per-group DOM row cap (BUILD ORDER 4 #2 panel-scale item): an open group
+// renders at most this many rows before collapsing the rest behind a
+// "show all" control — bounds panel DOM cost per group regardless of how
+// large the registry grows, without needing a windowed-scroll virtualizer.
+// Verified against today's registry: no group exceeds this (zero visual
+// change); see scripts/visual_check.mjs's layer-scale battery for the
+// measured behavior at 50/100/200 synthetic layers.
+const GROUP_ROW_CAP = 12;
 
 // altitude → tint for aircraft icons (SDF icon-color)
 const ALT_COLOR: any = ["case",
@@ -150,10 +181,19 @@ export default function DataMapPage() {
   // Full earnings-language view (#/data/earnings) — same overlay pattern.
   const [earningsOpen, setEarningsOpen] = useState(() => window.location.hash === "#/data/earnings");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
-  // scannable and everything below is one visible tap away.
-  const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>({
-    facilities: true, environmental: true, filings: true, signals: true,
-  });
+  // scannable and everything below is one visible tap away. Derived from
+  // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
+  // second hardcoded list: today's result is identical
+  // ({base: false, live: false, facilities: true, environmental: true,
+  // filings: true, signals: true}) but any group PANEL_GROUPS gains later
+  // defaults collapsed automatically, closing the "forgot to add it to the
+  // collapsed list" gap that let a big new group dump its full DOM by default.
+  const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(PANEL_GROUPS.map((g) => [g.id, !OPEN_GROUPS_BY_DEFAULT.has(g.id)])));
+  // per-group "show all" override for the GROUP_ROW_CAP progressive-
+  // disclosure cap (BUILD ORDER 4 #2 panel-scale item) — starts empty
+  // (every group capped) until the user explicitly expands one past 12 rows.
+  const [groupShowAll, setGroupShowAll] = useState<Record<string, boolean>>({});
   // v2.3 fullscreen map mode — nav hidden via a body class; remembered per
   // session; the map needs a resize after the container jumps.
   const [fullscreen, setFullscreen] = useState<boolean>(() => {
@@ -1844,6 +1884,18 @@ export default function DataMapPage() {
 
   const toggleable = (l: LayerMeta) => l.status === "live";
 
+  // active-cost-budget advisory (BUILD ORDER 4 #2): sums the registry-native
+  // costTier of every currently-active layer. Today's default-on set
+  // (imagery+aircraft+sites+insider+earnings+powerplants+trains+shadowstats+
+  // portdwell) weighs 13 — under the "light" ceiling, so the badge stays
+  // silent by default (zero visual regression); it only surfaces once a
+  // user (or a future larger registry's defaults) actually loads enough
+  // heavy layers to matter.
+  const activeCostWeight = layers.reduce(
+    (sum, l) => sum + (enabled[l.id] && toggleable(l) ? costWeightOf(l) : 0), 0);
+  const costLoad: "light" | "moderate" | "heavy" =
+    activeCostWeight <= 14 ? "light" : activeCostWeight <= 26 ? "moderate" : "heavy";
+
   const renderLayerRow = (l: LayerMeta) => {
     const st = statusFor(l);
     const on = !!enabled[l.id] && toggleable(l);
@@ -1969,6 +2021,41 @@ export default function DataMapPage() {
     );
   };
 
+  // shared by every named PANEL_GROUPS entry AND the unknown-group catch-all
+  // below — GROUP_ROW_CAP progressive disclosure lives here once, not
+  // duplicated per call site.
+  const renderPanelGroup = (id: string, label: string, members: LayerMeta[]) => {
+    if (members.length === 0) return null;
+    const onCount = members.filter((l) => !!enabled[l.id] && toggleable(l)).length;
+    // groups outside PANEL_GROUPS (the "_more" catch-all) have no entry in
+    // groupCollapsed's initial state — default those to collapsed, same
+    // rule OPEN_GROUPS_BY_DEFAULT already applies to every named group.
+    const isCollapsed = groupCollapsed[id] !== undefined ? groupCollapsed[id] : !OPEN_GROUPS_BY_DEFAULT.has(id);
+    const showAll = members.length <= GROUP_ROW_CAP || !!groupShowAll[id];
+    const shown = showAll ? members : members.slice(0, GROUP_ROW_CAP);
+    return (
+      <div key={id} className="vt-layer-group">
+        <button className="vt-layer-group-head" aria-expanded={!isCollapsed}
+                onClick={() => setGroupCollapsed((s) => ({ ...s, [id]: !s[id] }))}>
+          <span className={`vt-layer-group-chev${isCollapsed ? " closed" : ""}`}>▾</span>
+          <span>{label}</span>
+          <span className="vt-layer-group-count">{onCount}/{members.length} on</span>
+        </button>
+        {!isCollapsed && (
+          <>
+            {shown.map((l) => renderLayerRow(l))}
+            {!showAll && (
+              <button className="vt-layer-showmore"
+                      onClick={() => setGroupShowAll((s) => ({ ...s, [id]: true }))}>
+                + {members.length - GROUP_ROW_CAP} more — show all
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="vt-map-page" data-vt-map>
       {filingsOpen && (
@@ -2008,7 +2095,15 @@ export default function DataMapPage() {
         ) : (
           <div className="vt-layer-panel" role="region" aria-label="Map layers">
             <div className="vt-layer-panel-head">
-              <span><LayersIcon size={14} /> Layers</span>
+              <span>
+                <LayersIcon size={14} /> Layers
+                {costLoad !== "light" && (
+                  <span className="vt-cost-note" data-tier={costLoad} role="status"
+                        title={`Active layer cost budget: ${activeCostWeight} (heavy layers weigh 4x, moderate 2x, light 1x)`}>
+                    {costLoad} load
+                  </span>
+                )}
+              </span>
               <span style={{ display: "inline-flex", gap: 2 }}>
                 <button className="vt-icon-btn" aria-label="About data labels"
                         onClick={() => setShowRawInfo(v => !v)}>
@@ -2034,23 +2129,20 @@ export default function DataMapPage() {
                 reload the page to enable the newest layers.
               </div>
             )}
-            {PANEL_GROUPS.map((g) => {
-              const members = layers.filter((l) => groupOf(l) === g.id);
-              if (members.length === 0) return null;
-              const onCount = members.filter((l) => !!enabled[l.id] && toggleable(l)).length;
-              const isCollapsed = !!groupCollapsed[g.id];
-              return (
-                <div key={g.id} className="vt-layer-group">
-                  <button className="vt-layer-group-head" aria-expanded={!isCollapsed}
-                          onClick={() => setGroupCollapsed((s) => ({ ...s, [g.id]: !s[g.id] }))}>
-                    <span className={`vt-layer-group-chev${isCollapsed ? " closed" : ""}`}>▾</span>
-                    <span>{g.label}</span>
-                    <span className="vt-layer-group-count">{onCount}/{members.length} on</span>
-                  </button>
-                  {!isCollapsed && members.map((l) => renderLayerRow(l))}
-                </div>
-              );
-            })}
+            {PANEL_GROUPS.map((g) => renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id)))}
+            {/* SELF-SEE FOR UNKNOWN GROUPS (BUILD ORDER 4 #2 — caught live by
+                the layer-scale synthetic harness, not assumed): a registry-
+                native `group` value the client doesn't have a PANEL_GROUPS
+                label for must still render its layers somewhere — silently
+                dropping them would be exactly the self-see violation
+                DESIGN.md already treats as build-failing for known layers.
+                Renders once, appended after the named groups, defaulting
+                collapsed like any group not in OPEN_GROUPS_BY_DEFAULT. */}
+            {(() => {
+              const known = new Set(PANEL_GROUPS.map((g) => g.id));
+              const orphans = layers.filter((l) => !known.has(groupOf(l)));
+              return orphans.length ? renderPanelGroup("_more", "More", orphans) : null;
+            })()}
             {/* LEGEND v3 (legend directive 2026-07-04): symbol entries render
                 the SAME registry shapes the map draws (iconDataURL — one
                 shared icon source; DESIGN.md legend rule). Sections mirror

@@ -2166,6 +2166,15 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   color: var(--text-secondary);
 }
 .vt-layer-panel-head > span:first-child { display: inline-flex; align-items: center; gap: 7px; }
+/* active-cost-budget badge (BUILD ORDER 4 #2) — silent by default (today's
+   default-on set weighs "light"); surfaces once enough heavy layers are on. */
+.vt-cost-note {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em; text-transform: none;
+  padding: 2px 7px; border-radius: 999px;
+  background: rgba(251, 178, 76, 0.14); color: var(--accent-orange, #fbb24c);
+  white-space: nowrap;
+}
+.vt-cost-note[data-tier="heavy"] { background: rgba(255, 90, 110, 0.14); color: var(--accent-red, #ff5a6e); }
 .vt-icon-btn {
   width: 32px; height: 32px; min-width: 32px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -2432,6 +2441,14 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   padding: 4px 14px 10px 40px; font-size: 11.5px; color: var(--text-tertiary);
   line-height: 1.45;
 }
+/* GROUP_ROW_CAP progressive disclosure (BUILD ORDER 4 #2 panel-scale item):
+   only appears once a group exceeds the row cap — no-op on today's registry. */
+.vt-layer-showmore {
+  display: block; width: 100%; min-height: 44px; padding: 0 14px 0 40px;
+  background: none; border: 0; text-align: left; cursor: pointer;
+  color: var(--accent-bright); font-size: 11.5px; font-family: var(--font-mono);
+}
+.vt-layer-showmore:hover { color: var(--text-primary); }
 .vt-layer-desc-src { display: block; margin-top: 3px; font-family: var(--font-mono); font-size: 10.5px; }
 
 /* v2.3 fullscreen map mode: hide site nav for a full-viewport map */

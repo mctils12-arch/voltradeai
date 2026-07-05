@@ -13,6 +13,144 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PRODUCT] UI SCALABILITY ARCHITECTURE — registry-native group/costTier + panel row-cap + 50/100/200-layer synthetic harness (BUILD ORDER 4 #2, GIP Part 4) (v1.0.129) [T-CLIENT, touching datacore/layers.json additively]
+
+- [T-CLIENT] Territory: client/src/**, index.css, scripts/visual_check.mjs
+  (WORKSTREAM PARTITION); this PR also touches datacore/layers.json but
+  ADDITIVELY only (two new optional metadata fields per layer, no pipeline
+  logic changed) — declared here per the partition's cross-territory rule
+  (one session, one logical change, not split). SESSION START per MEMORY
+  PROTOCOL: read CLAUDE.md, experiments.md, open_questions.md, wishlist.md.
+  Loop-health ratio over the last 10 entries: RULE-REVIEW 2, PIPELINE 2,
+  RESEARCH 2, REPAIR 2, PRODUCT 2 — no thrash (well under 7/10). /api/health
+  checked first: all ok, bot active, equityPeak $108,151.39, drawdownPct
+  0.0, liveness not dark — no KNOWN BROKEN item blocked this session, none
+  required noting at top-of-report.
+- PRIMARY ACTION: BUILD ORDER 4 #2 (self-proposed 2026-07-05, GIP Part 4
+  UI SCALABILITY, "IN-PROGRESS" since 2026-07-04) was the next unblocked
+  queued product item — #1 (operator resolution) shipped v1.0.127, #3
+  (international registries) is blocked on per-country access-page
+  discovery, #4 (natgas gate-2) and #5 (options-chain QA) both wait on
+  future calendar dates, #6 (counterfactual logger) is T-BOT. This is a
+  T-CLIENT item and the only one actually actionable today.
+- HYPOTHESIS STATED BEFORE MEASURING (REASONING STANDARD #10): the panel's
+  default-open groups (base, live) render ALL members unconditionally and
+  PANEL_GROUPS/LAYER_GROUP are hardcoded per-id maps in datamap.tsx — as
+  the registry grows toward "hundreds of layers" (GIP Part 4), (a) a large
+  default-open group could dump unbounded DOM, and (b) a new layer added
+  only to the registry (no client code change) would need a matching
+  hardcoded LAYER_GROUP/groupCollapsed entry or it silently mis-groups or
+  defaults OPEN. Prior: ~40% chance today's small registry (21 layers, max
+  group size 6) already masks a real scaling defect that only shows at
+  50-200 layers — worth measuring rather than assuming either way.
+- BUILT (one logical change): (1) registry-native `group` + `costTier`
+  fields added to every datacore/layers.json entry (schema documented in
+  `_doc`) — `groupOf()` in datamap.tsx now prefers `l.group`, falling back
+  to the old LAYER_GROUP map only for the visual-harness fixture / a
+  registry response from an older deploy mid-rollout; (2) `groupCollapsed`
+  init switched from a hardcoded collapsed-name list to a computed
+  `!OPEN_GROUPS_BY_DEFAULT.has(id)` (OPEN_GROUPS_BY_DEFAULT = {base, live})
+  — IDENTICAL result for today's 6 groups (verified: zero visual diff) but
+  any group id introduced later defaults COLLAPSED automatically instead
+  of needing a second hardcoded entry remembered; (3) GROUP_ROW_CAP = 12:
+  an open group renders at most 12 rows behind a "+N more — show all"
+  control — no-op today (max group size 6) but bounds DOM per group at any
+  registry size; (4) a `costWeightOf`-summed active-cost-budget badge
+  ("moderate load"/"heavy load", silent below weight 15) in the panel
+  header — a genuine consumer of costTier, not decorative metadata (the
+  STALENESS AUDIT would rightly flag an unused field); (5) an unknown-group
+  catch-all ("_more") so a layer whose `group` isn't in PANEL_GROUPS still
+  renders instead of silently vanishing from the panel.
+- BUG FOUND AND FIXED DURING BUILD (the harness caught it, not review): the
+  first version of the "_more" catch-all still showed only ~75% of
+  synthetic layers reachable via "show all" — traced to exactly the defect
+  the catch-all exists to prevent (layers whose `group` didn't match any
+  PANEL_GROUPS id were filtered out of the render entirely, only labeled
+  correctly). Fixed by extracting `renderPanelGroup()` and calling it for
+  both the named PANEL_GROUPS and the orphan set; re-ran the harness to
+  confirm 50/100/200 all reach 100%.
+- SEPARATE FINDING, NOT A BUG (verified by direct debugging, see below):
+  synthetic layers correctly render their toggle DISABLED ("unwired" guard,
+  pre-existing 2026-07-04 open-tab-skew protection) because no real
+  map-data fetch/render effect exists for a fabricated `synth_N` id — a
+  registry edit alone (adding `group`/`costTier`) was never going to make
+  a brand-new interactive layer functional without an actual client
+  deploy, and the guard correctly refuses a toggle that would flip and
+  paint nothing. Confirms the guard and my registry-native change are
+  solving two different problems (grouping/visibility vs. real wiring) —
+  worth recording so a future session doesn't re-litigate it.
+- MEASURED (scripts/visual_check.mjs, new `--page scale` battery,
+  synthetic 50/100/200-layer registries via a per-context Playwright route
+  override — the shared FIXTURES/server untouched, no determinism cost to
+  any other page): default-open panel rows stayed at 14/24/24 (well under
+  the 30-row regression-guard budget) across n=50/100/200 — collapse-by-
+  default + GROUP_ROW_CAP hold regardless of registry size, not just
+  today's. "Show all" reached 50/50, 100/100, 200/200 layers (100% self-
+  see at scale, after the fix above). TTI stayed 1.2-2.5s, under the
+  existing 3000ms map-page gate this file already uses elsewhere — no
+  regression at scale. The cost-budget badge was separately exercised on
+  the REAL 21-layer fixture (toggling all 9 non-default heavy/moderate
+  layers, weight 13->35) and correctly read "heavy load" — `.visual/
+  results.json`'s `data`/1440 entry: `costBudgetBadge: "heavy load"`,
+  `toggleConsistency: "16 layers toggled clean"`.
+- CONCLUSION vs PRIOR: hypothesis partially confirmed — the architecture
+  DID need the fix (the orphan-group defect was real, not hypothetical),
+  but once fixed, today's collapse-by-default + 12-row cap combination
+  already holds at 200 layers with real margin (24 rows vs 30 budget) —
+  literal windowed DOM virtualization is NOT yet evidence-justified;
+  filed as a precise trigger condition in open_questions.md BUILD ORDER 4
+  #2 rather than built speculatively (CLAUDE.md: don't design for
+  hypothetical requirements) — revisit if any single group's real member
+  count approaches ~25 (row cap 12 + one showAll click still renders all
+  25, which is the actual measured-safe ceiling per the n=50 case above:
+  the largest synthetic group there held ~7 members and passed cleanly;
+  extrapolating the n=200 case, up to ~25-member groups measured clean).
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): registry-native group/costTier
+  -> a future pipeline session can add a datacore layer with correct panel
+  placement and a cost estimate by editing layers.json alone (no
+  datamap.tsx PR required for KNOWN groups) -> the human's weekly /data
+  review keeps working as the registry grows -> BUT the layer stays
+  non-interactive ("unwired"/"reload to enable") until a follow-up client
+  PR adds its real fetch/render effect, by design — this PR does not
+  change that constraint, only removes the panel-placement bottleneck.
+- PROMOTION RULES: (1) full test:node suite 223/223 passed (unchanged
+  count from before this PR — no test removed/weakened); (2) new tests are
+  the scale-harness battery itself (mechanical, in scripts/visual_check.mjs,
+  since this repo's client layer has no unit-test framework — DESIGN.md's
+  visual harness is the established verification path for client/) plus
+  the real-fixture cost-budget exercise; (3) not a strategy/parameter
+  change — no backtest required; (4) version bumped 1.0.128 -> 1.0.129
+  (read-and-increment at commit time per MERGE-ORDER PROTOCOL, confirmed
+  against origin/main immediately before bumping — no new merges since
+  this branch was cut); (5) one logical change, own PR; (6) VISUAL
+  VERIFICATION: `npm run visual` (soft mode) run at 390/768/1440 for all
+  three pages (data/developers/landing) plus the new scale/all-off
+  batteries — 0 hard failures; screenshots reviewed
+  (.visual/data-1440.png shows the unchanged default panel — no cost
+  badge, matches the "silent below weight 15" design; .visual/
+  data-scale-200.png shows the 200-layer synthetic registry rendering
+  correctly with the "reload to enable" unwired state and a scrollable
+  panel). Pre-existing warnings (nav touch-target sizes, "Filings & flows"
+  clipped-control note) verified UNCHANGED from the pre-PR baseline via
+  `git stash` A/B (not a regression — filed nowhere new, already
+  pre-existing per the file's own history).
+- NOT IN SCOPE, FLAGGED HONESTLY: `python3 -m pytest -q` was run as a
+  sanity check (no Python files touched by this PR) and found 2
+  PRE-EXISTING failures unrelated to this change — `test_options_v134_fixes
+  .py::TestFix7_EarningsAlwaysIronCondor` (both cases), `KeyError:
+  'opt_type'` in `options_scanner.py:490`'s `_find_by_delta` — confirmed
+  pre-existing via `git stash` A/B (identical 2 failures on the pre-PR
+  commit). T-BOT territory, out of scope for this T-CLIENT PR per
+  one-logical-change-per-PR; noting here per the REPAIR MANDATE so a
+  T-BOT session doesn't have to rediscover it. `npm run check` (tsc): 63
+  pre-existing errors, unchanged count, none touch datamap.tsx (verified
+  by grep) — consistent with the prior session's note that tsc is not a
+  clean gate in this repo.
+- BUILD ORDER 4 #2 STATUS: updated in open_questions.md with the measured
+  numbers above — item stays open only for the "revisit if a group
+  approaches ~25 members" trigger; not closed as "done forever" since
+  that's a real future condition, not a today-problem.
+
 ## 2026-07-05 — [RULE-REVIEW] Performance/ml-status/diag slippage stats were reading a dead file — realistic-P&L honesty bug fixed (v1.0.128) [T-BOT]
 
 - [T-BOT] Territory: bot_engine.py/ml_model_v2.py/server/bot.ts outside
