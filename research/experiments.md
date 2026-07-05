@@ -13,6 +13,27 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RULE-REVIEW] /data map performance 2/3: calibrated perf gate in the harness (v1.0.94) [T-CLIENT tooling]
+
+- Measurement change, own PR per MEASUREMENT INTEGRITY. Performance
+  regressions now FAIL the harness like visual ones: map-page TTI
+  gate 3000ms (observed ceiling ~1.3s), per-width median-frame gates
+  120/200/250ms @390/768/1440 (observed 33-117), p95 gate 350ms
+  (observed ceiling 200; warn band from 250), all under SwiftShader
+  as regression guards — the S24 remains the on-device acceptance
+  ruler per DESIGN.md.
+- Metric before vs after on identical inputs: same TTI/median/p95
+  numbers measured, only thresholds tightened — the change can only
+  make builds FAIL more, never look better (bias direction stated).
+- DATA-RICHNESS GUARD: at 1440 the aircraft SOURCE must hold >=9500
+  unique features (deduped by icao24) regardless of rendered count —
+  the enabler for low-zoom decimation (3/3) and the ban on doing it
+  by dropping data.
+- Deliberately NOT added: a payload-bytes budget — the harness fixture
+  server doesn't run the prod compression middleware, so it would
+  measure the wrong thing; compression is pinned by the express
+  round-trip test in server/compression.test.ts instead.
+
 ## 2026-07-05 — [REPAIR] /data map performance 1/3: eliminate redundant network + render work (v1.0.93) [T-CLIENT+server/index.ts]
 
 - Priority-repair directive: map slow to initially load, sluggish with

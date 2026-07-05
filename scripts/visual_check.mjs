@@ -848,18 +848,41 @@ async function main() {
         if (!e?.skip) checks.failures.push("landing-globe: driver error — " + (e?.message || e));
       }
       // Perf budget (headless regression guards; on-device budget in DESIGN.md)
+      // CALIBRATED GATE ([RULE-REVIEW] 2026-07-05, perf repair 2/3):
+      // performance regressions now FAIL the build like visual ones.
+      // Thresholds are ~2x the worst numbers observed across recent green
+      // runs under SwiftShader (data TTI 893-1306ms; medians 33-117ms by
+      // width; p95 50-183ms) — regression guards, not the on-device budget
+      // (DESIGN.md owns that; the S24 is the acceptance device). Direction
+      // of bias: this change can only make builds FAIL more, never look
+      // better (measurement-integrity note).
       if (tti == null) checks.failures.push("TTI: skeleton never cleared (>15s)");
+      else if (cfg.map && tti > 3000) checks.failures.push(`TTI ${tti}ms > 3000ms map-page gate (observed ceiling ~1.3s)`);
       else if (tti > 12000) checks.failures.push(`TTI ${tti}ms > 12s headless guard`);
       if (cfg.map && perf.error) checks.failures.push("perf: " + perf.error);
       else if (cfg.map) {
-        // Software-GL (SwiftShader) is 10-50x slower than any real GPU —
-        // REGRESSION GUARDS calibrated to headless, not the on-device budget
-        // (DESIGN.md owns that; the S24 is the acceptance device). MEDIAN =
-        // steady-state smoothness after a warm-up window; p95 spikes are
-        // data-upload hitches, warned not failed under software rasterization.
-        if (perf.median > 300) checks.failures.push(`perf: median frame ${perf.median}ms > 300ms headless guard (steady-state jank) @10k features`);
-        if (perf.p95 > 700) checks.warnings.push(`perf: p95 frame ${perf.p95}ms (upload-hitch spikes)`);
+        const MEDIAN_GATE = { 390: 120, 768: 200, 1440: 250 };
+        const medGate = MEDIAN_GATE[vp.w] || 300;
+        if (perf.median > medGate) checks.failures.push(`perf: median frame ${perf.median}ms > ${medGate}ms gate @${vp.w} (steady-state jank at 10k features)`);
+        if (perf.p95 > 350) checks.failures.push(`perf: p95 frame ${perf.p95}ms > 350ms gate (observed ceiling 183ms)`);
+        if (perf.p95 > 250) checks.warnings.push(`perf: p95 frame ${perf.p95}ms (upload-hitch spikes)`);
         if (!perf.renderedAircraft) checks.warnings.push("perf: no aircraft features rendered in viewport sample");
+        // DATA-RICHNESS GUARD (enables low-zoom decimation without data
+        // loss, and forbids the cheat): the SOURCE must hold the full
+        // fixture regardless of how many icons the renderer draws.
+        // Deduped by icao24 — querySourceFeatures returns per-tile copies.
+        if (vp.w === 1440) {
+          const srcCount = await page.evaluate(() => {
+            try {
+              const m = window.__vtMap;
+              return new Set(m.querySourceFeatures("aircraft").map((f) => f.properties.icao24)).size;
+            } catch { return -1; }
+          });
+          checks.info.aircraftSourceCount = srcCount;
+          if (srcCount >= 0 && srcCount < 9500) {
+            checks.failures.push(`data-richness: aircraft source holds ${srcCount} < 9500 unique features — decimation must trim RENDERING, never DATA`);
+          }
+        }
       }
       results.push({ page: name, width: vp.w, label: vp.label, screenshot: shot, tti, perf, ...checks });
       await ctx.close();
