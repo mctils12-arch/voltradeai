@@ -13,6 +13,34 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Stream #4: USAspending contract-awards archiver (v1.0.96) [T-DATACORE]
+
+- Built per the verified brief: server/usaSpending.ts — transaction-
+  level search polled by last_modified_date (the publication axis),
+  EXPLICIT $25k floor applied client-side via two sorted passes with
+  early stop (the API's own amount filter is award-LIFETIME — trap),
+  deobligations kept symmetrically, dedup (aid,mod,amt) with FPDS
+  corrections appending as vintage rows, 6h eager poll,
+  /api/data/contracts route, envelope manifest.
+- TICKER MAPPING precision-first: SEC company_tickers.json exact
+  normalized-name match (ambiguous normalized names DROPPED — never
+  guess), award-detail parent for large unmatched rows (the
+  recipient-profile endpoint is banned: vintage-less, provably wrong
+  parents), persistent UEI->ticker cache that compounds forever.
+  Unmatched rows archive tkr:null and are skipped by consumers.
+- HONESTY ENCODED: rt is the only event date (action_date = signature
+  date); DoD/USACE publish ~90 days late — manifest + route note carry
+  it; gate 2 must cohort/exclude DoD. DUNS never stored (D&B
+  proprietary); UEI only.
+- LIVE E2E: 308 real txns >= $25k pulled over the 2-day holiday
+  window; 23 name/cache-matched (GM resolved by name, then served
+  from cache within the same run — the compounding works); 8 queued
+  for parent lookups; all 308 archived and deduped on re-run.
+- LADDER: gate 1 (recipient->ticker precision on a 50-award
+  hand-check) is now RUNNABLE from the archive alone (mm + mname audit
+  fields); not yet attempted. Gate 2 blocked on gate 1 + return
+  windows. 8 tests green; offline pytest suite green.
+
 ## 2026-07-05 — [RESEARCH] Parallel subagent batch: streams 4-8 verified, tank-fill v2 workup, datacore quality audit (docs)
 
 - Throughput directive executed: five subagents ran while the main
