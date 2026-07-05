@@ -13,6 +13,23 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] Eager archive tick: aircraft + trains no longer visitor-dependent (v1.0.101) [T-DATACORE]
+
+- Audit defect #1 (the top finding): aircraft and trains archiving was
+  REQUEST-driven — archiveAircraft/archiveTrains run as fetch side
+  effects, so no visitors = no archive. 11 hourly gaps each were
+  already permanent in the archive's first 36h, and the record was
+  visitor-BIASED (only what someone happened to view). Vessels had the
+  eager fix (KNOWN BROKEN #9); these two didn't.
+- FIX: a 10-minute tick fires one aircraft snapshot rotating across
+  four strategic-site regions (Cushing/south-central, US NE corridor,
+  LA/Long Beach, Rotterdam ARA — each region ~every 40 min under the
+  point-radius API cap) plus one global trains snapshot (which also
+  keeps trainsCache warm for visitors). One extra upstream call per
+  10 min per feed. Fires once at boot, not after the first interval.
+- RATCHET: source-pin test (regions >= 3, both feeds, 10-min cadence,
+  boot-fire) so the tick can't be silently de-scoped.
+
 ## 2026-07-05 — [PRODUCT] River-gauge /data layer — stream #6's map surface (v1.0.100) [T-CLIENT + shared registry]
 
 - The USGS stream's geographic surface, per the legend same-PR rule:

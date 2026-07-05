@@ -1225,6 +1225,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // creds; runs once per trading day after the close.
   bootChainArchive();
 
+  // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
+  // trains archiving was REQUEST-driven (fetch functions archive as a side
+  // effect) — no visitors meant no archive, and 11 hourly gaps each were
+  // already permanent in the archive's first 36h (gaps never refill).
+  // Vessels got the eager-boot fix (KNOWN BROKEN #9); these two didn't.
+  // Every 10 minutes: one aircraft snapshot rotating across four
+  // strategic-site regions (point-radius API — a fixed region per tick,
+  // each region ~every 40 min) + one trains snapshot (single global
+  // fetch, its archive is internal). One extra upstream call per 10 min
+  // per feed — negligible vs the visitor-driven load it replaces, and the
+  // archive stops being visitor-biased.
+  const ARCHIVE_TICK_REGIONS = [
+    { lamin: 33, lamax: 39, lomin: -100, lomax: -93 },  // Cushing / south-central US
+    { lamin: 37, lamax: 42, lomin: -78, lomax: -71 },   // US northeast corridor
+    { lamin: 32, lamax: 36, lomin: -120, lomax: -114 }, // LA / Long Beach
+    { lamin: 49, lamax: 54, lomin: 2, lomax: 9 },       // Rotterdam / ARA range
+  ];
+  let archiveTickIdx = 0;
+  const archiveTick = () => {
+    const r = ARCHIVE_TICK_REGIONS[archiveTickIdx++ % ARCHIVE_TICK_REGIONS.length];
+    fetchAircraft(r.lamin, r.lamax, r.lomin, r.lomax).catch(() => {});
+    fetchTrains().then((d) => { trainsCache = { at: Date.now(), data: d }; }).catch(() => {});
+  };
+  archiveTick();
+  setInterval(archiveTick, 10 * 60_000).unref?.();
+
   app.get("/api/data/fires", (_req, res) => {
     if (!firmsEnabled()) {
       return res.json({
