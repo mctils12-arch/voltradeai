@@ -758,6 +758,59 @@ async function main() {
       } catch (e) {
         if (!e?.skip) checks.failures.push("fields-on: driver error — " + (e?.message || e));
       }
+      // ── LANDING GLOBE SYMBOLS (directive 2026-07-05): the hero globe
+      // renders REAL registry silhouettes, not dots — symbol layers fed by
+      // the shared icon registry, heading-rotated, every icon actually
+      // registered on the map (hasImage), aircraft shapes varied. Placed
+      // features are the honest "it renders" signal (same lesson as
+      // fields-on). Screenshot with the section in view is the PR evidence.
+      try {
+        if (name !== "landing") throw { skip: true };
+        await page.evaluate(() => document.getElementById("data-intel")?.scrollIntoView({ block: "center" }));
+        let up = false;
+        for (let i = 0; i < 80; i++) {
+          up = await page.evaluate(() => {
+            const m = window.__vtGlobe;
+            if (!(m && m.getLayer && m.getLayer("di-air-p"))) return false;
+            try { return m.queryRenderedFeatures({ layers: ["di-air-p"] }).length > 0; } catch { return false; }
+          });
+          if (up) break;
+          await page.waitForTimeout(250);
+        }
+        if (!up) {
+          checks.failures.push("landing-globe: globe never booted or no aircraft symbols placed");
+        } else {
+          const g = await page.evaluate(() => {
+            const fails = [];
+            const m = window.__vtGlobe;
+            const style = m.getStyle().layers || [];
+            for (const id of ["di-air-p", "di-sites-p"]) {
+              const l = style.find((x) => x.id === id);
+              if (!l) { fails.push(`landing-globe: layer ${id} missing`); continue; }
+              if (l.type !== "symbol") fails.push(`landing-globe: ${id} is ${l.type}, not symbol — dots regressed`);
+            }
+            const iconsOf = (src) => {
+              try { return [...new Set(m.querySourceFeatures(src).map((f) => f.properties.icon))]; } catch { return []; }
+            };
+            const air = iconsOf("di-air");
+            if (air.length < 2) fails.push("landing-globe: aircraft icons not varied: " + air.join(","));
+            for (const src of ["di-air", "di-sites"]) {
+              const missing = iconsOf(src).filter((i) => !i || !m.hasImage(i));
+              if (missing.length) fails.push(`landing-globe: ${src} icons not in shared registry: ` + missing.join(","));
+            }
+            try {
+              const rot = JSON.stringify(m.getLayoutProperty("di-air-p", "icon-rotate"));
+              if (!rot.includes("heading")) fails.push("landing-globe: icon-rotate not bound to heading: " + rot);
+            } catch { fails.push("landing-globe: icon-rotate unreadable"); }
+            return fails;
+          });
+          checks.failures.push(...g);
+          await page.waitForTimeout(400); // settle a render pass for the shot
+          await page.screenshot({ path: path.join(OUT, `${name}-globe-${vp.w}.png`) });
+        }
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("landing-globe: driver error — " + (e?.message || e));
+      }
       // Perf budget (headless regression guards; on-device budget in DESIGN.md)
       if (tti == null) checks.failures.push("TTI: skeleton never cleared (>15s)");
       else if (tti > 12000) checks.failures.push(`TTI ${tti}ms > 12s headless guard`);

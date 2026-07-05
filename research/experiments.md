@@ -13,6 +13,42 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PRODUCT] Hero globe: real registry symbols instead of dots (v1.0.89) [T-CLIENT]
+
+- Directive 2026-07-05 (#data-intel hero only): the globe's colored
+  dots became REAL vehicle silhouettes from the SAME shared icon
+  registry the /data map uses (lib/mapIcons SDF shapes + classifiers,
+  lazy-imported with maplibre) — globe and map cannot diverge, and
+  future icon improvements land on the globe automatically.
+- Aircraft: classifyAircraft(type, category) → jet/prop/heli/generic
+  silhouettes, icon-rotate bound to heading. Vessels:
+  classifyVessel(shiptype) → tanker/cargo/boat hulls, rotated to COG.
+  Sites: SITE_ICON category markers (anchor/tank-rings/factory),
+  upright, amber with SDF halo glow.
+- MISSING-CLASSIFICATION DEFAULTS: deterministic hash of the track id
+  picks from a believable mix (jets-heavy for aircraft, cargo/tanker
+  mix for vessels) — stable across refreshes, and real classification
+  always wins when the feed carries it. Honest note: shapes for
+  unclassified tracks are DISPLAY defaults, not data claims; headings
+  keep the map's ?? 0 convention, never fabricated.
+- Perf: symbol layers are the SDF path the /data map profiled (M4,
+  fill-rate bound); small fixed icon-size (0.32/0.26 air, 0.30/0.24
+  sea desktop/phone) + existing phone caps (500/300) keep the budget —
+  cap density, never stutter.
+- Harness: new landing-globe battery (scroll #data-intel into view,
+  wait for placed features, assert symbol layers + icons varied +
+  every icon registered via hasImage + icon-rotate bound to heading;
+  landing-globe-{w}.png artifacts). Full run green at 390/768/1440,
+  0 hard failures. Self-review: harness fixture (10k aircraft in a US
+  box) is too dense to judge legibility, so a production-sparsity
+  probe (220 aircraft / 140 vessels global) verified all 10 icon
+  shapes render and read at both 1440 and 390 — planes/hulls/anchor/
+  tank-rings/factory all legible.
+- Legend rule note: the hero is a decorative background, not a map
+  surface with a legend — the symbols' legend entries live on /data
+  where the same registry shapes are already legend-paired (parity
+  battery). No new unpaired symbol class was introduced.
+
 ## 2026-07-05 — [PIPELINE] Stream #2: EDGAR 13F-HR institutional-holdings archiver (v1.0.88) [T-DATACORE]
 
 - Built stream #2 of the DATA STREAM EXPANSION build order end-to-end:

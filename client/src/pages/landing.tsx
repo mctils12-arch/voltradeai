@@ -162,7 +162,15 @@ export default function LandingPage() {
         const AIR_CAP = phone ? 500 : 1200;
         const SEA_CAP = phone ? 300 : 800;
         try {
-          const maplibregl = (await import("maplibre-gl")).default;
+          // Symbols come from the SAME shared icon registry the /data map
+          // uses (lib/mapIcons SDF shapes + classifiers) — globe and map
+          // can never diverge, and future icon improvements land here
+          // automatically. Lazy-imported alongside maplibre so the landing
+          // initial chunk stays lean.
+          const [{ default: maplibregl }, icons] = await Promise.all([
+            import("maplibre-gl"),
+            import("../lib/mapIcons"),
+          ]);
           if (cancelled) return;
           globeMap = new maplibregl.Map({
             container: slot,
@@ -209,29 +217,99 @@ export default function LandingPage() {
             globeMap.addSource("di-grat", { type: "geojson", data: grat });
             globeMap.addLayer({ id: "di-grat-l", type: "line", source: "di-grat",
               paint: { "line-color": "#1a2f52", "line-width": 0.6, "line-opacity": 0.8 } });
-            const pts = (rows: any[], la: string, lo: string) => ({
+            // Real vehicle symbols (directive 2026-07-05): registry SDF
+            // silhouettes per class/type, heading-rotated where the feed
+            // carries it. Where classification is missing, a deterministic
+            // varied default (hashed by track id, stable across refreshes)
+            // keeps the mix believable — real classification always wins
+            // when the feed provides it (ADS-B type/category, AIS shiptype).
+            icons.registerIcons(globeMap);
+            const hash = (s: string) => {
+              let h = 0;
+              for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+              return Math.abs(h);
+            };
+            const AIR_DEFAULTS = ["vt-jet", "vt-jet", "vt-jet", "vt-prop", "vt-plane"];
+            const SEA_DEFAULTS = ["vt-cargo", "vt-tanker", "vt-cargo", "vt-boat"];
+            const airFeatures = (rows: any[]) => ({
               type: "FeatureCollection",
-              features: (rows || []).map((r: any) => ({
+              features: (rows || []).map((a: any) => {
+                const cls = icons.classifyAircraft(a.type, a.category);
+                return {
+                  type: "Feature",
+                  geometry: { type: "Point", coordinates: [a.lon, a.lat] },
+                  properties: {
+                    icon: cls === "unknown"
+                      ? AIR_DEFAULTS[hash(String(a.icao24 || a.callsign || "")) % AIR_DEFAULTS.length]
+                      : icons.AIRCRAFT_ICON[cls],
+                    heading: a.heading ?? 0,
+                  },
+                };
+              }),
+            });
+            const seaFeatures = (rows: any[]) => ({
+              type: "FeatureCollection",
+              features: (rows || []).map((v: any) => ({
                 type: "Feature",
-                geometry: { type: "Point", coordinates: [r[lo], r[la]] },
-                properties: {},
+                geometry: { type: "Point", coordinates: [v.lon, v.lat] },
+                properties: {
+                  icon: v.shiptype == null
+                    ? SEA_DEFAULTS[hash(String(v.mmsi || v.name || "")) % SEA_DEFAULTS.length]
+                    : icons.VESSEL_ICON[icons.classifyVessel(v.shiptype)],
+                  heading: v.cog ?? 0,
+                },
               })),
             });
+            // Symbol layers are the SDF path the /data map profiled (M4
+            // 2026-07-03, fill-rate bound): small fixed icon-size at globe
+            // zoom + the phone density caps above keep the frame budget —
+            // simplify/cap, never stutter (DESIGN.md).
             if (aircraft?.aircraft?.length) {
-              globeMap.addSource("di-air", { type: "geojson", data: pts(aircraft.aircraft.slice(0, AIR_CAP), "lat", "lon") });
-              globeMap.addLayer({ id: "di-air-p", type: "circle", source: "di-air",
-                paint: { "circle-radius": 2.1, "circle-color": "#5fb0ff", "circle-opacity": 0.95 } });
+              globeMap.addSource("di-air", { type: "geojson", data: airFeatures(aircraft.aircraft.slice(0, AIR_CAP)) });
+              globeMap.addLayer({ id: "di-air-p", type: "symbol", source: "di-air",
+                layout: {
+                  "icon-image": ["get", "icon"],
+                  "icon-size": phone ? 0.26 : 0.32,
+                  "icon-rotate": ["get", "heading"],
+                  "icon-rotation-alignment": "map",
+                  "icon-allow-overlap": true,
+                  "icon-ignore-placement": true,
+                },
+                paint: { "icon-color": "#5fb0ff", "icon-opacity": 0.95 } });
             }
             if (vessels?.vessels?.length) {
-              globeMap.addSource("di-sea", { type: "geojson", data: pts(vessels.vessels.slice(0, SEA_CAP), "lat", "lon") });
-              globeMap.addLayer({ id: "di-sea-p", type: "circle", source: "di-sea",
-                paint: { "circle-radius": 1.9, "circle-color": "#4ade80", "circle-opacity": 0.9 } });
+              globeMap.addSource("di-sea", { type: "geojson", data: seaFeatures(vessels.vessels.slice(0, SEA_CAP)) });
+              globeMap.addLayer({ id: "di-sea-p", type: "symbol", source: "di-sea",
+                layout: {
+                  "icon-image": ["get", "icon"],
+                  "icon-size": phone ? 0.24 : 0.3,
+                  "icon-rotate": ["get", "heading"],
+                  "icon-rotation-alignment": "map",
+                  "icon-allow-overlap": true,
+                  "icon-ignore-placement": true,
+                },
+                paint: { "icon-color": "#4ade80", "icon-opacity": 0.9 } });
             }
             if (sites?.sites?.length) {
-              globeMap.addSource("di-sites", { type: "geojson", data: pts(sites.sites, "lat", "lon") });
-              globeMap.addLayer({ id: "di-sites-p", type: "circle", source: "di-sites",
-                paint: { "circle-radius": 4, "circle-color": "#fbb24c",
-                         "circle-stroke-color": "rgba(251,178,76,0.3)", "circle-stroke-width": 4 } });
+              globeMap.addSource("di-sites", { type: "geojson", data: {
+                type: "FeatureCollection",
+                features: sites.sites.map((s: any) => ({
+                  type: "Feature",
+                  geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+                  properties: { icon: icons.SITE_ICON[s.category] || "vt-tank" },
+                })),
+              } });
+              // category silhouettes (anchor/tank cluster/factory), upright —
+              // sites never rotate; SDF halo keeps the amber glow read
+              globeMap.addLayer({ id: "di-sites-p", type: "symbol", source: "di-sites",
+                layout: {
+                  "icon-image": ["get", "icon"],
+                  "icon-size": phone ? 0.42 : 0.5,
+                  "icon-allow-overlap": true,
+                  "icon-ignore-placement": true,
+                },
+                paint: { "icon-color": "#fbb24c",
+                         "icon-halo-color": "rgba(251,178,76,0.35)", "icon-halo-width": 1.3 } });
             }
             // live movement: refresh aircraft positions while the hero is on
             // screen (30s — one light request; the visual motion between
@@ -240,8 +318,12 @@ export default function LandingPage() {
               if (!inView || document.hidden || cancelled || !globeMap) return;
               const d = await safeJson("/api/data/aircraft?lamin=-85&lamax=85&lomin=-180&lomax=180");
               const src: any = globeMap.getSource("di-air");
-              if (d?.aircraft?.length && src) src.setData(pts(d.aircraft.slice(0, 400), "lat", "lon"));
+              if (d?.aircraft?.length && src) src.setData(airFeatures(d.aircraft.slice(0, AIR_CAP)));
             }, 30_000);
+            // harness hook (mirrors /data's __vtMap): lets the visual
+            // harness assert the globe's layers/symbols without reaching
+            // into module scope
+            (window as any).__vtGlobe = globeMap;
             if (!reduced) {
               const spin = () => {
                 if (cancelled || !globeMap) return;
@@ -273,6 +355,7 @@ export default function LandingPage() {
         if (refreshIv) window.clearInterval(refreshIv);
         try { globeMap?.remove(); } catch {}
         globeMap = null;
+        try { delete (window as any).__vtGlobe; } catch {}
       });
     })();
 
