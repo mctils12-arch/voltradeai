@@ -133,6 +133,7 @@ const FIXTURES = {
     ],
   },
   "/api/data/weather/global/status": { status: "ok", note: "fixture: key active" },
+  "/api/data/platform/stats": { layers_live: 18, layers_total: 19, streams_recording: 20, observations: 1284550, observations_as_of: "2026-07-05T00:00:00Z" },
   "/api/data/weather/grid": {
     kind: "raw", source: "OpenWeatherMap current-weather point samples (fixture)",
     note: "sampled grid — one observation per ~310 km; arrows/labels never denser than the data",

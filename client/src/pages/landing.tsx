@@ -85,16 +85,15 @@ export default function LandingPage() {
       const el = document.getElementById(id);
       if (el && Number.isFinite(v)) el.textContent = v.toLocaleString();
     };
-    fetch("/api/data/layers").then((r) => r.json()).then((d) => {
-      const live = (d.layers || []).filter((l: any) => l.status === "live").length;
-      if (live > 0) num("di-layers", live);
-    }).catch(() => {});
-    fetch("/api/data/archive/stats").then((r) => r.json()).then((d) => {
-      const kinds = d.kinds || {};
-      const names = Object.keys(kinds);
-      const samples = names.reduce((s, k) => s + (kinds[k]?.samples || 0), 0);
-      if (names.length > 0) num("di-streams", names.length);
-      if (samples > 0) num("di-samples", samples);
+    // Real self-updating counters (hero-refinements 2026-07-05): one
+    // endpoint computed server-side from the registry + the archive —
+    // never hardcoded, never a phantom field (the old code summed a
+    // `samples` field prod never returned, which is why observations
+    // showed a dash in production).
+    fetch("/api/data/platform/stats").then((r) => r.json()).then((d) => {
+      if (d.layers_live > 0) num("di-layers", d.layers_live);
+      if (d.streams_recording > 0) num("di-streams", d.streams_recording);
+      if (d.observations > 0) num("di-samples", d.observations);
     }).catch(() => {});
     const form = document.getElementById("dataintel-waitlist");
     if (form) {
@@ -155,6 +154,13 @@ export default function LandingPage() {
         if (booted || cancelled) return;
         booted = true;
         if (!webglOk()) return; // graceful: backdrop stays
+        // Mission-control prominence (2026-07-05) with a graceful phone
+        // density cap: fewer points and a slightly smaller sphere under
+        // 640px so the frame rate never stutters — cap density, never
+        // let it stutter (DESIGN.md budget).
+        const phone = window.innerWidth < 640;
+        const AIR_CAP = phone ? 500 : 1200;
+        const SEA_CAP = phone ? 300 : 800;
         try {
           const maplibregl = (await import("maplibre-gl")).default;
           if (cancelled) return;
@@ -168,8 +174,8 @@ export default function LandingPage() {
               sources: {},
               layers: [{ id: "space", type: "background", paint: { "background-color": "#04070f" } }],
             } as any,
-            center: [-55, 24],
-            zoom: 1.05,
+            center: [-50, 22],
+            zoom: phone ? 1.15 : 1.45,
           });
           globeMap.on("load", async () => {
             if (cancelled) return;
@@ -185,9 +191,24 @@ export default function LandingPage() {
               globeMap.addSource("di-land", { type: "geojson", data: land });
               globeMap.addLayer({
                 id: "di-land-fill", type: "fill", source: "di-land",
-                paint: { "fill-color": "#12233f", "fill-outline-color": "#23406b" },
+                paint: { "fill-color": "#1b3560", "fill-outline-color": "#3a67a6" },
               });
             }
+            // graticule: 20° grid — the mission-control read
+            const grat: any = { type: "FeatureCollection", features: [] as any[] };
+            for (let lon = -180; lon <= 180; lon += 20) {
+              const line = [];
+              for (let la = -85; la <= 85; la += 5) line.push([lon, la]);
+              grat.features.push({ type: "Feature", geometry: { type: "LineString", coordinates: line }, properties: {} });
+            }
+            for (let la = -60; la <= 60; la += 20) {
+              const line = [];
+              for (let lon = -180; lon <= 180; lon += 5) line.push([lon, la]);
+              grat.features.push({ type: "Feature", geometry: { type: "LineString", coordinates: line }, properties: {} });
+            }
+            globeMap.addSource("di-grat", { type: "geojson", data: grat });
+            globeMap.addLayer({ id: "di-grat-l", type: "line", source: "di-grat",
+              paint: { "line-color": "#1a2f52", "line-width": 0.6, "line-opacity": 0.8 } });
             const pts = (rows: any[], la: string, lo: string) => ({
               type: "FeatureCollection",
               features: (rows || []).map((r: any) => ({
@@ -197,20 +218,20 @@ export default function LandingPage() {
               })),
             });
             if (aircraft?.aircraft?.length) {
-              globeMap.addSource("di-air", { type: "geojson", data: pts(aircraft.aircraft.slice(0, 400), "lat", "lon") });
+              globeMap.addSource("di-air", { type: "geojson", data: pts(aircraft.aircraft.slice(0, AIR_CAP), "lat", "lon") });
               globeMap.addLayer({ id: "di-air-p", type: "circle", source: "di-air",
-                paint: { "circle-radius": 1.4, "circle-color": "#4d9fff", "circle-opacity": 0.9 } });
+                paint: { "circle-radius": 2.1, "circle-color": "#5fb0ff", "circle-opacity": 0.95 } });
             }
             if (vessels?.vessels?.length) {
-              globeMap.addSource("di-sea", { type: "geojson", data: pts(vessels.vessels.slice(0, 300), "lat", "lon") });
+              globeMap.addSource("di-sea", { type: "geojson", data: pts(vessels.vessels.slice(0, SEA_CAP), "lat", "lon") });
               globeMap.addLayer({ id: "di-sea-p", type: "circle", source: "di-sea",
-                paint: { "circle-radius": 1.4, "circle-color": "#4ade80", "circle-opacity": 0.9 } });
+                paint: { "circle-radius": 1.9, "circle-color": "#4ade80", "circle-opacity": 0.9 } });
             }
             if (sites?.sites?.length) {
               globeMap.addSource("di-sites", { type: "geojson", data: pts(sites.sites, "lat", "lon") });
               globeMap.addLayer({ id: "di-sites-p", type: "circle", source: "di-sites",
-                paint: { "circle-radius": 3, "circle-color": "#fbb24c",
-                         "circle-stroke-color": "rgba(251,178,76,0.35)", "circle-stroke-width": 3 } });
+                paint: { "circle-radius": 4, "circle-color": "#fbb24c",
+                         "circle-stroke-color": "rgba(251,178,76,0.3)", "circle-stroke-width": 4 } });
             }
             // live movement: refresh aircraft positions while the hero is on
             // screen (30s — one light request; the visual motion between

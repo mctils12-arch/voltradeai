@@ -42,6 +42,7 @@ import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
+import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 
 const execAsync = promisify(exec);
@@ -1022,6 +1023,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Archive growth observability (volume watch — see wishlist).
   app.get("/api/data/archive/stats", (_req, res) => {
     try { res.json(archiveStats()); } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Honest self-updating platform counters for the landing hero
+  // (hero-refinements directive 2026-07-05): layers from the registry,
+  // streams from registry+archive, observations = REAL line counts
+  // (10-min cached). Never hardcoded — grows as the system grows.
+  app.get("/api/data/platform/stats", async (_req, res) => {
+    try {
+      res.set("Cache-Control", "public, max-age=300");
+      res.json(await platformStats((datacoreLayers as any).layers || []));
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
   // Strategic sites (RAW) — static reference data from datacore/sites.
