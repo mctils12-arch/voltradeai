@@ -13,6 +13,172 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RULE-REVIEW] Counterfactual logger: correlation/spread rejections now labeled truthfully in the shadow archive (BUILD ORDER 4 #6 continuation) (v1.0.130) [T-BOT]
+
+- [T-BOT] Territory: bot_engine.py, shadow_portfolio.py (a data module,
+  MUTABLE per CLAUDE.md; not one of the T-DATACORE-listed modules but
+  squarely inside T-BOT's `server/bot.ts`-adjacent trading-loop scope
+  since it's called exclusively from `bot_engine.py`'s scan path), new
+  test_shadow_portfolio.py (WORKSTREAM PARTITION). SESSION START per
+  MEMORY PROTOCOL: read CLAUDE.md, experiments.md, open_questions.md,
+  wishlist.md. Loop-health ratio over the last 10 entries: PRODUCT 3,
+  RULE-REVIEW 2, PIPELINE 1, RESEARCH 2, REPAIR 2 — no thrash (2/10
+  REPAIR, well under the 7/10 trigger). /api/health checked first: all
+  ok, bot active, equityPeak $108,151.39, drawdownPct 0.0, liveness not
+  dark — no KNOWN BROKEN item blocked this session, nothing to surface
+  top-of-report. `git fetch origin main` confirmed the branch starts
+  clean at v1.0.129 (a stale local ref cache briefly showed origin/main
+  20+ commits behind; a fresh fetch resolved it — no actual divergence,
+  just a cache artifact worth noting for the next session).
+- PRIMARY ACTION: BUILD ORDER 4 #6's own build plan (filed this same
+  day, see the `be5125e` entry below) named the next concrete, unblocked
+  step — "add a block_reasons[] tag ... at the rejection sites in
+  bot_engine.py scan/deep_score ... LOGGING ONLY — no mechanism change."
+  This was the highest-value fall-through item: BUILD ORDER 4 #4/#5
+  wait on future calendar dates (~2026-09-27, 2026-07-06), #3
+  (international registries) was already probed-and-deferred today,
+  #2 (UI scalability) already shipped today (v1.0.129) — #6's gap was
+  the only unblocked, fully-specified queued item left in the roadmap.
+  SESSION-BUDGET TIER: "fix a bug seen in audit logs" was not directly
+  actionable (no owner-auth audit-log access, per KNOWN BROKEN #4's
+  ACCESS LIMITATION, unchanged), so this queued item — fall-through
+  tier 1 — was the correct next action, not a downgrade to research.
+- HYPOTHESIS STATED BEFORE MEASURING (REASONING STANDARD #10): read
+  `bot_engine.py`'s `_scan_market_inner()` (the closure `scan_market()`
+  actually delegates candidate-filtering to — NOT `scan_market()`
+  itself, which is a thin timeout wrapper; caught this by running the
+  new tests against the wrong function first, see BUG FOUND below) top
+  to bottom this session. `deep_score()` calls `log_candidate()` with
+  decision `"taken"` the moment `combined_score >= MIN_SCORE` — but
+  `_scan_market_inner()`'s per-candidate loop applies MORE filters
+  AFTER that: cooldown, regime block, correlation/sector
+  (`check_sector_correlation`), $50M dollar-volume floor, blocked-
+  ticker list, extreme-mover (>50% today) watchlist diversion, and a
+  live bid/ask spread check — all of which can still `continue` (skip)
+  a candidate `deep_score()` already logged as `"taken"`. PRIOR: ~70%
+  chance at least one of these downstream filters was silently
+  mislabeling real rejections as "taken" in the shadow archive, since
+  nothing in the codebase or `open_questions.md`'s prior audits (KNOWN
+  BROKEN #10, the 2026-07-04 `shadow_portfolio.py` audit) had traced
+  candidates past `deep_score()`'s own logging call.
+  CONFIRMED: correlation/sector blocks and the quote-time spread check
+  are exactly this bug — real, frequent rejection paths whose
+  candidates were being recorded as "taken" in the learning archive
+  before this fix. This is a live HONESTY METRIC risk (GOAL doc): any
+  future session running `get_shadow_stats()`'s `win_rate_by_decision`
+  would have attributed correlation/spread REJECTIONS' outcomes to the
+  "taken" bucket, corrupting exactly the MIN_SCORE RULE COST AUDIT
+  question it's meant to answer (mixing "we actually traded this" with
+  "we scored it but a downstream filter blocked it" is a different
+  population with a different expected win rate).
+- BUILT (one logical change, logging-only, mechanisms untouched):
+  (1) `shadow_portfolio.update_last_decision(ticker, decision,
+  decision_reason, max_age_seconds=120.0)` — new function, mirrors
+  `log_candidate()`'s non-blocking contract (any failure swallowed,
+  logging must never break the trading loop). Walks the shadow log in
+  reverse, finds the MOST RECENT record for the ticker, and corrects
+  its `decision`/`decision_reason` ONLY IF that record is still
+  `"taken"` (not already resolved by something else) AND still fresh
+  (<=120s old, so a stale same-ticker record from an earlier scan can
+  never be mislabeled). (2) Two call sites added in
+  `_scan_market_inner()`: the `check_sector_correlation()` rejection
+  branch now calls `update_last_decision(ticker, "rejected_heat", ...)`
+  before its `continue`; the `_spread_pct > 0.005` rejection branch now
+  calls `update_last_decision(ticker, "rejected_other", ...)` before
+  its `continue`. Both wrapped in their own `try/except Exception:
+  pass` so a shadow-logging failure can never affect which candidates
+  actually get skipped — the filters' actual trading behavior is
+  byte-for-byte unchanged.
+- NOT WIRED, deliberately, and why (per the build plan's own scope):
+  `rejected_halt` — `check_kill_switches()` (risk_kill_switch.py, a
+  FROZEN PATH for mechanisms) gates the separate `TieredStrategy`
+  action list (`tiered_actions`), a DIFFERENT code path from the
+  `deep_score()`-based `trades` loop this fix targets; wiring it would
+  mean tracing kill-switch state into a structurally separate strategy
+  engine, a bigger and riskier change than this session's scope.
+  `rejected_earnings` — grepped the entire `trades`-loop path: no
+  per-candidate stock-long earnings blackout exists today (earnings
+  only enters `deep_score()` as a soft ML feature, and separately gates
+  covered-call selection in `options_execution.py`'s
+  `_check_earnings_guard`, a different candidate population). There is
+  no REJECTION SITE to log yet — adding one would mean adding a new
+  hard gate, which is a genuine RULE REVIEW-gated behavior change
+  (evidence or ablation required), not a logging-only PR. Both left
+  open in `open_questions.md`'s BUILD ORDER 4 #6 entry as the next
+  slice, correctly scoped separately per PROMOTION RULES rule 5 (one
+  logical change per PR).
+- BUG FOUND DURING BUILD (the tests caught it, not review): the first
+  version of the source-inspection test called
+  `inspect.getsource(bot_engine.scan_market)` and got a suspiciously
+  short 2,651-char result with neither call site in it — `scan_market()`
+  is a thin `def` that sets up a timeout signal handler and delegates
+  the real loop to a nested closure, `_scan_market_inner()` (confirmed
+  via `grep -n "^def " bot_engine.py` around the relevant line range).
+  Fixed by inspecting `_scan_market_inner` instead; both assertions then
+  passed. Exactly the READ-BEFORE-WRITE risk CLAUDE.md warns about —
+  caught here by a failing test, not by assumption.
+- REGRESSION TESTS (new file, `test_shadow_portfolio.py`, written
+  BEFORE considering the change complete, per loop-health rule 3):
+  6 unit tests on `update_last_decision()` directly (updates a fresh
+  "taken" record; no-ops when the most recent record is already
+  resolved; no-ops when the record is stale even if max_age_seconds is
+  explicit; no-ops on a ticker with no matching record; only ever
+  touches the FRESHEST record for a ticker, proven with two seeded
+  records for the same ticker at different ages; empty-ticker guard) +
+  2 source-inspection tests pinning both `_scan_market_inner()` call
+  sites to their exact decision-bucket string and to a defensive
+  `except Exception` wrapper (mirrors `test_voltrade_daemon.py`'s
+  established pattern of pinning wiring via source inspection). All 8
+  pass. Full offline CI-gate subset re-run: `python3 -m unittest
+  test_risk_controls test_audit_critical test_diagnostic_false_positives
+  test_patches_verification test_voltrade_daemon test_shadow_portfolio`
+  — 133 passed, 1 skipped (pre-existing skip, unrelated; identical
+  baseline otherwise). `python3 -m py_compile bot_engine.py
+  shadow_portfolio.py test_shadow_portfolio.py` clean. NOTE: this
+  sandbox lacked numpy/pandas/lightgbm/scikit-learn/requests before
+  `pip3 install`, which is why `bot_engine`-importing tests initially
+  errored on `ModuleNotFoundError` unrelated to this change — resolved
+  by installing the same packages `requirements.txt` already declares;
+  not a repo issue.
+- Downstream chain (REASONING STANDARD #1): a mislabeled shadow record
+  -> `win_rate_by_decision["taken"]` silently pools real trades with
+  candidates a downstream filter actually blocked -> the MIN_SCORE RULE
+  COST AUDIT question (and any future one relying on the "taken" bucket
+  meaning "we actually traded this") reads a biased number without any
+  visible error -> fixing the label means `rejected_heat`/
+  `rejected_other` become their OWN buckets in `get_shadow_stats()`
+  automatically (it groups generically by whatever `decision` string
+  appears, confirmed by reading `get_shadow_stats()`'s implementation —
+  no code change needed there) -> once >=90d of shadow history
+  accumulates (~2026-10-02, unchanged from the prior estimate — this
+  PR doesn't touch WHEN backfill runs), the correlation-block and
+  spread-filter RULE COST AUDIT questions in `open_questions.md` become
+  answerable for the first time. Zero live-trading-behavior change:
+  no filter's pass/skip decision changed, only which population its
+  rejected candidates get correctly bucketed into for later analysis.
+  Version bumped 1.0.129 -> 1.0.130 (read-and-increment, package.json
+  is a SHARED file per WORKSTREAM PARTITION — this was the last, small,
+  isolated edit in the PR). PROMOTION RULES rule 3 (backtest
+  requirement) doesn't apply — no strategy/parameter/threshold changed,
+  only which decision string an already-existing rejection logs under.
+- MARKET-HOURS NOTE (this run occurs during market hours, per session
+  instructions): PR prepared; recommend merge waits until after 4:00 PM
+  ET today unless a critical live break is found (none was — this is a
+  logging-only correction to the shadow/learning archive, not a
+  trading-path fix, so there is no urgency argument for an immediate
+  merge).
+- STARVED: no — this session's scope (the queued B4-6 item, in full for
+  its logging-only-appropriate slice) shipped completely. High-value
+  work remains queued for future sessions: `rejected_halt`/
+  `rejected_earnings` wiring (this entry, above), KNOWN BROKEN #3
+  (CSP execution cascade — still needs owner-auth audit-log
+  verification), KNOWN BROKEN #10 (SCORE_BAND_MAX/MAX_CHANGE_PCT
+  evidence-or-retire decision, still waiting on shadow history), BUILD
+  ORDER 4 #3/#4/#5 (all correctly deferred to their own trigger dates),
+  the Python-side staleness-audit sweep the register above still marks
+  UNSCANNED, and the CONSTITUTIONAL REPAIR proposals awaiting human
+  review in wishlist.md.
+
 ## 2026-07-05 — [PRODUCT] UI SCALABILITY ARCHITECTURE — registry-native group/costTier + panel row-cap + 50/100/200-layer synthetic harness (BUILD ORDER 4 #2, GIP Part 4) (v1.0.129) [T-CLIENT, touching datacore/layers.json additively]
 
 - [T-CLIENT] Territory: client/src/**, index.css, scripts/visual_check.mjs
