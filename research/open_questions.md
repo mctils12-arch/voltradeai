@@ -914,6 +914,69 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## DATA STREAM EXPANSION (directive 2026-07-05 — audit + build order;
+[T-DATACORE]; one stream per PR, licensing first, archive from day one,
+envelope manifest required, RAW-labeled; work across sessions)
+
+AUDIT (live vs charter, 2026-07-05): RECORDING NOW — aircraft, vessels,
+trains, fires, Form 4 filings, 8-K earnings language, option chains
+(from 2026-07-06 close), Sentinel-2 readings (git-side), COT (#191,
+routine, v1.0.86). IN CHARTERS BUT NOT BUILT: 13F clusters, FRED,
+USAspending, FDA calendar, USGS water, GDELT, Google Trends, patents
+(blocked on USPTO ID.me), app ranks, jobs postings.
+
+BUILD ORDER (signal value × ease; hypothesis BEFORE first pull per
+Reasoning Standard #10):
+1. ~~CFTC COT~~ — DONE by routine (#191); its hypothesis rides with it.
+2. EDGAR 13F institutional clusters (keyless): quarterly holdings →
+   cluster detection (multiple funds newly entering the same small
+   cap). HYPOTHESIS: new-position clustering in capacity-constrained
+   names precedes 60-90d outperformance (whales telegraph slowly).
+   LADDER: gate 1 = parse accuracy vs a hand-checked 20-filing sample;
+   gate 2 = cluster events vs forward returns with the 45-day filing
+   lag honestly modeled (holdings are STALE when public — the signal,
+   if any, is crowd formation, not news). PRIOR: weak-positive,
+   heavily lag-discounted.
+3. FRED macro series (free API key — signup steps in wishlist): ~30
+   series (rates, spreads, claims). HYPOTHESIS: not a direct signal —
+   the REGIME INPUT feed for regime classification and for gate-2
+   conditioning of every other stream. LADDER: gate 1 = values match
+   the FRED web UI on 10 spot checks; gate 2 = regime-conditioning on
+   FRED series improves an EXISTING validated signal's stability
+   (never traded alone).
+4. USAspending contracts (keyless API): daily awards mapped to
+   tickers. HYPOTHESIS: large award/market-cap ratios move small caps
+   with a lag; the filing feed beats news wires. LADDER: gate 1 =
+   recipient→ticker mapping precision on 50 awards; gate 2 =
+   award/mcap vs 5-20d returns, small caps only (fish where whales
+   can't). PRIOR: positive on micro caps, zero on large.
+5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
+   listable). HYPOTHESIS: binary-event timing for biotech options —
+   IV ramps into PDUFA dates; a theta-side input, not directional.
+   LADDER: gate 1 = date accuracy vs 20 known events; gate 2 =
+   IV-ramp reproducibility on our own archived chains.
+6. USGS water levels (keyless): gauges near barge routes/refineries.
+   HYPOTHESIS: Mississippi low water → barge freight stress →
+   grain/fertilizer basis moves. LADDER: gate 1 = readings vs USGS
+   site; gate 2 = low-water episodes vs barge-rate proxies. PRIOR:
+   episodic — fires only in drought years; conditional signal.
+7. GDELT event stream (keyless, 15-min): HYPOTHESIS: geo-tagged event
+   bursts near tracked facilities (strikes, outages) as an ALERT
+   trigger joined to the Everything Graph — verification prompt, not
+   a direct trade. LADDER: gate 1 = geo precision on 30 events;
+   gate 2 = burst→own-sensor (imagery/AIS) confirmation rate.
+8. Google Trends via pytrends (no key, dormant in requirements).
+   HYPOTHESIS (standing EDGE example): consumer-demand proxy, most
+   valuable on small caps. LADDER: gate 1 = series stability across
+   re-pulls (pytrends sampling noise measured); gate 2 = inflections
+   vs revenue surprises on a 20-name panel. RISK: unofficial API —
+   gate 1 may kill it; that is a finding, not a failure.
+CREDENTIALS: FRED key free/instant (wishlist steps filed); all others
+keyless; patents stays blocked on USPTO ID.me. Every stream ships
+fetcher/parser/archiver + envelope manifest + registry entry where it
+has a geographic surface (USGS gauges, GDELT events, USAspending
+recipient HQs mappable; 13F/FRED are not).
+
 ## GIP BUILD QUEUE (directive 2026-07-04 Parts 3-6 — territory-tagged
 per the WORKSTREAM PARTITION proposal in wishlist.md; routines claim a
 territory in their first commit)

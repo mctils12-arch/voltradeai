@@ -13,6 +13,29 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] Data-stream expansion: audit + 8-stream build order filed, hypotheses before pulls (docs)
+
+- Stream-expansion directive audited and filed (open_questions DATA
+  STREAM EXPANSION): RECORDING NOW = aircraft, vessels, trains, fires,
+  Form 4, 8-K language, option chains (Monday), Sentinel-2 readings,
+  and COT — stream (2) was merged by a concurrent routine (#191,
+  v1.0.86) while this session built the hero; supersession honored, no
+  duplicate build.
+- Build order 2-8 filed with a PRIOR + LADDER PATH per stream BEFORE
+  any first pull (Reasoning Standard #10): 13F clusters (45-day lag
+  honestly modeled), FRED (regime input, never traded alone),
+  USAspending (award/mcap on small caps), FDA calendars (theta-side
+  IV-ramp structure vs our own archived chains), USGS water
+  (conditional drought-year signal), GDELT (alert trigger joined to
+  own sensors, not a trade), pytrends (gate-1 stability test may kill
+  it — a finding, not a failure).
+- Credentials: FRED free-key steps filed in wishlist (only key needed
+  in the whole batch); everything else keyless; patents stays blocked
+  on USPTO ID.me.
+- Next session builds #2 (13F clusters) end-to-end per the standard
+  doctrine: fetcher/parser/archiver + envelope manifest + registry
+  where geographic.
+
 ## 2026-07-05 — [PRODUCT] Hero refinements: dominant globe, waitlist right, REAL self-updating stats (v1.0.87)
 
 - Territory: T-CLIENT (+ one datacore server module). Hero-refinements
