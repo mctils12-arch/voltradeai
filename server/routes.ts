@@ -41,6 +41,7 @@ import {
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
+import { bootChainArchive } from "./optionsChainArchive";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 
 const execAsync = promisify(exec);
@@ -1177,6 +1178,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // eagerly (KNOWN BROKEN #9 lesson) but only actually polls once a key is
   // present — bootFirmsPoll no-ops without NASA_FIRMS_MAP_KEY.
   bootFirmsPoll();
+
+  // Daily options-chain snapshot archive (approved options-data decision
+  // 2026-07-04: forward-only history that can never be back-bought; feed=
+  // indicative honesty in every record + manifest). No-ops without Alpaca
+  // creds; runs once per trading day after the close.
+  bootChainArchive();
+
   app.get("/api/data/fires", (_req, res) => {
     if (!firmsEnabled()) {
       return res.json({
