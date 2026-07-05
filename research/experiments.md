@@ -13,6 +13,94 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RULE-REVIEW] Performance/ml-status/diag slippage stats were reading a dead file — realistic-P&L honesty bug fixed (v1.0.128) [T-BOT]
+
+- [T-BOT] Territory: bot_engine.py/ml_model_v2.py/server/bot.ts outside
+  frozen paths, per WORKSTREAM PARTITION. SESSION START per MEMORY
+  PROTOCOL: read CLAUDE.md, this file, open_questions.md, wishlist.md.
+  Loop-health ratio over the last 10 entries at session start: 2
+  [REPAIR], 3 [RESEARCH], 2 [PRODUCT], 3 [PIPELINE], 0 [RULE-REVIEW] —
+  well under the 7/10 [REPAIR] thrash threshold, no meta-problem to
+  address. DATACORE DEFECT QUEUE (all 10 items + #237/#238) confirmed
+  fully closed by prior sessions. /api/health: all checks ok, bot
+  active, equityPeak $108,151.39, drawdownPct 0.0, liveness not dark.
+- PRIMARY ACTION (SESSION BUDGET tier 1: "fix a bug seen in audit logs"):
+  used the human-approved /api/diag route (DIAG_TOKEN, wishlist option
+  (d)) to probe live state. `/api/diag/ml` returned
+  `{feedback_count: 500, fills_count: 0}` — 500 real trade_feedback
+  records but zero "fills." Traced (READ BEFORE WRITE): FILLS_PATH
+  (storage_config.py, voltrade_fills.json) has had exactly ONE writer
+  ever, ml_model.py's legacy track_fill() — and nothing imports
+  ml_model.py anymore (grep confirmed zero call sites repo-wide; it's
+  fully orphaned). The LIVE track_fill (ml_model_v2.py, the one bot.ts
+  actually calls on every order fill) writes entry-fill
+  expected_price/fill_price/slippage_pct straight into
+  TRADE_FEEDBACK_PATH instead, and has done so since v1.0.34. Result:
+  every route reading FILLS_PATH for slippage/fill-count data
+  (`/api/bot/performance`'s realistic-P&L calc, `/api/bot/ml-status`,
+  the `/api/diag/ml` probe, plus an unused dead read in
+  `/api/bot/export-trades`) has ALWAYS seen an empty list, so
+  avgSlippagePct/totalSlippageCost/slippageGapPct/totalFills have been
+  silently pinned at zero on every deploy regardless of real trading
+  activity.
+- HONESTY METRIC RELEVANCE: this is exactly the self-deception CLAUDE.md
+  warns about — the performance dashboard's "realistic P&L net of
+  slippage" has been reporting IDENTICAL to paper P&L this whole time
+  (slippageGapPct always 0), even though real per-trade slippage data
+  existed all along, just recorded into a different file than the one
+  the dashboard reads. REASONING STANDARD #6 (costs/frictions first)
+  was being silently violated by the measurement layer itself, not the
+  strategy.
+- FIX (own PR, MEASUREMENT-INTEGRITY isolation — no trading behavior
+  touched): added `ml_model_v2.fills_slippage_stats(feedback)`, a pure
+  function deriving count/avg_slippage_pct/total_slippage_cost directly
+  from trade_feedback's entry-fill records (exit-fill updates and
+  orphan-exit records lack expected_price/slippage_pct, so they're
+  excluded by construction — verified by test). All four `server/bot.ts`
+  call sites now use it instead of reading FILLS_PATH; the dead
+  export-trades read (loaded, never used in the CSV) was deleted
+  outright.
+- BEFORE vs AFTER on identical inputs (PROMOTION RULE + MEASUREMENT
+  INTEGRITY requirement — see test_fills_slippage_stats.py, 7 cases):
+  BEFORE — any non-empty feedback list still yielded
+  `{avgSlippagePct: 0, totalSlippageCost: 0, totalFills: 0}` because the
+  code looked at a file nothing writes to. AFTER — real entry-fill
+  records (expected_price + slippage_pct present) are correctly counted
+  and aggregated; e.g. two synthetic fills with slippage_pct 0.05% and
+  0.20% now correctly average to 0.125% instead of reporting 0%. DIRECTION
+  OF BIAS: this makes realisticPnlPct/slippageGapPct MORE conservative
+  (reveals cost drag previously hidden at zero), never more favorable —
+  not the "make the strategy look better" pattern MEASUREMENT INTEGRITY
+  treats as suspect by default; it is a named bug (two-file split, one
+  side orphaned) fixed by reading from where the data actually lives.
+  Could not diff against the ACTUAL 500 live records (no diag probe
+  exposes raw trade_feedback content by design — the whitelist
+  deliberately excludes raw trade data) — stated honestly rather than
+  overclaiming a live before/after; the synthetic-fixture test is the
+  verification artifact.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): fixed slippage aggregation
+  -> `/api/bot/performance`'s realisticPnlPct/slippageGapPct/totalFills
+  now reflect true historical fill quality -> the human's next dashboard
+  view of "how much is slippage actually costing us" becomes
+  trustworthy for the first time since ml_model_v2 replaced ml_model ->
+  no change to what the bot trades, sizes, or when it exits (isolation
+  requirement satisfied).
+- TESTS: `test_fills_slippage_stats.py` (7 cases, python3 -m pytest —
+  full suite: 386 passed, 2 skipped, unchanged from before this change).
+  `server/fillsSlippageWiring.test.ts` pins that bot.ts never reads
+  FILLS_PATH again and that all three live routes call
+  fills_slippage_stats (npm run test:node — full suite: 223/223 passed).
+  `npm run check` (tsc): 63 pre-existing errors before AND after this
+  change (verified via git stash) — none touch edited lines; tsc is not
+  a clean gate in this repo today, unrelated to this PR.
+- NOT IN SCOPE (flagged, not fixed, per one-logical-change-per-PR):
+  `storage_config.FILLS_PATH` itself and the now-fully-orphaned
+  `ml_model.py` module (zero import sites repo-wide) are dead code —
+  exactly the kind of finding the in-progress STALENESS AUDIT (register
+  above, Python-side sweep still marked UNSCANNED) should sweep up and
+  delete outright in a future session; noting it here so that session
+  doesn't have to rediscover it.
+
 ## 2026-07-05 — [RULE-REVIEW] Counterfactual-logger check-in + natgas gate-2 design pre-stated (BUILD ORDER 4 #4+#6) (docs)
 
 - [RULE-REVIEW] B4-6 VERDICT: the CLAUDE.md counterfactual mandate is
