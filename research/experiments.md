@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] Tank-fill v3 GATE 1: FAIL — S1 double-bounce deltas carry no signal; v3.1 pre-registered (v1.0.114)
+
+- [T-DATACORE] PR-2: scripts/tankfill_s1_estimator.py (per-tank
+  log10 p95 VV in disk+halo, per-tank series-median self-ratio,
+  fill-direction composite, ascending/34 only) + gate-1 via
+  tankfill_gate1.py REUSED UNCHANGED. readings_s1.jsonl (61 scenes,
+  234/234 tanks median coverage; whole-file rebuild, manifest
+  sentinel1readings.json). Battery test_tankfill_s1.py (6,
+  synthetic ground truth). Design note stated BEFORE scoring:
+  per-tank median normalization cancels exactly in deltas — the
+  binding criteria were immune to the normalization choice.
+- VERDICT vs pre-stated criteria: n_matched=60 (ample — the
+  INSUFFICIENT-SAMPLE branch never triggered), 57 delta pairs,
+  reversals present; delta r = +0.056, sign hit = 0.544 -> FAIL.
+  Levels r = +0.41: real but UNBINDING and uncredited — it is the
+  exact trend-vs-trend inflation pattern that poisoned v1 optical.
+- PRIOR vs OUTCOME: stated P(pass) ~25%; outcome in the 75%. Two
+  sensors (S2 optical, S1 radar amplitude) and two designs are now
+  honestly dead on week-scale Cushing fill from free 10 m imagery.
+- v3.1 PRE-REGISTERED (open_questions.md): multi-week deltas
+  (28-42d non-overlapping windows) to average down speckle;
+  scored ONLY on scenes acquired after 2026-07-05 (out-of-sample by
+  time — testing it today on the data that suggested it would be
+  fishing); prior discounted to ~15% (attempt #3). If v3.1 fails,
+  the free-imagery tank-fill line TERMINATES and sub-meter paid
+  imagery (BLOCKED-FOR-MIKE) is the only path.
+- Chip acquisition continues (both stacks, pixel-aligned, ~2.5
+  PU/scene combined) — raw material compounds regardless.
+
 ## 2026-07-05 — [PIPELINE] Tank-fill v3 PR-1: S1 chip client + 24-mo backfill; gate-1 criteria pre-stated (v1.0.113)
 
 - [T-DATACORE] BUILD ORDER 2 #2, first PR of the S1 successor root.
