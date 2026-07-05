@@ -63,6 +63,7 @@ const FIXTURES = {
       { id: "sites", name: "Strategic sites", kind: "raw", status: "live", source: "datacore/sites", description: "Reference sites." },
       { id: "powerplants", name: "US power plants", kind: "raw", status: "live", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
+      { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
@@ -169,6 +170,34 @@ const FIXTURES = {
       { id: "port_savannah", name: "Port of Savannah (Garden City)", lat: 32.129, lon: -81.144, visits_completed: 3, unique_vessels: 3, in_port_now: 1, dwell_median_h: 15, dwell_p90_h: 18, dwell_max_h: 18, anomaly_count: 0, anomaly_examples: [] },
     ],
     caveat: "RAW statistics; dwell figures are lower bounds; anomaly flags suppressed on thin history (fixture).",
+  },
+  "/api/data/earnings-language": {
+    kind: "raw", source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99)", time: 1, count: 1,
+    filings: [
+      {
+        accession: "0001-26-9", cik: "9", companyName: "FIXTURE INDUSTRIES INC",
+        filedAt: "2026-07-05", itemCodes: ["2.02"],
+        indexUrl: "https://www.sec.gov/x/9/", exhibitUrl: "https://www.sec.gov/x/9/ex99.htm",
+        text: "Fixture Industries today reported second-quarter results ahead of guidance.", textLength: 76, truncated: false,
+      },
+    ],
+  },
+  "/api/data/earnings-language/history": {
+    kind: "raw", source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99) — accumulated archive", days: 30, count: 2,
+    filings: [
+      {
+        accession: "0001-26-9", cik: "9", companyName: "FIXTURE INDUSTRIES INC",
+        filedAt: "2026-07-05", itemCodes: ["2.02"],
+        indexUrl: "https://www.sec.gov/x/9/", exhibitUrl: "https://www.sec.gov/x/9/ex99.htm",
+        text: "Fixture Industries today reported second-quarter results ahead of guidance.", textLength: 76, truncated: false,
+      },
+      {
+        accession: "0001-26-10", cik: "10", companyName: "SAMPLE HOLDINGS CORP",
+        filedAt: "2026-07-04", itemCodes: ["2.02", "9.01"],
+        indexUrl: "https://www.sec.gov/x/10/", exhibitUrl: "https://www.sec.gov/x/10/ex99.htm",
+        text: "Sample Holdings Corp announced full-year guidance and a share buyback program.", textLength: 79, truncated: false,
+      },
+    ],
   },
   "/api/data/insider/history": {
     kind: "raw", source: "SEC EDGAR (Form 4) — accumulated archive", days: 30, count: 2,

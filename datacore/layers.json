@@ -93,6 +93,14 @@
       "description": "Recent Form 4 filings (insider buys/sells/grants) as filed. As-is display, no predictive claim \u2014 clustering-vs-returns is an open gate-2 question, not yet surfaced as a signal."
     },
     {
+      "id": "earnings",
+      "name": "Earnings language (8-K)",
+      "kind": "raw",
+      "status": "live",
+      "source": "SEC EDGAR (8-K Item 2.02 / Exhibit 99, no API key required)",
+      "description": "As-filed results/guidance press releases (Item 2.02 exhibits) the moment they hit EDGAR \u2014 the lawful free substitute for paid earnings-call transcripts. As-is display, no predictive claim; Q&A is almost never filed so this is prepared remarks/guidance language only, not the full call. Gate-2 (does language predict forward returns) is an open research question, not yet surfaced as a signal."
+    },
+    {
       "id": "shadowstats",
       "name": "Dark-ship statistics",
       "kind": "raw",

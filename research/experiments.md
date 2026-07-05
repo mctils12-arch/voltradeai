@@ -2635,3 +2635,67 @@ exception to append-only; the log below it stays append-only)
   persistence flag set; screenshot reviewed.
 - Gates: harness green all widths WITH self-see active; node 49/49;
   CI python 114.
+
+## 2026-07-05 — [PRODUCT] Earnings-language full view (8-K Item 2.02) — v1.0.82
+- Territory: T-CLIENT (client/src/pages, index.css, scripts/visual_check.mjs)
+  + minimal SHARED touches (datacore/layers.json registry entry,
+  package.json version bump, this file) per WORKSTREAM PARTITION.
+- Context: NEW DATA ROOTS #1's pipeline (server/sec8kEarnings.ts, gate 1
+  DATA passed 2026-07-04, v1.0.67) shipped API-only with no UI, same
+  sequencing edgarForm4.ts used before filings.tsx landed. This was the
+  explicitly queued next PRODUCT item in open_questions.md's GEOSPATIAL
+  LICENSING REGISTER section. Highest-value action this session: give
+  the already-validated (gate 1) pipeline its user-facing surface,
+  mirroring the Form 4 pattern exactly (panel row -> full hash-routed
+  view) rather than starting a new pipeline or a new gate-1 effort.
+- Build: new `earnings` entry in datacore/layers.json (RAW, live,
+  honest gate-2-open language carried into the description — no
+  predictive claim, mirrors sec8kEarnings.ts's own doc comment).
+  client/src/pages/earnings.tsx — #/data/earnings full view: card list
+  (not a table — this data is prose, not rows) reading
+  /api/data/earnings-language/history, company-name filter, item-code
+  tags, excerpt/expand-full-release toggle (480-char clamp), link-outs
+  to both the SEC filing index and the actual exhibit (never embedded —
+  same link-out-only rule as vessel/aircraft photo links). datamap.tsx
+  wired identically to the insider pattern: LAYER_GROUP -> filings,
+  DEFAULT_ON true, its own polling effect against
+  /api/data/earnings-language (not the /history route — mirrors
+  insider's live-cache-first pattern), panel-row "Open earnings
+  language view" button, hash listener alongside the existing
+  filingsOpen state.
+- SELF-REVIEW CAUGHT (rule 6, before opening the PR): my first pass
+  reused `.vt-filings-seclink` (a 32px icon-only button in the existing
+  Form 4 view) for the new Exhibit/Filing link-outs, which render as
+  icon+text pairs here — a scratch harness run (temporary copy of
+  visual_check.mjs pointed at #/data/earnings, deleted after use, not
+  committed) caught both links under the 44px touch-target minimum at
+  390/768. Fixed with a dedicated `.vt-earnings-linkbtn` class (44px
+  min-height) instead of overloading the shared class, and bumped the
+  read-full-release button to 44px too (untriggered by the fixture's
+  short sample text, but real releases run long — fixed proactively
+  rather than waiting to be caught live).
+- Gates: `npm run visual` green at 390/768/1440 (0 hard failures;
+  pre-existing site-shell nav warnings unchanged; the one new soft
+  warning, "Filings & flows 3/3 on" clipped-control, is the same
+  below-the-fold false-positive class as the pre-existing Planner/Taxes
+  nav warnings — the self-see battery, which actually scrolls and
+  verifies reachability, shows the new layer with 0 self-see failures
+  and "14 layers toggled clean" in toggle-consistency); ZERO-COST-WHEN-
+  OFF unaffected (earnings gates on `enabled.earnings` like every other
+  layer); node test:node 121/121; tsc --noEmit shows only pre-existing
+  unrelated errors (verified none touch datamap.tsx or earnings.tsx).
+  Python suite not touched (no .py files in this diff) — pytest is not
+  installed in this sandbox to re-verify, noted honestly rather than
+  claimed.
+- Downstream chain (REASONING STANDARD #1): new layer row -> one more
+  default-on poll (60s interval, same cadence as insider) -> the
+  ZERO-COST-WHEN-OFF gate proves this is skipped entirely when the
+  layer is off, so no new baseline cost for users who don't want it;
+  when on, a second small JSON poll alongside insider's — negligible
+  next to the 10k-aircraft budget already measured in this harness.
+- Not attempted this session (correctly out of scope): gate 2 (does
+  guidance language predict forward returns) — this PR is a RAW display
+  of the pipeline's existing gate-1-passed output only, per the
+  SPINOUT-READY / RAW-vs-SIGNAL rule.
+- STARVED: no — this was a fully-specified queued item, executed start
+  to finish in one PR.

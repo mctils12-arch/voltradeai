@@ -10,6 +10,7 @@ import {
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
 } from "@/lib/mapIcons";
 import FilingsView from "./filings";
+import EarningsView from "./earnings";
 import { mmsiFlag } from "@/lib/mmsiFlag";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
@@ -63,7 +64,7 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
-  : { imagery: true, aircraft: true, sites: true, insider: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
+  : { imagery: true, aircraft: true, sites: true, insider: true, earnings: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -81,7 +82,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
-  insider: "filings", shadowstats: "filings", portdwell: "filings",
+  insider: "filings", earnings: "filings", shadowstats: "filings", portdwell: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
   l.kind === "signal" || l.status === "planned" ? "signals" : LAYER_GROUP[l.id] || "live";
@@ -135,6 +136,8 @@ export default function DataMapPage() {
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
+  // Full earnings-language view (#/data/earnings) — same overlay pattern.
+  const [earningsOpen, setEarningsOpen] = useState(() => window.location.hash === "#/data/earnings");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away.
   const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>({
@@ -183,7 +186,10 @@ export default function DataMapPage() {
   const [tempUnitF, setTempUnitF] = useState(true);
   const [wxGrid, setWxGrid] = useState<any>(null);
   useEffect(() => {
-    const onHash = () => setFilingsOpen(window.location.hash === "#/data/filings");
+    const onHash = () => {
+      setFilingsOpen(window.location.hash === "#/data/filings");
+      setEarningsOpen(window.location.hash === "#/data/earnings");
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -1484,6 +1490,29 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.insider, mapSettled, setStatus]);
 
+  // ── SEC EDGAR 8-K Item 2.02 earnings-language releases (RAW;
+  // non-geospatial — same inline-panel-row + full-view pattern as insider) ──
+  useEffect(() => {
+    if (!enabled.earnings) { setStatus("earnings", "off"); return; }
+    if (!mapSettled) { setStatus("earnings", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("earnings", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/earnings-language");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("earnings", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("earnings", "active", d.count ?? (d.filings || []).length);
+      } catch {
+        if (!stop) setStatus("earnings", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(load, 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.earnings, mapSettled, setStatus]);
+
   // ── panel helpers ──
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
@@ -1497,7 +1526,7 @@ export default function DataMapPage() {
     id === "powerplants" ? <Zap size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
-    id === "insider" ? <FileText size={15} /> : <LayersIcon size={15} />;
+    id === "insider" || id === "earnings" ? <FileText size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
     const rt = runtime[l.id];
@@ -1509,7 +1538,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -1628,6 +1657,16 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "earnings" && on && (
+          // Same pattern as insider: a scrolling text feed doesn't belong in
+          // a layer-toggle sidebar — the panel keeps one button to the view.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/earnings"; setEarningsOpen(true); }}>
+              Open earnings language view — full releases, SEC links →
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -1636,6 +1675,9 @@ export default function DataMapPage() {
     <div className="vt-map-page" data-vt-map>
       {filingsOpen && (
         <FilingsView onBack={() => { window.location.hash = "#/data"; setFilingsOpen(false); }} />
+      )}
+      {earningsOpen && (
+        <EarningsView onBack={() => { window.location.hash = "#/data"; setEarningsOpen(false); }} />
       )}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}
