@@ -49,6 +49,7 @@ import { bootShortVolPoll, latestShortVol } from "./finraShortVolume";
 import { bootCotPoll, latestCot } from "./cftcCot";
 import { bootAttentionPoll, latestAttention, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
+import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1663,6 +1664,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.events.length,
       note: "rolling snapshot (15-min poll); durations as published (human-readable); an empty events list means a clear NAS, not missing data",
       events: hit.events,
+    });
+  });
+
+  // CBP land-border wait times (RAW — BUILD ORDER 5 #5, keyless).
+  // Status strings are localized by CBP's serving region and passed
+  // through verbatim; numeric fields are locale-independent.
+  bootBorderWaitPoll();
+  app.get("/api/data/border-waits", (_req, res) => {
+    const hit = latestBorderWaits();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "CBP Border Wait Times", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=900");
+    res.json({
+      kind: "raw",
+      source: "CBP Border Wait Times (public domain)",
+      attribution: "CBP Border Wait Times",
+      time: hit.at,
+      count: hit.obs.length,
+      note: "hourly snapshot flattened per lane class (commercial standard/FAST + passenger standard); status strings as published (localized by CBP's serving region) — join on port_number; null delay = not published, never zero",
+      waits: hit.obs,
     });
   });
 
