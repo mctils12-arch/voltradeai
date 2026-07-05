@@ -1199,6 +1199,37 @@ same target so the prior is DISCOUNTED per Reasoning Standard #4)
   double-bounce is a BRIGHT ADDITIVE line, not a dark sub-pixel
   crescent — physically better posed.
 
+STATUS 2026-07-05 + GATE-1 CRITERIA (pre-stated BEFORE any scoring,
+Reasoning Standard #10; PR-1 built same day):
+- PR-1 BUILT: scripts/cdse_s1_chips.py — discovery via earth-search
+  sentinel-1-grd (orbit metadata carried; probed: Cushing = ASCENDING
+  relative orbit 34 only, S1A+S1D, ~4-6 scenes/mo), chips via the
+  same CDSE Process API (orthorectified SIGMA0_ELLIPSOID, FLOAT32
+  VV+VH — probe showed double-bounce sigma0 up to ~2500, integer
+  types would clamp), SAME bbox as v2 (test-pinned — stacks stay
+  pixel-aligned for fusion), 1.12 PU/scene, 61-scene 24-mo backfill
+  ~68 PU. Physics visible in one probe: 14k px with sigma0 > 1.0 vs
+  ground median 0.10.
+- ESTIMATOR DESIGN (PR-2, fixed now): per-tank double-bounce
+  intensity = p95 VV within the tank disk + 1 px halo, log-domain,
+  normalized per tank by its own scene-median series (self-ratio like
+  v2 — absolute calibration cancels); exposed wall height scales the
+  return, so FILL-direction composite = NEGATIVE of the normalized
+  double-bounce (higher return = emptier). D^2-weighted site/global
+  composites, ascending/34 scenes only in v1 (other geometries
+  archived but excluded from scoring).
+- GATE-1 CRITERIA (identical shape to v2, comparator
+  tankfill_gate1.py reused as-is on the fill-direction composite):
+  >=20 matched scene-weeks spanning >=1 EIA reversal; PASS = delta
+  r >= +0.3 AND delta-sign hit >= 65% (levels supporting only).
+  Matching: +/-3 days to the EIA Friday, delta pairs capped at 14-day
+  gaps. DISCOUNTED PRIOR (attempt #2 on this target): P(pass) ~25%.
+- S1 CADENCE HONESTY: 12-day repeat per satellite -> only ~2-3
+  matched EIA weeks/month and rarely adjacent weeks; expect the
+  14-day delta-pair cap to bind. If matched pairs < 20 after the
+  full backfill, the verdict is INSUFFICIENT-SAMPLE (not FAIL) and
+  the root waits for cadence (S1C/S1D ramp) rather than dying.
+
 - ACQUISITION (free, 0.4% of CDSE free tier): ONE master chip per
   usable S2 scene covering all Cushing tank sites — bbox
   [-96.80,35.90,-96.72,35.98] (~720x890px @10m), 5 bands (B02/03/04 +

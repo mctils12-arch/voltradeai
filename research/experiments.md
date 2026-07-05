@@ -13,6 +13,32 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Tank-fill v3 PR-1: S1 chip client + 24-mo backfill; gate-1 criteria pre-stated (v1.0.113)
+
+- [T-DATACORE] BUILD ORDER 2 #2, first PR of the S1 successor root.
+  scripts/cdse_s1_chips.py: discovery via anonymous earth-search
+  (sentinel-1-grd; orbit metadata carried — Cushing is ASCENDING
+  relative orbit 34 only, S1A+S1D), chips via the CDSE Process API
+  (orthorectified SIGMA0_ELLIPSOID, FLOAT32 VV+VH — probed
+  double-bounce sigma0 up to ~2500, integer types would clamp), SAME
+  bbox as the v2 optical stack, pinned by test_bbox_matches_v2_stack
+  so the stacks stay pixel-aligned for fusion. Manifest
+  sentinel1chips.json; battery test_cdse_s1_chips.py (7, recorded
+  fixture, no network).
+- BACKFILL: 61 scenes 2024-07..2026-07, ZERO failures, ~68 PU
+  (0.7% of one month's free tier). Spot-check both ends: ground
+  median sigma0 0.07-0.10, double-bounce maxima 2100-2535 — the
+  physics is present across the whole era.
+- CRITERIA + ESTIMATOR DESIGN PRE-STATED in the workup BEFORE any
+  scoring (see open_questions.md TANK-FILL v3 STATUS): p95 VV per
+  tank disk+halo, log-domain, per-tank self-ratio, fill-direction
+  composite = negative normalized double-bounce; gate 1 = same
+  criteria as v2 via tankfill_gate1.py reused as-is; matched pairs
+  < 20 -> INSUFFICIENT-SAMPLE, not FAIL (12-day repeat may not
+  yield 20 adjacent-week deltas). Discounted prior (attempt #2):
+  P(pass) ~25%.
+- NEXT: PR-2 = estimator + readings stream + gate-1 attempt.
+
 ## 2026-07-05 — [PIPELINE] Aircraft entity spine v1 PR-B: artifact SHIPPED + map enrichment (v1.0.112)
 
 - [T-DATACORE] Prod hex list pulled after PR-A deployed (15,248
