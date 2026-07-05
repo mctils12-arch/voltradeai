@@ -13,6 +13,44 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] CFTC COT disaggregated stream (BUILD ORDER 5 #2) — keyless Socrata archiver + /api/data/cot (v1.0.134)
+
+- TERRITORY: T-DATACORE. server/cftcCot.ts polls the CFTC Public
+  Reporting Socrata dataset 72hh-3qpy (disaggregated futures-only,
+  ~274 markets/week, Tuesday as-of / Friday ~15:30 ET publish).
+- SOURCE CHOICE WORTH REMEMBERING: the build order named the
+  f_disagg.txt flat file (probed 200/442KB), but inspection showed
+  it is HEADERLESS positional CSV — parsing ~70 columns by position
+  is exactly the guess the query-shape honesty rule forbids. The
+  Socrata endpoint serves the SAME data keyless with NAMED fields;
+  built against that instead. The names have real quirks, verified
+  live and encoded in a FIELD constant with a comment each:
+  swap__positions_short_all / swap__positions_spread_all carry a
+  DOUBLE underscore; several fields drop the _all suffix
+  (prod_merc_positions_long, m_money_positions_spread). A test
+  fixture mirrors the quirky shape so a silent source rename fails
+  loudly.
+- WEEK DISCIPLINE: a DESC-ordered fetch can straddle two report
+  weeks at the publish boundary — parseCot keeps ONLY the newest
+  report_date so vintages never mix in one archive file
+  (test-pinned). Week-level dedup; gz after 9 days (a report stays
+  plain until superseded); restart rebuilds the cache from the
+  newest archived week even with the fetch down (test-pinned).
+- Route /api/data/cot serves the poller's cached week (274 rows,
+  event-loop rule) with the futures-ONLY caveat and the honest note
+  that positioning-extreme signals need trailing history the archive
+  is only beginning to accumulate — accumulation substitutes for
+  purchase (vendors sell exactly this series recorded over time).
+- HYPOTHESIS (gate-locked): managed-money net-positioning extremes
+  (percentile vs trailing history) mean-revert in commodity-linked
+  ETFs; joins EIA petroleum/natgas + tank-fill work. Prior ~30%
+  stated at filing. Gate 1 design when history depth allows:
+  archived weeks vs CFTC's own historical annual files on a sampled
+  quarter.
+- Tests 5/5 (quirky-name fixture, ''->null, week-boundary keep-only-
+  newest, week dedup + gz + gz readback, restart-rebuild with fetch
+  down); manifest battery 3/3; tsc at the 64 baseline; pytest 397/1.
+
 ## 2026-07-05 — [PIPELINE] FINRA daily short-sale volume stream (BUILD ORDER 5 #1) — keyless CNMS archiver + /api/data/short-volume (v1.0.133)
 
 - TERRITORY: T-DATACORE. server/finraShortVolume.ts: keyless daily
