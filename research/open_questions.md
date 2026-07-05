@@ -1230,6 +1230,33 @@ Reasoning Standard #10; PR-1 built same day):
   full backfill, the verdict is INSUFFICIENT-SAMPLE (not FAIL) and
   the root waits for cadence (S1C/S1D ramp) rather than dying.
 
+STATUS 2026-07-05 (later): GATE 1 FAIL — sample was AMPLE (60 matched
+weeks, 57 delta pairs, reversals present), so the insufficient-sample
+branch never triggered. delta r +0.056, sign hit 0.544 vs the
+pre-stated +0.3 / 65% -> FAIL under the binding criteria
+(experiments.md v1.0.114). Levels r +0.41 is REAL but unbinding — it
+is exactly the trend-vs-trend inflation pattern that poisoned v1's
+optical claim; not credited. Root dead at DATA under the v3 design.
+Chips keep archiving (~4-6/mo, 1.12 PU each).
+
+## TANK-FILL v3.1 — PRE-REGISTERED FOLLOW-UP (filed 2026-07-05 at the
+v3 kill, to be scored ONLY by a future session on OUT-OF-SAMPLE
+scenes; attempt #3 on this target — prior discounted to ~15%)
+
+- HYPOTHESIS: per-scene speckle noise swamps 7-14 day fill changes;
+  MULTI-WEEK deltas average speckle down. Design (fixed now): same
+  readings_s1 fill* composites; deltas over 28-42 day windows
+  (composite delta vs EIA stock delta over the same window,
+  non-overlapping windows only); PASS = delta r >= +0.3 AND
+  delta-sign >= 65% on n >= 15 windows, scored on scenes acquired
+  AFTER 2026-07-05 plus the existing corpus ONLY as the baseline for
+  per-tank medians (never re-scored in-sample). If v3.1 fails, the
+  free-imagery tank-fill line TERMINATES: two sensors + three
+  designs dead means 10 m free imagery cannot read Cushing
+  week-scale fill — the sub-meter BLOCKED-FOR-MIKE entry becomes the
+  only path, and InSAR/SLC coherence (heavy compute, SNAP-class
+  tooling) stays filed as the lone free alternative, unbuilt.
+
 - ACQUISITION (free, 0.4% of CDSE free tier): ONE master chip per
   usable S2 scene covering all Cushing tank sites — bbox
   [-96.80,35.90,-96.72,35.98] (~720x890px @10m), 5 bands (B02/03/04 +

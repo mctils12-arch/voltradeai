@@ -1,0 +1,27 @@
+{
+ "stream": "sentinel1readings",
+ "storage": "git-versioned JSONL datacore/sentinel2/readings_s1.jsonl — WHOLE-FILE REBUILD per run (per-tank normalization depends on the full scene series; deterministic from the chips), NOT append-only",
+ "written_by": "scripts/tankfill_s1_estimator.py (Python, session-run; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "source": "S1 chips (datacore/manifests/sentinel1chips.json) x OSM tank registry (cushing_tanks.geojson, ODbL)",
+ "license": "Copernicus free/open data policy (imagery) + ODbL (registry geometry); attribution both",
+ "attribution": "Contains modified Copernicus Sentinel data; tank geometry © OpenStreetMap contributors",
+ "schema_version": 1,
+ "field_map": {
+  "scene": "S1 GRD scene id (one line per scored scene)",
+  "date": "acquisition date UTC",
+  "orbit_state/relative_orbit": "viewing geometry (v1 scores ascending/34 only)",
+  "n_measured": "tanks measured this scene",
+  "sites[]": "site, n_tanks, fill_d2w (D^2-weighted fill-direction composite, UNITLESS self-ratio — not a percentage)",
+  "tanks[]": "per-tank LOW-CONFIDENCE: id, site, d_m, fill (= -(log10 p95 VV - per-tank series median))",
+  "label": "EXPERIMENTAL marker"
+ },
+ "confidence_model": "GATE 1 FAILED 2026-07-05 (experiments.md v1.0.114): 60 matched EIA weeks, delta r +0.06, sign hit 0.54 — week-over-week deltas carry no signal; levels r +0.41 is the trend-inflation pattern the v2 lesson flagged, treated as unconfirmed. Stream retained as the negative-result record; ONE pre-registered follow-up (multi-week deltas, v3.1) awaits out-of-sample scenes. Nothing here is a SIGNAL; nothing surfaces on /data.",
+ "geo_fields": [
+  "(tank id -> lon/lat via datacore/sentinel2/cushing_tanks.geojson)"
+ ],
+ "entity_key": "scene + tank id",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "frozen at the gate-1 corpus (61 scenes); v3.1 re-run only per its pre-registered design",
+ "_note": "Universal archive envelope (approved 2026-07-04). Tank-fill v3 PR-2: estimator + gate-1 verdict."
+}
