@@ -38,7 +38,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("voltrade.intraday_shorts")
 
-DATA_DIR = os.environ.get("DATA_DIR", "/tmp")
+# DURABILITY FIX (audit 2026-07-05): this module resolved its "persistent"
+# log via a DATA_DIR env var that is unset on Railway, silently landing in
+# /tmp — the short-trade log reset on EVERY redeploy while every sibling
+# module persisted via storage_config. Route through storage_config like
+# the rest of the trading stack (env override still honored for tests).
+from storage_config import DATA_DIR as _STORAGE_DATA_DIR
+DATA_DIR = os.environ.get("DATA_DIR", _STORAGE_DATA_DIR)
 SHORTS_LOG_PATH    = os.path.join(DATA_DIR, "voltrade_intraday_shorts.json")
 ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
