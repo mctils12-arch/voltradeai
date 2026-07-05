@@ -1,5 +1,22 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠️ URGENT — READ FIRST (2026-07-05 ~21:50Z, push-notified)
+
+**#8. PROD RESTART LOOP — need 1 Railway dashboard read (2 min).**
+voltradeai.com's container restarts every ~61s (ongoing since at
+least 20:00Z). Endpoints answer, archives record in bursts, but the
+trading loop cannot run sustained work — **if unresolved by Monday
+09:30 ET the bot effectively cannot trade.** Sessions cannot read
+Railway logs; you can. Open the Railway dashboard → the service →
+Deployments → latest deploy: (a) does it say **healthcheck failed**
+(then the boot path exceeds the 60s healthcheckTimeout — bump it in
+railway.json or tell the next session to lighten boot), (b) does the
+**memory graph** hit the plan ceiling each minute (then it's
+container OOM — plan bump or heap tuning in run_with_daemon.sh,
+both frozen files only you should change), or (c) is there a **crash
+stack trace** (paste it to the next session — it names the defect
+directly). Full evidence chain in experiments.md (v1.0.141 entry).
+
 ## BLOCKED-FOR-MIKE (standing list per the overnight directive
 2026-07-05: items needing paid keys, spend, or a human-only decision.
 Logged and ROUTED AROUND — nothing here blocks the free build order.)
