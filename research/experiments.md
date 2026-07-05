@@ -13,6 +13,25 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] earnings8k manifest drift: acceptanceDatetime + ticker now actually stored (v1.0.104) [T-DATACORE]
+
+- Audit defect #5 — the honesty-critical one: the manifest documented
+  acceptanceDatetime ("lookahead-free event time") and a ticker entity
+  key that the writer NEVER stored; gate-2 work reading the manifest
+  would have assumed a timestamp that didn't exist (filedAt is a date
+  only). Manifests are the reader contract — drift there poisons
+  downstream honesty silently.
+- FIX (writer side, not a docs downgrade): acceptanceDatetime = the
+  getcurrent entry's <updated> timestamp (when this feed made the
+  filing publicly visible — the honest "knowable" time, ISO w/offset);
+  ticker = EXACT numeric-CIK match vs SEC company_tickers.json (24h
+  cached; failed/empty fetches never cached; unlisted filers stay
+  null — never guessed). Manifest wording tightened to say precisely
+  what the fields are.
+- 2 ratchet tests (feed <updated> capture; CIK map exactness) +
+  cache-pollution fix found by the tests themselves (a failed tickers
+  fetch was being cached 24h). 11/11 suite green.
+
 ## 2026-07-05 — [REPAIR] Optionchains: crash-safe day claim, gzip lifecycle, holiday skip (v1.0.103) [T-DATACORE]
 
 - Audit defect #4, three parts: (a) .last_run_day was claimed BEFORE

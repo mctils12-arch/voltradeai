@@ -66,6 +66,11 @@ export interface Filing8KEntry {
   cik: string;
   companyName: string;
   filedAt: string | null;
+  /** EDGAR getcurrent entry <updated> timestamp — the lookahead-free
+   *  "public could know it" time the manifest documents
+   *  ([REPAIR 2026-07-05, audit defect #5]: the field was documented but
+   *  never stored; filedAt is only a date). */
+  acceptanceDatetime: string | null;
   itemCodes: string[];
   indexUrl: string;
 }
@@ -93,6 +98,7 @@ export function parse8KFeed(atomXml: string): Filing8KEntry[] {
       cik: nameMatch[2],
       companyName: nameMatch[1],
       filedAt: filedMatch ? filedMatch[1] : null,
+      acceptanceDatetime: tagContent(entryBlock, "updated"),
       itemCodes,
       indexUrl,
     });
@@ -162,6 +168,10 @@ export interface Earnings8K {
   cik: string;
   companyName: string;
   filedAt: string | null;
+  acceptanceDatetime: string | null;
+  /** exact CIK match against SEC company_tickers.json; null = unlisted
+   *  filer or map miss — never guessed */
+  ticker: string | null;
   itemCodes: string[];
   indexUrl: string;
   exhibitUrl: string;
@@ -186,6 +196,27 @@ function toExhibitUrl(indexUrl: string, href: string): string {
   return `https://www.sec.gov${href.startsWith("/") ? "" : "/"}${href}`;
 }
 
+/** CIK -> ticker via SEC company_tickers.json — EXACT numeric-CIK match
+ *  (no name normalization involved), null for unlisted filers. 24h cache;
+ *  a fetch failure degrades to an empty map (tickers null), never a
+ *  batch failure. [REPAIR 2026-07-05, audit defect #5]: the manifest's
+ *  ticker entity key was documented but never stored. */
+let cikTickerCache: { at: number; map: Map<string, string> } | null = null;
+export async function getCikTickerMap(fetchImpl: FetchFn = fetch as any): Promise<Map<string, string>> {
+  if (cikTickerCache && Date.now() - cikTickerCache.at < 24 * 3600_000) return cikTickerCache.map;
+  const map = new Map<string, string>();
+  try {
+    const txt = await fetchText(fetchImpl, "https://www.sec.gov/files/company_tickers.json");
+    for (const row of Object.values(JSON.parse(txt)) as any[]) {
+      if (row?.cik_str != null && row?.ticker) map.set(String(row.cik_str), row.ticker);
+    }
+  } catch {}
+  // never cache a failed/empty fetch — the next call retries instead of
+  // serving 24h of null tickers
+  if (map.size > 0) cikTickerCache = { at: Date.now(), map };
+  return map;
+}
+
 /** Fetches recent 8-Ks tagged Item 2.02, resolves each one's Exhibit 99
  *  press release, and returns the extracted text. Sequential with a delay
  *  between filings (SEC fair-access: stay well under 10 req/s even though
@@ -200,6 +231,7 @@ export async function fetchLatestEarnings8Ks(
   const feedUrl = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&company=&dateb=&owner=include&count=100&output=atom";
   const feedXml = await fetchText(fetchImpl, feedUrl);
   const candidates = parse8KFeed(feedXml).filter(hasItem202).slice(0, limit);
+  const cikTickers = await getCikTickerMap(fetchImpl);
   const out: Earnings8K[] = [];
   for (const entry of candidates) {
     try {
@@ -216,6 +248,8 @@ export async function fetchLatestEarnings8Ks(
         cik: entry.cik,
         companyName: entry.companyName,
         filedAt: entry.filedAt,
+        acceptanceDatetime: entry.acceptanceDatetime,
+        ticker: cikTickers.get(String(parseInt(entry.cik, 10))) ?? null,
         itemCodes: entry.itemCodes,
         indexUrl: entry.indexUrl,
         exhibitUrl,
