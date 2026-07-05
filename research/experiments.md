@@ -13,6 +13,38 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] attention stream warming_up on prod — self-reporting cycle stats shipped, diagnosis reads from the route (v1.0.139)
+
+- SYMPTOM: /api/data/attention stayed warming_up across MULTIPLE
+  clean deploys while every sibling stream (short-volume, COT,
+  imports, airport-status, border-waits) served — the deploy-churn
+  theory was tested and killed by waiting out a full quiet window.
+- CONSTRAINT: prod logs are not readable from a session (DIAG token
+  not in session env), so the fix is to make the stream
+  SELF-REPORTING: fetchAttention now records CycleStats per poll
+  (started/finished, ok/err/not_found article counts, last_error as
+  "TICKER -> status" — no URLs, nothing sensitive) and the route
+  includes last_cycle in the warming payload. The next probe reads
+  the diagnosis from prod itself.
+- SUSPECTS (to be discriminated by the payload): Wikimedia
+  403/429-blocking Railway's egress (last_error would show the
+  status), all-timeout cycles (err count = 23 with timeout
+  messages), or a not-yet-understood parse mismatch (ok high but
+  obs 0). Test pins the all-403 failure mode end-to-end.
+- PATTERN NOTE (candidate standing rule if this recurs elsewhere):
+  a warming_up that can persist forever is only honest if the route
+  can also say WHY — streams whose pollers can fail silently should
+  expose last-cycle stats on the warming path. Not yet filed as a
+  rule; one data point.
+- Tests 6/6 (2 new: cycle-stats accounting on the mixed-404 path,
+  all-403 failure capture); tsc 64 baseline; pytest 410/1 (count
+  grew on main — other sessions' tests).
+- VERIFY (next probe after deploy): /api/data/attention while
+  warming should now carry last_cycle; expected resolutions —
+  Wikimedia blocks Railway => wishlist/adapter decision; timeouts
+  => raise AbortSignal or reduce window; transient => it will have
+  simply filled.
+
 ## 2026-07-05 — [PIPELINE] FINRA short-volume deep backfill — ~2y history self-fills on prod (v1.0.138)
 
 - TERRITORY: T-DATACORE. Follows gate 1 (passed, entry below):

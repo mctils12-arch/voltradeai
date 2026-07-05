@@ -47,7 +47,7 @@ import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { bootShortVolPoll, latestShortVol } from "./finraShortVolume";
 import { bootCotPoll, latestCot } from "./cftcCot";
-import { bootAttentionPoll, latestAttention, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
+import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached } from "./fleetUtilization";
@@ -1629,7 +1629,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/attention", (_req, res) => {
     const hit = latestAttention();
     if (!hit) {
-      return res.json({ kind: "raw", source: "Wikimedia pageviews API", warming_up: true });
+      // last_cycle makes a never-filling cache diagnosable from prod
+      // without log access (R7: warming persisted across clean deploys)
+      return res.json({ kind: "raw", source: "Wikimedia pageviews API", warming_up: true,
+                        last_cycle: lastAttentionCycle() });
     }
     res.set("Cache-Control", "public, max-age=3600");
     res.json({
