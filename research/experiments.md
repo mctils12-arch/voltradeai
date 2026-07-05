@@ -13,6 +13,18 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Stream #3 gate 1: PASSED 10/10 (prod vs fredgraph.csv)
+
+- v1.0.90 deployed; prod /api/data/macro serves 28 public series with
+  FRED attribution; restricted series (VIX/BAML/UMCSENT) confirmed
+  ABSENT from the live payload.
+- Gate 1 spot checks — prod latest value vs the FRED web UI's own
+  fredgraph.csv export, exact match required: DGS10 4.48, DGS2 4.17,
+  T10Y2Y 0.35, SOFR 3.66, ICSA 215000, UNRATE 4.2, CPIAUCSL 333.979,
+  WALCL 6724564, DCOILWTICO 71.87, DTWEXBGS 120.8866 — 10/10 MATCH
+  across daily/weekly/monthly cadences. Stream #3 gate 1 PASSED;
+  vintage archive recording from this deploy onward.
+
 ## 2026-07-05 — [PIPELINE] Stream #3: FRED macro regime feed (v1.0.90) [T-DATACORE]
 
 - Human set FRED_API_KEY in Railway (not in the session env — noted in
