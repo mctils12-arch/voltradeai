@@ -1042,6 +1042,17 @@ Reasoning Standard #10):
    manifest, NO daemon route unless the probe passes (no dead code
    for a stream likely dead at gate 1). If it fails: log the
    layer-of-death and the paid alternatives note goes to wishlist.
+   GATE 1 RUN 2026-07-05: **FAIL — layer of death: DATA (access
+   reliability)**. Nuanced shape: STABILITY passed emphatically
+   (median cross-pull r = 0.998, min 0.952, 20/20 terms in rounds
+   1-2) but round 3 collapsed to 6/20 on HTTP 429s — Google
+   rate-limits the unofficial path after ~45 pulls in ~35 min, and
+   the only client library is abandoned (its retry path is
+   urllib3-v2-broken; probe runs retries-free). Stream NOT built.
+   RESIDUAL (re-probe trigger, don't build speculatively): a weekly
+   single-round pull (20 pulls/week, far under the observed limit)
+   may be viable IF a validated hypothesis ever specifically needs
+   Trends; paid access alternatives are in BLOCKED-FOR-MIKE.
 CREDENTIALS: FRED key free/instant (wishlist steps filed); all others
 keyless; patents stays blocked on USPTO ID.me. Every stream ships
 fetcher/parser/archiver + envelope manifest + registry entry where it
