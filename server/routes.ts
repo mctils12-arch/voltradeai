@@ -46,6 +46,7 @@ import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
+import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 
 const execAsync = promisify(exec);
 
@@ -730,7 +731,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   complianceAuditTick();
   const aircraftCache: Map<string, { at: number; data: any }> = new Map();
-  const aircraftInflight: Map<string, Promise<any>> = new Map();
+  const aircraftInflight: Map<string, InflightSlot<any>> = new Map();
   const feedBackoff: Record<string, { failures: number; until: number }> = {};
 
   const backoffActive = (p: string) => (feedBackoff[p]?.until || 0) > Date.now();
@@ -831,12 +832,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       // In-flight dedup: concurrent visitors on the same bbox share ONE
       // upstream request (rate-limit protection is server-wide, not per-tab).
-      let p = aircraftInflight.get(key);
-      if (!p) {
-        p = fetchAircraft(lamin, lamax, lomin, lomax).finally(() => aircraftInflight.delete(key));
-        aircraftInflight.set(key, p);
+      // Same stuck-slot defense as trains ([REPAIR 2026-07-05]): a slot
+      // older than the expiry is abandoned, no request waits past the route
+      // deadline (falls to stale-beats-spinner below), and a late-settling
+      // orphan can't clobber its replacement.
+      let slot = aircraftInflight.get(key);
+      if (slotExpired(slot, Date.now())) {
+        slot = makeSlot(() => fetchAircraft(lamin, lamax, lomin, lomax), Date.now(), (self) => {
+          if (aircraftInflight.get(key) === self) aircraftInflight.delete(key);
+        });
+        aircraftInflight.set(key, slot);
       }
-      const data = await p;
+      const data = await raceDeadline(slot!.p, ROUTE_DEADLINE_MS, "aircraft");
       aircraftCache.set(key, { at: Date.now(), data });
       if (aircraftCache.size > 20) {
         const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
@@ -1071,7 +1078,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // proprietary — no free source exists (open_questions; do not chase).
   // Every fresh snapshot feeds the permanent position archive.
   let trainsCache: { at: number; data: any } | null = null;
-  let trainsInflight: Promise<any> | null = null;
+  let trainsInflight: InflightSlot<any> | null = null;
   async function fetchTrains() {
     const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
     const sources: any[] = [];
@@ -1080,8 +1087,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       (async () => {
         if (backoffActive("digitraffic")) { sources.push({ key: "digitraffic", country: "FI", status: "backoff", count: 0 }); return; }
         try {
+          // Digitraffic REQUIRES gzip since 2026-07 (406 without it) —
+          // explicit even though undici usually sends it, so a bundler or
+          // runtime that drops the default can't silently kill the feed.
           const r = await fetch("https://rata.digitraffic.fi/api/v1/train-locations/latest",
-            { headers: { ...UA, "Digitraffic-User": "voltradeai-datacore" }, signal: AbortSignal.timeout(12000) });
+            { headers: { ...UA, "Digitraffic-User": "voltradeai-datacore", "Accept-Encoding": "gzip" }, signal: AbortSignal.timeout(12000) });
           if (!r.ok) throw new Error(`digitraffic ${r.status}`);
           const mapped = mapDigitraffic(await r.json());
           trains.push(...mapped);
@@ -1125,16 +1135,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
   app.get("/api/data/trains", async (_req, res) => {
     if (trainsCache && Date.now() - trainsCache.at < 30_000) return res.json(trainsCache.data);
-    if (!trainsInflight) trainsInflight = fetchTrains().finally(() => { trainsInflight = null; });
+    // [REPAIR 2026-07-05] Production outage: one fetchTrains got stuck past
+    // its per-source timeouts; `.finally()` only clears on SETTLE, so every
+    // request forever after awaited the same dead promise (endpoint hung
+    // >90s with zero bytes until redeploy). Defense in depth via
+    // routeGuards: a stale slot is abandoned (fresh fetch starts), no
+    // request waits past the route deadline (falls to stale-beats-spinner),
+    // and an orphan settling late can't clobber the replacement slot.
+    if (slotExpired(trainsInflight, Date.now())) {
+      trainsInflight = makeSlot(fetchTrains, Date.now(), (self) => {
+        if (trainsInflight === self) trainsInflight = null;
+      });
+    }
+    const slot = trainsInflight!; // non-null: the expired branch just assigned it
     try {
-      const data = await trainsInflight;
+      const data = await raceDeadline(slot.p, ROUTE_DEADLINE_MS, "trains");
       trainsCache = { at: Date.now(), data };
       res.json(data);
     } catch (e: any) {
-      // fetchTrains never throws by design (per-source status instead);
-      // this is a last-resort stale-over-error path.
+      // stale-over-error: fetchTrains itself never throws (per-source
+      // status instead) — this path is the route deadline firing.
       if (trainsCache) return res.json({ ...trainsCache.data, stale: true });
-      res.status(502).json({ error: e?.message || "trains fetch failed" });
+      res.status(503).json({ error: e?.message || "trains fetch failed", trains: [], count: 0 });
     }
   });
 
