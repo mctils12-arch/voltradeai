@@ -13,6 +13,24 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] BUILD ORDER 2 filed (self-proposed per the standing directive — build order 1 fully resolved) (docs)
+
+- [T-DATACORE] Standing directive 2026-07-05: "when the wishlist is
+  empty, generate the next wishlist yourself." Build order 1 is fully
+  resolved (streams #1-#8: 6 built, 1 superseded, 1 gate-1 killed;
+  trains repair, perf repair, tank-fill workup through its gate-1
+  verdict). BUILD ORDER 2 filed in open_questions.md with per-stream
+  trading hypotheses and ladder paths; access LIVE-PROBED keyless
+  2026-07-05 for the three new externals (api.weather.gov GeoJSON,
+  TreasuryDirect TA_WS JSON, Drought Monitor CSV — all responded).
+- Order: (1) aircraft entity spine v1 (GIP queue promotion — queued
+  work outranks new streams; fleet-utilization x earnings
+  hypothesis), (2) tank-fill v3 S1 gate-1 pipeline (successor root,
+  discounted prior ~25%), (3) NWS alerts, (4) Treasury auctions,
+  (5) Drought Monitor, (6) STB rail traffic.
+- Each ships as its own PR under the stream rules (licensing first,
+  archive from day one, envelope manifest, RAW until gate 2).
+
 ## 2026-07-05 — [RESEARCH] Tank-fill v2 GATE 1: FAIL (layer of death: DATA) — 24-mo backfill + EIA validation (v1.0.110)
 
 - [T-DATACORE] PR-4 of the build plan. Backfill: 99 master chips
