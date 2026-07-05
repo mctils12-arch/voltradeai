@@ -1,0 +1,24 @@
+{
+ "stream": "eiaweekly",
+ "storage": "git-versioned keyed JSON datacore/eia/weekly_series.json — WHOLE-FILE REBUILD per run (the source serves full history every pull; git history keeps vintages and EIA revisions surface as diffs), NOT append-only",
+ "written_by": "scripts/eia_weekly.py (Python, session-run ~weekly; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "source": "EIA dnav hist_xls weekly series (keyless; all five endpoints probed 2026-07-05)",
+ "license": "US government work, public domain; attribution 'U.S. Energy Information Administration'",
+ "attribution": "U.S. Energy Information Administration",
+ "schema_version": 1,
+ "field_map": {
+  "series.<key>.title_as_published": "the series title READ FROM THE SHEET — a moved/renamed upstream series shows as a title diff, never silent mislabeling",
+  "series.<key>.points": "[[iso_date, value], ...] full weekly history; gaps are SKIPPED, never zero",
+  "series.<key>.url/n/first/last": "provenance + span",
+  "selection": "crude_stocks_us (ex-SPR), gasoline_stocks_us, distillate_stocks_us, spr_crude_stocks, natgas_working_l48 — Cushing deliberately NOT duplicated (the tank-fill EIA comparator owns it)"
+ },
+ "confidence_model": "RAW official weekly estimates as published; EIA revises occasionally — the rebuild-plus-git-history model captures revisions as diffs rather than a vintage column (stated trade-off, same as railep724). All-series failure refuses to write; partial failure writes what succeeded and prints the failures.",
+ "geo_fields": [
+  "(none — national series; natgas is lower-48)"
+ ],
+ "entity_key": "series key + date",
+ "sentiment": null,
+ "started": "2026-07-05 (history to 1982-08-20 captured in the first build)",
+ "cadence": "source updates Wednesdays (petroleum) / Thursdays (natgas); session-run refresh ~weekly",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 3 #2; hypothesis (storage-vs-seasonal-band deltas condition the energy regime) stays gate-locked — archive only."
+}
