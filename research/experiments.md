@@ -13,6 +13,51 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] Tank-fill v2 GATE 1: FAIL (layer of death: DATA) — 24-mo backfill + EIA validation (v1.0.110)
+
+- [T-DATACORE] PR-4 of the build plan. Backfill: 99 master chips
+  2024-07..2026-07, ZERO failures, ~139 PU total (1.4% of one month's
+  free tier). Estimator swept all chips -> 99 readings_v2 lines
+  (89 usable scenes, rest cloud-skipped; registration (0,0)
+  everywhere — S2 L2A ortho is that good). Gate scorer:
+  scripts/tankfill_gate1.py with matching rules + criteria pinned by
+  test_tankfill_gate1.py BEFORE the run (prior logged in the
+  v1.0.109 entry: P(pass) ~40%).
+- VERDICT vs pre-stated criteria (>=20 matched weeks w/ reversal,
+  delta r >= +0.3, delta-sign >= 65%): n_matched=72 (ample, reversals
+  present), delta r = -0.06, sign hit = 0.50 (n=64), levels r = +0.11
+  -> FAIL. Winter/shoulder split (sun_elev < 50, the workup's
+  predicted signal carrier): delta r = -0.284 (WRONG direction),
+  sign hit 0.42 -> FAIL harder. This is a real fail on a big sample,
+  not a thin-sample fail.
+- CONFOUND QUANTIFIED: composite vs sun_elev r = +0.40 (+0.0034
+  fill/deg) — the tan-zenith inversion does NOT fully remove the sun
+  artifact (the exact v1 poison, now measured per-tank). BUT the
+  confound is not the whole story: sun-residualized composites
+  (post-hoc DIAGNOSTIC, not a gate re-score) still show delta r
+  -0.06, sign hit 0.42 — after removing the sun trend there is NO
+  residual inventory signal at all. The 10 m optical sub-pixel
+  crescent method does not track Cushing inventories. Period.
+- LADDER CONSEQUENCES: root DEAD at gate 1 (DATA — reading fails
+  external-truth verification vs EIA). Build-plan PR-5/6/7 (weekly
+  cadence surface, gate-2 study, unlock) CANCELLED — they presumed a
+  pass. Nothing surfaces on /data (gate rule held: no fill% was ever
+  shown). readings_v2 production PAUSED — no further appends from a
+  falsified estimator. CHIP ACQUISITION CONTINUES weekly (raw
+  material is cheap at 1.4 PU/scene, the archive never refills, and
+  the S1 successor needs coincident optical pairs).
+- SUCCESSOR ROOT FILED (open_questions.md): Sentinel-1 SAR
+  double-bounce tank-fill — different physics (roof-wall corner
+  reflection scales with roof depth; cloud-immune; ~2x cadence;
+  CDSE creds already proven on S1). Discounted prior: this is
+  attempt #2 on the same target (Reasoning Standard #4) — P(gate 1)
+  ~25%. Criteria to be pre-stated in its own workup before any run.
+- HONESTY NOTE: the negative result is the product here — "10 m free
+  optical cannot read Cushing fill" is now a COSTED, evidence-backed
+  boundary (99 scenes, 72 matched weeks) that no future session
+  needs to re-learn, and it sharpens the BLOCKED-FOR-MIKE sub-meter
+  imagery entry (that purchase is now the only optical path).
+
 ## 2026-07-05 — [PIPELINE] Tank-fill v2 PR-3: crescent estimator BUILT + run on the first real chip (v1.0.109)
 
 - [T-DATACORE] scripts/tankfill_estimator.py: per-tank up-sun vs

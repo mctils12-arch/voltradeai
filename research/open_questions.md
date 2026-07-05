@@ -1110,6 +1110,44 @@ PU/scene (test-pinned against the registry); (2) pillow cannot decode
 Catalog exposes NO sun angles — discovery stays on anonymous
 earth-search, which carries both. NEXT: PR-3 crescent estimator.
 
+STATUS 2026-07-05 (later): GATE 1 FAIL — ROOT DEAD, layer of death
+DATA (experiments.md v1.0.110). 99 chips backfilled 24 mo, 72 matched
+EIA weeks: delta r -0.06, sign hit 0.50; winter split delta r -0.28
+(wrong direction). Sun confound measured (composite~sun_elev r +0.40)
+AND residualizing it leaves zero signal — 10 m optical sub-pixel
+crescents cannot read Cushing fill. PR-5/6/7 cancelled; readings_v2
+paused; weekly CHIP acquisition continues (raw material for the S1
+successor + any future estimator). Successor root below.
+
+## TANK-FILL v3 — SENTINEL-1 SAR DOUBLE-BOUNCE (successor root, filed
+2026-07-05 at the v2 gate-1 death; [T-DATACORE]; attempt #2 on the
+same target so the prior is DISCOUNTED per Reasoning Standard #4)
+
+- PHYSICS: floating roof + shell wall form a corner reflector; the
+  double-bounce return in VV scales with exposed wall height (roof
+  depth). Radar is cloud-immune (~2x usable cadence vs optical),
+  sun-independent (kills the v2 confound class entirely), and metal
+  tanks are radar-bright (proven: our first CDSE chip ever was S1 VV
+  over Cushing with tanks clearly resolved).
+- KNOWN ART: Ursa/Orbital used exactly this before optical; published
+  literature exists on S1 tank-fill at Cushing — read before building
+  (avoid rediscovering their preprocessing).
+- LADDER PATH: gate 1 = same design as v2 (chips per S1 scene x same
+  OSM registry x EIA weekly truth; criteria PRE-STATED in a build
+  workup before any scoring run; P(gate 1) ~25% stated now). Gates
+  2-5 unchanged.
+- INGREDIENTS IN HAND: CDSE creds (S1 GRD via the same Process API),
+  tank registry, EIA comparator (tankfill_gate1.py reusable as-is on
+  a new readings stream), 24 mo of coincident OPTICAL chips for
+  cross-checks.
+- OPEN QUESTIONS BEFORE BUILD: GRD vs SLC (GRD first — Process API
+  serves it; SLC needs SNAP-class tooling = heavy compute, flag if
+  required); ascending/descending pass mixing (incidence angle
+  conditions the double-bounce — likely per-orbit normalization);
+  10 m GRD pixel vs 40-60 m tank = same sub-object regime, but the
+  double-bounce is a BRIGHT ADDITIVE line, not a dark sub-pixel
+  crescent — physically better posed.
+
 - ACQUISITION (free, 0.4% of CDSE free tier): ONE master chip per
   usable S2 scene covering all Cushing tank sites — bbox
   [-96.80,35.90,-96.72,35.98] (~720x890px @10m), 5 bands (B02/03/04 +
