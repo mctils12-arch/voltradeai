@@ -949,6 +949,91 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## BUILD ORDER 5 (SELF-PROPOSED, standing directive; filed 2026-07-05
+after BUILD ORDER 4 resolved for T-DATACORE — remaining B4 items wait
+on external clocks (options QA 07-06, natgas gate-2 ~09-27, registry
+per-country discovery) or belong to other territories. [T-DATACORE];
+same rules: one item per PR, licensing first, keyless-or-already-keyed
+only, archive from day one, envelope manifest, RAW until gate 2. Theme:
+NEW ROOTS at market microstructure + attention + freight friction —
+all five sources PROBED LIVE 2026-07-05 before filing (200s recorded
+in experiments.md). Priors stated per item; every hypothesis enters
+the ladder before belief.)
+
+1. FINRA DAILY SHORT-SALE VOLUME (cdn.finra.org/equity/regsho/daily/
+   CNMSshvolYYYYMMDD.txt — keyless pipe-delimited, ~540KB/day, probed
+   200; FINRA publishes for free redistribution with attribution).
+   Per-ticker daily short volume / total volume across TRF+ADF —
+   covers EVERY equity incl. the small caps where whales can't fish.
+   HYPOTHESIS: short-volume-ratio extremes and multi-day deltas
+   precede reversals in small caps; joins our 13F clusters + Form 4
+   stream (insider buying x elevated short pressure = squeeze
+   candidate list nobody bills us for). History: dated files persist
+   — backfill 1-2 years session-side, then daily server poll.
+   PRIOR: P(gate-2 pass) ~35% — short-ratio signals are well-mined
+   in large caps; the residual edge, if any, is in the illiquid tail
+   (EDGE DOCTRINE #2). GATE 1: our parsed ratios vs FINRA's own
+   monthly aggregates on a sampled month.
+2. CFTC COT DISAGGREGATED (cftc.gov/dea/newcot/f_disagg.txt weekly,
+   keyless, probed 200 442KB; the legacy deacot.txt path 404s — use
+   the disaggregated report, which is also the analytically richer
+   one: producer/merchant vs managed-money vs swap-dealer
+   positioning. US government work, public domain. Named in the EDGE
+   DOCTRINE since day one, never built.) HYPOTHESIS: managed-money
+   net-positioning extremes (percentile vs trailing 3y) mean-revert
+   in commodity-linked ETFs (USO/UNG/GLD/copper proxies); joins the
+   EIA petroleum + natgas + tank-fill work (positioning x inventory
+   is a classic two-sided read). Weekly cadence = slow archive,
+   start NOW (accumulation substitutes for purchase — the paid COT
+   history vendors sell is exactly this file recorded over time;
+   Tuesday data released Friday 15:30 ET). PRIOR: P(gate-2) ~30% —
+   COT signals are heavily studied; regime-conditioning and the
+   less-crowded contracts are where residual edge would live.
+3. WIKIMEDIA PAGEVIEWS ATTENTION PROXY (wikimedia.org/api/rest_v1/
+   metrics/pageviews/per-article — keyless JSON, probed 200 with
+   real daily counts; CC-licensed data, generous rate limits;
+   history to 2015). THE PYTRENDS REPLACEMENT: Google Trends gate-1
+   FAILED (#215, upstream abandoned); Wikipedia article views are
+   the free, stable, historical attention signal. Needs a
+   ticker->article map (small curated seed: universe tickers ->
+   company article titles; entity_map.json precedent). HYPOTHESIS:
+   attention spikes (views z-score vs trailing 90d) on SMALL-CAP
+   company articles lead volume and volatility 1-5d; attention
+   without news (no 8-K/GDELT hit same day) is the interesting
+   subset. PRIOR: P(gate-2) ~30%, discounted for the attention-
+   signal literature being crowded on large caps — small-cap
+   restriction is the edge claim. GATE 1: views series sanity vs
+   known events (earnings dates spike) on 10 hand-checked tickers.
+4. FAA AIRPORT STATUS / DELAY PROGRAMS (nasstatus.faa.gov/api/
+   airport-status-information — keyless, probed 200; US government
+   work). Ground stops, ground-delay programs, closure reasons by
+   airport. RAW overlay for the map (aviation ops layer joins our
+   ADS-B archive) + HYPOTHESIS: sustained delay-program frequency at
+   cargo hubs (MEM, SDF, CVG, ANC) is a cost-pressure leading
+   indicator for parcel carriers (FDX/UPS) quarter-to-date; also
+   event-decorates the site timeline (Everything Graph). PRIOR:
+   P(gate-2) ~20% — weather dominates delays and is already priced;
+   the archive is cheap and the map layer is honest RAW value
+   regardless.
+5. CBP BORDER WAIT TIMES (bwt.cbp.gov API, keyless, probed 200; US
+   government work). Commercial-vehicle wait times at land ports of
+   entry, hourly. Fills the trucks gap from the N3 freight-proxy
+   analysis (we have sea=AIS, rail=STB+trains, air=ADS-B; road was
+   missing). HYPOTHESIS: sustained commercial wait-time anomalies at
+   top freight crossings (Laredo, Otay Mesa, El Paso) lead
+   border-dependent logistics/rail intermodal volumes; joins STB
+   rail carloads (substitution) and the site timeline. PRIOR:
+   P(gate-2) ~20% — indirect transmission; archive-first, signal
+   later.
+6. USPTO PATENT GRANTS/APPLICATIONS (EDGE DOCTRINE named, never
+   built; PatentsView/USPTO ODP APIs — access shape NOT yet probed,
+   may need a free key like Census: probe FIRST, and if key-gated
+   file it as BLOCKED-FOR-MIKE with the Census precedent rather
+   than building blind). HYPOTHESIS: grant-rate inflections and
+   citation-weighted grants for small-cap assignees lead re-rating;
+   assignee->ticker mapping reuses the name-matcher pattern.
+   DELIBERATELY LAST: heaviest mapping work, unprobed access.
+
 ## BUILD ORDER 4 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 3 closed 6/6 same-day; [T-DATACORE] unless noted.
 Theme: DEEPEN what tonight built — the gate-2 unlocks and the queued
