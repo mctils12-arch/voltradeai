@@ -1,0 +1,23 @@
+{
+ "stream": "cftccot",
+ "storage": "append-only JSONL week-files under <archive>/cftccot/, one file per REPORT date (gz after 9 days — a report stays plain until superseded)",
+ "written_by": "server/cftcCot.ts archiveCotWeek (12h poll of the weekly source, eager boot)",
+ "source": "CFTC Public Reporting Socrata API, dataset 72hh-3qpy (Commitments of Traders, disaggregated futures-only) — keyless JSON with NAMED fields, chosen over the headerless positional f_disagg.txt flat file for query-shape honesty. ~274 contract markets/week; Tuesday as-of data published Friday ~15:30 ET. Field names verified live 2026-07-05 incl. quirks (double-underscore swap fields, dropped _all suffixes)",
+ "license": "US government work, public domain; attribution 'CFTC Commitments of Traders (disaggregated)'",
+ "attribution": "CFTC Commitments of Traders (disaggregated)",
+ "schema_version": 1,
+ "field_map": {
+  "report_date — week-level dedup key": "one coherent week per file; a DESC fetch straddling two weeks keeps ONLY the newest (vintages never mix)",
+  "market/code/commodity": "market+exchange name, CFTC contract market code, commodity name as published",
+  "open_interest": "futures-only open interest, all",
+  "prod_merc_/swap_/m_money_/other_rept_ long|short|spread": "the four disaggregated trader categories' positions; missing/empty values are null, never zero",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official weekly positioning data. Futures-ONLY report (the combined futures+options variant is a different dataset — do not conflate). Positioning percentile/extreme SIGNALS require trailing history the archive is only beginning to accumulate (accumulation substitutes for purchase) — nothing is claimed until ladder gate 2.",
+ "geo_fields": [],
+ "entity_key": "code + report_date",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "weekly source (Friday ~15:30 ET publish); 12h poll makes off-days a dedup no-op",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 5 #2; hypothesis (managed-money extremes x commodity ETFs, joins EIA inventory work) stays gate-locked — archive + RAW display only."
+}

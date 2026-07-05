@@ -46,6 +46,7 @@ import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { bootShortVolPoll, latestShortVol } from "./finraShortVolume";
+import { bootCotPoll, latestCot } from "./cftcCot";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1593,6 +1594,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "daily short-marked execution volume (flow proxy — NOT short interest); top list floors total volume at " +
             `${hit.summary.floor_total_vol.toLocaleString()} shares and caps at ${hit.summary.top_cap} symbols (stated, not hidden)`,
       summary: hit.summary,
+    });
+  });
+
+  // CFTC Commitments of Traders, disaggregated futures-only (RAW —
+  // BUILD ORDER 5 #2, keyless Socrata named-fields source). Weekly
+  // report; serves the poller's cached week only (event-loop rule).
+  bootCotPoll();
+  app.get("/api/data/cot", (_req, res) => {
+    const hit = latestCot();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "CFTC Commitments of Traders (disaggregated)", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "CFTC Commitments of Traders, disaggregated futures-only (public domain)",
+      attribution: "CFTC Commitments of Traders (disaggregated)",
+      time: hit.at,
+      report_date: hit.report_date,
+      count: hit.rows.length,
+      note: "weekly positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; positioning-extreme signals need trailing history the archive is only beginning to accumulate",
+      markets: hit.rows,
     });
   });
 
