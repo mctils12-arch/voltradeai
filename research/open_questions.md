@@ -1100,6 +1100,16 @@ each item = own [REPAIR] PR; prioritized)
 supersedes/extends the v1 facility-scale index whose gate-1 was
 honestly NOT claimed — v1's |r|=0.73 was trend-vs-trend inflated)
 
+STATUS 2026-07-05: PR-1 (registry, #213) and PR-2 (chip client,
+scripts/cdse_chips.py) BUILT + live-verified. Three workup corrections
+found building PR-2, binding on PR-3+ (details in experiments.md
+v1.0.108): (1) the bbox below missed 20 measurable tanks — corrected
+CHIP_BBOX [-96.770,35.922,-96.712,35.960] covers all 234 at 1.40
+PU/scene (test-pinned against the registry); (2) pillow cannot decode
+5-band TIFFs — PR-3 uses tifffile (session-local dep); (3) CDSE's SH
+Catalog exposes NO sun angles — discovery stays on anonymous
+earth-search, which carries both. NEXT: PR-3 crescent estimator.
+
 - ACQUISITION (free, 0.4% of CDSE free tier): ONE master chip per
   usable S2 scene covering all Cushing tank sites — bbox
   [-96.80,35.90,-96.72,35.98] (~720x890px @10m), 5 bands (B02/03/04 +

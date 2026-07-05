@@ -16,3 +16,7 @@ __pycache__/
 
 # test_auto_discovery.py runtime artifact
 .test_manifest.json
+
+# tank-fill v2 master chips (binary ~2MB/scene; regenerable from CDSE —
+# committed metadata lives in datacore/sentinel2/chips_index.jsonl)
+datacore/sentinel2/chips/

@@ -13,6 +13,40 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Tank-fill v2 PR-2: CDSE master-chip client BUILT + live-verified (v1.0.108)
+
+- [T-DATACORE] scripts/cdse_chips.py: one 5-band UINT16 GeoTIFF master
+  chip per usable Sentinel-2 scene over the Cushing tank registry.
+  Discovery via Element84 earth-search (ANONYMOUS — same source as v1;
+  dates, cloud %, sun angles); chips via the Sentinel Hub Process API
+  on CDSE (credentialed, free tier). Committed metadata:
+  datacore/sentinel2/chips_index.jsonl (dedup by scene, per-scene
+  est_pu, monthly PU accounting with a hard 50%-of-free-tier refusal);
+  chip binaries gitignored (~1.6 MB/scene, regenerable). Manifest:
+  datacore/manifests/sentinel2chips.json. Tests: test_cdse_chips.py
+  (7, no network; recorded 2026-07-05 earth-search response).
+- WORKUP CORRECTION 1 (bbox): the filed workup chip bbox
+  [-96.80,35.90,-96.72,35.98] MISSES 20 of 234 measurable tanks
+  (registry extends east to lon -96.7149). Corrected CHIP_BBOX
+  [-96.770,35.922,-96.712,35.960] covers all measurable tanks with
+  >=250 m margin at ~1/3 the pixel area — 1.40 PU/scene vs the
+  workup's ~4.1. RATCHET: test_chip_bbox_covers_every_measurable_tank
+  pins coverage against the live registry file.
+- WORKUP CORRECTION 2 (decode): pillow CANNOT read 5-sample/pixel
+  TIFFs ("pillow decodes it" was wrong); tifffile reads (H,W,5) uint16
+  directly — session-local dep, documented in the script for PR-3.
+- WORKUP CORRECTION 3 (sun angles): the CDSE SH Catalog does NOT
+  expose view:sun_elevation/azimuth at all (probed live; fields.include
+  returns nothing) — discovery stays on earth-search, which carries
+  both angles per scene.
+- LIVE E2E (2026-07-05): token OK; 4 usable scenes since 2026-06-01;
+  pulled S2B_14SPE_20260617 (cloud 0.08%): 523x420x5 uint16, plausible
+  DN ranges (B08 NIR mean 3124), SCL classes {2,4,5,6,7}; index record
+  written; 1.4 of 10,000 monthly PU spent.
+- NEXT: PR-3 crescent estimator (sun-sector/anti-sun-sector sub-pixel
+  ratio over the registry tanks, readings_v2 schema), then PR-4
+  backfill + gate-1 attempt (criteria pre-stated in the workup).
+
 ## 2026-07-05 — [REPAIR] Audit defects #2/#9/#10 closed: trains health override, sentinel2 staleness surface, silent-cap edges (v1.0.107)
 
 - #2: the layers registry statically claimed trains "live" through the
