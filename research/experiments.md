@@ -13,6 +13,36 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] NWS severe-weather alerts stream + map layer (BUILD ORDER 2 #3) (v1.0.116)
+
+- [T-DATACORE] server/nwsAlerts.ts: api.weather.gov active alerts
+  (keyless, public domain, contact User-Agent per policy), 10-min
+  poll eager-boot, append-only archive dedup by alert id (CAP
+  messages are immutable — updates arrive as new ids), oldest-half
+  Set trim (nasaFirms lesson), gz after 2 days. Manifest
+  nwsalerts.json. Route /api/data/alerts serves display-simplified
+  polygon rings (<=64 pts).
+- GEOMETRY HONESTY: zone-coded alerts (geometry:null upstream) are
+  archived with null geo and COUNTED (zone_only) in the payload +
+  the layer status note ("N zone-coded alerts not drawn") — visible
+  cap; zone-polygon resolution filed as follow-up. Archive stores
+  centroid+bbox, never full polygons.
+- Map layer (T-CLIENT half, same PR per the cross-territory rule):
+  fill+line colored by CAP severity (Extreme red / Severe orange /
+  Moderate yellow / Minor blue), detail card with not-for-safety-
+  of-life note, legend chips, 5-min hidden-gated poll, off by
+  default (initial-load budget).
+- LIVE E2E: 228 real alerts parsed (4 Extreme / 48 Severe), 40 with
+  polygons rendered, 188 zone-only counted; archive wrote 228
+  records. Battery: server 3 tests (parse/split, ring decimation
+  closure, dedup+gz); harness 0 hard failures at 390/768/1440 —
+  first run FAILED on a stale dist bundle (toggle unclickable),
+  rebuilt and green; toggle-consistency + legend-parity batteries
+  exercised the new layer.
+- Hypothesis (gate-locked, from the build order): severe-alert
+  clusters over strategic sites lead sector moves by hours-days.
+  This PR is display + archive only.
+
 ## 2026-07-05 — [REPAIR] Entity spine unreachable in prod — artifact now BUNDLED, not disk-read (v1.0.115)
 
 - [T-DATACORE] Prod verification caught it (the watcher never fired):

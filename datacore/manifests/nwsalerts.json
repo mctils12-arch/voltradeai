@@ -1,0 +1,30 @@
+{
+ "stream": "nwsalerts",
+ "storage": "append-only JSONL day-files under <archive>/nwsalerts/ (gz after 2 days)",
+ "written_by": "server/nwsAlerts.ts archiveAlerts (10-min poll, eager boot)",
+ "source": "National Weather Service api.weather.gov /alerts/active (status=actual)",
+ "license": "US government work, public domain; attribution 'National Weather Service'. Contact User-Agent sent per api.weather.gov policy.",
+ "attribution": "National Weather Service",
+ "schema_version": 1,
+ "field_map": {
+  "id": "NWS alert message id (dedup key — messages are immutable; updates arrive as NEW ids)",
+  "event": "alert type (Tornado Warning, Winter Storm Watch, ...)",
+  "severity/urgency/certainty": "CAP classification as published",
+  "sent/onset/ends": "CAP timing fields as published",
+  "area": "areaDesc truncated to 200 chars",
+  "lat/lon": "polygon centroid when the alert carries geometry; null for zone-coded alerts",
+  "bbox": "[W,S,E,N] of the alert polygon, or null",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official warnings, no derived quantities. GEOMETRY HONESTY: zone-coded alerts (geometry:null upstream) archive with null centroid/bbox and are COUNTED (zone_only) in the live payload — a visible cap; zone-polygon resolution is a filed follow-up. Full polygons are NOT archived (space) — centroid+bbox only; display rings are decimated live.",
+ "geo_fields": [
+  "lat",
+  "lon",
+  "bbox"
+ ],
+ "entity_key": "id",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "10-min poll of active alerts",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 2 #3; hypothesis (alert clusters over strategic sites lead sector moves) stays gate-locked — this stream is display + archive only."
+}

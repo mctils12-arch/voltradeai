@@ -41,6 +41,7 @@ import {
 import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
+import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1445,6 +1446,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.gauges.length,
       note: "raw stage/discharge readings; provisional values revise — the archive keeps every vintage",
       gauges: hit.gauges,
+    });
+  });
+
+  // NWS active severe-weather alerts (RAW overlay — BUILD ORDER 2 #3):
+  // official warnings displayed as-is with attribution, no predictive
+  // claim. Zone-only alerts (no polygon) are COUNTED in the payload —
+  // a visible cap, never silent. Boots eagerly.
+  bootAlertsPoll();
+  app.get("/api/data/alerts", (_req, res) => {
+    const hit = latestAlerts();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "NWS api.weather.gov", warming_up: true, count: 0, zone_only: 0, alerts: [] });
+    }
+    res.set("Cache-Control", "public, max-age=120");
+    res.json({
+      kind: "raw",
+      source: "National Weather Service (api.weather.gov) — US government work, public domain",
+      attribution: "National Weather Service",
+      time: hit.at,
+      count: hit.display.length,
+      zone_only: hit.zoneOnly,
+      note: "polygon-carrying alerts only; zone-coded alerts without geometry are counted in zone_only (resolution is a filed follow-up)",
+      alerts: hit.display,
     });
   });
 

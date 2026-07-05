@@ -42,7 +42,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge" | "alert";
   title: string;
   subtitle: string;
   body: string;
@@ -86,6 +86,7 @@ const LAYER_GROUP: Record<string, string> = {
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   rivergauges: "environmental",
+  alerts: "environmental",
   insider: "filings", earnings: "filings", shadowstats: "filings", portdwell: "filings",
 };
 const groupOf = (l: LayerMeta): string =>
@@ -1566,6 +1567,81 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.rivergauges, mapReady, setStatus]);
 
+  // ── NWS severe-weather alerts (RAW overlay — official warnings as-is,
+  // colored by CAP severity; zone-only alerts are counted, not drawn). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.alerts) {
+      try {
+        if (map?.getLayer("alerts-line")) map.removeLayer("alerts-line");
+        if (map?.getLayer("alerts-fill")) map.removeLayer("alerts-fill");
+        if (map?.getSource("alerts")) map.removeSource("alerts");
+      } catch {}
+      setStatus("alerts", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("alerts", "loading");
+    let stop = false;
+    const SEV_COLOR: any = ["match", ["get", "severity"],
+      "Extreme", "#ff3b3b", "Severe", "#ff8c42", "Moderate", "#ffd23f", "Minor", "#4d9fff",
+      "#9aa4b2"];
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/alerts");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("alerts", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const fc = {
+          type: "FeatureCollection",
+          features: (d.alerts || []).map((a: any) => ({
+            type: "Feature",
+            geometry: { type: "Polygon", coordinates: a.rings },
+            properties: { id: a.id, event: a.event, severity: a.severity || "Unknown", area: a.area, ends: a.ends },
+          })),
+        };
+        const src: any = map.getSource("alerts");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("alerts", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "alerts-fill", type: "fill", source: "alerts",
+            paint: { "fill-color": SEV_COLOR, "fill-opacity": 0.18 },
+          });
+          map.addLayer({
+            id: "alerts-line", type: "line", source: "alerts",
+            paint: { "line-color": SEV_COLOR, "line-width": 1.2, "line-opacity": 0.8 },
+          });
+          map.on("click", "alerts-fill", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            setDetail({
+              kind: "alert",
+              title: `⚠ ${p.event}`,
+              subtitle: `NWS · ${p.severity} severity`,
+              body: `${p.area || ""}\n${p.ends ? `Ends ${p.ends}` : ""}\n\n` +
+                    `Official National Weather Service alert, displayed as published. ` +
+                    `Not for safety-of-life use — see weather.gov for authoritative guidance.`,
+              links: [{ label: "weather.gov alerts", href: "https://www.weather.gov/alerts" }],
+            });
+          });
+          map.on("mouseenter", "alerts-fill", () => { map.getCanvas().style.cursor = "pointer"; });
+          map.on("mouseleave", "alerts-fill", () => { map.getCanvas().style.cursor = ""; });
+        }
+        const note = d.zone_only ? `NWS · ${d.zone_only} zone-coded alerts not drawn` : "NWS api.weather.gov";
+        setStatus("alerts", "active", fc.features.length, note);
+      } catch {
+        if (!stop) setStatus("alerts", "error");
+      }
+    };
+    load();
+    // 5-min refresh, hidden-tab gated (server polls upstream every 10)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.alerts, mapReady, setStatus]);
+
   // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
   // archive — counts only, per-vessel claims stay ladder-gated) ──
   const [shadowStats, setShadowStats] = useState<any>(null);
@@ -2017,7 +2093,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.rivergauges) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.rivergauges || enabled.alerts) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -2029,6 +2105,14 @@ export default function DataMapPage() {
                           </>
                         )}
                         {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
+                        {enabled.alerts && (
+                          <>
+                            {([["Extreme", "#ff3b3b"], ["Severe", "#ff8c42"], ["Moderate", "#ffd23f"], ["Minor", "#4d9fff"]] as const)
+                              .map(([t, c]) => (
+                                <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t} Alert</span>
+                              ))}
+                          </>
+                        )}
                         {enabled.surfacewater && (
                           <>
                             {([["Rare", "#ffcccc"], ["Seasonal", "#8683ff"], ["Permanent", "#0000ff"]] as const)
