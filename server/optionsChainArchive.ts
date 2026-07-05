@@ -19,6 +19,7 @@
  */
 import fs from "fs";
 import path from "path";
+import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 
 export const CHAIN_MAX_UNDERLYINGS = 120;
@@ -127,15 +128,46 @@ const ET_FMT = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
 });
 
-/** Once per ET weekday, after the close (16:15 ET). lastRunDay is the ET
- *  date string of the last completed run (persisted by the caller). */
-export function shouldRunNow(lastRunDay: string | null, nowMs = Date.now()): { run: boolean; etDay: string } {
+// ── Market holidays ([REPAIR 2026-07-05, audit defect #4c]: the archiver
+// ran on July 3 — a full NYSE closure — burning ~120 API calls to archive
+// stale Thursday quotes as a fresh day). Source of truth stays
+// market_calendar.py (FROZEN, read-only here — parsed, never duplicated,
+// so December's year-add flows through automatically). Parse failure
+// degrades to weekend-only gating, never to a crash. ──────────────────────
+
+export function parseMarketHolidays(pyText: string): Set<string> {
+  const out = new Set<string>();
+  const m = pyText.match(/MARKET_HOLIDAYS_\d{4}\s*=\s*\{([\s\S]*?)\}/g) || [];
+  for (const block of m) {
+    const dates = Array.from(block.matchAll(/date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})\)/g));
+    for (const d of dates) {
+      out.add(`${d[1]}-${d[2].padStart(2, "0")}-${d[3].padStart(2, "0")}`);
+    }
+  }
+  return out;
+}
+
+let holidayCache: Set<string> | null = null;
+export function marketHolidays(): Set<string> {
+  if (holidayCache) return holidayCache;
+  try {
+    holidayCache = parseMarketHolidays(fs.readFileSync(path.resolve(process.cwd(), "market_calendar.py"), "utf8"));
+  } catch {
+    holidayCache = new Set(); // degrade to weekend-only gating
+  }
+  return holidayCache;
+}
+
+/** Once per ET trading day, after the close (16:15 ET). lastRunDay is the
+ *  ET date string of the last SUCCESSFUL run (persisted by the caller). */
+export function shouldRunNow(lastRunDay: string | null, nowMs = Date.now(), holidays: Set<string> = marketHolidays()): { run: boolean; etDay: string } {
   const parts = ET_FMT.formatToParts(nowMs);
   const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
   const dow = get("weekday");
   const mins = parseInt(get("hour"), 10) * 60 + parseInt(get("minute"), 10);
   const etDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(nowMs); // YYYY-MM-DD
-  const run = dow !== "Sat" && dow !== "Sun" && mins >= CHAIN_RUN_AFTER_ET_MINUTES && lastRunDay !== etDay;
+  const run = dow !== "Sat" && dow !== "Sun" && !holidays.has(etDay) &&
+    mins >= CHAIN_RUN_AFTER_ET_MINUTES && lastRunDay !== etDay;
   return { run, etDay };
 }
 
@@ -190,23 +222,57 @@ function universeCachePath(): string {
 export async function runDailyChainArchive(
   env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any,
   positionSymbols: string[] = [], nowMs = Date.now(),
-): Promise<{ underlyings: number; contracts: number }> {
+): Promise<{ underlyings: number; contracts: number; failures: number }> {
   let cache: any = null;
   const cp = universeCachePath();
   if (cp) { try { cache = JSON.parse(fs.readFileSync(cp, "utf8")); } catch {} }
   const unders = underlyingsFor(cache, positionSymbols);
   let contracts = 0;
+  let failures = 0;
   for (const { sym, spot } of unders) {
     try {
       const recs = await fetchChainForUnderlying(sym, spot, env, fetchImpl, nowMs);
       contracts += archiveChainRecords(recs, undefined, nowMs);
     } catch (e: any) {
+      failures++;
       console.error(`[optionchains] ${sym}:`, e?.message || e);
     }
     await new Promise((r) => setTimeout(r, 350)); // stay polite on the data API
   }
-  console.log(`[optionchains] archived ${contracts} contracts across ${unders.length} underlyings`);
-  return { underlyings: unders.length, contracts };
+  console.log(`[optionchains] archived ${contracts} contracts across ${unders.length} underlyings (${failures} failed)`);
+  return { underlyings: unders.length, contracts, failures };
+}
+
+/** [REPAIR 2026-07-05, audit defect #4a] Should the day be marked done?
+ *  Claim ONLY after a run that wasn't a total failure — a crashed process
+ *  or all-underlyings-failed run leaves the marker unwritten so the next
+ *  hourly tick retries the SAME day instead of losing it forever (the old
+ *  claim-before-run lost the trading day on any crash). An empty universe
+ *  claims (nothing to archive ≠ failure); partial failures claim (the
+ *  day's data is on disk, per-symbol errors were logged). */
+export function shouldClaimDay(r: { underlyings: number; contracts: number; failures: number }): boolean {
+  if (r.underlyings === 0) return true;
+  return r.failures < r.underlyings;
+}
+
+/** [REPAIR 2026-07-05, audit defect #4b] The manifest promised .jsonl(.gz)
+ *  but nothing ever gzipped this dir — ~3-5MB/day accumulated raw. Same
+ *  2-day lifecycle as every other stream archive. */
+export function gzipOldChainDays(baseDir?: string, nowMs?: number): number {
+  const dir = chainDir(baseDir);
+  const now = nowMs ?? Date.now();
+  let n = 0;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".jsonl")) continue;
+      if (now - Date.parse(f.slice(0, 10)) < 2 * 86400_000) continue;
+      const fp = path.join(dir, f);
+      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+      fs.unlinkSync(fp);
+      n++;
+    }
+  } catch {}
+  return n;
 }
 
 let booted = false;
@@ -218,14 +284,23 @@ export function bootChainArchive(
 ): void {
   if (booted || !chainEnabled(env)) return;
   booted = true;
+  let running = false; // in-memory guard replaces claim-before-run (defect #4a)
   const tick = async () => {
+    if (running) return;
     try {
       const { run, etDay } = shouldRunNow(readLastRunDay());
       if (!run) return;
-      writeLastRunDay(etDay); // claim first: a slow run must not double-fire
-      await runDailyChainArchive(env, fetch as any, getPositions());
+      running = true;
+      const result = await runDailyChainArchive(env, fetch as any, getPositions());
+      // claim AFTER success: a crash/total failure leaves the marker
+      // unwritten so the next hourly tick retries the same trading day
+      if (shouldClaimDay(result)) writeLastRunDay(etDay);
+      else console.error(`[optionchains] total failure (${result.failures}/${result.underlyings}) — day NOT claimed, retrying next tick`);
+      try { gzipOldChainDays(); } catch {}
     } catch (e: any) {
-      console.error("[optionchains] daily run failed:", e?.message || e);
+      console.error("[optionchains] daily run failed (day not claimed):", e?.message || e);
+    } finally {
+      running = false;
     }
   };
   tick();
