@@ -26,5 +26,5 @@
  "sentiment": null,
  "started": "2026-07-05",
  "cadence": "per usable scene (~weekly after clouds), session-run",
- "_note": "Universal archive envelope (approved 2026-07-04). Tank-fill v2 PR-3 of 7; PR-4 = backfill + gate-1 attempt vs EIA weekly Cushing stocks."
+ "_note": "Universal archive envelope (approved 2026-07-04). GATE 1 FAILED 2026-07-05 (experiments.md v1.0.110): 72 matched EIA weeks, delta r -0.06 — the estimator does not track inventories. Stream FROZEN at 99 readings (no further appends from a falsified estimator); retained as the negative-result record + cross-check corpus for the S1 successor root."
 }
