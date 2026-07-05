@@ -1,0 +1,22 @@
+{
+ "stream": "wikiattention",
+ "storage": "append-only JSONL day-files under <archive>/wikiattention/, keyed by VIEW date (gz after 4 days — views can revise shortly after publish)",
+ "written_by": "server/wikiAttention.ts archiveAttention (12h poll, 7-day window per article, eager boot)",
+ "source": "Wikimedia pageviews REST API (en.wikipedia, all-access, agent=user — bot traffic excluded by the agent filter); keyless; history to 2015. Probed live 2026-07-05 incl. the burst 429 limit — requests spaced >=600ms",
+ "license": "Wikimedia pageviews data is freely licensed; attribution 'Wikimedia pageviews API'",
+ "attribution": "Wikimedia pageviews API",
+ "schema_version": 1,
+ "field_map": {
+  "date|ticker — dedup key": "one observation per seed ticker per view day",
+  "ticker/article": "from the curated seed datacore/wiki_articles.json (23 pairs, EVERY pair hand-probed before inclusion; RIOT dropped — renamed article, the API does not follow redirects). STATIC IMPORT (bundled) — the Docker image never carries datacore/, so a disk read would serve nothing in prod (entity-spine lesson #226)",
+  "views": "daily user pageviews as published; a 404/no-data article contributes NOTHING (absence is data, never faked)",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW attention proxy — the PYTRENDS REPLACEMENT after its gate-1 FAIL (#215). v1 serves raw daily views only: NO z-scores, spike labels, or attention claims until the archive holds the trailing history to compute them honestly AND gate 1 passes (views vs known events, e.g. earnings dates, on 10 hand-checked tickers). The served day is the newest with a MAJORITY of the seed present, so an in-progress publish day never masquerades as the panel.",
+ "geo_fields": [],
+ "entity_key": "ticker + date",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "daily source (yesterday finalizes early UTC); 12h poll, dedup makes the second pass a near-no-op",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 5 #3; hypothesis (attention spikes lead volume/vol 1-5d, small names without same-day news) stays gate-locked — archive + RAW display only."
+}

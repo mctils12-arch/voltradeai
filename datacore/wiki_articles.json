@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "what": "Curated ticker -> en.wikipedia article-title seed for the attention stream (BUILD ORDER 5 #3). v1 is deliberately small: only pairs verified by hand against the live pageviews API (all-access/user, daily). Article titles use the API's underscore encoding.",
+    "expansion_rule": "grow only after gate 1 (views-vs-known-events hand-check) passes; every added pair needs the same 200-probe + correct-article check. True small caps often lack articles — that absence is data, not a bug. RIOT was dropped at curation: both candidate titles failed the probe (article renamed; pageviews does not follow redirects).",
+    "curated": "2026-07-05, probed live same day",
+    "schema_version": 1
+  },
+  "articles": {
+    "NVDA": "Nvidia",
+    "AAPL": "Apple_Inc.",
+    "TSLA": "Tesla,_Inc.",
+    "AMD": "AMD",
+    "PLTR": "Palantir_Technologies",
+    "COIN": "Coinbase",
+    "GME": "GameStop",
+    "AMC": "AMC_Entertainment",
+    "SOFI": "SoFi",
+    "HOOD": "Robinhood_Markets",
+    "RIVN": "Rivian",
+    "LCID": "Lucid_Motors",
+    "IONQ": "IonQ",
+    "RKLB": "Rocket_Lab",
+    "ASTS": "AST_SpaceMobile",
+    "RDDT": "Reddit",
+    "SMCI": "Super_Micro_Computer",
+    "CVNA": "Carvana",
+    "UPST": "Upstart_Holdings",
+    "MARA": "MARA_Holdings",
+    "OKLO": "Oklo",
+    "JOBY": "Joby_Aviation",
+    "ACHR": "Archer_Aviation"
+  }
+}

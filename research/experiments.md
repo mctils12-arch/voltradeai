@@ -13,6 +13,41 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Wikimedia pageviews attention stream (BUILD ORDER 5 #3) — curated seed + /api/data/attention (v1.0.135)
+
+- TERRITORY: T-DATACORE. The PYTRENDS REPLACEMENT (gate-1 FAIL #215):
+  server/wikiAttention.ts polls the keyless Wikimedia pageviews REST
+  API (en.wikipedia, all-access, agent=user — bot traffic excluded at
+  the source) for a curated 23-ticker seed, 7-day window, 12h poll.
+- CURATION HONESTY: datacore/wiki_articles.json — EVERY pair was
+  hand-probed against the live API before inclusion (24 probed, 23
+  kept). RIOT dropped at curation: the article was renamed and the
+  pageviews API does not follow redirects (both candidate titles
+  failed — one 404, one valid-but-no-data). Expansion rule embedded
+  in the file: no new pair without a passing probe; true small caps
+  often lack articles and that ABSENCE IS DATA. Observed live: quick
+  bursts 429 — poller spaces requests >=600ms (test asserts the
+  constant respects the observed limit).
+- Docker image rule: the seed is a STATIC IMPORT (bundled) — the
+  frozen Dockerfile never copies datacore/, so a runtime disk read
+  would serve nothing in prod (entity-spine lesson #226).
+- PANEL DISCIPLINE: the served day is the newest with a MAJORITY of
+  the seed present, so an in-progress publish day (2 of 23 articles)
+  never masquerades as the panel (test-pinned). v1 serves RAW daily
+  views only — no z-scores or spike labels until the archive holds
+  the trailing history to compute them honestly AND gate 1 passes.
+- GATE 1 (pre-stated): on 10 hand-checked tickers, views series must
+  spike on known event dates (earnings, major announcements) vs the
+  surrounding baseline; article-identity errors (wrong company) are
+  an automatic fail for that pair. Run after ~2 weeks of archive.
+- HYPOTHESIS (gate-locked): attention spikes lead volume/vol 1-5d,
+  most interesting on smaller names without same-day news
+  (attention-without-news subset). Prior ~30% stated at filing.
+- Tests 5/5 (seed bundling + RIOT-absent honesty, API-shape parse,
+  one-request-per-article + 404-absence, dedup by view day + 4d gz
+  with corrected fixture arithmetic, majority panel-day rule);
+  manifest battery 3/3; tsc 64 baseline; pytest 397/1.
+
 ## 2026-07-05 — [PIPELINE] CFTC COT disaggregated stream (BUILD ORDER 5 #2) — keyless Socrata archiver + /api/data/cot (v1.0.134)
 
 - TERRITORY: T-DATACORE. server/cftcCot.ts polls the CFTC Public

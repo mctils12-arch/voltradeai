@@ -47,6 +47,7 @@ import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { bootShortVolPoll, latestShortVol } from "./finraShortVolume";
 import { bootCotPoll, latestCot } from "./cftcCot";
+import { bootAttentionPoll, latestAttention, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1616,6 +1617,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.rows.length,
       note: "weekly positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; positioning-extreme signals need trailing history the archive is only beginning to accumulate",
       markets: hit.rows,
+    });
+  });
+
+  // Wikipedia pageviews attention proxy (RAW — BUILD ORDER 5 #3, the
+  // pytrends replacement). Curated 23-ticker seed, raw daily views
+  // only — no spike/z-score claims until gate 1 + trailing history.
+  bootAttentionPoll();
+  app.get("/api/data/attention", (_req, res) => {
+    const hit = latestAttention();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "Wikimedia pageviews API", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "Wikimedia pageviews API (en.wikipedia, all-access, agent=user)",
+      attribution: "Wikimedia pageviews API",
+      time: hit.at,
+      date: hit.day.date,
+      seed_size: Object.keys(WIKI_ARTICLES).length,
+      count: hit.day.tickers.length,
+      note: "RAW daily user pageviews for a curated ticker->article seed (stated size above); an attention PROXY, not a signal — no spike claims until the archive holds trailing history and gate 1 passes",
+      tickers: hit.day.tickers,
     });
   });
 
