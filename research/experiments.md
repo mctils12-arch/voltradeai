@@ -13,6 +13,39 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] /api/data/trains permanent hang: stuck in-flight promise poisoned the route (v1.0.92) [T-DATACORE]
+
+- Production: /api/data/trains returned NOTHING (HTTP 000 at 90s, zero
+  bytes) while every other endpoint was healthy; /data showed the
+  trains layer erroring. Archive evidence: trains recorded fine
+  through the 05:00 UTC hour, dead after — so the feed worked, then
+  ONE fetch wedged.
+- ROOT CAUSE (architecture, not upstream): the route shares one
+  in-flight promise across requests (`.finally()` clears it) — but
+  .finally only fires when the promise SETTLES. One fetchTrains stuck
+  past its per-source AbortSignal timeouts (upstream/undici pathology)
+  → every subsequent request awaited the same dead promise, forever,
+  surviving upstream recovery. /api/data/aircraft carried the
+  IDENTICAL latent pattern per bbox key.
+- Also found while diagnosing: Digitraffic now REQUIRES
+  Accept-Encoding: gzip (406 otherwise — verified live). Undici sends
+  it by default, but the header is now explicit so a runtime/bundler
+  change can't silently 406 the feed.
+- FIX (server/routeGuards.ts, pure + unit-tested): (1) raceDeadline —
+  no request waits past 15s; falls to stale-beats-spinner; (2) slot
+  expiry — an in-flight older than 45s is abandoned and a fresh fetch
+  starts (one stuck fetch can no longer poison the future); (3)
+  identity-guarded cleanup — a late-settling orphan can't clobber its
+  replacement. Applied to trains AND aircraft.
+- RATCHET: 7 tests incl. the exact outage shape (stuck promise →
+  deadline rejection), orphan-vs-replacement identity, unhandled-
+  rejection absorption, and wiring pins (both routes use the guards;
+  gzip header present). Deploy-verify: after merge, /api/data/trains
+  must respond <15s with either data or stale/503 — never hang.
+- Related audit findings (SEPARATE PRs queued): trains/aircraft
+  archives are request-driven (gaps never refill — needs eager tick);
+  trains lacks a health-aware registry status override.
+
 ## 2026-07-05 — [REPAIR] Temp value-labels ate the wind arrows (v1.0.91) [T-CLIENT]
 
 - Production report: with Temperature value-labels ON, wind arrows
