@@ -13,6 +13,24 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] BUILD ORDER 4 filed — deepen before new roots (docs)
+
+- [T-DATACORE] Theme: the gate-2 unlocks and queued GIP items that
+  tonight's builds created, before any new ingestion. Order (full
+  hypotheses + gates in open_questions.md): (1) registrant->operator
+  resolution — the B3-1 blocker; callsign-prefix inference from our
+  own archive is the free key insight (a hex flying UAL#### IS
+  United ops regardless of trustee registrant); (2) UI scalability
+  architecture (GIP Part 4, [T-CLIENT]); (3) international aircraft
+  registries v1 (the 22% of archived hexes FAA can't match);
+  (4) natgas-storage x degree-day gate-2 design, criteria pre-stated
+  now, runs at >=12 live-overlap weeks (~2026-09-27); (5) options-
+  chain first-week QA (first snapshots 2026-07-06 close);
+  (6) [RULE-REVIEW] counterfactual-logger check-in per the CLAUDE.md
+  mandate.
+- One item per PR; read-before-write rigor unchanged for later
+  actions per SESSION BUDGET.
+
 ## 2026-07-05 — [RESEARCH] Anomaly-mining pass run — BUILD ORDER 3 COMPLETE (docs)
 
 - [T-DATACORE] B3-6 executed per the angle-hunting mandate; full

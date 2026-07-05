@@ -914,6 +914,40 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## BUILD ORDER 4 (SELF-PROPOSED, standing directive; filed 2026-07-05
+after BUILD ORDER 3 closed 6/6 same-day; [T-DATACORE] unless noted.
+Theme: DEEPEN what tonight built — the gate-2 unlocks and the queued
+GIP items, before any new roots)
+
+1. REGISTRANT->OPERATOR RESOLUTION (the B3-1 gate-2 blocker, stated
+   at the gate-1 pass): trustee/leasing registrants (TVPX, bank
+   trustees, fractional programs) hide the operating company.
+   v1: rule-based — known trustee/lessor name list (from our own
+   spine composition) + callsign-prefix operator inference from the
+   archive (a hex flying UAL#### callsigns IS United ops regardless
+   of registrant; callsigns are already archived per point).
+   Evidence envelope on every resolution; unresolved stays
+   registrant-labeled. GATE: >=90% agreement on a 20-airframe
+   hand-check vs public fleet trackers.
+2. UI SCALABILITY ARCHITECTURE (GIP Part 4 queued item, [T-CLIENT]):
+   panel virtualization, per-layer cost budgets in the registry
+   schema, 50/100/200-layer synthetic harness batteries asserting
+   the interactive budget; no regression to current map speed.
+3. INTERNATIONAL AIRCRAFT REGISTRIES v1 (GIP Part 5a filings): UK
+   G-INFO + Ireland + Switzerland public registries x our archived
+   non-US hexes (22% of archive unmatched tonight); same
+   exact-hex-join + evidence-envelope discipline as the FAA spine.
+4. NATGAS STORAGE x DEGREE-DAY GATE-2 DESIGN (the pairing #233/#234
+   were built for): pre-state criteria NOW, run when live-week
+   overlap >= 12 weeks (~2026-09-27): storage-delta surprise vs
+   degree-day-implied draw, regime-split, vs random-entry base rate.
+5. OPTIONS-CHAIN FIRST-WEEK QA: the daily archiver's first
+   snapshots land 2026-07-06 close — verify shape, contract counts,
+   IV sanity vs the pilot sample; file the first-week report.
+6. [RULE-REVIEW] COUNTERFACTUAL LOGGER CHECK-IN (CLAUDE.md mandate):
+   verify blocked-trade logging is live and accumulating; earliest
+   prevention-P&L readout; if not yet built, THIS becomes the item.
+
 ## BUILD ORDER 3 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 2 resolved 6/6 same-day — see experiments.md
 v1.0.119 scoreboard; [T-DATACORE] unless noted; same rules: one item
