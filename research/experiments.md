@@ -13,6 +13,26 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Treasury auction results stream (BUILD ORDER 2 #4) (v1.0.117)
+
+- [T-DATACORE] server/treasuryAuctions.ts: TreasuryDirect TA_WS
+  (keyless, public domain), 6h eager poll over a 30-day window,
+  dedup cusip|auction_date (results immutable; reopenings = new
+  dates), numeric normalization ('' -> null, never guessed — bills
+  carry discount rates, coupons carry yields, each keeps the other
+  null). One DERIVED field, labeled: dealer_take = primary dealer
+  accepted / competitive accepted. Manifest + RAW route
+  /api/data/treasury-auctions.
+- HONESTY: the classic tail-vs-when-issued metric needs a paid 1pm
+  WI quote — never faked; free stress metrics are bid_to_cover +
+  bidder-class shares (manifest states it).
+- LIVE E2E: 34 results-complete auctions in the window; dealer takes
+  26-38%, plausible. Battery 3 tests (real-fixture normalization,
+  pre-result/malformed drops, dedup+reopening+gz).
+- Hypothesis (gate-locked): bid-to-cover deterioration + rising
+  dealer take precede rate-regime shifts; archive-first, judged
+  after depth accumulates.
+
 ## 2026-07-05 — [PIPELINE] NWS severe-weather alerts stream + map layer (BUILD ORDER 2 #3) (v1.0.116)
 
 - [T-DATACORE] server/nwsAlerts.ts: api.weather.gov active alerts
