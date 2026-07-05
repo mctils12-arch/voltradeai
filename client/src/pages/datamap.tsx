@@ -636,13 +636,24 @@ export default function DataMapPage() {
             "icon-image": "vt-wind-arrow",
             "icon-rotate": ["get", "rot"],       // always-numeric (MapLibre lesson)
             "icon-size": ["get", "sz"],
+            // Arrow + kt text are ONE unit, fully outside the collision
+            // pass in BOTH directions (never hidden, never reserving
+            // space). REPAIR 2026-07-05: temp value-labels sample the
+            // same grid points and, sitting higher in the style, won
+            // placement — the arrow/kt pair got collision-split (arrows
+            // vanished, orphaned kt survived). Density stays bounded by
+            // the server-side sampled grid, so opting out of declutter
+            // is safe; the temp label offset (see wx-temp-labels) does
+            // the visual dodge at shared points.
             "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
             "text-field": ["concat", ["to-string", ["get", "kts"]], " kt"],
             "text-font": ["Open Sans Semibold"],
             "text-size": 9.5,
             "text-offset": [0, 1.3],
             "text-anchor": "top",
-            "text-optional": true,
+            "text-allow-overlap": true,
+            "text-ignore-placement": true,
           },
           paint: {
             "icon-color": "#eef3fb",
@@ -690,6 +701,13 @@ export default function DataMapPage() {
             "text-field": ["get", "lbl"],
             "text-font": ["Open Sans Semibold"],
             "text-size": 11,
+            // Shares grid points with the wind arrows: temp reads ABOVE
+            // the point, arrow + kt read at/below it (kt offset [0,1.3]).
+            // Still declutters against ITSELF at low zoom (allow-overlap
+            // stays false) — the arrows layer ignores placement, so the
+            // two never contend.
+            "text-anchor": "bottom",
+            "text-offset": [0, -1.2],
             "text-allow-overlap": false,
           },
           paint: {

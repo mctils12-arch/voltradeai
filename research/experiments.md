@@ -13,6 +13,34 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] Temp value-labels ate the wind arrows (v1.0.91) [T-CLIENT]
+
+- Production report: with Temperature value-labels ON, wind arrows
+  disappeared leaving orphaned kt text. ROOT CAUSE: both sample the
+  same server-side grid points; wx-temp-labels sits higher in the
+  style, so it wins MapLibre's symbol placement pass, and the arrows
+  layer was only half-shielded (icon-allow-overlap true, but its kt
+  text still collided and the icon/text pair got split by the
+  collision pass — one half surviving without the other).
+- FIX (by construction, not tuning): (1) the arrow+kt pair is now ONE
+  unit fully outside the collision pass in BOTH directions —
+  allow-overlap + ignore-placement on icon AND text, text-optional
+  removed — it can never be hidden, never hide others, never be
+  separated; density stays bounded by the sampled grid, so opting out
+  of declutter is safe. (2) At shared grid points the two label sets
+  dodge by OFFSET: temp label anchored bottom at [0,-1.2] (above the
+  point), arrow at the point, kt at [0,1.3] (below).
+- RATCHET (repair rule 3): the fields-on battery never exercised this
+  state — value-labels defaults OFF, so the bug shipped untested. The
+  battery now turns the sub-toggle ON and asserts: temp labels placed,
+  arrows still placed, the arrows layer's four collision-exemption
+  flags intact, and the temp anchor offset intact. Harness green
+  390/768/1440; magnified screenshot review confirms 72°F above /
+  arrow / 17 kt below at shared points.
+- Harness gotcha recorded: .vt-field-controls is a SIBLING of the
+  data-vt-layer row — sub-toggle locators anchor on label text, not
+  the row selector.
+
 ## 2026-07-05 — [PIPELINE] Stream #3 gate 1: PASSED 10/10 (prod vs fredgraph.csv)
 
 - v1.0.90 deployed; prod /api/data/macro serves 28 public series with
