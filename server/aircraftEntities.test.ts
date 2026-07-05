@@ -76,6 +76,24 @@ test("archivedAircraftCached: scans once per TTL window", async () => {
   assert.equal(second.as_of, first.as_of);
 });
 
+test("RATCHET [REPAIR 2026-07-05]: spine serves WITHOUT datacore/ on disk (runtime Docker image never ships it)", () => {
+  // The break: loadEntitySpine read datacore/aircraft/entity_spine.json from
+  // cwd at runtime — fine locally and in CI (repo = cwd), null FOREVER on
+  // Railway (frozen Dockerfile copies dist/ but not datacore/). The fix
+  // bundles the artifact via static import. chdir simulates the image.
+  _resetAircraftEntityCache();
+  const prev = process.cwd();
+  process.chdir(os.tmpdir());
+  try {
+    const s = loadEntitySpine();
+    assert.ok(s && Object.keys(s).length > 10_000, "bundled spine must serve with no datacore/ under cwd");
+    assert.equal(entityForHex("a6faee")!.owner, "SPARTAN EDUCATION LLC");
+  } finally {
+    process.chdir(prev);
+    _resetAircraftEntityCache();
+  }
+});
+
 test("spine: missing artifact degrades to null, real artifact serves per-hex", () => {
   assert.equal(loadEntitySpine("/nonexistent/spine.json"), null);
   assert.equal(entityForHex("a1433a", "/nonexistent/spine.json"), null);
