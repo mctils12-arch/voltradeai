@@ -13,6 +13,25 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] Stream #6: USGS river gauges — barge-corridor water levels (v1.0.98) [T-DATACORE]
+
+- Built per the verified brief: server/usgsWater.ts — 14 live-verified
+  gauges (Mississippi St. Louis->Belle Chasse + Missouri/Illinois
+  tributaries + 4 Ohio R gauges; dead Metropolis gauge excluded),
+  BOTH parameter codes requested (Memphis/Vicksburg are
+  discharge-only — verified), one request covers all sites, 1h eager
+  poll, /api/data/rivergauges route, envelope manifest.
+- Vintage discipline: provisional (P) -> approved (A) revisions append
+  as new rows with rt. USGS -999999 sentinels dropped. Low-water
+  barge-stress SIGNAL stays gate-2-locked — this is RAW readings only.
+- LIVE E2E: 26 readings across the 14 sites (several publish both
+  params; Ironton shows a negative discharge — real backwater
+  behavior, archived as-is per RAW doctrine).
+- QUEUED (own [PRODUCT] PR per the legend same-PR rule): the /data
+  registry layer + gauge map icons + legend entry — gauges carry
+  lat/lon and are map-plottable.
+- 5 tests; offline pytest green.
+
 ## 2026-07-05 — [PIPELINE] Stream #5: FDA binary events — approvals + AdCom dates (v1.0.97) [T-DATACORE]
 
 - Built per the verified brief: server/fdaEvents.ts — openFDA drugsfda

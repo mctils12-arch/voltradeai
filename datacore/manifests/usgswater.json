@@ -1,0 +1,27 @@
+{
+ "stream": "usgswater",
+ "storage": "volume JSONL <archive>/usgswater/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/usgsWater.ts archiveGaugeObs",
+ "source": "USGS Water Services instantaneous-values API (waterservices.usgs.gov/nwis/iv), keyless — 14 live-verified gauges on the Mississippi barge corridor + Ohio/Missouri/Illinois tributaries (dead Metropolis gauge 03611500 excluded)",
+ "license": "USGS data are public domain (U.S. Government work). Provisional readings subject to revision. Attribution: 'Data courtesy U.S. Geological Survey'.",
+ "attribution": "U.S. Geological Survey (USGS NWIS)",
+ "schema_version": 1,
+ "field_map": {
+  "site": "USGS site code (entity key)",
+  "name": "gauge site name",
+  "param": "00065 gage height ft (primary) | 00060 discharge ft3/s (Memphis + Vicksburg publish discharge only — verified)",
+  "d": "observation timestamp (site-local ISO with offset)",
+  "v": "reading value (numeric; unit implied by param; USGS -999999 sentinels dropped)",
+  "q": "USGS qualifier (P=provisional, A=approved)",
+  "lat": "gauge latitude",
+  "lon": "gauge longitude",
+  "rt": "as-seen date (UTC day WE fetched it)"
+ },
+ "confidence_model": "provisional (q=P) values revise to approved (A); a revision appends a NEW row (same site+param+d, new v/q, new rt) — point-in-time vintage like fredmacro. The low-water SIGNAL interpretation (barge stress) is gate-2-locked and never surfaced from this raw record.",
+ "geo_fields": ["lat", "lon"],
+ "entity_key": "site",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "1h poll; one request covers all sites; dedup by site|param|d|v|q",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here. Gauges are map-plottable — /data registry layer ships with this stream."
+}

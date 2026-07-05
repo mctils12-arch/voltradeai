@@ -49,6 +49,7 @@ import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "
 import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
+import { bootUsgsPoll, latestGauges } from "./usgsWater";
 
 const execAsync = promisify(exec);
 
@@ -1336,6 +1337,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
     }
+  });
+
+  // USGS river gauges (RAW display — stream #6 of the DATA STREAM
+  // EXPANSION order): 14 live-verified Mississippi/Ohio corridor gauges,
+  // keyless, public domain. Raw stage/discharge readings only — the
+  // low-water barge-stress SIGNAL is gate-2-locked. The /data map layer
+  // (registry + icons + legend) ships as its own [PRODUCT] PR per the
+  // legend same-PR rule. Boots eagerly.
+  bootUsgsPoll();
+  app.get("/api/data/rivergauges", (_req, res) => {
+    const hit = latestGauges();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "USGS NWIS", warming_up: true, count: 0, gauges: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "USGS Water Services (instantaneous values) — public domain",
+      attribution: "Data courtesy U.S. Geological Survey",
+      time: hit.at,
+      count: hit.gauges.length,
+      note: "raw stage/discharge readings; provisional values revise — the archive keeps every vintage",
+      gauges: hit.gauges,
+    });
   });
 
   // FDA binary events (RAW display — stream #5 of the DATA STREAM
