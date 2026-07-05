@@ -290,6 +290,10 @@ function pngMeanDiff(a, b) {
   return sum / (n * 3);
 }
 
+// Trail-refresh ratchet state: counts /api/data/track/* hits so the battery
+// can assert the popup re-pulls while open (module scope — batteries read it).
+let trackCalls = 0;
+
 function startServer() {
   return new Promise((resolve) => {
     const srv = createServer((req, res) => {
@@ -297,6 +301,20 @@ function startServer() {
       if (u.startsWith("/api/data/wxtile/")) {
         res.writeHead(200, { "content-type": "image/png" });
         return res.end(WX_TILE_PNG);
+      }
+      // STATEFUL track fixture (trail-refresh ratchet, [REPAIR 2026-07-05]):
+      // each call returns one MORE point so a live-refreshing trail visibly
+      // grows across the popup's 30s interval; a static-snapshot regression
+      // shows identical coordinates on every read.
+      if (u.startsWith("/api/data/track/")) {
+        trackCalls++;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const points = [];
+        for (let k = 0; k <= 2 + trackCalls; k++) {
+          points.push({ t: nowSec - (2 + trackCalls - k) * 60, la: 36 + k * 0.05, lo: -97 + k * 0.05 });
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ kind: "aircraft", id: u.split("/").pop(), points, count: points.length }));
       }
       // exact match wins before prefix match — otherwise /api/data/insider
       // shadows /api/data/insider/history
@@ -941,6 +959,57 @@ async function main() {
           checks.info.aircraftSourceCount = srcCount;
           if (srcCount >= 0 && srcCount < 9500) {
             checks.failures.push(`data-richness: aircraft source holds ${srcCount} < 9500 unique features — decimation must trim RENDERING, never DATA`);
+          }
+
+          // TRAIL LIVE-REFRESH RATCHET ([REPAIR 2026-07-05]): the trail was a
+          // static snapshot — fetched once at selection, never extended while
+          // the popup stayed open. Select an aircraft, require the freshness
+          // chip, then hold the popup open across the 30s refresh interval and
+          // require (a) a second /api/data/track pull and (b) the trail
+          // geometry to GROW (the stateful fixture adds a point per call).
+          const spot = await page.evaluate(() => {
+            try {
+              const m = window.__vtMap;
+              const rect = m.getContainer().getBoundingClientRect();
+              for (const f of m.querySourceFeatures("aircraft")) {
+                const [lo, la] = f.geometry.coordinates;
+                const px = m.project([lo, la]);
+                if (px.x > 260 && px.x < rect.width - 260 && px.y > 140 && px.y < rect.height - 140) {
+                  return { x: rect.left + px.x, y: rect.top + px.y };
+                }
+              }
+            } catch {}
+            return null;
+          });
+          if (!spot) {
+            checks.failures.push("trail: no clickable aircraft feature found in viewport");
+          } else {
+            const callsAtSelect = trackCalls;
+            await page.mouse.click(spot.x, spot.y);
+            const chip = await page.waitForSelector('[data-testid="trail-freshness"]', { timeout: 8000 }).catch(() => null);
+            if (!chip) {
+              checks.failures.push("trail: freshness chip absent after selecting an aircraft (data-testid=trail-freshness)");
+            } else {
+              const chipText = await chip.textContent();
+              if (!/last position/.test(chipText || "")) {
+                checks.failures.push(`trail: freshness chip lacks 'last position' age text: "${chipText}"`);
+              }
+              const lenBefore = await page.evaluate(() => {
+                try { return typeof window.__vtTrailLen === "number" ? window.__vtTrailLen : -1; } catch { return -1; }
+              });
+              await page.waitForTimeout(32_000); // one full refresh interval
+              const lenAfter = await page.evaluate(() => {
+                try { return typeof window.__vtTrailLen === "number" ? window.__vtTrailLen : -1; } catch { return -1; }
+              });
+              if (trackCalls <= callsAtSelect + 1) {
+                checks.failures.push(`trail: no live re-pull while popup open (track calls ${callsAtSelect} -> ${trackCalls}; expected >= ${callsAtSelect + 2})`);
+              }
+              if (!(lenAfter > lenBefore) || lenBefore < 0) {
+                checks.failures.push(`trail: geometry did not extend across the refresh interval (${lenBefore} -> ${lenAfter} points)`);
+              }
+              checks.info.trail = { callsAtSelect, callsAfter: trackCalls, lenBefore, lenAfter };
+              await page.keyboard.press("Escape").catch(() => {});
+            }
           }
         }
       }
