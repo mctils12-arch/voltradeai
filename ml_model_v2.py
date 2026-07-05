@@ -2481,3 +2481,42 @@ def track_fill(order_data: dict) -> None:
         import logging as _tfl
         _tfl.getLogger("voltrade.ml").debug(f"track_fill error: {e}")
         pass  # Never crash bot.ts for a logging call
+
+
+# ══ fills_slippage_stats — read path for entry-fill slippage data ════════════
+# MEASUREMENT-INTEGRITY FIX 2026-07-05: track_fill (above) has written every
+# entry fill's expected_price/fill_price/slippage_pct straight into THIS
+# module's feedback store since v1.0.34 — there has been no second "fills"
+# file since. storage_config.FILLS_PATH (voltrade_fills.json) belonged to
+# the legacy ml_model.py.track_fill(), which nothing has imported for some
+# time; any code still reading FILLS_PATH sees a permanently empty list, so
+# every slippage-derived number computed from it (realistic P&L, slippage
+# gap, fill counts) silently reports zero regardless of real trading
+# activity. This function is the correct read path: derive fill/slippage
+# stats directly from feedback records that actually carry them (entry
+# fills only — exit-fill updates and orphan-exit records never set
+# expected_price/slippage_pct, so they're excluded by construction).
+def fills_slippage_stats(feedback: list) -> dict:
+    """Aggregate entry-fill slippage stats from trade_feedback records.
+
+    Returns {'count', 'avg_slippage_pct', 'total_slippage_cost'} computed
+    over the subset of `feedback` that carries entry-fill slippage fields
+    (expected_price > 0 and slippage_pct present).
+    """
+    fills = [
+        t for t in (feedback or [])
+        if isinstance(t, dict) and t.get("expected_price", 0) and t.get("slippage_pct") is not None
+    ]
+    total_slippage_cost = 0.0
+    for f in fills:
+        slip = f.get("slippage_pct", 0) or 0
+        expected = f.get("expected_price", 0) or 0
+        qty = f.get("qty", 0) or 0
+        if expected > 0 and qty > 0:
+            total_slippage_cost += expected * qty * slip / 100
+    avg_slippage_pct = (sum(f.get("slippage_pct", 0) or 0 for f in fills) / len(fills)) if fills else 0.0
+    return {
+        "count": len(fills),
+        "avg_slippage_pct": avg_slippage_pct,
+        "total_slippage_cost": total_slippage_cost,
+    }

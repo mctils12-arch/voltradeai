@@ -1180,14 +1180,10 @@ print(json.dumps(data))
         const { stdout: fillsOut } = await execPythonSerialized(`python3 -c "
 import json, os
 try:
-    from storage_config import FILLS_PATH, TRADE_FEEDBACK_PATH
+    from storage_config import TRADE_FEEDBACK_PATH
 except ImportError:
-    FILLS_PATH = '/tmp/voltrade_fills.json'
     TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-
-fills = []
-if os.path.exists(FILLS_PATH):
-    with open(FILLS_PATH) as f: fills = json.load(f)
+from ml_model_v2 import fills_slippage_stats
 
 feedback_raw = []
 if os.path.exists(TRADE_FEEDBACK_PATH):
@@ -1227,23 +1223,21 @@ for t in feedback:
     else: by_strat[s]['losses'] += 1
     by_strat[s]['total_pnl'] += t.get('pnl_pct', 0)
 
-# Realistic P&L (with slippage from fills tracker)
-total_slippage_cost = 0
-for f in fills:
-    slip = f.get('slippage_pct', 0) or 0
-    expected = f.get('expected_price', 0) or 0
-    qty = f.get('qty', 0) or 0
-    if expected > 0 and qty > 0:
-        total_slippage_cost += expected * qty * slip / 100
+# Realistic P&L (slippage derived from entry-fill records themselves — see
+# fills_slippage_stats in ml_model_v2.py: the old separate fills-tracker
+# file has had no writer since a legacy module was retired; entry-fill
+# slippage_pct/expected_price/qty have lived directly on trade_feedback
+# records since v1.0.34)
+_slip = fills_slippage_stats(feedback)
+total_slippage_cost = _slip['total_slippage_cost']
+avg_slippage_pct = _slip['avg_slippage_pct']
+fills_count = _slip['count']
 
 # Estimated realistic P&L = paper P&L minus slippage drag
 realistic_total_pnl = total_pnl
-if len(fills) > 0:
-    avg_slippage_pct = sum(f.get('slippage_pct', 0) or 0 for f in fills) / len(fills)
+if fills_count > 0:
     # Each trade has entry + exit slippage
     realistic_total_pnl = total_pnl - (avg_slippage_pct * 2 * len(feedback) / 100 * 100)
-else:
-    avg_slippage_pct = 0
 
 # Best / worst trades
 best_trade = max(feedback, key=lambda t: t.get('pnl_pct', 0)) if feedback else None
@@ -1251,7 +1245,7 @@ worst_trade = min(feedback, key=lambda t: t.get('pnl_pct', 0)) if feedback else 
 
 print(json.dumps({
     'totalTrades': len(feedback),
-    'totalFills': len(fills),
+    'totalFills': fills_count,
     'seededTrades': seeded_count,
     'winRate': round(win_rate, 1),
     'avgGain': round(avg_win, 2),
@@ -1446,18 +1440,13 @@ print(json.dumps({
       const { stdout } = await execPythonSerialized(`python3 -c "
 import json, os, csv, io
 try:
-    from storage_config import TRADE_FEEDBACK_PATH, FILLS_PATH
+    from storage_config import TRADE_FEEDBACK_PATH
 except ImportError:
     TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-    FILLS_PATH = '/tmp/voltrade_fills.json'
 
 feedback = []
 if os.path.exists(TRADE_FEEDBACK_PATH):
     with open(TRADE_FEEDBACK_PATH) as f: feedback = json.load(f)
-
-fills = []
-if os.path.exists(FILLS_PATH):
-    with open(FILLS_PATH) as f: fills = json.load(f)
 
 out = io.StringIO()
 w = csv.writer(out)
@@ -1926,15 +1915,18 @@ print(json.dumps(result, default=str))
             `python3 -c "
 import json, os, time
 try:
-    from storage_config import ML_MODEL_PATH, FILLS_PATH, TRADE_FEEDBACK_PATH
+    from storage_config import ML_MODEL_PATH, TRADE_FEEDBACK_PATH
 except ImportError:
-    ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'; FILLS_PATH = '/tmp/voltrade_fills.json'; TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
+    ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'; TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
+from ml_model_v2 import fills_slippage_stats
 s = {'model_exists': os.path.exists(ML_MODEL_PATH)}
 if s['model_exists']: s['model_age_hours'] = round((time.time() - os.path.getmtime(ML_MODEL_PATH)) / 3600, 1)
-for name, p in (('fills', FILLS_PATH), ('feedback', TRADE_FEEDBACK_PATH)):
-    try:
-        with open(p) as f: s[name + '_count'] = len(json.load(f))
-    except Exception: s[name + '_count'] = 0
+try:
+    with open(TRADE_FEEDBACK_PATH) as f: _feedback = json.load(f)
+except Exception:
+    _feedback = []
+s['feedback_count'] = len(_feedback)
+s['fills_count'] = fills_slippage_stats(_feedback)['count']
 print(json.dumps(s))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "ml", ...JSON.parse(stdout.toString().trim() || "{}") }));
@@ -5411,19 +5403,20 @@ print(json.dumps({'report': report, 'auto_fix': params}))
         `python3 -c "
 import json, os, time
 try:
-    from storage_config import ML_MODEL_PATH, FILLS_PATH, WEIGHTS_PATH
+    from storage_config import ML_MODEL_PATH, TRADE_FEEDBACK_PATH, WEIGHTS_PATH
 except ImportError:
     ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'
-    FILLS_PATH = '/tmp/voltrade_fills.json'
+    TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
     WEIGHTS_PATH = '/tmp/voltrade_weights.json'
+from ml_model_v2 import fills_slippage_stats
 status = {'model_exists': os.path.exists(ML_MODEL_PATH), 'retrain_schedule': 'Daily at 4am ET', 'retrain_threshold_hours': 24}
 if status['model_exists']:
     status['model_age_hours'] = round((time.time() - os.path.getmtime(ML_MODEL_PATH)) / 3600, 1)
     status['needs_retrain'] = status['model_age_hours'] > 24
-if os.path.exists(FILLS_PATH):
-    with open(FILLS_PATH) as f:
-        fills = json.load(f)
-    status['total_fills'] = len(fills)
+if os.path.exists(TRADE_FEEDBACK_PATH):
+    with open(TRADE_FEEDBACK_PATH) as f:
+        _feedback = json.load(f)
+    status['total_fills'] = fills_slippage_stats(_feedback)['count']
 else:
     status['total_fills'] = 0
 if os.path.exists(WEIGHTS_PATH):
