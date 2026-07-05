@@ -44,6 +44,7 @@ import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraf
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
+import { fleetSeriesCached } from "./fleetUtilization";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1493,6 +1494,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "results-complete auctions from the last 30 days; dealer_take is DERIVED (pd accepted / competitive accepted); no tail metric — WI quotes are paid data",
       auctions: hit.auctions,
     });
+  });
+
+  // Corporate-fleet utilization (DERIVED, from our own archives — BUILD
+  // ORDER 3 #1; gate 1 join accuracy PASSED 20/20, experiments.md
+  // v1.0.120). Owners are FAA REGISTRANTS — trustee/leasing shells hide
+  // beneficial owners; hours are lower bounds under adaptive sampling.
+  app.get("/api/data/fleet-utilization", async (req, res) => {
+    try {
+      res.set("Cache-Control", "public, max-age=1800");
+      const { series, as_of } = await fleetSeriesCached();
+      const top = Math.min(parseInt(String(req.query.top || "50"), 10) || 50, 200);
+      const kept = series.filter((s) => s.n_airframes >= 2).slice(0, top);
+      res.json({
+        kind: "derived",
+        source: "voltradeai aircraft position archive x FAA entity spine",
+        attribution: "FAA Aircraft Registry (identity); own archive (positions)",
+        as_of,
+        owners_total: series.length,
+        count: kept.length,
+        note: "owners are FAA registrants (trustee/leasing entities hide beneficial owners); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without coverage are absent, not zero; single-airframe registrants excluded from this payload (top= caps at 200)",
+        owners: kept,
+      });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
   // US Drought Monitor weekly severity (RAW — BUILD ORDER 2 #5):
