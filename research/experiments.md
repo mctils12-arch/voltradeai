@@ -13,6 +13,26 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] EIA weekly petroleum + natgas storage (BUILD ORDER 3 #2) (v1.0.121)
+
+- [T-DATACORE] scripts/eia_weekly.py: five keyless hist_xls series
+  (US crude ex-SPR / gasoline / distillate / SPR crude stocks +
+  lower-48 natgas working storage; all probed 2026-07-05), parsed
+  with the proven xlrd comparator pattern. Series titles are READ
+  FROM THE SHEETS and stored (title_as_published) — upstream renames
+  surface as git diffs, never silent mislabeling; the titles
+  confirmed the key naming live (WCSSTUS1 = SPR, as labeled). Gaps
+  skipped, never zero; all-series failure refuses to write. Artifact
+  datacore/eia/weekly_series.json (0.23 MB), manifest eiaweekly.json.
+- FIRST BUILD CAPTURED: 2,283 weekly crude points back to
+  1982-08-20; gasoline 1990-; natgas 2010-; all current through
+  2026-06-26. 44 years of the energy-regime axis in one pull.
+- Cushing deliberately NOT duplicated — the tank-fill comparator
+  owns it (one source of truth per series).
+- Hypothesis (gate-locked): storage-vs-seasonal-band deltas condition
+  the energy regime; also the standing external-truth source for any
+  future inventory root.
+
 ## 2026-07-05 — [PIPELINE] Fleet utilization v1 + GATE 1 PASS 20/20 (BUILD ORDER 3 #1) (v1.0.120)
 
 - [T-DATACORE] GATE 1 (spine join accuracy) PASSED under criteria
