@@ -13,6 +13,23 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PRODUCT] Everything Graph R1 PR-B: timeline in the site detail card (v1.0.124)
+
+- [T-CLIENT half, primary territory T-DATACORE per the
+  cross-territory rule] The /data site detail card now shows "Past 7
+  days within 50 km (own archives)": up to 5 cross-stream events
+  (alert ⚠ / fire ▲ / gauge ≈ with severity + date) and the traffic
+  line (aircraft + vessel archived points over N days). Fetched
+  async on card open from /api/data/site-timeline/:id; any failure
+  leaves the section absent — the card never degrades. Site geojson
+  features now carry the site id (they did not before — the card had
+  no way to reference its site).
+- Harness 0 hard failures at 390/768/1440; the section is click- and
+  data-gated so page-level visuals are unchanged (screenshots
+  reviewed; same precedent as the FAA enrichment in #223).
+- This closes BUILD ORDER 3 #5. Remaining: #6 anomaly-mining pass
+  ([RESEARCH], terminates in filed entries).
+
 ## 2026-07-05 — [PRODUCT] Everything Graph R1 PR-A: site event timeline route (BUILD ORDER 3 #5) (v1.0.123)
 
 - [T-DATACORE] First user-visible cross-stream join, composed
