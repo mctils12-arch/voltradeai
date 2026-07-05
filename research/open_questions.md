@@ -937,6 +937,19 @@ GIP items, before any new roots)
    G-INFO + Ireland + Switzerland public registries x our archived
    non-US hexes (22% of archive unmatched tonight); same
    exact-hex-join + evidence-envelope discipline as the FAA spine.
+
+   ACCESS PROBES 2026-07-05 (build deferred to a fresh session —
+   per-country discovery needed): UK siteapps.caa.co.uk/g-info 502s
+   through the session proxy (retry direct/alternate CAA data page);
+   the IAA register URL 404s (moved — find the current
+   register-download page); Swiss FOCA loads but is an SPA (find the
+   underlying API or Excel export). RULED OUT: OpenSky's
+   aircraft-metadata database would be the one-download answer
+   (icao24-keyed, all countries) but carries the SAME non-commercial
+   licensing that got OpenSky dropped from the provider chain under
+   the monetization tripwire — do not re-import that conflict.
+   Meanwhile the callsign-prefix resolution (#241) already gives
+   non-US AIRLINE hexes operator series without any registry.
 4. NATGAS STORAGE x DEGREE-DAY GATE-2 DESIGN (the pairing #233/#234
    were built for): pre-state criteria NOW, run when live-week
    overlap >= 12 weeks (~2026-09-27): storage-delta surprise vs
