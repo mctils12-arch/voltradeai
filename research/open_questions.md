@@ -914,6 +914,51 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## BUILD ORDER 3 (SELF-PROPOSED, standing directive; filed 2026-07-05
+after BUILD ORDER 2 resolved 6/6 same-day — see experiments.md
+v1.0.119 scoreboard; [T-DATACORE] unless noted; same rules: one item
+per PR, licensing first, archive from day one, envelope manifest,
+RAW until gate 2. Emphasis shifts from NEW ROOTS toward FUSION of
+the archives we now have — the compounding asset is the accumulation)
+
+1. CORPORATE-FLEET UTILIZATION SERIES (fusion — the angle-hunting
+   standing behavior's named cross-connection, substrate shipped in
+   #222/#223/#226). Derived series from our aircraft position archive
+   x the entity spine: flights/week + hours-airborne/week per
+   corporate registrant (registrant_type corporation/llc, matched to
+   listed tickers via normalized owner names — the usaSpending
+   name-matcher pattern reuses). GATE 1 (pre-state before scoring):
+   join accuracy vs >=20 hand-verified known corporate tails; GATE 2:
+   utilization deltas vs subsequent 5/20d returns and earnings-date
+   proximity, base-rate-controlled.
+2. EIA WEEKLY PETROLEUM + NATGAS STORAGE (new root, keyless XLS
+   family PROVEN by the Cushing comparator; ngs.html 302s — exact
+   endpoint verified at build like STB was). Archive the weekly
+   national petroleum balance sheet lines + natgas working storage
+   with vintage discipline. HYPOTHESIS: storage-vs-5yr-band deltas
+   condition the energy regime the bot already classifies; also the
+   external truth source for any future inventory root.
+3. NOAA CPC DEGREE DAYS (new root, PROBED 2026-07-05: keyless, US-gov
+   public domain). Weekly population-weighted HDD/CDD + departures.
+   HYPOTHESIS: degree-day departure deltas lead natgas/power demand
+   and utility earnings surprises; joins the weather axis with the
+   first DEMAND-side series.
+4. CBP MONTHLY CONTAINER IMPORT STATS (new root; format verified at
+   build). HYPOTHESIS: import TEU deltas lead retail inventory
+   cycles; pairs with our port-dwell analytics (supply friction) for
+   a two-sided port view.
+5. EVERYTHING GRAPH R1 — SITE EVENT TIMELINE ([PRODUCT]; fusion of
+   existing archives only, no new source): per-strategic-site
+   timeline joining alerts, fires, gauges, aircraft/vessel density
+   from what we already record; surfaces on the site detail card
+   (/data). First user-visible cross-stream join; no ladder gate
+   needed (raw overlay composition, each element already labeled).
+6. [RESEARCH] ANOMALY MINING PASS (angle-hunting mandate #2): scan
+   the position archives for recurring unexplained patterns
+   (dwell-time regime shifts, corridor density changes) preceding
+   commodity moves; terminates in filed open_questions entries with
+   ladder paths — never unrecorded browsing.
+
 ## BUILD ORDER 2 (SELF-PROPOSED, standing directive 2026-07-05: "when
 the wishlist is empty, generate the next wishlist yourself" — filed
 2026-07-05 after build order 1 fully resolved; [T-DATACORE]; same
