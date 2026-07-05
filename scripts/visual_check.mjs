@@ -696,6 +696,16 @@ async function main() {
           await page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first().click({ timeout: 4000 });
           await page.waitForTimeout(150);
         }
+        // temp VALUE LABELS sub-toggle ON too — the 2026-07-05 production
+        // bug lived exactly in this state (labels + arrows together) and
+        // the battery never exercised it: labels-off was the default.
+        // (.vt-field-controls is a SIBLING of the data-vt-layer row, so the
+        // locator anchors on the checkbox's own label text.)
+        const valueLabels = page.locator(".vt-field-check", { hasText: "value labels" }).first();
+        await valueLabels.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await page.waitForTimeout(120);
+        await valueLabels.click({ timeout: 4000 });
+        await page.waitForTimeout(150);
         // wait until tiles are loaded AND arrow symbols are actually PLACED
         // (getLayer succeeds before the SDF icon rasterizes — querying placed
         // features is the only honest "it renders" signal)
@@ -723,11 +733,30 @@ async function main() {
           const order = (m.getStyle().layers || []).map((l) => l.id);
           if (order.indexOf("wx-temp_new") > order.indexOf("aircraft-sym"))
             fails.push("fields-on: temp raster ABOVE aircraft symbols — live tracking obscured");
-          let aircraft = 0, arrows = 0;
+          let aircraft = 0, arrows = 0, tempLabels = 0;
           try { aircraft = m.queryRenderedFeatures({ layers: ["aircraft-sym"] }).length; } catch {}
           try { arrows = m.queryRenderedFeatures({ layers: ["wx-wind-arrows"] }).length; } catch {}
+          try { tempLabels = m.queryRenderedFeatures({ layers: ["wx-temp-labels"] }).length; } catch {}
           if (!aircraft) fails.push("fields-on: no aircraft rendered with fields on — live tracking not visible");
           if (!arrows) fails.push("fields-on: no wind arrows rendered from the sampled grid");
+          // REPAIR ratchet 2026-07-05: temp value-labels ON must NOT eat the
+          // wind arrows (production bug: collision pass split the arrow/kt
+          // pair, leaving orphaned kt text). Both label sets coexist, and
+          // the by-construction guarantees are pinned: the arrows layer sits
+          // fully outside the collision pass (both directions), and temp
+          // labels are offset above the shared grid point.
+          if (!tempLabels) fails.push("fields-on: no temp value-labels rendered with the sub-toggle on");
+          if (arrows && tempLabels) {
+            try {
+              const lo = (p) => m.getLayoutProperty("wx-wind-arrows", p);
+              if (lo("icon-ignore-placement") !== true || lo("text-ignore-placement") !== true ||
+                  lo("icon-allow-overlap") !== true || lo("text-allow-overlap") !== true)
+                fails.push("fields-on: wx-wind-arrows re-entered the collision pass — arrow/kt pair can be split again");
+              const anchor = m.getLayoutProperty("wx-temp-labels", "text-anchor");
+              if (anchor !== "bottom")
+                fails.push(`fields-on: wx-temp-labels anchor '${anchor}' != 'bottom' — label no longer dodges the arrow at shared grid points`);
+            } catch (e) { fails.push("fields-on: collision-pin probe failed — " + (e?.message || e)); }
+          }
           // v2.4 occlusion rule re-checked WITH fields on: enabling a layer
           // grows the attribution strip — it may not spread under controls
           // (the 390px defect this caught: 2-line attribution over zoom-out).
