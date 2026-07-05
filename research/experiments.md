@@ -13,6 +13,42 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [PIPELINE] FINRA daily short-sale volume stream (BUILD ORDER 5 #1) — keyless CNMS archiver + /api/data/short-volume (v1.0.133)
+
+- TERRITORY: T-DATACORE. server/finraShortVolume.ts: keyless daily
+  CNMS file (~12.2K symbols/trading day, format verified live —
+  pipe header, fractional share counts, bare row-count trailer;
+  weekend/holiday URLs 403 = valid not-published). 6h poll with
+  7-day lookback newest-first; eager boot (KNOWN BROKEN #9).
+- TWO DESIGN DECISIONS WORTH REMEMBERING: (1) DEDUP IS DATE-LEVEL,
+  not per-row — the file is atomic and final once published, and
+  seeding 12K keys/day x 40d would waste ~50MB in the RSS-capped
+  process; if FINRA reposts a corrected file we keep the first
+  capture (stated in the manifest, not hidden). (2) TRAILER
+  INTEGRITY GATE — the file's own row-count trailer must equal
+  parsed rows or the whole file is refused, so a truncated CDN
+  download can never poison the archive.
+- RESTART HONESTY: on boot with the newest day already on disk, the
+  summary cache rebuilds FROM the archive instead of serving
+  warming_up until the next publish (test-pinned, no refetch).
+- Route serves the poller's cached day summary ONLY (event-loop
+  rule): aggregate short ratio + top-30 by ratio with a stated
+  500K-share total-volume floor. LABEL HONESTY: this is short-marked
+  EXECUTION volume (flow proxy), NOT short interest — route note +
+  manifest confidence_model both say so explicitly.
+- HYPOTHESIS (gate-locked): small-cap short-ratio extremes/deltas x
+  13F+Form4 joins = squeeze-candidate screen. Prior ~35% (stated at
+  filing). GATE 1 next: parsed ratios vs FINRA's own monthly
+  aggregates on a sampled month; 1-2y session-side backfill after
+  gate 1.
+- Tests 6/6 (real-format fixture incl. trailer guard + truncation
+  refusal, 403-vs-500 semantics, date dedup + gz + gz-readback,
+  summary floor/cap honesty, restart-rebuild-no-refetch); manifest
+  battery 3/3; pytest 397/1 skip. tsc NOTE: baseline is now 64 on
+  main itself (was 63; the +1 is client/src/pages/datamap.tsx:2143
+  from another session's merge, verified by stashing my changes) —
+  this change adds zero new errors.
+
 ## 2026-07-05 — [RESEARCH] BUILD ORDER 5 filed — new roots at microstructure + attention + freight friction, all sources probed live first (docs)
 
 - Standing directive: T-DATACORE queue emptied (BUILD ORDER 4
