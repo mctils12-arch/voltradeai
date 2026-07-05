@@ -1,0 +1,31 @@
+{
+ "stream": "filings13f",
+ "storage": "volume JSONL <archive>/filings13f/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/edgar13f.ts archive13FFilings",
+ "source": "SEC EDGAR 13F-HR / 13F-HR/A (as filed)",
+ "license": "US public records; no reuse restriction; 10 req/s + declared User-Agent",
+ "attribution": "SEC EDGAR",
+ "schema_version": 1,
+ "field_map": {
+  "accession": "SEC accession (dedup key)",
+  "filedAt": "filing date UTC",
+  "indexUrl": "SEC filing index URL (evidence link)",
+  "managerCik": "filing manager CIK (entity key)",
+  "managerName": "filing manager name",
+  "periodOfReport": "quarter end, ISO (normalized from EDGAR MM-DD-YYYY)",
+  "submissionType": "13F-HR or 13F-HR/A (amendments flagged, never merged)",
+  "entryTotal": "as-filed summaryPage tableEntryTotal",
+  "valueTotal": "as-filed total value, full USD (post-2023 rule; NOT thousands)",
+  "otherManagersCount": "other included managers on this report",
+  "holdingsOmitted": "true when entryTotal > 250 (see _cap)",
+  "holdings[]": "issuer, titleOfClass, cusip (entity key), value USD, shares, sharesType SH|PRN, putCall, discretion"
+ },
+ "confidence_model": "as-filed regulatory records (high; holdings are 45 days STALE at publication by rule — any signal is crowd formation, not news)",
+ "geo_fields": [],
+ "entity_key": "managerCik (manager) + holdings[].cusip (security)",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "15-min poll of the getcurrent feed; day-file dedup by accession",
+ "_cap": "FOCUSED-MANAGER CAP (explicit, never silent): filings with more than 250 positions are archived summary-only (holdings table omitted). This encodes the cluster hypothesis — capacity-constrained managers in small caps (EDGE DOCTRINE #2); mega-manager index-hugging tables would dominate archive bytes and add no cluster signal. Cap constant: FOCUSED_MAX_HOLDINGS in server/edgar13f.ts.",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

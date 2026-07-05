@@ -936,7 +936,14 @@ Reasoning Standard #10):
    gate 2 = cluster events vs forward returns with the 45-day filing
    lag honestly modeled (holdings are STALE when public — the signal,
    if any, is crowd formation, not news). PRIOR: weak-positive,
-   heavily lag-discounted.
+   heavily lag-discounted. STATUS 2026-07-05: BUILT (v1.0.88,
+   server/edgar13f.ts) — gate 1 PASSED for the parser on hand-checked
+   real filings; archive recording from merge (Q2 season just opened,
+   Aug-14 deadline burst ahead). Gate 2 waits for a quarter boundary
+   in OUR archive (need holdings at two consecutive periods per
+   manager to detect NEW positions — earliest useful cut after the
+   Q3-2026 filings land in Oct-Nov). Focused-manager cap >250
+   positions per the EDGE-DOCTRINE rationale in the manifest.
 3. FRED macro series (free API key — signup steps in wishlist): ~30
    series (rates, spreads, claims). HYPOTHESIS: not a direct signal —
    the REGIME INPUT feed for regime classification and for gate-2
