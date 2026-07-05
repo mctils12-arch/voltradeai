@@ -141,3 +141,12 @@ test("wiring pinned: ports come from the verified sites registry; route + layer 
   assert.ok(s.caveat.includes("lower bounds"), "caveat must state the lower-bound property");
   assert.ok(s.caveat.includes("gate 2"), "caveat must state the signal gate");
 });
+
+test("RATCHET [REPAIR 2026-07-05]: async dwell stats identical to sync (event-loop defect, 4th site)", async () => {
+  const { computePortDwellAsync } = await import("./portDwell");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-dwell-"));
+  writeArchive(base, moored("555", "BOXSHIP", LA, 40, 20));
+  const a = await computePortDwellAsync([LA, LB], 168, base, NOW);
+  const s = computePortDwell([LA, LB], 168, base, NOW);
+  assert.deepEqual(a, s, "async streaming dwell stats must equal the sync scan");
+});

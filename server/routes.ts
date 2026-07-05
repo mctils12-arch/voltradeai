@@ -25,7 +25,7 @@ import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
-import { computePortDwell, portsFromSites } from "./portDwell";
+import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
   amplifyWeatherTile, TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
@@ -1741,8 +1741,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const auth = requireApiKey(req, res);
     if (!auth) return;
     try {
-      const ports = portsFromSites((datacoreSites as any).sites || []);
-      res.json(v1Envelope("stats/portdwell", computePortDwell(ports)));
+      // [REPAIR 2026-07-05] was a per-request sync 168h scan (the
+      // shadowstats event-loop defect) — serves the shared poller cache.
+      if (!dwellCache) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/portdwell", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/portdwell", dwellCache.data));
       meterUsage({ key: auth.key, endpoint: "/api/v1/stats/portdwell", status: 200, tier: auth.tier });
     } catch (e: any) {
       res.status(500).json({ error: e?.message });
@@ -1787,21 +1793,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // archive (fusion directive 2026-07-04). Anomaly FLAGS are 3x-median,
   // suppressed on thin history; the dwell-anomaly SIGNAL stays ladder-gated.
   // 10-min cache — the computation reads up to 7d of archive JSONL.
+  // [REPAIR 2026-07-05] same event-loop defect as shadowstats (fourth
+  // site, heavier 168h window): sync scan per cache miss. Eager 10-min
+  // poller now; the route serves only the cache.
   let dwellCache: { at: number; data: any } | null = null;
-  app.get("/api/data/portdwell", (_req, res) => {
-    if (dwellCache && Date.now() - dwellCache.at < 10 * 60_000) return res.json(dwellCache.data);
+  let dwellRunning = false;
+  const refreshPortDwell = async () => {
+    if (dwellRunning) return;
+    dwellRunning = true;
     try {
       const ports = portsFromSites((datacoreSites as any).sites || []);
       const data = {
         kind: "raw",
         source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
-        ...computePortDwell(ports),
+        ...(await computePortDwellAsync(ports)),
       };
       dwellCache = { at: Date.now(), data };
-      res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e?.message || "portdwell failed" });
+      console.error("[datacore] portdwell refresh:", e?.message || e);
+    } finally {
+      dwellRunning = false;
     }
+  };
+  refreshPortDwell();
+  setInterval(() => { refreshPortDwell(); }, 10 * 60_000).unref?.();
+  app.get("/api/data/portdwell", (_req, res) => {
+    if (!dwellCache) {
+      return res.json({ kind: "raw", warming_up: true, note: "first archive scan in progress — retry shortly" });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json(dwellCache.data);
   });
 
   // ── OpenWeatherMap global weather fields (Tier-1(b) global half) ─────────

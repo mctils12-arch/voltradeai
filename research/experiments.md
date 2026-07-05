@@ -13,6 +13,28 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] portdwell: the SAME event-loop defect, 4th site, heavier window (v1.0.126)
+
+- [T-DATACORE] Minutes after #237's prod verify, BOTH analytics
+  endpoints timed out again — portdwell's synchronous 168h scan on
+  cache-miss was blocking the loop (shadowstats was collateral: its
+  new poller answers instantly, but only when the loop is free).
+  This confirms the RECURRENCE reading of the class: fixing
+  shadowstats alone could never hold while any sibling still
+  scanned synchronously.
+- FIX: computePortDwellAsync over readVesselTracksAsync; BOTH
+  surfaces (/api/data/portdwell + /api/v1/stats/portdwell) serve an
+  eager 10-min poller cache (warming_up / 503+Retry-After during
+  the first scan; metered honestly on the v1 side). Ratchet appended
+  to the portDwell battery: async deepEqual sync on a fixture
+  archive (8/8).
+- CLASS CLOSED: grep confirms no remaining route calls a synchronous
+  archive scan — every archive-derived surface (shadowstats,
+  portdwell, fleet utilization, site timeline, hex enumeration,
+  platform stats) is now streaming + eager-cached. The experiments
+  pattern note from v1.0.125 stands as the standing rule for new
+  surfaces.
+
 ## 2026-07-05 — [REPAIR] shadowstats blocked the whole event loop — async streaming + eager poller (v1.0.125)
 
 - [T-DATACORE] FOUND BY the B3-6 anomaly pass surveying prod

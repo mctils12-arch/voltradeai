@@ -30,7 +30,7 @@
  * Pure module: fs reads only (via shadowFleet.readVesselTracks), baseDir-
  * injectable, no trading imports.
  */
-import { readVesselTracks } from "./shadowFleet";
+import { readVesselTracks, readVesselTracksAsync } from "./shadowFleet";
 
 export interface PortDef { id: string; name: string; lat: number; lon: number; radius_km: number }
 
@@ -145,11 +145,26 @@ const quantile = (sorted: number[], q: number): number | null => {
   return sorted[idx];
 };
 
+/** [REPAIR 2026-07-05] Async variant on the streaming reader — the sync
+ *  version scanned 168h of archive on the request path (the shadowstats
+ *  event-loop defect, fourth site; this window is even heavier). Routes
+ *  must use this one; sync stays for tests, pinned by the ratchet. */
+export async function computePortDwellAsync(ports: PortDef[], windowHours = 168,
+                                            baseDir?: string, nowMs?: number): Promise<PortDwellStats> {
+  const now = nowMs ?? Date.now();
+  const tracks = await readVesselTracksAsync(windowHours, baseDir, now);
+  return dwellFromTracks(tracks, ports, now, windowHours);
+}
+
 export function computePortDwell(ports: PortDef[], windowHours = 168,
                                  baseDir?: string, nowMs?: number): PortDwellStats {
   const now = nowMs ?? Date.now();
-  const nowSec = Math.floor(now / 1000);
   const tracks = readVesselTracks(windowHours, baseDir, now);
+  return dwellFromTracks(tracks, ports, now, windowHours);
+}
+
+function dwellFromTracks(tracks: Map<string, Pt[]>, ports: PortDef[], now: number, windowHours: number): PortDwellStats {
+  const nowSec = Math.floor(now / 1000);
   const visitsByPort = new Map<string, PortVisit[]>();
   for (const p of ports) visitsByPort.set(p.id, []);
   for (const [mmsi, pts] of tracks) {
