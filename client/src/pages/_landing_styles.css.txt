@@ -936,3 +936,33 @@
       transition-duration: 0.01ms !important;
     }
   }
+/* ===== DATA INTELLIGENCE section (additive, directive 2026-07-04) ===== */
+#data-intel .dataintel-stats {
+  display: flex; flex-wrap: wrap; gap: 28px 56px;
+  margin: 40px 0 8px;
+}
+#data-intel .dataintel-stat { display: flex; flex-direction: column; gap: 4px; }
+#data-intel .dataintel-num {
+  font-size: 40px; font-weight: 800; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; color: var(--accent, #4d9fff);
+}
+#data-intel .dataintel-label {
+  font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.7;
+}
+#data-intel .dataintel-actions {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 56px; margin-top: 28px;
+}
+#data-intel .dataintel-waitlist { max-width: 460px; flex: 1 1 300px; }
+#data-intel .dataintel-waitlist-label { display: block; font-size: 14px; opacity: 0.85; margin-bottom: 10px; }
+#data-intel .dataintel-waitlist-row { display: flex; gap: 10px; flex-wrap: wrap; }
+#data-intel .dataintel-waitlist-row input {
+  flex: 1 1 200px; min-height: 46px; padding: 0 14px; border-radius: 10px;
+  border: 1px solid rgba(77, 159, 255, 0.35); background: rgba(10, 22, 40, 0.6);
+  color: inherit; font-size: 15px;
+}
+#data-intel .dataintel-waitlist-row .btn { min-height: 46px; }
+#data-intel .dataintel-waitlist-msg { font-size: 13px; margin-top: 8px; min-height: 18px; opacity: 0.85; }
+@media (max-width: 640px) {
+  #data-intel .dataintel-num { font-size: 32px; }
+  #data-intel .dataintel-stats { gap: 20px 32px; }
+}

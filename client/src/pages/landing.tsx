@@ -75,6 +75,56 @@ export default function LandingPage() {
     }
 
     bootLanding();
+
+    // ── DATA INTELLIGENCE section wiring (additive, directive 2026-07-04).
+    // Lives HERE, not in the D3-gated landing script: live stats and the
+    // waitlist form must work even if the globe's CDN scripts fail —
+    // graceful degradation means content degrades to placeholders, never
+    // to a dead form.
+    const num = (id: string, v: number) => {
+      const el = document.getElementById(id);
+      if (el && Number.isFinite(v)) el.textContent = v.toLocaleString();
+    };
+    fetch("/api/data/layers").then((r) => r.json()).then((d) => {
+      const live = (d.layers || []).filter((l: any) => l.status === "live").length;
+      if (live > 0) num("di-layers", live);
+    }).catch(() => {});
+    fetch("/api/data/archive/stats").then((r) => r.json()).then((d) => {
+      const kinds = d.kinds || {};
+      const names = Object.keys(kinds);
+      const samples = names.reduce((s, k) => s + (kinds[k]?.samples || 0), 0);
+      if (names.length > 0) num("di-streams", names.length);
+      if (samples > 0) num("di-samples", samples);
+    }).catch(() => {});
+    const form = document.getElementById("dataintel-waitlist");
+    if (form) {
+      const onSubmit = (e: Event) => {
+        e.preventDefault();
+        const input = document.getElementById("di-email") as HTMLInputElement | null;
+        const msg = document.getElementById("di-waitlist-msg");
+        const email = input?.value?.trim() || "";
+        if (!email) { if (msg) msg.textContent = "Enter an email address."; return; }
+        if (msg) msg.textContent = "Joining…";
+        fetch("/api/waitlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, source: "landing" }),
+        }).then((r) => r.json()).then((d) => {
+          if (!msg) return;
+          if (d?.ok) {
+            msg.textContent = d.status === "duplicate"
+              ? "Already on the list — you're set."
+              : "You're on the list. No billing, just early-access news.";
+            if (input) input.value = "";
+          } else {
+            msg.textContent = d?.error || "Something went wrong — try again.";
+          }
+        }).catch(() => { if (msg) msg.textContent = "Network hiccup — try again."; });
+      };
+      form.addEventListener("submit", onSubmit);
+      cleanups.push(() => form.removeEventListener("submit", onSubmit));
+    }
+
     return () => {
       cancelled = true;
       cleanups.forEach((fn) => fn());

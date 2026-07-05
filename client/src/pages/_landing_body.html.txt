@@ -165,6 +165,36 @@
   </div>
 </section>
 
+<!-- ============== DATA INTELLIGENCE — additive section (directive 2026-07-04) ============== -->
+<section class="s" id="data-intel">
+  <div class="container">
+    <div class="prose-grid">
+      <div class="prose-eyebrow-text">The Data Platform</div>
+      <h2 class="section-title">The physical economy,<br/><span class="accent">observed live</span>.</h2>
+      <div class="prose-body">
+        <p>The globe above isn&rsquo;t decoration &mdash; it&rsquo;s the product. VolTradeAI tracks <strong>live aircraft, ships, and trains</strong>, watches tank farms and ports from satellite, reads SEC filings the moment they land, and records all of it into an archive that grows every hour. History nobody can buy later, because we started recording first.</p>
+        <p>We are not a basemap competitor &mdash; same open geospatial foundation as any Earth viewer, plus what a static atlas can&rsquo;t do: live movement, entity fusion, market-validated signals, and full API access.</p>
+      </div>
+    </div>
+    <div class="dataintel-stats" id="dataintel-stats" aria-live="polite">
+      <div class="dataintel-stat"><span class="dataintel-num" id="di-layers">&mdash;</span><span class="dataintel-label">live map layers</span></div>
+      <div class="dataintel-stat"><span class="dataintel-num" id="di-streams">&mdash;</span><span class="dataintel-label">data streams recording</span></div>
+      <div class="dataintel-stat"><span class="dataintel-num" id="di-samples">&mdash;</span><span class="dataintel-label">archived observations</span></div>
+    </div>
+    <div class="dataintel-actions">
+      <a href="/app#/data" class="btn btn-primary btn-xl">Open the live map <span class="arrow">→</span></a>
+      <form class="dataintel-waitlist" id="dataintel-waitlist" novalidate>
+        <label for="di-email" class="dataintel-waitlist-label">Want the data as an API? Join the preview waitlist &mdash; email only, no billing.</label>
+        <div class="dataintel-waitlist-row">
+          <input type="email" id="di-email" name="email" placeholder="you@company.com" autocomplete="email" required />
+          <button type="submit" class="btn btn-primary">Join waitlist</button>
+        </div>
+        <p class="dataintel-waitlist-msg" id="di-waitlist-msg" role="status"></p>
+      </form>
+    </div>
+  </div>
+</section>
+
 <!-- PRICING -->
 <section class="s" id="pricing">
   <div class="container">

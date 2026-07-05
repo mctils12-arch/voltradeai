@@ -42,6 +42,7 @@ const WIDTHS = [
 const PAGES = {
   data: { route: "/app#/data", map: true },
   developers: { route: "/developers", map: false },
+  landing: { route: "/", map: false },
 };
 const only = process.argv.includes("--page")
   ? process.argv[process.argv.indexOf("--page") + 1]
