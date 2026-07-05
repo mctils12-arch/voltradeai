@@ -1,0 +1,30 @@
+{
+ "stream": "fda",
+ "storage": "volume JSONL <archive>/fda/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/fdaEvents.ts archiveFdaEvents",
+ "source": "openFDA drug/drugsfda.json (approvals, keyless 240/min + 1,000/day) + Federal Register API v1 (FDA advisory-committee meeting notices, keyless)",
+ "license": "openFDA: US public data (open.fda.gov/license). Federal Register: US Government public domain. Both product-surfaceable with attribution. NOTE: PDUFA target dates are NOT included — FDA is legally barred from confirming pending applications (21 CFR 314.430); commercial aggregator calendars are ToS-protected and are NOT scraped.",
+ "attribution": "openFDA (U.S. Food & Drug Administration); Federal Register (U.S. National Archives)",
+ "schema_version": 1,
+ "field_map": {
+  "t": "record type: 'approval' (backward-looking confirmation) | 'adcom' (forward-looking scheduled catalyst)",
+  "key": "dedup key: approvals appl|submission|date; adcom = Federal Register document_number",
+  "appl": "FDA application number (BLA/NDA/ANDA) where present",
+  "date": "event date YYYY-MM-DD (approval status date; adcom MEETING date parsed from the notice — null when unparsed)",
+  "sponsor": "sponsor/applicant name (adcom: best-effort from the notice title)",
+  "brand": "brand name(s) (approval rows)",
+  "committee": "advisory committee name (adcom rows)",
+  "title": "FR notice title, truncated 300 (adcom — carries committee/sponsor/BLA/drug)",
+  "url": "FR html_url evidence link (adcom rows)",
+  "pub": "FR publication date — when the public could KNOW about the meeting (the honest event-knowledge date for adcom)",
+  "dateConf": "'parsed' | 'unparsed' — meeting-date extraction confidence; unparsed rows keep date:null, never guessed",
+  "rt": "as-seen date (UTC day WE fetched it)"
+ },
+ "confidence_model": "approval rows are confirmed regulatory events, already public when archived. adcom rows are scheduled FUTURE events; the meeting date is parsed from official notice text with confidence labeled — the IV-ramp hypothesis (gate 2) runs on parsed adcom dates vs our own archived option chains. NO forward PDUFA dates (legally unavailable free; follow-on files 8-K-disclosed dates as labeled estimates).",
+ "geo_fields": [],
+ "entity_key": "appl (application) / key (event)",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "6h poll (2 requests/cycle); approvals over a rolling 30-day window with dedup; adcom newest-40 notices",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

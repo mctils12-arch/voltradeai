@@ -48,6 +48,7 @@ import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MA
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
+import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 
 const execAsync = promisify(exec);
 
@@ -1335,6 +1336,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
     }
+  });
+
+  // FDA binary events (RAW display — stream #5 of the DATA STREAM
+  // EXPANSION order): openFDA approvals (backward-looking confirmations)
+  // + Federal Register advisory-committee meeting notices (forward-
+  // looking catalysts). PDUFA dates are legally unavailable free — the
+  // manifest carries the full honesty note; adcom meeting dates carry a
+  // parse-confidence label and are never guessed. Boots eagerly.
+  bootFdaPoll();
+  app.get("/api/data/fda-events", (_req, res) => {
+    const hit = latestFdaEvents();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "openFDA + Federal Register", warming_up: true, count: 0, events: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "openFDA (drugsfda approvals) + Federal Register (FDA advisory-committee notices)",
+      attribution: "openFDA (U.S. FDA); Federal Register (U.S. National Archives)",
+      time: hit.at,
+      count: hit.events.length,
+      note: "No PDUFA target dates — legally unavailable free (21 CFR 314.430); adcom dates carry parse confidence",
+      events: hit.events,
+    });
   });
 
   // USAspending federal contract awards (RAW display — stream #4 of the
