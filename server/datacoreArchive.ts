@@ -322,12 +322,28 @@ export function recentTrack(kind: ArchiveKind, id: string,
 export function archiveStats(baseDir?: string): any {
   const base = baseDir || archiveBaseDir();
   const out: any = { base, kinds: {} };
-  for (const kind of ["aircraft", "vessels", "trains", "aircraft_tracks", "vessels_tracks", "trains_tracks"]) {
+  // [REPAIR 2026-07-05, audit defect #3] Enumerate the archive from DISK
+  // instead of a hardcoded kind list — the old six-kind list left fires,
+  // filings, earnings8k, filings13f, fredmacro, optionchains, usaspending,
+  // fda, usgswater, gdelt invisible to /api/data/archive/stats, making
+  // the archive-gap rule ("gaps are findings") unenforceable for most of
+  // the archive. The position kinds stay listed explicitly so they report
+  // {files:0} even before their first write — a missing position archive
+  // must be loud, not absent.
+  const kinds = new Set<string>(["aircraft", "vessels", "trains", "aircraft_tracks", "vessels_tracks", "trains_tracks"]);
+  try {
+    for (const e of fs.readdirSync(base, { withFileTypes: true })) {
+      if (e.isDirectory()) kinds.add(e.name);
+    }
+  } catch {}
+  for (const kind of Array.from(kinds).sort()) {
     const dir = path.join(base, kind);
     if (!fs.existsSync(dir)) { out.kinds[kind] = { files: 0, bytes: 0 }; continue; }
     let bytes = 0, files = 0, oldest: string | null = null, newest: string | null = null;
     for (const f of fs.readdirSync(dir).sort()) {
-      files++; bytes += fs.statSync(path.join(dir, f)).size;
+      const st = fs.statSync(path.join(dir, f));
+      if (!st.isFile()) continue;
+      files++; bytes += st.size;
       oldest = oldest || f; newest = f;
     }
     out.kinds[kind] = { files, bytes, oldest, newest };
