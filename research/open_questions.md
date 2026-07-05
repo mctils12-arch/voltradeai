@@ -941,12 +941,51 @@ GIP items, before any new roots)
    were built for): pre-state criteria NOW, run when live-week
    overlap >= 12 weeks (~2026-09-27): storage-delta surprise vs
    degree-day-implied draw, regime-split, vs random-entry base rate.
+
+   DESIGN PRE-STATED 2026-07-05 (before any overlapping live week
+   exists — nothing here is fit to data): (1) MODEL: regress weekly
+   natgas storage delta on population-weighted CONUS HDD+CDD sums
+   for the same Thu-Thu week, fit ONLY on weeks before the
+   prediction week (expanding window, min 8 weeks; both series'
+   history supports a long pre-fit on pre-2026 data). (2) SIGNAL:
+   residual = actual storage delta minus degree-day-implied delta,
+   available Thursday 10:30 ET at the EIA print. (3) TEST: sign and
+   magnitude of the residual vs UNG/natgas-proxy returns from
+   Thursday close to the following Wednesday close, vs the
+   random-entry base rate over the same weeks; regime-split per
+   Reasoning Standard #2. PASS = residual-sign hit rate >= 60% on
+   n >= 12 out-of-sample weeks AND mean excess over base rate > 0.
+   PRIOR: P(pass) ~30% — weekly storage surprises are heavily
+   traded; the free edge, if any, lives in the slower ETF
+   transmission (same reasoning as the tank-fill hypothesis, which
+   died — stated so the posterior updates honestly).
 5. OPTIONS-CHAIN FIRST-WEEK QA: the daily archiver's first
    snapshots land 2026-07-06 close — verify shape, contract counts,
    IV sanity vs the pilot sample; file the first-week report.
 6. [RULE-REVIEW] COUNTERFACTUAL LOGGER CHECK-IN (CLAUDE.md mandate):
    verify blocked-trade logging is live and accumulating; earliest
    prevention-P&L readout; if not yet built, THIS becomes the item.
+
+   CHECK-IN 2026-07-05 — VERDICT: SUBSTANTIALLY BUILT, one gap.
+   grep for "counterfactual" finds no code, but the MACHINERY lives
+   in shadow_portfolio.py: log_candidate() records EVERY scanned
+   candidate (accepted or not) with the features dict (incl.
+   change_pct, scores) and forward +5d/+10d/+20d outcomes backfilled
+   nightly (verified in KNOWN BROKEN #10's analysis, 2026-07-04).
+   Any rule whose predicate is computable from logged features gets
+   its prevention-P&L POST-HOC by re-applying the predicate to the
+   candidate archive — better than block-event logging for
+   threshold rules (it also measures the counterfactual of looser
+   settings). THE GAP: block-REASON attribution — rules whose
+   predicates depend on non-logged state (correlation blocks,
+   kill-switch halts, spread limits at quote time) cannot be
+   reconstructed from features. BUILD PLAN for the T-BOT session
+   that takes this: add a block_reasons[] tag to log_candidate at
+   the rejection sites in bot_engine.py scan/deep_score + the
+   risk_kill_switch call sites (LOGGING ONLY — no mechanism change,
+   frozen paths untouched); earliest readout unchanged (>=90 days
+   of shadow history per #10, first query ~2026-10-02: win rates
+   for |change_pct|>35 candidates, then per-rule prevention-P&L).
 
 ## BUILD ORDER 3 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 2 resolved 6/6 same-day — see experiments.md
