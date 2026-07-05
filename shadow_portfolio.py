@@ -256,6 +256,59 @@ def log_candidate(
         logger.debug(f"log_candidate failed for {ticker}: {e}")
 
 
+def update_last_decision(
+    ticker: str,
+    decision: str,
+    decision_reason: str = "",
+    max_age_seconds: float = 120.0,
+) -> bool:
+    """
+    Correct a just-logged candidate's decision bucket.
+
+    log_candidate() runs inside deep_score(), before scan_market()'s
+    downstream per-candidate filters (sector/correlation, spread) have a
+    chance to reject a candidate that cleared MIN_SCORE. Those filters
+    call this immediately after rejecting, so the shadow record reflects
+    the REAL reason the candidate was never traded (decision buckets:
+    "rejected_heat" for correlation/sector blocks, "rejected_other" for
+    spread — see CLAUDE.md RULE REVIEW / RULE COST AUDIT). Mechanisms
+    (the filters themselves) are untouched — this only corrects the
+    learning-data label.
+
+    Only ever moves a record OFF "taken", and only the most recent
+    matching record within max_age_seconds — never touches an older
+    record for the same ticker from a prior scan, so a slow caller can
+    never mislabel unrelated history.
+
+    Rate cost: ZERO API calls. Pure file I/O. Non-blocking: any failure
+    is swallowed silently (logging must never break the trading loop).
+    """
+    try:
+        if not ticker:
+            return False
+        records = _load_shadow_log()
+        ticker_u = str(ticker).upper()
+        now = datetime.now(timezone.utc)
+        for record in reversed(records):
+            if record.get("ticker") != ticker_u:
+                continue
+            if record.get("decision") != "taken":
+                return False  # most recent record already resolved elsewhere
+            try:
+                ts = datetime.fromisoformat(str(record["timestamp"]).replace("Z", "+00:00"))
+            except Exception:
+                return False
+            if (now - ts).total_seconds() > max_age_seconds:
+                return False  # too old — not this scan's candidate
+            record["decision"] = str(decision)
+            record["decision_reason"] = str(decision_reason)[:200]
+            return _save_shadow_log(records)
+        return False
+    except Exception as e:
+        logger.debug(f"update_last_decision failed for {ticker}: {e}")
+        return False
+
+
 def _fetch_historical_bars_batch(
     tickers: List[str], start_date: str, end_date: str
 ) -> Dict[str, List[dict]]:

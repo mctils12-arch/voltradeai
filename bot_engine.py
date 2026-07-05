@@ -2938,6 +2938,14 @@ def _scan_market_inner():
             existing_positions=_pos_list,
             max_sector_positions=_max_sec,
         ):
+            try:
+                from shadow_portfolio import update_last_decision
+                update_last_decision(
+                    ticker, "rejected_heat",
+                    f"sector/correlation block (max {_max_sec}/sector)",
+                )
+            except Exception:
+                pass  # Shadow logging must never break the trading loop
             continue
 
         side = stock.get("side", "buy")
@@ -3009,6 +3017,14 @@ def _scan_market_inner():
                 _mid = (_bid + _ask) / 2
                 _spread_pct = (_ask - _bid) / _mid if _mid > 0 else 0
                 if _spread_pct > 0.005:  # 0.5% max spread for equities
+                    try:
+                        from shadow_portfolio import update_last_decision
+                        update_last_decision(
+                            ticker, "rejected_other",
+                            f"spread {_spread_pct:.4f} > 0.005 max",
+                        )
+                    except Exception:
+                        pass  # Shadow logging must never break the trading loop
                     continue  # Skip — spread too wide, would lose to slippage
         except Exception:
             pass  # If quote fetch fails, allow the trade (don't block on API failure)

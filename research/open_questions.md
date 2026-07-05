@@ -253,19 +253,27 @@
   **UPDATE 2026-07-04: same as above — MAX_CHANGE_PCT is never read
   outside system_config.py. See KNOWN BROKEN #10.**
 - Spread filter 0.5% — how many blocked names would have filled fine?
-  (this one DOES exist in code — bot_engine.py:3011, `_spread_pct > 0.005`
-  — unlike the two above; not yet counterfactual-logged, since
-  `shadow_portfolio.log_candidate()` is only called from inside
-  `deep_score()` with decision values `taken`/`rejected_score` — the
-  spread/correlation/regime/kill-switch decision buckets the function's
-  own docstring anticipates (`rejected_heat`/`rejected_halt`/
-  `rejected_earnings`/`rejected_other`) have zero real call sites
-  anywhere in the repo. Wiring those in is the natural next
-  counterfactual-logging PR — smaller and lower-risk than #10's
-  ablation, since it only adds observability, not new trading behavior.)
+  **UPDATE 2026-07-05 (v1.0.130): NOW COUNTERFACTUAL-LOGGED** — the
+  `_spread_pct > 0.005` rejection in `_scan_market_inner()`
+  (bot_engine.py) calls `shadow_portfolio.update_last_decision(ticker,
+  "rejected_other", ...)` immediately after rejecting, correcting the
+  candidate's shadow-log decision from `deep_score()`'s premature
+  "taken". Answerable once >=90d of shadow history accumulates
+  (~2026-10-02) via `get_shadow_stats()["win_rate_by_decision"]
+  ["rejected_other"]` vs `["taken"]`. See BUILD ORDER 4 #6 above for
+  the full trace.
 - Correlation/sector blocks — cost vs. protection in current regime.
+  **UPDATE 2026-07-05 (v1.0.130): NOW COUNTERFACTUAL-LOGGED** — same
+  mechanism as the spread filter above, decision bucket
+  `"rejected_heat"`, wired at `check_sector_correlation()`'s rejection
+  site. Same readout date and query shape.
 - Kill-switch drawdown thresholds — sized for real-money caution; is
   that optimal for a paper account whose goal is learning speed?
+  **STILL NOT counterfactual-logged** (2026-07-05): `check_kill_switches()`
+  gates the separate TieredStrategy action list, not the `deep_score()`
+  candidates this session's fix targeted, and any halt at the
+  execution layer lives in `server/bot.ts` — see BUILD ORDER 4 #6 for
+  why this is a materially bigger, still-open follow-up.
 
 ## OPEN RESEARCH QUESTIONS
 
@@ -1028,6 +1036,43 @@ GIP items, before any new roots)
    frozen paths untouched); earliest readout unchanged (>=90 days
    of shadow history per #10, first query ~2026-10-02: win rates
    for |change_pct|>35 candidates, then per-rule prevention-P&L).
+
+   **[PARTIALLY BUILT 2026-07-05, v1.0.130, T-BOT]** Two of the
+   three named gaps wired: `shadow_portfolio.update_last_decision()`
+   (new function, logging-only, mirrors `log_candidate()`'s
+   non-blocking contract) corrects a candidate's shadow-log decision
+   immediately after `_scan_market_inner()`'s correlation/sector
+   check (`decision="rejected_heat"`) or quote-time spread check
+   (`decision="rejected_other"`) rejects it — both fire AFTER
+   `deep_score()` already logged the candidate "taken" for clearing
+   MIN_SCORE, so before this fix every candidate rejected by either
+   filter was silently mislabeled "taken" in the learning archive
+   (`get_shadow_stats()`'s by-decision win-rate buckets would have
+   attributed real correlation/spread rejections to "taken" outcomes
+   — a live HONESTY METRIC risk, not just a missing feature). Only
+   the MOST RECENT record for the ticker, and only if still fresh
+   (<=120s old) and still "taken", is ever corrected — a stale or
+   already-resolved record from an earlier scan is never touched.
+   STILL UNWIRED (correctly out of scope for a logging-only, one-PR
+   change): `rejected_halt` — `check_kill_switches()` gates the
+   separate TieredStrategy action list (`tiered_actions`), not the
+   `deep_score()`-based `trades` loop this fix targets, and any halt
+   that blocks orders at the execution layer lives in
+   `server/bot.ts` (cross-language, a materially bigger change);
+   `rejected_earnings` — no per-candidate stock-long earnings
+   blackout exists in the `trades` loop today (earnings only enters
+   as a soft ML feature and, for options, a covered-call-specific
+   guard in `options_execution.py`) — there is no rejection site to
+   log yet, so wiring it would mean ADDING a gate, a genuine rule
+   CHANGE requiring RULE REVIEW's evidence-or-ablation gate, out of
+   scope here. Both remain open, logged as the natural next slice of
+   this same item. Readout date unchanged (~2026-10-02, needs >=90d
+   of shadow history); once there, `get_shadow_stats()`'s
+   `win_rate_by_decision` will show `rejected_heat`/`rejected_other`
+   alongside `taken`/`rejected_score` automatically (buckets
+   generically by whatever `decision` string appears, no
+   special-casing needed). See experiments.md for the regression
+   tests (`test_shadow_portfolio.py`, new file, 8/8 passing).
 
 ## BUILD ORDER 3 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 2 resolved 6/6 same-day — see experiments.md
