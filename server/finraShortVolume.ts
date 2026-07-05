@@ -285,6 +285,17 @@ export async function refreshShortVol(fetchImpl: FetchFn = fetch as any, nowMs?:
       const rows = await fetchShortVolDay(yyyymmdd, fetchImpl, now);
       if (rows === null || rows.length === 0) continue; // transport error or non-trading day
       archiveShortVolDay(rows, baseDir);
+      // gz-eligible days compress IMMEDIATELY — a deep pass must never
+      // hold hundreds of days uncompressed on the volume while it runs
+      if (now - Date.parse(iso) >= 2 * 86400_000) {
+        try {
+          const fp = path.join(svDir(baseDir), `${iso}.jsonl`);
+          if (fs.existsSync(fp)) {
+            fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+            fs.unlinkSync(fp);
+          }
+        } catch {}
+      }
       if (!newestSummarized) {
         const s = summarize(rows);
         if (s) { cache = { at: Date.now(), summary: s }; newestSummarized = true; }
@@ -312,15 +323,22 @@ export function countArchivedDays(baseDir?: string): number {
 
 const doneMarker = (baseDir?: string) => path.join(svDir(baseDir), "backfill_done.json");
 
-/** One-shot deep backfill (first prod boot / fresh volume). Runs AFTER
- *  the normal 7-day refresh so the route serves current data within
- *  seconds; the deep pass then fills history in the background (~4 min
- *  at 300ms spacing, one file in memory at a time). A COMPLETED pass
- *  writes a marker file; an INTERRUPTED pass leaves no marker, so the
- *  next boot re-runs and the date-level dedup resumes it for free —
- *  a count-based trigger would have mistaken a partial pass for done. */
+/** EMERGENCY DEFAULT-OFF (2026-07-05, ~30 min after v1.0.138 deployed):
+ *  prod entered a ~60s crash-restart loop immediately after the deep
+ *  backfill shipped. Leading theory: a full pass writes ~750MB of
+ *  UN-GZIPPED day-files (gzip only ran after a complete pass, and no
+ *  pass ever completed) — plausibly filling the Railway volume, which
+ *  makes the bot's periodic state writes crash Node. Until volume
+ *  capacity is verified, the deep backfill requires the explicit
+ *  FINRA_DEEP_BACKFILL=1 env opt-in, and when it does run it gzips
+ *  EACH day as it lands (~75MB total, 10x smaller, no full-pass gap). */
+export function deepBackfillEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.FINRA_DEEP_BACKFILL === "1";
+}
+
 export async function deepBackfillIfSparse(fetchImpl: FetchFn = fetch as any, nowMs?: number,
-                                           baseDir?: string): Promise<void> {
+                                           baseDir?: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  if (!deepBackfillEnabled(env)) return;
   if (fs.existsSync(doneMarker(baseDir))) return;
   const have = countArchivedDays(baseDir);
   console.log(`[datacore] finrashortvol deep backfill: archive has ${have} day-files — fetching ~${DEEP_BACKFILL_DAYS} calendar days`);
@@ -342,6 +360,8 @@ export async function deepBackfillIfSparse(fetchImpl: FetchFn = fetch as any, no
 export function bootShortVolPoll(intervalMs = 6 * 60 * 60_000): void {
   if (polling) return;
   polling = true;
-  refreshShortVol().then(() => deepBackfillIfSparse());
+  // .catch: an unhandled rejection here would crash the process
+  refreshShortVol().then(() => deepBackfillIfSparse())
+    .catch((e) => console.error("[datacore] finrashortvol boot:", e?.message || e));
   setInterval(() => { refreshShortVol(); }, intervalMs).unref?.();
 }

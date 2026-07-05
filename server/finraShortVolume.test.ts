@@ -93,15 +93,23 @@ test("deep backfill: marker completes it, interruption resumes, done-marker shor
     return { ok: true, status: 200, text: async () =>
       `Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market\n${day}|AA|100|0|200|Q\n1` };
   };
-  await deepBackfillIfSparse(fake as any, now, base);
+  const ON = { FINRA_DEEP_BACKFILL: "1" } as any;
+  // EMERGENCY DEFAULT-OFF (crash-loop postmortem): keyless env = no-op
+  await deepBackfillIfSparse(fake as any, now, base, {} as any);
+  assert.equal(calls, 0, "default-off: not a single fetch without the env opt-in");
+  await deepBackfillIfSparse(fake as any, now, base, ON);
   assert.equal(countArchivedDays(base), 3, "all served days archived");
   assert.ok(fs.existsSync(path.join(base, "finrashortvol", "backfill_done.json")), "completion marker written");
+  // gz-on-write: backfilled days older than 2d land compressed, never plain
+  assert.ok(fs.existsSync(path.join(base, "finrashortvol", "2026-06-15.jsonl.gz")),
+    "deep-pass day is gzipped IMMEDIATELY (volume-flood guard)");
+  assert.ok(!fs.existsSync(path.join(base, "finrashortvol", "2026-06-15.jsonl")));
   const callsAfterDone = calls;
-  await deepBackfillIfSparse(fake as any, now, base);
+  await deepBackfillIfSparse(fake as any, now, base, ON);
   assert.equal(calls, callsAfterDone, "done marker short-circuits — zero refetches");
   // interruption semantics: remove the marker -> re-run resumes via dedup
   fs.unlinkSync(path.join(base, "finrashortvol", "backfill_done.json"));
-  await deepBackfillIfSparse(fake as any, now, base);
+  await deepBackfillIfSparse(fake as any, now, base, ON);
   assert.equal(countArchivedDays(base), 3, "resume run added nothing new (dedup)");
   assert.ok(fs.existsSync(path.join(base, "finrashortvol", "backfill_done.json")), "marker rewritten");
 });

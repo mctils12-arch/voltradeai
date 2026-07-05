@@ -13,6 +13,53 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] PRIORITY-1: prod crash-looping ~every 60s after the deep backfill — emergency default-off + gz-on-write (v1.0.140)
+
+- DETECTION CHAIN (the R7 diagnostics paid for themselves within the
+  hour): attention's last_cycle timestamps exposed NEW BOOTS at
+  20:48, 20:54, 20:55, 21:02, 21:03, 21:05 — a restart roughly every
+  minute, with no merges after 20:43. Every other stream hides
+  restarts (instant archive-rebuild caches); attention's slow cycle
+  made them visible. /api/health reads ok BETWEEN crashes (bot
+  active, liveness dark:false — and it is Sunday, markets closed).
+- LEADING THEORY (stated as theory — prod logs unreadable from a
+  session): v1.0.138's deep backfill writes ~750MB of UN-GZIPPED
+  day-files per pass (gzip only ran after a COMPLETE pass, and no
+  pass completed) — plausibly filling the Railway volume; a full
+  volume makes the bot's periodic state writes (equity curve,
+  SQLite, audit) throw ~60s after each boot -> crash -> restart ->
+  backfill resumes writing -> loop that does NOT self-heal. The
+  original design DID consider memory (one file at a time) and the
+  event loop (async gz) but NOT peak disk of an incomplete pass —
+  the pre-ship "downstream chain" trace missed the disk dimension.
+- EMERGENCY FIX (one PR, three guards): (1) deep backfill now
+  DEFAULT-OFF behind FINRA_DEEP_BACKFILL=1 — prod reverts to
+  pre-backfill behavior on deploy regardless of which theory is
+  right; (2) gz-on-write — when a deep pass runs, each gz-eligible
+  day compresses THE MOMENT it lands (~75MB total, no full-pass
+  gap); (3) .catch on the boot chain (an unhandled rejection there
+  would itself crash the process). SELF-CLEANING: the regular 6h
+  refresh already sweeps accumulated plain files to gz on the next
+  stable boot — no manual volume surgery needed.
+- VERIFICATION PLAN (after this deploys): attention last_cycle
+  timestamps must stop advancing across a 5-min watch (restarts
+  over), then attention should serve within ~2 min. If restarts
+  CONTINUE, the backfill is exonerated and diagnosis moves to what
+  else changed (#263 window) — stated now so the posterior updates
+  honestly either way.
+- RE-ENABLE PATH: verify Railway volume capacity/usage (human can
+  read it in the Railway dashboard; or expose a disk-stats surface),
+  then set FINRA_DEEP_BACKFILL=1 — gz-on-write caps the pass at
+  ~75MB. Backfill remains the right idea; the flooding write pattern
+  was the defect.
+- RECURRENCE DISCIPLINE: this is the FIRST failure of this subsystem
+  (fix #1). If the crash loop persists after this ships, the next
+  session's patch attempt is FORBIDDEN — root-cause analysis per
+  HEALTH OF THE LOOP rule 4.
+- Tests 8/8 (default-off pinned: zero fetches without the env;
+  gz-on-write pinned: deep-pass days land compressed); tsc 64
+  baseline; pytest 410/1.
+
 ## 2026-07-05 — [REPAIR] attention stream warming_up on prod — self-reporting cycle stats shipped, diagnosis reads from the route (v1.0.139)
 
 - SYMPTOM: /api/data/attention stayed warming_up across MULTIPLE
