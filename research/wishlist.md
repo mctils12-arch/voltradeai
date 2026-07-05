@@ -17,6 +17,27 @@ both frozen files only you should change), or (c) is there a **crash
 stack trace** (paste it to the next session — it names the defect
 directly). Full evidence chain in experiments.md (v1.0.141 entry).
 
+## FROZEN-FILE AMENDMENT PROPOSAL (durability audit 2026-07-05 —
+needs your one-line edit; billing.ts is frozen so sessions may not
+touch it)
+
+**server/billing.ts:34 writes its SQLite DB to the container image
+dir — wiped on every redeploy — AND it is a different file from the
+auth DB whose tables it queries.** Billing is currently dark (no
+STRIPE_SECRET_KEY) so nothing has been lost yet, but the moment
+billing activates, customer/subscription state would be ephemeral
+and the users/sessions UPDATEs would hit an empty database. EXACT
+CHANGE (mirrors auth.ts three lines above it):
+  before: `const dbPath = path.resolve(process.cwd(), "voltradeai.db");`
+  after:  `const dbPath = process.env.DB_PATH || path.resolve(fs.existsSync("/data") ? "/data" : process.cwd(), "voltrade.db");`
+(pointing billing at the SAME durable /data/voltrade.db auth already
+uses fixes both the persistence and the split-brain table bug; add
+`import fs from "fs";` if absent). A ratchet in
+server/durability.test.ts pins the current stray signature and says
+exactly what to update once you apply this. The monetization
+tripwire already forces a review before billing activates — this
+proposal is now part of that checklist.
+
 ## BLOCKED-FOR-MIKE (standing list per the overnight directive
 2026-07-05: items needing paid keys, spend, or a human-only decision.
 Logged and ROUTED AROUND — nothing here blocks the free build order.)

@@ -13,6 +13,66 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] Durability audit (human-directed) — every write path swept vs the /data volume; 2 strays (1 migrated, 1 wishlisted); loss report; ratchets both runtimes (v1.0.142)
+
+- VOLUME MOUNT VERIFIED: /data (storage_config.py DATA_DIR ->
+  /data/voltrade; server archiveBaseDir() ->
+  /data/voltrade/datacore_archive; auth DB /data/voltrade.db).
+  Prod /api/data/archive/stats confirms real durable data under the
+  mount across 26 archive kinds (~377MB total).
+- SWEEP RESULT (both runtimes, every fs write in runtime code):
+  DURABLE — all 22 datacore stream archives, options-chain archive,
+  API metering, waitlist, auth SQLite, equity/liveness/kill-switch/
+  ML state (Python via storage_config, mostly atomic tmp+rename).
+  EPHEMERAL-BY-DESIGN — /tmp API caches, bot.ts spawn-IPC scratch,
+  daemon trace, backtest .bt_cache (all justified, classified in the
+  new ratchets). STRAYS — exactly 2:
+  (1) intraday_shorts.py:41 resolved its "persistent" short-trade
+      log via a bare DATA_DIR env read (unset on Railway) -> /tmp;
+      the log reset on EVERY redeploy since the module shipped.
+      MIGRATED this PR to storage_config.DATA_DIR (env override
+      still honored). Loss: all intraday-short trade history to
+      date (the module itself noted "not enough closed trades to
+      learn from" — the loss is real but small).
+  (2) server/billing.ts:34 (FROZEN) writes its SQLite to the image
+      dir — ephemeral AND a different file from the auth DB whose
+      users/sessions tables it updates (split-brain). Billing is
+      dark (no Stripe key) so zero customer data lost; exact
+      one-line amendment filed at the TOP of wishlist.md for the
+      human; the Node ratchet pins the stray signature so fixing it
+      forces the allowlist to shrink.
+- HISTORICAL LOSS REPORT (the honest part): the volume's file
+  history for continuously-recording streams begins 2026-07-03
+  ~18:00Z (aircraft/vessels raw both start exactly there; trains
+  2026-07-04-01; all _tracks rollup dirs empty because no raw file
+  has crossed the 7-day threshold yet — first rollup due ~07-10, NOT
+  a pruning defect). Everything continuously recorded before that
+  moment went to the pre-attach fallback and was lost to redeploys:
+  ~4-5 days of aircraft/vessel/train positions from stream launch
+  (late June) — a PERMANENT gap in the compounding position archive;
+  EDGAR-family archives pre-07-03 (refetchable in principle);
+  Python trading state resets pre-attach. Everything since attach is
+  durable except the two strays above.
+- INCIDENTAL FINDINGS from the same stats read: the FINRA deep
+  backfill actually COMPLETED during the crash-loop windows — 513
+  day-files back to 2024-06-17, all gz (80MB), marker present. The
+  ratcheting-resume design worked under fire; disk footprint is 80MB
+  not 750MB, which further weakens the volume-full crash theory
+  (loop cause still pending the Railway dashboard read, wishlist
+  #8). Also: 6h/30min maintenance timers (rollup, compress) never
+  fire while process lives are ~61s — they catch up after the loop
+  resolves.
+- RATCHETS (no future stream can ship ephemeral): NEW
+  server/durability.test.ts — every fs-writing server module must be
+  durable-marked (archiveBaseDir//data/DATA_DIR), classified
+  tmp-by-design with justification, or on the wishlisted-stray list
+  (which is pinned to exactly billing.ts and asserts its signature
+  so a fix tightens the ratchet); plus the archiveBaseDir mount
+  contract. NEW test_durability.py — intraday_shorts path pinned
+  under storage_config.DATA_DIR; no runtime module may bare-env-read
+  DATA_DIR with a /tmp default without importing storage_config;
+  storage_config mount contract. Both green; full suites green.
+
 ## 2026-07-05 — [REPAIR] ⚠️ TOP-OF-REPORT LIVENESS ALARM: prod restart loop CONTINUES after backfill-off — diagnosis blocked on Railway dashboard access; health now exposes uptime (v1.0.141)
 
 - ⚠️ STATE AT FILING (~21:50Z): the container restarts every ~61s and
