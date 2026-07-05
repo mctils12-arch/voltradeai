@@ -13,6 +13,32 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [RESEARCH] Stream #8 gate 1: FAIL — Google Trends via pytrends (layer of death: DATA/access)
+
+- PRIOR (filed before the run): gate-1 stability test may kill the
+  stream; PASS = median cross-pull r > 0.95 AND >= 80% of the 20-term
+  panel ok every round.
+- RUN 1 finding: pytrends (upstream ARCHIVED 2025-04) is
+  dependency-rotten — with retries enabled it dies on urllib3 v2
+  (Retry method_whitelist TypeError) before reaching Google at all.
+  A retries-free control pull SUCCEEDED, so run 1 measured our probe
+  config, not the source; the probe was corrected and rerun (rigor:
+  the first FAIL would have been a false attribution).
+- RUN 2 (corrected, 3 rounds x 20 brand terms, 8-min gaps): rounds
+  1-2 = 20/20 ok; STABILITY PASSED emphatically — median cross-pull
+  r = 0.998, min 0.952, no unstable term. But round 3 collapsed to
+  6/20 on HTTP 429s: Google rate-limits the unofficial path after
+  ~45 pulls/35min. VERDICT: FAIL on the availability half of the
+  pre-stated criterion.
+- HONEST SHAPE OF THE DEATH: the DATA is reproducible; the free
+  ACCESS is not production-reliable, and the only client library is
+  abandoned. NO archiver, NO manifest, NO daemon route built (as
+  planned — no dead code for a dead stream). Residual option filed in
+  open_questions: an ultra-low-cadence weekly single-round pull
+  (20 pulls/week sits far under the observed limit) could be re-probed
+  if a hypothesis ever NEEDS Trends; paid alternatives remain in
+  BLOCKED-FOR-MIKE. Probe: scripts/gtrends_probe.py (re-runnable).
+
 ## 2026-07-05 — [REPAIR] fredmacro vintage dedup: restart-bloat + revert-drop fixed (v1.0.106) [T-DATACORE]
 
 - Audit defect #6, both halves: (a) seedSeen covered 3 days while each
