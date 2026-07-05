@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   parsePageviews, fetchAttention, archiveAttention, gzipOldAttentionDays,
-  pickLatestCompleteDay, ARTICLES, REQUEST_SPACING_MS,
+  pickLatestCompleteDay, lastAttentionCycle, ARTICLES, REQUEST_SPACING_MS,
 } from "./wikiAttention";
 
 const ITEMS = (article: string, days: Array<[string, number]>) => ({
@@ -45,6 +45,21 @@ test("fetchAttention: hits every seed article once, skips 404 silently (absence 
   assert.equal(urls.length, Object.keys(ARTICLES).length, "one request per seed article");
   assert.equal(obs.length, Object.keys(ARTICLES).length - 1, "404 article contributes nothing");
   assert.ok(REQUEST_SPACING_MS >= 500, "spacing respects the observed 429 limit");
+  const cyc = lastAttentionCycle()!;
+  assert.equal(cyc.ok_articles, Object.keys(ARTICLES).length - 1);
+  assert.equal(cyc.not_found, 1);
+  assert.equal(cyc.err_articles, 0);
+  assert.ok(cyc.finished, "cycle stats close out");
+});
+
+test("cycle stats capture the failure mode when every request errors (R7 diagnosability)", async () => {
+  const blocked = async () => ({ ok: false, status: 403, text: async () => "" });
+  const obs = await fetchAttention(blocked as any, Date.parse("2026-07-05T12:00:00Z"), 7, 0);
+  assert.equal(obs.length, 0);
+  const cyc = lastAttentionCycle()!;
+  assert.equal(cyc.err_articles, Object.keys(ARTICLES).length);
+  assert.match(cyc.last_error!, /-> 403$/, "route-visible last_error names the status");
+  assert.equal(cyc.obs, 0);
 });
 
 test("archive: dedup by date|ticker, day-files by VIEW date, gz at 4d", () => {

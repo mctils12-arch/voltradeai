@@ -69,6 +69,27 @@ export function parsePageviews(json: any, ticker: string, article: string, rt: s
 
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
+/** Last poll cycle's outcome, exposed on the route while warming so a
+ *  never-filling cache is diagnosable FROM PROD without log access
+ *  (added 2026-07-05: attention stayed warming_up on prod after a
+ *  clean deploy while every sibling stream served — the route itself
+ *  must say why). */
+export interface CycleStats {
+  started: string;
+  finished: string | null;
+  ok_articles: number;
+  err_articles: number;
+  not_found: number;
+  last_error: string | null;  // "TICKER -> status" or "TICKER: message" (no URLs/keys)
+  obs: number;
+}
+
+let lastCycle: CycleStats | null = null;
+
+export function lastAttentionCycle() {
+  return lastCycle;
+}
+
 /** Fetch the last `windowDays` complete days for every seed article,
  *  politely spaced. A 404/no-data article is skipped (logged once) —
  *  absence is data, never faked. */
@@ -81,6 +102,11 @@ export async function fetchAttention(fetchImpl: FetchFn = fetch as any, nowMs?: 
   const end = new Date(now - 86400_000).toISOString().slice(0, 10).replace(/-/g, "");
   const start = new Date(now - (windowDays + 1) * 86400_000).toISOString().slice(0, 10).replace(/-/g, "");
   const out: AttentionObs[] = [];
+  const stats: CycleStats = {
+    started: new Date().toISOString(), finished: null,
+    ok_articles: 0, err_articles: 0, not_found: 0, last_error: null, obs: 0,
+  };
+  lastCycle = stats;
   for (const [ticker, article] of Object.entries(ARTICLES)) {
     const url = `${API}/${encodeURIComponent(article)}/daily/${start}00/${end}00`;
     try {
@@ -90,14 +116,23 @@ export async function fetchAttention(fetchImpl: FetchFn = fetch as any, nowMs?: 
       });
       if (r.ok) {
         out.push(...parsePageviews(JSON.parse(await r.text()), ticker, article, rt));
-      } else if (r.status !== 404) {
+        stats.ok_articles++;
+      } else if (r.status === 404) {
+        stats.not_found++;
+      } else {
+        stats.err_articles++;
+        stats.last_error = `${ticker} -> ${r.status}`;
         console.error(`[datacore] wikiattention ${ticker} -> ${r.status}`);
       }
     } catch (e: any) {
+      stats.err_articles++;
+      stats.last_error = `${ticker}: ${e?.message || e}`;
       console.error(`[datacore] wikiattention ${ticker}:`, e?.message || e);
     }
     await new Promise((res) => setTimeout(res, spacingMs));
   }
+  stats.finished = new Date().toISOString();
+  stats.obs = out.length;
   return out;
 }
 
