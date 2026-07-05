@@ -42,6 +42,7 @@ import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
+import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1469,6 +1470,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       zone_only: hit.zoneOnly,
       note: "polygon-carrying alerts only; zone-coded alerts without geometry are counted in zone_only (resolution is a filed follow-up)",
       alerts: hit.display,
+    });
+  });
+
+  // Treasury auction results (RAW — BUILD ORDER 2 #4): bid-to-cover +
+  // bidder-class splits per auction, keyless TreasuryDirect TA_WS.
+  // The tail-vs-WI stress metric is paid data — never faked here.
+  bootTreasuryPoll();
+  app.get("/api/data/treasury-auctions", (_req, res) => {
+    const hit = latestAuctions();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "TreasuryDirect TA_WS", warming_up: true, count: 0, auctions: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "TreasuryDirect TA_WS (securities/auctioned) — US government work, public domain",
+      attribution: "U.S. Department of the Treasury (TreasuryDirect)",
+      time: hit.at,
+      count: hit.auctions.length,
+      note: "results-complete auctions from the last 30 days; dealer_take is DERIVED (pd accepted / competitive accepted); no tail metric — WI quotes are paid data",
+      auctions: hit.auctions,
     });
   });
 

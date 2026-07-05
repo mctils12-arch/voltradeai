@@ -1,0 +1,29 @@
+{
+ "stream": "treasuryauctions",
+ "storage": "append-only JSONL day-files under <archive>/treasuryauctions/ (gz after 2 days)",
+ "written_by": "server/treasuryAuctions.ts archiveAuctions (6h poll over a 30-day window, eager boot)",
+ "source": "TreasuryDirect TA_WS /securities/auctioned (keyless JSON)",
+ "license": "US government work, public domain; attribution 'U.S. Department of the Treasury'",
+ "attribution": "U.S. Department of the Treasury (TreasuryDirect)",
+ "schema_version": 1,
+ "field_map": {
+  "cusip + auction_date": "dedup key — results are immutable; reopenings share a cusip but auction on new dates",
+  "type/term": "Bill | Note | Bond | TIPS | FRN | CMB, with securityTerm",
+  "bid_to_cover": "bidToCoverRatio — the free auction-stress headline",
+  "high_yield / high_discount_rate / high_investment_rate": "whichever the security class carries; the others stay null, never guessed (bills = discount/investment rate, coupons = yield)",
+  "avg_median_yield / avg_median_discount_rate": "median accepted level",
+  "total_accepted / competitive_tendered / competitive_accepted": "size and demand",
+  "primary_dealer_* / direct_* / indirect_*": "bidder-class tendered/accepted splits",
+  "dealer_take": "DERIVED: primary_dealer_accepted / competitive_accepted — dealers absorbing what investors won't; null when either input is absent",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official auction results (one DERIVED ratio, labeled). HONESTY: the classic tail-vs-when-issued stress metric needs a 1pm-ET WI quote, which is PAID data — the free stress metrics are bid_to_cover + bidder-class shares, and nothing here claims to be a tail. Rows appear only once results publish (pre-result announcements are skipped, picked up on a later poll).",
+ "geo_fields": [
+  "(none — macro series, not geospatial)"
+ ],
+ "entity_key": "cusip + auction_date",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "6h poll; auctions settle ~1pm ET on auction days (~250 auctions/yr)",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 2 #4; hypothesis (bid-to-cover deterioration + rising dealer take precede rate-regime shifts) stays gate-locked — archive + RAW display only."
+}
