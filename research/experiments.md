@@ -13,6 +13,22 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] Manifest accuracy: aircraft field_map corrected + COT manifest created (docs)
+
+- Audit defects #7 + #8 (both manifest-accuracy, one logical change:
+  the reader contract must match the writers):
+- aircraft.json documented a "gs" field that doesn't exist — the
+  writer emits g (on-ground flag) and v (speed m/s, rounded). Fixed.
+- The COT stream (Python-side, routine #191) had NO manifest and
+  escapes the envelope test (which only scrapes server/*.ts writers).
+  datacore/manifests/cot.json now documents it honestly: SINGLE keyed
+  JSON with atomic replace (an explicit exception to append-only,
+  justified by the keyed weekly-history shape), full per-week field
+  map from cftc_cot.py _derive_fields, DERIVED fields labeled, the
+  3-days-stale-by-design publication lag stated, and a note that
+  Python-side archives are documented by convention rather than
+  enforced by the TS envelope test.
+
 ## 2026-07-05 — [RESEARCH] Stream #8 gate 1: FAIL — Google Trends via pytrends (layer of death: DATA/access)
 
 - PRIOR (filed before the run): gate-1 stability test may kill the
