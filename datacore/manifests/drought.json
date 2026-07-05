@@ -1,0 +1,26 @@
+{
+ "stream": "drought",
+ "storage": "append-only JSONL day-files under <archive>/drought/ (gz after 2 days)",
+ "written_by": "server/droughtMonitor.ts archiveDrought (24h poll over a 70-day window, eager boot)",
+ "source": "US Drought Monitor data services (usdmdataservices.unl.edu) — CONUS + 8 ag/water states by FIPS (probed: state abbreviations return empty)",
+ "license": "Free for any use WITH REQUIRED CREDIT: 'U.S. Drought Monitor (NDMC/USDA/NOAA)' — produced jointly by the National Drought Mitigation Center, USDA, and NOAA",
+ "attribution": "U.S. Drought Monitor (NDMC/USDA/NOAA)",
+ "schema_version": 1,
+ "field_map": {
+  "aoi + map_date": "dedup key — maps are weekly (Tuesday data) and final on publish",
+  "none": "area % with no drought designation",
+  "d0..d4": "CUMULATIVE area % per USDM convention (D0 includes everything drier)",
+  "dsci": "DERIVED: d0+d1+d2+d3+d4 — the published Drought Severity and Coverage Index (0-500)",
+  "valid_start/valid_end": "map validity window as published",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official weekly designations (one DERIVED index, labeled, using the USDM's own published formula). Rows with any malformed percentage are dropped whole — a partial severity row would corrupt the DSCI. One-AOI failures survive the poll; only all-AOI failure throws.",
+ "geo_fields": [
+  "(aoi -> CONUS or state; polygon detail not archived — the USDM shapefile layer is a filed follow-up if map display is wanted)"
+ ],
+ "entity_key": "aoi + map_date",
+ "sentiment": null,
+ "started": "2026-07-05",
+ "cadence": "weekly source (Thursday release), 24h poll (dedup makes off-days a no-op)",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 2 #5; hypothesis (belt drought deltas lead ag commodities and food-producer margins) stays gate-locked — archive + RAW display only."
+}

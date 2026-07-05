@@ -43,6 +43,7 @@ import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarFor
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
+import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1491,6 +1492,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.auctions.length,
       note: "results-complete auctions from the last 30 days; dealer_take is DERIVED (pd accepted / competitive accepted); no tail metric — WI quotes are paid data",
       auctions: hit.auctions,
+    });
+  });
+
+  // US Drought Monitor weekly severity (RAW — BUILD ORDER 2 #5):
+  // CONUS + ag-belt states, cumulative D0-D4 + published DSCI.
+  // Attribution required by the source and carried in every payload.
+  bootDroughtPoll();
+  app.get("/api/data/drought", (_req, res) => {
+    const hit = latestDrought();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "U.S. Drought Monitor", warming_up: true, count: 0, drought: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "U.S. Drought Monitor data services — free with credit",
+      attribution: "U.S. Drought Monitor (NDMC/USDA/NOAA)",
+      time: hit.at,
+      count: hit.drought.length,
+      note: "weekly cumulative D0-D4 area %; dsci is the USDM's own published index (DERIVED here from the percentages)",
+      drought: hit.drought,
     });
   });
 
