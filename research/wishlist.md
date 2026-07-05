@@ -29,18 +29,21 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
 5. **FRED_API_KEY in the Claude Code session env** (2 min, free) —
    already live in Railway; adding it to the session env lets
    research sessions pull FRED directly instead of via prod.
-6. **CENSUS_API_KEY (free, instant email signup) — unblocks BUILD
-   ORDER 3 #4 container imports** (2026-07-05: api.census.gov now
-   requires a key on every request; probed live — the porths
-   endpoint redirects to missing_key). Worth it: monthly import
-   value/TEU by PORT x HS-commodity for ALL US ports — pairs with
-   our port-dwell analytics for a two-sided port view. BUILD-FIRST
-   ANALYSIS: the keyless alternative is scraping port-authority
-   monthly TEU pages (LA + Long Beach publish HTML/XLSX) — 2 ports
-   vs all, fragile HTML, materially worse; recommend the free key.
-   Signup: api.census.gov/data/key_signup.html -> set
-   CENSUS_API_KEY in the session env (session-run pipeline; Railway
-   not needed).
+6. **[DONE-PENDING-VERIFICATION 2026-07-05 — human added the key
+   same day; stream built server-side v1.0.132]** ~~CENSUS_API_KEY
+   (free, instant email signup) — unblocks BUILD ORDER 3 #4
+   container imports~~ — built as server/censusImports.ts, key-gated
+   on the fredMacro pattern, NOT the session-run pipeline this entry
+   originally proposed. CORRECTION to the original signup note: the
+   key must live in RAILWAY env vars for prod activation. The key is
+   NOT visible in this session's container (env fixed at start —
+   FRED precedent), so we cannot see WHERE it was set; if it went to
+   the Claude session env config instead of Railway,
+   /api/data/imports will honestly report enabled:false until it is
+   also added to Railway (a session-env copy is still useful for
+   research backfills). First DAILY session after deploy verifies
+   which state we're in and, if the porths query variants 400, fixes
+   the query shape from the logged Census error bodies.
 
 - **[DONE 2026-07-05 — key set in Railway, stream #3 built same day]**
   ~~HUMAN ACTION — FRED API key~~ — human set FRED_API_KEY in Railway;

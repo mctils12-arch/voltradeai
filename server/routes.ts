@@ -44,6 +44,7 @@ import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraf
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
+import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
@@ -1545,6 +1546,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         density: t?.density ?? {},
       });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Census monthly port imports (RAW — BUILD ORDER 3 #4, key-gated like
+  // fredMacro: awaiting_key honesty until CENSUS_API_KEY is set; activates
+  // automatically on deploy with the key).
+  bootCensusPoll();
+  app.get("/api/data/imports", (_req, res) => {
+    if (!censusEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "CENSUS_API_KEY not set (free signup — see wishlist)", count: 0, imports: [] });
+    }
+    const hit = latestImports();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "US Census Bureau", warming_up: true, count: 0, imports: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "US Census Bureau intltrade (imports/porths, FT920 monthly) — public domain",
+      attribution: "U.S. Census Bureau (USA Trade Online / FT920)",
+      time: hit.at,
+      count: hit.imports.length,
+      note: "monthly port-level import values incl. containerized (~45-day lag); revisions append as new vintages in the archive",
+      imports: hit.imports,
+    });
   });
 
   // US Drought Monitor weekly severity (RAW — BUILD ORDER 2 #5):

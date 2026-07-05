@@ -1,0 +1,25 @@
+{
+ "stream": "censusimports",
+ "storage": "append-only JSONL day-files under <archive>/censusimports/ (gz after 2 days)",
+ "written_by": "server/censusImports.ts archiveImports (daily poll over the last 4 months, eager boot; NO-OPS without CENSUS_API_KEY)",
+ "source": "US Census Bureau intltrade timeseries API, imports/porths (monthly FT920 schedule, ~45-day lag; free key required on every request — probed 2026-07-05)",
+ "license": "US government work, public domain; attribution 'U.S. Census Bureau (USA Trade Online / FT920)'",
+ "attribution": "U.S. Census Bureau (USA Trade Online / FT920)",
+ "schema_version": 1,
+ "field_map": {
+  "port + month + values": "dedup key — FT920 revisions are rare and append as NEW rows with a new rt (vintage discipline)",
+  "port/port_name": "Census port code + name as published",
+  "gen_val": "general imports value USD for the month",
+  "cnt_val/cnt_wgt": "containerized value USD / vessel weight kg — the TEU-flow proxy; null when the active query variant lacks them, never zero",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official monthly trade statistics. QUERY-SHAPE HONESTY: the porths parameter set was not live-verifiable at build (key absent from the build session's container); the fetch tries documented variants in order, parses header-driven, and logs Census's readable error bodies so a wrong shape is fixed from prod logs. LIVE VERIFICATION PENDING first deploy with the key.",
+ "geo_fields": [
+  "(port code -> port; strategic-site join via port name is Everything Graph work)"
+ ],
+ "entity_key": "port + month",
+ "sentiment": null,
+ "started": "2026-07-05 (records begin when the key activates on Railway)",
+ "cadence": "monthly source (FT920, ~45d lag); daily poll no-ops between releases",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 3 #4, unblocked by the human adding CENSUS_API_KEY 2026-07-05; hypothesis (import deltas x port-dwell two-sided view) stays gate-locked — archive + RAW display only."
+}
