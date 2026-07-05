@@ -55,6 +55,10 @@ interface Detail {
   trailId?: string;      // archive id for the trail (aircraft icao24 / mmsi)
   trailKind?: "aircraft" | "vessels" | "trains";
   trailNote?: string;
+  /** Epoch seconds of the newest archived position — drives the freshness
+   *  chip so trail gaps (coverage/sampling) are distinguishable from a
+   *  stale feed ([REPAIR 2026-07-05]: trails were a static snapshot). */
+  trailLastT?: number;
   /** FAA-registry identity line (entity spine, exact Mode S hex match) —
    *  arrives async after the card opens; absent for non-US hexes. */
   owner?: string;
@@ -387,25 +391,78 @@ export default function DataMapPage() {
     } catch {}
   };
 
-  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string) => {
+  /** Fetch the archived track and paint/refresh the trail. On refresh the
+   *  existing geojson source is UPDATED via setData (no layer churn).
+   *  Returns the note + newest position time so the card can show live
+   *  freshness. ([REPAIR 2026-07-05]: the trail was fetched ONCE at
+   *  selection and never again — a static snapshot while the aircraft
+   *  kept moving; see the refresh effect below.) */
+  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string):
+      Promise<{ note: string; lastT?: number }> => {
     const map = mapRef.current;
-    if (!map) return "";
+    if (!map) return { note: "" };
     try {
       const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
       const d = await r.json();
-      const pts = (d.points || []).map((p: any) => [p.lo, p.la]);
-      clearTrail();
-      if (pts.length >= 2) {
-        map.addSource("trail", { type: "geojson", data: {
-          type: "Feature", geometry: { type: "LineString", coordinates: pts }, properties: {},
-        } as any });
-        map.addLayer({
-          id: "trail-line", type: "line", source: "trail",
-          paint: { "line-color": "#7cc4ff", "line-width": 2, "line-opacity": 0.8, "line-dasharray": [1, 1.5] },
-        });
+      const raw = (d.points || []) as Array<{ lo: number; la: number; t?: number }>;
+      const pts = raw.map((p) => [p.lo, p.la]);
+      const lastT = raw.length ? raw[raw.length - 1].t : undefined;
+      const feature = {
+        type: "Feature", geometry: { type: "LineString", coordinates: pts }, properties: {},
+      } as any;
+      const existing = map.getSource("trail") as any;
+      if (existing && pts.length >= 2) {
+        existing.setData(feature); // live append — no remove/re-add flicker
+      } else {
+        clearTrail();
+        if (pts.length >= 2) {
+          map.addSource("trail", { type: "geojson", data: feature });
+          map.addLayer({
+            id: "trail-line", type: "line", source: "trail",
+            paint: { "line-color": "#7cc4ff", "line-width": 2, "line-opacity": 0.8, "line-dasharray": [1, 1.5] },
+          });
+        }
       }
-      return d.note || (pts.length ? `${pts.length} archived positions (our own feed history)` : "");
-    } catch { return "trail unavailable"; }
+      (window as any).__vtTrailLen = pts.length; // harness ratchet reads this
+      return {
+        note: d.note || (pts.length ? `${pts.length} archived positions (our own feed history)` : ""),
+        lastT,
+      };
+    } catch { return { note: "trail unavailable" }; }
+  };
+
+  // Live trail refresh — while a track-bearing card is open, re-pull the
+  // archived track every 30s so the trail extends as new positions land
+  // (the archive tick appends every few minutes; 30s keeps the popup
+  // honest without hammering the tiny track endpoint).
+  const detailTrailId = detail?.trailId;
+  const detailTrailKind = detail?.trailKind;
+  useEffect(() => {
+    if (!detailTrailId || !detailTrailKind) return;
+    const iv = setInterval(async () => {
+      const { note, lastT } = await showTrail(detailTrailKind, detailTrailId);
+      setDetail((prev) => prev && prev.trailId === detailTrailId
+        ? { ...prev, trailNote: note || prev.trailNote, trailLastT: lastT ?? prev.trailLastT }
+        : prev);
+    }, 30_000);
+    return () => clearInterval(iv);
+  }, [detailTrailId, detailTrailKind]);
+
+  // 10s ticker so the freshness age in the open card counts up between
+  // refreshes instead of freezing at its fetch-time value.
+  const [freshTick, setFreshTick] = useState(0);
+  useEffect(() => {
+    if (!detailTrailId) return;
+    const iv = setInterval(() => setFreshTick((n) => n + 1), 10_000);
+    return () => clearInterval(iv);
+  }, [detailTrailId]);
+
+  const formatAge = (epochSec?: number): string | null => {
+    if (!epochSec) return null;
+    const s = Math.max(0, Math.floor(Date.now() / 1000 - epochSec));
+    if (s < 90) return `${s}s ago`;
+    if (s < 5400) return `${Math.round(s / 60)}m ago`;
+    return `${Math.round(s / 3600)}h ago`;
   };
 
   // ── imagery toggle ──
@@ -1101,8 +1158,8 @@ export default function DataMapPage() {
               ? { ...prev, owner: `${bits.join(" · ")} — ${e.n_number}, FAA registry` } : prev);
           })
           .catch(() => {});
-        const note = await showTrail("aircraft", p.icao24);
-        setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note } : prev);
+        const { note, lastT } = await showTrail("aircraft", p.icao24);
+        setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
       },
     });
   }, [enabled.aircraft, mapReady, wireLivePoints, setStatus]);
@@ -1173,8 +1230,8 @@ export default function DataMapPage() {
             { label: "VesselFinder", href: `https://www.vesselfinder.com/vessels/details/${p.mmsi}` },
           ],
         });
-        const note = await showTrail("vessels", p.mmsi);
-        setDetail(prev => prev && prev.trailId === p.mmsi ? { ...prev, trailNote: note } : prev);
+        const { note, lastT } = await showTrail("vessels", p.mmsi);
+        setDetail(prev => prev && prev.trailId === p.mmsi ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
       },
     });
   }, [enabled.vessels, mapReady, layers, wireLivePoints, setStatus]);
@@ -1442,8 +1499,8 @@ export default function DataMapPage() {
               body: `${p.speed != null && p.speed !== "null" ? `Speed: ${p.speed} km/h\n` : ""}Live passenger-rail position, shown as received.`,
               trailId: p.id, trailKind: "trains",
             });
-            const note = await showTrail("trains", p.id);
-            setDetail(prev => prev && prev.trailId === p.id ? { ...prev, trailNote: note } : prev);
+            const { note, lastT } = await showTrail("trains", p.id);
+            setDetail(prev => prev && prev.trailId === p.id ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
           });
           map.on("mouseenter", "trains-icons", () => { map.getCanvas().style.cursor = "pointer"; });
           map.on("mouseleave", "trains-icons", () => { map.getCanvas().style.cursor = ""; });
@@ -2322,7 +2379,15 @@ export default function DataMapPage() {
             </div>
           )}
           {detail.trailNote && (
-            <p className="vt-site-card-trail">Trail: {detail.trailNote}</p>
+            <p className="vt-site-card-trail">
+              Trail: {detail.trailNote}
+              {detail.trailLastT && (
+                <span className="vt-trail-freshness" data-testid="trail-freshness" data-tick={freshTick}>
+                  {" · "}last position {formatAge(detail.trailLastT)}
+                  {" (trail extends live; gaps = coverage/sampling, not necessarily staleness)"}
+                </span>
+              )}
+            </p>
           )}
         </div>
       )}

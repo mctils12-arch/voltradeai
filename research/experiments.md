@@ -13,6 +13,51 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-05 — [REPAIR] /data trail was a static snapshot — live 30s refresh + freshness chip + harness ratchet (v1.0.144) [human-directed, T-CLIENT]
+
+- BUG: selecting an aircraft/vessel/train painted the archived trail
+  ONCE and never again — the line froze while the entity kept
+  moving. FIX: a refresh effect keyed to the open card's
+  trailId/trailKind re-pulls /api/data/track every 30s and UPDATES
+  the geojson source via setData (no layer churn/flicker); closing
+  or switching cards tears the interval down.
+- FRESHNESS HONESTY (the directive's second half): the card now
+  shows "last position Xs/Xm ago" from the newest archived point's
+  timestamp (10s UI ticker between refreshes), with the explicit
+  wording that TRAIL GAPS = coverage/sampling, not necessarily
+  staleness — the age chip is what distinguishes the two.
+- HARNESS RATCHET (all widths PASS; battery runs at 1440): a
+  STATEFUL track fixture returns one more point per call; the
+  battery clicks a projected fixture aircraft, requires the
+  freshness chip, holds the card open across a full 30s interval,
+  and requires BOTH a second track pull AND the trail geometry to
+  grow. Static-snapshot regressions fail on both counts.
+- TESTABILITY LESSON: maplibre's GeoJSONSource internals
+  (_data/serialize) were unreliable reads from the bundle — the
+  client now exposes window.__vtTrailLen explicitly; ratchets should
+  read declared surfaces, not library internals.
+- Visual verification per promotion rule: npm run build first
+  (stale-bundle lesson), harness green at 390/768/1440 + all-off +
+  scale batteries; screenshots self-reviewed at all three widths —
+  no layout regressions (the chip renders only inside an open card).
+
+## 2026-07-05 — [REPAIR] ✅ CRASH-LOOP RESOLVED & VERIFIED — uptime 367->728s climbing (12x the death ceiling), heap 54-59MB steady vs the 509MB death point (v1.0.143 post-deploy)
+
+- Pre-stated protocol executed after #267 deployed: /api/health
+  uptime_s read 4x over 6 minutes: 367s -> 487s -> 608s -> 728s —
+  monotonic, past the 300s bar, 12x the ~61s OOM ceiling that held
+  for 2+ hours. heap_used_mb 54-59 steady with one 168MB working
+  spike that GC'd back down (bounded folds behaving as designed);
+  rss ~162MB. The trading loop can run sustained work again —
+  LIVENESS ALARM CLEARED ~13h before Monday's open.
+- Full arc for the record: symptom surfaced by attention's slow
+  cycle -> R7 self-reporting stats -> restart metronome measured ->
+  backfill emergency-off (exonerated it) -> external diagnostics
+  exhausted -> human read Railway logs (OOM at ~509MB) -> boot folds
+  rewritten to bounded online aggregation + cgroup-aware heap ->
+  verified. Detection now permanent: uptime_s + heap/rss on health,
+  memory ratchet test, no-slurp source ratchet.
+
 ## 2026-07-05 — [REPAIR] ✅ PRIORITY-1 ROOT CAUSE FIXED — Railway logs (via human) showed Node OOM at ~509MB under the 512 cap; boot archive folds now stream with bounded state + cgroup-aware heap (v1.0.143)
 
 - ROOT CAUSE (from Railway logs, human-read — closing the loop on the
