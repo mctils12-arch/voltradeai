@@ -40,14 +40,19 @@ class TestRPCDispatchTable(unittest.TestCase):
 
     def test_every_local_route_resolves(self):
         """module_name is None -> attr_name must be a real method on RPCDispatcher."""
+        checked = 0
         for method, (module_name, attr_name) in self.dispatcher._routes.items():
             if module_name is not None:
                 continue
+            checked += 1
             self.assertTrue(
                 callable(getattr(self.dispatcher, attr_name, None)),
                 f"Route '{method}' -> local method '{attr_name}' does not exist "
                 f"on RPCDispatcher",
             )
+        # Same zero-iteration guard as the sibling module-route test: an
+        # empty local-route table would otherwise pass this vacuously
+        self.assertGreater(checked, 0, "no local routes were checked at all")
 
     def test_every_module_route_resolves_to_a_real_callable(self):
         """
