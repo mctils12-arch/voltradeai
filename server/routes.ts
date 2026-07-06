@@ -49,6 +49,7 @@ import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { bootShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
 import { bootCotPoll, latestCot } from "./cftcCot";
 import { bootTffPoll, latestTff } from "./cftcTff";
+import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1680,6 +1681,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.rows.length,
       note: "weekly financial-futures positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; positioning-extreme signals need trailing history the archive is only beginning to accumulate",
       markets: hit.rows,
+    });
+  });
+
+  // Treasury Daily Statement, deposits & withdrawals (RAW — BUILD
+  // ORDER 6 #2, keyless FiscalData). Daily statement; serves the
+  // poller's cached day only (event-loop rule).
+  bootDtsPoll();
+  app.get("/api/data/dts", (_req, res) => {
+    const hit = latestDts();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "U.S. Treasury Fiscal Data — Daily Treasury Statement", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "U.S. Treasury Fiscal Data — Daily Treasury Statement, Table II (public domain)",
+      attribution: "U.S. Treasury Fiscal Data — Daily Treasury Statement",
+      time: hit.at,
+      record_date: hit.record_date,
+      count: hit.rows.length,
+      note: "daily TGA deposits/withdrawals by category, $ millions as published (~1-2 business-day lag); the withheld-tax payroll-nowcast hypothesis is gate-locked until ladder validation",
+      lines: hit.rows,
     });
   });
 

@@ -13,6 +13,36 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PIPELINE] Treasury Daily Statement stream (BUILD ORDER 6 #2) — keyless FiscalData archiver + /api/data/dts (v1.0.157)
+
+- Territory: T-DATACORE (server/treasuryDts.ts + test,
+  datacore/manifests/treasurydts.json) + SHARED (server/routes.ts
+  wiring last + minimal, package.json, this file).
+- BUILD: Daily Treasury Statement Table II (deposits & withdrawals of
+  TGA operating cash) via the keyless FiscalData API. Field names
+  probed live 2026-07-06 BEFORE coding: string amounts in $ MILLIONS,
+  transaction_catg verbatim (withheld income/employment taxes, FUTA,
+  corporate taxes...), and the operational gotcha the probe caught —
+  page[size] brackets MUST be URL-encoded or the API 400s (pinned by
+  a test). Day-boundary discipline (DESC fetch keeps only the newest
+  statement), day-level dedup, gz after 4d, restart cache rebuild
+  from archive, eager boot, cache-only request path.
+- ROUTE: /api/data/dts (warming_up honesty; RAW label; $-millions and
+  lag stated in the note).
+- PRIOR (from the build order, restated): medium-high that the
+  withheld-tax nowcast SIGNAL exists (published research), medium on
+  OUR edge (must beat FRED-lagged equivalents; the daily cadence +
+  backfillable 2005+ history is the moat — backfill filed as a
+  separate session-run task, not the boot path). Gate 1 = reconcile
+  monthly sums vs MTS/FRED federal receipts; gate 2 = withheld-tax
+  YoY growth vs payroll-surprise dates. Nothing believed before
+  gates.
+- Gates: node 301/301 (5 new DTS tests incl. the bracket-encoding
+  pin); pytest untouched; tsc 64; build OK; version 1.0.157.
+  VERIFY (pre-stated): post-deploy /api/data/dts serves the
+  2026-07-02 (or newer) statement with ~90 category lines; archive
+  gains treasurydts/<date>.jsonl.
+
 ## 2026-07-06 — [PIPELINE] CFTC TFF financial-futures positioning stream (BUILD ORDER 6 #1) — keyless Socrata archiver + /api/data/tff (v1.0.156)
 
 - Territory: T-DATACORE (server/cftcTff.ts + test, datacore/manifests/

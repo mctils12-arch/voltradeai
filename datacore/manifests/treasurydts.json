@@ -1,0 +1,23 @@
+{
+ "stream": "treasurydts",
+ "storage": "append-only JSONL day-files under <archive>/treasurydts/, one file per STATEMENT date (gz after 4 days — the statement is final once published; margin covers the publish lag)",
+ "written_by": "server/treasuryDts.ts archiveDtsDay (6h poll of the daily source, eager boot)",
+ "source": "Treasury FiscalData API, endpoint v1/accounting/dts/deposits_withdrawals_operating_cash (Daily Treasury Statement, Table II) — fully keyless JSON. ~90 rows per business day; dataset history to 2005-10-03. Published each business day for the prior business day (~1-2 day lag). Field names verified live 2026-07-06; page[size] brackets MUST be URL-encoded (the API 400s on raw brackets)",
+ "license": "US Treasury open data, public domain; attribution 'U.S. Treasury Fiscal Data — Daily Treasury Statement'",
+ "attribution": "U.S. Treasury Fiscal Data — Daily Treasury Statement",
+ "schema_version": 1,
+ "field_map": {
+  "record_date — day-level dedup key": "one coherent statement per file; a DESC fetch straddling two business days keeps ONLY the newest (statements never mix)",
+  "account_type/transaction_type/category": "TGA account, Deposits|Withdrawals, transaction_catg verbatim (withheld income/employment taxes, FUTA, corporate taxes, agency categories)",
+  "today_amt/mtd_amt/fytd_amt": "$ MILLIONS as published; missing/empty values are null, never zero",
+  "src_line": "source line number (stable ordering within the table)",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official daily fiscal flows. The withheld-tax payroll-nowcast hypothesis stays gate-locked: gate 1 = reconcile monthly sums vs MTS/FRED federal receipts; gate 2 = withheld-tax YoY growth vs payroll-surprise dates. Nothing is claimed until then.",
+ "geo_fields": [],
+ "entity_key": "record_date + transaction_type + category",
+ "sentiment": null,
+ "started": "2026-07-06",
+ "cadence": "daily source (each business day, ~1-2 day lag); 6h poll makes off-days a dedup no-op",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 6 #2; the 20-year backfillable history is the accumulation moat (accumulation substitutes for purchase) — backfill is a separate session-run task, not the boot path."
+}
