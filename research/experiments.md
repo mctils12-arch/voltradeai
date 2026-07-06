@@ -13,6 +13,31 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PIPELINE] DATACORE MAXIMUS Phase 0b: NASS crop conditions stream — key-gated archiver + /api/data/crop-conditions (v1.0.164)
+
+- Territory: T-DATACORE (server/cropConditions.ts + test,
+  datacore/manifests/cropconditions.json) + SHARED (server/routes.ts
+  wiring last + minimal, package.json, this file).
+- BUILD: NASS_API_KEY landed in Railway → BUILD ORDER 6 #7 builds
+  key-gated. The key is Railway-only (session presence check: absent)
+  so the row shape follows the DOCUMENTED QuickStats contract with the
+  censusImports precedent applied in full: defensive parse (Value and
+  value keys both tolerated, comma-grouped numbers stripped), NASS
+  error bodies logged VERBATIM so the next session fixes queries from
+  prod logs, LIVE VERIFICATION PENDING post-deploy. Scope v1: NATIONAL
+  weekly CONDITION for CORN + SOYBEANS (5 classes as separate rows,
+  short_desc verbatim); commodity|week|item dedup; 12h poll.
+- PRIOR (restated): medium-low standalone (widely watched), medium in
+  the JOIN with the live Drought Monitor stream (belt-weighted
+  ag-stress index). Gate 1 = values vs the published Crop Progress
+  report; gate 2 = condition-delta vs forward grain futures returns.
+- Gates: node 321/321 (5 new); tsc 64; build OK; version 1.0.164.
+  VERIFY (pre-stated): post-deploy /api/data/crop-conditions either
+  serves the current week's ~10 rows (in-season Monday data exists) OR
+  logs a verbatim NASS error naming the query fix — either outcome is
+  progress; enabled:false would mean the key is NOT actually in
+  Railway (escalate to wishlist).
+
 ## 2026-07-06 — [PIPELINE] DATACORE MAXIMUS Phase 0a: EIA-930 grid demand stream — key-gated archiver + /api/data/grid-demand (v1.0.163)
 
 - PROGRAM START: the human installed the DATACORE MAXIMUS standing
