@@ -13,6 +13,39 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] R12 CLOSE-OUT — feedback pipeline repair series verified post-deploy; loop recording again after a 2.5-month blackout (docs)
+
+- SERIES SUMMARY (all merged + deployed same day): v1.0.152 shape
+  aggregates named the writer in one deploy → v1.0.153 fixed the entry
+  side (qty guard) → v1.0.154 wired the exit side (first-ever
+  exit_context callers) → v1.0.155 fixed boot-cleanup correctness
+  (seeds/numeric-compare/fossil purge).
+- POST-DEPLOY VERIFICATION (v1.0.155, criteria pre-stated in that
+  entry): /api/diag/ml → feedback_count 0, live_key_signatures {} —
+  the 15-key 1.0.33 fossil signature is GONE (purge verified ✓).
+  feedback_seeded_count still 0 (✗ half of the criterion): the
+  daemon's autoseed check ran before the purge landed on that boot;
+  expected to fire on the NEXT deploy-boot (seeder script +
+  backtest_10yr_results.json verified present/tracked). Logged as
+  KNOWN BROKEN #12(a) with the escalation rule: still 0 after another
+  deploy = the autoseed path itself is a new defect.
+- Transient full-site unresponsiveness (~3 min, health timeouts)
+  during the #281 deploy window self-recovered (uptime reset observed;
+  consistent with prior Railway deploy churn). Watched under the
+  liveness rule; no action needed.
+- D3 (dead trackClosedTrades feedback block) + remaining exit paths
+  filed as KNOWN BROKEN #12(b)/(c), decision gated on D2's first live
+  exit verification — VXUS (time_stop) and SMH (trailing_stop) are
+  already flagged by bot_engine, so the gate should resolve within
+  days.
+- SESSION-OPS LESSON (compiled): a merge monitor MUST verify by the
+  squash suffix "(#NNN)" — grepping a content string false-positived
+  on v1.0.148's commit message, triggered a premature branch reset,
+  and auto-closed PR #277 (recovered via reflog + reopen; automerge
+  then merged it). The merge-order protocol rule 4 ("verify WHICH PR
+  merged before any branch reset") now has a concrete mechanism
+  attached: PR-number grep, nothing else.
+
 ## 2026-07-06 — [REPAIR] R12-D4: boot cleanup correctness — seeds spared, numeric version floor, April fossils purged (v1.0.155)
 
 - Territory: T-BOT (feedback_boot_cleanup.py + test, server/bot.ts

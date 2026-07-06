@@ -257,6 +257,39 @@
     — version bumped 1.0.70 -> 1.0.71 per the read-and-increment
     convention anyway, for `code_version` attribution hygiene.
 
+12. **[FOUND 2026-07-06, R12 series — 3 of 4 defects FIXED, 2 gated
+    follow-ups open] The live ML feedback loop recorded NOTHING for 2.5
+    months.** Full trace in experiments.md (v1.0.152→155). Fixed:
+    (D1, v1.0.153) track_fill's qty guard silently dropped every
+    regular-hours entry fill since bot.ts's payload switched to
+    qty_requested/qty_filled on 2026-04-23; (D2, v1.0.154) Bug #13's
+    exit machinery had NO caller — WS final exits + position kills now
+    record exit_context; (D4, v1.0.155) boot cleanup wiped all Kelly
+    seeds every deploy, used a lexicographic version compare ('1.0.153'
+    < '1.0.34' as strings — latent total wipe), and preserved the 500
+    April fossils that blocked reseeding — all three fixed in
+    feedback_boot_cleanup.py. VERIFIED POST-DEPLOY: feedback_count 0,
+    fossil signature gone. STILL OPEN, GATED:
+    (a) RESEED CHECK — feedback_seeded_count was still 0 immediately
+    post-purge (daemon's autoseed check ran before the purge landed);
+    it should fire on the NEXT deploy-boot. If seeds are still 0 after
+    another deploy, the autoseed path itself is broken (seeder script +
+    backtest_10yr_results.json both verified present in the image) —
+    that becomes a new defect.
+    (b) D3 — trackClosedTrades' feedback block (bot.ts ~line 633) is
+    DEAD CODE since the OOM fix hardcoded entryFeatures: null (its
+    `t.entryFeatures != null` filter rejects every record; the block
+    has written nothing since 2026-04-20 and its pre-filter variant is
+    what wrote the purged fossils). DECISION GATED on D2's first live
+    verification: once a WS exit records a real outcome via track_fill
+    (VXUS/SMH already flagged — expect within days), the block is
+    redundant and should be REMOVED per the dead-code policy; if D2's
+    path underdelivers (e.g. exits that bypass the WS monitor), repair
+    it instead. Do not touch until then — one attribution at a time.
+    (c) Exit paths beyond the WS monitor (options_manager exits,
+    bot_engine-side closes, manual dashboard closes) still record
+    nothing; wire path-by-path after (b) resolves.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
