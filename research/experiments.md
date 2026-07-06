@@ -13,6 +13,46 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] silent-except CLASS ratchet — 329 handlers pinned per-file so the v1.0.148/v1.0.151 generator can only shrink (test-only, no version bump)
+
+- Territory: T-BOT (new test_silent_except_ratchet.py) + SHARED (this
+  file). Test-only PR — no runtime behavior change, so no version bump
+  (attribution precedent: docs/test-only PRs don't tag).
+- WHY NOW: the v1.0.151 session ran the mandatory loop-health check
+  (8/10 [REPAIR]) and diagnosed the break-generator as OBSERVABILITY
+  DEBT — broad excepts discarding errors with zero trace. It closed the
+  deep_score INSTANCE (5 fetchers via _run_diag_fetch). This PR is the
+  supersession-salvage delta: freeze the CLASS. An AST audit found
+  **329 silent broad-except handlers across 40 runtime modules**
+  (bot_engine.py 78, analyze.py 32, ml_model_v2.py 25, ...) — each one
+  a pre-built blind spot of the exact shape that hid the SIP-403
+  outage behind "empty scan" and degraded deep_score enrichment
+  silently.
+- WHAT COUNTS (AST, not regex): `except Exception|BaseException|bare`
+  whose body is ONLY pass/continue/break/return-nothing-ish (None,
+  constant, empty dict/list/tuple). Narrowed types, logging, diag
+  capture, re-raise, and non-empty fallbacks all exit the definition —
+  so the ratchet pressures toward exactly the house fixes.
+- MECHANISM: per-file EXACT pins (not a global total — no smuggling a
+  new handler in file B against a cleanup in file A). count>pin fails
+  with fix guidance (_run_diag_fetch pattern / log / narrow the type);
+  count<pin ALSO fails with "lower the pin in this same commit," so
+  pins never go stale and the debt is monotonically shrinking. Raising
+  a pin = weakening a test = forbidden. A second test pins the scanner
+  itself against 12 classification fixtures so a refactor can't gut
+  the ratchet silently. Scope: root runtime *.py + strategies/ +
+  alphadesk/ (scripts/ is session-run tooling; test_* excluded).
+- Learned while building: ast.parse() accepts `return` at module level
+  (return-outside-function is a compile()-time check) — the scanner
+  fixture originally assumed unparseable and the test caught it.
+- Gates: new test 2/2; full pytest 433 passed / 1 skipped (baseline
+  had grown to 433 via other sessions' merged tests; zero failures).
+- EXPECTED EFFECT (prior, stated before live data): incident classes
+  like "feed silently empty for hours" stop being creatable in new
+  code; existing 329 shrink opportunistically as sessions touch those
+  files. NOT expected: any change in trading behavior — this is pure
+  meta (the ruler for code health, not the code).
+
 ## 2026-07-06 — [REPAIR] LOOP-HEALTH TRIGGER (8/10 REPAIR) diagnosed — generator identified as observability debt, closed for deep_score's 5 enrichment fetchers (v1.0.151)
 
 - Territory: T-BOT (bot_engine.py deep_score, server/bot.ts Tier2 diag
