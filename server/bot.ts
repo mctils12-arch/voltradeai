@@ -2016,6 +2016,10 @@ print(json.dumps(s))
             degraded: scannerDegraded(tier2ConsecutiveFailures),
             consecutiveFailures: tier2ConsecutiveFailures,
             lastFailureDetail: tier2LastFailureDetail,
+            // REPAIR 2026-07-06 pt.2: deep_score's per-source enrichment
+            // errors (macro/intel/alt/social/finnhub) — silent signal
+            // degradation, distinct from the scan pass/fail fields above.
+            dataSourceErrors: tier2LastDataSourceErrors,
           }));
         }
         default:
@@ -2929,6 +2933,12 @@ print(json.dumps(result))
   // "Could not fetch market data from Alpaca" repeated in the audit log
   // with no root cause. Cleared on any successful scan.
   let tier2LastFailureDetail: string | null = null;
+  // REPAIR 2026-07-06 pt.2: deep_score's per-source enrichment-fetch errors
+  // (macro/intel/alt/social/finnhub) from the most recent successful scan —
+  // these degrade signal richness silently, not a scan failure, so they
+  // ride alongside tier2LastFailureDetail on the same token-gated probe
+  // rather than the pass/fail tier2LastScanFailed flag.
+  let tier2LastDataSourceErrors: Record<string, string> = {};
 
   async function tier2Intelligence(isMarketOpen: boolean, etHour: number) {
     tier2LastScanFailed = false;
@@ -3033,6 +3043,9 @@ print(json.dumps(get_auto_fix_params()))
       }
 
       audit("TIER2", `Scanned ${result.scanned || 0} stocks, ${(result.new_trades || []).length} trade candidates (via ${callResult.via})`);
+
+      tier2LastDataSourceErrors = (result.data_source_errors && typeof result.data_source_errors === "object")
+        ? result.data_source_errors : {};
 
       lastScanResult = result;
 

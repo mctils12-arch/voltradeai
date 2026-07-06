@@ -13,6 +13,154 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] LOOP-HEALTH TRIGGER (8/10 REPAIR) diagnosed — generator identified as observability debt, closed for deep_score's 5 enrichment fetchers (v1.0.151)
+
+- Territory: T-BOT (bot_engine.py deep_score, server/bot.ts Tier2 diag
+  probe) + SHARED (package.json, this file, open_questions.md), shared
+  edits kept last per WORKSTREAM PARTITION.
+- SESSION-START CHECKS: read CLAUDE.md, this file, open_questions.md,
+  wishlist.md in full before any edit (READ BEFORE WRITE).
+  **LIVE HEALTH CHECK**: `GET /api/health` on prod —
+  `{"status":"ok", "scanner":{"status":"ok","consecutiveFailures":0},
+  "bot":{"status":"active","liveness":{"dark":false}}}`, uptime_s 2043,
+  RSS 170MB. Confirms v1.0.150's SIP-entitlement fix (this morning) is
+  live and its own pre-stated VERIFY criterion (consecutiveFailures reset
+  to 0) already passed — no live break, no LIVENESS ALARM, nothing
+  urgent blocking normal session budget.
+  **LOOP-HEALTH RATIO (mandatory this session per instructions)**: last
+  10 experiments.md entries at session start — v1.0.150 REPAIR, v1.0.149
+  PRODUCT, v1.0.148 REPAIR, v1.0.147 REPAIR, v1.0.146 REPAIR, v1.0.145
+  PRODUCT, v1.0.144 REPAIR, v1.0.143-verify REPAIR, v1.0.143 REPAIR,
+  v1.0.142 REPAIR = **8/10 REPAIR**, past the 7+ trigger (v1.0.148/149
+  already flagged 9/10 and 8/10 the previous two sessions — this is the
+  THIRD consecutive session crossing it, which itself is worth taking
+  seriously rather than re-stamping the same "not thrash" verdict from
+  memory).
+  DIAGNOSIS (HEALTH OF THE LOOP rule 2 — trace each entry to its actual
+  cause, don't take the tag at face value): grouped the 8 REPAIR entries
+  by root cause, not by tag —
+    (A) OOM crash-loop, 2 entries (142 durability audit + 143/143-verify
+        the actual fix+verify) — ONE incident, closed, ratcheted,
+        verified live (uptime climbed 12x, heap steady). No recurrence.
+    (B) /data trail static snapshot, 1 entry (144) — an isolated
+        T-CLIENT freshness bug, unrelated to A.
+    (C) ML diagnostic-probe build-out, 2 entries (146/147) — closing a
+        long-standing KNOWN BROKEN item (deeper audit-log visibility),
+        not a regression or re-break.
+    (D) Scanner blind spot -> SIP entitlement, 2 entries (148/150) — ONE
+        incident's two-step diagnose-then-fix (148 built the visibility,
+        150 used it to find and fix the actual cause in one query, as
+        148 predicted it would).
+  VERDICT: not RECURRENCE-ESCALATES thrash (rule 4) — no issue marked
+  fixed broke the same way twice. But a real pattern DOES exist across
+  A/D specifically, worth naming as the generator: both incidents ran
+  live for a nontrivial window (OOM crash-looping, then a scan blind
+  spot "since Monday's open") BEFORE anyone could see them, because the
+  relevant subsystem had no error detail surfaced anywhere — only after
+  each session built a diagnostic (uptime on /api/health, then
+  /api/diag/scanner) did the actual root cause become findable in one
+  query instead of an archaeology session. That is a genuine, nameable
+  generator: **historical observability debt**, and the last several
+  sessions have been paying it down deliberately, not thrashing on it.
+  ACTION TAKEN (not just re-logging the ratio): 148's own root-cause
+  trace explicitly named this as "the exact same silent-degradation
+  shape KNOWN BROKEN #5 already flagged for _fetch_macro/_fetch_intel/
+  etc. — same root defect class, different call site" and left it there.
+  Verified by reading `bot_engine.py`'s `deep_score()`: all 5 enrichment
+  fetchers (`_fetch_macro`/`_fetch_intel`/`_fetch_alt`/`_fetch_social`/
+  `_fetch_finnhub`) still had the identical bare `except Exception:
+  return {}` with zero detail — the generator was NAMED in 148 but not
+  yet CLOSED. Per "fix the generator of breaks, not the next break,"
+  this session closes it, rather than starting a new unrelated
+  repair/research thread — this IS this session's fall-through choice
+  (SESSION BUDGET tier 1: a clearly identified, already-scoped, unclaimed
+  item, found live rather than invented).
+  ADDITIONAL FINDING while tracing: `diagnostics.py`'s existing
+  `api_checks`/`extended_checks` (KNOWN BROKEN #5's 2026-07-04 fix) only
+  ever checked CACHE FRESHNESS (does a prefixed file exist / how old is
+  it) for these sources — never the actual exception. Cache-fresh but
+  silently-erroring-every-call was always possible and would report
+  green. Not touched this PR (that's `diagnostics.py`'s own auto-fix
+  surface, tied to `reduce_position_size` thresholds — RULE REVIEW
+  requires evidence + one-at-a-time for touching that); noted here and
+  in open_questions.md as the natural next increment, not bundled in.
+- WHAT SHIPPED (visibility only, mirrors v1.0.148's `_snap_diag` pattern
+  exactly — zero change to what gets fetched, scored, or traded):
+  1. `bot_engine.py`: new standalone `_run_diag_fetch(source_name, fn,
+     diag)` — calls `fn()`, on exception records
+     `f"{type(e).__name__}: {str(e)[:150]}"` into `diag[source_name]`
+     (if `diag` is not None) and re-raises so each `_fetch_*` closure's
+     existing `except Exception: return {}`-style fallback fires
+     unchanged. Extracted standalone (not inlined per-closure) so it's
+     unit-testable without deep_score's network calls or the
+     ThreadPoolExecutor — mirrors why `_parse_snapshot_batch` was
+     extracted in v1.0.148.
+  2. `deep_score(ticker, quick_result, _diag=None)` — new optional
+     kwarg, default `None` (fully backward-compatible; the only two
+     callers, `_deep_one` and `test_full_system.py`'s direct calls, are
+     unaffected). All 5 fetchers now route their body through
+     `_run_diag_fetch` with a distinct source key.
+  3. `_scan_market_inner`: new local `_source_diag: dict = {}`, passed
+     into every `deep_score()` call via `_deep_one`; added to the
+     cycle's final return dict as `"data_source_errors": _source_diag`
+     — top-level ONLY, deliberately never inside `top_10`/`new_trades`/
+     any per-candidate dict, so it can never reach ML features or the
+     shadow_portfolio candidate log (unlike `_snap_diag`'s
+     `debug_detail`, which only fires on the whole-scan-empty error
+     path, this fires on every cycle whether or not deep_score ran into
+     trouble — hence keeping it structurally separate from anything
+     scored/logged mattered more here).
+  4. `server/bot.ts`: new `tier2LastDataSourceErrors: Record<string,
+     string>` (mirrors `tier2LastFailureDetail`'s pattern), set from
+     `result.data_source_errors` on every successful scan (defaults to
+     `{}`, so it self-clears once sources recover — no sticky-forever
+     stale entries). Exposed as `dataSourceErrors` on the existing
+     token-gated `/api/diag/scanner` probe, alongside
+     `lastFailureDetail`. `/api/health` untouched — same discipline as
+     v1.0.148 (free-text detail never on the public endpoint).
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): new diagnostic-only field on
+  `_run_diag_fetch`'s success path returns `fn()`'s value completely
+  unchanged -> every `_fetch_*` closure's return value on both success
+  and failure is byte-identical to before this PR -> `deep_score`'s
+  score computation, `reasons`, and every downstream field are untouched
+  -> the only observable effects are (a) a new `data_source_errors` key
+  on `scan_market`'s top-level return (Node already treats this as
+  opaque JSON), (b) a new `dataSourceErrors` field on the token-gated
+  `/api/diag/scanner` probe. Zero change to trade selection, sizing, ML
+  features, or the shadow_portfolio log — confirmed by construction
+  (the diag dict is a NEW top-level key, never threaded into any
+  per-candidate dict).
+- Gates: `python3 -m pytest -q` — 428 passed, 2 skipped (422 baseline +
+  6 new in `test_deep_score_source_diag.py`; the 2 skips are pre-existing
+  and unrelated: `xlrd` not installed in this session's environment,
+  and the standing `backtest_v1028_full` skip). `npx tsx --test
+  server/*.test.ts` — 287 passed (284 baseline + 3 new in
+  `scannerHealth.test.ts`), zero regressions. `npx tsc --noEmit` — same
+  pre-existing Buffer/Map-iteration/tsconfig error set documented in
+  prior entries (verified none are on or near the changed lines) — zero
+  new errors.
+- MERGE TIMING NOTE (session ran during market hours, ~12:00 ET):
+  visibility-only change to a non-trading-control-flow path (new
+  diagnostic field, zero behavior change to scoring/trading), so the
+  deploy-coupling risk is low — but per standing preference, this PR
+  should wait for a human or routine to merge it AFTER 4:00 PM ET unless
+  it's fixing a currently-live critical break, which it is not (health
+  is fully green, this is a debt-paydown item, not an active incident).
+- STARVED: no. This was the highest-value action available: the
+  mandatory loop-health check surfaced a genuine, already-named-but-not-
+  closed generator (KNOWN BROKEN #5's exception-visibility gap), scoped
+  tightly to one subsystem, with its own regression tests.
+- NEXT (open_questions.md KNOWN BROKEN #5 updated in place): (a)
+  `diagnostics.py`'s `api_checks`/`extended_checks` still only check
+  cache freshness, not real exception detail — a future RULE-REVIEW
+  session could fold `data_source_errors` into `get_auto_fix_params()`'s
+  problem surface, but that touches the `reduce_position_size`
+  auto-fix's trigger conditions and needs its own evidence-backed PR;
+  (b) once this deploys, the next time any of the 5 sources actually
+  errors (dead Reddit RSS, expired FINNHUB_KEY, etc.) it will name
+  itself on `/api/diag/scanner` instead of degrading silently — worth a
+  live-verification note in a future session's health check.
+
 ## 2026-07-06 — [REPAIR] ⚠️ PRIORITY-1: SIP entitlement rejected (HTTP 403) — scan blind since Monday's open; central feed resolver + delayed_sip fallback across 44 sites (v1.0.150)
 
 - DETECTION CHAIN (v1.0.148's blind-spot fix paid off in ONE query,

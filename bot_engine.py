@@ -524,11 +524,38 @@ def should_escalate_hedge() -> bool:
 # The main scan pipeline uses quick_scan() + deep_score() instead.
 # Retained its neighbor ewma_vol() which IS used for volatility estimation.
 
-def deep_score(ticker, quick_result):
+
+def _run_diag_fetch(source_name, fn, diag):
+    """
+    Call fn(); on exception, record "ExcType: message" into diag[source_name]
+    (if diag is not None) and re-raise so the caller's own except-clause
+    applies its existing fallback unchanged. Pure aside from calling fn —
+    extracted standalone so it's unit-testable without deep_score's network
+    calls, mirroring _parse_snapshot_batch's extraction (v1.0.148).
+    REPAIR 2026-07-06 pt.2: closes the exception-visibility gap KNOWN BROKEN
+    #5's audit flagged (cache-freshness monitoring existed; the actual
+    exception was never captured) for deep_score's 5 enrichment fetchers.
+    """
+    try:
+        return fn()
+    except Exception as e:
+        if diag is not None:
+            diag[source_name] = f"{type(e).__name__}: {str(e)[:150]}"
+        raise
+
+
+def deep_score(ticker, quick_result, _diag=None):
     """
     Deep analysis on a pre-filtered stock using analyze.py.
     Integrates all three strategy modules (momentum, mean_reversion, squeeze)
     plus VRP, sentiment, earnings, EWMA/GARCH vol and edge factors.
+
+    _diag: optional dict (source name -> "ExcType: message"), mirrors the
+    _snap_diag pattern added for _fetch_snap in v1.0.148. Visibility only —
+    return values below are byte-identical whether or not _diag is passed.
+    KNOWN BROKEN #5's 2026-07-04 audit added cache-freshness monitoring for
+    these 5 sources but never captured the actual exception; this closes
+    that gap (REPAIR 2026-07-06 pt.2).
     """
     detail = get_stock_details(ticker)
     if not detail or "error" in detail:
@@ -544,39 +571,43 @@ def deep_score(ticker, quick_result):
     def _fetch_macro():
         try:
             from macro_data import get_macro_snapshot, get_news_sentiment
-            return get_macro_snapshot(), get_news_sentiment(ticker)
+            return _run_diag_fetch(
+                "macro", lambda: (get_macro_snapshot(), get_news_sentiment(ticker)), _diag)
         except Exception:
             return {}, {}
 
     def _fetch_intel():
         try:
             from intelligence import get_full_intelligence
-            return get_full_intelligence(ticker)
+            return _run_diag_fetch("intel", lambda: get_full_intelligence(ticker), _diag)
         except Exception:
             return {}
 
     def _fetch_alt():
         try:
             from alt_data import get_alt_data_score
-            return get_alt_data_score(ticker)
+            return _run_diag_fetch("alt", lambda: get_alt_data_score(ticker), _diag)
         except Exception:
             return {}
 
     def _fetch_social():
         try:
             from social_data import get_social_intelligence
-            return get_social_intelligence(ticker)
+            return _run_diag_fetch("social", lambda: get_social_intelligence(ticker), _diag)
         except Exception:
             return {}
 
     def _fetch_finnhub():
         try:
             from finnhub_data import get_insider_sentiment, get_recommendation_trends
-            fi = get_insider_sentiment(ticker)
-            fr = get_recommendation_trends(ticker)
-            return {"insider_mspr": fi.get("mspr", 0), "insider_signal": fi.get("signal", "neutral"),
-                    "analyst_consensus": fr.get("consensus", "hold"),
-                    "analyst_buy_count": fr.get("buy", 0) + fr.get("strong_buy", 0)}
+
+            def _fh():
+                fi = get_insider_sentiment(ticker)
+                fr = get_recommendation_trends(ticker)
+                return {"insider_mspr": fi.get("mspr", 0), "insider_signal": fi.get("signal", "neutral"),
+                        "analyst_consensus": fr.get("consensus", "hold"),
+                        "analyst_buy_count": fr.get("buy", 0) + fr.get("strong_buy", 0)}
+            return _run_diag_fetch("finnhub", _fh, _diag)
         except Exception:
             return {}
 
@@ -2666,10 +2697,16 @@ def _scan_market_inner():
         top_candidates = scored[:_deep_cap]
         deep_scored = [None] * len(top_candidates)
 
+    # REPAIR 2026-07-06 pt.2: last exception (if any) from each of
+    # deep_score's 5 enrichment fetchers this cycle, keyed by source name.
+    # See deep_score()'s _diag docstring. Surfaced read-only via
+    # scan_market's return dict -> /api/diag/scanner; never affects scoring.
+    _source_diag: dict = {}
+
     def _deep_one(args):
         idx, candidate = args
         try:
-            return idx, deep_score(candidate["ticker"], candidate)
+            return idx, deep_score(candidate["ticker"], candidate, _diag=_source_diag)
         except Exception:
             return idx, candidate
 
@@ -3615,6 +3652,11 @@ def _scan_market_inner():
         # so the UI can show "POSITION RULES" card. Read from _slots_params
         # which got the tier overlay from system_config.get_adaptive_params.
         "size_tier": _slots_params.get("SIZE_TIER", {}) if '_slots_params' in dir() else {},
+        # REPAIR 2026-07-06 pt.2: last enrichment-fetch exception per source
+        # this cycle (macro/intel/alt/social/finnhub), empty dict if none —
+        # top-level only, deliberately NOT part of any per-candidate dict so
+        # it never reaches ML features or the shadow_portfolio candidate log.
+        "data_source_errors": _source_diag,
     }
 
 
