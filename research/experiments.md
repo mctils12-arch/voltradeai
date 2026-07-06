@@ -13,6 +13,42 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] R13 opened: recurring SIGTERM restarts, health intermittently unresponsive — audit probe gains type/limit params to read the pattern (v1.0.161)
+
+- Territory: T-BOT (server/bot.ts diag audit probe) + SHARED
+  (package.json, this file).
+- OBSERVATION (liveness priority): at 18:48Z prod uptime was 204s —
+  restart at ~18:46 with NO deploy in flight (last merge #287 ~18:05).
+  Audit tail shows SIGTERM → graceful shutdown → reboot, i.e. an
+  EXTERNAL kill (Railway healthcheck), not a crash. Health curls
+  intermittently return 000/timeout right before these windows.
+  REVISED READ of today's earlier "deploy churn" unresponsiveness
+  (~17:15, ~18:20): possibly the SAME recurring cycle with deploys
+  coincidental — the fixed 50-entry audit tail (~5 min of a chatty
+  log) could never show the period. Honesty note: today's new stream
+  polls (TFF/DTS/FDIC/NHTSA), the 2-min Tier2 cadence, and
+  entityGraph are all candidates — MY OWN code is on the suspect
+  list.
+- INSTRUMENT (this PR): /api/diag/audit accepts ?type= (exact match,
+  SQL-parameterized) and ?limit= (cap 500) — the restart pattern
+  becomes readable via ?type=SHUTDOWN&limit=200. Same whitelist,
+  same sanitizeDiag, limit capped so the probe can't become a heap
+  problem itself.
+- ALSO THIS SESSION-WINDOW: /api/data/bank-failures VERIFIED live
+  exactly as pre-stated (Community Bank and Trust - West Georgia,
+  2026-05-01, 50 events); vehicle-complaints was warming_up on first
+  check (sweep in progress), re-verify pending; DROUGHT: BUILD ORDER
+  6 #5 discovered ALREADY BUILT (v1.0.118, PR #229, BUILD ORDER 2 #5
+  — same FIPS finding, CONUS+8 belt states + DSCI). Duplicate filing;
+  first-merged wins. LESSON (compiled): a build-order filing MUST
+  grep server/ for existing stream modules before proposing items —
+  the probe agents checked the SOURCES but nobody checked our own
+  repo.
+- Gates: tsc 64; build OK; scannerHealth tests 9/9; version 1.0.161 (read-and-increment after #288 took 1.0.160).
+  VERIFY (pre-stated): post-deploy ?type=SHUTDOWN&limit=200 returns
+  the day's restart timestamps; the inter-restart period tells us
+  whether this is periodic (healthcheck cycle) or event-correlated
+  (specific poll windows). Diagnosis continues in R13.
 ## 2026-07-06 — [PRODUCT] Everything Graph — /data panel, R5 build step 3 (v1.0.160)
 
 - Territory: T-CLIENT (client/src/pages/graph.tsx, client/src/pages/datamap.tsx,

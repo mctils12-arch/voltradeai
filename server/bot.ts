@@ -1960,8 +1960,27 @@ print(json.dumps(result, default=str))
     try {
       switch (req.params.probe) {
         case "audit": {
-          const entries = getPersistedAuditLog(50).map((e: any) => ({ time: e.time, type: e.type, message: e.message }));
-          return res.json(sanitizeDiag({ probe: "audit", entries }));
+          // REPAIR 2026-07-06 (liveness): optional ?type= and ?limit= so
+          // restart/incident PATTERNS are readable from outside — the fixed
+          // 50-entry tail spans ~5 minutes of a chatty log and hid today's
+          // recurring SIGTERM cycle. Same whitelist surface, same sanitize;
+          // limit capped so the probe itself can't become a heap problem.
+          const limit = Math.min(Math.max(parseInt(String(req.query.limit || "50"), 10) || 50, 1), 500);
+          const typeFilter = String(req.query.type || "").trim();
+          let entries: any[];
+          if (typeFilter) {
+            try {
+              entries = db.prepare(
+                "SELECT time, type, message FROM audit_log WHERE type = ? ORDER BY id DESC LIMIT ?"
+              ).all(typeFilter, limit) as any[];
+            } catch { entries = []; }
+          } else {
+            entries = getPersistedAuditLog(limit);
+          }
+          return res.json(sanitizeDiag({
+            probe: "audit",
+            entries: entries.map((e: any) => ({ time: e.time, type: e.type, message: e.message })),
+          }));
         }
         case "ml": {
           const { stdout } = await execPythonSerialized(
