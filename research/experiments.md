@@ -13,6 +13,106 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] diag `ml` probe distinguishes seeded vs. live feedback + surfaces live win-rate — closing the loop on KNOWN BROKEN #3/#4 (v1.0.146)
+
+- Territory: T-BOT (server/bot.ts diag route; reuses diagnostics.py
+  unchanged) + SHARED (package.json, this file) — small, one logical
+  change, last commit before the PR per WORKSTREAM PARTITION rule 1.
+  Checked `list_pull_requests` first: only PR #77 open (stale draft,
+  fix/tier2-full-scan-oom, unrelated, since April) — no collision.
+- SESSION-START CHECK (repair mandate + liveness, per the standing
+  protocol): read CLAUDE.md, all of research/, then live `/api/health`
+  — uptime_s 7191 (~2h, no restart-loop signature), heap/rss steady
+  (39/142MB), bot active, drawdownPct 0.0, licensing ok. The URGENT
+  wishlist item #8 (prod restarting every ~61s, flagged 2026-07-05,
+  "if unresolved by Monday 09:30 ET the bot cannot trade") reads as
+  ALREADY RESOLVED — today (2026-07-06, the named Monday) uptime is 2
+  hours, not restart-looping. Not touched further this session (no
+  code to write for an already-resolved item); left for a docs-only
+  wishlist close-out once the live probe's fuller picture below lands.
+- WHY THIS BECAME THE SESSION (repair mandate applies): KNOWN BROKEN #3
+  ("CSP execution cascade — verify Tier 2 CSP trades actually fire")
+  and #4 ("bot doesn't work right — ACCESS LIMITATION: deeper
+  diagnostic routes are requireOwner, autonomous sessions cannot read
+  audit logs/trade_feedback from outside") were never closed. The
+  access limitation itself was already resolved 2026-07-04 (wishlist
+  option (d): the token-gated `/api/diag/:probe` route, `server/diag.ts`
+  + `server/diag.test.ts`, shipped and live) — but NO session since had
+  actually exercised it to answer #3/#4's original questions. Read
+  DIAG_TOKEN from this session's own environment (present, set by the
+  human per the wishlist grant) and queried prod directly for the first
+  time: `positions` (4 open, $59,109 gross), `daemon` (alive, uptime
+  7340s, RSS 165/1024MB), `audit` (Tier 3 cycles running normally,
+  "ML model fresh (19.1h old) — skipping retrain" three cycles running,
+  but ALSO "System health: warning — 1 issues" on every one of the last
+  three hourly Tier-3 cycles), `ml` → `{"feedback_count":500,
+  "fills_count":0}`.
+- THE FINDING (REASONING STANDARD #1 — trace before touching anything):
+  `fills_count: 0` out of `feedback_count: 500` is ambiguous from the
+  raw probe alone and could mean two very different things: (a) healthy
+  — all 500 records are backtest-seeded (`_seed` flag,
+  `seed_feedback_from_backtest.py`) and zero live trades have completed
+  yet, so there's nothing to alarm on; or (b) broken — live trades ARE
+  completing (the recurring "1 issues" Tier-3 warning requires
+  `total_trades > 20` in `diagnostics.check_model_health()`'s low-win-
+  rate check, which explicitly filters OUT `_seed` records first — so
+  if that warning is firing, more than 20 real live trades have
+  completed) yet none of them carry `expected_price`/`slippage_pct` —
+  which would mean `track_fill()`'s entry-write path (the one that sets
+  those two fields, ml_model_v2.py:2432-2434) isn't actually being hit
+  for real fills, silently breaking the realistic-P&L/slippage-gap
+  metrics `KNOWN BROKEN #3/#4` asked about. The raw probe cannot
+  distinguish these — it needed the SAME seeded/corrupt-record filter
+  `check_model_health()` already implements (dashboard alpha-audit
+  batch 3, 2026-05-03) to separate the two.
+- FIX (read-only, additive, no trading-path change): extended the
+  `ml` diag probe (bot.ts, wishlist-approved whitelist scope — "ml
+  status" already covers exactly this) to also report
+  `feedback_seeded_count`, `feedback_live_count`, and
+  `check_model_health()`'s `live_performance` dict (`total_trades`,
+  `win_rate`, `recent_win_rate_20`, `degradation_detected`) alongside
+  `retrain_needed`/`retrain_overdue`. Deliberately REUSED
+  `check_model_health()` rather than re-deriving the seeded/corrupt
+  filter inline (EDGE DOCTRINE #3 — never re-reason what's already
+  compiled into code); zero changes to `diagnostics.py`,
+  `ml_model_v2.py`, or any trading-path file — this is strictly a
+  read-path addition to an already-approved diagnostic surface.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): one more `diagnostics`
+  import + two more dict lookups on the existing `ml` probe's Python
+  one-liner -> no new subprocess, no new schedule, no change to what
+  Tier 2/Tier 3 actually do -> the ONLY observable effect is more
+  fields in an already-token-gated, already-sanitized, already-closed-
+  by-default read-only response. `sanitizeDiag` still wraps the whole
+  payload (defense-in-depth unchanged); the new fields are counts and
+  percentages, strictly less sensitive than the ticker-bearing
+  `recentTrades` array the owner-only `/api/bot/performance` route
+  already exposes.
+- Gates: `npx tsx --test server/*.test.ts` — 254 passed (3 pre-existing
+  failures on `compression`/`gdeltEvents`/`owmTiles`, reproduced
+  identically on main before this change via `git stash` — sandbox
+  network restrictions, not a regression); new test in
+  `server/diag.test.ts` pins that the `ml` probe block calls
+  `check_model_health` and reports `feedback_seeded_count`/
+  `feedback_live_count`/`live_performance` (would fail if a future
+  edit silently dropped the enrichment). `npx tsc --noEmit`: same
+  pre-existing Buffer/Map-iteration error set as documented in prior
+  entries, zero new errors near the changed lines. `python3 -m pytest
+  -q`: 410 passed, 2 skipped (installed numpy/pandas/lightgbm/pytest
+  fresh into this sandbox, which lacked them; unchanged pass count
+  otherwise) — `check_model_health()` itself is untouched, so no new
+  Python tests were needed for it; the new consumer is TypeScript-side
+  only.
+- NOT YET DONE (this PR is the instrumentation; the verdict needs the
+  live redeploy): once this merges and Railway redeploys, the NEXT
+  query against `/api/diag/ml` will show the real `feedback_seeded_
+  count`/`feedback_live_count`/`live_performance.total_trades` split —
+  that live readout is what actually closes KNOWN BROKEN #3/#4, not
+  this PR by itself. Queuing the follow-up docs-only entry once that
+  data is in hand (same session, no context loss expected).
+- STARVED: no — this was the highest-value action available (closing a
+  dangling repair item using a capability a prior session already built
+  but never used), chosen over starting a new data pipeline.
+
 ## 2026-07-06 — [PRODUCT] FINRA short-volume gets its /data full view — ticker lookup into the 2024-06-17+ archive + market-wide trend (v1.0.145)
 
 - Territory: crosses T-DATACORE (server/finraShortVolume.ts) + T-CLIENT

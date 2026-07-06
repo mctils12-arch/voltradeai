@@ -58,3 +58,15 @@ test("wiring pinned: /api/diag route exists in bot.ts, gated + sanitized, whitel
   const auth = fs.readFileSync(path.join(here, "auth.ts"), "utf8");
   assert.ok(!auth.includes("DIAG_TOKEN"), "auth.ts (frozen) must remain untouched by the diag path");
 });
+
+test("ml probe distinguishes seeded vs live feedback and surfaces live win-rate (KNOWN BROKEN #3/#4 verification, 2026-07-06)", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const mlProbeStart = bot.indexOf('case "ml":');
+  const mlProbeEnd = bot.indexOf('case "daemon":');
+  assert.ok(mlProbeStart > 0 && mlProbeEnd > mlProbeStart, "ml probe block not found");
+  const mlProbe = bot.slice(mlProbeStart, mlProbeEnd);
+  assert.ok(mlProbe.includes("check_model_health"), "ml probe must reuse diagnostics.check_model_health (not re-derive the seeded/corrupt filter)");
+  assert.ok(mlProbe.includes("feedback_seeded_count"), "ml probe must report how many feedback records are backtest-seeded");
+  assert.ok(mlProbe.includes("feedback_live_count"), "ml probe must report the live (non-seeded) feedback count");
+  assert.ok(mlProbe.includes("live_performance"), "ml probe must surface check_model_health's live win-rate/degradation performance dict");
+});

@@ -1931,6 +1931,7 @@ try:
 except ImportError:
     ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'; TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
 from ml_model_v2 import fills_slippage_stats
+from diagnostics import check_model_health
 s = {'model_exists': os.path.exists(ML_MODEL_PATH)}
 if s['model_exists']: s['model_age_hours'] = round((time.time() - os.path.getmtime(ML_MODEL_PATH)) / 3600, 1)
 try:
@@ -1939,6 +1940,19 @@ except Exception:
     _feedback = []
 s['feedback_count'] = len(_feedback)
 s['fills_count'] = fills_slippage_stats(_feedback)['count']
+# REPAIR 2026-07-06 (KNOWN BROKEN #3/#4 verification): feedback_count and
+# fills_count above are computed over the RAW file (seeded backtest records
+# + live records mixed) — cannot tell from them alone whether live trades
+# are actually completing and recording fills. check_model_health() already
+# does the exact seeded/corrupt filtering the dashboard perf endpoint uses
+# (server/bot.ts ALPHA-AUDIT-2026-05-03 batch 3) — reuse it instead of
+# re-deriving the filter here.
+s['feedback_seeded_count'] = sum(1 for r in _feedback if isinstance(r, dict) and r.get('_seed'))
+s['feedback_live_count'] = s['feedback_count'] - s['feedback_seeded_count']
+_health = check_model_health()
+s['retrain_needed'] = _health.get('retrain_needed', False)
+s['retrain_overdue'] = _health.get('retrain_overdue', False)
+s['live_performance'] = _health.get('performance', {})
 print(json.dumps(s))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "ml", ...JSON.parse(stdout.toString().trim() || "{}") }));
