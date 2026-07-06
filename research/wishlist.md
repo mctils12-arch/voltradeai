@@ -83,6 +83,18 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
 5. **FRED_API_KEY in the Claude Code session env** (2 min, free) —
    already live in Railway; adding it to the session env lets
    research sessions pull FRED directly instead of via prod.
+8. **TWO FREE KEYS unblock BUILD ORDER 6 #6/#7 (filed 2026-07-06;
+   both build key-gated NOW per the fredMacro/census pattern and
+   activate the moment keys land in Railway):**
+   (a) **EIA_API_KEY** — eia.gov/opendata/register.php, instant,
+   free. Unblocks hourly grid demand (EIA-930, 2019→present, public
+   domain) — industrial-activity nowcast joining our degree-days +
+   power-plants layers. (b) **NASS_API_KEY** —
+   quickstats.nass.usda.gov/api key request, instant email, free.
+   Unblocks weekly crop conditions (pairs with the keyless Drought
+   Monitor stream into an ag-stress index). Free-alternative
+   analysis: none needed — these ARE the free tier; the only cost is
+   two email signups.
 7. **PATENTSVIEW_API_KEY (free request form) — unblocks BUILD ORDER
    5 #6 USPTO patents** (probed 2026-07-05 per the item's
    probe-first instruction): PatentsView has required a free API key
