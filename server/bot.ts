@@ -1989,6 +1989,42 @@ for _r in _feedback:
     _k = _r.get('outcome') if _r.get('outcome') is not None else 'open'
     _outcomes[_k] = _outcomes.get(_k, 0) + 1
 s['live_outcome_breakdown'] = _outcomes
+# REPAIR 2026-07-06 pt.3: the pt.2 breakdown REFUTED the orphan_exit theory
+# (500 live records, all bucketed 'open', zero orphan_exit) — but 'open' only
+# says outcome-is-missing; it cannot say WHICH writer created the records.
+# Four candidate writers each contradict one observed field: track_fill entry
+# always stamps expected_price (fills_count would be >0); the seeder always
+# stamps _seed; trackClosedTrades' feedback block filters pnlPct!==0/null
+# before writing (total_trades would be >0); legacy ml_model.track_fill writes
+# a different file. Shape aggregates (field-NAME signatures + code_version /
+# session distributions + record time range — never tickers or prices) name
+# the writer directly instead of a fifth round of inference-from-absences.
+_sigs, _cvs, _sess = {}, {}, {}
+_tmin = _tmax = None
+_has_feat = _pnl_null = _pnl_zero = 0
+for _r in _feedback:
+    if not isinstance(_r, dict) or _r.get('_seed'):
+        continue
+    _sig = ','.join(sorted(_r.keys()))
+    _sigs[_sig] = _sigs.get(_sig, 0) + 1
+    _cv = str(_r.get('code_version'))
+    _cvs[_cv] = _cvs.get(_cv, 0) + 1
+    _sn = str(_r.get('session'))
+    _sess[_sn] = _sess.get(_sn, 0) + 1
+    if _r.get('entry_features'): _has_feat += 1
+    if _r.get('pnl_pct') is None: _pnl_null += 1
+    elif _r.get('pnl_pct') == 0: _pnl_zero += 1
+    _t = str(_r.get('time_filled') or _r.get('timestamp') or '')[:10]
+    if _t:
+        _tmin = _t if _tmin is None or _t < _tmin else _tmin
+        _tmax = _t if _tmax is None or _t > _tmax else _tmax
+s['live_key_signatures'] = dict(sorted(_sigs.items(), key=lambda kv: -kv[1])[:5])
+s['live_code_versions'] = _cvs
+s['live_sessions'] = _sess
+s['live_entry_features_count'] = _has_feat
+s['live_pnl_null_count'] = _pnl_null
+s['live_pnl_zero_count'] = _pnl_zero
+s['live_record_date_range'] = [_tmin, _tmax]
 print(json.dumps(s))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "ml", ...JSON.parse(stdout.toString().trim() || "{}") }));
