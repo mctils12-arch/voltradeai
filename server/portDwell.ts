@@ -188,10 +188,14 @@ class VisitDetector {
   }
 }
 
-/** Async variant — the only one routes may use. Online fold, bounded
- *  memory; the sync path stays for tests, pinned by the ratchet. */
-export async function computePortDwellAsync(ports: PortDef[], windowHours = 168,
-                                            baseDir?: string, nowMs?: number): Promise<PortDwellStats> {
+/** Shared online fold — extracted from computePortDwellAsync (2026-07-06,
+ *  Everything Graph step 2) so the calls_at edge builder can reuse the same
+ *  bounded-memory archive pass instead of re-implementing it. Behavior of
+ *  computePortDwellAsync is unchanged (same fold, same aggregateVisits
+ *  call) — pinned by the existing portDwell tests. */
+export async function foldPortVisitsAsync(ports: PortDef[], windowHours = 168,
+                                          baseDir?: string, nowMs?: number):
+    Promise<{ visitsByPort: Map<string, PortVisit[]>; vesselsSeen: number }> {
   const now = nowMs ?? Date.now();
   const nowSec = Math.floor(now / 1000);
   const detectors = new Map<string, VisitDetector>();
@@ -205,7 +209,15 @@ export async function computePortDwellAsync(ports: PortDef[], windowHours = 168,
   detectors.forEach((d) => {
     for (const v of d.finish()) visitsByPort.get(v.portId)?.push(v);
   });
-  return aggregateVisits(visitsByPort, ports, detectors.size, windowHours);
+  return { visitsByPort, vesselsSeen: detectors.size };
+}
+
+/** Async variant — the only one routes may use. Online fold, bounded
+ *  memory; the sync path stays for tests, pinned by the ratchet. */
+export async function computePortDwellAsync(ports: PortDef[], windowHours = 168,
+                                            baseDir?: string, nowMs?: number): Promise<PortDwellStats> {
+  const { visitsByPort, vesselsSeen } = await foldPortVisitsAsync(ports, windowHours, baseDir, nowMs);
+  return aggregateVisits(visitsByPort, ports, vesselsSeen, windowHours);
 }
 
 export function computePortDwell(ports: PortDef[], windowHours = 168,

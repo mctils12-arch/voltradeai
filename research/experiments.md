@@ -13,6 +13,148 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PRODUCT] Everything Graph build step 2 — server/entityGraph.ts + /api/data/graph (v1.0.149)
+
+- Territory: T-DATACORE (server/entityGraph.ts, server/entityGraph.test.ts,
+  portDwell.ts refactor) + SHARED (server/routes.ts route wiring,
+  package.json version bump, this file) — shared edits kept last and
+  minimal per WORKSTREAM PARTITION.
+- SESSION-START CHECKS: read CLAUDE.md, this file, open_questions.md,
+  wishlist.md in full before any edit (READ BEFORE WRITE).
+  **LIVENESS/HEALTH CHECK (repair mandate, [PRODUCT] sessions don't
+  preempt DAILY repair duty but must not ignore it)**: the v1.0.148 entry
+  above logs an ONGOING KNOWN BROKEN item — Tier2 scan failures
+  ("Could not fetch market data from Alpaca") still active as of that
+  entry's close, with the visibility fix (`/api/health` scanner check +
+  `/api/diag/scanner`) merged but not yet confirmed live (Railway hadn't
+  redeployed at last check). This session has no Alpaca/Railway access to
+  verify further and the item is T-BOT territory — noted here per the
+  repair-mandate awareness rule, not acted on; the next T-BOT/DAILY
+  session should query `/api/diag/scanner` first.
+  **LOOP-HEALTH RATIO**: last 10 tags including this entry — v1.0.149
+  PRODUCT (this entry), v1.0.148 REPAIR, v1.0.147 REPAIR, v1.0.146 REPAIR,
+  v1.0.145 PRODUCT, v1.0.144 REPAIR, v1.0.143-verify REPAIR, v1.0.143
+  REPAIR, v1.0.142 REPAIR, v1.0.141 REPAIR = 8/10 REPAIR, still past the
+  7+ trigger. Not re-diagnosing from scratch: the v1.0.148 entry already
+  traced 6 of those 9 REPAIR entries to one OOM incident's full lifecycle
+  (closed, ratcheted) and the other 2 to one continuing diagnostic thread
+  on the live scan-failure item above — nothing changed in that trace
+  since. This session's own action is the first non-repair, non-DAILY-
+  routine [PRODUCT] work in that window, which is the intended correction
+  (SESSION BUDGET's fall-through: pick the highest-value PRIMARY action;
+  a [PRODUCT] session's job is exactly to counterweight the recent
+  REPAIR-heavy run, not to invent a new repair).
+- WHY THIS BECAME THE SESSION: per the [PRODUCT] session mandate, chose
+  among (a) advance a datacore pipeline through its next ladder gate, (b)
+  build /data UI, (c) propose a new hypothesis, (d) improve datacore's API
+  boundary. `datacore/EVERYTHING_GRAPH.md` (the flagship R5 roadmap item,
+  charter directive 2026-07-04) names its build plan explicitly: step 1
+  (`datacore/entity_map.json`) shipped 2026-07-05 (v1.0.131); step 2
+  (`server/entityGraph.ts` + `/api/data/graph` + tests) was logged
+  **NEXT (unclaimed)** in open_questions.md R5 — the clearest, already-
+  scoped, highest-value product action available this session (option
+  (a)/(d): a datacore pipeline advancing to its next stated milestone,
+  which also is the platform's API boundary for every fusion hypothesis
+  named in the constitution's EDGE DOCTRINE/ACTIVE ANGLE-HUNTING
+  sections). No RESEARCH tier needed — this was a queued, unclaimed
+  roadmap item (SESSION BUDGET fall-through tier 1).
+- WHAT SHIPPED: `server/entityGraph.ts` — a pure, IO-overridable builder
+  (mirrors the shadowFleet/portDwell baseDir-injectable pattern) that
+  joins four existing sources into one node/edge graph, per the design
+  doc's exact v1 spec:
+  - **facility nodes**: every `datacore/sites` site (16) + every
+    `datacore/powerplants` plant (9,833) — lat/lon carried as an
+    intrinsic node attribute rather than a separate `located_at` edge
+    (a deliberate, documented deviation from the design doc's literal
+    edge table: the entity-type table itself calls facility lat/lon
+    "intrinsic" and v1's entity types never define a "geo" node to point
+    a `located_at` edge at — inventing one would be undocumented scope
+    creep for zero query-answering difference).
+  - **operates edges** (company -> facility): from `datacore/entity_map.json`'s
+    hand-verified operator/owner -> ticker table (step 1's output) — only
+    the 44 mapped entries produce an edge; the 25 honest-unmapped entries
+    (municipal authorities, private post-bankruptcy generators, etc.)
+    correctly produce none, preserving entity_map's own no-guessed-
+    tickers rule at the graph layer.
+  - **insider_of edges** (person -> company): from `edgarForm4.readFilingHistory`'s
+    30-day archive, aggregated across every filing for a given CIK/issuer
+    pair (roles, filing_count, first/last seen, last transaction kind —
+    the most recent filing's transaction wins). Issuer identity prefers
+    the filed ticker; the rare ticker-less filing falls back to a
+    `company:cik:<CIK>` id, explicitly flagged `ticker_known:false` so it
+    is never silently conflated with a real ticker node downstream (the
+    identity-resolution problem the design doc calls "the hard part" is
+    not solved here — this is the honest boundary of what's solvable
+    without a second join).
+  - **calls_at edges** (vessel -> facility/port): required extracting
+    `foldPortVisitsAsync` out of `portDwell.ts`'s `computePortDwellAsync`
+    (the online, bounded-memory AIS fold added in the 2026-07-05 OOM
+    repair) so the graph builder reuses the exact same archive pass
+    instead of re-implementing visit detection — a byte-identical
+    refactor, verified by the existing `portDwell.test.ts` suite (8/8
+    still passing unchanged). Visits aggregate per vessel/port pair into
+    visit_count + last_call + median_dwell_h, the design doc's named
+    attributes.
+  - Every edge carries `{source, confidence, first_seen, last_seen}` per
+    the design doc's envelope-alignment note; `operates` edges use the
+    entity_map's `built` date as a constant timestamp (static reference
+    data, no observation time dimension); `insider_of`/`calls_at` use
+    real filing/AIS timestamps.
+  - `/api/data/graph`: same eager-poller-cache shape as
+    `/api/data/portdwell`/`/api/data/shadowstats` (15-min interval,
+    matching the design doc's stated cache window) — the graph rebuild
+    folds a 168h AIS window, so it must NEVER run synchronously
+    per-request; that is the exact event-loop/OOM defect class those two
+    routes were repaired for in v1.0.125/126/143, and this route is built
+    correctly from day one instead of needing its own repair later.
+    Without `?entity=`, the route returns COUNTS ONLY (never the full
+    ~9.9k-node graph by default); `?entity=<ticker|MMSI|CIK|facility id>&hops=1..3`
+    (default 1, capped at 3) returns a BFS neighborhood subgraph.
+    `resolveEntityId` accepts a bare ticker/MMSI/CIK or a full node id.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): this is a new read-only
+  endpoint over already-archived/registry data -> zero change to any
+  existing route's behavior, zero change to scan/scoring/trading control
+  flow -> the only new runtime cost is one additional 168h AIS fold every
+  15 minutes (same class of cost `/api/data/portdwell` already pays on
+  its own 10-min cycle; not a new archive-read pattern, just one more
+  consumer of the existing bounded fold) -> the only observable product
+  effect is a new, discoverable `/api/data/graph` endpoint; nothing here
+  is a SIGNAL (every edge is RAW, provenance-carrying, no predictive
+  claim, matching the design doc's ground rule 2) so no ladder gate
+  applies to this PR.
+- NOT BUILT THIS PR (explicitly out of scope, per "one logical change"):
+  the `/data` graph panel UI (design doc build-plan step 3) and an
+  `/api/v1/graph` keyed mirror (the existing `stats/portdwell` /
+  `stats/shadow` pattern) — both are natural, low-risk fast-follows now
+  that the data shape exists, queued below rather than bundled in.
+- Gates: `npx tsc --noEmit` — same pre-existing Buffer/Map-iteration/
+  tsconfig error set documented in prior entries; zero new errors on
+  `server/entityGraph.ts` or the `server/routes.ts` diff (verified by
+  filtering the output for both files — empty). `npx tsx --test
+  server/*.test.ts` — 284 passed (274 baseline + 10 new in
+  `entityGraph.test.ts`), zero regressions, `portDwell.test.ts`'s 8/8
+  unchanged post-refactor. `python3 -m pytest -q` — 419 passed, 1 skipped
+  (no Python touched this PR; confirms the Python gate is unaffected by a
+  TS-only change).
+- MERGE TIMING NOTE (per this session's product-session instructions):
+  session ran 09:05-ish ET, crossing the 09:30 ET open. This PR touches
+  no trading logic and the new route is purely additive/read-only, so
+  the deploy-coupling risk is low, but per the standing preference this
+  PR should merge outside 09:30-16:00 ET if a human or routine reviews it
+  during market hours — otherwise safe to merge whenever CI is green
+  (no bot/strategy code path changed).
+- STARVED: no. This was a clearly queued, unclaimed, already-scoped
+  roadmap item with capacity to spare; the natural fall-through (UI panel
+  step 3, /api/v1 mirror) is queued below for the next session rather
+  than rushed into this PR.
+- NEXT (updates open_questions.md R5): step 3 — `/data` graph panel
+  (entity search -> neighborhood card: insiders + recent buys, operated
+  facilities on the map, vessels calling at its ports; DESIGN.md self-see
+  at three widths) is now unblocked. A `/api/v1/graph` keyed mirror
+  (mirrors `stats/portdwell`/`stats/shadow`) is a smaller, independent
+  fast-follow. Both queued, neither claimed by this entry beyond noting
+  them.
+
 ## 2026-07-06 — [REPAIR] Tier2 scan-failure blind spot: silent-except swallowed the real Alpaca error; scan health now visible on /api/health + a new diag probe (v1.0.148)
 
 - Territory: T-BOT (bot_engine.py scan_market, server/bot.ts Tier2 +
