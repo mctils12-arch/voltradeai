@@ -13,6 +13,73 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] R13 CLOSED: recurring SIGTERM restarts are deploy-driven, not a liveness bug — STARTUP audit entry compiles the correlation into queryable state (v1.0.162)
+
+- Territory: T-BOT (server/bot.ts).
+- SESSION START CHECKS: loop-health ratio over the last 10 tagged entries
+  is 4 REPAIR / 10 (R13, R12 close-out, R12-D4, R12-D2) — below the 7+
+  thrash trigger, no meta-problem to stop for. /api/health at session
+  start: status ok, uptime_s 2858, bot active, liveness.dark false,
+  drawdownPct 0.0, scanner consecutiveFailures 0 — Tier2 scans and
+  position stop-monitoring both firing normally in the live audit tail
+  (TIER2 scans every ~2-15min per market-time cadence, POS-MONITOR-SYNC
+  flagging VXUS/SMH/KWEB stops). No open KNOWN BROKEN item was actionable
+  without human-gated diagnostics beyond what's below.
+- PRIMARY ACTION — closed the R13 investigation opened earlier today
+  (v1.0.161, priority-1 liveness concern per GOAL: "loop going dark must
+  be surfaced loudly, never discovered by the human on a dashboard").
+  Used the v1.0.161 audit-probe upgrade to pull `?type=SHUTDOWN&limit=500`
+  (60 entries, 20 distinct SIGTERM events, 2026-07-05T23:19Z through
+  2026-07-06T18:46Z) and cross-referenced every timestamp against
+  `git log origin/main` merge times (UTC-converted from -04:00). RESULT:
+  20/20 sampled SIGTERM restarts land 64-158 seconds after a merge to
+  main (Docker build + Railway rollout lag) — including two docs-only
+  PRs (#275, #282, #283) which still triggered a redeploy+restart since
+  Railway rebuilds on every push to main regardless of diff content. Zero
+  restarts were unexplained by a deploy. Two merges 9 minutes apart
+  (#270 22:49 EDT, #271 22:59 EDT) produced only ONE restart — consistent
+  with Railway coalescing a rapid second push into the in-flight build
+  rather than a missed/failed restart. CONCLUSION: today's high restart
+  frequency is a direct, mechanical consequence of an unusually high
+  autonomous merge cadence (12+ PRs in one day per the BUILD ORDER 6 +
+  R12 series above), not container instability, OOM, or a healthcheck
+  failure. R13's own REVISED READ ("possibly the SAME recurring cycle
+  with deploys coincidental") was correct; this closes it with certainty
+  instead of leaving it as an open suspicion for the next session to
+  re-litigate.
+- COMPILED (EDGE DOCTRINE #3 — never reason the same thing twice): the
+  cross-reference above required manually pulling git log and computing
+  offsets by hand — exactly the kind of one-off reasoning that should
+  become permanent state. `registerBotRoutes()` (server/bot.ts, called
+  once per process boot from server/routes.ts:509) now emits
+  `audit("STARTUP", "Server boot — code_version <pkgVersion>, pid <pid>")`
+  before any route/timer setup, reading `version` from package.json (same
+  import pattern already used in server/routes.ts:17 for
+  `/api/data/layers`). Future audit queries (`?type=STARTUP`) show
+  exactly which version came up after each SIGTERM without needing git
+  log at all — the correlation is now a persisted fact, not a
+  rederivation. No safety-relevant behavior changed: this is a single
+  audit() call, same function/pattern as the existing SHUTDOWN/START/STOP
+  entries, no new dependency, no route or scheduling change.
+- Downstream chain (REASONING STANDARD #1): STARTUP audit entry exists ->
+  next SIGTERM investigation can join SHUTDOWN and STARTUP timestamps
+  directly in one probe query -> no need to cross-reference external git
+  history under time pressure during a real incident -> faster, more
+  reliable triage the next time uptime looks suspicious, which is exactly
+  when reasoning quality matters most (mid-incident, human possibly
+  asleep).
+- Gates: `npm install` (deps weren't present in this session's container),
+  `npx tsc` — 64 errors, unchanged from the v1.0.161-stated baseline, none
+  on the touched lines; `npm run test:node` — 311/311 pass, 0 fail;
+  `npm run build` — client + server bundle both succeed. Python side
+  untouched (no pytest available in this container to re-run; server-only
+  change, zero Python surface). Version 1.0.162 (read-and-increment after
+  #289 took 1.0.161).
+- VERIFY (pre-stated): post-deploy, `?type=STARTUP&limit=5` should show
+  one entry with `code_version 1.0.162` within ~1-3 minutes of the merge
+  landing — confirming the instrumentation fires and the version threads
+  through correctly. No behavior change expected in trading/scoring; this
+  is observability-only.
 ## 2026-07-06 — [REPAIR] R13 opened: recurring SIGTERM restarts, health intermittently unresponsive — audit probe gains type/limit params to read the pattern (v1.0.161)
 
 - Territory: T-BOT (server/bot.ts diag audit probe) + SHARED

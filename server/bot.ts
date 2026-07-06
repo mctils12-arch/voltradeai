@@ -13,6 +13,7 @@ import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
 import { aircraftProviderCompliance } from "./providerCompliance";
+import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
@@ -888,6 +889,12 @@ function getAuditLogCount(): number {
 }
 
 export function registerBotRoutes(app: Express) {
+  // R13: every SIGTERM restart traced back (2026-07-06) to a Railway
+  // redeploy, not a crash loop — 20/20 sampled restarts matched a merge
+  // to main within ~2.5min. That correlation was done by hand against
+  // git log; persist the version at boot so future audit queries
+  // (?type=STARTUP) show it directly without re-deriving it.
+  audit("STARTUP", `Server boot — code_version ${pkgVersion}, pid ${process.pid}`);
 
   // SSE for live bot audit log updates
   app.get("/api/bot/stream", requireOwner, (req, res) => {
