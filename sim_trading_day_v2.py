@@ -4,6 +4,7 @@ VolTradeAI v1.0.13 — Full Trading Day Simulation
 Tests every phase of the trading day from 4am to 8pm
 """
 import os, sys, json, time
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 sys.path.insert(0, '/tmp/vt_test')
 os.environ['VOLTRADE_DATA_DIR'] = '/tmp'
 
@@ -94,7 +95,7 @@ def test_quick_score():
     from bot_engine import score_stock  # score_stock is the exported scoring function
     import requests
     r = requests.get(
-        "https://data.alpaca.markets/v2/stocks/snapshots?symbols=AAPL,MSFT,NVDA&feed=sip",
+        f"https://data.alpaca.markets/v2/stocks/snapshots?symbols=AAPL,MSFT,NVDA&feed={data_feed()}",
         headers={"APCA-API-KEY-ID":os.environ.get("ALPACA_KEY", ""),
                  "APCA-API-SECRET-KEY":os.environ.get("ALPACA_SECRET", "")},
         timeout=8)

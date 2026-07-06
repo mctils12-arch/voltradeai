@@ -44,6 +44,7 @@ logger = logging.getLogger("voltrade.intraday_shorts")
 # module persisted via storage_config. Route through storage_config like
 # the rest of the trading stack (env override still honored for tests).
 from storage_config import DATA_DIR as _STORAGE_DATA_DIR
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 DATA_DIR = os.environ.get("DATA_DIR", _STORAGE_DATA_DIR)
 SHORTS_LOG_PATH    = os.path.join(DATA_DIR, "voltrade_intraday_shorts.json")
 ALPACA_KEY    = os.environ.get("ALPACA_KEY", "")
@@ -251,7 +252,7 @@ def _stage2_score(candidates, spy_ret_10d):
             alpaca_throttle.acquire()
             r = requests.get(f"{DATA_URL}/v2/stocks/bars",
                 params={"symbols": ",".join(batch_syms), "timeframe": "1Day",
-                        "start": start_date, "limit": 200, "feed": "sip"},
+                        "start": start_date, "limit": 200, "feed": data_feed()},
                 headers=HEADERS, timeout=12)
             bars_map = r.json().get("bars", {})
             for sym, bars in bars_map.items():
@@ -337,7 +338,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
         if spy_ret_10d == 0:  # Fallback: direct fetch
             alpaca_throttle.acquire()
             spy_r = requests.get(f"{DATA_URL}/v2/stocks/bars",
-                params={"symbols": "SPY", "timeframe": "1Day", "limit": 12, "feed": "sip"},
+                params={"symbols": "SPY", "timeframe": "1Day", "limit": 12, "feed": data_feed()},
                 headers=HEADERS, timeout=8)
             spy_bars = spy_r.json().get("bars", {}).get("SPY", [])
             spy_ret_10d = ((float(spy_bars[-1]["c"]) - float(spy_bars[-10]["c"]))
@@ -505,7 +506,7 @@ def close_open_shorts():
         try:
             alpaca_throttle.acquire()
             snap = requests.get(f"{DATA_URL}/v2/stocks/snapshots",
-                params={"symbols": sym, "feed": "sip"},
+                params={"symbols": sym, "feed": data_feed()},
                 headers=HEADERS, timeout=8).json()
             curr = float(snap.get(sym, {}).get("latestTrade", {}).get("p", 0) or 0)
             if curr <= 0: continue

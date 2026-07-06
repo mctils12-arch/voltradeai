@@ -59,6 +59,7 @@ import json
 import time
 import logging
 import threading
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Tuple
@@ -337,7 +338,7 @@ def _fetch_historical_bars_batch(
                     "end": end_date,
                     "limit": 100,
                     "adjustment": "split",
-                    "feed": "sip",
+                    "feed": data_feed(),
                 },
                 headers=_alpaca_headers(),
                 timeout=15,
@@ -357,7 +358,7 @@ def _fetch_historical_bars_batch(
                         "end": end_date,
                         "limit": 100,
                         "adjustment": "split",
-                        "feed": "sip",
+                        "feed": data_feed(),
                     },
                     headers=_alpaca_headers(),
                     timeout=15,

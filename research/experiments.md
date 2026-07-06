@@ -13,6 +13,57 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] ⚠️ PRIORITY-1: SIP entitlement rejected (HTTP 403) — scan blind since Monday's open; central feed resolver + delayed_sip fallback across 44 sites (v1.0.150)
+
+- DETECTION CHAIN (v1.0.148's blind-spot fix paid off in ONE query,
+  exactly as designed): human directive "make sure the trading bot is
+  operating correctly" -> /api/health degraded, scanner
+  consecutiveFailures=13 during market hours -> /api/diag/scanner
+  (DIAG_TOKEN) -> lastFailureDetail: "HTTP 403". Archaeology-to-
+  diagnosis in minutes instead of a session.
+- ROOT CAUSE: every market-data request with feed=sip is rejected
+  with 403 since Monday's open (SIP entitlement — subscription
+  lapse or Alpaca policy change; the trading API and /v2/account are
+  unaffected). 44 call sites across 15 modules hardcoded feed=sip,
+  so the outage was whole-stack: Tier2 scan (zero new candidates all
+  morning), options scanner, VXX regime reads, SPY floor, shadow
+  backfills, ML training fetches. Stops/manage_positions kept
+  working (trading API); equity peak even rose intraday — the bot
+  was safe but BLIND to new opportunities.
+- FIX: new alpaca_feed.py — ONE probe, ONE switch, zero per-site
+  error wiring. data_feed() probes the SIP entitlement (1-symbol
+  snapshot, 10-min TTL): 403 -> process-wide downgrade to
+  **delayed_sip** (the FULL consolidated tape at a 15-minute delay,
+  free on every tier), 200 -> auto-restore to real-time sip; time-
+  outs/5xx are inconclusive and never flap the feed. All 44 sites
+  swept onto the resolver (mechanical substitution, every URL site
+  verified f-string, imports verified top-level after one
+  mis-insertion was caught by compileall).
+- MEASUREMENT-INTEGRITY DECISION (why NOT feed=iex): IEX-only prints
+  undercount consolidated volume ~30-50x — a silent iex fallback
+  would poison every dollar-volume floor ($50M scan gate, options
+  liquidity checks) and reproduce the same empty-scan symptom with a
+  worse cause. delayed_sip preserves volume semantics; candidate
+  DISCOVERY tolerates 15-min staleness; executions price off live
+  quotes via the trading API as before. The downgrade is loudly
+  logged once per switch and auto-reverts when the entitlement
+  returns — no deploy needed either direction.
+- RATCHET: test_alpaca_feed.py — 6 resolver tests (403->delayed_sip,
+  TTL caching, auto-recovery, inconclusive-probe no-flap, env
+  override, iex-never-chosen documented) + a source-scan banning ANY
+  hardcoded feed choice from runtime modules (the 44-site dispersion
+  is what turned an account-level change into a stack-wide outage).
+- BLOCKED-FOR-MIKE #9 (urgent, push-notified): check the Alpaca
+  dashboard Market Data subscription — decide between restoring paid
+  real-time SIP (~$99/mo Algo Trader Plus) or accepting 15-min
+  delayed discovery. The bot self-upgrades within 10 min of restore.
+- Gates: pytest 425/1 skipped (419 baseline + 6 new, ZERO regressions
+  across the swept stack); compileall clean on all 16 touched
+  modules; tsc untouched (no TS changes).
+- VERIFY (pre-stated): post-deploy, /api/diag/scanner must show
+  consecutiveFailures reset to 0 and /api/health scanner "ok" within
+  ~15 min (next Tier2 cycle after the probe downgrades the feed).
+
 ## 2026-07-06 — [PRODUCT] Everything Graph build step 2 — server/entityGraph.ts + /api/data/graph (v1.0.149)
 
 - Territory: T-DATACORE (server/entityGraph.ts, server/entityGraph.test.ts,
