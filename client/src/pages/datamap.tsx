@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2 } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -12,6 +12,7 @@ import {
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
+import GraphView from "./graph";
 import { mmsiFlag } from "@/lib/mmsiFlag";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
@@ -84,7 +85,7 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
-  : { imagery: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
+  : { imagery: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, powerplants: true, trains: true, shadowstats: true, portdwell: true, graph: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -94,6 +95,7 @@ const PANEL_GROUPS = [
   { id: "facilities", label: "Facilities" },
   { id: "environmental", label: "Environmental" },
   { id: "filings", label: "Filings & flows" },
+  { id: "graph", label: "Everything Graph" },
   { id: "signals", label: "Signals — coming soon" },
 ] as const;
 const LAYER_GROUP: Record<string, string> = {
@@ -105,6 +107,7 @@ const LAYER_GROUP: Record<string, string> = {
   rivergauges: "environmental",
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
+  graph: "graph",
 };
 // registry-native grouping (BUILD ORDER 4 #2): datacore/layers.json now
 // carries `group` per layer directly — a future pipeline can slot a new
@@ -187,6 +190,8 @@ export default function DataMapPage() {
   const [earningsOpen, setEarningsOpen] = useState(() => window.location.hash === "#/data/earnings");
   // Full FINRA short-volume view (#/data/short-volume) — same overlay pattern.
   const [shortvolOpen, setShortvolOpen] = useState(() => window.location.hash === "#/data/short-volume");
+  // Everything Graph full view (#/data/graph) — same overlay pattern.
+  const [graphOpen, setGraphOpen] = useState(() => window.location.hash === "#/data/graph");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -248,6 +253,7 @@ export default function DataMapPage() {
       setFilingsOpen(window.location.hash === "#/data/filings");
       setEarningsOpen(window.location.hash === "#/data/earnings");
       setShortvolOpen(window.location.hash === "#/data/short-volume");
+      setGraphOpen(window.location.hash === "#/data/graph");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -1935,6 +1941,31 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.shortvol, mapSettled, setStatus]);
 
+  // ── Everything Graph (RAW join over insiders/facilities/vessels; non-
+  // geospatial — same inline-panel-row + full-view pattern as insider/
+  // earnings/shortvol). Server rebuilds every 15 min; this poll only reads
+  // the cached counts-only summary, never a full entity dump. ──
+  useEffect(() => {
+    if (!enabled.graph) { setStatus("graph", "off"); return; }
+    if (!mapSettled) { setStatus("graph", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("graph", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/graph");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("graph", "loading", 0, "first graph build in progress — retry shortly"); return; }
+        setStatus("graph", "active", d.counts?.nodes, d.counts ? `${d.counts.edges.toLocaleString()} connections` : undefined);
+      } catch {
+        if (!stop) setStatus("graph", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.graph, mapSettled, setStatus]);
+
   // ── panel helpers ──
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
@@ -1949,7 +1980,8 @@ export default function DataMapPage() {
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
-    id === "shortvol" ? <TrendingUp size={15} /> : <LayersIcon size={15} />;
+    id === "shortvol" ? <TrendingUp size={15} /> :
+    id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
     const rt = runtime[l.id];
@@ -1965,7 +1997,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "graph" ? "entities" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -2116,6 +2148,16 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "graph" && on && (
+          // Same pattern as insider/earnings/shortvol: an entity-search +
+          // connections view doesn't belong in a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/graph"; setGraphOpen(true); }}>
+              Open Everything Graph — entity search, connections →
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -2165,6 +2207,9 @@ export default function DataMapPage() {
       )}
       {shortvolOpen && (
         <ShortVolView onBack={() => { window.location.hash = "#/data"; setShortvolOpen(false); }} />
+      )}
+      {graphOpen && (
+        <GraphView onBack={() => { window.location.hash = "#/data"; setGraphOpen(false); }} />
       )}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}

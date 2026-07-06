@@ -13,6 +13,83 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PRODUCT] Everything Graph — /data panel, R5 build step 3 (v1.0.160)
+
+- Territory: T-CLIENT (client/src/pages/graph.tsx, client/src/pages/datamap.tsx,
+  client/src/index.css, scripts/visual_check.mjs) + SHARED (datacore/layers.json,
+  datacore/EVERYTHING_GRAPH.md, package.json, this file — last + minimal).
+- CONTEXT: R5 (MAP V2 ROADMAP) shipped step 1 (entity_map.json, 2026-07-05)
+  and step 2 (server/entityGraph.ts + /api/data/graph, 2026-07-06 earlier
+  today) with step 3 explicitly "NEXT (unclaimed)". This is a PRODUCT
+  session per the standing directive: build UI/UX surfacing already-shipped
+  backend capability, no new data collection.
+- BUILD: `client/src/pages/graph.tsx` (GraphView) — same full-view-overlay
+  pattern as filings.tsx/earnings.tsx/shortvol.tsx (hash-routed
+  `#/data/graph`, opened via a launcher button inside a new "Everything
+  Graph" registry layer + panel group). Shows the counts-only summary
+  (entities/connections by type) on load, then an entity search (ticker/
+  MMSI/CIK/facility id) against `/api/data/graph?entity=&hops=`. Every
+  connection row displays the edge's source/confidence/roles/counts and
+  is itself clickable — clicking a neighbor re-queries `/api/data/graph`
+  with that neighbor's exact node id (`resolveEntityId` already resolves
+  raw node ids directly), making this a real graph browser rather than a
+  single lookup. SCOPE DECISION: the connections list always shows only
+  DIRECT (1-hop) edges touching the searched entity regardless of the
+  hops selector, because for hops>1 an edge in the BFS result may not
+  touch the center at all — showing it as if direct would misrepresent
+  the join. The hops selector instead scales the *reachable-network*
+  count line ("N entities, M connections reachable within H hops"),
+  which stays honest at any hop depth. Company->facility MAP
+  highlighting (design doc's stretch item) is explicitly NOT in this PR —
+  filed as the follow-up in datacore/EVERYTHING_GRAPH.md's build plan.
+- BUG FOUND + FIXED IN THIS PR'S OWN SCOPE (not a separate PR — a
+  one-line-per-site CSS token swap inside the same new component, not a
+  behavior/logic change): `client/src/index.css`'s `:root` block declares
+  `--accent: #4d9fff` at line 25 and then REDECLARES `--accent: 212 100%
+  65%` (a bare HSL triple, no `hsl()` wrapper — the shadcn/Tailwind token
+  block) at line 92, later in the same block — the second declaration
+  wins the cascade, so `--accent` resolves sitewide to an invalid raw
+  triple wherever used directly as a `color`/`background`/`border-color`
+  value (18 such existing call sites in index.css, all pre-existing and
+  NOT touched by this PR). CSS spec: a var() substitution invalid at
+  computed-value time makes the property compute to its inherited/
+  initial value instead — for non-inherited properties like
+  background/border-color that's usually `transparent`/`currentColor`,
+  which is why the badge I first wrote silently rendered dark-text-on-
+  transparent (caught by manually screenshotting the actual GraphView
+  full-page render with Playwright, since the standard visual harness
+  only screenshots the /data map shell, not opened sub-views). FIX
+  APPLIED HERE, IN-SCOPE ONLY: my 3 new `var(--accent)` uses
+  (`.vt-graph-example`, `.vt-graph-typebadge`, `.vt-graph-conn-row:hover`)
+  now use `--accent-bright` (a uniquely-named, non-colliding token) —
+  verified via computed-style dump (background now `rgb(124, 196, 255)`,
+  not transparent). The SITEWIDE collision (all 18 pre-existing sites,
+  plus a same-shape `--border` collision that happens to have zero
+  direct `var(--border)` callers today so it's dormant) is NOT fixed
+  here — that is a measurement-adjacent, cross-many-components change
+  that needs its own visual-regression pass per CLAUDE.md's one-logical-
+  change rule, filed as KNOWN BROKEN #13 in open_questions.md for a
+  dedicated future session.
+- VERIFICATION: `npm run visual --page data` at 390/768/1440 — 0 hard
+  failures; the new "Everything Graph" panel row is reachable (self-see),
+  shows live status ("42 entities" / "61 connections" against the build
+  fixture), and its launcher opens correctly (screenshots reviewed:
+  .visual/data-legend-1440.png shows the panel row; full-view rendering
+  additionally verified via an ad-hoc Playwright script against a richer
+  neighborhood fixture, since the standard harness fixture is counts-only
+  by design). node tests: 311/311 pass (no server-side code touched, so
+  this is a determinism check, not new coverage — entityGraph.ts's own
+  10 tests already cover the API this panel calls). tsc: 64 errors,
+  unchanged baseline (confirmed via git-stash A/B; the one datamap.tsx
+  line the diff touches was already failing pre-existing for the same
+  reason, `graph` merely joins the existing literal union). Build OK.
+  Version 1.0.160 (read-and-increment; 1.0.159 landed from a concurrent
+  PR mid-session — rebased via `git merge --ff-only` before bumping, per
+  OPS GOTCHAS).
+- DEPLOY COUPLING: authored during market hours (Mon 2026-07-06, ~14:00
+  ET) — PR left for merge after the 16:00 ET close per this session's
+  brief, noted in the PR description.
+
 ## 2026-07-06 — [PIPELINE] NHTSA complaints watchlist stream (BUILD ORDER 6 #4) — curated-seed archiver + /api/data/vehicle-complaints (v1.0.159)
 
 - Territory: T-DATACORE (server/nhtsaComplaints.ts + test,

@@ -2531,6 +2531,58 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-shortvol-symwrap { display: flex; flex-direction: column; gap: 8px; }
 .vt-shortvol-topheader { padding-top: 4px; }
 
+/* ── Everything Graph full view (#/data/graph) ───────────────────────────
+   Everything Graph — flagship cross-stream join (datacore/EVERYTHING_GRAPH.md,
+   MAP V2 ROADMAP R5). Reuses the .vt-filings-* shell; only truly new element
+   shapes (stat chips, entity card, connection rows) get their own rules. */
+.vt-graph-body { flex: 1; overflow: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px; }
+.vt-graph-counts {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 10px 14px;
+  font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono);
+}
+.vt-graph-counts span { display: inline-flex; align-items: center; gap: 5px; }
+.vt-graph-example {
+  background: none; border: none; padding: 0; color: var(--accent-bright);
+  font-family: var(--font-mono); font-size: inherit; cursor: pointer; text-decoration: underline;
+}
+.vt-graph-example:hover { color: var(--text-primary); }
+.vt-graph-result { display: flex; flex-direction: column; gap: 10px; }
+.vt-graph-center {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 12px 14px;
+}
+.vt-graph-typebadge {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 5px; color: var(--bg-primary);
+  background: var(--accent-bright);
+}
+.vt-graph-typebadge[data-type="person"] { background: var(--accent-purple); }
+.vt-graph-typebadge[data-type="facility"] { background: var(--accent-orange); }
+.vt-graph-typebadge[data-type="vessel"] { background: var(--accent-green); }
+.vt-graph-centerlabel { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.vt-graph-connections { display: flex; flex-direction: column; gap: 6px; }
+.vt-graph-conn-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px;
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.1); border-radius: 8px;
+  padding: 8px 12px; color: var(--text-secondary); text-align: left; cursor: pointer;
+}
+.vt-graph-conn-row:hover { background: var(--bg-card-hover); border-color: var(--accent-bright); }
+.vt-graph-conn-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.vt-graph-conn-label { color: var(--text-primary); font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.vt-graph-conn-rel { font-size: 10.5px; color: var(--text-tertiary); }
+.vt-graph-conn-meta {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono); white-space: nowrap;
+}
+.vt-graph-conf { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.vt-graph-caveat { padding-top: 4px; border-top: 1px solid rgba(77, 159, 255, 0.1); }
+@media (max-width: 480px) {
+  .vt-graph-conn-meta { align-items: flex-start; }
+}
+
 /* ── /developers — API product page (T3, 2026-07-04) ─────────────────── */
 .vt-dev-page {
   max-width: 880px; margin: 0 auto; padding: 88px 20px 64px;

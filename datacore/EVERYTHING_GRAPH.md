@@ -123,9 +123,28 @@ no separate site.
    pinned by the existing portDwell tests) so the graph reuses the same
    bounded AIS fold. See research/open_questions.md R5 and
    research/experiments.md for the full trace.
-3. /data graph panel per DESIGN.md (self-see, three widths, theme
-   tokens) + company→facility map highlighting. NEXT (unclaimed).
-4. (later, gated) SIGNAL layers on top — each through the ladder.
+3. **[SHIPPED 2026-07-06]** `/data` graph panel (`client/src/pages/graph.tsx`,
+   new "Everything Graph" registry layer + panel group): entity search
+   (ticker/MMSI/CIK/facility id) -> summary counts + direct-connections
+   card, same full-view-overlay pattern as filings/earnings/shortvol.
+   Every connection row shows the edge's source/confidence and is
+   clickable to jump to that entity (a real graph browser, not a single
+   lookup) -- clicking passes the neighbor's exact node id back to
+   `/api/data/graph?entity=`, which `resolveEntityId` already resolves
+   directly. The hops selector (1-3) scales the *reachable-network*
+   count shown, but the connections list itself always shows direct (1
+   hop) edges only -- showing further-out edges as if direct would
+   misrepresent the join (see the file's own scope-note comment).
+   Company->facility MAP highlighting (clicking a company lights up its
+   operated facilities on the map itself) is NOT in this PR -- filed as
+   the natural follow-up once this panel has live usage to learn from.
+   DESIGN.md gates satisfied: self-see (reachable via the new registry
+   row -> "Open Everything Graph" launcher, same as its siblings),
+   theme tokens only, empty/loading/error/not-found states designed,
+   >=44px touch targets on the connection rows. `npm run visual --page
+   data` run at 390/768/1440, 0 hard failures (see research/experiments.md).
+4. Company->facility map highlighting (moved out of step 3 above -- see
+   its note). (later, gated) SIGNAL layers on top -- each through the ladder.
 
 ## What the graph does for trading (the customer)
 
