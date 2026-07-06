@@ -54,6 +54,7 @@ import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
+import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1751,6 +1752,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.stats.length,
       note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; industrial-activity nowcast signals stay gate-locked until ladder validation",
       respondents: hit.stats,
+    });
+  });
+
+  // OCC daily options volume by trade origin (RAW — DATACORE MAXIMUS
+  // census #1, keyless, ARCHIVE-NOW: rolling 2-year source window).
+  // Serves the poller's cached top-underlyings only (event-loop rule).
+  bootOccPoll();
+  app.get("/api/data/occ-volume", (_req, res) => {
+    const hit = latestOcc();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "OCC daily volume", warming_up: true, count: 0, top: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "The Options Clearing Corporation (OCC) daily cleared volume",
+      attribution: "The Options Clearing Corporation (OCC) daily volume",
+      time: hit.at,
+      report_date: hit.report_date,
+      underlyings: hit.underlyings,
+      count: hit.top.length,
+      note: "top underlyings by cleared volume with customer/market-maker put-call splits (qty counts each clearing side; totals halved); source keeps only a rolling 2-year window — this archive is the durable copy; origin-split signals stay gate-locked until ladder validation",
+      top: hit.top,
     });
   });
 

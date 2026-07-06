@@ -13,6 +13,52 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PIPELINE] OCC daily options volume by trade origin — the census #1 archive-now root + /api/data/occ-volume (v1.0.165)
+
+- Territory: T-DATACORE (server/occVolume.ts + test,
+  datacore/manifests/occvolume.json) + SHARED (server/routes.ts
+  wiring, open_questions.md GRID BUILD ORDER filed same commit,
+  package.json, this file).
+- WHY FIRST: the census ranked it #1 — OCC serves a ROLLING 2-YEAR
+  window (workup-verified verbatim error body "Report date cannot be
+  prior to  2 years"); every unarchived day is permanently lost.
+  Keyless, ~700KB gz/day.
+- BUILD FROM VERIFIED FACTS (a dedicated workup agent probed
+  everything before coding — subagent mandate): 7-field CSV
+  (quantity, underlying, symbol=option root, actype C/F/M, porc P/C,
+  exchange×18, actdate MM/DD/YYYY, CRLF); ALL errors arrive HTTP 200
+  + plain text → classifyBody() (data / no_records /
+  not_yet_published / aged_out / unknown), never parsed as data;
+  quantity counts EACH CLEARING SIDE → totals halved, C/M put-call
+  kept side-consistent (the double-count gotcha is pinned by a test
+  with the real AAL 34483/34483 fixture); per-symbol variant's
+  trailing comma tolerated; dedup key verified unique across all
+  153,181 rows of the probe day. 4h poll over a 5-trading-day window
+  (retries not-yet-published, self-heals gaps); gz-on-write;
+  _resetOccForTests for module-Set test isolation (alpaca_feed
+  precedent — first draft leaked dedup state between tests, caught
+  by the battery itself).
+- FOLLOW-UPS FILED: one-time ~500-call 2-year backfill = session-run
+  task (census); license note — raw resale needs OCC permission,
+  gated signals fine.
+- ALSO IN THIS COMMIT (docs riding per shared-file batching): GRID
+  BUILD ORDER filed in open_questions.md — Phase 2 pipeline PROVEN
+  VIABLE by the feasibility workup (tippecanoe 2.49 native pmtiles +
+  osmium via apt; TX 709MB proof <10min; US 12GB ≲1hr/15GB peak;
+  pmtiles@4.4.1 client dep; voltage-honesty rule: untagged lines
+  flagged, never dropped; ODbL produced-works boundary; Overpass =
+  refresh only). Items 1-6 with signal hypotheses + blocked
+  dependencies (9a/9b/9c).
+- PRIOR (restated from census): customer-vs-MM put/call BY TICKER is
+  the retired ISEE's successor, uncrowded on small caps. Gate 1 =
+  one day's totals vs OCC's published volume page; gate 2 = customer
+  P/C extremes vs forward returns, census-breadth discounted.
+- Gates: node 326/326 (5 new); tsc 64; build OK; version 1.0.165.
+  VERIFY (pre-stated): post-deploy /api/data/occ-volume serves
+  report_date 2026-07-02 (or newer once OCC publishes Monday
+  overnight) with top-50 underlyings and nonzero customer/MM splits;
+  archive gains occvolume/2026-07-02.jsonl.gz (~1MB).
+
 ## 2026-07-06 — [RESEARCH] DATACORE MAXIMUS Phase 1: master data census FILED — ~30 sources probed live by 3 parallel agents, 11 buildable ranked, dead-list recorded (docs)
 
 - Territory: SHARED research/* (data_census.md NEW permanent doc,

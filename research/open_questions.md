@@ -1096,6 +1096,55 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## GRID BUILD ORDER (DATACORE MAXIMUS Phase 2; filed 2026-07-06 after
+the census + a live feasibility workup — pipeline PROVEN VIABLE in this
+container: tippecanoe 2.49 (native .pmtiles) + osmium 1.16 one apt
+install away; Texas extract 709MB → filtered → PMTiles in <10 min;
+full US 12GB PBF ≲1hr at ~15GB peak disk (27GB free); output tens of
+MB served static from the volume via range requests; MapLibre 5.24
+current, ADD npm `pmtiles`@4.4.1 for the pmtiles:// protocol.
+Overpass = weekly REFRESH mechanism only, never bulk (fair-use +
+single-instance dependency — mirrors unreachable from our proxy).
+[T-DATACORE server/pipeline + T-CLIENT layer]; one item per PR.)
+
+1. TX PILOT: session-run pipeline script (scripts/build_power_tiles.sh
+   — Geofabrik texas → osmium tags-filter power=line,substation,plant
+   → osmium export → tippecanoe -o power_tx.pmtiles), artifact onto
+   the volume, /api serving via range requests, MapLibre layer behind
+   a registry toggle with zoom-decimation gates (≥230kV z<6, ≥100kV
+   z<9, all z≥11; substations z≥9; NO towers below z12). VOLTAGE
+   HONESTY: untagged-voltage lines flagged distinct, never silently
+   dropped (OSM voltage coverage incomplete — overstating ≥100kV
+   coverage is fabricated completeness). ODbL: attribution
+   "© OpenStreetMap contributors, ODbL" on the layer; tiles are a
+   produced work; the .pmtiles file is NOT offered for download
+   (share-alike boundary). Perf harness at 390px gates the PR.
+2. US FULL: same pipeline on us-latest 12GB (delete PBF post-filter);
+   replaces the TX file; manifest states coverage = US, OSM
+   completeness caveats, CEII note (US substation/line data on OSM is
+   community-mapped public knowledge; no restricted CEII detail —
+   underground/distribution largely absent, stated honestly).
+3. DEMAND JOIN: grid-demand stream (live, v1.0.163) respondent stats
+   surfaced on the layer (BA-region badge, latest MWh) — first
+   cross-layer join of the power vertical.
+4. GEM REGISTRY JOIN (blocked on wishlist 9b form-fill): unit-level
+   plant status (announced/construction/operating) as a plants-layer
+   upgrade — CC BY 4.0, join spine plant↔owner↔ticker.
+5. EU EXPANSION (blocked on 9c ENTSO-E token): europe extract +
+   zonal load; only after 1-4 hold.
+6. CEMS UTILIZATION OVERLAY (blocked on 9a EPA key): unit-level
+   grossLoad×opTime on plant popups — the ground-truth utilization
+   layer; ladder gate 1 for every power-vertical inference.
+SIGNAL HYPOTHESES (each gate-locked, evaluated not assumed): grid
+stress (demand vs capacity by BA) × power prices/utility tickers;
+substation-proximity × datacenter-buildout names; plant status
+transitions × regional generators; storm/heat (weather layers) ×
+outage-sensitive names. DATA-PRODUCT NOTE: sellable = derived
+signals/analyses with attribution (ODbL produced works + CC BY);
+NOT sellable without legal review = raw OSM-derived geometry
+database (share-alike) — routed to BLOCKED-FOR-MIKE when
+monetization nears.
+
 ## BUILD ORDER 6 (SELF-PROPOSED, standing directive; filed 2026-07-06
 after BUILD ORDER 5 closed 5/5. [T-DATACORE]; same rules: one item
 per PR, licensing first, keyless-or-already-keyed builds first,
