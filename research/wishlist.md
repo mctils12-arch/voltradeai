@@ -4,31 +4,32 @@
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
 
-STATUS as of 2026-07-06 ~23:30Z (session claude/new-session-iu72vf):
-- PHASE 0 (key activations): ✅ BUILT — grid-demand (v1.0.163, PR
-  #292 merged) + crop-conditions (v1.0.164, PR #293 in CI). NEXT:
-  live-verify both post-deploy (/api/data/grid-demand expects 9
-  respondent stats; /api/data/crop-conditions expects current-week
-  rows OR a verbatim NASS error naming the query fix).
-- PHASE 1 (census): ✅ FILED — research/data_census.md (permanent
-  doc; 3 parallel agents, ~30 sources probed live, master ranking of
-  11 buildable + dead-list). Ships in the next docs PR with this
-  block.
-- PHASE 2 (grid layer): workup agent OUT (PMTiles pipeline
-  feasibility: tooling in container, region sizing, Overpass
-  fallback). Build order files after it returns. Key facts already
-  filed in the census (ODbL read, decimation gates, geometry sizes).
-- PHASE 3 (imagery): UNBLOCKED — the Esri metadata identify endpoint
-  is verified with exact params/response shape (census section 3 #9);
-  CDSE quota math done (#10: scheduled facility chips, never
-  viewport renders). Not started.
-- PHASE 4 (UI): not started. First item = Streams inventory tab
-  (mobile-first 390px).
+STATUS as of 2026-07-07 ~00:20Z (session claude/new-session-iu72vf):
+- PHASE 0: ✅ COMPLETE + LIVE-VERIFIED — /api/data/grid-demand
+  serves 9 BA respondents (EIA key active); /api/data/crop-conditions
+  serves week 2026-07-05, 10 rows (NASS key active; documented-shape
+  build worked first query, no error iteration needed).
+- PHASE 1: ✅ COMPLETE — research/data_census.md merged (#294).
+  Census #1 (OCC) ALSO BUILT + VERIFIED: /api/data/occ-volume serves
+  2026-07-02, 4,547 underlyings, full customer/MM P/C splits
+  (v1.0.165, #295); the 2-year-purge archive is recording. Session-run
+  follow-up: one-time ~500-call OCC 2-year backfill (script it like
+  the FINRA backfill precedent, deep-backfill env-gated).
+- PHASE 2 (grid layer): BUILD ORDER FILED in open_questions.md
+  ("GRID BUILD ORDER"), pipeline PROVEN in-container by workup
+  (tippecanoe native-pmtiles + osmium via apt; TX proof <10min; US
+  ≲1hr/15GB peak; pmtiles@4.4.1 client dep needed). NEXT UNBLOCKED
+  ITEM: item 1 TX PILOT (server artifact PR, then client layer PR —
+  two logical changes; 390px harness gates the client PR).
+- PHASE 3 (imagery): unblocked, not started — Esri identify endpoint
+  verified w/ exact params (census §3 #9); CDSE quota mandate:
+  scheduled facility chips only.
+- PHASE 4 (UI): not started. First = Streams inventory tab (390px).
 - PHASE 5 (ratchets): not started; inventory-coverage test lands
   with Phase 4.
-- IN FLIGHT: OCC stream workup agent OUT (census #1, ARCHIVE-NOW —
-  2-year purge window; build it as the next stream PR after the
-  census docs PR).
+- NEXT CENSUS BUILDS after grid pilot: JODI (keyless static, easiest),
+  FINRA Query API cluster, SEC FTD; EPA CAMD/GEM/ENTSO-E on Mike's
+  keys (9a/9b/9c below).
 
 ## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;
 ## each unlocks a census top-10 item; routed around meanwhile)
