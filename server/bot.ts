@@ -11,6 +11,7 @@ import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag } from "./diag";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
+import { buildExitFillPayload } from "./exitFill";
 import { aircraftProviderCompliance } from "./providerCompliance";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -130,6 +131,27 @@ async function pythonCall(
   } catch (e: any) {
     return { success: false, result: { error: e.message }, via: "none", error: e };
   }
+}
+
+// REPAIR 2026-07-06 (R12-D2): record a FULL exit into trade_feedback so the
+// matching open entry record gets a real outcome + pnl_pct (Bug #13's exit
+// machinery in ml_model_v2.track_fill finally gets a caller). Mirrors the
+// entry-side tmp-file + daemon-first pattern used at both entry sites.
+// Recording only — runs strictly AFTER the (frozen) order POST succeeded.
+function recordExitFill(payload: ReturnType<typeof buildExitFillPayload>) {
+  try {
+    const tmp = `/tmp/fill_x_${payload.ticker}_${Date.now()}.json`;
+    fs.writeFileSync(tmp, JSON.stringify(payload));
+    pythonCall(
+      "track_fill", payload,
+      `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${tmp}')); os.remove('${tmp}'); track_fill(d)"`,
+      { timeout: 5000 }
+    ).then((r) => {
+      if (r.via === "daemon") {
+        try { fs.unlinkSync(tmp); } catch {}
+      }
+    }).catch(() => {});
+  } catch (err: any) { console.error("[bot]", err?.message || err); }
 }
 
 
@@ -4445,6 +4467,13 @@ except: print('{}')
               }),
             });
             notify("alert", `POSITION KILL: ${ticker} at ${pnlPct.toFixed(1)}% — liquidated`);
+            // REPAIR 2026-07-06 (R12-D2): a forced liquidation is a full
+            // exit — record the outcome so the ML loop learns from the
+            // worst trades too, not only the graceful ones.
+            recordExitFill(buildExitFillPayload({
+              ticker, exitSide: closeSide, qty: Number(qty) || 0,
+              fillPrice: current, pnlPct, exitReason: "position_kill",
+            }));
             continue; // Skip the rest of the loop for this position
           } catch (killErr: any) {
             audit("POS-KILL-ERROR", `${ticker}: failed to liquidate — ${killErr?.message?.slice(0, 120)}`);
@@ -4984,6 +5013,14 @@ if '${ticker}' in ss:
 
       audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${exitQty} ${ticker} @ $${currentPrice.toFixed(2)}`);
       notify("exit", `WS exit ${ticker}: ${reason}`);
+
+      // REPAIR 2026-07-06 (R12-D2): close the ML feedback entry record with
+      // the bot's own P&L accounting. Full exits only — scale-outs leave the
+      // position (and its record) open by design.
+      recordExitFill(buildExitFillPayload({
+        ticker, exitSide, qty: exitQty, fillPrice: currentPrice,
+        pnlPct, exitReason: exitType, entryDate: pos.entryDate,
+      }));
 
       // Write stop-loss cooldown
       if (exitType === 'stop_loss' || exitType === 'trailing_stop') {
