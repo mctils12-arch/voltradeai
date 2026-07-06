@@ -13,6 +13,49 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] R12-D2: exit fills finally recorded — Bug #13's exit machinery gets its first callers (WS exits + position kills) (v1.0.154)
+
+- Territory: T-BOT (server/bot.ts, new server/exitFill.ts + test) +
+  SHARED (package.json, this file).
+- DEFECT (found during R12, confirmed by grep of every track_fill call
+  site): ml_model_v2.track_fill has carried exit-fill detection since
+  Bug #13's fix (v1.0.34) — exit_context/exit_reason/is_close close
+  the matching open entry with real outcome + pnl_pct — but NO bot.ts
+  code path ever passed those keys. Both existing call sites are ENTRY
+  fills. Even with v1.0.153's entry repair, every record would open
+  and never close: live_performance stays zero forever.
+- FIX: server/exitFill.ts `buildExitFillPayload` (pure, 4 node tests
+  pin the exit-detection contract: exit_context present, qty_filled
+  per the v1.0.153 resolution, bot-accounted pnl_pct which wins over
+  track_fill's price recomputation, days_held derived NaN-safe) +
+  `recordExitFill` in bot.ts (tmp-file + daemon-first pattern copied
+  from the entry sites). Wired at the two FULL-exit sites: the WS
+  monitor's final exit (stop/trailing/TP/time-stop, remaining qty) and
+  the -25% POS-KILL forced liquidation ("position_kill" reason — the
+  loop must learn from the worst trades too). Recording runs strictly
+  AFTER the frozen order-POST paths; transmission untouched.
+- SCALE-OUTS EXCLUDED BY DESIGN: a partial take-profit leaves the
+  position open — closing the record on the first scale would label
+  the whole trade with a partial P&L. The final WS exit carries the
+  bot's cumulative pnl_pct, which is the honest label.
+- KNOWN REMAINING GAPS (documented, not silent): (a) exits use the WS
+  current price at submit time, not the confirmed Alpaca fill — same
+  approximation the entry sites accept; (b) other exit paths (options
+  manager exits, bot_engine-side closes, manual dashboard closes)
+  still don't record — each nonrecording path leaves its entry open,
+  where a LATER same-ticker exit could mislabel it; fossil purge +
+  path-by-path wiring are the follow-ups; (c) April fossils
+  (outcome=None) are still matchable by _find_entry_record on ticker
+  collision — mitigated because exit_context.pnl_pct wins (bot
+  accounting, not fossil entry price), fixed properly by the D4/D5
+  cleanup PR.
+- Gates: tsc 64 (baseline held); exitFill node tests 4/4; pytest 439
+  passed / 1 skipped; version 1.0.154. VERIFY (pre-stated): after the
+  next WS exit fires on prod, /api/diag/ml live_outcome_breakdown
+  shows its first win/loss outcome and live_performance.total_trades
+  goes ≥1. VXUS (time_stop) and SMH (trailing_stop) are already
+  flagged by bot_engine — candidates within days.
+
 ## 2026-07-06 — [REPAIR] R12 ROOT CAUSE FOUND + FIXED: track_fill's qty guard silently dropped every regular-hours entry fill since 2026-04-23 — ML learned nothing live for 2.5 months (v1.0.153)
 
 - Territory: T-BOT (ml_model_v2.py, new test_track_fill_qty.py) +
