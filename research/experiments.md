@@ -13,6 +13,80 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] diag `ml` probe pt.2 — outcome breakdown, chasing the v1.0.146 finding (v1.0.147)
+
+- Territory: T-BOT (same file/route as v1.0.146, continuing the same
+  repair thread within this session — not a new logical change,
+  splitting it into its own PR only because it needed a live redeploy
+  + re-query between the two code changes to know what to build next).
+- LIVE RESULT FROM v1.0.146 (queried immediately after that PR's
+  Railway redeploy, uptime_s reset 8133->140 confirmed the new code was
+  live): `{"feedback_count":500,"fills_count":0,
+  "feedback_seeded_count":0,"feedback_live_count":500,
+  "live_performance":{"total_trades":0,"win_rate":0,...}}`.
+  **This resolves the ambiguity v1.0.146 set out to resolve, and the
+  answer is the concerning one**: all 500 feedback records are LIVE
+  (zero seeded — `seed_feedback_from_backtest.py` has apparently never
+  run against this deployment, or its output was fully rotated out),
+  yet ZERO of them count as a completed trade for win-rate purposes.
+- REASONING (per REASONING STANDARD #1, tracing the mechanism before
+  touching any code): `check_model_health()`'s live-performance filter
+  requires `pnl_pct is not None`; `fills_slippage_stats()` requires
+  `expected_price` truthy AND `slippage_pct` present. A normal ENTRY
+  record from `track_fill()` (ml_model_v2.py:2428-2444) sets
+  `expected_price`/`slippage_pct` unconditionally at creation and only
+  gets `pnl_pct` filled in later, on a matching EXIT. So an ordinary
+  entry that's still open (`pnl_pct=None`) WOULD still count toward
+  `fills_count` (it has `expected_price`/`slippage_pct` from creation)
+  — it just wouldn't count toward `total_trades` yet. Getting
+  `fills_count=0` simultaneously with `feedback_live_count=500`
+  requires records that have NEITHER field — and `track_fill()`'s
+  `_is_exit_fill` branch has exactly one such shape: the "orphan exit"
+  fallback (ml_model_v2.py:2409-2425, fires when an exit fill finds no
+  matching open ENTRY record) — appends `{ticker, side, qty,
+  fill_price, time_filled, outcome:"orphan_exit", pnl_pct:None,
+  note, code_version}` with no `expected_price`/`slippage_pct` at all.
+  HYPOTHESIS (stated before checking, per REASONING STANDARD #10): all
+  or nearly all of the 500 live records are `orphan_exit` — i.e. exit
+  fills are reaching `track_fill()` but ENTRY fills for those same
+  positions never did (or were evicted before the matching exit
+  arrived), so the ENTRY/EXIT matching in `_find_entry_record` is
+  failing at scale, not just occasionally. Kill condition: if the
+  breakdown instead shows most records as `outcome: "open"` (an entry
+  that simply hasn't exited yet), that's a different, much less urgent
+  story (positions pending, not a matching failure) and changes what
+  gets fixed next.
+- BUILD: extended the same `ml` diag probe with `live_outcome_breakdown`
+  — aggregate counts of live (non-seeded) records grouped by `outcome`
+  (`None` normalized to `"open"` in the label only), e.g. `{"open": 3,
+  "win": 40, "loss": 55, "orphan_exit": 402}`. Aggregate counts only —
+  no ticker, no price, no timestamp — same sensitivity class as
+  `live_performance`, well inside the approved whitelist scope.
+  Verified locally against a synthetic 4-record fixture covering all
+  four shapes (open/orphan_exit/win/seeded) before touching the live
+  probe: `fills_count` counted only the entry+win records with
+  `expected_price` (2), `check_model_health` counted only the closed,
+  non-seeded win record (`total_trades: 1`), and the breakdown showed
+  `{"open": 1, "orphan_exit": 2, "win": 1}` — exactly the shape the
+  hypothesis predicts finding at scale in prod.
+- Gates: `npx tsx --test server/*.test.ts` 268/268 (the 3 sandbox-
+  network-flaky failures from the v1.0.146 entry did not reproduce this
+  run — transient, not a regression either way); new assertion added to
+  the same `server/diag.test.ts` block pinning `live_outcome_breakdown`
+  presence; `python3 -m pytest -q` 410 passed/2 skipped (unchanged;
+  `diagnostics.py`/`ml_model_v2.py` still untouched, read-only
+  consumption again).
+- NEXT (same session, after this PR's redeploy): query `/api/diag/ml`
+  once more; if `orphan_exit` dominates as hypothesized, that IS the
+  KNOWN BROKEN #3/#4 root cause — the actual fix (in
+  `ml_model_v2.py`'s `_find_entry_record`/`track_fill`, MUTABLE
+  territory, not frozen) becomes its own follow-up [REPAIR] PR with a
+  regression test, per the loop-health rule that a repair without a
+  test isn't complete; if it shows mostly `open` instead, the write-up
+  changes to "positions pending, no matching bug" and this thread
+  closes without a code fix.
+- STARVED: no.
+
 ## 2026-07-06 — [REPAIR] diag `ml` probe distinguishes seeded vs. live feedback + surfaces live win-rate — closing the loop on KNOWN BROKEN #3/#4 (v1.0.146)
 
 - Territory: T-BOT (server/bot.ts diag route; reuses diagnostics.py

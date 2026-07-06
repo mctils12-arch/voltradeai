@@ -1953,6 +1953,23 @@ _health = check_model_health()
 s['retrain_needed'] = _health.get('retrain_needed', False)
 s['retrain_overdue'] = _health.get('retrain_overdue', False)
 s['live_performance'] = _health.get('performance', {})
+# REPAIR 2026-07-06 pt.2: first live query (fills_count=0, feedback_live_count=500,
+# live_performance.total_trades=0) is only possible if every live record has BOTH
+# pnl_pct=None (excluded from total_trades) AND no expected_price/slippage_pct
+# (excluded from fills_count) — track_fill() sets both of those on ENTRY creation
+# unconditionally, so a normal entry record could not produce this combination.
+# The one record shape that matches is track_fill()'s "orphan_exit" fallback
+# (exit fill found no matching open entry -> logged with pnl_pct=None and no
+# expected_price field at all). Breaking down by outcome (aggregate counts only,
+# no ticker/price data) tells us directly whether that's what's happening instead
+# of inferring it from two absences.
+_outcomes = {}
+for _r in _feedback:
+    if not isinstance(_r, dict) or _r.get('_seed'):
+        continue
+    _k = _r.get('outcome') if _r.get('outcome') is not None else 'open'
+    _outcomes[_k] = _outcomes.get(_k, 0) + 1
+s['live_outcome_breakdown'] = _outcomes
 print(json.dumps(s))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "ml", ...JSON.parse(stdout.toString().trim() || "{}") }));
