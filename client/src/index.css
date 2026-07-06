@@ -2515,6 +2515,22 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 }
 .vt-earnings-linkbtn:hover { background: rgba(77, 159, 255, 0.16); }
 
+/* ── FINRA short-volume full view (#/data/short-volume) ─────────────────── */
+.vt-shortvol-body { flex: 1; overflow: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px; }
+.vt-shortvol-snapshot {
+  display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end;
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 14px 16px;
+}
+.vt-shortvol-statlabel { font-size: 10.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+.vt-shortvol-statval { font-size: 26px; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono); }
+.vt-shortvol-trendblock { display: flex; flex-direction: column; }
+.vt-shortvol-trendnote { font-size: 10.5px; color: var(--text-tertiary); margin-top: 2px; }
+.vt-shortvol-spark { display: block; }
+.vt-shortvol-spark-empty { font-size: 11.5px; color: var(--text-tertiary); padding: 12px 0; }
+.vt-shortvol-symwrap { display: flex; flex-direction: column; gap: 8px; }
+.vt-shortvol-topheader { padding-top: 4px; }
+
 /* ── /developers — API product page (T3, 2026-07-04) ─────────────────── */
 .vt-dev-page {
   max-width: 880px; margin: 0 auto; padding: 88px 20px 64px;

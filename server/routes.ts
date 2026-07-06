@@ -45,7 +45,7 @@ import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
-import { bootShortVolPoll, latestShortVol } from "./finraShortVolume";
+import { bootShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
 import { bootCotPoll, latestCot } from "./cftcCot";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
@@ -1598,6 +1598,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             `${hit.summary.floor_total_vol.toLocaleString()} shares and caps at ${hit.summary.top_cap} symbols (stated, not hidden)`,
       summary: hit.summary,
     });
+  });
+
+  // FINRA short-volume history (#/data/short-volume full view). Two modes,
+  // both bounded reads (never the request-path-materializes-the-whole-
+  // archive mistake — see finraShortVolume.ts's summary-history comment):
+  // (1) no symbol — the tiny persisted market-wide trend log (one float/day,
+  // separate from the 12K-row day archives); (2) ?symbol=X — reads up to
+  // `days` (<=90, same cap convention as insider/earnings history) archived
+  // day-files directly, one day materialized and discarded at a time, to
+  // serve that ticker's ratio series from the 2024-06-17+ deep archive.
+  app.get("/api/data/short-volume/history", (req, res) => {
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    const symbol = typeof req.query.symbol === "string" ? req.query.symbol.trim() : "";
+    try {
+      if (symbol) {
+        const series = lookupSymbolHistory(symbol, days, undefined);
+        return res.json({
+          kind: "raw",
+          source: "FINRA Reg SHO daily short sale volume (CNMS consolidated file) — free with attribution",
+          symbol: symbol.toUpperCase(),
+          days,
+          count: series.length,
+          note: series.length ? undefined : "no rows for this symbol in the archived window (delisted, not yet listed, or a typo)",
+          series,
+        });
+      }
+      res.json({
+        kind: "raw",
+        source: "FINRA Reg SHO daily short sale volume (CNMS consolidated file) — free with attribution",
+        days,
+        today: latestShortVol()?.summary ?? null,
+        trend: readSummaryHistory(days, undefined),
+        note: "market-wide agg_short_ratio trend; this log started accumulating 2026-07-06 — pass ?symbol=TICKER for that ticker's multi-year ratio series from the existing day-archive instead",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "history read failed" });
+    }
   });
 
   // CFTC Commitments of Traders, disaggregated futures-only (RAW —

@@ -65,6 +65,7 @@ const FIXTURES = {
       { id: "powerplants", name: "US power plants", kind: "raw", status: "live", group: "facilities", costTier: "moderate", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
       { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
+      { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
@@ -217,6 +218,29 @@ const FIXTURES = {
         indexUrl: "https://www.sec.gov/x/10/", exhibitUrl: "https://www.sec.gov/x/10/ex99.htm",
         text: "Sample Holdings Corp announced full-year guidance and a share buyback program.", textLength: 79, truncated: false,
       },
+    ],
+  },
+  "/api/data/short-volume": {
+    kind: "raw", source: "FINRA Reg SHO daily short sale volume (CNMS consolidated file)", time: 1,
+    summary: {
+      date: "2026-07-02", symbols: 12240, agg_short_ratio: 0.4633,
+      top_ratio: [
+        { symbol: "JUCY", short_ratio: 0.9964, total_vol: 911633, market: "Q" },
+        { symbol: "AGGH", short_ratio: 0.9909, total_vol: 1968769, market: "Q,N" },
+      ],
+      floor_total_vol: 500000, top_cap: 30,
+    },
+  },
+  "/api/data/short-volume/history": {
+    kind: "raw", source: "FINRA Reg SHO daily short sale volume (CNMS consolidated file)", days: 60,
+    today: {
+      date: "2026-07-02", symbols: 12240, agg_short_ratio: 0.4633,
+      top_ratio: [{ symbol: "JUCY", short_ratio: 0.9964, total_vol: 911633, market: "Q" }],
+      floor_total_vol: 500000, top_cap: 30,
+    },
+    trend: [
+      { date: "2026-07-01", symbols: 12200, agg_short_ratio: 0.4610 },
+      { date: "2026-07-02", symbols: 12240, agg_short_ratio: 0.4633 },
     ],
   },
   "/api/data/insider/history": {

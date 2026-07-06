@@ -1066,6 +1066,23 @@ the ladder before belief.)
    fallback if the key path stalls: USPTO weekly bulk XML
    (keyless, heavy build) — analyzed in the wishlist entry.
 
+   UI STATUS 2026-07-06: all five #1-5 pipelines shipped API-only
+   2026-07-05 (same sequencing gap earnings-language had before its
+   own PRODUCT follow-up). #1 FINRA short-volume now has its /data
+   full view (v1.0.145, market-wide trend + per-ticker archive
+   lookup + top-ratio table — see experiments.md). #2 CFTC COT
+   disaggregated and #3 Wikimedia attention are non-geospatial
+   (same insider/earnings/shortvol inline-panel-row + full-view
+   pattern would apply directly) and are the next lowest-effort UI
+   gaps. #4 FAA airport status is geospatial but its own doc comment
+   (server/faaStatus.ts) explicitly flags needing an airport-
+   coordinate lookup table as a deliberate follow-up before a map
+   layer is possible — that table is the actual next build item
+   there, not just a UI pass. #5 CBP border wait times carries a
+   `port_number` join key (server/cbpBorderWait.ts) but no
+   coordinate table exists yet either — unverified whether one is
+   readily available; check before assuming it's a straight port.
+
 ## BUILD ORDER 4 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 3 closed 6/6 same-day; [T-DATACORE] unless noted.
 Theme: DEEPEN what tonight built — the gate-2 unlocks and the queued

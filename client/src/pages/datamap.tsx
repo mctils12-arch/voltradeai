@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -11,6 +11,7 @@ import {
 } from "@/lib/mapIcons";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
+import ShortVolView from "./shortvol";
 import { mmsiFlag } from "@/lib/mmsiFlag";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
@@ -83,7 +84,7 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
-  : { imagery: true, aircraft: true, sites: true, insider: true, earnings: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
+  : { imagery: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, powerplants: true, trains: true, shadowstats: true, portdwell: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -103,7 +104,7 @@ const LAYER_GROUP: Record<string, string> = {
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
-  insider: "filings", earnings: "filings", shadowstats: "filings", portdwell: "filings",
+  insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
 };
 // registry-native grouping (BUILD ORDER 4 #2): datacore/layers.json now
 // carries `group` per layer directly — a future pipeline can slot a new
@@ -184,6 +185,8 @@ export default function DataMapPage() {
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
   // Full earnings-language view (#/data/earnings) — same overlay pattern.
   const [earningsOpen, setEarningsOpen] = useState(() => window.location.hash === "#/data/earnings");
+  // Full FINRA short-volume view (#/data/short-volume) — same overlay pattern.
+  const [shortvolOpen, setShortvolOpen] = useState(() => window.location.hash === "#/data/short-volume");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -244,6 +247,7 @@ export default function DataMapPage() {
     const onHash = () => {
       setFilingsOpen(window.location.hash === "#/data/filings");
       setEarningsOpen(window.location.hash === "#/data/earnings");
+      setShortvolOpen(window.location.hash === "#/data/short-volume");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -1904,6 +1908,33 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.earnings, mapSettled, setStatus]);
 
+  // ── FINRA daily short-sale volume (RAW; non-geospatial — same
+  // inline-panel-row + full-view pattern as insider/earnings). The
+  // underlying data is a once-per-trading-day batch (server itself only
+  // refetches every 6h), so this poll exists to refresh the panel's
+  // symbol-count badge, not to chase intraday freshness — 300s matches
+  // the sibling layers rather than inventing a slower one-off cadence. ──
+  useEffect(() => {
+    if (!enabled.shortvol) { setStatus("shortvol", "off"); return; }
+    if (!mapSettled) { setStatus("shortvol", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("shortvol", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/short-volume");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("shortvol", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("shortvol", "active", d.summary?.symbols);
+      } catch {
+        if (!stop) setStatus("shortvol", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.shortvol, mapSettled, setStatus]);
+
   // ── panel helpers ──
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
@@ -1917,7 +1948,8 @@ export default function DataMapPage() {
     id === "powerplants" ? <Zap size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
-    id === "insider" || id === "earnings" ? <FileText size={15} /> : <LayersIcon size={15} />;
+    id === "insider" || id === "earnings" ? <FileText size={15} /> :
+    id === "shortvol" ? <TrendingUp size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
     const rt = runtime[l.id];
@@ -1933,7 +1965,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -1943,10 +1975,10 @@ export default function DataMapPage() {
 
   // active-cost-budget advisory (BUILD ORDER 4 #2): sums the registry-native
   // costTier of every currently-active layer. Today's default-on set
-  // (imagery+aircraft+sites+insider+earnings+powerplants+trains+shadowstats+
-  // portdwell) weighs 13 — under the "light" ceiling, so the badge stays
-  // silent by default (zero visual regression); it only surfaces once a
-  // user (or a future larger registry's defaults) actually loads enough
+  // (imagery+aircraft+sites+insider+earnings+shortvol+powerplants+trains+
+  // shadowstats+portdwell) weighs 14 — at the "light" ceiling, so the badge
+  // stays silent by default (zero visual regression); it only surfaces once
+  // a user (or a future larger registry's defaults) actually loads enough
   // heavy layers to matter.
   const activeCostWeight = layers.reduce(
     (sum, l) => sum + (enabled[l.id] && toggleable(l) ? costWeightOf(l) : 0), 0);
@@ -2074,6 +2106,16 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "shortvol" && on && (
+          // Same pattern as insider/earnings: a per-symbol ratio table +
+          // search doesn't belong in a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/short-volume"; setShortvolOpen(true); }}>
+              Open short-volume view — ticker lookup, top movers →
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -2120,6 +2162,9 @@ export default function DataMapPage() {
       )}
       {earningsOpen && (
         <EarningsView onBack={() => { window.location.hash = "#/data"; setEarningsOpen(false); }} />
+      )}
+      {shortvolOpen && (
+        <ShortVolView onBack={() => { window.location.hash = "#/data"; setShortvolOpen(false); }} />
       )}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}

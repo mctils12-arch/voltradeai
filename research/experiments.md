@@ -13,6 +13,123 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PRODUCT] FINRA short-volume gets its /data full view — ticker lookup into the 2024-06-17+ archive + market-wide trend (v1.0.145)
+
+- Territory: crosses T-DATACORE (server/finraShortVolume.ts) + T-CLIENT
+  (client/src/pages, index.css, scripts/visual_check.mjs) + SHARED
+  (server/routes.ts, datacore/layers.json, package.json, this file) —
+  one logical change end to end, not split across sessions, per
+  WORKSTREAM PARTITION rule 5. Checked `list_pull_requests` before
+  starting: one open PR (#77, unrelated draft, Tier-2 OOM fix, stale
+  since April) — no concurrent T-DATACORE/T-CLIENT session to collide
+  with, so no serialization needed.
+- SESSION-START CHECK (repair mandate + liveness): `/api/health` on prod
+  reads uptime_s climbing normally (1382s, no restart-loop signature),
+  heap/rss steady (~55/159MB), bot active, liveness dark:false — the
+  2026-07-05 OOM crash-loop (v1.0.143) stayed resolved, no LIVENESS ALARM
+  to file. KNOWN BROKEN #4/#10 remain correctly deferred (human-audit-log
+  access limitation; shadow_portfolio history not yet deep enough) —
+  neither blocks product work, per this session's own directive.
+- HIGHEST-VALUE PRODUCT ACTION (chosen over starting a new pipeline or a
+  new gate-1 effort): BUILD ORDER 5 shipped five datacore pipelines
+  2026-07-05 (FINRA short-volume #1, CFTC COT disaggregated #2, Wikimedia
+  attention #3, FAA airport status #4, CBP border waits #5) — all five
+  are still API-only, zero /data UI, exactly the earnings-language gap
+  the 2026-07-05 PRODUCT session closed for 8-K filings. Of the five,
+  FINRA short-volume was picked: its gate-1 (parser sum-of-parts
+  identity, 100.000% on n=12,240, logged 2026-07-05) already PASSED, its
+  data is non-geospatial (fits the proven insider/earnings inline-panel-
+  row + full-view pattern with zero new map-coordinate work, unlike
+  FAA/CBP which the modules' own doc comments flag as needing an
+  airport/crossing coordinate table first), and — the actual find this
+  session — the deep backfill that crash-looped prod on 2026-07-05
+  (v1.0.138-140) had ALREADY COMPLETED before the emergency default-off:
+  prod's `/api/data/archive/stats` confirms 513 day-files, 2024-06-17 to
+  present, 80MB gz, sitting unused with zero UI. That's a 2+-year archive
+  no paid vendor undercuts (BUILD-FIRST/accumulation-substitutes-for-
+  purchase, EDGE DOCTRINE #1) that this session's job was to surface.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1), stated before building: a
+  new /data/short-volume route reading the archive -> if it recomputed
+  ratios by decompressing the full ~12K-row-per-day archive on every
+  request, that repeats the EXACT mistake that caused the 2026-07-05 OOM
+  incident (materializing a growing archive on a hot path) -> so the
+  design splits in two: (a) a NEW tiny append-only trend log
+  (`_summary_history.jsonl`, one {date, agg_short_ratio} line per
+  trading day, written at POLL time inside `refreshShortVol` exactly
+  where `summarize()` already runs — never on the request path) serves
+  the market-wide chart; (b) per-symbol lookback reads the day-archive
+  directly but is bounded to <=90 trading days (same cap convention as
+  insider/earnings history routes) and materializes ONE day at a time,
+  discarding it before the next — bounded peak memory regardless of
+  lookback depth, on-demand only (not a periodic poll).
+- BUILD: `server/finraShortVolume.ts` gains `appendSummaryHistoryEntry`/
+  `readSummaryHistory` (the trend log, idempotent per date — a restart
+  that rebuilds the cache from the already-archived newest day must not
+  double-append) and `listArchivedDates`/`lookupSymbolHistory` (bounded
+  per-symbol read, case-insensitive match, honestly OMITS a date with no
+  row for the symbol rather than zero-filling — a delisted/untraded day
+  is real absence, not a zero). `server/routes.ts`: new
+  `GET /api/data/short-volume/history?days=N[&symbol=X]`, symbol mode
+  reads the archive, no-symbol mode reads only the trend log.
+  `client/src/pages/shortvol.tsx` (new): market-wide ratio stat + a
+  self-contained inline SVG sparkline (no charting dependency added) for
+  the trend, a ticker-lookup form rendering that symbol's ratio series
+  as a table + sparkline, and today's top-30 ratio-mover table — mirrors
+  earnings.tsx's page shape (header/attribution, designed empty/loading/
+  error states, `.vt-filings-table`/`.vt-earnings-search` reused rather
+  than duplicated). `datamap.tsx`/`layers.json`: new non-geospatial
+  `shortvol` layer in the "filings" panel group, identical
+  poll-for-panel-count + "Open full view" pattern as insider/earnings
+  (300s poll — the underlying data is a once/day batch; polling exists
+  to refresh the panel badge, not to chase intraday freshness).
+  Registry-driven ZERO-COST-WHEN-OFF and self-see/toggle-consistency
+  batteries cover the new layer with no hardcoded id list to maintain.
+- HONESTY: every response still carries `kind: "raw"` + the FINRA
+  attribution and the flow-proxy-not-short-interest caveat already in
+  the live route; the client repeats "no predictive claim" in its own
+  header — short-ratio-extremes-precede-reversals stays an open gate-2
+  hypothesis, nothing here claims otherwise.
+- Tests: `server/finraShortVolume.test.ts` +6 (idempotent append/read
+  ascending/bounded-days, listArchivedDates ordering + limit, symbol
+  lookup honest-gap + case-insensitivity + unknown-symbol-empty,
+  refresh-wiring dedup across both the fresh-fetch and restart-rebuild
+  branches — the two call sites `appendSummaryHistoryEntry` was added
+  to). `npm run test:node`: 267/267 (was 261 pre-PR once `npm install`
+  restored this sandbox's missing `node_modules` — the 3 failures seen
+  before installing were `Cannot find package 'express'`, an environment
+  gap, not a code defect; confirmed clean before crediting this PR's
+  count). `npx tsc --noEmit`: identical pre-existing error set (grepped
+  for `finraShortVolume|shortvol|routes.ts` — zero hits, zero new
+  errors). `npm run build` clean. `npm run visual --page data`: 0 hard
+  failures at 390/768/1440; the one new soft warning ("Filings & flows
+  4/4 on" clipped-control) is the same below-the-fold static-screenshot
+  false positive already on file for this group (earnings-language
+  entry, 2026-07-05) — `toggleConsistency` reads "17 layers toggled
+  clean" (was 16) and self-see `failures: []`, i.e. the layer that
+  actually matters (reachability or a live desync) shows zero. A
+  scratch Playwright script (not committed, deleted after use — same
+  precedent as the earnings-language PR) screenshotted
+  `#/data/short-volume` directly at all three widths and drove the
+  ticker-search interaction end to end (typed "ZZTOP", clicked search,
+  confirmed the sparkline + table render its 2-day fixture series,
+  confirmed the empty/loading/no-symbols-cleared-the-floor states
+  render); zero console/page errors at any width.
+  Python suite not touched (no `.py` files in this diff); `pytest` is
+  not installed in this sandbox to re-verify, noted honestly per the
+  precedent set by the 2026-07-05 COT gate-2 and earnings-language
+  entries rather than claimed.
+- NOT attempted this session (correctly out of scope, SPINOUT-READY /
+  RAW-vs-SIGNAL rule): gate 2 (do short-ratio extremes precede reversals
+  in small caps) — this PR is a RAW display of the already-gate-1-passed
+  pipeline's archive, no predictive claim. FAA airport status and CBP
+  border wait times remain the next BUILD ORDER 5 UI gaps, both
+  explicitly needing a coordinate table their own doc comments already
+  flag as follow-up work — logged as the next queued PRODUCT item below.
+- STARVED: no — this was the single highest-value action available
+  (an already-validated pipeline's UI gap, chosen over a fresh gate-1
+  effort or new pipeline per SESSION BUDGET's ordering), executed start
+  to finish in one PR.
+
 ## 2026-07-05 — [REPAIR] /data trail was a static snapshot — live 30s refresh + freshness chip + harness ratchet (v1.0.144) [human-directed, T-CLIENT]
 
 - BUG: selecting an aircraft/vessel/train painted the archived trail
