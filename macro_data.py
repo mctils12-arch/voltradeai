@@ -16,6 +16,7 @@ except ImportError:
         def acquire(self): pass
     alpaca_throttle = _NoThrottle()
 from datetime import datetime, timedelta
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "")
 CACHE_PATH = "/tmp/voltrade_macro_cache.json"
@@ -147,7 +148,7 @@ def get_macro_snapshot() -> dict:
     sector_momentum = {}
     try:
         etf_symbols = ",".join(SECTOR_ETFS.keys())
-        alpaca_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={etf_symbols}&feed=sip"
+        alpaca_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={etf_symbols}&feed={data_feed()}"
         alpaca_headers = {
             "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
             "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
@@ -201,7 +202,7 @@ def get_macro_snapshot() -> dict:
         _r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
             params={"symbols": "SPY", "timeframe": "1Day",
                     "start": (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d"),
-                    "limit": 220, "feed": "sip"},
+                    "limit": 220, "feed": data_feed()},
             headers=_h, timeout=8)
         _spy_bars = _r.json().get("bars", {}).get("SPY", [])
         if len(_spy_bars) >= 200:
@@ -245,7 +246,7 @@ def get_macro_snapshot() -> dict:
         _vxx_r = requests.get(
             "https://data.alpaca.markets/v2/stocks/bars",
             params={"symbols": "VXX", "timeframe": "1Day",
-                    "start": _vxx_start, "limit": 40, "feed": "sip"},
+                    "start": _vxx_start, "limit": 40, "feed": data_feed()},
             headers=_alpaca_h, timeout=8,
         )
         _vxx_bars = _vxx_r.json().get("bars", {}).get("VXX", [])
@@ -280,7 +281,7 @@ def get_macro_snapshot() -> dict:
                 _spy_r = requests.get(
                     "https://data.alpaca.markets/v2/stocks/bars",
                     params={"symbols": "SPY", "timeframe": "1Day",
-                            "start": _spy_start, "limit": 220, "feed": "sip"},
+                            "start": _spy_start, "limit": 220, "feed": data_feed()},
                     headers=_alpaca_h, timeout=8,
                 )
                 _spy_bars = _spy_r.json().get("bars", {}).get("SPY", [])

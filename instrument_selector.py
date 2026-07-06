@@ -41,6 +41,7 @@ except ImportError:
     alpaca_throttle = _NoThrottle()
 from datetime import datetime, timezone
 from typing import Optional
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 
 # UNIT FIX 2026-05-03: Stops were broken because ewma_rv (annualized × 100)
 # was multiplied by 1.5 and clamped at 8% — every stop pinned at 8%.
@@ -1223,7 +1224,7 @@ def _check_etf_volume(etf_ticker: str) -> bool:
         ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
         resp = _req.get(
             f"https://data.alpaca.markets/v2/stocks/{etf_ticker}/bars",
-            params={"timeframe": "1Day", "limit": 1, "feed": "sip"},
+            params={"timeframe": "1Day", "limit": 1, "feed": data_feed()},
             headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
             timeout=5,
         )
@@ -1311,7 +1312,7 @@ def select_instrument(trade: dict, equity: float,
             _vxx_start = (datetime.now(_tz.utc) - _td(days=45)).strftime("%Y-%m-%d")
             _vxx_resp = alpaca_throttle.acquire()
             _vxx_resp = requests.get(
-                f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed=sip",
+                f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=35&feed={data_feed()}",
                 headers=_alpaca_headers(), timeout=5
             )
             _vxx_bars = _vxx_resp.json().get("bars", [])

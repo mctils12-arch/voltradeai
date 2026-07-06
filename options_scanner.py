@@ -65,6 +65,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, List, Dict, Any
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 
 logger = logging.getLogger("options_scanner")
 
@@ -204,7 +205,7 @@ def _get_vxx_ratio_raw() -> float:
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/bars",
             params={"symbols": "VXX", "timeframe": "1Day",
-                    "start": start, "limit": 40, "feed": "sip"},
+                    "start": start, "limit": 40, "feed": data_feed()},
             headers=_headers(), timeout=8
         )
         bars = r.json().get("bars", {}).get("VXX", [])
@@ -238,7 +239,7 @@ def _get_spy_vs_ma50_raw() -> float:
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/bars",
             params={"symbols": "SPY", "timeframe": "1Day",
-                    "start": start, "limit": 60, "feed": "sip"},
+                    "start": start, "limit": 60, "feed": data_feed()},
             headers=_headers(), timeout=8
         )
         bars = r.json().get("bars", {}).get("SPY", [])
@@ -537,7 +538,7 @@ def _fetch_iv_rank(ticker: str) -> Optional[float]:
         r = requests.get(
             f"{ALPACA_DATA}/v2/stocks/bars",
             params={"symbols": ticker, "timeframe": "1Day",
-                    "start": start, "limit": 300, "feed": "sip"},
+                    "start": start, "limit": 300, "feed": data_feed()},
             headers=_headers(), timeout=10
         )
         bars = r.json().get("bars", {}).get(ticker, [])
@@ -651,7 +652,7 @@ def _fetch_price(ticker: str) -> Optional[float]:
     try:
         alpaca_throttle.acquire()
         r = requests.get(
-            f"{ALPACA_DATA}/v2/stocks/snapshots?symbols={ticker}&feed=sip",
+            f"{ALPACA_DATA}/v2/stocks/snapshots?symbols={ticker}&feed={data_feed()}",
             headers=_headers(), timeout=6
         )
         snap = r.json().get(ticker, {})
@@ -1521,7 +1522,7 @@ def _get_options_candidates(snap_data: dict = None) -> list:
                 alpaca_throttle.acquire()
                 r = requests.get(
                     f"{ALPACA_DATA}/v2/stocks/snapshots",
-                    params={"symbols": ",".join(batch), "feed": "sip"},
+                    params={"symbols": ",".join(batch), "feed": data_feed()},
                     headers=_headers(), timeout=12)
                 return r.json()
             except Exception:

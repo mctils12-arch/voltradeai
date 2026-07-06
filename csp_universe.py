@@ -33,6 +33,7 @@ import os
 import logging
 import time
 from typing import Dict, List, Optional, Tuple, Any
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 
 logger = logging.getLogger("voltrade.csp_universe")
 
@@ -264,7 +265,7 @@ def _fetch_snap_data_for_universe() -> Dict[str, Dict]:
                 alpaca_throttle.acquire()
                 r = requests.get(
                     f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
-                    params={"symbols": ",".join(batch), "feed": "sip"},
+                    params={"symbols": ",".join(batch), "feed": data_feed()},
                     headers=_alpaca_headers(),
                     timeout=15,
                 )

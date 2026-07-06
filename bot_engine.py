@@ -59,6 +59,7 @@ except ImportError:
 import numpy as np
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 
 # OPTIMIZATION 2026-04-20: Auto-throttle all Alpaca requests (180/min).
 # Prevents silent 429 errors during parallel scan workers + options fetches.
@@ -689,7 +690,7 @@ except Exception as e:
         # and deeper IV-rank history. Extra Alpaca bars cost is trivial on paid tier.
         start_d = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
         bars_url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
-                    f"?timeframe=1Day&start={start_d}&limit=300&adjustment=all&feed=sip")
+                    f"?timeframe=1Day&start={start_d}&limit=300&adjustment=all&feed={data_feed()}")
         bars_resp = requests.get(bars_url, headers=_alpaca_headers(), timeout=8)
         bars_data = bars_resp.json().get("bars", [])
         if len(bars_data) >= 14:
@@ -1212,7 +1213,7 @@ except Exception as e:
                 _vxx_start = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
                 alpaca_throttle.acquire()
                 _vxx_resp = requests.get(
-                    f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=12&feed=sip",
+                    f"{ALPACA_DATA_URL}/v2/stocks/VXX/bars?timeframe=1Day&start={_vxx_start}&limit=12&feed={data_feed()}",
                     headers=_alpaca_headers(), timeout=5)
                 _vxx_bars = _vxx_resp.json().get("bars", [])
                 if len(_vxx_bars) >= 6:
@@ -1321,7 +1322,7 @@ except Exception as e:
             _cs_resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/bars",
                 params={"symbols": "TLT,HYG", "timeframe": "1Day",
                         "start": (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d"),
-                        "limit": 30, "feed": "sip"},
+                        "limit": 30, "feed": data_feed()},
                 headers=_alpaca_headers(), timeout=8)
             _cs_data = _cs_resp.json().get("bars", {})
             _tlt_bars = _cs_data.get("TLT", [])
@@ -2049,7 +2050,7 @@ def _get_atr(ticker, period=14):
         lookback_days = max(60, period * 4)
         start = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
         url = (f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/bars"
-               f"?timeframe=1Day&start={start}&limit={period * 3}&adjustment=all&feed=sip")
+               f"?timeframe=1Day&start={start}&limit={period * 3}&adjustment=all&feed={data_feed()}")
         resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
         data = resp.json()
         results = data.get("bars", [])
@@ -2438,7 +2439,7 @@ def _scan_market_inner():
     def _fetch_snap(batch):
         try:
             alpaca_throttle.acquire()
-            r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols={','.join(batch)}&feed=sip",
+            r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots?symbols={','.join(batch)}&feed={data_feed()}",
                 headers=_alpaca_headers(), timeout=15)
             raw = r.json()
             # Extract only fields needed by quick-score. Drops latestTrade,
@@ -3052,7 +3053,7 @@ def _scan_market_inner():
         try:
             alpaca_throttle.acquire()
             _quote_r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/{ticker}/quotes/latest",
-                params={"feed": "sip"}, headers=_alpaca_headers(), timeout=5)
+                params={"feed": data_feed()}, headers=_alpaca_headers(), timeout=5)
             _quote = _quote_r.json().get("quote", {})
             _bid = float(_quote.get("bp", 0) or 0)
             _ask = float(_quote.get("ap", 0) or 0)
@@ -3788,7 +3789,7 @@ def _run_third_leg(macro: dict) -> dict:
         if vrp_pct > 0 and 1.05 <= vxx_ratio <= 1.25:
             # Check VXX trend: fetch last 5 days
             vxx_r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
-                params={"symbols":"VXX","timeframe":"1Day","limit":6,"feed":"sip"},
+                params={"symbols":"VXX","timeframe":"1Day","limit":6,"feed": data_feed()},
                 headers=headers, timeout=8)
             vxx_bars = vxx_r.json().get("bars",{}).get("VXX",[])
             vxx_declining = (len(vxx_bars) >= 2 and
@@ -3797,7 +3798,7 @@ def _run_third_leg(macro: dict) -> dict:
             if vxx_declining and "SVXY" not in position_syms:
                 # Buy SVXY: inverse volatility ETF (goes up as VXX falls)
                 svxy_r = _req.get("https://data.alpaca.markets/v2/stocks/snapshots",
-                    params={"symbols":"SVXY","feed":"sip"}, headers=headers, timeout=8)
+                    params={"symbols":"SVXY","feed": data_feed()}, headers=headers, timeout=8)
                 svxy_price = float(svxy_r.json().get("SVXY",{}).get("latestTrade",{}).get("p", 0) or 0)
                 if svxy_price > 0:
                     alloc  = equity * vrp_pct
@@ -4066,7 +4067,7 @@ def _run_convexity_overlay(macro: dict) -> dict:
 
         # ── Get current QQQ price ────────────────────────────────────────────
         snap_r = _req.get(f"https://data.alpaca.markets/v2/stocks/snapshots",
-            params={"symbols": "QQQ", "feed": "sip"}, headers=headers, timeout=8)
+            params={"symbols": "QQQ", "feed": data_feed()}, headers=headers, timeout=8)
         qqq_price = float(snap_r.json().get("QQQ", {}).get("latestTrade", {}).get("p", 0) or 0)
         if qqq_price <= 0:
             _log.debug("[CONVEXITY] Could not get QQQ price")
@@ -4327,7 +4328,7 @@ def _manage_spy_floor(macro: dict) -> dict:
                 alpaca_throttle.acquire()
                 _qqq_bars_resp = requests.get(
                     f"{ALPACA_DATA_URL}/v2/stocks/{floor_ticker}/bars",
-                    params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": "sip"},
+                    params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": data_feed()},
                     headers=_alpaca_headers(), timeout=10)
                 _qqq_bars = _qqq_bars_resp.json().get("bars", [])
                 if len(_qqq_bars) >= 200:
@@ -4559,7 +4560,7 @@ def _manage_spy_floor(macro: dict) -> dict:
         try:
             alpaca_throttle.acquire()
             snap = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
-                params={"symbols": floor_ticker, "feed": "sip"},
+                params={"symbols": floor_ticker, "feed": data_feed()},
                 headers=_alpaca_headers(), timeout=8).json()
             spy_price = float(snap.get(floor_ticker, {}).get("latestTrade", {}).get("p", 0) or 0)
         except Exception:
@@ -4703,7 +4704,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
                 alpaca_throttle.acquire()
                 _bars_resp = requests.get(
                     f"{ALPACA_DATA_URL}/v2/stocks/{floor_ticker}/bars",
-                    params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": "sip"},
+                    params={"timeframe": "1Day", "limit": 210, "adjustment": "all", "feed": data_feed()},
                     headers=_alpaca_headers(), timeout=10)
                 _bars = _bars_resp.json().get("bars", [])
                 if len(_bars) >= 200:
@@ -4812,7 +4813,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
             alpaca_throttle.acquire()
             snap = requests.get(
                 f"{ALPACA_DATA_URL}/v2/stocks/snapshots",
-                params={"symbols": defensive_ticker, "feed": "sip"},
+                params={"symbols": defensive_ticker, "feed": data_feed()},
                 headers=_alpaca_headers(), timeout=8).json()
             last_px = float(snap.get(defensive_ticker, {}).get("latestTrade", {}).get("p", 0) or 0)
         except Exception:

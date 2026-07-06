@@ -26,6 +26,7 @@ import logging
 import time
 import math
 from typing import Dict, Any, List
+from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 
 logger = logging.getLogger("voltrade.probability")
 
@@ -51,7 +52,7 @@ def _momentum_pct(ticker: str, lookback_days: int = 90) -> float:
         start = (_dt.now() - _td(days=lookback_days + 10)).strftime("%Y-%m-%d")
         r = _rq.get(
             f"https://data.alpaca.markets/v2/stocks/bars",
-            params={"symbols": ticker, "timeframe": "1Day", "start": start, "limit": 120, "feed": "sip"},
+            params={"symbols": ticker, "timeframe": "1Day", "start": start, "limit": 120, "feed": data_feed()},
             headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
             timeout=10,
         )

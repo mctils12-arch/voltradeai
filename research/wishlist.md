@@ -1,5 +1,26 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠️ URGENT — READ FIRST (2026-07-06 ~15:45Z, push-notified)
+
+**#9. ALPACA SIP DATA ENTITLEMENT REJECTED — check the Alpaca
+dashboard Market Data subscription (2 min).** Since Monday's open
+every market-data request with feed=sip returns HTTP 403 (named by
+/api/diag/scanner after the v1.0.148 visibility fix): the Tier2 scan
+found ZERO new candidates all morning; options scanner, VXX regime
+reads, SPY floor, and shadow-portfolio backfills were equally blind.
+The trading API and account access are unaffected. Likely causes: an
+Algo Trader Plus subscription lapsed/changed, or Alpaca changed free-
+tier SIP access. **Self-repair shipped (v1.0.150):** the stack now
+probes the entitlement and auto-downgrades to feed=delayed_sip — the
+FULL consolidated tape at a 15-minute delay, free on all tiers — so
+scanning works again with honest volume numbers (feed=iex was
+rejected: ~30-50x volume undercount would poison the $50M floors).
+If you restore the paid SIP subscription, the bot upgrades itself
+back to real-time within 10 minutes (probe TTL) — no deploy needed.
+Decision for you: pay for real-time SIP (Algo Trader Plus, ~$99/mo)
+or accept 15-min-delayed candidate discovery (executions still price
+live via the trading API either way).
+
 ## [RESOLVED — 2026-07-05, confirmed stale 2026-07-06 (two independent
 sessions, v1.0.146 and this one)] ~~#8. PROD RESTART LOOP~~
 
