@@ -48,6 +48,7 @@ import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { bootShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
 import { bootCotPoll, latestCot } from "./cftcCot";
+import { bootTffPoll, latestTff } from "./cftcTff";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1656,6 +1657,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       report_date: hit.report_date,
       count: hit.rows.length,
       note: "weekly positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; positioning-extreme signals need trailing history the archive is only beginning to accumulate",
+      markets: hit.rows,
+    });
+  });
+
+  // CFTC Traders in Financial Futures, futures-only (RAW — BUILD
+  // ORDER 6 #1, keyless Socrata sibling of /api/data/cot). Weekly
+  // report; serves the poller's cached week only (event-loop rule).
+  bootTffPoll();
+  app.get("/api/data/tff", (_req, res) => {
+    const hit = latestTff();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "CFTC Traders in Financial Futures", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "CFTC Traders in Financial Futures, futures-only (public domain)",
+      attribution: "CFTC Traders in Financial Futures",
+      time: hit.at,
+      report_date: hit.report_date,
+      count: hit.rows.length,
+      note: "weekly financial-futures positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; positioning-extreme signals need trailing history the archive is only beginning to accumulate",
       markets: hit.rows,
     });
   });
