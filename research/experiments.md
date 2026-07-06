@@ -13,6 +13,41 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PIPELINE] NHTSA complaints watchlist stream (BUILD ORDER 6 #4) — curated-seed archiver + /api/data/vehicle-complaints (v1.0.159)
+
+- Territory: T-DATACORE (server/nhtsaComplaints.ts + test,
+  datacore/nhtsa_vehicles.json seed, manifests/nhtsacomplaints.json) +
+  SHARED (server/routes.ts wiring last + minimal, package.json, this
+  file).
+- DESIGN DECISION (recorded): the daily bulk FLAT_CMPL.zip is 84+MB —
+  unbootable under the memory/event-loop rules — so the stream polls a
+  CURATED ticker-mapped make/model/year watchlist (20 vehicles across
+  TSLA/F/GM/RIVN/STLA/TM/HMC/HYMTF/LCID/NSANY/VWAGY, recent model
+  years only — complaint VELOCITY needs current product) via the
+  keyless per-vehicle API. This is the wikiAttention curated-seed
+  pattern applied to NHTSA; the bulk file is the documented
+  deep-history follow-up. Free-text summaries deliberately NOT
+  archived (counts/flags/dates/components carry the signal; a
+  test pins the exclusion).
+- Shape probed live before coding: {count, results:[{odiNumber,
+  crash, fire, numberOfInjuries, dateComplaintFiled MM/DD/YYYY,
+  components,...}]} — dates ISO-normalized; ODI number is the
+  event-identity dedup key (across fetches AND restarts). 12h sweep,
+  ~20 politeness-spaced calls/cycle, day-file per fetch date, gz 2d,
+  eager boot, cache-only route serving per-vehicle stats.
+- PRIOR (from the build order, restated): medium-low for megacaps
+  (crowded), medium for the supplier-mapping angle via the components
+  field (uncrowded — Everything Graph substrate). Gate 1 = complaint
+  counts vs NHTSA's published recall timeline for 3 known cases;
+  gate 2 = velocity anomalies vs forward returns.
+- Gates: node 311/311 (5 new tests incl. watchlist-bounded pin and
+  summaries-excluded pin); pytest untouched; tsc 64; build OK;
+  version 1.0.159. VERIFY (pre-stated): post-deploy
+  /api/data/vehicle-complaints serves 20 vehicle stat rows with
+  newest_filed dates in 2026; archive gains
+  nhtsacomplaints/<fetch-date>.jsonl with several hundred events on
+  first sweep (the API returns each vehicle's recent window).
+
 ## 2026-07-06 — [PIPELINE] FDIC bank failures event stream (BUILD ORDER 6 #3 v1) — keyless archiver + /api/data/bank-failures (v1.0.158)
 
 - Territory: T-DATACORE (server/fdicBanks.ts + test,

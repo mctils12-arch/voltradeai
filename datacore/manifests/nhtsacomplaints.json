@@ -1,0 +1,24 @@
+{
+ "stream": "nhtsacomplaints",
+ "storage": "append-only JSONL day-files under <archive>/nhtsacomplaints/, one file per FETCH date with event-identity dedup (ODI number) within and across restarts; gz after 2 days",
+ "written_by": "server/nhtsaComplaints.ts archiveNewComplaints (12h watchlist sweep, ~20 politeness-spaced calls/cycle, eager boot)",
+ "source": "NHTSA ODI complaints API (api.nhtsa.gov/complaints/complaintsByVehicle) — keyless JSON, US government public domain. Polled over a CURATED ticker-mapped make/model/year watchlist (datacore/nhtsa_vehicles.json, static import) because the daily bulk FLAT_CMPL.zip is 84+MB and unbootable; the bulk file is the documented deep-history follow-up. Shape verified live 2026-07-06; dates arrive MM/DD/YYYY (normalized to ISO)",
+ "license": "US government work, public domain; attribution 'NHTSA Office of Defects Investigation'",
+ "attribution": "NHTSA Office of Defects Investigation",
+ "schema_version": 1,
+ "field_map": {
+  "odi — event-identity dedup key": "ODI complaint number; the same complaint never re-archives regardless of fetch windows",
+  "ticker/make/model/model_year": "watchlist mapping (ticker is OUR join key, not NHTSA data)",
+  "filed/incident": "complaint-filed and incident dates, ISO-normalized",
+  "crash/fire/injuries": "severity flags as published",
+  "components": "affected components verbatim — the supplier-mapping raw material (Everything Graph follow-up)",
+  "summaries": "free text deliberately NOT archived — the velocity signal needs counts/flags/dates, and bulk text belongs to the flat-file follow-up"
+ },
+ "confidence_model": "RAW official complaint events over a curated watchlist — coverage is the WATCHLIST, not the full vehicle universe (stated on the route). The complaint-velocity hypothesis stays gate-locked: gate 1 = counts vs NHTSA's published recall timeline for 3 known cases; gate 2 = velocity anomalies vs forward returns.",
+ "geo_fields": [],
+ "entity_key": "odi",
+ "sentiment": null,
+ "started": "2026-07-06",
+ "cadence": "bulk source updates daily; 12h watchlist sweep (~20 calls) makes quiet days dedup no-ops",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 6 #4; the wikiAttention curated-seed pattern applied to NHTSA."
+}

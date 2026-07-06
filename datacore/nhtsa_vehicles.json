@@ -1,0 +1,25 @@
+{
+  "_note": "Curated NHTSA complaints watchlist (BUILD ORDER 6 #4, 2026-07-06). Ticker-mapped make/model/year triples polled via the keyless complaintsByVehicle API — the bounded alternative to the 84MB daily bulk file. Recent model years chosen (complaint velocity on CURRENT product is the signal; old years are static history). Curation additions welcome; every entry costs one API call per poll cycle.",
+  "vehicles": [
+    { "ticker": "TSLA", "make": "tesla", "model": "model 3", "modelYear": 2024 },
+    { "ticker": "TSLA", "make": "tesla", "model": "model y", "modelYear": 2024 },
+    { "ticker": "TSLA", "make": "tesla", "model": "cybertruck", "modelYear": 2024 },
+    { "ticker": "F", "make": "ford", "model": "f-150", "modelYear": 2024 },
+    { "ticker": "F", "make": "ford", "model": "explorer", "modelYear": 2024 },
+    { "ticker": "F", "make": "ford", "model": "bronco", "modelYear": 2024 },
+    { "ticker": "GM", "make": "chevrolet", "model": "silverado 1500", "modelYear": 2024 },
+    { "ticker": "GM", "make": "chevrolet", "model": "equinox", "modelYear": 2024 },
+    { "ticker": "GM", "make": "gmc", "model": "sierra 1500", "modelYear": 2024 },
+    { "ticker": "RIVN", "make": "rivian", "model": "r1t", "modelYear": 2024 },
+    { "ticker": "RIVN", "make": "rivian", "model": "r1s", "modelYear": 2024 },
+    { "ticker": "STLA", "make": "jeep", "model": "grand cherokee", "modelYear": 2024 },
+    { "ticker": "STLA", "make": "ram", "model": "1500", "modelYear": 2024 },
+    { "ticker": "TM", "make": "toyota", "model": "rav4", "modelYear": 2024 },
+    { "ticker": "TM", "make": "toyota", "model": "camry", "modelYear": 2025 },
+    { "ticker": "HMC", "make": "honda", "model": "cr-v", "modelYear": 2024 },
+    { "ticker": "HYMTF", "make": "hyundai", "model": "tucson", "modelYear": 2024 },
+    { "ticker": "LCID", "make": "lucid", "model": "air", "modelYear": 2024 },
+    { "ticker": "NSANY", "make": "nissan", "model": "rogue", "modelYear": 2024 },
+    { "ticker": "VWAGY", "make": "volkswagen", "model": "id.4", "modelYear": 2024 }
+  ]
+}

@@ -51,6 +51,7 @@ import { bootCotPoll, latestCot } from "./cftcCot";
 import { bootTffPoll, latestTff } from "./cftcTff";
 import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
+import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1724,6 +1725,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.failures.length,
       note: "most recent US bank failures/assistance events, amounts in $ thousands as published; cost is the estimated DIF loss and is null until estimated; regional-bank-stress signals stay gate-locked until ladder validation",
       failures: hit.failures,
+    });
+  });
+
+  // NHTSA complaints watchlist (RAW — BUILD ORDER 6 #4, keyless,
+  // curated-seed pattern). Serves the sweep's cached per-vehicle
+  // stats only (event-loop rule).
+  bootComplaintsPoll();
+  app.get("/api/data/vehicle-complaints", (_req, res) => {
+    const hit = latestComplaintStats();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "NHTSA Office of Defects Investigation", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "NHTSA ODI complaints API (US government data)",
+      attribution: "NHTSA Office of Defects Investigation",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "per-vehicle complaint stats over a CURATED ticker-mapped watchlist (not the full vehicle universe); complaint-velocity signals stay gate-locked until ladder validation",
+      vehicles: hit.stats,
     });
   });
 
