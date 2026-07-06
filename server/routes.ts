@@ -71,6 +71,7 @@ import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
+import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
 
 const execAsync = promisify(exec);
 
@@ -1068,6 +1069,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Archive growth observability (volume watch — see wishlist).
   app.get("/api/data/archive/stats", (_req, res) => {
     try { res.json(archiveStats()); } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Streams inventory (DATACORE MAXIMUS Phase 4, 2026-07-06): one call =
+  // every manifested stream with source/hypothesis/recording-since/count/
+  // freshness/health/latest-peek. Cache-only request path (event-loop
+  // rule); the scan runs on a 5-min timer + eager boot. Coverage is
+  // mechanical — the aggregator enumerates datacore/manifests/ at runtime
+  // (pinned by the inventory-coverage ratchet in streamsInventory.test.ts).
+  bootStreamsInventoryPoll();
+  app.get("/api/data/streams", (_req, res) => {
+    try {
+      const inv = getStreamsInventoryCached();
+      if (!inv) { res.json({ warming_up: true, count: 0, streams: [] }); return; }
+      res.json(inv);
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
   // Aircraft entity spine v1 (GIP Part 3b; BUILD ORDER 2 #1, 2026-07-05).

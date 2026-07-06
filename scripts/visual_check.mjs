@@ -41,6 +41,11 @@ const WIDTHS = [
 // non-map pages get layout + interaction checks only.
 const PAGES = {
   data: { route: "/app#/data", map: true },
+  // Streams inventory overlay (Phase 4, 2026-07-06) — a page-wide surface,
+  // registered here per the Phase 5 ratchet: every new view passes the
+  // harness at 390/768/1440 before it ships. Non-map battery (the overlay
+  // covers the map).
+  streams: { route: "/app#/data/streams", map: false },
   developers: { route: "/developers", map: false },
   landing: { route: "/", map: false },
 };
@@ -198,6 +203,45 @@ const FIXTURES = {
     counts: { nodes: 42, edges: 61, company: 9, person: 14, facility: 16, vessel: 3, insider_of: 18, operates: 12, calls_at: 31 },
     caveat: "RAW graph — every edge asserts a relationship with provenance (fixture).",
     note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query",
+  },
+  // Streams inventory (Phase 4) — one row per health state so the card
+  // battery exercises every chip/peek/no-data rendering path at 390px.
+  "/api/data/streams": {
+    time: 1, count: 4,
+    streams: [
+      {
+        stream: "occvolume", source: "OCC volume-query (marketdata.theocc.com) — keyless CSV (fixture)", attribution: "The Options Clearing Corporation (OCC) daily volume",
+        license: "OCC informational use", started: "2026-07-06", cadence: "daily source, published overnight ET; 4h poll",
+        hypothesis: "customer-vs-market-maker put/call by ticker (gate-locked)", storage: "one gzipped JSONL per report date", written_by: "server/occVolume.ts",
+        files: 3, bytes: 3145728, newest_file: "2026-07-02.jsonl.gz", age_hours: 6.2, records_newest_file: 153181,
+        latest_peek: '{"date":"2026-07-02","underlying":"SPY","symbol":"SPY","actype":"M","porc":"P","exchange":"CBOE","qty":120}', peek_note: null,
+        health: "live", health_note: "newest file 6.2h old",
+      },
+      {
+        stream: "cropconditions", source: "USDA NASS QuickStats weekly crop condition ratings (fixture)", attribution: "USDA National Agricultural Statistics Service",
+        license: "US government data", started: "2026-07-06", cadence: "weekly, Mondays 4pm ET",
+        hypothesis: "condition-change vs grain price moves (gate 1 pending)", storage: "one JSONL per observation week", written_by: "server/cropConditions.ts",
+        files: 1, bytes: 4096, newest_file: "2026-07-05.jsonl", age_hours: 96.0, records_newest_file: 10,
+        latest_peek: '{"week":"2026-07-05","commodity":"CORN","item":"GOOD","value":41}', peek_note: null,
+        health: "recent", health_note: "newest file 96.0h old (within cadence ~240h)",
+      },
+      {
+        stream: "railep724", source: "STB EP724 weekly rail performance (fixture)", attribution: "Surface Transportation Board",
+        license: "US government data", started: "2026-07-05", cadence: "weekly, session-run pipeline",
+        hypothesis: "carload trends lead reported volumes", storage: "weekly JSONL artifacts", written_by: "scripts/stb_rail.py (session-run)",
+        files: 2, bytes: 51200, newest_file: "2026-06-20.jsonl", age_hours: 384.0, records_newest_file: 88,
+        latest_peek: null, peek_note: "peek skipped: newest file 9.1MB > 8MB cap",
+        health: "stale", health_note: "newest file 384.0h old — exceeds cadence-derived threshold ~240h",
+      },
+      {
+        stream: "griddemand", source: "EIA-930 hourly demand by balancing authority (fixture)", attribution: "U.S. Energy Information Administration",
+        license: "US government data", started: "2026-07-06", cadence: "hourly source, 2h poll",
+        hypothesis: "regional demand anomalies vs utility/industrial names", storage: "one JSONL per observation day", written_by: "server/gridDemand.ts",
+        files: 0, bytes: 0, newest_file: null, age_hours: null, records_newest_file: null,
+        latest_peek: null, peek_note: "no files",
+        health: "no-data", health_note: "no archive files yet — key-gated, warming up, or first write pending",
+      },
+    ],
   },
   "/api/data/earnings-language": {
     kind: "raw", source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99)", time: 1, count: 1,

@@ -7155,3 +7155,62 @@ exception to append-only; the log below it stays append-only)
 - STARVED: no — this was a fully-specified queued gate-2 judgment,
   executed start to finish, that avoided colliding with the concurrent
   session's T-DATACORE build-order work.
+
+## 2026-07-07 — [PRODUCT] Streams inventory tab (DATACORE MAXIMUS Phase 4 first item + Phase 5 coverage ratchet) — v1.0.167
+
+- FIRST: v1.0.166 (power-grid TX pilot, #298) VERIFY CONFIRMED post-deploy
+  exactly as pre-stated: `curl -r 0-100 voltradeai.com/tiles/power_tx.pmtiles`
+  → 206, and /api/data/layers serves the powergrid entry with the full
+  coverage-honesty description. (First registry probe during the deploy
+  replace-window returned the old container's registry — resolved on
+  re-poll; the R13 lesson about replace-windows applies to verification
+  probes too.)
+- TERRITORY: T-CLIENT + T-DATACORE server aggregate (one logical change:
+  a user-visible surface with its API, per CLAUDE.md client-rule).
+- WHAT: one call = the whole archive census. server/streamsInventory.ts
+  joins the STATIC manifest envelope (datacore/manifests/*.json — source,
+  license, attribution, started, cadence, confidence_model-as-hypothesis)
+  with DYNAMIC disk facts (files, bytes, newest-file age, records in
+  newest file, latest-record peek). /api/data/streams serves a 5-min
+  cache only (event-loop rule; eager boot). #/data/streams overlay
+  (hash pattern like filings/graph): mobile-first stacked cards, health
+  filter chips with counts, text filter, expandable detail + JSON peek;
+  launcher row atop the layer panel ("nothing ships invisible").
+- DESIGN DECISIONS (traced): (1) disk-scan over per-module status joins —
+  the subagent route-map showed 12 manifested streams have NO server
+  route (session-run Python writers: railep724, eiaweekly, cpcdegreedays,
+  sentinel*, legacy cot) and would be invisible to any status-function
+  join; the archive directory is the one surface EVERY stream touches.
+  (2) records counted in the NEWEST file only (free — the peek already
+  reads it); full-archive record counts stay platformStats' job (10-min
+  TTL) — duplicating that scan every 5 min would double volume reads for
+  a number files/bytes already proxy. (3) HEALTH is DERIVED (age vs
+  cadence-keyword threshold, generous defaults) and labeled as such; raw
+  age always shown so the derivation can be second-guessed; missing dir
+  = "no-data" row, never hidden. (4) peek capped at 8MB compressed with
+  an honest skip note; torn tail (partial write) flagged, never parsed
+  around.
+- RATCHETS (Phase 5, landed with the feature): streamsInventory.test.ts
+  INVENTORY-COVERAGE test — every datacore/manifests/*.json must appear
+  in the inventory output (the aggregator enumerates the dir at runtime,
+  so a new manifested stream surfaces on /data mechanically; a stream
+  missing from the inventory is a failing build). streams page
+  registered in visual_check.mjs PAGES → layout battery gates it at
+  390/768/1440 from now on. CJS-bundle gotcha compiled: import.meta.url
+  does not survive the dist/index.cjs esbuild — runtime repo-file access
+  uses process.cwd() (platformStats precedent).
+- GATES: tsc 64 (baseline, unchanged); node tests 331/331 (326 + 5 new);
+  npm run build OK (power_tx.pmtiles confirmed still bundled);
+  npm run visual PASS 390/768/1440 including the NEW streams page
+  (fixture exercises all four health states); 390px streams screenshot
+  self-reviewed against DESIGN.md. Version 1.0.166 → 1.0.167.
+- VERIFY (pre-stated): post-deploy /api/data/streams returns count=41
+  (or current manifest census) with real archive facts — occvolume
+  "live" with a real peek, key-gated-but-active streams (griddemand,
+  cropconditions) showing files>0, session-run Python streams honestly
+  "stale"/"no-data" (their writers never ran on Railway — that is the
+  honest reading, not a defect); /data layer panel shows the "Streams
+  inventory" launcher; #/data/streams renders the cards on a phone
+  viewport.
+- STARVED: no — queue continues (census builds JODI → FINRA Query
+  cluster → SEC FTD; Phase 3 imagery freshness; grid item 2 US-full).
