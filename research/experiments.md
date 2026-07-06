@@ -13,6 +13,52 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] R12-D4: boot cleanup correctness — seeds spared, numeric version floor, April fossils purged (v1.0.155)
+
+- Territory: T-BOT (feedback_boot_cleanup.py + test, server/bot.ts
+  snippet, test_fixes_pr11.py re-pin) + SHARED (package.json, this
+  file).
+- ONE LOGICAL CONCERN — the boot-time trade_feedback cleanup filter —
+  fixing its three defects together (they are one filter expression):
+  1. SEED WIPE-OUT (D4 proper): seeds carry no code_version; the old
+     string compare deleted every Kelly-prior seed on every deploy.
+     Seeds (_seed: True) are now kept unconditionally.
+  2. LEXICOGRAPHIC TRAP (latent future wipe, found during D4 design):
+     '1.0.153' < '1.0.34' as STRINGS — any record stamped a real
+     3-digit patch version would have been silently wiped at next
+     boot. Compare is now numeric tuples.
+  3. FOSSIL PURGE: floor raised to (1,0,34) — the 500 April records
+     (pre-Bug-25b writer, code_version 1.0.33, pnl 0, outcome-less)
+     are exactly the broken-code artifacts the cleanup exists to
+     remove, and they were doing active harm: blocking the daemon's
+     <100-record reseed AND matchable by _find_entry_record on ticker
+     collision (mislabel risk for D2's exit recording).
+- MEASUREMENT INTEGRITY (stated per the rule, this change touches the
+  training-data pool): removing the fossils cannot make live
+  performance LOOK better — they were already excluded from every
+  performance metric (pnl 0 + outcome None is filtered by
+  check_model_health and the dashboard). Direction of effect on
+  TRAINING: removes 500 records that _build_feedback_training_data
+  would default to label=0 (loss) noise; restores ~1326 seeded priors
+  the Kelly gate was designed to start from. Named bugs, not tuning.
+- MECHANISM: filter extracted from the inline bot.ts snippet into
+  feedback_boot_cleanup.py (keep_record/clean_feedback/parse_version,
+  strings-only version parsing so corrupt numeric values fail the
+  floor) — compile-knowledge-into-code, unit-testable. bot.ts snippet
+  now imports it. test_fixes_pr11.py's two source-string pins on the
+  OLD inline filter re-pinned BEHAVIORALLY against the module (same
+  two protections — ticker filter, version floor — asserted stricter,
+  plus a new pin that bot.ts routes through the module; R1 stale-pin
+  precedent, no assertion weakened).
+- EXPECTED PROD SEQUENCE at next boot: cleanup removes 500 fossils →
+  file <100 records → daemon autoseed refills ~1326 _seed records →
+  cleanup now SPARES them → Kelly priors restored permanently.
+- Gates: pytest 449 passed / 1 skipped (9 new + re-pins); tsc 64;
+  version 1.0.155. VERIFY (pre-stated): post-deploy /api/diag/ml shows
+  feedback_seeded_count ≈ 1326 (nonzero at minimum) and
+  live_key_signatures no longer contains the 15-key 1.0.33 fossil
+  signature; check after the next deploy-boot cycle.
+
 ## 2026-07-06 — [REPAIR] R12-D2: exit fills finally recorded — Bug #13's exit machinery gets its first callers (WS exits + position kills) (v1.0.154)
 
 - Territory: T-BOT (server/bot.ts, new server/exitFill.ts + test) +

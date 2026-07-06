@@ -294,20 +294,44 @@ class TestBotSourceContainsFilters(unittest.TestCase):
             "Performance endpoint missing ticker + entry record filter"
         )
 
-    def test_startup_cleanup_has_ticker_filter(self):
-        """Startup cleanup should check for non-empty ticker."""
+    # RE-PINNED 2026-07-06 (R12-D4): the inline boot-cleanup filter moved to
+    # feedback_boot_cleanup.py (unit-tested there — seeds spared, numeric
+    # version compare, 1.0.34 floor). These pins assert the SAME two
+    # protections at their new home, plus that bot.ts actually routes the
+    # boot cleanup through the module (the wiring is what makes the module's
+    # own tests meaningful). Both protections are pinned BEHAVIORALLY now,
+    # which is stricter than the old source-string match.
+
+    def test_startup_cleanup_routes_through_tested_module(self):
+        """bot.ts boot cleanup must call feedback_boot_cleanup.clean_feedback."""
         self.assertIn(
-            "and t.get('ticker', '').strip()",
+            "from feedback_boot_cleanup import clean_feedback",
             self.source,
-            "Startup cleanup missing ticker filter"
+            "Startup cleanup no longer routes through the unit-tested module"
+        )
+
+    def test_startup_cleanup_has_ticker_filter(self):
+        """Startup cleanup should drop records with empty tickers (now in the module)."""
+        import feedback_boot_cleanup
+        self.assertFalse(
+            feedback_boot_cleanup.keep_record(
+                {"ticker": "  ", "code_version": "1.0.34"}),
+            "cleanup must drop records with empty tickers"
         )
 
     def test_startup_cleanup_still_checks_code_version(self):
-        """Startup cleanup should still check code_version >= '1.0.33'."""
-        self.assertIn(
-            "t.get('code_version', '') >= '1.0.33'",
-            self.source,
-            "Startup cleanup missing code_version check"
+        """Startup cleanup should still enforce a code_version floor (now
+        numeric, floor 1.0.34 — feedback_boot_cleanup.MIN_TRUSTED_VERSION)."""
+        import feedback_boot_cleanup
+        self.assertFalse(
+            feedback_boot_cleanup.keep_record(
+                {"ticker": "AAPL", "code_version": "1.0.32"}),
+            "cleanup must drop records below the trusted-version floor"
+        )
+        self.assertTrue(
+            feedback_boot_cleanup.keep_record(
+                {"ticker": "AAPL", "code_version": "1.0.34"}),
+            "cleanup must keep records at/above the trusted-version floor"
         )
 
 
