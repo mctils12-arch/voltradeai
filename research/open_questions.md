@@ -92,6 +92,21 @@
    false-positive fix). 6 new regression tests in
    test_diagnostic_false_positives.py, isolation explicitly pinned by a
    source-inspection test. See experiments.md for the full trace.
+   **UPDATE 2026-07-06, v1.0.151**: the extended_checks above only ever
+   checked CACHE FRESHNESS (does a reddit_/fh_ file exist and how old is
+   it) — the actual exception from a failed fetch was still never
+   captured, for any of the 5 sources (not just the 2 that got
+   extended_checks). Closed: `bot_engine.py`'s `deep_score()` now routes
+   all 5 fetchers (`_fetch_macro`/`_fetch_intel`/`_fetch_alt`/
+   `_fetch_social`/`_fetch_finnhub`) through a new `_run_diag_fetch`
+   helper that captures `"ExcType: message"` per source into an optional
+   `_diag` dict — same pattern `_fetch_snap` got in v1.0.148. Surfaced
+   top-level-only (never inside a per-candidate dict, so it can't reach
+   ML features or the shadow_portfolio log) as `data_source_errors` on
+   `scan_market`'s return, read into `tier2LastDataSourceErrors` in
+   `server/bot.ts`, and exposed on the existing token-gated
+   `/api/diag/scanner` probe (never `/api/health`). See experiments.md
+   for the full trace and downstream-chain reasoning.
 
 6. **[RESOLVED 2026-07-04 — v1.0.73]** ~~Full-repo pytest is broken at
    collection (pre-existing).~~ Root causes were NOT network/keys (the

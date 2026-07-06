@@ -65,3 +65,38 @@ test("wiring pinned: bot_engine.py's scan error carries debug_detail (root cause
   assert.ok(engine.includes('"debug_detail": _snap_diag["detail"]'), "the empty-scan error path must attach the diagnosed reason");
   assert.ok(engine.includes("def _parse_snapshot_batch"), "the pure, unit-testable parse+diagnose function must exist");
 });
+
+// REPAIR 2026-07-06 pt.2 — deep_score()'s 5 enrichment fetchers
+// (macro/intel/alt/social/finnhub) had the same silent
+// `except Exception: return {}` shape as the pre-v1.0.148 scanner, with no
+// trace anywhere (KNOWN BROKEN #5's audit only added cache-freshness
+// monitoring, never the actual exception). This surfaces the last exception
+// per source via the same token-gated scanner probe, never /api/health.
+
+test("wiring pinned: deep_score's per-source enrichment errors are captured and read into bot.ts", () => {
+  const engine = fs.readFileSync(path.join(here, "..", "bot_engine.py"), "utf8");
+  assert.ok(engine.includes("def _run_diag_fetch"), "the pure, unit-testable diag-capture helper must exist");
+  assert.ok(engine.includes('"data_source_errors": _source_diag'), "scan_market's return dict must carry the per-source error map");
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes("tier2LastDataSourceErrors"), "bot.ts must track the last scan's data-source errors");
+  assert.ok(bot.includes("result.data_source_errors"), "bot.ts must read data_source_errors off the Python scan result");
+});
+
+test("wiring pinned: dataSourceErrors is exposed on the token-gated scanner probe", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const scannerProbeStart = bot.indexOf('case "scanner":');
+  const scannerProbeEnd = bot.indexOf("default:", scannerProbeStart);
+  assert.ok(scannerProbeStart > 0 && scannerProbeEnd > scannerProbeStart, "scanner diag probe not found");
+  const scannerProbe = bot.slice(scannerProbeStart, scannerProbeEnd);
+  assert.ok(scannerProbe.includes("dataSourceErrors: tier2LastDataSourceErrors"), "the token-gated scanner probe must expose per-source enrichment errors");
+});
+
+test("public /api/health never carries data-source error detail either", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const healthStart = bot.indexOf('app.get("/api/health"');
+  const scannerCheckStart = bot.indexOf("checks.checks.scanner", healthStart);
+  const scannerCheckEnd = bot.indexOf("};", scannerCheckStart);
+  assert.ok(healthStart > 0 && scannerCheckStart > healthStart && scannerCheckEnd > scannerCheckStart, "scanner check not found in /api/health");
+  const scannerCheck = bot.slice(scannerCheckStart, scannerCheckEnd);
+  assert.ok(!scannerCheck.includes("tier2LastDataSourceErrors"), "data-source error detail must stay off the unauthenticated /api/health endpoint");
+});
