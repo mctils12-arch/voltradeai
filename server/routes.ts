@@ -50,6 +50,7 @@ import { bootShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHisto
 import { bootCotPoll, latestCot } from "./cftcCot";
 import { bootTffPoll, latestTff } from "./cftcTff";
 import { bootDtsPoll, latestDts } from "./treasuryDts";
+import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1703,6 +1704,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.rows.length,
       note: "daily TGA deposits/withdrawals by category, $ millions as published (~1-2 business-day lag); the withheld-tax payroll-nowcast hypothesis is gate-locked until ladder validation",
       lines: hit.rows,
+    });
+  });
+
+  // FDIC bank failures (RAW — BUILD ORDER 6 #3 v1, keyless event
+  // stream). Serves the poller's cached window only (event-loop rule).
+  bootFailuresPoll();
+  app.get("/api/data/bank-failures", (_req, res) => {
+    const hit = latestFailures();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "FDIC Bank Data API", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "FDIC Bank Data API — bank failures (US government data)",
+      attribution: "FDIC Bank Data API",
+      time: hit.at,
+      count: hit.failures.length,
+      note: "most recent US bank failures/assistance events, amounts in $ thousands as published; cost is the estimated DIF loss and is null until estimated; regional-bank-stress signals stay gate-locked until ladder validation",
+      failures: hit.failures,
     });
   });
 

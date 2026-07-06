@@ -13,6 +13,40 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PIPELINE] FDIC bank failures event stream (BUILD ORDER 6 #3 v1) — keyless archiver + /api/data/bank-failures (v1.0.158)
+
+- Territory: T-DATACORE (server/fdicBanks.ts + test,
+  datacore/manifests/fdicfailures.json) + SHARED (server/routes.ts
+  wiring last + minimal, package.json, this file).
+- LIVE VERIFICATIONS of the prior two items (pre-stated criteria,
+  checked post-deploy this session): /api/data/tff serves report week
+  2026-06-23 with 87 markets, dealer/asset-manager/leveraged-money
+  populated ✓; /api/data/dts serves statement 2026-07-02 with 180
+  category lines incl. the withheld-tax categories ✓. (Both endpoints
+  timed out for ~1 min during the deploy window — same transient
+  churn signature as earlier today; self-recovered.)
+- BUILD (v1 scope decision recorded): FAILURES ONLY — the event-driven
+  live kicker. The quarterly per-bank financials snapshot (deposit-
+  flight tracking, ~4.6k banks paginated + once-per-quarter claim) is
+  the documented follow-up with its own PR (one logical change).
+  Probe findings encoded: HOST IS api.fdic.gov (the documented
+  banks.data.fdic.gov 301s — pinned by a test); FAILDATE arrives
+  M/D/YYYY (normalized); amounts in $ THOUSANDS; COST (DIF loss) null
+  until estimated — null never becomes zero. Event-identity dedup
+  (cert|fail_date) within and across restarts (FAA/CBP pattern),
+  day-file per fetch date, gz after 2d, eager boot, cache-only route.
+- PRIOR (from the build order, restated): medium — quarterly financials
+  limit timing; the failures feed is event-driven and small regional
+  banks are EDGE DOCTRINE #2 territory. Gate 1 = cross-check a
+  failure's assets/deposits vs the FDIC press release; gate 2 =
+  failure events vs forward KRE/regional-bank returns.
+- Gates: node 306/306 (5 new tests incl. the host pin); pytest
+  untouched; tsc 64; build OK; version 1.0.158. VERIFY (pre-stated):
+  post-deploy /api/data/bank-failures serves the 50-failure window
+  with COMMUNITY BANK AND TRUST - WEST GEORGIA (2026-05-01) newest;
+  archive gains fdicfailures/<fetch-date>.jsonl with 50 events on
+  first poll.
+
 ## 2026-07-06 — [PIPELINE] Treasury Daily Statement stream (BUILD ORDER 6 #2) — keyless FiscalData archiver + /api/data/dts (v1.0.157)
 
 - Territory: T-DATACORE (server/treasuryDts.ts + test,
