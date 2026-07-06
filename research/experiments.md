@@ -13,6 +13,40 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [RESEARCH] BUILD ORDER 6 FILED — positioning + nowcasts + stress; 12 sources probed live by parallel agents, 7 selected, 5 declined with reasons (docs)
+
+- Territory: SHARED research/* only (docs PR). Standing-directive
+  fall-through: BUILD ORDER 5 closed 5/5 → generate the next order.
+- METHOD (BUILD ORDER 5 precedent, scaled): two parallel research
+  subagents probed 12 candidate sources LIVE (working URLs, auth,
+  response shapes, cadence, history depth, license text — no
+  fabrication, HTTP errors reported as-is); judgment and selection
+  stayed in the parent session per the WORKSTREAM PARTITION
+  subagent rule.
+- SELECTED (numbered order + hypothesis + prior + ladder path each,
+  in open_questions.md): 1 CFTC TFF financial-futures positioning
+  (keyless Socrata clone of the live COT adapter — cheapest build),
+  2 Treasury DTS daily statement (keyless; withheld-tax payroll
+  nowcast, history to 2005), 3 FDIC bank data (keyless; note the
+  HOST MOVED to api.fdic.gov — old host 301s; regional-bank stress,
+  EDGE DOCTRINE #2 territory), 4 NHTSA complaints velocity (keyless
+  daily bulk; supplier-mapping angle via Everything Graph), 5 US
+  Drought Monitor (keyless county-level weekly; attribution
+  requirement travels on every record), 6 EIA-930 hourly demand +
+  7 USDA NASS crop conditions (both FREE-KEY-gated; keys absent
+  from session AND Railway env by presence check — filed
+  BLOCKED-FOR-MIKE #8; build key-gated adapters now, fredMacro
+  pattern).
+- DECLINED with recorded reasons: AAR rail (duplicative of EP724 +
+  paid-product license), BTS on-time (2-month lag), BLS API (FRED
+  covers same-day), Baker Hughes rigs (no redistribution grant —
+  EIA Drilling Productivity Report filed as the public-domain
+  alternative to probe next order), OSHA ITA (annual cadence —
+  parked as an Everything-Graph facility join, not a stream).
+- ANTI-FISHING NOTE (REASONING STANDARD #4): 7 new hypotheses filed
+  at once — each gate-2 result will be discounted for the breadth of
+  this order; none is believed before its ladder gates.
+
 ## 2026-07-06 — [REPAIR] R12 CLOSE-OUT — feedback pipeline repair series verified post-deploy; loop recording again after a 2.5-month blackout (docs)
 
 - SERIES SUMMARY (all merged + deployed same day): v1.0.152 shape

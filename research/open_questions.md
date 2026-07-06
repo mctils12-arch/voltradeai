@@ -1038,6 +1038,110 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## BUILD ORDER 6 (SELF-PROPOSED, standing directive; filed 2026-07-06
+after BUILD ORDER 5 closed 5/5. [T-DATACORE]; same rules: one item
+per PR, licensing first, keyless-or-already-keyed builds first,
+archive from day one, envelope manifest, RAW until gate 2. All twelve
+candidate sources PROBED LIVE 2026-07-06 by two parallel research
+agents before filing (working URLs, auth, shape samples, cadence,
+history depth, license text recorded in the probe reports; verdicts
+below are the parent session's judgment). Theme: POSITIONING +
+NOWCASTS + STRESS — financial-futures positioning, daily fiscal
+nowcast, sector-level stress/quality events. Priors stated per item.)
+
+1. CFTC TFF — TRADERS IN FINANCIAL FUTURES (Socrata gpe5-46if
+   futures-only; keyless; weekly Fri, as-of Tue; verified 2006-06-13
+   → present, ~44 markets/wk). CHEAPEST BUILD IN THE LIST: clone of
+   the live cftcCot.ts adapter (72hh-3qpy), different dataset id +
+   named fields (dealer / asset-manager / leveraged-money
+   long/short). HYPOTHESIS: leveraged-money net-positioning extremes
+   in ES/NQ/rates/FX mean-revert; dealer positioning is the informed
+   side — extremes gate regime risk. PRIOR: modest (well-studied
+   data; edge if any is in JOINS with our COT commodities archive).
+   LADDER: gate 1 = cross-check one week's values vs CFTC's published
+   HTML report; gate 2 = positioning-extreme vs forward SPY/sector
+   returns, regime-split.
+2. TREASURY DAILY STATEMENT — DTS (fiscaldata.treasury.gov API,
+   keyless, verified: deposits_withdrawals_operating_cash, daily,
+   ~90 rows/business day, history to 2005-10; ~1-2 day lag; brackets
+   URL-encoded). HYPOTHESIS: withheld income/employment tax deposits
+   = a DAILY payroll nowcast weeks ahead of BLS releases; category
+   deltas (corporate tax, FUTA) nowcast macro turns → regime input
+   the bot already consumes via macro_data. PRIOR: medium-high on
+   signal existence (withheld-tax nowcasting is published research),
+   medium on OUR edge (must beat FRED-lagged equivalents; the daily
+   cadence + 20-yr history is the moat). LADDER: gate 1 = reconcile
+   monthly sums vs MTS/FRED federal receipts; gate 2 = withheld-tax
+   YoY growth vs payroll-surprise dates.
+3. FDIC BANK DATA (api.fdic.gov — NOTE host moved from
+   banks.data.fdic.gov, 301; keyless; quarterly financials ~1.68M
+   bank-quarter records to ~1992, latest REPDTE 2026-03-31; failures
+   event-driven to 1934, latest 2026-05-01). HYPOTHESIS: deposit
+   flight + asset-quality deltas at SMALL regional banks lead KRE and
+   individual small-cap bank moves — exactly the whales-can't-fish
+   territory (EDGE DOCTRINE #2). PRIOR: medium (quarterly cadence
+   limits timing; failures feed is the live-event kicker). LADDER:
+   gate 1 = cross-check a bank's ASSET/DEP vs its 10-Q; gate 2 =
+   deposit-decline quintiles vs forward stock returns for listed
+   small banks (ticker join via our EDGAR spine).
+4. NHTSA COMPLAINTS VELOCITY (api.nhtsa.gov keyless JSON +
+   static.nhtsa.gov FLAT_CMPL.zip daily bulk, updated even Sundays;
+   complaints to mid-1990s, recalls to 1960s; public domain).
+   HYPOTHESIS: complaint-rate acceleration per make/model (esp. fire/
+   crash flags) precedes recalls and NHTSA investigations, which move
+   automakers AND their small-cap suppliers. PRIOR: medium-low for
+   megacaps (crowded), medium for supplier mapping (uncrowded, needs
+   the component field → supplier join — Everything Graph substrate).
+   LADDER: gate 1 = complaint counts vs NHTSA's own published recall
+   timeline for 3 known cases; gate 2 = velocity anomalies vs forward
+   returns.
+5. US DROUGHT MONITOR (usdmdataservices.unl.edu REST + weekly
+   shapefiles; keyless; weekly Thu; county-level D0-D4 percentages to
+   2000; citation required — NDMC-UNL/USDA/NOAA attribution travels
+   on every record and the map layer). HYPOTHESIS: county-weighted
+   drought exposure over crop belts leads ag-complex moves (grains,
+   fertilizer, equipment small caps); joins degree-days (live) + NDVI
+   (roadmap) into one ag-stress index. PRIOR: medium (weekly, well
+   published — the join is the edge, not the raw map). LADDER: gate 1
+   = spot-check vs the published national map; gate 2 = belt-weighted
+   drought delta vs corn/soy futures forward returns. ALSO a natural
+   /data map layer (RAW overlay, attributed).
+6. EIA-930 HOURLY GRID DEMAND (api.eia.gov v2; FREE KEY REQUIRED —
+   absent from session + Railway env, filed BLOCKED-FOR-MIKE #8;
+   hourly, ~1-2h lag, 2019→present verified, public domain;
+   build key-gated on EIA_API_KEY per the fredMacro/census pattern so
+   it activates the moment the key lands). HYPOTHESIS: regional
+   demand anomalies (weather-adjusted via our degree-days archive) =
+   industrial-activity nowcast; joins the power-plants layer.
+   PRIOR: medium. LADDER: gate 1 = cross-check US48 daily sum vs
+   EIA's own Grid Monitor; gate 2 = weather-adjusted demand residual
+   vs industrial-sector returns.
+7. USDA NASS CROP CONDITIONS (quickstats.nass.usda.gov API; FREE KEY,
+   instant email signup — Mike action, BLOCKED-FOR-MIKE #8; weekly
+   Monday in season; decades of history; 50k-row request cap; no
+   commercial-use prohibition found, NASS-attribution rules apply).
+   HYPOTHESIS: week-over-week condition deltas in corn/soy lead
+   futures and ag small caps; pairs with #5 into the ag-stress index.
+   PRIOR: medium-low standalone (widely watched), medium in the join.
+   LADDER: gate 1 = values vs the published Crop Progress report;
+   gate 2 = condition-delta vs forward futures returns.
+
+DECLINED (probed, judged, recorded — not built):
+- AAR weekly rail traffic: duplicative of the live STB EP724 stream;
+  detailed data is AAR's paid product (license risk); toplines only.
+- BTS on-time performance: ~2-month lag kills trading value; we have
+  live aircraft + FAA status for the same sector.
+- BLS API: FRED (live, key-gated) already covers the same series
+  same-day; keyless BLS adds a 10-yr-span limit, not an edge.
+- Baker Hughes rig count: no explicit redistribution grant on an
+  8MB corporate XLSX — license risk for the /data product. FREE
+  PUBLIC-DOMAIN ALTERNATIVE to probe next order: EIA Drilling
+  Productivity Report + DUC counts (same capex signal, clean
+  license).
+- OSHA ITA establishment injuries: keyless + public domain but
+  ANNUAL cadence — parked as an Everything-Graph facility-spine join
+  (injury intensity per plant), not a stream.
+
 ## BUILD ORDER 5 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 4 resolved for T-DATACORE — remaining B4 items wait
 on external clocks (options QA 07-06, natgas gate-2 ~09-27, registry
