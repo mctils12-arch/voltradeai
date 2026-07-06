@@ -7,6 +7,7 @@ import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
+import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag } from "./diag";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
@@ -1157,6 +1158,24 @@ print(json.dumps(data))
     };
     if (lv.dark) checks.status = "degraded";
 
+    // Check 5b: TIER-2 scan health (REPAIR 2026-07-06) — Check 5 above
+    // catches the loop being paused/halted; it does NOT catch a loop that
+    // reads "active" while its market-data scan has failed every cycle
+    // for hours (found live: 10+ consecutive TIER2-BACKOFF failures over
+    // ~1.5h, all "Could not fetch market data from Alpaca", while this
+    // endpoint read clean the whole time). A scan that never succeeds
+    // finds no new trade candidates — degraded in every sense that
+    // matters even though the process itself is technically "active".
+    // /api/health is UNAUTHENTICATED — status + a bare count only, same
+    // sensitivity class as the existing bot/licensing checks; the free-text
+    // failure reason (subprocess stderr tails, raw Alpaca error bodies) is
+    // reserved for the token-gated /api/diag/scanner probe below.
+    checks.checks.scanner = {
+      status: scannerDegraded(tier2ConsecutiveFailures) ? "degraded" : "ok",
+      consecutiveFailures: tier2ConsecutiveFailures,
+    };
+    if (scannerDegraded(tier2ConsecutiveFailures)) checks.status = "degraded";
+
     // Check 6: data-provider licensing (monetization tripwire, CLAUDE.md
     // KNOWN STATE 2026-07-03) — non-commercial providers must leave the
     // aircraft chain before billing activates; degrade health so the next
@@ -1987,8 +2006,20 @@ print(json.dumps(s))
           const positions = await alpaca("/v2/positions");
           return res.json(sanitizeDiag({ probe: "positions", ...positionsSummary(Array.isArray(positions) ? positions : []) }));
         }
+        case "scanner": {
+          // REPAIR 2026-07-06: the free-text failure reason (subprocess
+          // stderr tails, raw Alpaca error bodies) belongs behind the
+          // token gate, not on public /api/health — see the "scanner"
+          // check there for the bare status+count public surface.
+          return res.json(sanitizeDiag({
+            probe: "scanner",
+            degraded: scannerDegraded(tier2ConsecutiveFailures),
+            consecutiveFailures: tier2ConsecutiveFailures,
+            lastFailureDetail: tier2LastFailureDetail,
+          }));
+        }
         default:
-          return res.status(404).json({ error: "unknown probe", probes: ["audit", "ml", "daemon", "positions"] });
+          return res.status(404).json({ error: "unknown probe", probes: ["audit", "ml", "daemon", "positions", "scanner"] });
       }
     } catch (e: any) {
       return res.status(500).json({ error: sanitizeDiag(String(e?.message || e)) });
@@ -2891,9 +2922,17 @@ print(json.dumps(result))
   // or throws (e.g., "RuntimeError: can't start new thread"). The scheduler
   // reads this to apply an exponential back-off after repeated failures.
   let tier2LastScanFailed = false;
+  // REPAIR 2026-07-06: the reason for the most recent failure, surfaced via
+  // the token-gated /api/diag/scanner probe (never the public /api/health —
+  // see that check's comment) once failures persist — a scan that fails
+  // every cycle for hours previously left zero trace beyond a generic
+  // "Could not fetch market data from Alpaca" repeated in the audit log
+  // with no root cause. Cleared on any successful scan.
+  let tier2LastFailureDetail: string | null = null;
 
   async function tier2Intelligence(isMarketOpen: boolean, etHour: number) {
     tier2LastScanFailed = false;
+    tier2LastFailureDetail = null;
     audit("TIER2", "Starting intelligence scan...");
 
     // 1. Alpaca health check
@@ -2987,7 +3026,9 @@ print(json.dumps(get_auto_fix_params()))
 
       if (!result || result.error) {
         tier2LastScanFailed = true;
-        audit("TIER2", `Scan returned error: ${result?.error || "unknown"} (via ${callResult.via})`);
+        tier2LastFailureDetail = result?.debug_detail ? String(result.debug_detail).slice(0, 300) : null;
+        const detailSuffix = tier2LastFailureDetail ? ` — ${tier2LastFailureDetail}` : "";
+        audit("TIER2", `Scan returned error: ${result?.error || "unknown"}${detailSuffix} (via ${callResult.via})`);
         return;
       }
 
@@ -3326,6 +3367,7 @@ else:
       }
 
       const detail = tail.trim() || msg;
+      tier2LastFailureDetail = `code=${code} signal=${signal}${classification}: ${detail}`.slice(0, 300);
       audit("TIER2-ERROR", `Scan failed (code=${code} signal=${signal} ${memStr})${classification}: ${detail}`);
     }
 

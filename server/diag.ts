@@ -17,7 +17,7 @@
  */
 import crypto from "crypto";
 
-export const DIAG_PROBES = ["audit", "ml", "daemon", "positions"] as const;
+export const DIAG_PROBES = ["audit", "ml", "daemon", "positions", "scanner"] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
 const MIN_TOKEN_LEN = 24;
