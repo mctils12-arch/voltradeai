@@ -13,6 +13,22 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-07 — [PIPELINE] DATACORE MAXIMUS checkpoint: Phase 0 + census #1 ALL LIVE-VERIFIED same session (docs)
+
+- Pre-stated criteria from v1.0.163/164/165, checked post-deploy:
+  /api/data/grid-demand → 9 respondent stats ✓ (EIA_API_KEY active);
+  /api/data/crop-conditions → week 2026-07-05, 10 rows ✓
+  (NASS_API_KEY active; the documented-shape build worked on the
+  FIRST query — the censusImports verbatim-error fallback was never
+  needed); /api/data/occ-volume → report 2026-07-02, 4,547
+  underlyings, top SPY ~15.0M cleared with full customer/MM P/C
+  splits ✓. The OCC rolling-2-year archive is RECORDING — the clock
+  on permanent history started today.
+- Program scorecard, day one: Phases 0+1 complete; 3 new streams
+  built+verified (grid demand, crop conditions, OCC) + census filed
+  (~30 sources) + grid build order filed with an in-container-proven
+  pipeline. Resume state current in wishlist.md.
+
 ## 2026-07-06 — [PIPELINE] OCC daily options volume by trade origin — the census #1 archive-now root + /api/data/occ-volume (v1.0.165)
 
 - Territory: T-DATACORE (server/occVolume.ts + test,
