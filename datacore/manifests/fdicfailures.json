@@ -1,0 +1,22 @@
+{
+ "stream": "fdicfailures",
+ "storage": "append-only JSONL day-files under <archive>/fdicfailures/, one file per FETCH date with event-identity dedup (cert|fail_date) within and across restarts; gz after 2 days",
+ "written_by": "server/fdicBanks.ts archiveNewFailures (12h poll of the event-driven source, eager boot)",
+ "source": "FDIC Bank Data API /banks/failures — keyless JSON. HOST NOTE: api.fdic.gov (the documented banks.data.fdic.gov 301s there — probe finding 2026-07-06). 4,115 failures back to 1934, updated as failures occur (typically announced Friday evenings ET). Fields verified live with an explicit fields= list; FAILDATE arrives M/D/YYYY (normalized to ISO), amounts in $ THOUSANDS, COST (loss to the DIF) null until estimated",
+ "license": "FDIC public data (US government agency); attribution 'FDIC Bank Data API'",
+ "attribution": "FDIC Bank Data API",
+ "schema_version": 1,
+ "field_map": {
+  "cert + fail_date — event-identity dedup key": "FDIC certificate number + ISO failure date; the same failure never re-archives regardless of how many fetch windows include it",
+  "name/city_state/state/charter_class/restype/fund": "institution identity as published (RESTYPE distinguishes FAILURE from ASSISTANCE)",
+  "assets_k/deposits_k/cost_k": "$ THOUSANDS as published; cost_k is the estimated DIF loss and stays null until the FDIC estimates it — null never becomes zero",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official failure events. The regional-bank-stress hypothesis stays gate-locked: gate 1 = cross-check a failure's assets/deposits vs the FDIC press release; gate 2 = failure events vs forward KRE/regional-bank returns. v1 is failures-only; the quarterly per-bank financials snapshot (deposit-flight tracking) is the documented follow-up with its own PR.",
+ "geo_fields": ["state", "city_state"],
+ "entity_key": "cert + fail_date",
+ "sentiment": null,
+ "started": "2026-07-06",
+ "cadence": "event-driven source (failures as they occur); 12h poll makes quiet stretches dedup no-ops",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 6 #3 v1; EDGE DOCTRINE #2 territory (small regional banks — whales can't fish there)."
+}
