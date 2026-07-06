@@ -13,6 +13,46 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [NO-ACTION] Day close-out: options first-snapshot QA (landed ✓), R13 verdict (FALSE ALARM), BUILD ORDER 6 closed 4 built + 1 pre-existing + 2 key-gated (docs)
+
+- OPTIONS-CHAIN FIRST-SNAPSHOT QA (open_questions item 5, first
+  criteria checkable today): optionchains/2026-07-06.jsonl EXISTS on
+  the volume — forward history has begun, exactly one trading day
+  after the archiver shipped (v1.0.83). Size 1.68MB plain (inside the
+  stated 3-5MB/day raw budget); .last_run_day once-per-day marker
+  present (restart-double-fire protection engaged). HONEST SCOPE:
+  shape/contract-count/IV-sanity checks need a read surface the
+  archiver deliberately doesn't expose publicly — DEFERRED to the
+  first-week report (~2026-07-10+) via a session-run volume read or a
+  small token-gated diag sample. Today's QA verdict: schedule ✓,
+  write ✓, size envelope ✓, dedup marker ✓.
+- R13 VERDICT — FALSE ALARM (SUPERSESSION NOTE: PR #290, another
+  session, reached and merged the same verdict first — this paragraph
+  stands as independent confirmation via the same probe): the new
+  ?type=SHUTDOWN&limit=200 probe (v1.0.161) returned the full series:
+  20 SIGTERMs since last night, EVERY ONE mapping to a merge/deploy
+  (6-18 min spacing exactly during the 15-PR burst 16:11→18:11Z,
+  hours apart overnight, and the "no deploy in flight" 18:46 restart
+  matched #288's merge — the premise was wrong). The intermittent
+  health 000s are Railway's container-replace window: the COST OF
+  MERGE VELOCITY, not a defect. ~12 deploys in 2 hours ≈ a lot of
+  wall-clock inside replace windows. Observation for Mike (wishlist):
+  a zero-downtime/overlap healthcheck deploy config would remove the
+  blips — railway.json/Dockerfile are FROZEN, so that is his call,
+  zero urgency. The probe params remain net value (this diagnosis
+  took one query).
+- BUILD ORDER 6 CLOSED: #1 TFF (v1.0.156, live: 87 markets, and the
+  archive already holds TWO report weeks — the poller caught
+  2026-06-30 within hours), #2 DTS (v1.0.157, live: 180 lines, TWO
+  statements archived 07-02+07-03), #3 FDIC failures (v1.0.158,
+  live: 50 events, newest 2026-05-01), #4 NHTSA (v1.0.159, live: 17
+  vehicles with stats — 3 watchlist entries have zero complaints for
+  their model year, honest absence), #5 drought = PRE-EXISTING
+  (v1.0.118, duplicate filing recorded, grep-own-repo lesson), #6/#7
+  key-gated (BLOCKED-FOR-MIKE #8: EIA_API_KEY + NASS_API_KEY, two
+  instant free signups). Four new perpetual archives in one day, all
+  probed-before-coded, all gate-locked.
+
 ## 2026-07-06 — [REPAIR] R13 CLOSED: recurring SIGTERM restarts are deploy-driven, not a liveness bug — STARTUP audit entry compiles the correlation into queryable state (v1.0.162)
 
 - Territory: T-BOT (server/bot.ts).
