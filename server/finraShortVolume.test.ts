@@ -11,6 +11,7 @@ import {
   gzipOldShortVolDaysAsync, summarize, refreshShortVol, latestShortVol,
   readArchivedDay, deepBackfillIfSparse, countArchivedDays,
   TOP_CAP, FLOOR_TOTAL_VOL, DEEP_BACKFILL_DAYS,
+  appendSummaryHistoryEntry, readSummaryHistory, listArchivedDates, lookupSymbolHistory,
 } from "./finraShortVolume";
 
 // Mirrors the live file verified 2026-07-05: pipe header, fractional
@@ -120,6 +121,56 @@ test("gzip async variant matches sync semantics", async () => {
   archiveShortVolDay(rows, base);
   assert.equal(await gzipOldShortVolDaysAsync(base, Date.parse("2026-07-05T12:00:00Z")), 1);
   assert.ok(fs.existsSync(path.join(base, "finrashortvol", "2026-06-28.jsonl.gz")));
+});
+
+test("summary history: append is idempotent per date, reads ascending, bounded to `days`", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-trend-"));
+  appendSummaryHistoryEntry({ date: "2026-07-01", symbols: 100, agg_short_ratio: 0.40 } as any, base);
+  appendSummaryHistoryEntry({ date: "2026-07-02", symbols: 101, agg_short_ratio: 0.41 } as any, base);
+  appendSummaryHistoryEntry({ date: "2026-07-01", symbols: 999, agg_short_ratio: 0.99 } as any, base);
+  const all = readSummaryHistory(30, base);
+  assert.equal(all.length, 2, "duplicate date did not append a second line");
+  assert.deepEqual(all.map((r) => r.date), ["2026-07-01", "2026-07-02"], "ascending by date");
+  assert.equal(all[0].agg_short_ratio, 0.40, "first-written value kept, not overwritten");
+  assert.equal(readSummaryHistory(1, base).length, 1, "days cap slices to the most recent N");
+  assert.deepEqual(readSummaryHistory(5, path.join(base, "nonexistent")), [], "missing file = empty, not a throw");
+});
+
+test("listArchivedDates + lookupSymbolHistory: newest-first listing, honest gap on absent symbol-day, bounded by days", () => {
+  // NOTE: archivedDates dedup is keyed by date ONLY, shared module state
+  // across every test in this file regardless of baseDir (see the deep
+  // backfill test's comment above) — these dates must be unused elsewhere.
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-sym-"));
+  const mk = (day: string, rows: string) =>
+    `Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market\n${rows}\n${rows.split("\n").length}`;
+  archiveShortVolDay(parseShortVol(mk("20260501", `20260501|ZZTOP|400|0|1000|Q`), "x"), base);
+  archiveShortVolDay(parseShortVol(mk("20260502", `20260502|AA|100|0|200|Q`), "x"), base); // no ZZTOP this day
+  archiveShortVolDay(parseShortVol(mk("20260503", `20260503|zztop|900|0|1000|Q`), "x"), base); // lowercase symbol
+  assert.deepEqual(listArchivedDates(base, 90), ["2026-05-03", "2026-05-02", "2026-05-01"], "newest first");
+  assert.deepEqual(listArchivedDates(base, 2), ["2026-05-03", "2026-05-02"], "limit respected");
+  const series = lookupSymbolHistory("ZZTOP", 90, base);
+  assert.deepEqual(series.map((r) => r.date), ["2026-05-01", "2026-05-03"], "05-02 honestly omitted, not zero-filled");
+  assert.equal(series[0].short_ratio, 0.4);
+  assert.equal(series[1].short_ratio, 0.9, "case-insensitive symbol match");
+  assert.deepEqual(lookupSymbolHistory("NOPE", 90, base), []);
+});
+
+test("refresh: wires the market-wide trend log (bootstrap + restart both append exactly once)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-trendwire-"));
+  const fake = async (url: string) => {
+    const m = url.match(/CNMSshvol(\d{8})\.txt/);
+    if (m && m[1] === "20260706") {
+      return { ok: true, status: 200, text: async () =>
+        "Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market\n20260706|AA|100|0|200|Q\n1" };
+    }
+    return { ok: false, status: 403, text: async () => "" };
+  };
+  await refreshShortVol(fake as any, Date.parse("2026-07-06T23:00:00Z"), 1, base);
+  assert.deepEqual(readSummaryHistory(30, base).map((r) => r.date), ["2026-07-06"]);
+  // restart path (day already archived) must not double-append the same date
+  await refreshShortVol(async () => ({ ok: false, status: 403, text: async () => "" }) as any,
+    Date.parse("2026-07-06T23:30:00Z"), 1, base);
+  assert.equal(readSummaryHistory(30, base).length, 1, "restart rebuild-from-archive did not duplicate the trend entry");
 });
 
 test("refresh: restart with the newest day already archived rebuilds cache from disk, no refetch", async () => {

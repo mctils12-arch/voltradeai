@@ -237,6 +237,115 @@ export function latestShortVol() {
   return cache;
 }
 
+// ── Market-wide summary-history trend (tiny append-only log — NOT the
+// per-day 12K-row archive) ──────────────────────────────────────────────
+//
+// The per-day archive is ~1.5MB uncompressed; a "market-wide ratio over
+// time" chart only needs one float per day. Recomputing that from the
+// full archive on every request would repeat the "materialize the whole
+// archive on a hot path" mistake that caused the 2026-07-05 OOM incident
+// (see experiments.md v1.0.143) — so the daily summarize() already
+// computed in refreshShortVol appends one small line here instead, and
+// the history route reads only this file, never the day archives, for
+// the market-wide trend.
+
+const summaryHistorySeen = new Set<string>();
+let summaryHistorySeeded = false;
+
+function summaryHistoryPath(baseDir?: string): string {
+  return path.join(svDir(baseDir), "_summary_history.jsonl");
+}
+
+function seedSummaryHistorySeen(baseDir?: string): void {
+  try {
+    const text = fs.readFileSync(summaryHistoryPath(baseDir), "utf8");
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { summaryHistorySeen.add(JSON.parse(line).date); } catch {}
+    }
+  } catch {}
+}
+
+/** Append one day's {date, symbols, agg_short_ratio} — a no-op if that
+ *  date is already recorded (idempotent across repeated polls/restarts). */
+export function appendSummaryHistoryEntry(summary: ShortVolSummary, baseDir?: string): void {
+  if (!summaryHistorySeeded) { seedSummaryHistorySeen(baseDir); summaryHistorySeeded = true; }
+  if (summaryHistorySeen.has(summary.date)) return;
+  try {
+    fs.mkdirSync(svDir(baseDir), { recursive: true });
+    fs.appendFileSync(summaryHistoryPath(baseDir), JSON.stringify({
+      date: summary.date, symbols: summary.symbols, agg_short_ratio: summary.agg_short_ratio,
+    }) + "\n");
+    summaryHistorySeen.add(summary.date);
+  } catch (e: any) {
+    console.error("[datacore] finrashortvol summary history append:", e?.message || e);
+  }
+}
+
+export interface ShortVolTrendPoint { date: string; symbols: number; agg_short_ratio: number | null; }
+
+/** Last `days` entries (ascending by date) from the small trend log —
+ *  bounded file read, no day-archive access. */
+export function readSummaryHistory(days: number, baseDir?: string): ShortVolTrendPoint[] {
+  let text: string;
+  try {
+    text = fs.readFileSync(summaryHistoryPath(baseDir), "utf8");
+  } catch { return []; }
+  const rows: ShortVolTrendPoint[] = [];
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    try { rows.push(JSON.parse(line)); } catch {}
+  }
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return rows.slice(-days);
+}
+
+// ── Per-symbol lookback (reads the day-archive directly — the deep
+// backfill already holds 2+ years; bounded to <=90 trading days per
+// request, same cap convention as insider/earnings history routes, and
+// one day is read+discarded at a time so peak memory is one day's rows,
+// never the full lookback window at once) ──────────────────────────────
+
+/** Archived trading dates, newest first (jsonl or jsonl.gz; the small
+ *  summary-history/backfill-marker files never match this pattern). */
+export function listArchivedDates(baseDir?: string, limit = 90): string[] {
+  let files: string[];
+  try { files = fs.readdirSync(svDir(baseDir)); } catch { return []; }
+  return files
+    .map((f) => f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/))
+    .filter((m): m is RegExpMatchArray => !!m)
+    .map((m) => m[1])
+    .sort()
+    .reverse()
+    .slice(0, limit);
+}
+
+export interface ShortVolSymbolPoint {
+  date: string; short_vol: number; total_vol: number; short_ratio: number | null; market: string;
+}
+
+/** One symbol's short-volume ratio across its last `days` archived
+ *  trading dates, ascending by date. A date with no row for the symbol
+ *  (delisted/not traded that day) is honestly omitted, never zero-filled. */
+export function lookupSymbolHistory(symbol: string, days: number, baseDir?: string): ShortVolSymbolPoint[] {
+  const sym = symbol.trim().toUpperCase();
+  const dates = listArchivedDates(baseDir, days);
+  const out: ShortVolSymbolPoint[] = [];
+  for (const iso of dates) {
+    const rows = readArchivedDay(iso, baseDir);
+    const r = rows.find((x) => x.symbol.toUpperCase() === sym);
+    if (r) {
+      out.push({
+        date: r.date, short_vol: r.short_vol, total_vol: r.total_vol,
+        short_ratio: r.total_vol > 0 ? Math.round((r.short_vol / r.total_vol) * 10000) / 10000 : null,
+        market: r.market,
+      });
+    }
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out;
+}
+
 /** Read one archived day back (plain or gz). Poller-context only —
  *  a single ~1.5MB file, same budget as the other streams' seedSeen. */
 export function readArchivedDay(iso: string, baseDir?: string): ShortVolRow[] {
@@ -276,7 +385,7 @@ export async function refreshShortVol(fetchImpl: FetchFn = fetch as any, nowMs?:
         if (!newestSummarized) {
           if (cache?.summary.date !== iso) {
             const s = summarize(readArchivedDay(iso, baseDir));
-            if (s) cache = { at: Date.now(), summary: s };
+            if (s) { cache = { at: Date.now(), summary: s }; appendSummaryHistoryEntry(s, baseDir); }
           }
           newestSummarized = true; // newest archived day handled either way
         }
@@ -298,7 +407,7 @@ export async function refreshShortVol(fetchImpl: FetchFn = fetch as any, nowMs?:
       }
       if (!newestSummarized) {
         const s = summarize(rows);
-        if (s) { cache = { at: Date.now(), summary: s }; newestSummarized = true; }
+        if (s) { cache = { at: Date.now(), summary: s }; appendSummaryHistoryEntry(s, baseDir); newestSummarized = true; }
       }
       await new Promise((res) => setTimeout(res, 300)); // polite spacing
     }

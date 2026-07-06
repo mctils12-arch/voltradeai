@@ -125,6 +125,16 @@
    "description": "As-filed results/guidance press releases (Item 2.02 exhibits) the moment they hit EDGAR \u2014 the lawful free substitute for paid earnings-call transcripts. As-is display, no predictive claim; Q&A is almost never filed so this is prepared remarks/guidance language only, not the full call. Gate-2 (does language predict forward returns) is an open research question, not yet surfaced as a signal."
   },
   {
+   "id": "shortvol",
+   "name": "Short-sale volume (FINRA)",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "FINRA Reg SHO daily short sale volume (CNMS consolidated file, no API key required)",
+   "description": "Daily consolidated short-marked execution volume per symbol, published by FINRA — a flow proxy, NOT short interest. As-is display (today's top ratio movers + a per-ticker multi-year lookup into our own archive, back to 2024-06-17); short-ratio-extremes-precede-reversals is an open gate-2 hypothesis, not yet surfaced as a signal."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",
