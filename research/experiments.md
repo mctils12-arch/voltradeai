@@ -13,6 +13,36 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PIPELINE] CFTC TFF financial-futures positioning stream (BUILD ORDER 6 #1) — keyless Socrata archiver + /api/data/tff (v1.0.156)
+
+- Territory: T-DATACORE (server/cftcTff.ts + test, datacore/manifests/
+  cftctff.json) + SHARED (server/routes.ts wiring last + minimal,
+  package.json, this file).
+- BUILD: faithful clone of the live cftcCot.ts adapter (the design was
+  the point — one verified pattern, second dataset). Dataset
+  gpe5-46if (TFF futures-only, ~44 markets/wk, history to 2006).
+  Field names verified live 2026-07-06 BEFORE coding (the COT quirk
+  lesson): dealer_* keeps the `_all` suffix; asset_mgr_* and
+  lev_money_* drop it — FIELD constant encodes them exactly. Week-
+  boundary discipline (DESC fetch straddling two weeks keeps only the
+  newest), week-level dedup, gz after 9d, restart cache rebuild from
+  archive, eager boot poll, cache-only request path (event-loop rule).
+- ROUTE: /api/data/tff (warming_up honesty; RAW label; futures-ONLY
+  note — the combined variant yw9f-hn96 is a different dataset).
+- PRIOR (from the build order, restated): modest — TFF is well-studied
+  public data; the edge if any is in JOINS (cross-asset positioning:
+  TFF financials × COT commodities × our regime classifier). Gate 1 =
+  one week's values vs CFTC's published HTML report; gate 2 =
+  leveraged-money extreme percentiles vs forward SPY/sector returns,
+  regime-split. Nothing believed or traded before gates.
+- Gates: node 296/296 (5 new TFF tests incl. dataset-id pin so the
+  disaggregated dataset can never silently swap in + manifest
+  enforcement green); pytest 449/1 untouched; tsc 64; build OK;
+  version 1.0.156. VERIFY (pre-stated): post-deploy /api/data/tff
+  serves the 2026-06-23 (or newer) report week with ~44 markets and
+  dealer/asset-manager/leveraged-money fields populated; archive
+  gains cftctff/<date>.jsonl.
+
 ## 2026-07-06 — [RESEARCH] BUILD ORDER 6 FILED — positioning + nowcasts + stress; 12 sources probed live by parallel agents, 7 selected, 5 declined with reasons (docs)
 
 - Territory: SHARED research/* only (docs PR). Standing-directive
