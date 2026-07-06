@@ -112,10 +112,19 @@ no separate site.
    unmapped; fails if either source registry grows an unresearched
    operator string). Also unblocks fusion (b) gate 1. See
    research/open_questions.md R5 for the full trace.
-2. `server/entityGraph.ts` + `/api/data/graph` + tests (fixture
-   archives → expected nodes/edges; provenance/confidence pins).
+2. **[SHIPPED 2026-07-06, v1.0.149]** `server/entityGraph.ts` +
+   `/api/data/graph` + tests (fixture archives → expected nodes/edges;
+   provenance/confidence pins). `located_at` shipped as a facility-node
+   attribute (lat/lon "intrinsic", per this doc's own entity-type table)
+   rather than a separate edge — no `geo` node type exists in v1's
+   entity list to point one at; a documented deviation, not an omission.
+   `calls_at` required extracting `foldPortVisitsAsync` out of
+   `portDwell.ts`'s `computePortDwellAsync` (byte-identical refactor,
+   pinned by the existing portDwell tests) so the graph reuses the same
+   bounded AIS fold. See research/open_questions.md R5 and
+   research/experiments.md for the full trace.
 3. /data graph panel per DESIGN.md (self-see, three widths, theme
-   tokens) + company→facility map highlighting.
+   tokens) + company→facility map highlighting. NEXT (unclaimed).
 4. (later, gated) SIGNAL layers on top — each through the ladder.
 
 ## What the graph does for trading (the customer)

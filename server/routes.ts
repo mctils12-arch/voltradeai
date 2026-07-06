@@ -26,6 +26,7 @@ import { complianceAuditTick, setComplianceAuditWriter } from "./providerComplia
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
+import { buildGraph, neighborhood, resolveEntityId } from "./entityGraph";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
   amplifyWeatherTile, TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
@@ -2004,6 +2005,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     res.set("Cache-Control", "public, max-age=300");
     res.json(dwellCache.data);
+  });
+
+  // Everything Graph v1 (datacore/EVERYTHING_GRAPH.md, build step 2) — joins
+  // Form 4 insiders, the entity_map operator->ticker table, and our own
+  // port-dwell/AIS archive into one node/edge graph. RAW (asserts filed
+  // relationships with provenance; no predictive claim). Same eager-poller
+  // shape as portdwell/shadowstats above — the graph rebuild reads a 168h
+  // AIS fold, so it must never run synchronously per-request (the exact
+  // event-loop/OOM class those two routes were fixed for).
+  let graphCache: { at: number; data: any } | null = null;
+  let graphRunning = false;
+  const refreshGraph = async () => {
+    if (graphRunning) return;
+    graphRunning = true;
+    try {
+      graphCache = { at: Date.now(), data: await buildGraph() };
+    } catch (e: any) {
+      console.error("[datacore] entityGraph refresh:", e?.message || e);
+    } finally {
+      graphRunning = false;
+    }
+  };
+  refreshGraph();
+  setInterval(() => { refreshGraph(); }, 15 * 60_000).unref?.();
+  app.get("/api/data/graph", (req, res) => {
+    if (!graphCache) {
+      return res.json({ kind: "raw", warming_up: true, note: "first graph build in progress — retry shortly" });
+    }
+    const graph = graphCache.data;
+    res.set("Cache-Control", "public, max-age=300");
+    const entity = typeof req.query.entity === "string" ? req.query.entity : null;
+    if (!entity) {
+      // No entity requested: counts only (the full graph is tens of
+      // thousands of facility nodes — never dump it whole by default).
+      return res.json({ kind: "raw", built_at: graph.built_at, counts: graph.counts, caveat: graph.caveat,
+        note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query" });
+    }
+    const id = resolveEntityId(graph, entity);
+    if (!id) return res.status(404).json({ kind: "raw", error: `entity not found: ${entity}` });
+    const hops = Math.max(0, Math.min(3, parseInt(String(req.query.hops ?? "1"), 10) || 1));
+    res.json({ kind: "raw", built_at: graph.built_at, entity: id, hops, caveat: graph.caveat, ...neighborhood(graph, id, hops) });
   });
 
   // ── OpenWeatherMap global weather fields (Tier-1(b) global half) ─────────

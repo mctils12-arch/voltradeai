@@ -551,9 +551,29 @@ R5. **THE EVERYTHING GRAPH — flagship (charter directive 2026-07-04).**
     operator string this table hasn't researched yet). ALSO UNBLOCKS:
     fusion hypothesis (b) generation×operator gate 1 (its own
     registry-owner→ticker mapping requirement is now satisfied by this
-    same table). NEXT (unclaimed): step (2) `server/entityGraph.ts` +
-    `/api/data/graph` — reads this map + the Form4/sites/plants/
-    portDwell sources per the design doc's exact node/edge shapes.
+    same table).
+
+    **[STEP 2 SHIPPED 2026-07-06, v1.0.149]** `server/entityGraph.ts` +
+    `/api/data/graph` (see experiments.md for the full trace): joins
+    facility nodes (all 16 sites + 9,833 plants), `operates` edges (from
+    entity_map's 44 mapped operators — honest gaps stay edgeless),
+    `insider_of` edges (30-day Form4 archive, aggregated per person/
+    issuer pair with roles/filing_count/first-last-seen), and `calls_at`
+    edges (vessel -> port, from a `portDwell.ts` refactor —
+    `foldPortVisitsAsync` extracted so the graph reuses the same bounded
+    AIS fold rather than re-scanning). Every edge carries
+    {source, confidence, first_seen, last_seen}. Route follows the
+    portdwell/shadowstats eager-poller-cache shape (15-min rebuild, never
+    per-request — the exact event-loop/OOM class those two were repaired
+    for) and returns counts-only without `?entity=`, a BFS neighborhood
+    (`?entity=<ticker|MMSI|CIK|facility id>&hops=1..3`) with it.
+    `server/entityGraph.test.ts` (10 tests) pins node/edge counts,
+    operates-edge honesty (unmapped operators produce no edge),
+    insider_of aggregation math, calls_at median-dwell aggregation, and
+    the neighborhood BFS. NEXT (unclaimed): step (3) — the `/data` graph
+    panel (entity search -> neighborhood card; DESIGN.md self-see, three
+    widths) — and, smaller/independent, an `/api/v1/graph` keyed mirror
+    (mirrors the existing `stats/portdwell`/`stats/shadow` pattern).
 
 R6. **Dashboards from monitoring we already emit (charter directive
     2026-07-04).** Three /data panels, no new collection: (a)
