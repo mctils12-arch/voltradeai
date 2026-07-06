@@ -69,4 +69,5 @@ test("ml probe distinguishes seeded vs live feedback and surfaces live win-rate 
   assert.ok(mlProbe.includes("feedback_seeded_count"), "ml probe must report how many feedback records are backtest-seeded");
   assert.ok(mlProbe.includes("feedback_live_count"), "ml probe must report the live (non-seeded) feedback count");
   assert.ok(mlProbe.includes("live_performance"), "ml probe must surface check_model_health's live win-rate/degradation performance dict");
+  assert.ok(mlProbe.includes("live_outcome_breakdown"), "ml probe must break down live (non-seeded) records by outcome (open/win/loss/flat/orphan_exit) to distinguish an entry/exit-matching bug from healthy-but-empty feedback");
 });
