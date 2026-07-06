@@ -155,6 +155,16 @@
    "description": "Per-port vessel dwell statistics from our own archive: completed calls, ships in port now, median/p90 dwell, and 3x-median anomaly FLAGS (suppressed under 10 completed calls \u2014 thin history). Dwell figures are lower bounds (coverage gaps split visits). The dwell-anomaly SIGNAL (congestion predicts returns) stays gated at ladder gate 2 vs published congestion indices."
   },
   {
+   "id": "graph",
+   "name": "Everything Graph",
+   "kind": "raw",
+   "status": "live",
+   "group": "graph",
+   "costTier": "light",
+   "source": "Own join over SEC EDGAR Form 4 + datacore/entity_map.json + own AIS-derived port-dwell archive (datacore/EVERYTHING_GRAPH.md)",
+   "description": "Search a ticker, insider CIK, vessel MMSI, or facility id to see everything the platform has joined about it: insiders, operated facilities, vessels calling at its ports. RAW join with provenance on every edge (source, confidence, first/last seen) — no predictive claim; any future anomaly/interpretation layer on top is SIGNAL-class and ladder-gated separately."
+  },
+  {
    "id": "fires",
    "name": "Active fires (VIIRS)",
    "kind": "raw",

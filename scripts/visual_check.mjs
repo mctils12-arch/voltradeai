@@ -67,6 +67,7 @@ const FIXTURES = {
       { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
       { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
+      { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
       { id: "alerts", name: "Severe weather alerts (NWS)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "National Weather Service (public domain)", description: "Active NWS warnings/watches, colored by severity." },
@@ -191,6 +192,12 @@ const FIXTURES = {
       { id: "port_savannah", name: "Port of Savannah (Garden City)", lat: 32.129, lon: -81.144, visits_completed: 3, unique_vessels: 3, in_port_now: 1, dwell_median_h: 15, dwell_p90_h: 18, dwell_max_h: 18, anomaly_count: 0, anomaly_examples: [] },
     ],
     caveat: "RAW statistics; dwell figures are lower bounds; anomaly flags suppressed on thin history (fixture).",
+  },
+  "/api/data/graph": {
+    kind: "raw", built_at: 1,
+    counts: { nodes: 42, edges: 61, company: 9, person: 14, facility: 16, vessel: 3, insider_of: 18, operates: 12, calls_at: 31 },
+    caveat: "RAW graph — every edge asserts a relationship with provenance (fixture).",
+    note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query",
   },
   "/api/data/earnings-language": {
     kind: "raw", source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99)", time: 1, count: 1,

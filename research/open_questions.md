@@ -290,6 +290,64 @@
     bot_engine-side closes, manual dashboard closes) still record
     nothing; wire path-by-path after (b) resolves.
 
+13. **[FOUND 2026-07-06, T-CLIENT — not yet repaired] `--accent` CSS
+    custom property silently redeclared in the SAME `:root` block,
+    breaking every direct `var(--accent)` use as a `color`/`background`/
+    `border-color` value sitewide.** `client/src/index.css`'s `:root`
+    declares `--accent: #4d9fff` (line 25, the DESIGN.md-documented
+    brand hex) and then, further down the SAME block, `--accent: 212
+    100% 65%` (line 92 — a bare HSL triple with no `hsl()` wrapper, part
+    of the shadcn/Tailwind token set that reuses the same name). The
+    later declaration wins the cascade unconditionally, so `--accent`
+    resolves to the invalid triple everywhere, not the hex. Per the CSS
+    custom-properties spec, a `var()` substitution invalid at computed-
+    value time makes that property compute to its inherited/initial
+    value instead of erroring visibly — for non-inherited properties
+    (`background`, `border-color`) that's typically `transparent` or
+    `currentColor`, so the failure is SILENT and cosmetic-looking, not a
+    build break or console error. Confirmed via computed-style dump
+    (`getPropertyValue("--accent")` returns `"212 100% 65%"` on every
+    element; a `background: var(--accent)` rule computes to `rgba(0,
+    0, 0, 0)`). Found while building the Everything Graph panel (this
+    session, v1.0.160) — a new badge using `background: var(--accent)`
+    rendered as invisible dark-on-transparent text, caught only by
+    screenshotting the actual opened sub-view with Playwright (the
+    standard `npm run visual` harness only screenshots the /data map
+    shell, never opened filings/earnings/shortvol/graph sub-views, so
+    this class of bug is invisible to the existing harness). SCOPE:
+    `grep -c "var(--accent)\b" client/src/index.css` (excluding the safe
+    `--accent-bright`/`-green`/`-red`/`-orange`/`-purple` siblings, which
+    are uniquely named and NOT collided) finds 18 pre-existing call
+    sites across `.vt-map-fab:hover`, `.vt-kind-badge.raw`,
+    `.vt-switch.on`/`.vt-switch.on i` (the layer toggle switches — the
+    "on" thumb has likely been invisible/transparent in production this
+    whole time, masked because the switch's outer track already uses a
+    similarly-blue literal `rgba()`), `.vt-filings-sub a`,
+    `.vt-filings-filter.active`, `.vt-filings-seclink`,
+    `.vt-dev-badge`, `.vt-field-slider`/`.vt-field-check` (accent-color,
+    same collision — native checkbox/range tinting), plus 3 more this
+    session added and already fixed in-scope (see experiments.md). A
+    SAME-SHAPE collision exists on `--border` (line 20 hex/rgba vs line
+    98 HSL triple) but is currently DORMANT — zero direct
+    `var(--border)` call sites found (everything uses `--border-subtle`
+    or literal rgba instead), so no visible symptom today; worth
+    re-checking this audit's fix doesn't accidentally activate it.
+    NOT REPAIRED THIS SESSION, deliberately: fixing the 18 existing
+    sites is a cross-many-components visual change that needs its own
+    `npm run visual` regression pass at all three widths per CLAUDE.md's
+    one-logical-change rule, and is unrelated to any single feature —
+    a dedicated [REPAIR] session should (a) rename the shadcn/Tailwind
+    block's competing tokens (they're only ever consumed via
+    `hsl(var(--x))` wrappers elsewhere in this file, e.g.
+    `--accent-border: hsl(var(--accent))` at line 119/166 — renaming to
+    e.g. `--shadcn-accent` and updating those 2 wrapper sites is the
+    minimal fix) OR move the hex brand-token block to load AFTER the
+    shadcn block so it wins the cascade instead, then re-screenshot all
+    18 affected components (plus the two `--accent-border` wrapper
+    sites, which must keep resolving to the shadcn HSL value, not the
+    hex, since `hsl()` requires the bare-triple form) to confirm no
+    visual regression before shipping.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
