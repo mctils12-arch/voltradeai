@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [PIPELINE] DATACORE MAXIMUS Phase 0a: EIA-930 grid demand stream — key-gated archiver + /api/data/grid-demand (v1.0.163)
+
+- PROGRAM START: the human installed the DATACORE MAXIMUS standing
+  program this session (multi-session; phases 0-5: key activations →
+  exhaustive source census → global power-grid layer → imagery
+  freshness at all levels → UI expansion → ratchets). Program state
+  and resume protocol live in wishlist.md; this entry is Phase 0a.
+- Territory: T-DATACORE (server/gridDemand.ts + test,
+  datacore/manifests/griddemand.json) + SHARED (server/routes.ts
+  wiring last + minimal, package.json, this file).
+- BUILD: EIA_API_KEY landed in Railway (Mike's part) → the BUILD
+  ORDER 6 #6 stream builds NOW, key-gated on the
+  fredMacro/censusImports pattern (enabled() env check, honest
+  enabled:false route state, activates wherever the key lands).
+  Shape verified live with DEMO_KEY before coding: EIA v2 envelope,
+  value as STRING MWh, bracketed params must be URL-encoded (pinned
+  by a test alongside a key-never-logged encoding pin). Scope v1:
+  demand (type D) for US48 + 8 major BAs, 48h trailing window, 2h
+  poll, observation-day day-files (hours land where they belong),
+  respondent|period dedup across restarts, gz 3d.
+- PRIOR (restated from the build order): medium. Gate 1 = US48 daily
+  sum vs EIA's Grid Monitor dashboard; gate 2 = degree-day-adjusted
+  demand residual vs industrial-sector returns. Joins: CPC
+  degree-days (live), power plants, the Phase-2 grid layer.
+- Gates: node 316/316 (5 new); tsc 64; build OK; version 1.0.163.
+  VERIFY (pre-stated): post-deploy /api/data/grid-demand serves 9
+  respondent stats with same-day latest_period (key is in Railway);
+  archive gains griddemand/<obs-date>.jsonl.
+
 ## 2026-07-06 — [NO-ACTION] Day close-out: options first-snapshot QA (landed ✓), R13 verdict (FALSE ALARM), BUILD ORDER 6 closed 4 built + 1 pre-existing + 2 key-gated (docs)
 
 - OPTIONS-CHAIN FIRST-SNAPSHOT QA (open_questions item 5, first

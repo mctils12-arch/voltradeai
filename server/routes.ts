@@ -52,6 +52,7 @@ import { bootTffPoll, latestTff } from "./cftcTff";
 import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
+import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1725,6 +1726,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.failures.length,
       note: "most recent US bank failures/assistance events, amounts in $ thousands as published; cost is the estimated DIF loss and is null until estimated; regional-bank-stress signals stay gate-locked until ladder validation",
       failures: hit.failures,
+    });
+  });
+
+  // EIA-930 hourly grid demand (RAW — DATACORE MAXIMUS Phase 0,
+  // key-gated on EIA_API_KEY). Serves the poller's cached
+  // per-respondent stats only (event-loop rule).
+  bootGridDemandPoll();
+  app.get("/api/data/grid-demand", (_req, res) => {
+    if (!gridDemandEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "EIA_API_KEY not set (free signup — see wishlist)", count: 0, respondents: [] });
+    }
+    const hit = latestDemand();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "EIA-930 Hourly Electric Grid Monitor", warming_up: true, count: 0, respondents: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "EIA-930 Hourly Electric Grid Monitor (public domain)",
+      attribution: "EIA-930 Hourly Electric Grid Monitor",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; industrial-activity nowcast signals stay gate-locked until ladder validation",
+      respondents: hit.stats,
     });
   });
 
