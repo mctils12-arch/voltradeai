@@ -1,5 +1,55 @@
 # Data / Access Wishlist — human reviews weekly
 
+## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
+## RESUME HERE — this block is the cross-session handoff, update it
+## every session that works the program)
+
+STATUS as of 2026-07-06 ~23:30Z (session claude/new-session-iu72vf):
+- PHASE 0 (key activations): ✅ BUILT — grid-demand (v1.0.163, PR
+  #292 merged) + crop-conditions (v1.0.164, PR #293 in CI). NEXT:
+  live-verify both post-deploy (/api/data/grid-demand expects 9
+  respondent stats; /api/data/crop-conditions expects current-week
+  rows OR a verbatim NASS error naming the query fix).
+- PHASE 1 (census): ✅ FILED — research/data_census.md (permanent
+  doc; 3 parallel agents, ~30 sources probed live, master ranking of
+  11 buildable + dead-list). Ships in the next docs PR with this
+  block.
+- PHASE 2 (grid layer): workup agent OUT (PMTiles pipeline
+  feasibility: tooling in container, region sizing, Overpass
+  fallback). Build order files after it returns. Key facts already
+  filed in the census (ODbL read, decimation gates, geometry sizes).
+- PHASE 3 (imagery): UNBLOCKED — the Esri metadata identify endpoint
+  is verified with exact params/response shape (census section 3 #9);
+  CDSE quota math done (#10: scheduled facility chips, never
+  viewport renders). Not started.
+- PHASE 4 (UI): not started. First item = Streams inventory tab
+  (mobile-first 390px).
+- PHASE 5 (ratchets): not started; inventory-coverage test lands
+  with Phase 4.
+- IN FLIGHT: OCC stream workup agent OUT (census #1, ARCHIVE-NOW —
+  2-year purge window; build it as the next stream PR after the
+  census docs PR).
+
+## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;
+## each unlocks a census top-10 item; routed around meanwhile)
+
+9a. **EPA CAMD key (api.data.gov, instant, free)** — unlocks census
+    #2: unit-level HOURLY power-plant utilization (grossLoad×opTime),
+    history to 1995 — the ground-truth source for the whole power
+    vertical. Signup: api.data.gov/signup → set EPA_CAMD_API_KEY in
+    Railway. Highest-value single key in the census.
+9b. **Global Energy Monitor download (form-fill, 2 min)** — name +
+    email at globalenergymonitor.org/projects/global-integrated-power-tracker/download-data
+    → forward the xlsx link (or the file) — CC BY 4.0, 182k
+    facilities with status + coordinates; the join spine for the
+    grid layer.
+9c. **ENTSO-E token (free, ≤3 working days)** — register at
+    transparency.entsoe.eu, then email transparency@entsoe.eu with
+    subject "RESTful API access"; token appears in account settings
+    → set ENTSOE_TOKEN in Railway. Unlocks EU hourly load/gen/prices.
+9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
+    OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
+
 ## ⚠️ URGENT — READ FIRST (2026-07-06 ~15:45Z, push-notified)
 
 **#9. ALPACA SIP DATA ENTITLEMENT REJECTED — check the Alpaca
