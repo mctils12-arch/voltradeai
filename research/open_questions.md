@@ -1153,7 +1153,15 @@ nowcast, sector-level stress/quality events. Priors stated per item.)
    LADDER: gate 1 = complaint counts vs NHTSA's own published recall
    timeline for 3 known cases; gate 2 = velocity anomalies vs forward
    returns.
-5. US DROUGHT MONITOR (usdmdataservices.unl.edu REST + weekly
+5. [ALREADY BUILT — duplicate filing, discovered 2026-07-06 at build
+   time: v1.0.118 / PR #229 shipped this exact stream 2026-07-05 as
+   BUILD ORDER 2 #5 (same FIPS probe finding, CONUS + 8 belt states +
+   DSCI, /api/data/drought live). First-merged wins; no rebuild.
+   LESSON compiled into the build-order method: grep server/ for
+   existing stream modules BEFORE filing — the probe agents verified
+   the sources but nobody checked our own repo.] Original filing
+   preserved below for the record:
+   US DROUGHT MONITOR (usdmdataservices.unl.edu REST + weekly
    shapefiles; keyless; weekly Thu; county-level D0-D4 percentages to
    2000; citation required — NDMC-UNL/USDA/NOAA attribution travels
    on every record and the map layer). HYPOTHESIS: county-weighted
