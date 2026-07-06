@@ -1,0 +1,22 @@
+{
+ "stream": "occvolume",
+ "storage": "one gzipped JSONL per REPORT date under <archive>/occvolume/ (gz-on-write — ~153k rows/day would be ~18MB plain, ~1MB gz); day-level dedup (a published report date is final)",
+ "written_by": "server/occVolume.ts archiveOccDay (4h poll over a 5-trading-day window — retries 'not yet published' until day T lands and self-heals brief gaps; eager boot)",
+ "source": "OCC volume-query (marketdata.theocc.com) — keyless CSV, probed live 2026-07-06. ⚠️ ROLLING 2-YEAR WINDOW (verified verbatim error body): data ages off the back daily — this archive is the only durable copy we will ever have (accumulation substitutes for purchase). Verified shape: quantity,underlying,symbol,actype(C/F/M),porc(P/C),exchange(18 codes),actdate MM/DD/YYYY; ALL errors arrive as HTTP 200 + plain text bodies (classified, never parsed as data); quantity counts EACH CLEARING SIDE — totals are halved, C/M put-call ratios kept side-consistent",
+ "license": "OCC informational use; redistribution of raw data needs OCC permission — bot-internal use + gated derived signals OK; raw resale requires review (BLOCKED-FOR-MIKE when monetization nears)",
+ "attribution": "The Options Clearing Corporation (OCC) daily volume",
+ "schema_version": 1,
+ "field_map": {
+  "date — day-level dedup key": "report date, normalized from MM/DD/YYYY",
+  "underlying/symbol": "underlying ticker; symbol is the option ROOT (numeric prefixes like 1AAL/2SPY = adjusted series)",
+  "actype": "C=customer, F=firm, M=market-maker — the trade-origin split that is this stream's entire value",
+  "porc/exchange/qty": "put-or-call, listing exchange, contracts PER CLEARING SIDE (see double-count note)"
+ },
+ "confidence_model": "RAW official cleared-volume data. The customer-vs-market-maker put/call-by-ticker hypothesis (the retired ISEE's successor, uncrowded on small caps) stays gate-locked: gate 1 = one day's totals vs OCC's published daily volume page; gate 2 = customer P/C extremes vs forward returns, discounted for census breadth.",
+ "geo_fields": [],
+ "entity_key": "date + underlying + symbol + actype + porc + exchange (verified unique across 153,181 rows)",
+ "sentiment": null,
+ "started": "2026-07-06",
+ "cadence": "daily source, published overnight ET; 4h poll; weekends/holidays return 'No record(s) found' (honest no-op)",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS census #1 — the archive-now root. A one-time ~500-call 2-year backfill is a SEPARATE session-run task (filed in the census), not the boot path."
+}
