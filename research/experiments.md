@@ -63,6 +63,15 @@ exception to append-only; the log below it stays append-only)
 - VERIFY (pre-stated): post-deploy, /api/diag/scanner must show
   consecutiveFailures reset to 0 and /api/health scanner "ok" within
   ~15 min (next Tier2 cycle after the probe downgrades the feed).
+- VERIFIED (same day, post-deploy): /api/diag/scanner ->
+  `{degraded:false, consecutiveFailures:0, lastFailureDetail:null}`;
+  /api/health overall "ok" — server {uptime_s:2304, heap 68MB,
+  rss 173MB}, bot "active", alpaca "ok", scanner "ok". The scan is
+  discovering again on delayed_sip (honest full-tape volume, 15-min
+  delay). Criteria met exactly as pre-stated; incident CLOSED. Only
+  open thread is Mike's wishlist #9 subscription decision — the bot
+  self-upgrades to real-time sip within 10 min of a restore, no
+  deploy needed.
 
 ## 2026-07-06 — [PRODUCT] Everything Graph build step 2 — server/entityGraph.ts + /api/data/graph (v1.0.149)
 
