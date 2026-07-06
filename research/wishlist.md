@@ -15,12 +15,24 @@ STATUS as of 2026-07-07 ~00:20Z (session claude/new-session-iu72vf):
   (v1.0.165, #295); the 2-year-purge archive is recording. Session-run
   follow-up: one-time ~500-call OCC 2-year backfill (script it like
   the FINRA backfill precedent, deep-backfill env-gated).
-- PHASE 2 (grid layer): BUILD ORDER FILED in open_questions.md
-  ("GRID BUILD ORDER"), pipeline PROVEN in-container by workup
-  (tippecanoe native-pmtiles + osmium via apt; TX proof <10min; US
-  ≲1hr/15GB peak; pmtiles@4.4.1 client dep needed). NEXT UNBLOCKED
-  ITEM: item 1 TX PILOT (server artifact PR, then client layer PR —
-  two logical changes; 390px harness gates the client PR).
+- PHASE 2 (grid layer): item 1 TX PILOT — PIPELINE EXECUTED AND
+  PROVEN this session: texas 709MB → 5.2MB power features (31s) →
+  16.2MB PMTiles (25s, maxzoom 12). scripts/build_power_tiles.sh
+  COMMITTED (reproduces the artifact in <1 min; US variant
+  documented). SERVING DECISION (made, not yet built): TX pilot
+  16MB artifact → commit under client/public/tiles/ (bundled to
+  dist/public, express static serves range requests; image rule
+  satisfied since dist/ ships in the image); US scale (est.
+  60-150MB) → NEVER commit — boot-fetch from a GitHub Release asset
+  into the volume. REMAINING for item 1 (next session, exact steps):
+  (a) run scripts/build_power_tiles.sh, copy power_tx.pmtiles to
+  client/public/tiles/; (b) npm i pmtiles@4.4.1; (c) datamap layer:
+  pmtiles:// protocol registration, line layer colored by voltage
+  with 'voltage unknown' class (NEVER drop untagged), zoom gates
+  (≥230kV z<6, ≥100kV z<9, all z≥11, substations z≥9), ODbL
+  attribution string; (d) npm run build && npm run visual at
+  390/768/1440 + screenshot self-review; (e) layers.json registry
+  entry labeled RAW with coverage=Texas-pilot honesty.
 - PHASE 3 (imagery): unblocked, not started — Esri identify endpoint
   verified w/ exact params (census §3 #9); CDSE quota mandate:
   scheduled facility chips only.
