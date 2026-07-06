@@ -5468,12 +5468,16 @@ except ImportError:
 if os.path.exists(TRADE_FEEDBACK_PATH):
     with open(TRADE_FEEDBACK_PATH) as f:
         raw = json.load(f)
-    valid = [t for t in raw if t.get('code_version', '') >= '1.0.33' and t.get('ticker', '').strip()]
-    removed = len(raw) - len(valid)
+    # REPAIR 2026-07-06 (R12-D4): filter extracted to feedback_boot_cleanup.py
+    # (unit-tested). Fixes: seeds no longer wiped every deploy; version compare
+    # numeric (the old '1.0.153' < '1.0.34' string trap); the April-2026
+    # pre-Bug-25b fossils (code_version 1.0.33, pnl 0) finally removed.
+    from feedback_boot_cleanup import clean_feedback
+    valid, removed = clean_feedback(raw)
     if removed > 0:
         with open(TRADE_FEEDBACK_PATH, 'w') as f:
             json.dump(valid, f)
-        print(f'FEEDBACK CLEANUP: removed {removed} pre-v1.0.33 trades, kept {len(valid)}')
+        print(f'FEEDBACK CLEANUP: removed {removed} untrusted-era records, kept {len(valid)}')
     else:
         print(f'FEEDBACK: {len(raw)} trades, all clean')
 "`, { timeout: 5000 }).then((r: any) => {
