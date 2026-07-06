@@ -1,5 +1,5 @@
 {
- "_doc": "Registry of /data map layers. Served via /api/data/layers. Every layer is labeled kind: 'raw' (as-is display, source attribution, no predictive claim) or 'signal' (interpreted reading; may not surface before ROOT VALIDATION LADDER gate 2). Status: live | awaiting_key | planned. Layers with field:true are visual FIELD overlays and inherit registry-native display controls (opacity slider, default 60%). group: panel section id (BUILD ORDER 4 #2, GIP Part 4 UI SCALABILITY) — the client's PANEL_GROUPS/LAYER_GROUP map is now a fallback only; a new layer can be slotted into an existing panel group by setting this field alone, no client code change required (a brand-new group id needs one addition to client PANEL_GROUPS to get a label, but defaults collapsed automatically). costTier: 'light'|'moderate'|'heavy' — relative client network/render cost (raster fields and high-frequency live streams are 'heavy'; small polled REST lists are 'light'); feeds the panel's active-cost-budget advisory badge (client datamap.tsx costWeightOf/activeCostWeight) and is available for future admission-control budgets as the registry grows toward hundreds of layers.",
+ "_doc": "Registry of /data map layers. Served via /api/data/layers. Every layer is labeled kind: 'raw' (as-is display, source attribution, no predictive claim) or 'signal' (interpreted reading; may not surface before ROOT VALIDATION LADDER gate 2). Status: live | awaiting_key | planned. Layers with field:true are visual FIELD overlays and inherit registry-native display controls (opacity slider, default 60%). group: panel section id (BUILD ORDER 4 #2, GIP Part 4 UI SCALABILITY) \u2014 the client's PANEL_GROUPS/LAYER_GROUP map is now a fallback only; a new layer can be slotted into an existing panel group by setting this field alone, no client code change required (a brand-new group id needs one addition to client PANEL_GROUPS to get a label, but defaults collapsed automatically). costTier: 'light'|'moderate'|'heavy' \u2014 relative client network/render cost (raster fields and high-frequency live streams are 'heavy'; small polled REST lists are 'light'); feeds the panel's active-cost-budget advisory badge (client datamap.tsx costWeightOf/activeCostWeight) and is available for future admission-control budgets as the registry grows toward hundreds of layers.",
  "layers": [
   {
    "id": "imagery",
@@ -105,6 +105,17 @@
    "description": "All ~9,800 US plants by fuel type; capacity + operator on click. Static reference data (2021 vintage)."
   },
   {
+   "id": "powergrid",
+   "name": "Power grid (TX pilot)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "moderate",
+   "source": "OpenStreetMap power features (\u00a9 OpenStreetMap contributors, ODbL) \u2014 compiled to vector tiles by our pipeline (scripts/build_power_tiles.sh)",
+   "description": "Transmission lines, substations and plant footprints from OSM. COVERAGE: Texas pilot only (US expansion filed). Voltage-classed; lines with no/unparseable voltage tag render as a distinct dashed 'voltage unknown' class \u2014 OSM voltage tagging is incomplete and untagged lines are never hidden. Community-mapped public data: no restricted CEII detail; underground/distribution largely absent.",
+   "field": false
+  },
+  {
    "id": "insider",
    "name": "Insider transactions (Form 4)",
    "kind": "raw",
@@ -132,7 +143,7 @@
    "group": "filings",
    "costTier": "light",
    "source": "FINRA Reg SHO daily short sale volume (CNMS consolidated file, no API key required)",
-   "description": "Daily consolidated short-marked execution volume per symbol, published by FINRA — a flow proxy, NOT short interest. As-is display (today's top ratio movers + a per-ticker multi-year lookup into our own archive, back to 2024-06-17); short-ratio-extremes-precede-reversals is an open gate-2 hypothesis, not yet surfaced as a signal."
+   "description": "Daily consolidated short-marked execution volume per symbol, published by FINRA \u2014 a flow proxy, NOT short interest. As-is display (today's top ratio movers + a per-ticker multi-year lookup into our own archive, back to 2024-06-17); short-ratio-extremes-precede-reversals is an open gate-2 hypothesis, not yet surfaced as a signal."
   },
   {
    "id": "shadowstats",
@@ -162,7 +173,7 @@
    "group": "graph",
    "costTier": "light",
    "source": "Own join over SEC EDGAR Form 4 + datacore/entity_map.json + own AIS-derived port-dwell archive (datacore/EVERYTHING_GRAPH.md)",
-   "description": "Search a ticker, insider CIK, vessel MMSI, or facility id to see everything the platform has joined about it: insiders, operated facilities, vessels calling at its ports. RAW join with provenance on every edge (source, confidence, first/last seen) — no predictive claim; any future anomaly/interpretation layer on top is SIGNAL-class and ladder-gated separately."
+   "description": "Search a ticker, insider CIK, vessel MMSI, or facility id to see everything the platform has joined about it: insiders, operated facilities, vessels calling at its ports. RAW join with provenance on every edge (source, confidence, first/last seen) \u2014 no predictive claim; any future anomaly/interpretation layer on top is SIGNAL-class and ladder-gated separately."
   },
   {
    "id": "fires",
