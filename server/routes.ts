@@ -53,6 +53,7 @@ import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
+import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1750,6 +1751,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.stats.length,
       note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; industrial-activity nowcast signals stay gate-locked until ladder validation",
       respondents: hit.stats,
+    });
+  });
+
+  // USDA NASS crop conditions (RAW — DATACORE MAXIMUS Phase 0b,
+  // key-gated on NASS_API_KEY). Serves the poller's cached newest
+  // week only (event-loop rule).
+  bootCropConditionsPoll();
+  app.get("/api/data/crop-conditions", (_req, res) => {
+    if (!cropConditionsEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "NASS_API_KEY not set (free signup — see wishlist)", count: 0, rows: [] });
+    }
+    const hit = latestConditions();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "USDA NASS QuickStats", warming_up: true, count: 0, rows: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "USDA NASS QuickStats — weekly crop condition ratings (US government data)",
+      attribution: "USDA National Agricultural Statistics Service (QuickStats)",
+      time: hit.at,
+      latest_week: hit.latest_week,
+      count: hit.rows.length,
+      note: "national weekly CONDITION ratings for corn + soybeans (5 classes via short_desc, Monday releases in season); condition-delta signals stay gate-locked until ladder validation",
+      rows: hit.rows,
     });
   });
 

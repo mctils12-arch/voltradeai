@@ -1,0 +1,22 @@
+{
+ "stream": "cropconditions",
+ "storage": "append-only JSONL day-files under <archive>/cropconditions/, one file per FETCH date with event-identity dedup (commodity|week_ending|short_desc) across restarts; gz after 2 days",
+ "written_by": "server/cropConditions.ts archiveConditions (12h poll, 2 politeness-spaced calls/cycle, eager boot; key-gated on NASS_API_KEY — fredMacro/censusImports pattern)",
+ "source": "USDA NASS QuickStats API (api_GET) — free key. Keyless probe 2026-07-06 returned unauthorized, so the row shape follows the documented QuickStats contract with defensive parsing (Value/value keys, comma-grouped numbers) and VERBATIM error-body logging (censusImports precedent); LIVE VERIFICATION PENDING post-deploy. Scope v1: NATIONAL weekly CONDITION ratings for CORN + SOYBEANS (5 classes as separate rows via short_desc). Weekly Monday releases in season",
+ "license": "USDA NASS terms: attribute to NASS, no endorsement implication, no modified-content misattribution; no commercial-use prohibition found (probe 2026-07-06). Attribution 'USDA National Agricultural Statistics Service (QuickStats)'",
+ "attribution": "USDA National Agricultural Statistics Service (QuickStats)",
+ "schema_version": 1,
+ "field_map": {
+  "commodity|week_ending|item — event-identity dedup key": "the same week's condition-class reading never re-archives",
+  "item": "QuickStats short_desc verbatim (e.g. 'CORN - CONDITION, MEASURED IN PCT EXCELLENT') — the condition class travels inside it, never re-encoded",
+  "pct": "percent value; comma-grouped strings normalized; missing values null, never zero",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official weekly survey ratings. The condition-delta hypothesis stays gate-locked: gate 1 = values vs the published Crop Progress report; gate 2 = week-over-week condition delta vs forward grain futures returns. Join partner: the live Drought Monitor stream (belt-weighted ag-stress index).",
+ "geo_fields": [],
+ "entity_key": "commodity + week_ending + item",
+ "sentiment": null,
+ "started": "2026-07-06",
+ "cadence": "weekly source (Monday afternoon ET, in growing season); 12h poll makes off-days a dedup no-op",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS Phase 0b / BUILD ORDER 6 #7 — activated the day the key landed in Railway."
+}
