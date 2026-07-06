@@ -13,6 +13,56 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] ML feedback loop investigation pt.3 — the 500 mystery records: orphan_exit REFUTED, shape aggregates added to the ml diag probe (v1.0.152)
+
+- Territory: T-BOT (server/bot.ts ml diag probe) + SHARED (package.json,
+  this file). Continues the v1.0.146/147 diag-probe thread with the
+  answer to its pre-stated question, plus the next instrument.
+- FINDING (refutes v1.0.147's hypothesis, exactly as its own pre-stated
+  check was designed to): live /api/diag/ml now shows
+  `live_outcome_breakdown: {open: 500}` — ZERO orphan_exit outcomes, so
+  the orphan_exit fallback shape is NOT what fills the file. Combined
+  facts: 500 live records (0 seeded), fills_count=0 (no expected_price),
+  total_trades=0 (no usable pnl_pct), all outcome-less.
+- WRITER ELIMINATION (READ BEFORE WRITE — every candidate read this
+  session): (a) ml_model_v2.track_fill entry path stamps expected_price
+  + slippage_pct unconditionally → would make fills_count>0; (b) the
+  backtest seeder stamps _seed → seeded_count would be >0; (c)
+  bot.ts trackClosedTrades' feedback block filters pnlPct!==0 &&
+  !==null before writing → total_trades would be >0; (d) legacy
+  ml_model.track_fill writes FILLS_PATH, a different file. Every
+  candidate contradicts one observed field — inference from absences
+  is exhausted; the record SHAPE must be read from prod.
+- TWO CONFIRMED DEFECTS filed regardless of the writer question (fixes
+  are separate PRs, one logical change each):
+  1. NO EXIT-SIDE track_fill CALLER: bot.ts calls track_fill at exactly
+     2 sites (morning queue + regular batch), both ENTRY fills; no code
+     path anywhere passes exit_context/exit_reason/is_close, so
+     _is_exit_fill can never fire and no entry record can EVER be
+     closed by the fill tracker. Bug #13's fix (v1.0.34, exit-detection
+     inside track_fill) has had no caller feeding it since it shipped.
+  2. SEED WIPE-OUT CYCLE: seed records carry no code_version, and the
+     Node boot cleanup keeps only code_version >= '1.0.33' → every seed
+     is deleted on every deploy; the daemon reseeds only when the file
+     has <100 records, and the 500 mystery records hold it above that
+     → Kelly-gate priors are permanently gone (seeded_count=0 live).
+- INSTRUMENT SHIPPED (this PR): ml probe now reports field-NAME
+  signatures (top 5 key-sets), code_version / session distributions,
+  entry_features presence, pnl null/zero counts, and record date range
+  — aggregates only, never tickers or prices, same token gate. One
+  deploy names the writer definitively.
+- PRIOR (stated before reading the result): the 'timestamp' field
+  legacy note at bot.ts:2227 suggests trackClosedTrades-shaped records
+  (they use 'timestamp', not 'time_filled'), meaning some historical
+  variant of that block wrote pnl-less records before the 2026-04-20
+  filter existed and the [-500:] cap preserved them forever. Confidence
+  ~60%; the shape signature will confirm or refute.
+- Gates: tsc 64 (baseline held), pytest untouched (inline python only),
+  version 1.0.152. VERIFY (pre-stated): post-deploy /api/diag/ml
+  returns the new aggregate fields; the dominant key signature
+  identifies the writer; findings and the two defect fixes land as
+  follow-up PRs with their own tests.
+
 ## 2026-07-06 — [REPAIR] silent-except CLASS ratchet — 329 handlers pinned per-file so the v1.0.148/v1.0.151 generator can only shrink (test-only, no version bump)
 
 - Territory: T-BOT (new test_silent_except_ratchet.py) + SHARED (this
