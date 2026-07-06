@@ -13,6 +13,64 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] R12 ROOT CAUSE FOUND + FIXED: track_fill's qty guard silently dropped every regular-hours entry fill since 2026-04-23 — ML learned nothing live for 2.5 months (v1.0.153)
+
+- Territory: T-BOT (ml_model_v2.py, new test_track_fill_qty.py) +
+  SHARED (package.json, this file).
+- SHAPE AGGREGATES DELIVERED (v1.0.152 probe, one deploy, prior ~60%
+  CONFIRMED): all 500 live records share ONE key signature — exactly
+  trackClosedTrades' feedback map (ticker,side,pnl_pct,holding_days,
+  strategy,score,rules_score,ml_score,blended_score,won,instrument,
+  entry_features,exit_context,timestamp,code_version) — with
+  code_version **1.0.33** (the pre-Bug-25b variant, no pnl filter),
+  pnl_pct 0 on all 500, entry_features null on all 500, dates
+  2026-04-16 → 2026-04-20. They are April fossils; since the file cap
+  keeps the NEWEST 500, their survival proves NOTHING has appended to
+  trade_feedback since 2026-04-20.
+- ROOT CAUSE (reproduced locally, then dated by git archaeology):
+  bot.ts's regular-hours fill payload switched to
+  qty_requested/qty_filled with NO "qty" key on 2026-04-23 (2479df0,
+  the daemon-first change) — track_fill's `if qty <= 0: return` guard
+  silently dropped every regular-hours entry fill from that day on.
+  The morning-queue payload still carries "qty" but rarely fires.
+  Dates align exactly: fossils end 04-20, payload changed 04-23.
+  ANOTHER silent-discard instance of the v1.0.148/151 observability
+  class (a silent `return`, not a silent `except` — the ratchet's
+  lesson generalizes).
+- FIX (one logical change): qty resolution accepts qty → qty_filled →
+  qty_requested (filled wins over requested for partials; requested
+  as fallback covers the FILL-CHECK-WARN path where confirmation
+  failed and qty_filled is 0); a genuinely quantity-less payload still
+  refuses to write but now LOGS the drop (voltrade.ml logger) instead
+  of vanishing.
+- RATCHET: test_track_fill_qty.py — 6 tests whose fixtures copy the
+  EXACT current bot.ts payload key-sets (R6 lesson): regular-hours
+  payload writes; partial fill uses filled qty; zero-filled falls back
+  to requested; morning-queue contract unchanged; quantity-less drop
+  logs + writes nothing; end-to-end entry→exit_context close (first
+  test ever exercising Bug #13's exit machinery with today's entry
+  contract).
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): entry records resume →
+  fills_count/slippage stats resume feeding the fills tracker → the
+  April fossils age out of the [-500:] cap as real records append →
+  live_performance stays 0 until EXITS also record (defect D2, next
+  PR) → only then does trade_feedback training data resume. This PR
+  un-blocks the pipeline's first stage; it does NOT claim the loop is
+  learning yet.
+- REMAINING R12 DEFECTS (each its own PR): D2 no exit-side track_fill
+  caller (exit_context never passed — needs bot.ts exit wiring); D3
+  trackClosedTrades feedback block dead since the OOM fix hardcoded
+  entryFeatures null (its filter rejects everything — decide repair vs
+  staleness-removal AFTER D2 verifies); D4 seed wipe-out cycle (seeds
+  lack code_version; boot cleanup deletes them every deploy; reseed
+  threshold <100 never met while fossils hold 500).
+- Gates: pytest 439 passed / 1 skipped (433 + 6 new); tsc untouched;
+  version 1.0.153. VERIFY (pre-stated): after the next regular-hours
+  entry fill on prod, /api/diag/ml shows fills_count > 0 and a second
+  key signature (code_version 1.0.34 shape) in live_key_signatures;
+  the fossil count starts shrinking below 500 as appends displace the
+  cap. Check on the next trading session.
+
 ## 2026-07-06 — [REPAIR] ML feedback loop investigation pt.3 — the 500 mystery records: orphan_exit REFUTED, shape aggregates added to the ml diag probe (v1.0.152)
 
 - Territory: T-BOT (server/bot.ts ml diag probe) + SHARED (package.json,
