@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [RESEARCH] DATACORE MAXIMUS Phase 1: master data census FILED — ~30 sources probed live by 3 parallel agents, 11 buildable ranked, dead-list recorded (docs)
+
+- Territory: SHARED research/* (data_census.md NEW permanent doc,
+  wishlist.md program-state block + BLOCKED-FOR-MIKE 9a-9d, this
+  file). Subagent mandate applied: parallel research, serial merges,
+  durable filed output — every agent finding landed in the census
+  doc, nothing lost in-session.
+- HEADLINES: (1) OCC daily options volume — keyless, per-ticker
+  customer/firm/market-maker put-call, HARD 2-YEAR PURGE window →
+  archive-now urgency, next stream build; (2) EPA CAMD CEMS —
+  unit-level HOURLY plant utilization to 1995, free key → the
+  ground-truth source for the whole power vertical (Mike: 9a);
+  (3) Esri World Imagery metadata identify endpoint VERIFIED with
+  exact params (Phase 3a unblocked); (4) CDSE free-tier quota math
+  done — scheduled facility chips only, never viewport renders;
+  (5) ODbL precise read: signals sellable with attribution,
+  geometry-database redistribution triggers share-alike; (6) DEAD:
+  CME (Akamai-blocked), ISE (retired), NYSE threshold API
+  (bot-blocked — FINRA covers), PBOC (scrape-hostile), each with its
+  cheapest unlock path stated per NO-ARTIFICIAL-WALLS.
+- FAILURE-MODE REGISTER filed (census tail): Overpass single-instance
+  dependency real (mirrors unreachable from our proxy), Geofabrik→
+  osmium→PMTiles as the grid pattern (~150-400MB global HV
+  estimated), mobile 390px jank sources named, DTCC 147MB/day flagged
+  for a volume-budget decision before build.
+- ANTI-FISHING NOTE: the census files ~30 hypotheses; each will be
+  discounted at gate 2 for the breadth of this sweep; nothing is
+  believed before its ladder gates.
+
 ## 2026-07-06 — [PIPELINE] DATACORE MAXIMUS Phase 0b: NASS crop conditions stream — key-gated archiver + /api/data/crop-conditions (v1.0.164)
 
 - Territory: T-DATACORE (server/cropConditions.ts + test,
