@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2 } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -13,6 +13,7 @@ import FilingsView from "./filings";
 import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
 import GraphView from "./graph";
+import StreamsView from "./streams";
 import { mmsiFlag } from "@/lib/mmsiFlag";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
@@ -192,6 +193,8 @@ export default function DataMapPage() {
   const [shortvolOpen, setShortvolOpen] = useState(() => window.location.hash === "#/data/short-volume");
   // Everything Graph full view (#/data/graph) — same overlay pattern.
   const [graphOpen, setGraphOpen] = useState(() => window.location.hash === "#/data/graph");
+  // Streams inventory (#/data/streams) — same overlay pattern (Phase 4).
+  const [streamsOpen, setStreamsOpen] = useState(() => window.location.hash === "#/data/streams");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -254,6 +257,7 @@ export default function DataMapPage() {
       setEarningsOpen(window.location.hash === "#/data/earnings");
       setShortvolOpen(window.location.hash === "#/data/short-volume");
       setGraphOpen(window.location.hash === "#/data/graph");
+      setStreamsOpen(window.location.hash === "#/data/streams");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -2277,6 +2281,9 @@ export default function DataMapPage() {
       {graphOpen && (
         <GraphView onBack={() => { window.location.hash = "#/data"; setGraphOpen(false); }} />
       )}
+      {streamsOpen && (
+        <StreamsView onBack={() => { window.location.hash = "#/data"; setStreamsOpen(false); }} />
+      )}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}
       <button className="vt-map-fs-btn" data-vt-fullscreen
@@ -2342,6 +2349,14 @@ export default function DataMapPage() {
                 reload the page to enable the newest layers.
               </div>
             )}
+            {/* Streams inventory launcher (Phase 4, 2026-07-06): the archive
+                census is page-wide, not layer-scoped, so it launches from the
+                panel top — "nothing ships invisible". */}
+            <button type="button" className="vt-streams-launch" data-vt-streams-launch
+                    onClick={() => { window.location.hash = "#/data/streams"; setStreamsOpen(true); }}>
+              <DatabaseIcon size={13} /> Streams inventory
+              <span className="vt-streams-launch-sub">every archived stream · health &amp; freshness</span>
+            </button>
             {PANEL_GROUPS.map((g) => renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id)))}
             {/* SELF-SEE FOR UNKNOWN GROUPS (BUILD ORDER 4 #2 — caught live by
                 the layer-scale synthetic harness, not assumed): a registry-

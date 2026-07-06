@@ -2583,6 +2583,63 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-graph-conn-meta { align-items: flex-start; }
 }
 
+/* ── Streams inventory (#/data/streams — Phase 4, 2026-07-06) ─────────
+   Mobile-first stacked cards; reuses the .vt-filings-* shell. */
+.vt-streams-body { flex: 1; overflow: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.vt-streams-search { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); flex: 1; min-width: 160px; }
+.vt-streams-search .vt-earnings-search { flex: 1; min-width: 0; }
+.vt-streams-list { display: flex; flex-direction: column; gap: 10px; }
+.vt-streams-card {
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 10px 14px 12px;
+}
+.vt-streams-cardhead {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; padding: 2px 0; cursor: pointer; text-align: left;
+  min-height: 32px;
+}
+.vt-streams-name { color: var(--text-primary); font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; }
+.vt-streams-chip {
+  font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  border: 1px solid; border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+}
+.vt-streams-age { margin-left: auto; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+.vt-streams-meta {
+  display: flex; flex-wrap: wrap; gap: 4px 14px; padding-top: 2px;
+  color: var(--text-secondary); font-family: var(--font-mono); font-size: 11.5px;
+}
+.vt-streams-attr { color: var(--text-tertiary); font-size: 11.5px; padding-top: 3px; }
+.vt-streams-detail {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(77, 159, 255, 0.1);
+  color: var(--text-secondary); font-size: 12px; line-height: 1.55;
+}
+.vt-streams-detail b { color: var(--text-primary); font-weight: 600; }
+.vt-streams-peek { display: flex; flex-direction: column; gap: 4px; }
+.vt-streams-peeklabel { color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.vt-streams-peek pre {
+  margin: 0; padding: 8px 10px; border-radius: 8px; overflow-x: auto;
+  background: var(--bg-primary); border: 1px solid rgba(77, 159, 255, 0.1);
+  font-family: var(--font-mono); font-size: 10.5px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all;
+}
+.vt-streams-foot { padding-top: 2px; }
+.vt-spin { animation: vt-streams-spin 1s linear infinite; }
+@keyframes vt-streams-spin { to { transform: rotate(360deg); } }
+/* panel launcher row */
+.vt-streams-launch {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 8px; padding: 8px 10px; margin: 6px 0 2px; cursor: pointer;
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 12px;
+  min-height: 36px;
+}
+.vt-streams-launch:hover { border-color: rgba(77, 159, 255, 0.35); }
+.vt-streams-launch-sub { margin-left: auto; color: var(--text-tertiary); font-size: 10.5px; text-align: right; }
+@media (max-width: 480px) {
+  .vt-streams-launch-sub { display: none; }
+}
+
 /* ── /developers — API product page (T3, 2026-07-04) ─────────────────── */
 .vt-dev-page {
   max-width: 880px; margin: 0 auto; padding: 88px 20px 64px;

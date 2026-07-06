@@ -4,7 +4,7 @@
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
 
-STATUS as of 2026-07-07 ~00:20Z (session claude/new-session-iu72vf):
+STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
 - PHASE 0: ✅ COMPLETE + LIVE-VERIFIED — /api/data/grid-demand
   serves 9 BA respondents (EIA key active); /api/data/crop-conditions
   serves week 2026-07-05, 10 rows (NASS key active; documented-shape
@@ -33,12 +33,28 @@ STATUS as of 2026-07-07 ~00:20Z (session claude/new-session-iu72vf):
   attribution string; (d) npm run build && npm run visual at
   390/768/1440 + screenshot self-review; (e) layers.json registry
   entry labeled RAW with coverage=Texas-pilot honesty.
+- PHASE 2 item 1 LIVE-VERIFIED post-deploy: /tiles/power_tx.pmtiles
+  answers range requests (206) and the layers registry serves the
+  powergrid entry with full coverage-honesty text. Items remaining:
+  2 = US-full (boot-fetch-from-Release design, filed above, NOT
+  built); 3 = EIA-930 demand join (needs item 2 or region mapping).
 - PHASE 3 (imagery): unblocked, not started — Esri identify endpoint
   verified w/ exact params (census §3 #9); CDSE quota mandate:
   scheduled facility chips only.
-- PHASE 4 (UI): not started. First = Streams inventory tab (390px).
-- PHASE 5 (ratchets): not started; inventory-coverage test lands
-  with Phase 4.
+- PHASE 4 (UI): Streams inventory tab SHIPPED v1.0.167 — server
+  aggregate /api/data/streams (manifests × archive scan; cache-only
+  route; health derived from age vs cadence, raw age always shown;
+  size-capped latest-record peek) + #/data/streams overlay
+  (mobile-first cards, health filter chips, expandable peek) +
+  launcher row atop the layer panel. Remaining Phase 4: cross-stream
+  timeline, per-entity dashboards, alerting.
+- PHASE 5 (ratchets): inventory-coverage ratchet LANDED with Phase 4
+  (streamsInventory.test.ts: every datacore/manifests/*.json must
+  appear in the inventory; aggregator enumerates the dir at runtime
+  so new streams surface mechanically). streams page registered in
+  the visual harness PAGES (perf/layout gate at 390/768/1440).
+  Remaining: imagery capture-date requirement (with Phase 3),
+  per-layer freshness chips.
 - NEXT CENSUS BUILDS after grid pilot: JODI (keyless static, easiest),
   FINRA Query API cluster, SEC FTD; EPA CAMD/GEM/ENTSO-E on Mike's
   keys (9a/9b/9c below).
