@@ -2339,8 +2339,23 @@ def track_fill(order_data: dict) -> None:
         ticker = str(raw_ticker).strip().upper() if raw_ticker is not None else ""
         if not ticker:
             return
-        qty = float(order_data.get("qty", 0) or 0)
+        # REPAIR 2026-07-06 (R12): the regular-hours fill payload switched to
+        # qty_requested/qty_filled on 2026-04-23 (bot.ts 2479df0) with no
+        # "qty" key — this guard then silently dropped EVERY regular-hours
+        # entry fill for 2.5 months (trade_feedback's newest live record is
+        # 2026-04-20; the ML loop learned nothing live since). Accept the
+        # actual filled quantity first, then the requested fallback, and log
+        # instead of silently discarding a fill the bot really made.
+        qty = float(order_data.get("qty")
+                    or order_data.get("qty_filled")
+                    or order_data.get("qty_requested")
+                    or 0)
         if qty <= 0:
+            import logging as _tf_log
+            _tf_log.getLogger("voltrade.ml").warning(
+                f"track_fill DROP: {ticker} has no positive qty/qty_filled/qty_requested "
+                f"(keys={sorted(order_data.keys())})"
+            )
             return
 
         expected   = float(order_data.get("expected_price", 0) or 0)
