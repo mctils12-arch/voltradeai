@@ -2179,6 +2179,52 @@ def scan_market():
             _sig.signal(_sig.SIGALRM, _old_handler)
 
 
+def _parse_snapshot_batch(raw, status_code):
+    """Pure parse of one Alpaca /v2/stocks/snapshots response into
+    {symbol: (close, open, volume, prev_close)}.
+
+    REPAIR 2026-07-06 (Tier2 scan-failure blind spot): _fetch_snap's old
+    bare `except Exception: return {}` (and its silent skip of any
+    non-dict-per-symbol response body) meant a genuine Alpaca API problem
+    -- auth, feed entitlement, rate limit, malformed request -- produced
+    the exact same generic "Could not fetch market data from Alpaca" as a
+    quiet/no-op batch, with zero trace of WHY. Prod hit this for 10+
+    consecutive Tier2 cycles (~1.5h) on 2026-07-06 with nothing in the
+    audit log beyond the generic message. Extracted to a standalone pure
+    function (no network, no globals) so the diagnostic path is unit
+    testable without mocking the whole scan_market environment.
+
+    Returns (out, detail). detail is None when out is non-empty; when out
+    is empty, detail names the reason (HTTP status, non-dict body, or "N/M
+    symbols had a usable dailyBar" — the last case matters most: a 200
+    response that parses fine but no symbol crosses the c>0 bar, e.g. a
+    subscription/entitlement problem serving empty bars for every symbol).
+    """
+    if status_code != 200:
+        return {}, f"HTTP {status_code}"
+    if not isinstance(raw, dict):
+        return {}, f"non-dict response body: {str(raw)[:200]}"
+    out = {}
+    for sym, snap in raw.items():
+        if not isinstance(snap, dict):
+            continue
+        bar = snap.get("dailyBar") or {}
+        prev = snap.get("prevDailyBar") or {}
+        try:
+            c = float(bar.get("c", 0) or 0)
+            o = float(bar.get("o", c) or c)
+            v = int(bar.get("v", 0) or 0)
+            pc = float(prev.get("c", c) or c)
+        except (TypeError, ValueError):
+            continue
+        if c <= 0:
+            continue
+        out[sym] = (c, o, v, pc)
+    if not out and raw:
+        return out, f"0/{len(raw)} symbols had a usable dailyBar (sample keys: {list(raw.keys())[:3]})"
+    return out, None
+
+
 def _scan_market_inner():
     global _partial_scan_result
     _partial_scan_result = None
@@ -2382,6 +2428,12 @@ def _scan_market_inner():
     batches = [ticker_symbols[i:i+400] for i in range(0, len(ticker_symbols), 400)]
     # snap_all now maps sym -> (c, o, v, pc) tuple (4 floats/ints only).
     snap_all: dict = {}
+    # REPAIR 2026-07-06: last diagnostic reason a batch came back empty —
+    # see _parse_snapshot_batch's docstring. Only consulted if snap_all
+    # ends up empty across every batch (the "Could not fetch market data"
+    # case); a handful of failing batches alongside mostly-successful ones
+    # is normal partial degradation, not what this is chasing.
+    _snap_diag = {"detail": None}
 
     def _fetch_snap(batch):
         try:
@@ -2392,25 +2444,12 @@ def _scan_market_inner():
             # Extract only fields needed by quick-score. Drops latestTrade,
             # latestQuote, minuteBar and any other heavy sub-objects before
             # the raw response is retained across batches.
-            out = {}
-            if isinstance(raw, dict):
-                for sym, snap in raw.items():
-                    if not isinstance(snap, dict):
-                        continue
-                    bar = snap.get("dailyBar") or {}
-                    prev = snap.get("prevDailyBar") or {}
-                    try:
-                        c = float(bar.get("c", 0) or 0)
-                        o = float(bar.get("o", c) or c)
-                        v = int(bar.get("v", 0) or 0)
-                        pc = float(prev.get("c", c) or c)
-                    except (TypeError, ValueError):
-                        continue
-                    if c <= 0:
-                        continue
-                    out[sym] = (c, o, v, pc)
+            out, detail = _parse_snapshot_batch(raw, r.status_code)
+            if detail:
+                _snap_diag["detail"] = detail
             return out
-        except Exception:
+        except Exception as e:
+            _snap_diag["detail"] = f"{type(e).__name__}: {str(e)[:150]}"
             return {}
 
     # Sequential fetch: only one raw JSON response is alive at a time, and it
@@ -2484,7 +2523,11 @@ def _scan_market_inner():
             continue
 
     if not quick_results:
-        return {"error": "Could not fetch market data from Alpaca", "trades": []}
+        return {
+            "error": "Could not fetch market data from Alpaca",
+            "debug_detail": _snap_diag["detail"],
+            "trades": [],
+        }
 
     # Release raw snapshot data — quick_results now has everything we need
     del snap_all

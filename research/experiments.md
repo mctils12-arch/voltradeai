@@ -13,6 +13,155 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-06 — [REPAIR] Tier2 scan-failure blind spot: silent-except swallowed the real Alpaca error; scan health now visible on /api/health + a new diag probe (v1.0.148)
+
+- Territory: T-BOT (bot_engine.py scan_market, server/bot.ts Tier2 +
+  /api/health + diag route, server/diag.ts whitelist) + SHARED
+  (package.json, this file), shared edit last per WORKSTREAM PARTITION.
+- SESSION-START CHECKS (repair mandate + loop-health, per standing
+  protocol): read CLAUDE.md, experiments.md, open_questions.md,
+  wishlist.md.
+  **LOOP-HEALTH RATIO**: last 10 experiments.md entries by tag —
+  v1.0.147 REPAIR, v1.0.146 REPAIR, v1.0.145 PRODUCT, v1.0.144 REPAIR,
+  v1.0.143-verify REPAIR, v1.0.143 REPAIR, v1.0.142 REPAIR, v1.0.141
+  REPAIR, v1.0.140 REPAIR, v1.0.139 REPAIR = **9/10 REPAIR**, past the
+  7+ trigger. Diagnosed WHY before doing anything else (per HEALTH OF
+  THE LOOP rule 2): traced each entry to its actual cause rather than
+  taking the tag at face value. Verdict — NOT the thrash pattern the
+  rule exists to catch: 6 of the 9 (139/140/141/142/143/143-verify)
+  are ONE production incident (the 2026-07-05 OOM crash-loop) worked
+  through its full lifecycle — mitigate -> alarm/observability ->
+  audit -> root-cause -> verify — closed with a real fix, a compiled
+  general LESSON ("streaming has two dimensions: event-loop AND heap"),
+  and ratchet tests (archiveFoldMemory.test.ts); the event-loop class
+  it built on (v1.0.125/126, portdwell/shadowstats) was itself already
+  CLASS CLOSED with a stated pattern rule for new surfaces — not a
+  RECURRENCE-ESCALATES violation (no issue marked fixed broke the same
+  way twice; the memory dimension was a distinct, immediately-diagnosed
+  new dimension of the same family). The other 2 (146/147) are one
+  continuing diagnostic investigation of a long-standing KNOWN BROKEN
+  item, not repeated failed fixes. No structural "generator of breaks"
+  found beyond what's already been addressed. Logged here per the rule
+  (the check itself is the deliverable when the numeric trigger fires
+  but the qualitative read is healthy) — not escalated to a Priority-1
+  meta-investigation.
+  wishlist.md URGENT item #8 (prod restart-loop, flagged 2026-07-05)
+  independently confirmed STALE (matches v1.0.146's same finding, one
+  session earlier): live uptime_s 29631s+ this session, zero restart
+  signature. Left for a follow-up docs-only close-out (small, does not
+  justify its own PR); noting here so it isn't lost.
+- WHY THIS BECAME THE SESSION (repair mandate — Priority 1, KEEP THE
+  SYSTEM ALIVE, "data flowing"): picked up the v1.0.147 entry's queued
+  NEXT step (query `/api/diag/ml` post-redeploy for the orphan_exit
+  breakdown) but found the LIVE deployment still serves pre-v1.0.147
+  code (uptime 29631s, response has `feedback_seeded_count` from
+  v1.0.146 but no `live_outcome_breakdown` from v1.0.147 — Railway
+  hasn't picked up the merge yet; nothing actionable server-side, this
+  session cannot trigger a redeploy). While confirming that, the
+  `/api/diag/audit` tail surfaced a MORE urgent, currently-live issue:
+  **TIER2-BACKOFF failure #9 through #20 (at least 12 consecutive,
+  ~2h+ span so far), every one "Scan returned error: Could not fetch
+  market data from Alpaca (via daemon)"**, while `/api/health` read
+  "ok" throughout (bot "active", Alpaca REST check passing via
+  `/v2/account`, daemon alive). This is exactly the LIVENESS ALARM's
+  blind spot: the loop is nominally active but its Tier2 scan — the
+  only thing that finds NEW trade candidates — has not succeeded once
+  in the observed window, and nothing surfaces that short of reading
+  the token-gated audit tail by hand.
+- ROOT-CAUSE TRACE (REASONING STANDARD #1, before touching code):
+  `bot_engine.py`'s `_scan_market_inner()` returns `{"error": "Could
+  not fetch market data from Alpaca"}` only when `quick_results` is
+  empty across the ENTIRE ~11,600-symbol universe. That requires
+  `snap_all` (built by `_fetch_snap`, one call per 400-symbol batch to
+  `/v2/stocks/snapshots?...&feed=sip`) to be empty for every batch.
+  `_fetch_snap` had a bare `except Exception: return {}` AND silently
+  skipped any response shape that wasn't per-symbol-keyed (e.g. an
+  error body `{"code":..., "message":...}` parses as zero usable
+  symbols with no exception at all) — so a genuine API problem (auth,
+  SIP feed entitlement, rate limit, malformed request) and a
+  legitimately-empty batch were INDISTINGUISHABLE from the caller's
+  side, by design. This is the exact silent-degradation shape KNOWN
+  BROKEN #5 already flagged for `_fetch_macro`/`_fetch_intel`/etc. —
+  same root defect class, different call site. Could not confirm the
+  underlying Alpaca-side cause this session (no Alpaca credentials in
+  the session env, by design — only DIAG_TOKEN is provisioned); this
+  PR fixes the BLIND SPOT (make the real reason loggable) so the next
+  live occurrence names its own cause instead of requiring another
+  archaeology session.
+- FIX (visibility only — zero change to what gets traded, scored, or
+  filtered):
+  1. `bot_engine.py`: extracted `_fetch_snap`'s parse+filter body into a
+     standalone pure function `_parse_snapshot_batch(raw, status_code)`
+     (module-level, no network, no globals — unit-testable without
+     mocking the whole scan environment). Behavior is byte-identical;
+     it now also returns a `detail` string naming WHY a batch came back
+     empty (non-200 status, non-dict/error-shaped 200 body, or "0/N
+     symbols had a usable dailyBar" for the entitlement/pre-open edge
+     case). `_scan_market_inner`'s empty-result error now carries
+     `debug_detail` from the last such reason observed across all
+     batches.
+  2. `server/bot.ts`: `tier2Intelligence` now captures
+     `result.debug_detail` (and, in the exception-catch branch, the
+     existing stderr/signal/code summary it already computed but never
+     retained) into a new `tier2LastFailureDetail` closure var, cleared
+     on every scan start and set to null on success. The "Scan returned
+     error" audit line now includes it inline.
+  3. `/api/health` (UNAUTHENTICATED — no token, no owner cookie) gains a
+     `scanner` check: `{status, consecutiveFailures}` only — status
+     flips to `degraded` (overall health too) once
+     `tier2ConsecutiveFailures >= 6` (`server/scannerHealth.ts`,
+     `SCANNER_DEGRADED_FAILURE_THRESHOLD` — chosen to sit at/past the
+     scheduler's own 600s backoff cap, so a transient blip that clears
+     within its first few retries never trips it). Deliberately NO
+     free-text detail on this public endpoint — that's a materially
+     bigger disclosure surface than the existing single-line
+     `err?.message` on checks 2/3 (subprocess stderr tails can run to
+     hundreds of characters). The full `tier2LastFailureDetail` instead
+     ships as a NEW whitelisted probe, `/api/diag/scanner`
+     (`DIAG_PROBES` extended in `server/diag.ts`), gated + sanitized
+     exactly like the existing `ml`/`daemon`/`positions`/`audit`
+     probes — same wishlist-approved (d) mechanism, no auth.ts touch.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): new diagnostic fields only
+  -> `scan_market`'s control flow, return shape for the SUCCESS path,
+  and every trade-selection/scoring code path are byte-identical ->
+  the only observable effects are (a) a `debug_detail` key appended to
+  an already-error-shaped dict Node already treats as opaque JSON, (b)
+  a new `scanner` object in two JSON responses, (c) overall
+  `/api/health` status can now go "degraded" when it previously stayed
+  "ok" during a scan-failure streak — this is the intended new
+  behavior (surfacing loudly, per the LIVENESS ALARM directive's
+  spirit) and could trip an external uptime monitor pointed at
+  `/api/health` for the first time; that is the point, not a
+  regression, and mirrors exactly how Check 5 (bot-state liveness) and
+  Check 6 (licensing) already behave.
+- Gates: `python3 -m pytest -q` — 416 passed, 2 skipped (410 baseline +
+  6 new in `test_snapshot_parse_diag.py`, zero regressions). `npx tsx
+  --test server/*.test.ts` — 274 passed (268 baseline + 6 new: 5 in
+  `scannerHealth.test.ts` covering the threshold logic, the wiring pin
+  on both the public health check and the token-gated probe, and a
+  dedicated test asserting `tier2LastFailureDetail` is ABSENT from the
+  `/api/health` scanner check specifically; 1 extra assertion folded
+  into the diag suite's existing dynamic `DIAG_PROBES` loop covers the
+  new `scanner` case). `npx tsc --noEmit`: same pre-existing
+  Buffer/Map-iteration/tsconfig error set as documented in the
+  v1.0.146/147 entries (verified none are on or near the changed
+  lines) — zero new errors.
+- STARVED: no. This was the highest-value action found live this
+  session (a currently-ongoing Priority-1 blind spot, versus continuing
+  the already-well-scoped-for-next-time ml orphan_exit thread, which
+  needs a Railway redeploy this session cannot trigger before it can
+  proceed further anyway).
+- NEXT: once this deploys, the next Tier2 failure (if the underlying
+  Alpaca-side cause hasn't cleared on its own — still ongoing as of
+  this entry, failure #20 at 11:17Z) will name itself in the audit log
+  and via `/api/diag/scanner`, closing this from archaeology to a
+  one-query diagnosis. If it turns out to be feed-entitlement-shaped
+  (e.g. consistently `HTTP 40x` or "0/N symbols" during the identical
+  pre-market window every trading day), that becomes its own filed
+  finding once observed — not assumed here. wishlist.md item #8 close-
+  out and the v1.0.147 orphan_exit follow-up remain queued for next
+  session.
+
 ## 2026-07-06 — [REPAIR] diag `ml` probe pt.2 — outcome breakdown, chasing the v1.0.146 finding (v1.0.147)
 
 - Territory: T-BOT (same file/route as v1.0.146, continuing the same
