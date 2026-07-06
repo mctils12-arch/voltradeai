@@ -13,6 +13,41 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-07 — [PRODUCT] Power grid map layer, TX pilot — OSM PMTiles vector layer on /data (DATACORE MAXIMUS Phase 2 item 1) (v1.0.166)
+
+- Territory: T-CLIENT (datamap.tsx layer + pmtiles protocol,
+  client/public/tiles/power_tx.pmtiles 16MB artifact) + SHARED
+  (datacore/layers.json entry, package.json + lock for pmtiles@4.4.1,
+  this file).
+- BUILD: single 16MB PMTiles on our origin (built by the committed
+  scripts/build_power_tiles.sh from Geofabrik Texas — the whole
+  pipeline ran in <1 min in-session); pmtiles:// protocol registered
+  at map bootstrap (lazy, idempotent); vector source fetched ONLY
+  when the toggle is on (zero-cost-when-off). Six style layers with
+  the filed zoom gates: HV ≥230kV always; 100-230kV z≥6; <100kV
+  z≥11; substation/plant footprints z≥9; and the VOLTAGE-HONESTY
+  class — lines with missing OR unparseable voltage (multi-value
+  "138000;69000" strings) render dashed-lavender via a to-number
+  fallback expression, never hidden. ODbL attribution on the source;
+  registry description carries coverage=TEXAS PILOT + no-CEII +
+  underground-absent honesty.
+- SERVING DECISION (recorded): 16MB rides the repo/image via
+  client/public (express static = range requests, image rule
+  satisfied since dist/ ships); US-scale (est. 60-150MB) will NOT be
+  committed — boot-fetch from a GitHub Release asset into the volume
+  is the filed design for item 2.
+- Gates: tsc 64; build OK (artifact confirmed in dist/public/tiles);
+  visual harness GREEN at 390/768/1440 across all pages (layer
+  defaults OFF — screenshots regression-check the panel; 390px data
+  view self-reviewed clean); version 1.0.166. VERIFY (pre-stated):
+  post-deploy /tiles/power_tx.pmtiles answers range requests (curl
+  -r 0-100 → 206) and the /data layer panel shows "Power grid (TX
+  pilot)" under facilities; toggling it on a TX viewport renders
+  voltage-classed lines.
+- NEXT (resume block updated): Phase 4 Streams inventory tab; census
+  builds JODI → FINRA cluster → SEC FTD; grid item 2 US-full after
+  the boot-fetch design; item 3 demand join.
+
 ## 2026-07-07 — [PIPELINE] DATACORE MAXIMUS checkpoint: Phase 0 + census #1 ALL LIVE-VERIFIED same session (docs)
 
 - Pre-stated criteria from v1.0.163/164/165, checked post-deploy:

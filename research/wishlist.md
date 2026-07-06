@@ -24,7 +24,7 @@ STATUS as of 2026-07-07 ~00:20Z (session claude/new-session-iu72vf):
   dist/public, express static serves range requests; image rule
   satisfied since dist/ ships in the image); US scale (est.
   60-150MB) → NEVER commit — boot-fetch from a GitHub Release asset
-  into the volume. REMAINING for item 1 (next session, exact steps):
+  into the volume. ITEM 1 SHIPPED v1.0.166 (see experiments 2026-07-07). Original steps kept for the US-full rerun:
   (a) run scripts/build_power_tiles.sh, copy power_tx.pmtiles to
   client/public/tiles/; (b) npm i pmtiles@4.4.1; (c) datamap layer:
   pmtiles:// protocol registration, line layer colored by voltage

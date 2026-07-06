@@ -316,6 +316,12 @@ export default function DataMapPage() {
         const maplibregl = (await import("maplibre-gl")).default;
         if (cancelled || !mapContainer.current || mapRef.current) return;
         glRef.current = maplibregl;
+        // pmtiles:// protocol (single static file on our origin, range
+        // requests — powers the OSM grid layer; registration is idempotent)
+        try {
+          const { Protocol } = await import("pmtiles");
+          maplibregl.addProtocol("pmtiles", new Protocol().tile);
+        } catch {}
         const map = new maplibregl.Map({
           container: mapContainer.current,
           style: {
@@ -653,6 +659,66 @@ export default function DataMapPage() {
     })();
     return () => { stop = true; };
   }, [enabled.boundaries, mapReady, setStatus]);
+
+  // ── power grid (RAW; OSM power features © OpenStreetMap contributors,
+  // ODbL — DATACORE MAXIMUS Phase 2 TX pilot. Single 16MB PMTiles on our
+  // origin (range requests, zero-cost-when-off: the file is fetched only
+  // when the layer is on). VOLTAGE HONESTY: lines whose voltage tag is
+  // missing or unparseable (multi-value "138000;69000") render as a
+  // distinct dashed class — never hidden. Zoom gates per the grid build
+  // order keep low-zoom vertex counts phone-safe.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const IDS = ["powergrid-hv", "powergrid-mv", "powergrid-low", "powergrid-unknown", "powergrid-substation", "powergrid-plant"];
+    if (!enabled.powergrid) {
+      try {
+        IDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+        if (map.getSource("powergrid")) map.removeSource("powergrid");
+      } catch {}
+      setStatus("powergrid", "off");
+      return;
+    }
+    try {
+      setStatus("powergrid", "loading");
+      if (!map.getSource("powergrid")) {
+        map.addSource("powergrid", {
+          type: "vector",
+          url: `pmtiles://${window.location.origin}/tiles/power_tx.pmtiles`,
+          attribution: "© OpenStreetMap contributors, ODbL",
+        } as any);
+      }
+      // voltage as a number; -1 = missing/unparseable (to-number fallback)
+      const V = ["to-number", ["get", "voltage"], -1] as any;
+      const isLine = ["match", ["get", "power"], ["line", "minor_line", "cable"], true, false] as any;
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle"].includes(l.type));
+      const add = (def: any) => { if (!map.getLayer(def.id)) map.addLayer(def, firstMarker?.id); };
+      add({ id: "powergrid-substation", type: "fill", source: "powergrid", "source-layer": "power",
+            minzoom: 9, filter: ["==", ["get", "power"], "substation"],
+            paint: { "fill-color": "rgba(250,204,21,0.14)", "fill-outline-color": "rgba(250,204,21,0.6)" } });
+      add({ id: "powergrid-plant", type: "fill", source: "powergrid", "source-layer": "power",
+            minzoom: 9, filter: ["==", ["get", "power"], "plant"],
+            paint: { "fill-color": "rgba(74,222,128,0.10)", "fill-outline-color": "rgba(74,222,128,0.5)" } });
+      add({ id: "powergrid-unknown", type: "line", source: "powergrid", "source-layer": "power",
+            minzoom: 8, filter: ["all", isLine, ["<", V, 0]],
+            paint: { "line-color": "rgba(216,180,254,0.55)", "line-width": 0.9, "line-dasharray": [2, 2] } });
+      add({ id: "powergrid-low", type: "line", source: "powergrid", "source-layer": "power",
+            minzoom: 11, filter: ["all", isLine, [">=", V, 0], ["<", V, 100000]],
+            paint: { "line-color": "rgba(148,163,184,0.55)", "line-width": 0.8 } });
+      add({ id: "powergrid-mv", type: "line", source: "powergrid", "source-layer": "power",
+            minzoom: 6, filter: ["all", isLine, [">=", V, 100000], ["<", V, 230000]],
+            paint: { "line-color": "rgba(56,189,248,0.75)",
+                     "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 12, 2] } });
+      add({ id: "powergrid-hv", type: "line", source: "powergrid", "source-layer": "power",
+            filter: ["all", isLine, [">=", V, 230000]],
+            paint: { "line-color": "rgba(250,204,21,0.9)",
+                     "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 12, 3] } });
+      setStatus("powergrid", "active", undefined,
+        "TEXAS PILOT — OSM community data (ODbL): voltage-classed; dashed = voltage untagged (never hidden); no CEII/underground detail");
+    } catch {
+      setStatus("powergrid", "error");
+    }
+  }, [enabled.powergrid, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in
