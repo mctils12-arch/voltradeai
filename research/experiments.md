@@ -8497,3 +8497,50 @@ exception to append-only; the log below it stays append-only)
   read appears as EQUITY-READ-INVALID in the audit log WITHOUT a
   kill; a recurrence of a peak-equity kill = RCA per the recurrence
   rule, not a re-patch.
+
+## 2026-07-07 — [REPAIR] R14 follow-up: Alpaca account-data incoherence incident (docs-only)
+
+Filed as the evidence record promised to the human. No code change; no
+version bump (docs-only PR precedent #331).
+
+TIMELINE (ET, 2026-07-07):
+- ~09:29 boot → ~10:20 first DRAWDOWN-KILL: garbage-class equity read
+  while the account sat at peak (pre-fix pathway; R14 root cause).
+- 10:47 (#334 deploy verified): bot active, peak $109,432.59, dd 0.0.
+- ~11:13 (15:13Z): bot killed AGAIN — this time on a CREDIBLE-class
+  reading (~$27k: finite, positive). The guard is behaving exactly as
+  pinned in drawdownGuard.test.ts (credible catastrophe must kill).
+- 11:12 human's Alpaca dashboard screenshot, three-way
+  self-contradictory: headline portfolio $27,124.81 (−74.92%, daily
+  −$81,026.58) vs cash $5,583.78 + buying power $82,649.99 vs Alpaca's
+  OWN 1D chart rendering ~$106.5k–$109.25k ending ≈$106.8k. Positions
+  panel "No open positions" (Options filter active — not proof of an
+  empty book).
+- 15:21Z /api/health: alpaca ACTIVE, bot killed (latched, memory-only),
+  equityPeak $109,432.59, drawdownPct-vs-last_equity 0.0 — Alpaca's own
+  last_equity field sits AT peak, contradicting the −75% headline a
+  third way.
+
+ASSESSMENT: the kill mechanism and the new guard both worked as
+designed. The incoherence is upstream — Alpaca's paper-account
+snapshot disagrees with itself (headline vs chart vs last_equity). An
+$81k intraday loss with no visible fills and last_equity at peak is
+not a coherent account state. REASONING STANDARD #9 (believe live)
+does not resolve this: "live" is self-contradictory, so NEITHER number
+is trusted and the safe state is killed.
+
+DECISION: bot stays KILLED until (a) the human's Alpaca Orders→Filled
+check shows no morning fills (→ corruption confirmed; safe to resume)
+or (b) Alpaca's numbers become self-consistent again. Reactivating on
+the assumption of corruption is forbidden by priority order (a wrong
+resume risks trading a genuinely damaged book).
+
+TRADE-WINDOW BOUND (for the fills check): orders could only have been
+placed ~09:29–~10:20 and ~10:47–~11:13 ET. Each kill cancelled open
+orders (DELETE /v2/orders); neither liquidated positions
+(VOLTRADE_LIQUIDATE_ON_KILL unset).
+
+FOLLOW-UP QUESTION filed in open_questions.md: coherence-class guard
+(cross-check equity against last_equity + positions + fills before
+accepting a catastrophic reading). Per the recurrence rule this is an
+RCA/design question, not a same-session patch.
