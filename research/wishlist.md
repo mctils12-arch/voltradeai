@@ -168,6 +168,11 @@ STATUS as of 2026-07-07 later same session (claude/new-session-iu72vf):
   GOAL self-proposed-work weighting + PREMIUM EXPERIENCE STANDARD
   standing behavior). Human directive = the approval (HUMAN
   SOVEREIGNTY clause).
+- UPDATE 2026-07-07 (PRODUCT session, v1.0.191): gate-2's FAIL-path
+  item (2) SHIPPED — descriptive grid-stress dashboard surface,
+  #/data/grid-stress. Full trace in experiments.md + grid_vision.md's
+  RESUME STATE block. Remaining queue: V3 gate-2 design, Phase B
+  training-data prep, Phase B1 VERIFY spec.
 
 ## [RESOLVED same day — Mike funded RunPod and put RUNPOD_API_KEY in
 ## Railway, 2026-07-07. GPU training/sweeps unblocked; first consumer

@@ -46,6 +46,9 @@ const PAGES = {
   // harness at 390/768/1440 before it ships. Non-map battery (the overlay
   // covers the map).
   streams: { route: "/app#/data/streams", map: false },
+  // Grid-stress descriptive reading overlay (GRID VISION A1 gate-2 FAIL
+  // path, 2026-07-07) — same Phase 5 ratchet rule as streams above.
+  gridstress: { route: "/app#/data/grid-stress", map: false },
   developers: { route: "/developers", map: false },
   landing: { route: "/", map: false },
 };
@@ -209,6 +212,24 @@ const FIXTURES = {
     counts: { nodes: 42, edges: 61, company: 9, person: 14, facility: 16, vessel: 3, insider_of: 18, operates: 12, calls_at: 31 },
     caveat: "RAW graph — every edge asserts a relationship with provenance (fixture).",
     note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query",
+  },
+  // Grid-stress descriptive reading (GRID VISION A1 gate-2 FAIL path,
+  // 2026-07-07) — descriptive-only, predictive:false always present.
+  "/api/data/grid-stress": {
+    kind: "descriptive",
+    source: "VoltradeAI derived composite (EIA-930 ERCOT demand/forecast + NOAA CPC TX degree days) (fixture)",
+    attribution: "EIA-930 Hourly Electric Grid Monitor; NOAA Climate Prediction Center",
+    predictive: false,
+    validation_status: "GATE 2 NOT PASSED (2026-07-07) — two outcome designs voided on their own spot-validation rules (fixture)",
+    note: "Descriptive-only TX/ERCOT reading; equal-weighted composite, deliberately not the voided gate-2 fitted weights (fixture).",
+    time: 1, history_depth_days: 412,
+    reading: {
+      date: "2026-07-06", respondent: "ERCO",
+      demand_peak_mw: 68500, demand_percentile: 82, demand_sample_days: 41,
+      forecast_strain_pct: 1.4, strain_percentile: 61, strain_sample_days: 41,
+      weather_degree_days: 27, weather_percentile: 74, weather_sample_days: 62,
+      composite_percentile: 72,
+    },
   },
   // Streams inventory (Phase 4) — one row per health state so the card
   // battery exercises every chip/peek/no-data rendering path at 390px.

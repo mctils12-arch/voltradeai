@@ -300,6 +300,13 @@ datacore/gridvision/gate2_result.json.
 - CONSEQUENCE (the design's FAIL path applies): the stress index
   ships as a DESCRIPTIVE dashboard surface labeled non-predictive.
   No predictive or sellable claim until a future gate-2 passes.
+  **SHIPPED 2026-07-07 (v1.0.191)**: server/gridStress.ts +
+  /api/data/grid-stress + #/data/grid-stress panel — three raw
+  ingredients (same-month demand percentile, forecast strain, NOAA
+  weather extremity) plus an EQUAL-WEIGHTED composite, deliberately
+  not the voided gate-2 fitted weights; `predictive: false` on every
+  response; percentiles withheld below 5 same-month peer days. See
+  experiments.md and grid_vision.md's RESUME STATE for the full trace.
 - V3 PATH (a fresh design for a LATER session — not a third
   same-session variant, anti-fishing): (a) research the complete
   public ERCOT conservation-appeal/EEA event list 2019-2025 (primary

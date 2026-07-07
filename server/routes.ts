@@ -53,6 +53,7 @@ import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
+import { bootGridStressPoll, latestGridStress, gridStressEnabled } from "./gridStress";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
@@ -1869,6 +1870,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.stats.length,
       note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; latest_forecast_mwh is EIA's day-ahead forecast FOR THE SAME HOUR as latest_mwh (null when not yet published); the US48 forecast aggregate back-fills progressively as BAs report, so it can understate near the leading edge; industrial-activity nowcast signals stay gate-locked until ladder validation",
       respondents: hit.stats,
+    });
+  });
+
+  // TX/ERCOT grid-stress reading — DESCRIPTIVE ONLY (GRID VISION A1 gate-2
+  // FAIL path, research/grid_vision_products.md + experiments.md
+  // 2026-07-07 v1.0.190). The v0 index was gate-2 tested against two
+  // pre-stated outcome definitions and VOIDED on both (0/10 and insufficient
+  // spot-validation hits respectively — see gate2_result.json). Per the
+  // design's own locked FAIL path this ships as a labeled-non-predictive
+  // descriptive surface, not a signal: no field here may be read as
+  // predictive, tradable, or sellable. `predictive: false` on every
+  // response, deliberately never omitted.
+  bootGridStressPoll();
+  app.get("/api/data/grid-stress", (_req, res) => {
+    if (!gridStressEnabled()) {
+      return res.json({ kind: "descriptive", enabled: false, predictive: false,
+                         reason: "EIA_API_KEY not set (free signup — see wishlist)", reading: null });
+    }
+    const hit = latestGridStress();
+    if (!hit) {
+      return res.json({ kind: "descriptive", source: "VoltradeAI derived composite (EIA-930 ERCOT + NOAA CPC)",
+                         predictive: false, warming_up: true, reading: null });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "descriptive",
+      source: "VoltradeAI derived composite (EIA-930 ERCOT demand/forecast + NOAA CPC TX degree days)",
+      attribution: "EIA-930 Hourly Electric Grid Monitor; NOAA Climate Prediction Center",
+      predictive: false,
+      validation_status: "GATE 2 NOT PASSED (2026-07-07) — two outcome designs (forecast-exceedance, "
+        + "pooled-peak) were voided on their own pre-stated spot-validation rules before any PASS/FAIL "
+        + "lift comparison was trusted; see research/experiments.md and datacore/gridvision/gate2_result.json",
+      note: "Descriptive-only TX/ERCOT reading: three raw ingredients (same-month demand percentile, "
+        + "day-ahead forecast strain, NOAA weather extremity) plus a plain EQUAL-WEIGHTED composite. "
+        + "This is deliberately NOT the gate-2 script's fitted weights — those were fit against an "
+        + "outcome variable that failed validation, so reusing them here would smuggle a voided claim "
+        + "back in under a new name. Percentiles are withheld (null) rather than guessed when fewer than "
+        + "5 same-calendar-month peer days exist in the archive yet.",
+      time: hit.at,
+      history_depth_days: hit.history_depth_days,
+      reading: hit.reading,
     });
   });
 
