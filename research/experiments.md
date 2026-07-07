@@ -8723,3 +8723,39 @@ Observed ~16:08-16:15Z, via /api/health + the R15 probes:
   upstream; zero real trading losses; guard + latch + probes shipped
   as permanent hardening." A recurrence enters as a NEW incident
   under the recurrence rule.
+
+## 2026-07-07 — [PIPELINE] W2 server half: CelesTrak satellite GP stream — /api/data/satellites (v1.0.196)
+
+TERRITORY: T-DATACORE (satellites module + manifest) + routes.ts
+(SHARED, minimal edit). ANALYST CONSOLE program, second build.
+
+- LICENSING GATE FIRST (charter rule): verdict PROCEED with quotes,
+  filed in wishlist.md. Courtesy limits are the binding terms and are
+  ENFORCED IN CODE: 6h/group cadence (3x CelesTrak's 2h update
+  cycle), 10s group stagger, non-200 recorded as an issue and never
+  retried until the next sweep (their M2M rule).
+- WHAT: keyless stream per the euLoad pattern — groups stations/
+  starlink/gps-ops/geo (live index enumeration proved the charter's
+  "active-geosynchronous" name wrong; geo substituted, pinned in a
+  test). OMM JSON format, live-probed (ISS record quoted in the PR) —
+  deliberately NOT TLE: CelesTrak's site-wide notice says 5-digit
+  catalog numbers exhaust ~2026-07-12 and TLE cannot represent
+  6-digit IDs; a TLE build would have broken within days. Archive =
+  orbit HISTORY (dedup NORAD_CAT_ID|EPOCH; same-epoch re-fetch
+  appends nothing, every epoch advance accumulates), day-file per UTC
+  fetch day per group, gz after 3d merge-not-overwrite, 30d seed
+  window (starlink ~10k keys/day bounds the heap). Route is
+  cache-only (event-loop rule), warming_up honesty, per-group issues
+  surfaced, attribution on every response.
+- HOW: worktree-isolated subagent against a written spec; session
+  read the module line-by-line before integration (partition rule).
+- TESTS: 10 new in satellites.test.ts (dedup across polls, day-file
+  append + gz-merge, latest-per-satellite, warming_up, seeded dedup
+  on simulated restart, manifest envelope, unknown-group rejection,
+  geo-substitution pin); manifests.test.ts passes unchanged
+  (FORWARD-ENFORCEMENT dir-scrape covers the new archive dir).
+- GATES: node 409 pass 0 fail; tsc 64 baseline; pytest 476 passed 1
+  skipped. Version 1.0.195 -> 1.0.196.
+- NEXT (charter RESUME STATE): W1 globe mode + client satellite layer
+  (satellite.js propagation; field-projection param first — starlink
+  payload is a few MB), then W3 time scrubber.

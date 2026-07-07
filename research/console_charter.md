@@ -116,3 +116,18 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
   endpoint, uncached scans are disk-heavy; mitigations today: LRU +
   coord rounding + Cache-Control 300s). NEXT: W2 satellite orbits
   (CelesTrak licensing check first), then W1 globe mode.
+- 2026-07-07 (same session): W2 SERVER HALF SHIPPED (v1.0.196) —
+  server/satellites.ts + /api/data/satellites + manifest. LICENSING
+  VERIFIED (quotes in wishlist.md): CelesTrak data freely available,
+  no redistribution restriction, courtesy limits binding (GP updates
+  2h; our cadence 6h/group, non-200 never retried until next sweep,
+  M2M rule implemented). Groups: stations, starlink, gps-ops, geo
+  (charter's "active-geosynchronous" does not exist — geo is the real
+  group). OMM JSON format (NOT TLE — CelesTrak's 5-digit catalog
+  numbers exhaust ~2026-07-12; TLE would have broken within days).
+  Archive = orbit HISTORY: dedup NORAD_CAT_ID|EPOCH, every epoch
+  advance accumulates. Built by subagent, session-reviewed. NEXT: W1
+  globe mode (T-CLIENT, visual harness at 390/768/1440) + the client
+  satellite layer (satellite.js SGP4 propagation) — consider a
+  field-projection param on the route first (starlink full payload is
+  a few MB); then W3 time scrubber.

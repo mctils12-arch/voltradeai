@@ -1,0 +1,23 @@
+{
+ "stream": "satellites",
+ "storage": "append-only JSONL day-files under <archive>/satellites/<group>/, keyed by UTC FETCH day, with NORAD_CAT_ID|EPOCH dedup across restarts (an element set only changes when its EPOCH advances — same-epoch re-fetches append nothing; every epoch advance appends, so the archive accumulates the ORBIT HISTORY, not just current state); seed window 30d (heap bound — starlink alone is ~10k keys/day at full churn); gz after 3 days with merge-not-overwrite for late appends",
+ "written_by": "server/satellites.ts archiveGp (6h poll per group — 3x CelesTrak's 2h GP update cycle per their usage policy; groups spaced 10s within a sweep; eager boot sweep; keyless; non-200 responses are recorded as issues and NEVER retried until the next sweep per CelesTrak's explicit M2M guidance)",
+ "source": "CelesTrak GP query API, OMM JSON format (https://celestrak.org/NORAD/elements/gp.php?GROUP=<group>&FORMAT=json), groups: stations, starlink, gps-ops, geo (Active Geosynchronous — the charter's 'active-geosynchronous' is not a CelesTrak group name; all four verified against the live elements index 2026-07-07). Contract live-verified 2026-07-07 (GROUP=stations returned 23 OMM records, ISS NORAD 25544 first). JSON deliberately chosen over TLE: CelesTrak states the TLE format cannot represent catalog numbers above 69999, predicted to be exhausted ~2026-07-12.",
+ "license": "CelesTrak (non-profit) makes GP data freely available to all users, commercial included, with no stated redistribution restriction (usage-policy.php + gp-data-formats.php FAQ, verified 2026-07-07); the binding terms are courtesy limits — GP updates once every 2h, never fetch more often, and stop on any non-200. Both are enforced in code (6h cadence, no-retry).",
+ "attribution": "Orbital data courtesy of CelesTrak (celestrak.org), Dr. T.S. Kelso",
+ "sentiment": null,
+ "schema_version": 1,
+ "field_map": {
+  "NORAD_CAT_ID|EPOCH — dedup key": "satellite catalog number + element-set epoch; a new epoch is a new observation of the orbit",
+  "EPOCH": "UTC element-set epoch (ISO, microseconds) — the moment the mean elements describe; propagate with SGP4 (satellite.js client-side)",
+  "MEAN_MOTION / ECCENTRICITY / INCLINATION / RA_OF_ASC_NODE / ARG_OF_PERICENTER / MEAN_ANOMALY / BSTAR / MEAN_MOTION_DOT / MEAN_MOTION_DDOT": "CCSDS OMM mean elements exactly as CelesTrak publishes them — never recomputed or rounded by us",
+  "OBJECT_NAME / OBJECT_ID / CLASSIFICATION_TYPE / ELEMENT_SET_NO / REV_AT_EPOCH / EPHEMERIS_TYPE": "identity and bookkeeping fields as published",
+  "rt": "as-fetched UTC ISO timestamp (ours) — day-file key"
+ },
+ "confidence_model": "RAW overlay (no predictive claim): official USSF/18 SDS-derived GP element sets redistributed by CelesTrak. Positions rendered client-side are SGP4 propagations from the published epoch and are labeled as such. Accumulating epoch history per satellite is the archive asset (orbit-change detection — maneuvers, decay — is future gate-locked work, ANALYST CONSOLE W2 charter).",
+ "geo_fields": ["none stored — mean orbital elements; ground positions are derived client-side by SGP4 propagation"],
+ "entity_key": "NORAD_CAT_ID (+ EPOCH for history rows)",
+ "started": "2026-07-07",
+ "cadence": "CelesTrak refreshes GP data every 2h; we poll each group every 6h (courtesy — 3x their update interval), one JSONL day-file per group per UTC fetch day",
+ "_note": "Universal archive envelope (approved 2026-07-04). ANALYST CONSOLE W2 server half; client globe layer (satellite.js propagation, group filters) is a later PR."
+}
