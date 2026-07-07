@@ -7750,3 +7750,54 @@ exception to append-only; the log below it stays append-only)
   verbatim-quoted with VERIFIED/REPORTED labeling; grid_vision.md
   RESUME STATE updated; Phase B spec cites the products plan, not the
   reverse.
+
+## 2026-07-07 — [RESEARCH] GRID VISION Phase A + A2 FILED — four-agent research doc + products plan; RunPod purchase order (docs PR, no version bump)
+
+- Territory: T-GRIDVISION (research/grid_vision*.md) + SHARED
+  (research/wishlist.md, this file).
+- PHASE A COMPLETE same day it launched: all four parallel subagents
+  returned; reports filed near-verbatim with VERIFIED/REPORTED
+  labeling in research/grid_vision_research.md (Items 1-4 +
+  cross-cutting summary). Pre-stated verify criterion from the
+  install entry — met.
+- DECISIVE FINDINGS (full detail in the research doc):
+  (1) The Apr-2025 T&F pipeline paper = ADAPTABLE-WITH-WORK: MIT
+  code, honest recipe, but NO released weights and NO training
+  annotations (despite its own Data Availability statement — checked
+  branch-by-branch); retraining is mandatory. Tower AP50 ~73% @0.3m
+  is the bar. (2) Esri World Imagery ML/bulk use is FORBIDDEN by
+  three quoted contract clauses (E204 §3.2(c)/§3.3(h)/§3.3(b), E300
+  fn.96) — hard wall, routed around: NAIP public domain via free
+  Planetary Computer STAC streaming (verified live, 2010-2023).
+  Display basemap + identify capture-date (our shipped v1.0.173 use)
+  stays legitimate. (3) Honest detection scope: transmission towers
+  + substations; distribution poles are sub-detectable at NAIP GSD.
+  (4) Eval = two-layer benchmark: Duke-US CC-BY ground truth
+  (verified downloadable) + OSM-corridor recall with human-sampled
+  precision — OSM is recall-only evidence, never "accuracy". (5) The
+  graph/topology step is every published method's weak link (F1
+  ~0.63); OSM-as-base sidesteps it. (6) WB/DevSeed hybrid is the
+  proven operating pattern (33x speedup; their mosaic-boundary
+  artifact -> our per-mosaic-source evaluation ratchet). (7) SAR @10m
+  = verification-only gate-1 experiment; shadow+Sundial = height->
+  voltage-class estimator (time-of-day recoverable from shadow
+  azimuth). (8) Compute is cheap: TX corridor-verify ~7h CPU;
+  training $50-100; national GPU re-scans $100-400.
+- PHASE A2 FILED (research/grid_vision_products.md): provenance tags
+  double as IP classes (ODbL vs ours vs produced-works); indices/
+  alerts are the primary commercial surface; build order puts NO ML
+  on the critical path to the first product (grid-stress index v0 =
+  OSM TX + EIA-930 + weather, all already archived). Priors stated
+  per REASONING STANDARD #10 before any gate runs.
+- BLOCKED-FOR-MIKE filed: RunPod $50 deposit, RUNPOD_API_KEY in
+  Railway (training needs GPU regardless; sweeps later). CPU path
+  continues meanwhile.
+- Ops note: prod /api/health timed out twice during the #315 Railway
+  redeploy cutover, then returned 200/ok with bot active — transient
+  deploy window, no liveness alarm.
+- VERIFY (pre-stated for the next GRID VISION session): (a) A1
+  grid-stress region-attribution build cites the products plan
+  sections it implements; (b) gate-1 = mapped ERCOT corridor
+  capacity vs published ratings, criteria stated BEFORE the join
+  runs; (c) any detector metric reported per-mosaic-source and
+  against the two-layer benchmark, never pooled-only.

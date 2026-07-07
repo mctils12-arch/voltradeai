@@ -151,21 +151,43 @@ complete.
 
 ## RESUME STATE (update every session that works the program)
 
-As of 2026-07-07 (session claude/new-session-iu72vf):
+As of 2026-07-07 later same session (claude/new-session-iu72vf):
 
-- PHASE A IN FLIGHT — four research subagents launched in parallel
-  (GV-A1 pipeline paper/code, GV-A2 labeled datasets, GV-A3 methods
-  survey, GV-A4 imagery inventory + compute assessment). Their
-  reports assemble into research/grid_vision_research.md; none have
-  filed yet. NOTHING BUILDS until that doc + the A2 products plan
-  file.
+- PHASE A COMPLETE — all four subagent reports filed in
+  research/grid_vision_research.md (Items 1–4 + cross-cutting
+  summary). Headlines: T&F paper = ADAPTABLE-WITH-WORK recipe, no
+  weights/annotations released, retraining mandatory (tower AP50
+  ~73% @0.3 m is the bar); Esri ML/bulk use FORBIDDEN by quoted
+  contract clauses (display + identify-metadata use stays fine) →
+  NAIP public domain is the substrate, streamed free via Planetary
+  Computer STAC; honest scope = transmission towers + substations
+  (poles invisible at NAIP GSD); eval = two-layer benchmark (Duke-US
+  CC-BY ground truth + OSM-corridor recall with human-sampled
+  precision); B1 method = corridor-restricted detector (PI-Detection
+  MIT starter + ETDII CC-BY labels) + S1 SAR verify experiment +
+  Sundial shadow-height attribute; TX corridor-verify is
+  CPU-feasible (~7 h @0.6 m); RunPod purchase order filed
+  (BLOCKED-FOR-MIKE, $50 deposit, RUNPOD_API_KEY) — training needs
+  GPU regardless, sweeps later.
+- PHASE A2 COMPLETE — research/grid_vision_products.md filed: IP
+  boundary (provenance tags = license classes; indices/alerts are
+  the primary commercial surface, ODbL dataset is credibility +
+  give-back), trading uses A1–A4 with priors + ladder paths, build
+  order with NO ML on the critical path to the first product
+  (grid-stress index v0 from OSM TX + EIA-930 + weather, all
+  already archived), and the Phase B spec requirements.
 - Existing assets to reuse: /data powergrid TX-pilot layer (OSM
-  PMTiles, v1.0.166, wiring fixed v1.0.177) is the OSM base's first
-  render; scripts/build_power_tiles.sh reproduces TX tiles in <1 min
-  and documents the US-full variant; EIA-930 grid demand stream is
-  live (grid-stress ingredient); GEM GIPT power units (182k) +
-  ownership graph are the entity-join spine; Esri capture-date
-  identify contract is proven (v1.0.173).
-- NEXT: (1) assemble research doc when agents return; (2) draft A2
-  products plan; (3) only then spec Phase B1 VERIFY (Texas, over the
-  existing TX corridor set).
+  PMTiles, v1.0.166, wiring fixed v1.0.177); scripts/
+  build_power_tiles.sh (TX tiles <1 min, US-full documented);
+  EIA-930 grid demand stream live; GEM GIPT 182k units + GEOT
+  ownership graph (entity-join spine); Esri capture-date identify
+  contract proven (v1.0.173); CDSE Copernicus pipeline (S1/S2
+  chips) live for the SAR experiment.
+- NEXT (build order per products plan): (1) A1 grid-stress
+  ingredients + region attribution [gate-1 vs published ratings —
+  TX/ERCOT]; (2) B1 stress-index v0 on /data + /api/v1; (3) Phase
+  B1 VERIFY spec (corridor detector, two-layer benchmark, per-
+  mosaic-source evaluation ratchet); B1 detector work starts with
+  the labeling seed (OSM/HIFLD towers) + ETDII download. GPU work
+  waits on RUNPOD_API_KEY appearing in Railway (detect + activate
+  without being told).
