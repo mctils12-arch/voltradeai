@@ -203,13 +203,24 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   mid-migration, re-check ~late July). State-preferred BA lookup
   (Rio Grande NM-row smear caught + fixed; Harris/MISO Entergy edge
   verified real). RETAIL-BA honesty labeled everywhere.
-- NEXT (build order per products plan): (1) feature->county
-  assignment (point-in-polygon over cb_2025_us_county_500k, Item
-  5.1) -> per-BA/per-county capacity aggregates in the registry;
-  (2) B1 stress-index v0 gate-2 design (index vs realized ERCOT
-  stress, out-of-sample, base-rate control) then /data + /api/v1
-  surface; (3) Phase B1 VERIFY spec (corridor detector, two-layer
-  benchmark, per-mosaic-source evaluation ratchet); detector work
-  starts with the labeling seed (OSM/HIFLD towers) + ETDII download.
-  GPU work waits on RUNPOD_API_KEY appearing in Railway (detect +
-  activate without being told).
+- A1 STEP 3 SHIPPED (v1.0.182): per-county + per-BA capacity
+  distribution (datacore/gridvision/tx_ba_capacity.json via
+  scripts/grid_ba_capacity.py — segment-midpoint point-in-polygon
+  over Census counties, 16s runtime). All three pre-stated
+  expectations held: conservation EXACT (108,515.0 km registry ==
+  distributed, test-recomputed), 345kV+ ambiguous share 31.3%
+  (inside the predicted 15-35% CREZ-seam band), out-of-state 2.7%.
+  ERCO-exclusive 345kV+ backbone: 19,207 circuit-km. Multi-BA
+  county km pooled AMBIGUOUS by BA set — never split by invented
+  ratio.
+- NEXT (build order per products plan): (1) B1 stress-index v0
+  gate-2 DESIGN (criteria stated before computing: index = per-BA
+  capacity x EIA-930 demand x weather; validated vs realized ERCOT
+  stress out-of-sample with same-universe base-rate control) then
+  the /data + /api/v1 surface; (2) Phase B1 VERIFY spec (corridor
+  detector, two-layer benchmark, per-mosaic-source evaluation
+  ratchet); detector work starts with the labeling seed (OSM/HIFLD
+  towers) + ETDII download. GPU work waits on RUNPOD_API_KEY
+  appearing in Railway (detect + activate without being told).
+  Polygon arbiter for the ambiguous pools: EIA Atlas BA layer
+  (re-check ~late July).

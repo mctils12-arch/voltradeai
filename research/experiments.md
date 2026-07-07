@@ -7882,3 +7882,40 @@ exception to append-only; the log below it stays append-only)
   feature->county->BA capacity aggregates (point-in-polygon over the
   Census cartographic counties, Item 5.1); annual refresh ~October
   when f861-2025 finalizes.
+
+## 2026-07-07 — [PIPELINE] GRID VISION A1 step 3 — per-county/per-BA capacity distribution, conservation-exact (v1.0.182)
+
+- Territory: T-GRIDVISION (scripts/grid_ba_capacity.py,
+  test_grid_ba_capacity.py, datacore/gridvision/tx_ba_capacity.json)
+  + SHARED (gridvision manifest, requirements-dev.txt pyshp,
+  package.json, research/*). Completes the geographic half of the
+  grid-stress ingredient chain: capacity now sits in the same
+  region space as EIA-930 demand.
+- METHOD: segment-midpoint point-in-polygon (even-odd ray casting,
+  holes/multipart handled) over Census cartographic county
+  boundaries, with last-hit caching (lines are spatially contiguous
+  -> most segments resolve without a ray cast; 31,220 ways in 16s).
+  BA rollup via tx_county_ba.json: single-BA county km -> exclusive;
+  multi-BA county km -> AMBIGUOUS pool keyed by BA set ("ERCO|SWPP"),
+  never split by an invented ratio; out-of-state segments counted.
+- PRE-STATED EXPECTATIONS (in the script header before first run) vs
+  OBSERVED: (1) conservation within 0.5% -> EXACT (108,515.0 ==
+  108,515.0; same input + same convention, and the test battery
+  RECOMPUTES it from committed pieces so it cannot drift); (2)
+  345kV+ ambiguous share 15-35% (CREZ Panhandle seam) -> 31.3%; (3)
+  out-of-state <5% -> 2.7%. All three held.
+- RESULT HIGHLIGHTS: ERCO-exclusive 345kV+ = 19,206.8 circuit-km
+  (the ERCOT backbone attribution); SWPP-exclusive 1,472; MISO 167;
+  ambiguous pools exactly the expected seams (EPE|ERCO, ERCO|MISO,
+  ERCO|MISO|SWPP, ERCO|SWPP, MISO|SWPP, PNM|SWPP); all 254 counties
+  carry capacity; zero unknown-county km (shapefile names resolve
+  the crosswalk 1:1).
+- GATES: pytest 471 passed 1 skipped (+3: geometry incl.
+  hole/multipart, cache correctness, conservation recompute); node
+  363 fail 0; tsc 64. Version 1.0.181 -> 1.0.182. pyshp declared in
+  requirements-dev.txt (session-run only, imported inside the
+  loader so CI never needs it).
+- VERIFY (pre-stated): the gate-2 stress-index design consumes
+  ba_exclusive + ambiguous pools with the ambiguity carried into the
+  index's stated uncertainty, not resolved by assumption; arbiter =
+  EIA Atlas BA polygons when their migration completes (~late July).
