@@ -1,0 +1,382 @@
+// GPU satellite render layer — MapLibre v5 CustomLayerInterface for the
+// ORBITAL program (research/orbital_program.md → O1 LOCKED APPROACH). Draws the
+// full satellite population as instanced gl.POINTS, projected onto the globe
+// (or mercator) via MapLibre's shader prelude with per-object ALTITUDE, so
+// LEO/MEO/GEO shells are visually distinct. Ported from the O1 feasibility
+// spike (orbital-spike/render_harness.html), upgraded to:
+//   - projectTileFor3D + altitude (LEO/MEO/GEO shells) instead of flat projectTile
+//   - color-by-orbit-class (packed classCode field)
+//   - a validity sentinel: slots with NO real position (deep-space / invalid)
+//     render at size 0 — NEVER a fabricated point (charter honesty rule)
+//
+// It consumes the Float32Array produced by ./satWorker (SAT_STRIDE floats per
+// object; see ./satBuffer for the layout). This file is KERNEL-FREE: it imports
+// only the pure buffer layout from ./satBuffer and TYPE-ONLY message shapes from
+// ./satWorker (erased at compile time), so the SGP4 kernel never enters the main
+// bundle — propagation lives solely in the worker.
+//
+// PERF / LOD (charter): O1 proved the point-field stays smooth past 100k, so
+// the FULL population always renders as points — no silent decimation. The
+// setRenderCap() hook exists only as a defensive lever for a struggling device;
+// whenever it is set, getCounts() reports rendered < total and capped=true so
+// the parent surfaces "showing N of M" (no-silent-caps rule). Progressive
+// resolve on zoom (labels / 3D models / click targets) is a SEPARATE layer the
+// parent adds — it never thins THIS field.
+//
+// PICKING (parent's job): custom layers have no queryRenderedFeatures. The
+// buffer is index-aligned to the worker's GP order (sentinels included), so a
+// CPU nearest-point lookup over getPositions() resolves a click to index i and
+// straight into the parent's parallel metadata (noradId, epoch age / freshness,
+// name…). getPositions()/getStride() expose exactly what that needs.
+
+import type {
+  CustomLayerInterface,
+  CustomRenderMethodInput,
+  Map as MapLibreMap,
+} from 'maplibre-gl';
+import { SAT_STRIDE, readSatAt } from './satBuffer.js';
+import type { SatPositionsMessage } from './satWorker.js';
+
+type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
+
+/** RGBA in 0..1 (non-premultiplied; blend is SRC_ALPHA). */
+export type Rgba = [number, number, number, number];
+
+export interface SatLayerOptions {
+  id?: string;
+  /** point diameter in pixels (device-independent). */
+  pointSize?: number;
+  /** color for LEO-class objects. */
+  colorLEO?: Rgba;
+  /** color for MEO-class objects. */
+  colorMEO?: Rgba;
+  /** color for GEO-class objects. */
+  colorGEO?: Rgba;
+}
+
+/** Subset of the worker positions message the layer echoes for the honesty panel. */
+export interface PositionMeta {
+  shown: number;
+  deepSpaceSkipped: number;
+  invalidSkipped: number;
+}
+
+export interface SatLayerCounts {
+  /** slots in the buffer (== population size, index-aligned to worker GP order). */
+  total: number;
+  /** points actually issued to the GPU this frame (== min(cap, total)). */
+  rendered: number;
+  /** true when a render cap is hiding some objects — surface "showing N of M". */
+  capped: boolean;
+  /** slots carrying a real propagated position (from the worker; null until first update). */
+  shown: number | null;
+  /** objects skipped as deep-space (need SDP4). */
+  deepSpaceSkipped: number | null;
+  /** objects skipped for other reasons (missing elements / decayed). */
+  invalidSkipped: number | null;
+}
+
+const DEFAULT_COLORS = {
+  LEO: [0.3, 0.62, 1.0, 0.9] as Rgba, // cyan-blue (matches the O1 spike)
+  MEO: [1.0, 0.72, 0.25, 0.9] as Rgba, // amber
+  GEO: [0.85, 0.45, 1.0, 0.9] as Rgba, // violet
+};
+
+const VERT_SRC = (prelude: string, define: string): string => `#version 300 es
+${prelude}
+${define}
+in vec4 a_data;            // x=mercX(0..1) y=mercY(0..1) z=altMeters w=classCode
+uniform float u_size;
+uniform vec4 u_colorLEO;
+uniform vec4 u_colorMEO;
+uniform vec4 u_colorGEO;
+out vec4 v_color;
+void main() {
+  float cls = a_data.w;
+  if (cls < 0.0) {
+    // Sentinel slot: no real position (deep-space / invalid). Cull it —
+    // never fabricate a location. Kept in the buffer only for index alignment.
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+    v_color = vec4(0.0);
+    return;
+  }
+  gl_Position = projectTileFor3D(a_data.xy, a_data.z);
+  gl_PointSize = u_size;
+  v_color = cls < 0.5 ? u_colorLEO : (cls < 1.5 ? u_colorMEO : u_colorGEO);
+}`;
+
+const FRAG_SRC = `#version 300 es
+precision mediump float;
+in vec4 v_color;
+out vec4 o;
+void main() {
+  vec2 d = gl_PointCoord - 0.5;
+  float r = dot(d, d);
+  if (r > 0.25) discard;              // round point
+  float a = smoothstep(0.25, 0.10, r); // soft edge
+  o = vec4(v_color.rgb, v_color.a * a);
+}`;
+
+/**
+ * The satellite GPU point layer. Construct once, `map.addLayer(layer)`, then
+ * feed it worker output via `updatePositions(buf, meta)`.
+ */
+export class SatLayer implements CustomLayerInterface {
+  readonly id: string;
+  readonly type = 'custom' as const;
+  readonly renderingMode = '2d' as const;
+
+  private map: MapLibreMap | null = null;
+  private gl: AnyGl | null = null;
+  private program: WebGLProgram | null = null;
+  private buffer: WebGLBuffer | null = null;
+  private cachedVariant: string | null = null;
+
+  // uniform / attribute locations (resolved on compile)
+  private aData = -1;
+  private uSize: WebGLUniformLocation | null = null;
+  private uColorLEO: WebGLUniformLocation | null = null;
+  private uColorMEO: WebGLUniformLocation | null = null;
+  private uColorGEO: WebGLUniformLocation | null = null;
+  private uProjMatrix: WebGLUniformLocation | null = null;
+  private uProjTile: WebGLUniformLocation | null = null;
+  private uProjClip: WebGLUniformLocation | null = null;
+  private uProjTrans: WebGLUniformLocation | null = null;
+  private uProjFallback: WebGLUniformLocation | null = null;
+
+  // position data + render state
+  private data: Float32Array | null = null;
+  private dataDirty = false;
+  private uploadedFloats = -1;
+  private total = 0;
+  private renderCap: number | null = null;
+  private meta: PositionMeta | null = null;
+
+  private pointSize: number;
+  private colorLEO: Rgba;
+  private colorMEO: Rgba;
+  private colorGEO: Rgba;
+
+  constructor(opts: SatLayerOptions = {}) {
+    this.id = opts.id ?? 'orbital-sats';
+    this.pointSize = opts.pointSize ?? 3.0;
+    this.colorLEO = opts.colorLEO ?? DEFAULT_COLORS.LEO;
+    this.colorMEO = opts.colorMEO ?? DEFAULT_COLORS.MEO;
+    this.colorGEO = opts.colorGEO ?? DEFAULT_COLORS.GEO;
+  }
+
+  // --- CustomLayerInterface ------------------------------------------------
+
+  onAdd(map: MapLibreMap, gl: AnyGl): void {
+    this.map = map;
+    this.gl = gl;
+    this.buffer = gl.createBuffer();
+    // Program is compiled lazily in render() — it needs the projection
+    // shaderData (prelude/variant), which is only available per-frame.
+    this.uploadedFloats = -1;
+    if (this.data) this.dataDirty = true; // data set before add -> upload on first render
+  }
+
+  render(gl: AnyGl, args: CustomRenderMethodInput): void {
+    if (!this.data || this.total === 0) return;
+    const sd = args.shaderData;
+    if (this.program == null || this.cachedVariant !== sd.variantName) {
+      this.compile(gl, sd.vertexShaderPrelude, sd.define, sd.variantName);
+    }
+    if (this.program == null || this.buffer == null) return;
+
+    gl.useProgram(this.program);
+
+    // Projection uniforms (globe + mercator + altitude); skip any the current
+    // variant does not declare (mercator variant lacks the globe-only ones).
+    const pd = args.defaultProjectionData;
+    if (this.uProjMatrix) gl.uniformMatrix4fv(this.uProjMatrix, false, pd.mainMatrix);
+    if (this.uProjTile) {
+      gl.uniform4f(
+        this.uProjTile,
+        pd.tileMercatorCoords[0],
+        pd.tileMercatorCoords[1],
+        pd.tileMercatorCoords[2],
+        pd.tileMercatorCoords[3],
+      );
+    }
+    if (this.uProjClip) {
+      gl.uniform4f(
+        this.uProjClip,
+        pd.clippingPlane[0],
+        pd.clippingPlane[1],
+        pd.clippingPlane[2],
+        pd.clippingPlane[3],
+      );
+    }
+    if (this.uProjTrans) gl.uniform1f(this.uProjTrans, pd.projectionTransition);
+    if (this.uProjFallback) gl.uniformMatrix4fv(this.uProjFallback, false, pd.fallbackMatrix);
+
+    // Style uniforms.
+    if (this.uSize) gl.uniform1f(this.uSize, this.pointSize);
+    if (this.uColorLEO) gl.uniform4f(this.uColorLEO, ...this.colorLEO);
+    if (this.uColorMEO) gl.uniform4f(this.uColorMEO, ...this.colorMEO);
+    if (this.uColorGEO) gl.uniform4f(this.uColorGEO, ...this.colorGEO);
+
+    // Non-premultiplied alpha (matches the fragment output).
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+    if (this.dataDirty) {
+      if (this.data.length !== this.uploadedFloats) {
+        gl.bufferData(gl.ARRAY_BUFFER, this.data, gl.DYNAMIC_DRAW);
+        this.uploadedFloats = this.data.length;
+      } else {
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data);
+      }
+      this.dataDirty = false;
+    }
+    gl.enableVertexAttribArray(this.aData);
+    gl.vertexAttribPointer(this.aData, 4, gl.FLOAT, false, SAT_STRIDE * 4, 0);
+
+    const count = this.renderCap != null ? Math.min(this.renderCap, this.total) : this.total;
+    gl.drawArrays(gl.POINTS, 0, count);
+    gl.disableVertexAttribArray(this.aData);
+  }
+
+  onRemove(_map: MapLibreMap, gl: AnyGl): void {
+    if (this.program) gl.deleteProgram(this.program);
+    if (this.buffer) gl.deleteBuffer(this.buffer);
+    this.program = null;
+    this.buffer = null;
+    this.cachedVariant = null;
+    this.uploadedFloats = -1;
+    this.gl = null;
+    this.map = null;
+  }
+
+  // --- Public API (parent wiring) -----------------------------------------
+
+  /**
+   * Feed a freshly propagated population from the worker. `data` is the
+   * SAT_STRIDE-packed Float32Array; `meta` (the worker's shown/skipped counts)
+   * is echoed through getCounts() for the honesty panel. Triggers a repaint.
+   */
+  updatePositions(data: Float32Array, meta?: PositionMeta): void {
+    this.data = data;
+    this.total = Math.floor(data.length / SAT_STRIDE);
+    this.meta = meta ?? this.meta;
+    this.dataDirty = true;
+    this.map?.triggerRepaint();
+  }
+
+  /** Set point diameter in pixels. */
+  setPointSize(px: number): void {
+    this.pointSize = px;
+    this.map?.triggerRepaint();
+  }
+
+  /** Color points by orbit class. */
+  setClassColors(colors: { leo?: Rgba; meo?: Rgba; geo?: Rgba }): void {
+    if (colors.leo) this.colorLEO = colors.leo;
+    if (colors.meo) this.colorMEO = colors.meo;
+    if (colors.geo) this.colorGEO = colors.geo;
+    this.map?.triggerRepaint();
+  }
+
+  /** Flat color mode: paint every class the same color. */
+  setColor(rgba: Rgba): void {
+    this.colorLEO = rgba;
+    this.colorMEO = rgba;
+    this.colorGEO = rgba;
+    this.map?.triggerRepaint();
+  }
+
+  /**
+   * Decimation lever (defensive; O1 says the point field needs none). null =
+   * render the full population. When set, only the first `cap` objects draw and
+   * getCounts() reports capped=true / rendered<total so the caller can surface
+   * "showing N of M" — never a silent drop.
+   */
+  setRenderCap(cap: number | null): void {
+    this.renderCap = cap != null && cap >= 0 ? Math.floor(cap) : null;
+    this.map?.triggerRepaint();
+  }
+
+  /** Shown-vs-total accounting for the honesty panel. */
+  getCounts(): SatLayerCounts {
+    const rendered = this.renderCap != null ? Math.min(this.renderCap, this.total) : this.total;
+    return {
+      total: this.total,
+      rendered,
+      capped: rendered < this.total,
+      shown: this.meta?.shown ?? null,
+      deepSpaceSkipped: this.meta?.deepSpaceSkipped ?? null,
+      invalidSkipped: this.meta?.invalidSkipped ?? null,
+    };
+  }
+
+  /** The last position buffer (for CPU nearest-point picking). Index-aligned to worker GP order. */
+  getPositions(): Float32Array | null {
+    return this.data;
+  }
+
+  /** Floats per object in the position buffer. */
+  getStride(): number {
+    return SAT_STRIDE;
+  }
+
+  /** Read one packed slot (mercX, mercY, altMeters, classCode, valid). */
+  readSat(i: number): ReturnType<typeof readSatAt> | null {
+    if (!this.data || i < 0 || i >= this.total) return null;
+    return readSatAt(this.data, i);
+  }
+
+  // --- internals -----------------------------------------------------------
+
+  private compile(gl: AnyGl, prelude: string, define: string, variant: string): void {
+    // Drop any prior program (projection variant changed).
+    if (this.program) {
+      gl.deleteProgram(this.program);
+      this.program = null;
+    }
+    const vs = this.mkShader(gl, gl.VERTEX_SHADER, VERT_SRC(prelude, define));
+    const fs = this.mkShader(gl, gl.FRAGMENT_SHADER, FRAG_SRC);
+    const p = gl.createProgram();
+    if (!p) throw new Error('SatLayer: createProgram failed');
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      const log = gl.getProgramInfoLog(p);
+      gl.deleteProgram(p);
+      throw new Error('SatLayer: program link failed: ' + log);
+    }
+    // Shaders can be freed once linked.
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    this.program = p;
+    this.cachedVariant = variant;
+    this.aData = gl.getAttribLocation(p, 'a_data');
+    this.uSize = gl.getUniformLocation(p, 'u_size');
+    this.uColorLEO = gl.getUniformLocation(p, 'u_colorLEO');
+    this.uColorMEO = gl.getUniformLocation(p, 'u_colorMEO');
+    this.uColorGEO = gl.getUniformLocation(p, 'u_colorGEO');
+    this.uProjMatrix = gl.getUniformLocation(p, 'u_projection_matrix');
+    this.uProjTile = gl.getUniformLocation(p, 'u_projection_tile_mercator_coords');
+    this.uProjClip = gl.getUniformLocation(p, 'u_projection_clipping_plane');
+    this.uProjTrans = gl.getUniformLocation(p, 'u_projection_transition');
+    this.uProjFallback = gl.getUniformLocation(p, 'u_projection_fallback_matrix');
+  }
+
+  private mkShader(gl: AnyGl, type: number, src: string): WebGLShader {
+    const sh = gl.createShader(type);
+    if (!sh) throw new Error('SatLayer: createShader failed');
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(sh);
+      gl.deleteShader(sh);
+      throw new Error('SatLayer: shader compile failed: ' + log);
+    }
+    return sh;
+  }
+}
