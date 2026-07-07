@@ -13,13 +13,21 @@ RANKED TOP-5 of this section (signal × uncrowdedness × build ease):
 1. JODI oil/gas, 2. ECB Data Portal, 3. Eurostat, 4. Bundesbank,
 5. UN Comtrade preview.
 
-1. **JODI oil/gas** — world_Primary_CSV.zip (23MB→283MB CSV), keyless
-   static file, monthly (~19th, 2-mo lag), 2002+. Flat CSV:
-   REF_AREA,TIME_PERIOD,ENERGY_PRODUCT,FLOW_BREAKDOWN(CLOSTLV=closing
-   stocks),OBS_VALUE. Free w/ acknowledgment. SIGNAL: non-OECD
+1. **[BUILT v1.0.168]** ~~JODI oil/gas~~ — world_Primary_CSV.zip
+   (23MB→283MB CSV), keyless static file, monthly (~19th, 2-mo lag),
+   2002+. Flat CSV: REF_AREA,TIME_PERIOD,ENERGY_PRODUCT,FLOW_BREAKDOWN
+   (CLOSTLV=closing stocks),UNIT_MEASURE,OBS_VALUE,ASSESSMENT_CODE
+   (UNIT_MEASURE/ASSESSMENT_CODE confirmed live 2026-07-07, not in the
+   original filing). Free w/ acknowledgment. SIGNAL: non-OECD
    crude/product stock builds (Saudi/UAE/India) invisible in EIA →
    Brent structure; moderately uncrowded; DIRECT gate-1 partner for
    the tank-shadow root. Easiest build in the census.
+   CORRECTION (live full-file parse, 2026-07-07): CONVBBL is the only
+   unit populated on every CLOSTLV row's schema slot, but just ~42%
+   (57,973/137,448) carry an actual reported number, not the ~full
+   coverage this original filing implied from a partial 6M-row sample
+   — see server/jodiOil.ts / experiments.md 2026-07-07 for the
+   corrected finding. Gate 1/2 not yet attempted.
 2. **ECB Data Portal** — data-api.ecb.europa.eu keyless SDMX-JSON,
    probed 200 (daily EUR/USD refs). Daily FX/€STR, weekly Eurosystem
    balance sheet, monthly money/lending; 1999+. Free w/ attribution.

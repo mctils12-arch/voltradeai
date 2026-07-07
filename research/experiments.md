@@ -7214,3 +7214,91 @@ exception to append-only; the log below it stays append-only)
   viewport.
 - STARVED: no — queue continues (census builds JODI → FINRA Query
   cluster → SEC FTD; Phase 3 imagery freshness; grid item 2 US-full).
+
+## 2026-07-07 — [PIPELINE] JODI Oil World Database, Primary closing stocks — first DATA CENSUS build (v1.0.168)
+
+- TERRITORY: T-DATACORE (new server module + manifest + route; no
+  bot.ts/system_config.py/client touched — one logical change).
+- SESSION-START CHECK (Repair Mandate + system health): KNOWN BROKEN
+  #4 (human-reported "bot doesn't work right") and #3 (CSP execution
+  cascade) both remain access-limited from outside the container (no
+  requireOwner audit-log read available to this session) — noted, not
+  re-diagnosable here, and per the PRODUCT session brief this does not
+  block product work. No new break found in this session's own surface.
+- WHAT + WHY THIS ITEM: research/data_census.md's own CENSUS MASTER
+  RANKING and the prior session's stated queue (JODI -> FINRA Query
+  cluster -> SEC FTD) both named JODI oil/gas as next; it was filed
+  "easiest build in the census" and is a DIRECT gate-1 partner for the
+  tank-shadow satellite root (same physical quantity — crude stock
+  levels — via an independent measurement path), so it advances an
+  existing hypothesis rather than opening an unrelated one.
+- LIVE PROBE BEFORE BUILDING (read-before-write extended to the source
+  itself): downloaded the real world_Primary_CSV.zip this session —
+  23,320,973 bytes, single deflated entry NewProcedure_Primary_CSV.csv,
+  282,723,307 bytes uncompressed, 6,872,400 rows, confirmed via both
+  Python's zipfile/csv and a live Node run of the actual parser.
+  CORRECTED A CENSUS-TIME ASSUMPTION: the census entry's schema list
+  omitted UNIT_MEASURE (present) and implied CONVBBL was ~fully
+  populated from a partial 6M-row sample; the FULL live parse (this
+  session) shows CONVBBL is the only unit JODI populates on every
+  CLOSTLV row's schema slot, but just ~42% (57,973/137,448) actually
+  carry a reported number — the rest are honest source gaps, not a
+  parser defect (traced to two additional no-data tokens, 'N/A' and
+  '..', beyond the '-'/'x' the census noted; all four verified live
+  and handled by a Number.isFinite(parseFloat(...)) check, not a
+  string allowlist). Manifest and code comments corrected to state
+  this accurately rather than repeat the undercounted census claim.
+- BUILD: server/jodiOil.ts, reusing the fflate `unzipSync` pattern
+  already proven in gdeltEvents.ts (no new dependency) rather than
+  hand-rolling ZIP parsing. Filter: FLOW_BREAKDOWN=CLOSTLV x
+  UNIT_MEASURE=CONVBBL only (137,448 of 6,872,400 rows kept). Engine
+  cost control: a cheap HEAD probe (Last-Modified/ETag, stored in a
+  small _meta.json marker) runs on the 24h poll cadence; the expensive
+  283MB download+inflate+parse only fires when those actually change,
+  which JODI's own ~monthly cadence makes a ~12x/year event — the
+  naive "re-parse 283MB on every poll" design was rejected specifically
+  because DTCC SBSDR (147MB/day) was DECLINED in the census on a
+  volume-budget basis, and JODI must not quietly become the same
+  problem at a different cadence. Archive: one JSONL file per
+  TIME_PERIOD (YYYY-MM); periods within 6 months of "now" are rewritten
+  on every real refresh (JODI revises recent months), older periods
+  are archived once and gzipped immediately (treated as final) — this
+  bounds both parse-time disk I/O and gzip churn to the handful of
+  months that can still move, instead of touching all ~292 periods
+  every refresh.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): one more entry in
+  server/routes.ts's boot sequence -> one more 24h-interval timer,
+  guarded to a single HEAD request on ~29 of every ~30 calls -> zero
+  effect on deep_score/bot_engine.py/scoring/sizing (nothing reads
+  JODI data yet, RAW only) -> the only observable effect is a growing
+  archive on the Railway volume plus one new /api/data/jodi-oil-stocks
+  route. streamsInventory picks the new manifest up automatically (no
+  client code touched) — confirmed by the existing INVENTORY-COVERAGE
+  ratchet test passing without modification.
+- GATES: `npx tsc --noEmit` 64 errors (baseline unchanged, confirmed by
+  diffing against a `git stash` of this session's own changes — no new
+  error introduced; had to rewrite one `for...of` over a `Map` as
+  `.forEach` to avoid adding a NEW instance of the pre-existing
+  downlevelIteration TS2802 error already present in shadowFleet.ts/
+  portDwell.ts/optionsChainArchive.ts, rather than touching tsconfig.json).
+  `npx tsx --test server/*.test.ts` 343/343 (331 baseline + 12 new,
+  zero regressions). `npm run build` clean (dist/index.cjs 5.8MB, no
+  new warnings). No client/ files touched — the VISUAL VERIFICATION
+  rule does not apply to this PR. Python suite not touched (no .py
+  files in this diff).
+- WIRED AT GATE 0 (archive) ONLY: /api/data/jodi-oil-stocks serves the
+  poller's cached newest-period rows; nothing in bot_engine.py or
+  macro_data.py reads this yet. Gate 1 (cross-check a known country/
+  month against JODI's own published bulletin) and gate 2 (stock-
+  build/draw vs forward Brent-structure or product-crack moves,
+  regime-split) are both NOT attempted this session — logged as the
+  documented follow-up, same pattern as CFTC COT's gate-1-deferred
+  precedent (2026-07-05).
+- NOT ATTEMPTED (correctly out of scope): world_Secondary_CSV.zip
+  (refined products — gasoline/diesel/etc.) is JODI's sibling dataset,
+  same site, not fetched this session; a natural v2 follow-up once
+  gate 1 on the Primary series is judged worth extending.
+- STARVED: no — this was the next fully-specified queued item (DATA
+  CENSUS build order), executed start to finish. Queue continues:
+  FINRA Query API cluster -> SEC FTD; Phase 3 imagery freshness; grid
+  item 2 US-full.

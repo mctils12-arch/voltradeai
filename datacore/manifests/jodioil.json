@@ -1,0 +1,24 @@
+{
+ "stream": "jodioil",
+ "storage": "one JSONL file per TIME_PERIOD (YYYY-MM) under <archive>/jodioil/; periods within the last 6 months are rewritten on every real refresh (JODI revises recent months), older periods are archived once and gzipped immediately (treated as final); a small _meta.json marker stores the last-seen Last-Modified/ETag so the 283MB parse only runs when the remote actually changed",
+ "written_by": "server/jodiOil.ts archiveJodiRows (24h HEAD-probe poll of the source's Last-Modified/ETag; full download+parse only fires on an actual change, eager boot)",
+ "source": "JODI Oil World Database, Primary series — jodidata.org world_Primary_CSV.zip. Keyless static single-entry ZIP (verified live 2026-07-07: 23.3MB compressed, deflate, one file NewProcedure_Primary_CSV.csv -> 282.7MB CSV, 6,872,400 rows). Monthly release (~19th, ~2-month lag), history from 2002-01. Covers CRUDEOIL/OTHERCRUDE/NGL/TOTCRUDE only (refined products live in a separate world_Secondary_CSV.zip, not built here — documented follow-up). Columns verified live: REF_AREA,TIME_PERIOD,ENERGY_PRODUCT,FLOW_BREAKDOWN,UNIT_MEASURE,OBS_VALUE,ASSESSMENT_CODE",
+ "license": "JODI — free use with acknowledgment",
+ "attribution": "Joint Organisations Data Initiative (JODI) Oil World Database",
+ "schema_version": 1,
+ "field_map": {
+  "ref_area": "JODI 2-letter area code (118 distinct areas as of 2026-07-07)",
+  "time_period": "YYYY-MM",
+  "energy_product": "CRUDEOIL | OTHERCRUDE | NGL | TOTCRUDE",
+  "stock": "OBS_VALUE on the CONVBBL basis (JODI's own cross-country-comparable converted-barrels unit), as published; null when JODI has no report for that area/product/month (source uses '-', 'x', 'N/A', and '..' as no-data tokens, all four verified live and all four fall through to null via a Number.isFinite(parseFloat(...)) check rather than a placeholder allowlist) — never coerced to zero",
+  "assessment_code": "JODI ASSESSMENT_CODE, passed through as published; its exact quality-tier meaning has not been independently verified this session",
+  "rt": "as-seen UTC date of the fetch that produced this snapshot"
+ },
+ "confidence_model": "RAW closing-stock levels, filtered to FLOW_BREAKDOWN=CLOSTLV x UNIT_MEASURE=CONVBBL only (137,448 of 6,872,400 source rows kept; live-verified 2026-07-07, ~42% carry an actual number, ~58% are honestly null). The non-OECD-stock-build hypothesis (direct gate-1 partner for the tank-shadow satellite root — same physical quantity, independent measurement path) is gate-locked: gate 1 = cross-check JODI's own reported level for a known country/month against JODI's published bulletin; gate 2 = stock-build/draw vs forward Brent-structure or product-crack moves, regime-split. Not yet attempted.",
+ "geo_fields": ["ref_area"],
+ "entity_key": "ref_area + time_period + energy_product",
+ "sentiment": null,
+ "started": "2026-07-07",
+ "cadence": "monthly (~19th, ~2-month lag); polled every 24h via a cheap HEAD probe, full parse only on an actual Last-Modified/ETag change",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATA CENSUS section 1 #1 (research/data_census.md) — ranked easiest build in the census; first item off the post-BUILD-ORDER-6 queue (JODI -> FINRA Query cluster -> SEC FTD)."
+}

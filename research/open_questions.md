@@ -383,6 +383,40 @@
 
 ## OPEN RESEARCH QUESTIONS
 
+- **JODI non-OECD oil stock levels as a tank-shadow gate-1 partner**
+  (gate 0 ARCHIVE built 2026-07-07 — see `server/jodiOil.ts` /
+  `jodiOil.test.ts` / `datacore/manifests/jodioil.json`; live at
+  `/api/data/jodi-oil-stocks`, RAW only, no predictive claim). Monthly
+  closing crude/NGL stock levels by country (118 areas, 2002-01+),
+  filtered to FLOW_BREAKDOWN=CLOSTLV x UNIT_MEASURE=CONVBBL (137,448
+  rows kept of 6,872,400 source rows; ~42% carry an actual number, the
+  rest honestly null — see the manifest for the four no-data tokens
+  found live). GATE 1 hypothesis, not yet attempted: does JODI's
+  reported closing stock level for a known country/month match JODI's
+  own published bulletin figure within a small tolerance (a pure data-
+  integrity check, no trading claim)? GATE 2 hypothesis, not yet
+  attempted: does a non-OECD country's month-over-month stock build/
+  draw (Saudi/UAE/India specifically — largest non-EIA-covered
+  producers/consumers) predict forward Brent-structure (front-month
+  vs. 2nd-month spread) or refined-product-crack moves, over a
+  random-entry baseline, regime-split? PRIOR stated before any run:
+  expect a small real edge concentrated in the largest non-OECD
+  producers (Saudi Arabia, UAE) given EIA's US-only weekly release
+  leaves their inventory swings unpriced by domestic-inventory-based
+  models; expect little-to-no edge on small reporters given thin,
+  noisy month-over-month deltas and the ~2-month publish lag limiting
+  how fresh the signal can be relative to spot Brent moves. Kill
+  criterion: no separation from baseline after regime-split, or the
+  2-month lag proves too stale once actually backtested against daily
+  Brent-structure data. Ladder: gate 0 DATA done (this session); gate 1
+  needs one manual cross-check against a JODI bulletin PDF; gate 2
+  needs `backtest_v2.fetch_bars`-style daily futures-structure data
+  joined to the monthly archive, same pattern as the COT gate-2 screen
+  (2026-07-05) — NOT started, next session's natural pickup once
+  enough monthly history has accumulated to make regime-splitting
+  meaningful (a handful of months is not enough; revisit after several
+  more monthly refreshes land, given the archive already carries the
+  full 2002-2026 history from day one).
 - **Insider Form 4 clustering as a signal** (gate 1 PASSED 2026-07-03 — see
   `server/edgarForm4.ts` / `edgarForm4.test.ts` / `datacore/README.md`; the
   feed is live at `/api/data/insider`, surfaced as RAW only, no predictive

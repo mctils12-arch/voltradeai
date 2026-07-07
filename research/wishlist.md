@@ -55,9 +55,10 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   the visual harness PAGES (perf/layout gate at 390/768/1440).
   Remaining: imagery capture-date requirement (with Phase 3),
   per-layer freshness chips.
-- NEXT CENSUS BUILDS after grid pilot: JODI (keyless static, easiest),
-  FINRA Query API cluster, SEC FTD; EPA CAMD/GEM/ENTSO-E on Mike's
-  keys (9a/9b/9c below).
+- NEXT CENSUS BUILDS after grid pilot: ~~JODI (keyless static,
+  easiest)~~ BUILT v1.0.168 (2026-07-07, /api/data/jodi-oil-stocks).
+  Next: FINRA Query API cluster, SEC FTD; EPA CAMD/GEM/ENTSO-E on
+  Mike's keys (9a/9b/9c below).
 
 ## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;
 ## each unlocks a census top-10 item; routed around meanwhile)

@@ -55,6 +55,7 @@ import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
+import { bootJodiPoll, latestJodi } from "./jodiOil";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -1815,6 +1816,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       latest_week: hit.latest_week,
       count: hit.rows.length,
       note: "national weekly CONDITION ratings for corn + soybeans (5 classes via short_desc, Monday releases in season); condition-delta signals stay gate-locked until ladder validation",
+      rows: hit.rows,
+    });
+  });
+
+  // JODI Oil World Database, Primary closing-stock levels (RAW — DATA
+  // CENSUS section 1 #1, keyless static-file download). Monthly source
+  // with a ~2-month lag; serves the poller's cached newest period only
+  // (event-loop rule) — the full 292-period archive lives on disk.
+  bootJodiPoll();
+  app.get("/api/data/jodi-oil-stocks", (_req, res) => {
+    const hit = latestJodi();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "JODI Oil World Database (Primary)", warming_up: true, count: 0, rows: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "JODI Oil World Database, Primary series — closing stock levels (free use with acknowledgment)",
+      attribution: "Joint Organisations Data Initiative (JODI) Oil World Database",
+      unit: "CONVBBL — JODI's own cross-country-comparable converted-barrels basis, as published",
+      time: hit.at,
+      period: hit.period,
+      periods_archived: hit.periods_archived,
+      count: hit.rows.length,
+      note: "closing crude/NGL stock levels by area+product for the newest reported month (~2-month publish lag); ~58% of area/product/month combinations are unreported by JODI and arrive as null, never zero; non-OECD stock-build signals stay gate-locked until ladder validation against JODI's own published bulletin",
       rows: hit.rows,
     });
   });
