@@ -1,0 +1,134 @@
+{
+ "built": "2026-07-07T23:29:50.283648+00:00",
+ "purpose": "GRID VISION Phase B training-label manifest. IP-clean stack only (Duke-US CC BY, NAIP public domain, OSM ODbL-attributed). Honest scope: transmission towers + substations.",
+ "generator": "scripts/gridvision_etdii.py --write-manifest",
+ "sources": [
+  {
+   "name": "ETDII \u2014 Electric Transmission Infrastructure Satellite Imagery Dataset for Computer Vision",
+   "figshare_article": 14935434,
+   "doi": "10.6084/m9.figshare.14935434.v2",
+   "url": "https://doi.org/10.6084/m9.figshare.14935434",
+   "figshare_api": "https://api.figshare.com/v2/articles/14935434",
+   "license": "CC BY 4.0",
+   "license_url": "https://creativecommons.org/licenses/by/4.0/",
+   "attribution": "Nair, Pathirathna, You, Han, Huang, Yang, Streltsov, Bradbury, Collins, Malof, Hu (Duke Energy Initiative). Imagery: USGS (public domain) / LINZ (CC BY 4.0).",
+   "gsd_m": 0.3,
+   "verification": "VERIFIED 2026-07-07: figshare API file list + license + Documentation.pdf legend read; US per-class counts tallied by parsing both US zips this session.",
+   "us_portion": {
+    "cities": [
+     "USA_AZ_Tucson",
+     "USA_KS_Colwich_Maize"
+    ],
+    "images": 74,
+    "class_counts_raw": {
+     "T": 1408,
+     "OT": 125,
+     "L": 784,
+     "EN": 271,
+     "SS": 6
+    },
+    "normalized_in_scope": {
+     "tower": 1408,
+     "substation": 6
+    },
+    "per_city": {
+     "USA_AZ_Tucson": {
+      "images": 26,
+      "T": 595,
+      "OT": 23,
+      "L": 251,
+      "EN": 145,
+      "SS": 3
+     },
+     "USA_KS_Colwich_Maize": {
+      "images": 48,
+      "T": 813,
+      "OT": 102,
+      "L": 533,
+      "EN": 126,
+      "SS": 3
+     }
+    },
+    "reported": false
+   },
+   "nonus_portion": {
+    "cities_documented": [
+     "NZ_Dunedin",
+     "NZ_Gisborne",
+     "NZ_Palmerston_North",
+     "NZ_Rotorua",
+     "NZ_Tauranga"
+    ],
+    "images_documented": 39,
+    "sample_tallied": {
+     "NZ_Dunedin": {
+      "images": 6,
+      "T": 334,
+      "OT": 28,
+      "L": 95,
+      "EN": 60,
+      "SS": 2
+     }
+    },
+    "note": "only NZ_Dunedin tallied this session (format probe); other NZ cities' per-class counts REPORTED from Documentation, not tallied.",
+    "reported": true
+   },
+   "annotation_format": "per-image .geojson (WGS84 geom + pixel_coordinates quad) + .csv (per-vertex) + multiclass masks (.npz/.png). Labels: T/OT/L/EN/SS.",
+   "fitness": "PRIMARY in-scope label set for the first fine-tune. US portion is @0.30 m and license-clean (USGS PD imagery)."
+  },
+  {
+   "name": "Duke Electric Transmission and Distribution Infrastructure Imagery Dataset",
+   "figshare_article": 6931088,
+   "doi": "10.6084/m9.figshare.6931088",
+   "url": "https://doi.org/10.6084/m9.figshare.6931088",
+   "figshare_api": "https://api.figshare.com/v2/articles/6931088",
+   "license": "CC BY 4.0",
+   "license_url": "https://creativecommons.org/licenses/by/4.0/",
+   "attribution": "Bradbury, Han, Nair, Pathirathna, You et al. (Duke Data+). US imagery USGS/CT-ECO public domain.",
+   "size_gb": 28.1,
+   "verification": "VERIFIED 2026-07-07: figshare API file list (16 zips) + license. NOT downloaded (28 GB); per-class counts REPORTED from research/grid_vision_research.md 2.1.",
+   "classes_reported": [
+    "DT",
+    "DL",
+    "TT",
+    "TL",
+    "OT",
+    "OL",
+    "SS"
+   ],
+   "us_cities_reported": [
+    "Hartford CT (0.15m)",
+    "Clyde NC (0.15m)",
+    "Wilmington NC (0.15m)",
+    "Colwich+Maize KS (0.15m)",
+    "Tucson AZ (0.30m)"
+   ],
+   "spacetime_caveat": "3 SpaceNet cities (Khartoum/Shanghai/Rio) rest on CC BY-SA imagery \u2014 use US zips only for clean license.",
+   "reported": true,
+   "fitness": "SUPERSET with transmission/distribution split (TT vs DT). Adds 0.15 m US cities beyond ETDII. Pull the US zips (Hartford/Clyde/Wilmington) to grow the US set; downsample 0.15 m -> 0.30/0.60 m to match NAIP GSD."
+  },
+  {
+   "name": "PLAD / STN PLAD",
+   "url": "https://github.com/andreluizbvs/PLAD",
+   "license": "GPL-3.0 (REPORTED from grid_vision_research.md 2.4 \u2014 the GitHub API was proxy-blocked this session, not re-verified)",
+   "verification": "EVALUATED + REJECTED. Domain wrong (133 drone close-ups of tower hardware, not nadir satellite) AND copyleft license. Recorded to close the question; NOT a label source.",
+   "usable": false
+  },
+  {
+   "name": "OSM power features (weak labels / corridor seeds)",
+   "url": "https://www.openstreetmap.org (Overpass power=tower/substation)",
+   "license": "ODbL 1.0 \u2014 attribution + database share-alike",
+   "role": "NOT a ground-truth label set. Seeds chip locations (see scripts/gridvision_chips.py) and measures RECALL on corridors (precision needs a human-sampled pass). Weak: tower nodes mapped far less completely than the lines; meters of positional offset; temporal mismatch vs NAIP capture date.",
+   "usable": "weak-label / seed only"
+  }
+ ],
+ "composition_headline": {
+  "clean_us_labels_available_now": {
+   "source": "ETDII US (verified this session)",
+   "tower": 1408,
+   "substation": 6
+  },
+  "substation_underrepresentation": "CONFIRMED: only 6 substation polygons across all 74 US ETDII images vs 1408 towers \u2014 substations are ~0.4% of the in-scope US labels. The charter's underrepresentation flag is real; substations need Duke-US zips + OSM-seeded self-bootstrapping to reach a trainable count.",
+  "us_naip_domain_note": "ETDII US imagery is USGS ortho @0.30 m, not NAIP; treat as US-domain-adjacent and augment with OSM-over-NAIP weak labels for true NAIP radiometry (grid_vision_research.md 2.10)."
+ }
+}
