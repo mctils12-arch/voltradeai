@@ -290,10 +290,30 @@
     bot_engine-side closes, manual dashboard closes) still record
     nothing; wire path-by-path after (b) resolves.
 
-13. **[FOUND 2026-07-06, T-CLIENT — not yet repaired] `--accent` CSS
+13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
     breaking every direct `var(--accent)` use as a `color`/`background`/
-    `border-color` value sitewide.** `client/src/index.css`'s `:root`
+    `border-color` value sitewide.~~ FIXED: renamed the shadcn/Tailwind
+    internal HSL-triple token to `--shadcn-accent` (not the
+    DESIGN.md-documented brand hex) and updated its 3 real consumers —
+    the 2 `--accent-border` wrapper sites in index.css AND
+    `tailwind.config.ts`'s `accent.DEFAULT` (a THIRD consumer this
+    item's original text below missed, feeding `bg-accent`/
+    `text-accent-foreground` Tailwind utility classes across 10 shadcn
+    components — renaming the wrong side would have broken those
+    working interactive states instead). A repo-wide grep (not just
+    index.css) found 2 more real broken sites beyond the 18 catalogued
+    below: `filings.tsx`'s `option_exercise` badge and `analyze.tsx`'s
+    range-fill bar / border-left accent stripe — fixed by the same
+    rename. Verified live via Playwright (layer-toggle switches and the
+    filings EXERCISE badge now render visible blue, not transparent);
+    `npm run visual` 0 hard failures at all 3 widths; `python3 -m
+    pytest -q` 457 passed / 2 skipped. See experiments.md 2026-07-07
+    [REPAIR] for the full trace. The `--border` dormant collision noted
+    below is UNCHANGED and unaddressed — still zero live call sites,
+    re-confirmed dormant after this fix, left for a future session.
+    Original finding text preserved below for the record.
+    `client/src/index.css`'s `:root`
     declares `--accent: #4d9fff` (line 25, the DESIGN.md-documented
     brand hex) and then, further down the SAME block, `--accent: 212
     100% 65%` (line 92 — a bare HSL triple with no `hsl()` wrapper, part

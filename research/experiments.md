@@ -7585,3 +7585,92 @@ exception to append-only; the log below it stays append-only)
   "Power grid (TX pilot)" toggle ENABLED (no reload note); toggling it
   on renders the TX voltage-classed lines; Mike confirms from his
   phone (the original report path).
+## 2026-07-07 — [REPAIR] `--accent` CSS collision fixed sitewide — T-CLIENT (v1.0.178)
+
+- TERRITORY: T-CLIENT (client/src/index.css, tailwind.config.ts).
+- REPAIR MANDATE: session start checked open_questions.md KNOWN BROKEN
+  first per the repair mandate. Item #13 (found 2026-07-04, v1.0.160)
+  was still unrepaired: `:root` declares `--accent` twice — the
+  DESIGN.md-documented brand hex (`#4d9fff`, line 25) and, further down
+  the same block, a bare shadcn/Tailwind HSL triple (`212 100% 65%`,
+  line 92) — the later declaration wins the cascade, so every direct
+  `var(--accent)` consumer (expects a color) silently got an invalid
+  triple instead.
+- PRIOR STATED BEFORE INVESTIGATING THE FIX: expected the correct fix
+  to be "rename the shadcn token, since only 2 wrapper sites in
+  index.css consume it" (the shape #13 itself proposed). Investigation
+  proved that prior wrong before touching anything: `tailwind.config.ts`
+  (`accent: { DEFAULT: "hsl(var(--accent))" }`) is a THIRD consumer,
+  feeding real Tailwind `bg-accent`/`text-accent-foreground` utility
+  classes used across 10 shadcn components (select, dropdown-menu,
+  context-menu, menubar, dialog, calendar, toggle, command,
+  navigation-menu, sidebar) — dropdown/menu hover and selected-item
+  states. Renaming the shadcn token without also touching
+  tailwind.config.ts would have broken those live, currently-working
+  interactive states across the whole UI component library — a much
+  larger regression than the bug being fixed. DOWNSTREAM CHAIN traced
+  before editing: rename target -> which token feeds Tailwind's color
+  system -> which utility classes compile from it -> which real,
+  currently-functioning components consume those classes. Because the
+  brand hex is the one DESIGN.md documents as `--accent` and the
+  shadcn token is internal scaffolding never referenced outside
+  index.css/tailwind.config.ts, the correct minimal fix renames the
+  shadcn side, not the documented brand token — same conclusion as
+  #13's plan, reached for the right reason this time (tailwind.config.ts
+  is in scope, not just the 2 index.css wrapper sites).
+- FIX: renamed the shadcn HSL-triple declaration (both the `:root` copy
+  and the `.light, .dark` duplicate) from `--accent` to
+  `--shadcn-accent`; updated its two consumers — `--accent-border: hsl(var(--accent))`
+  (2 sites, index.css:119/166) and `tailwind.config.ts:40`'s
+  `accent.DEFAULT`. `--accent-foreground` was untouched (never
+  collided). `--accent` in `:root` now has exactly one declaration
+  (the hex) — verified via `grep -n "^\s*--accent:" client/src/index.css`.
+- SCOPE CORRECTION vs #13's catalogue: the audit that filed #13 only
+  grepped `client/src/index.css` for `var(--accent)` (18 sites). This
+  session found 2 more real, currently-broken sites outside that file
+  by grepping the whole repo: `client/src/pages/filings.tsx:32`
+  (`option_exercise` badge color) and `client/src/pages/analyze.tsx:1392,1477`
+  (a range-fill bar background and a border-left accent stripe) — both
+  were rendering transparent/invisible for the same reason. All fixed
+  by the same single-token-rename fix, no separate change needed.
+- DORMANT COLLISION LEFT ALONE (per #13, re-confirmed): `--border` has
+  the identical hex-vs-HSL-triple collision (index.css:20 vs :98) but
+  zero direct `var(--border)` call sites exist repo-wide — this PR
+  does not touch it, and re-grepped after the fix to confirm it's still
+  dormant (no new sites appeared). Left for a future session/audit
+  rather than bundled in, per the one-logical-change rule.
+- VERIFIED LIVE (not just grep): `npm install` (node_modules was
+  missing in this container), `npm run build`, then `npm run dev` +
+  Playwright against localhost:5000. `getComputedStyle` confirmed
+  `--accent` = `#4d9fff`, `--shadcn-accent` = `212 100% 65%`,
+  `--accent-border` = `hsl(212 100% 65%)` (a valid color, previously
+  would have been `hsl(212 100% 65%)` too by coincidence since the
+  triple already won there — the bug was invisible on that one
+  property and only visible on the 20 raw `var(--accent)` sites).
+  Screenshotted `/app#data`: the `.vt-switch.on` layer toggles (imagery,
+  aircraft, trains) now render a visible blue thumb/track instead of
+  transparent. Screenshotted the filings full view
+  (`/app#/data/filings`): the `EXERCISE` (option_exercise) badge now
+  renders the correct blue instead of invisible text.
+- GATES: `npm install` + `npm run build` succeeded; `npm run visual`
+  (all 3 canonical widths + streams/developers/landing/scale batteries)
+  — 0 hard failures, only pre-existing touch-target/clipped-control
+  warnings unrelated to this change; `python3 -m pytest -q` — 457
+  passed, 2 skipped (installed pytest + requirements.txt in this fresh
+  container first; baseline unaffected by this change, which touches
+  no Python). No new test added: this is a CSS/Tailwind-config token
+  rename with no new runtime behavior to unit-test, and the existing
+  visual harness (screenshots + hard-failure assertions) is the
+  regression net for this class of change per CLAUDE.md's VISUAL
+  VERIFICATION rule. Version 1.0.176 -> 1.0.177 was claimed by a
+  concurrent PR (#312, powergrid toggle fix) that merged to main first;
+  rebased onto it and re-incremented per the read-and-increment
+  convention: 1.0.177 -> 1.0.178.
+- STILL OPEN (unchanged from #13): the dormant `--border` collision,
+  and re-screenshotting the map's other sub-views (earnings, shortvol,
+  graph, powerplants) for any further undiscovered `var(--accent)`
+  sites the whole-repo grep in this session didn't need to reach
+  (filings.tsx/analyze.tsx were caught because the grep was repo-wide,
+  not per-view) — no further sites found this session via
+  `grep -rn "var(--accent)"` across `client/src` (20 total: 18 in
+  index.css + filings.tsx + analyze.tsx, all now fixed).
