@@ -1244,3 +1244,48 @@ DISCIPLINE (human rule): don't enable a meter with no build. Only Air
 Quality has one. Heatmap-tile client OVERLAY for Air Quality is a
 possible LATER map-enhancement PR (the tile URL template is in
 server/airQuality.ts heatmapTileUrl) — build only if wanted.
+
+## GOOGLE MAPS PLATFORM — FULL 8-API DECISION (2026-07-07, human enabled most APIs in project be823885)
+
+$300 trial; per-API free monthly allotments. One GOOGLE_MAPS_API_KEY
+covers all API-key-based ones (Air Quality, Weather, Solar, Pollen,
+Elevation, Datasets REST; 3D Tiles/Aerial View use the same key +
+session token). VERDICT: only ONE earns a stream; the rest are
+duplicates of free data we already own, Google's processed products
+(resell-not-build), or map polish with cost risk. "Enabled but
+uncalled = $0" — leave the dormant ones dormant.
+
+- Air Quality — ✅ KEEP (built #353). NO2/PM2.5 combustion/activity
+  proxy; 30d history to accumulate; 5k/mo free; budget-guarded to
+  ~128 calls/day. **NOTE: prod still reads awaiting_enable/
+  PERMISSION_DENIED after the human's enable — check (a) the key
+  belongs to project be823885, (b) the key's API restrictions
+  allow-list includes Air Quality API.**
+- Weather — ❌ DUPLICATE. We have NWS + OWM + NOAA CPC (10yr) free;
+  Google history is only 24h (no archive value). 10k/mo free. Dormant.
+- Solar — ❌ DISTRACTION. Google's processed product (resell, ToS-
+  restricted, anti-moat); STATIC per-building lookup, no tradeable
+  time-series; the only legit angle (regional adoption) is dominated
+  by free EIA-861 distributed-solar. Not worth any effort. Dormant.
+- Pollen — ⏸️ DORMANT (ideas backlog; tenuous market link).
+- Aerial View — ⏸️ DORMANT (video, zero data, billed per generation —
+  never call at volume).
+- Map Tiles (Photorealistic 3D) — ⚠️ ENHANCEMENT, do NOT wire by
+  default. Session/tile-billed = THE cost risk. Globe uses free
+  MapLibre. Possible future cinematic-city option only.
+- Maps Elevation — ❌ DUPLICATE (we have GLO-30 elevation + hillshade
+  free, shipped). Dormant.
+- Maps Datasets — ❌ NOT A DATA SOURCE (hosting/rendering our own geo
+  on Google infra; against build-it/spinout doctrine; SCALE S2 builds
+  our own tiling). Dormant.
+
+COST RISK: real risk lives only in 3D Tiles (session-billed), Solar
+Data Layers (1k/mo then billed), Aerial View (per-video) — none of
+which we call. Only Air Quality calls, budget-guarded → expected
+spend $0. RULE HOLDS: only wire what has a budget guard.
+
+GCP BUDGET ALERT (recommended to the human): expected spend is $0, so
+the alert is a TRIPWIRE not a budget — set $20/month with alerts at
+50% ($10) and 100% ($20) + the trial-credit-consumption alert. First
+stray dollar = something mis-wired or a guard failed. Set BEFORE
+volume.
