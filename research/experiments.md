@@ -7389,3 +7389,32 @@ exception to append-only; the log below it stays append-only)
   rows 58328, newest_date 2026-06-12 (or newer once 202606b publishes
   ~Jul 15 — within one 12h poll); /api/data/streams count=45 with
   secftd live after first poll.
+
+## 2026-07-07 — [PIPELINE] OCC deep backfill mechanism — rolling-window rescue, env-gated (v1.0.172)
+
+- TERRITORY: T-DATACORE. The census-#1 follow-up: OCC purges data off
+  the BACK of its rolling 2-year window DAILY — every day not captured
+  is permanently lost, and only ~5 days around 2026-07-02 are archived
+  so far. Session-run capture cannot reach the Railway volume, so the
+  mechanism is server-side and env-gated (FINRA deepBackfillIfSparse
+  precedent, R8 crash-loop lesson): OCC_DEEP_BACKFILL=1 opt-in,
+  done-marker single pass, runs only after current data is up.
+- DESIGN POINTS: walk is OLDEST-FIRST (the purge eats the back edge —
+  rescue it before the front); "Report date cannot be prior to  2
+  years" (aged_out) is an honest no-op; gz-on-write via the existing
+  archiveOccDay so nothing accumulates plain mid-pass; 1.5s politeness
+  spacing (~5MB/request, ~500 requests ≈ 15-20 min); window and
+  spacing injectable so the test awaits a real 10-day pass instead of
+  detaching a 730-day walk into the test process.
+- VOLUME BUDGET (the Mike decision, filed in wishlist): full capture ≈
+  500 trading days x ~1MB gz ≈ +500MB; prod archive measured 0.25GB
+  total today (vessels 102MB, finrashortvol 82MB the largest). Flag
+  stays OFF until Mike confirms volume capacity.
+- GATES: node 355/355 (1 new test: gated-off no-op, oldest-first
+  order, aged_out handling, done-marker idempotence); tsc 64. Version
+  1.0.171 → 1.0.172.
+- VERIFY (pre-stated): flag unset → prod behavior unchanged (only the
+  existing 5-day refresh). When Mike sets OCC_DEEP_BACKFILL=1: one
+  boot logs "deep backfill: walking 730 calendar days", the occvolume
+  dir grows toward ~500 day-files, backfill_done.json appears with
+  days_fetched, and the flag can then be removed.

@@ -248,12 +248,65 @@ export async function refreshOcc(fetchImpl: FetchFn = fetch as any, nowMs?: numb
   }
 }
 
+// ── Deep backfill (env-gated OFF — R8 lesson; volume budget → Mike) ─────────
+// The OCC window is a HARD rolling 2 years (verified error body): data
+// ages off the BACK EDGE DAILY, so every unbackfilled day is permanently
+// lost. Full capture ≈ 500 trading days x ~1MB gz ≈ 500MB on the volume
+// (prod archive was 0.25GB total when this shipped) — Mike confirms
+// capacity, then sets OCC_DEEP_BACKFILL=1. Files gz on write via
+// archiveOccDay, so nothing accumulates uncompressed mid-pass.
+
+export const OCC_BACKFILL_CALENDAR_DAYS = 730; // the verified window
+
+export function occDeepBackfillEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.OCC_DEEP_BACKFILL === "1";
+}
+
+const backfillMarker = (baseDir?: string) => path.join(occDir(baseDir), "backfill_done.json");
+
+export async function occDeepBackfillIfEnabled(
+  fetchImpl: FetchFn = fetch as any,
+  nowMs?: number,
+  baseDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+  calendarDays = OCC_BACKFILL_CALENDAR_DAYS,
+  spacingMs = 1500, // politeness: ~5MB/request
+): Promise<void> {
+  if (!occDeepBackfillEnabled(env)) return;
+  if (fs.existsSync(backfillMarker(baseDir))) return;
+  const now = nowMs ?? Date.now();
+  console.log(`[datacore] occvolume deep backfill: walking ${calendarDays} calendar days (rolling-window rescue)`);
+  let fetched = 0, skipped = 0;
+  // oldest-first: the back edge is what the purge is eating — rescue it first
+  for (let i = calendarDays; i >= 0; i--) {
+    const d = new Date(now - i * 86400_000);
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    const day = d.toISOString().slice(0, 10);
+    if (isDayArchived(day, baseDir)) { skipped++; continue; }
+    const { kind, rows } = await fetchOccDay(day.replace(/-/g, ""), fetchImpl);
+    if (kind === "data" && rows.length) { archiveOccDay(rows, baseDir); fetched++; }
+    // no_records / not_yet_published / aged_out are honest no-ops
+    await new Promise((res) => setTimeout(res, spacingMs));
+  }
+  try {
+    fs.writeFileSync(backfillMarker(baseDir), JSON.stringify({
+      done_rt: new Date().toISOString(), days_fetched: fetched, days_already_archived: skipped,
+      calendar_days: calendarDays,
+    }));
+  } catch {}
+  console.log(`[datacore] occvolume deep backfill done: ${fetched} days fetched, ${skipped} already archived`);
+}
+
 /** Daily source published overnight ET — 4h poll retries "not yet
  *  published" until day T lands, and backfills brief gaps via the
- *  5-trading-day window. Eager boot per KNOWN BROKEN #9. */
+ *  5-trading-day window. Eager boot per KNOWN BROKEN #9. Deep backfill
+ *  (rolling-window rescue) only on explicit env opt-in, after current
+ *  data is up. */
 export function bootOccPoll(intervalMs = 4 * 60 * 60_000): void {
   if (polling) return;
   polling = true;
-  refreshOcc();
+  refreshOcc().then(() => occDeepBackfillIfEnabled())
+    .catch((e) => console.error("[datacore] occvolume boot:", e?.message || e));
   setInterval(() => { refreshOcc(); }, intervalMs).unref?.();
 }

@@ -11,6 +11,7 @@ import path from "node:path";
 import {
   classifyBody, parseOcc, normalizeActDate, occUrl, fetchOccDay,
   archiveOccDay, isDayArchived, aggregateOcc, refreshOcc, latestOcc,
+  occDeepBackfillEnabled, occDeepBackfillIfEnabled,
   _resetOccForTests,
 } from "./occVolume";
 
@@ -92,4 +93,41 @@ test("refresh: not-yet-published and weekend bodies are honest no-ops; data day 
   assert.equal(hit!.report_date, "2026-07-02");
   assert.equal(hit!.underlyings, 2);
   assert.ok(occUrl("20260702").includes("productKind=ALL"), "only ALL is accepted (probed)");
+});
+
+test("deep backfill: env-gated OFF, walks oldest-first, honors aged_out, writes done-marker exactly once", async () => {
+  _resetOccForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "occ-"));
+  // OFF by default — no fetches at all (R8 lesson)
+  const neverCalled: string[] = [];
+  await occDeepBackfillIfEnabled((async (url: string) => {
+    neverCalled.push(url);
+    return { ok: true, status: 200, text: async () => "No record(s) found" };
+  }) as any, Date.parse("2026-07-06T23:00:00Z"), base, {} as any, 10, 0);
+  assert.equal(neverCalled.length, 0, "OCC_DEEP_BACKFILL unset must be a no-op");
+  assert.equal(occDeepBackfillEnabled({} as any), false);
+  assert.equal(occDeepBackfillEnabled({ OCC_DEEP_BACKFILL: "1" } as any), true);
+
+  // ON: 10-calendar-day window (injectable — prod default stays 730),
+  // zero spacing for the test. Oldest days aged_out, one data day, rest empty.
+  const ymds: string[] = [];
+  const fake = async (url: string) => {
+    const ymd = url.match(/reportDate=(\d{8})/)![1];
+    ymds.push(ymd);
+    if (ymd === "20260702") return { ok: true, status: 200, text: async () => DAY_CSV };
+    if (ymd <= "20260628") return { ok: true, status: 200, text: async () => "Report date cannot be prior to  2 years" };
+    return { ok: true, status: 200, text: async () => "No record(s) found" };
+  };
+  const NOW = Date.parse("2026-07-06T23:00:00Z");
+  const env = { OCC_DEEP_BACKFILL: "1" } as any;
+  await occDeepBackfillIfEnabled(fake as any, NOW, base, env, 10, 0);
+  assert.ok(ymds.length >= 6, "weekday walk over 10 calendar days");
+  assert.ok(ymds[0] < ymds[ymds.length - 1], "walk is OLDEST-FIRST — the purge eats the back edge");
+  assert.ok(isDayArchived("2026-07-02", base), "the data day landed");
+  const marker = path.join(base, "occvolume", "backfill_done.json");
+  assert.ok(fs.existsSync(marker), "done-marker written");
+  // second call: marker short-circuits — zero fetches
+  const before = ymds.length;
+  await occDeepBackfillIfEnabled(fake as any, NOW, base, env, 10, 0);
+  assert.equal(ymds.length, before, "done-marker prevents a second pass");
 });
