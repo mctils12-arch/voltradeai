@@ -64,6 +64,7 @@ import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { queryWindowCached } from "./queryEngine";
+import { analystResponse } from "./analyst";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1605,6 +1606,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(String(e?.message).startsWith("invalid") ? 400 : 500).json({ error: e?.message });
     }
+  });
+
+  // ANALYST CONSOLE W6: LLM analyst tool-loop (key-gated on ANTHROPIC_API_KEY;
+  // awaiting_key honesty like euLoad/censusImports — activates on key detect).
+  // Session-required: LLM calls spend a real daily token budget, so anonymous
+  // visitors can't burn it (_checkSession, same gate as the account routes).
+  // v1 is single-question: { question: string }; multi-turn is a later PR.
+  app.post("/api/analyst", async (req, res) => {
+    const user = _checkSession(req);
+    if (!user) return res.status(401).json({ error: "Authentication required" });
+    const { status, body } = await analystResponse(req.body?.question);
+    res.status(status).json(body);
   });
 
   // Census monthly port imports (RAW — BUILD ORDER 3 #4, key-gated like
