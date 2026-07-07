@@ -221,10 +221,15 @@ data); full-state discovery sweeps use the same account later.
     → forward the xlsx link (or the file) — CC BY 4.0, 182k
     facilities with status + coordinates; the join spine for the
     grid layer.
-9c. **ENTSO-E token (free, ≤3 working days)** — register at
-    transparency.entsoe.eu, then email transparency@entsoe.eu with
-    subject "RESTful API access"; token appears in account settings
-    → set ENTSOE_TOKEN in Railway. Unlocks EU hourly load/gen/prices.
+9c. [RESOLVED 2026-07-07 — Mike set ENTSOE_API_KEY in Railway;
+    server/euLoad.ts activated same-day per the detect-and-activate
+    directive (v1.0.186): actual total load A65/A16 for 8 zones
+    (DE_LU/FR/ES/IT/NL/PL/BE/SE), /api/data/eu-load, euload manifest.
+    Follow-ups filed: generation mix + day-ahead prices (same token,
+    separate builds); 2015+ historical backfill = volume-estimate
+    decision first.] Original: ENTSO-E token (free) — register at
+    transparency.entsoe.eu → ENTSOE_TOKEN. Unlocks EU hourly
+    load/gen/prices.
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 
