@@ -183,11 +183,24 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   ownership graph (entity-join spine); Esri capture-date identify
   contract proven (v1.0.173); CDSE Copernicus pipeline (S1/S2
   chips) live for the SAR experiment.
-- NEXT (build order per products plan): (1) A1 grid-stress
-  ingredients + region attribution [gate-1 vs published ratings —
-  TX/ERCOT]; (2) B1 stress-index v0 on /data + /api/v1; (3) Phase
-  B1 VERIFY spec (corridor detector, two-layer benchmark, per-
-  mosaic-source evaluation ratchet); B1 detector work starts with
-  the labeling seed (OSM/HIFLD towers) + ETDII download. GPU work
-  waits on RUNPOD_API_KEY appearing in Railway (detect + activate
-  without being told).
+- A1 GATE-1 PASSED (v1.0.180, same session): TX grid capacity
+  registry built from a fresh Geofabrik extract
+  (datacore/gridvision/tx_grid_registry.json,
+  scripts/grid_capacity_tx.py, criteria pre-stated in the script
+  header before the comparison ran). 104,928 circuit-km >=69kV
+  (118.5% of the ERCOT lower-bound anchor), unknown-voltage share
+  3.8%, 345kV+ 31,559 circuit-km; census matches known ERCOT
+  structure (138kV subtransmission dominant, 345kV backbone,
+  500/230/115kV only at non-ERCOT edges). Definitional caveat
+  (route-miles vs circuit-miles) stated in the manifest — gate-2
+  refines vs EIA/HIFLD.
+- NEXT (build order per products plan): (1) region attribution
+  (assign lines/substations to BA/ISO + county — needs feature-level
+  pass, sets up the EIA-930 join); (2) B1 stress-index v0 gate-2
+  design (index vs realized ERCOT stress, out-of-sample, base-rate
+  control) then /data + /api/v1 surface; (3) Phase B1 VERIFY spec
+  (corridor detector, two-layer benchmark, per-mosaic-source
+  evaluation ratchet); detector work starts with the labeling seed
+  (OSM/HIFLD towers) + ETDII download. GPU work waits on
+  RUNPOD_API_KEY appearing in Railway (detect + activate without
+  being told).

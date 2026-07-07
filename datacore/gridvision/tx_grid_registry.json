@@ -1,0 +1,142 @@
+{
+ "provenance": {
+  "source": "OpenStreetMap via Geofabrik texas-latest extract (downloaded 2026-07-07); filtered per scripts/build_power_tiles.sh (osmium power= tags)",
+  "license": "ODbL 1.0 \u2014 derivative database of OSM; (c) OpenStreetMap contributors",
+  "attribution": "OpenStreetMap contributors",
+  "method": "scripts/grid_capacity_tx.py \u2014 aggregate registry; feature-level data intentionally not committed",
+  "circuit_km_convention": "multi-voltage way = one circuit per voltage; circuits=N multiplies single-voltage ways; untagged = 1 circuit into 'unknown' \u2014 never guessed"
+ },
+ "lines": {
+  "ways": 31220,
+  "km": 89862.7,
+  "circuit_km_by_class": {
+   "100-229kV": 48666.9,
+   "230kV": 3614.9,
+   "345kV+": 31559.0,
+   "69-99kV": 21087.2,
+   "<69kV": 132.9,
+   "unknown": 3454.1
+  },
+  "voltage_census_top20_km": {
+   "138000": 41779.6,
+   "345000": 27164.1,
+   "69000": 20918.9,
+   "115000": 4158.6,
+   "230000": 3466.5,
+   "500000": 292.0,
+   "34500": 56.6,
+   "22000": 46.7,
+   "0": 14.5,
+   "12470": 13.5,
+   "12500": 0.6,
+   "7200": 0.6,
+   "240000": 0.3,
+   "25000": 0.1,
+   "17500": 0.1,
+   "13200": 0.1,
+   "24000": 0.0,
+   "2200": 0.0
+  },
+  "unknown_voltage": {
+   "ways": 1420,
+   "km": 3454.1,
+   "share_of_km": 0.0384
+  },
+  "multi_voltage_ways": 1594,
+  "ways_with_circuits_tag": 10012,
+  "unparseable_voltage_parts": 10
+ },
+ "minor_lines": {
+  "ways": 7235,
+  "km": 7103.6,
+  "circuit_km_by_class": {
+   "230kV": 4.1,
+   "345kV+": 2.1,
+   "69-99kV": 4.9,
+   "<69kV": 715.1,
+   "unknown": 6393.1
+  },
+  "voltage_census_top20_km": {
+   "34500": 571.8,
+   "12470": 82.6,
+   "13200": 21.6,
+   "12500": 17.7,
+   "22000": 8.7,
+   "69000": 4.9,
+   "240000": 4.1,
+   "24900": 3.2,
+   "480000": 2.1,
+   "4160": 0.2,
+   "2300": 0.0
+  },
+  "unknown_voltage": {
+   "ways": 6530,
+   "km": 6393.1,
+   "share_of_km": 0.9
+  },
+  "multi_voltage_ways": 2,
+  "ways_with_circuits_tag": 413,
+  "unparseable_voltage_parts": 43
+ },
+ "cables": {
+  "ways": 606,
+  "km": 201.7,
+  "circuit_km_by_class": {
+   "100-229kV": 88.4,
+   "230kV": 0.2,
+   "345kV+": 1.7,
+   "69-99kV": 23.5,
+   "<69kV": 49.6,
+   "unknown": 57.0
+  },
+  "voltage_census_top20_km": {
+   "138000": 69.2,
+   "34500": 47.7,
+   "69000": 22.8,
+   "345000": 1.7,
+   "208000": 1.0,
+   "13800": 0.7,
+   "13200": 0.6,
+   "12470": 0.3,
+   "12500": 0.2,
+   "115000": 0.2,
+   "240000": 0.2,
+   "25000": 0.1,
+   "480000": 0.0,
+   "4160": 0.0
+  },
+  "unknown_voltage": {
+   "ways": 267,
+   "km": 57.0,
+   "share_of_km": 0.2826
+  },
+  "multi_voltage_ways": 0,
+  "ways_with_circuits_tag": 198,
+  "unparseable_voltage_parts": 1
+ },
+ "substations": {
+  "total": 12330,
+  "points": 5,
+  "areas": 12325
+ },
+ "plants": {
+  "total": 1412
+ },
+ "skipped_non_linestring_geoms": 173,
+ "gate1": {
+  "reference": "ERCOT Fact Sheet: 55,000+ miles high-voltage transmission = >=88,514 km (ERCOT region; lower-bound anchor for the whole-state extract)",
+  "criteria_prestated": "2026-07-07, before comparison (script header): (a) >=69kV circuit-km in [44250, 115000]; (b) unknown-voltage share of power=line km < 0.35; (c) 345kV-class circuit-km >= 8000",
+  "computed": {
+   "hv_circuit_km_gte69kV": 104928.0,
+   "pct_of_reference": 1.1854,
+   "unknown_voltage_share": 0.0384,
+   "kv345_circuit_km": 31559.0
+  },
+  "checks": {
+   "a_hv_circuit_km_in_band": true,
+   "b_unknown_share_lt_35pct": true,
+   "c_345kV_gte_8000km": true
+  },
+  "verdict": "PASS"
+ }
+}
