@@ -7708,3 +7708,45 @@ exception to append-only; the log below it stays append-only)
 - VERIFY (pre-stated): artifacts load + counts pinned in tests; next
   GEM release re-runs both scripts; the entity-graph CIK join and the
   pipelines map layer are the queued follow-ups.
+
+## 2026-07-07 — [RESEARCH] GRID VISION program installed + strategic update "DATA IS THE MOAT, EXPERIENCE IS THE DOOR" (Amendment 5) — docs PR, no version bump
+
+- Territory: T-GRIDVISION declared (new — research/grid_vision*.md,
+  future grid-detection modules/scripts, the /data powergrid surfaces
+  it extends); this PR touches docs + SHARED research/* only.
+- HUMAN DIRECTIVES (both received this session, installed same day —
+  human instruction = approval per HUMAN SOVEREIGNTY):
+  1. GRID VISION — ML-assisted complete US power-grid mapping ("OSM
+     as the base, ML imagery detection as the gap-filler and
+     verifier, expanding to full national coverage state by state").
+     Charter filed at research/grid_vision.md (phases A research-first
+     / A2 products-define-the-spec / B verify→extend→discover with
+     provenance tags / C state-by-state rollout with honest coverage /
+     D premium visualization / E ratchets; paid boundary →
+     BLOCKED-FOR-MIKE purchase orders). Wishlist carries the pointer
+     block; charter's RESUME STATE is the authoritative handoff.
+  2. STRATEGIC UPDATE — appended to VISION.md as a dated
+     provenance-bannered section (verbatim quotes preserved); CLAUDE.md
+     Amendment 5 = GOAL self-proposed-work weighting (archives >
+     validated signals > licensed data products > premium experience >
+     general SaaS) + PREMIUM EXPERIENCE STANDARD standing behavior
+     (design system, perceived performance, visible
+     freshness/provenance/confidence, polish passes as real work,
+     390px always, "would a paying data customer screenshot this and
+     trust it?"). Correctness > polish stated explicitly.
+- PHASE A LAUNCHED before the docs work (subagent mandate): four
+  parallel research agents in flight — GV-A1 (Apr-2025 T&F
+  detection-pipeline paper + code adaptability), GV-A2 (labeled
+  datasets: Duke T&D imagery, PLAD, TTPLA, OSM-as-weak-labels),
+  GV-A3 (methods: RetinaNet tower+routing, HOT/OSM human-in-loop,
+  SAR verification, shadow-height), GV-A4 (imagery inventory
+  Esri/NAIP/S2 incl. bulk-license reality + CPU-vs-GPU compute
+  assessment w/ possible purchase order). Reports → assemble
+  research/grid_vision_research.md next; NOTHING BUILDS until it and
+  the A2 products plan file.
+- No version bump: docs/charter only — zero runtime behavior change,
+  code_version attribution unaffected (checkpoint-entry precedent).
+- VERIFY (pre-stated): the four agent reports land and are filed
+  verbatim-quoted with VERIFIED/REPORTED labeling; grid_vision.md
+  RESUME STATE updated; Phase B spec cites the products plan, not the
+  reverse.

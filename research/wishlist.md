@@ -142,6 +142,32 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
 - NEXT CENSUS BUILDS: FINRA part 2 (design notes above), USGS quakes
   + NDBC buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys (9a/9c).
 
+## GRID VISION — program state (human directive 2026-07-07; charter =
+## research/grid_vision.md, RESUME STATE block at its bottom is the
+## authoritative handoff — this entry is the pointer)
+
+STATUS as of 2026-07-07 (session claude/new-session-iu72vf):
+- Charter installed (research/grid_vision.md): phases A (research
+  first) / A2 (products plan — "the products define the spec") /
+  B (VERIFY→EXTEND→DISCOVER detection w/ provenance tags) /
+  C (national rollout, TX first, per-state honest coverage) /
+  D (visualization at the premium standard) / E (ratchets).
+- PHASE A IN FLIGHT: four parallel research subagents launched
+  (GV-A1 T&F detection-pipeline paper/code; GV-A2 labeled datasets
+  Duke/PLAD/TTPLA; GV-A3 methods survey RetinaNet-routing/HOT-OSM/
+  SAR/shadow-height; GV-A4 imagery inventory + compute assessment).
+  Reports assemble into research/grid_vision_research.md; A2
+  products plan follows; NOTHING BUILDS until both file.
+- Strategic update installed same day: "DATA IS THE MOAT, EXPERIENCE
+  IS THE DOOR" (VISION.md appended section; CLAUDE.md Amendment 5 —
+  GOAL self-proposed-work weighting + PREMIUM EXPERIENCE STANDARD
+  standing behavior). Human directive = the approval (HUMAN
+  SOVEREIGNTY clause).
+- Expected BLOCKED-FOR-MIKE from Phase A: possible GPU purchase
+  order for detection inference (GV-A4 will file exact
+  service/cost/link/credential if warranted; CPU-feasible scope
+  continues meanwhile).
+
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 
 9e. OCC 2-YEAR BACKFILL — RESOLVED 2026-07-07: Mike confirmed
