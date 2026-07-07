@@ -91,7 +91,7 @@ test("archive: zone|ts|res dedup; day-file by observation day; PT15M vs PT60M sa
     `seed window bounded to ${SEED_WINDOW_DAYS}d (heap protection, gridDemand precedent)`);
 });
 
-test("refresh sweep: one call per zone, per-zone stats cached, acks logged not archived", async () => {
+test("refresh sweep: one call per zone, per-zone stats + window shape, acked zone surfaced in issues", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "euload-"));
   let calls = 0;
   const fake = async (url: string) => {
@@ -108,4 +108,11 @@ test("refresh sweep: one call per zone, per-zone stats cached, acks logged not a
   assert.equal(hit!.stats.length, 7, "acked zone yields no rows — absent from stats, never zero-filled");
   assert.ok(hit!.stats.every((s) => s.latest_ts === "2026-07-06T11:00" && s.latest_mw === 61000
                                  && s.points_in_window === 2 && s.resolution === "PT60M"));
+  // day-one lessons pinned: a missing zone must be self-diagnosing from
+  // the route (DE_LU absent on the first prod cycle), and window shape
+  // must expose series-level anomalies (NL 2.4GW latest point)
+  assert.equal(hit!.issues.SE, "ack: Authentication failed.");
+  assert.ok(!("FR" in hit!.issues), "healthy zones carry no issue entry");
+  assert.ok(hit!.stats.every((s) => s.window_min_mw === 60000 && s.window_max_mw === 61000
+                                 && s.window_mean_mw === 60500), "window min/max/mean computed");
 });

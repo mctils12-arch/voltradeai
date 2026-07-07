@@ -1842,8 +1842,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       attribution: "ENTSO-E Transparency Platform",
       time: hit.at,
       count: hit.stats.length,
-      note: "realised total load in MW per bidding zone, ~1-2h publication lag; stored at zone-native resolution (PT15M Germany, PT60M most others), never resampled; zones absent from a cycle are absent, never zero-filled",
+      note: "realised total load in MW per bidding zone, ~1-2h publication lag; stored at zone-native resolution, never resampled; zones absent from a cycle are absent, never zero-filled — their last sweep outcome is in `issues`; window min/max/mean expose series shape (some TSOs under-report or publish partial leading edges)",
       zones: hit.stats,
+      issues: hit.issues,
     });
   });
 
