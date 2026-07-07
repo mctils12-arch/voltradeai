@@ -7801,3 +7801,44 @@ exception to append-only; the log below it stays append-only)
   capacity vs published ratings, criteria stated BEFORE the join
   runs; (c) any detector metric reported per-mosaic-source and
   against the two-layer benchmark, never pooled-only.
+
+## 2026-07-07 — [PIPELINE] GRID VISION A1 gate-1 PASS — TX grid capacity registry from OSM extract vs published ERCOT anchor (v1.0.180)
+
+- Territory: T-GRIDVISION (scripts/grid_capacity_tx.py,
+  test_grid_capacity.py, datacore/gridvision/) + SHARED
+  (datacore/manifests/gridvision.json, package.json, research/*).
+  Products-plan build-order item 1 (research/grid_vision_products.md
+  A1) — the grid-stress signal's DATA-layer gate.
+- METHOD: fresh Geofabrik texas-latest (709MB, downloaded this
+  session) -> osmium power filter (5.2MB) -> 111MB GeoJSONSeq ->
+  scripts/grid_capacity_tx.py (2.5s, dependency-free): line-km +
+  circuit-km per voltage class, honest circuit convention stated in
+  the artifact (multi-voltage way = 1 circuit/voltage; circuits=N
+  multiplies; untagged -> 'unknown', never guessed).
+- PRIOR (stated in the script header BEFORE the comparison ran):
+  expected >=69kV circuit-km at 60-110% of the ERCOT 88,514 km
+  anchor, 345kV closest to complete; PASS bands (a) [44250,115000]
+  km, (b) unknown share <35%, (c) 345kV+ >=8000 km.
+- RESULT: PASS all three — 104,928 circuit-km >=69kV (118.5% of
+  anchor), unknown share 3.84%, 345kV+ 31,559 km. OBSERVED vs PRIOR:
+  landed ABOVE my 60-110% band — the prior underestimated OSM TX
+  completeness; consistent with the whole-state extract exceeding
+  the ERCOT-region-only anchor (El Paso/WECC + Panhandle-SPP +
+  East-TX-MISO included). Voltage census cross-validates structure:
+  138kV 41,780 km (ERCOT subtransmission) > 345kV 27,164 km
+  (backbone) > 69kV 20,919 km; 500/230/115kV small = non-ERCOT
+  edges. 12,330 substations, 1,412 plants.
+- HONESTY CAVEAT (in manifest, not buried): the ERCOT figure may be
+  route-miles vs our circuit-km — the double-circuit share separates
+  the two conventions; gate-2 refines against EIA/HIFLD per-line
+  data before the stress index is trusted. Gate-1 is a plausibility
+  band, and it holds under either reading.
+- GATES: pytest 466 passed 1 skipped (5 new: tag conventions,
+  circuit accounting, haversine, artifact coherence w/ recomputable
+  gate-1 checks so the verdict cannot drift from data); node fail 0;
+  tsc 64 baseline. Version 1.0.179 -> 1.0.180.
+- VERIFY (pre-stated): streams inventory on prod shows the
+  gridvision manifest (no-data volume side expected, session-run
+  writer, gem precedent); next A1 step = region attribution
+  (feature-level BA/ISO+county assignment) feeding the EIA-930 join,
+  with gate-2 criteria stated before the index is computed.
