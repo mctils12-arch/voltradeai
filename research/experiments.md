@@ -8823,3 +8823,39 @@ CelesTrak's documented firewalling of abusive datacenter IPs.
   made on real data — filed as the follow-up path, not built blind.
 - GATES: node battery green (+2), tsc 64 baseline, pytest 476 passed
   1 skipped. Version 1.0.197 -> 1.0.198.
+
+## 2026-07-07 — [REPAIR] R17 verdict: CelesTrak firewalls Railway's IP range — evidence final, route-around options filed (docs-only)
+
+R17's instrumentation (v1.0.198) named the cause on its first boot:
+UND_ERR_CONNECT_TIMEOUT on BOTH celestrak.org and celestrak.com, every
+group, two sweeps — TCP connect never completes. That is an IP-range
+firewall dropping SYNs (not DNS: would be ENOTFOUND; not TLS; not a
+rate-limit: no HTTP response ever). Off-cloud the same fetch works.
+CONCLUSION: CelesTrak blocks Railway's datacenter egress wholesale.
+The stream stays in its honest warming/issues state — no fabricated
+data, the route says exactly why it is empty.
+
+OPTIONS (filed in wishlist.md for the human where approval is needed;
+no blind builds):
+A. SESSION-RELAY INGEST (recommended; needs human approval because it
+   adds a WRITE surface): sessions CAN reach CelesTrak (proven). Add a
+   token-gated POST ingest route (its own INGEST token, NOT the
+   read-only diag surface — that whitelist stays read-only) that
+   validates payloads through the existing parseGp/archiveGp path.
+   Session routines fetch 1-2x/day and relay. Orbit history
+   accumulates at daily rather than 6h resolution — honest and
+   labeled. Zero cost.
+B. BROWSER-SIDE FETCH for the future client layer only: visitors'
+   browsers fetch gp.php directly (their IPs, not Railway's). No
+   archive accumulation, and pushes load to CelesTrak per-visitor —
+   worse citizenship, display-only. Not recommended alone.
+C. RAILWAY STATIC OUTBOUND IP: plan feature; still a datacenter IP,
+   likely still blocked. Low odds, only worth trying if free on the
+   current plan.
+D. Third-party TLE mirrors (KeepTrack etc.): unofficial, staleness and
+   licensing unverified — would need its own licensing gate first.
+
+DECISION RULE: A ships when approved; the 6h server poller stays in
+place at zero marginal cost (if Railway's range ever gets unblocked or
+the egress changes, the stream self-heals and the relay becomes
+redundant — staleness audit will catch that).

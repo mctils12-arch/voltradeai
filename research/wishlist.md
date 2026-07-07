@@ -1201,3 +1201,17 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
   layer ever goes commercial. TIME-SENSITIVE FACT: 5-digit catalog
   numbers exhaust ~2026-07-12; our OMM JSON format is the mandated
   migration (TLE format breaks at 69999).
+
+- **DECISION FOR MIKE — CelesTrak unreachable from Railway (R17
+  evidence: connect timeouts on both hosts = IP-range firewall).**
+  Recommended: approve a SESSION-RELAY INGEST route — token-gated POST
+  (new dedicated INGEST token env var, separate from DIAG_TOKEN whose
+  surface stays read-only), payloads validated through the existing
+  parseGp path before archiving. Sessions fetch CelesTrak (works from
+  session egress, proven) 1-2x/day and relay. Effect: satellite layer
+  + orbit-history archive work at daily resolution; zero cost; the
+  in-place 6h poller self-heals if Railway's range is ever unblocked.
+  Alternative if you prefer no write surface: the satellites layer
+  ships browser-fetch-only (display works, no archive accumulation).
+  Say "approved: satellite relay" (and add SAT_INGEST_TOKEN to
+  Railway + the session env) or pick the alternative.
