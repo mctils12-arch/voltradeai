@@ -1116,6 +1116,40 @@ Earthdata login; AWS S1 buckets are requester-pays). Landsat thermal:
 USGS — landsatlook STAC / AWS usgs-landsat (requester-pays; free API
 alternatives to verify). Per-sensor licensing above.
 
+## GRID-ADJACENT FUTURE ROOTS (human directive 2026-07-07 — backlog, NOT active build; neither blocks anything)
+
+Filed with hypotheses so future sessions can pick them up (Mike's
+instruction verbatim: "Log two future candidates in the research/
+ideas backlog (not active build)").
+
+1. NOAA GEOMAGNETIC-STORM / SPACE-WEATHER FEED — "viable now, just
+   not prioritized." Free national feeds from NOAA SWPC (planetary
+   K-index, G1-G5 storm scales, alerts/warnings JSON; US-gov public
+   domain). HYPOTHESIS (Mike's, verbatim core): "geomagnetic storms
+   induce grid-damaging currents = outage-risk signal for utilities"
+   — geomagnetically induced currents (GIC) stress transformers,
+   worst on long E-W high-voltage lines and at higher magnetic
+   latitudes; pairs as an EVENT OVERLAY with the GRID VISION layer
+   and feeds the A3 exposure screens (which listed utilities' assets
+   sit on GIC-susceptible corridors). LADDER PATH when picked up:
+   gate 1 = archive K-index/G-scale events and validate against a
+   public outage ground truth (DOE OE-417 electric disturbance
+   reports — free, dated, cause-coded) for storm-coincident outage
+   excess vs base rate; gate 2 = event study on utility tickers
+   conditioned on exposure. Build shape: small keyless SWPC archiver
+   (NWS-alerts pattern) + map event layer; the grid layer join is
+   what makes it more than a weather feed.
+2. GROUND-BASED MAGNETOMETER SENSING OF PER-LINE LOAD — long-horizon
+   PARK ("if we ever do physical sensors"). Physics is real: current
+   in a conductor produces a measurable magnetic field at ground
+   distance; researchers and some commercial players infer per-line
+   MW flow from roadside magnetometers. OUTSIDE the current
+   free-data model — requires deployed hardware near specific lines
+   (site access, calibration per line geometry, maintenance). No
+   ladder path until hardware exists; revisit only if the platform
+   ever adds a physical-sensor arm. Recorded so nobody re-derives
+   the idea or chases it as free data.
+
 ## GRID BUILD ORDER (DATACORE MAXIMUS Phase 2; filed 2026-07-06 after
 the census + a live feasibility workup — pipeline PROVEN VIABLE in this
 container: tippecanoe 2.49 (native .pmtiles) + osmium 1.16 one apt
