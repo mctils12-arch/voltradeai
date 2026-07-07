@@ -2347,3 +2347,43 @@ GOOGLE_MAPS_API_KEY, activates when the human enables the Air Quality
 API on the GCP project). BLOCKED-FOR-MIKE: enable the Air Quality API
 in the Google Cloud console — the stream then activates on the key
 already in Railway.
+
+## ORBITAL CROSS-SYSTEM TIES (filed 2026-07-07, ORBITAL program — each a hypothesis)
+
+HONEST FRAMING (human directive): visualization + brand value justifies
+a build on its own; state which ties are real signal vs operational vs
+showcase; never manufacture a signal that isn't there.
+
+(a) [OPERATIONAL — strongest real tie] EO PASS-OVER PREDICTION. From
+    Sentinel-2A/2B + Landsat-8/9 TLEs, compute the next overpass over
+    each monitored site (ports, grid, strategic sites) → "next fresh-
+    imagery opportunity here." Feeds the tank-fill / imagery-acquisition
+    workflow directly. NOT trading alpha — an operational utility.
+    Validate: predicted overpass times vs actual scene timestamps (a
+    gate-1-style accuracy check before trusting the schedule).
+(b) [STRUCTURAL + SHOWCASE; trading signal SPECULATIVE] ENTITY-GRAPH
+    JOIN. SATCAT operator/owner → company → public ticker (RKLB, ASTS,
+    VSAT, IRDM, GSAT, LMT/NOC…). A company lookup shows its orbital
+    footprint beside jets/vessels/plants — Everything-Graph connective
+    tissue. Structural value real. Trading edge (constellation size vs
+    capex/revenue) is slow-moving and speculative — its own gate; no
+    alpha claimed from a slow count.
+(c) [SHOWCASE + WEAK SIGNAL] LAUNCH-ACTIVITY OVERLAY. New-object
+    appearances tied to launch-provider/operator + news. Launches are
+    largely pre-announced (efficient) → weak alpha; only failures /
+    cadence anomalies plausibly matter and are rare. Mostly a real event
+    overlay, not a signal. Gate honestly.
+(d) [SHOWCASE] GEO COMMS INFRASTRUCTURE LAYER. GEO comms sats as the
+    space tier of the infra map alongside grid + vessels + plants. Pure
+    visualization/completeness value; no trading claim (legitimate on
+    brand grounds).
+(e) OTHERS (honest): reentry/decay-event overlay (minor, showcase);
+    conjunction/collision-risk near active assets (real space signal,
+    not market-relevant — note, don't build); comms coverage over a
+    monitored site (tenuous, parked). VERDICT: (a) is the one genuinely
+    useful operational tie; NONE is strong trading alpha, and that is
+    acceptable per the directive.
+LADDER/DATA-PATH: TLEs from CelesTrak. Client-computed ties (a on the
+imagery UI, b/d in the client graph view) are UNBLOCKED. Server-computed
+ties (served pass-over schedule, launch-event detection) need TLEs
+server-side → blocked on the CelesTrak-relay decision (wishlist).
