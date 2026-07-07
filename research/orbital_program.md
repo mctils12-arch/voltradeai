@@ -160,3 +160,86 @@ KNOWN STATE; woven into every future build's assessment.)
   Cross-tie hypotheses filed in open_questions.md. Server-tie slices
   (O4 + server-computed ties) blocked on the CelesTrak relay decision
   (wishlist).
+
+## MASTER-BUILD EXTENSION (human directive 2026-07-07 — fidelity tiers + coverage geometry)
+
+Extends the base program above. Two additions: honest per-design-class
+FIDELITY, and real COVERAGE/FOOTPRINT geometry.
+
+### FIDELITY BY DESIGN CLASS (honest tiers — same discipline as the aircraft silhouette)
+
+- CONSTELLATIONS (Starlink, GPS, Iridium, OneWeb, Planet…): thousands
+  of near-identical units → model each DESIGN/GENERATION ONCE from real
+  published GROUND imagery/specs (photos taken ON EARTH before launch —
+  display units, press kits, spec sheets), then GPU-INSTANCE that one
+  real model across every member at its true SGP4 position. Honest (they
+  genuinely ARE that design) and efficient (one model, thousands of
+  placements). NEVER photograph satellites in orbit; NEVER invent a
+  model to fill a gap.
+- NAMED UNIQUE (ISS, Hubble…): their own real 3D model from published
+  imagery.
+- UNPHOTOGRAPHED (classified payloads, random debris): honest SYMBOLIC
+  markers typed by class (payload / rocket-body / debris), sized/styled
+  by type. No fabricated model.
+- The layer info STATES the fidelity/coverage boundary honestly (how many
+  designs have real models vs symbolic-only).
+
+### THE LOD REALITY (honest engineering truth — affirms the "progressive resolve" instruction)
+
+You cannot render 10k detailed models (or splats) at once — that melts
+any GPU, phone first. So detail is a FOCUS asset, not a whole-sky asset:
+- GLOBE / FAR ZOOM: the full population renders as GPU points/billboards
+  (the O1 render path). This is the "whole sky alive" look. Every object
+  present, none dropped.
+- FOCUS / ZOOM-IN / CLICK: the focused (and nearby) satellites resolve to
+  their real design-class 3D model, live-rotating on true orbital data,
+  with the full detail panel. This is exactly the directive's "render all
+  at low detail, progressively resolve on zoom, never drop silently."
+
+### GAUSSIAN SPLAT — HONEST SCOPE (the one place to reality-check the ambition)
+
+4D Gaussian splats are real but the heaviest, most speculative slice:
+they need (1) multi-angle GROUND imagery of a given design (exists for
+marquee units like Starlink — display models, published photos), (2) an
+OFFLINE photogrammetry/splat-training step producing a .splat/.ply asset,
+(3) an in-browser splat renderer (a real dependency, used ONLY in the
+focus/detail view — never for the 10k population). HONEST RECOMMENDATION:
+standard glTF 3D models get ~90% of the "premium per-design detail" value
+at a fraction of the cost/risk and ship first; a splat is a MARQUEE
+UPGRADE for one or two designs (Starlink) IF the ground imagery + pipeline
+pan out. Do not promise splats across the board — gate them behind a
+dedicated pipeline spike after the base fidelity ships.
+
+### COVERAGE / FOOTPRINT ANALYSIS (real spherical-cap geometry — genuine value)
+
+From each satellite's true position + altitude + published beam/elevation
+mask, compute the ground-coverage cone (a spherical cap on the earth).
+Real math, client-computed from SGP4. Tools:
+- STARLINK COVERAGE + BLACKOUT: union of all Starlink footprints (~25°
+  min-elevation mask, public) → where covered / where the gaps are, live.
+- GPS GEOMETRY over a point: which GPS sats are above the horizon + their
+  geometry → DOP (dilution of precision) affecting positioning accuracy.
+- EO VISIBILITY / NEXT PASS: which imaging sats can see a monitored site
+  and when the next pass is (this IS cross-tie (a) — the imagery workflow
+  feed).
+- "WHAT'S OVERHEAD / WHAT COVERS THIS SPOT NOW": a general map query.
+HONESTY: beam/elevation parameters are published where known (Starlink
+25°, GPS horizon) and labeled ESTIMATED where they are inferred — never a
+guessed cone presented as exact.
+
+### EXTENDED BUILD ORDER (folds into O1–O4)
+- O1 (running) base 10k GPU-points perf spike — still gates everything.
+- O2 hero-globe points population · O3 /data clickable layer + metadata
+  (as above; detail view resolves the design-class model on focus).
+- O5 (NEW) DESIGN-CLASS MODEL LOD: per-design glTF 3D models, GPU-
+  instanced, LOD (points far → model near). Standard 3D first.
+- O6 (NEW, gated) SPLAT PIPELINE: marquee-design 4D splat from ground
+  imagery + in-browser splat renderer for the detail view only. Own
+  spike (imagery sourcing + pipeline + renderer dep) before any build.
+- O7 (NEW) COVERAGE/FOOTPRINT TOOLS: spherical-cap footprint geometry →
+  Starlink coverage/blackout, GPS DOP, EO visibility/next-pass (ties to
+  cross-tie (a)), "what's overhead here now" query. Client-computed.
+- O4 orbit-history archive + server-computed ties — RELAY-GATED.
+COVERAGE-TOOL VALUE (honest labels): EO next-pass = OPERATIONAL (imagery
+feed); GPS-DOP + Starlink-coverage + what's-overhead = SHOWCASE + real
+utility, no trading alpha claimed.
