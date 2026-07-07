@@ -1164,3 +1164,24 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
   build." Enforcement shipped in visual_check.mjs (SELF-SEE block) and
   proven against the actual defect by A/B (old CSS -> harness FAILS
   with "panel bottom past viewport"). Bookkept per the amendment rule.
+
+## ANALYST CONSOLE keys (program installed 2026-07-07 by human directive — research/console_charter.md)
+
+- **BLOCKED-FOR-MIKE — ANTHROPIC_API_KEY in Railway (the one that
+  matters):** unlocks W6, the LLM analyst pane — the centerpiece of
+  the console program. BUILD-FIRST analysis: there is no free
+  substitute for LLM inference itself; everything AROUND it (query
+  engine, tool protocol, map-command channel, UI, tests) builds
+  without the key and the analyst ACTIVATES ON KEY DETECT like every
+  other keyed stream. Cost estimate at hobby usage with a small model
+  (Haiku-class) for the tool loop and short answers: single-digit
+  $/month; heavier use or a bigger model: tens of $/month. Runtime
+  half will follow the established key-gated stream pattern (presence
+  check only, key never logged/echoed).
+- **OPTIONAL — Google Maps Platform key (Photorealistic 3D Tiles,
+  free monthly tier, card required):** cinematic city-level 3D for
+  W1. NOT a blocker — MapLibre globe projection ships free without
+  it. File only if the free globe feels insufficient after W1 lands.
+- **OPTIONAL — Windy webcams API key (free tier):** W7 public-camera
+  layer candidate alongside state DOT traffic cams (public).
+  Licensing research files BEFORE any code per the charter.
