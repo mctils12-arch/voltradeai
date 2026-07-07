@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES, orderRow, positionRow } from "./diag";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Dummy token for tests only — NEVER the real DIAG_TOKEN value (that
@@ -70,4 +70,75 @@ test("ml probe distinguishes seeded vs live feedback and surfaces live win-rate 
   assert.ok(mlProbe.includes("feedback_live_count"), "ml probe must report the live (non-seeded) feedback count");
   assert.ok(mlProbe.includes("live_performance"), "ml probe must surface check_model_health's live win-rate/degradation performance dict");
   assert.ok(mlProbe.includes("live_outcome_breakdown"), "ml probe must break down live (non-seeded) records by outcome (open/win/loss/flat/orphan_exit) to distinguish an entry/exit-matching bug from healthy-but-empty feedback");
+});
+
+// ---- 2026-07-07 whitelist widening (human-directed): orders + positions-detail ----
+
+test("orderRow: whitelist shaping — trade fields survive, client_order_id and unknown fields never pass through", () => {
+  const raw = {
+    id: "61e69015-8549-4bfd-b9aa-4b73e4f4edcd",
+    client_order_id: "eyJzb21lIjoib3BhcXVlLWJsb2IifQwhatever123456",
+    symbol: "SMH", asset_class: "us_equity", side: "buy", type: "market",
+    qty: "120", filled_qty: "120", filled_avg_price: "247.31",
+    limit_price: null, notional: null, status: "filled",
+    submitted_at: "2026-07-07T13:30:01.2Z", filled_at: "2026-07-07T13:30:01.9Z",
+    canceled_at: null,
+    legs: [{ secret: "should-never-appear" }],
+  };
+  const row: any = orderRow(raw);
+  assert.equal(row.symbol, "SMH");
+  assert.equal(row.side, "buy");
+  assert.equal(row.qty, 120);
+  assert.equal(row.filled_avg_price, 247.31);
+  assert.equal(row.status, "filled");
+  assert.equal(row.filled_at, "2026-07-07T13:30:01.9Z");
+  assert.equal(row.canceled_at, null);
+  const flat = JSON.stringify(row);
+  assert.ok(!flat.includes("client_order_id") && !flat.includes("opaque"), "client_order_id must be dropped");
+  assert.ok(!flat.includes("legs") && !flat.includes("should-never-appear"), "unknown fields must be dropped");
+});
+
+test("positionRow: per-position detail incl. lastday_price vs current_price (incident forensics readout)", () => {
+  const row: any = positionRow({
+    symbol: "SMH", asset_class: "us_equity", side: "long",
+    qty: "50", avg_entry_price: "250.10", current_price: "49.90",
+    lastday_price: "249.75", change_today: "-0.8002",
+    market_value: "2495.00", cost_basis: "12505.00",
+    unrealized_pl: "-10010.00", unrealized_plpc: "-0.8005",
+    extra_internal_field: "never",
+  });
+  assert.equal(row.symbol, "SMH");
+  assert.equal(row.current_price, 49.9);
+  assert.equal(row.lastday_price, 249.75);
+  assert.equal(row.market_value, 2495);
+  assert.equal(row.unrealized_pl, -10010);
+  assert.ok(!JSON.stringify(row).includes("never"), "unknown fields must be dropped");
+});
+
+test("orderRow/positionRow: garbage numerics become null, never NaN (NaN breaks JSON consumers)", () => {
+  const o: any = orderRow({ qty: "garbage", filled_avg_price: "", notional: undefined });
+  assert.equal(o.qty, null);
+  assert.equal(o.filled_avg_price, null);
+  assert.equal(o.notional, null);
+  const p: any = positionRow({ qty: null, current_price: "NaN", market_value: {} });
+  assert.equal(p.qty, null);
+  assert.equal(p.current_price, null);
+  assert.equal(p.market_value, null);
+  assert.ok(!JSON.stringify({ o, p }).includes("NaN"));
+});
+
+test("2026-07-07 widening is wired: orders + positions-detail probes exist, whitelisted, and the summary probe stays aggregate-only", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("orders"));
+  assert.ok((DIAG_PROBES as readonly string[]).includes("positions-detail"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const ordersCase = bot.slice(bot.indexOf('case "orders"'), bot.indexOf('case "orders"') + 900);
+  assert.ok(ordersCase.includes("orderRow"), "orders probe must shape through orderRow (whitelist), never return raw Alpaca orders");
+  assert.ok(ordersCase.includes("sanitizeDiag"), "orders probe must pass the sanitizer");
+  assert.ok(ordersCase.includes("Math.min(") && ordersCase.includes(", 200)"), "orders probe must cap limit at 200 (sanitizer array cap)");
+  const pdCase = bot.slice(bot.indexOf('case "positions-detail"'), bot.indexOf('case "positions-detail"') + 700);
+  assert.ok(pdCase.includes("positionRow"), "positions-detail probe must shape through positionRow");
+  assert.ok(pdCase.includes("sanitizeDiag"), "positions-detail probe must pass the sanitizer");
+  // The original aggregate-only summary probe is NOT weakened by the widening:
+  const posCase = bot.slice(bot.indexOf('case "positions"'), bot.indexOf('case "positions-detail"'));
+  assert.ok(!posCase.includes("positionRow"), "plain positions probe stays aggregate-only");
 });

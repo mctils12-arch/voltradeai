@@ -17,7 +17,16 @@
  */
 import crypto from "crypto";
 
-export const DIAG_PROBES = ["audit", "ml", "daemon", "positions", "scanner"] as const;
+export const DIAG_PROBES = [
+  "audit", "ml", "daemon", "positions", "scanner",
+  // WHITELIST WIDENED 2026-07-07 by direct human instruction ("you need
+  // to see the trades somehow so you can learn"): sessions get per-order
+  // and per-position detail — symbols, quantities, prices. Same posture
+  // otherwise: token-gated, READ-ONLY, sanitized; no keys, no user data,
+  // no order placement. Paper-account book contents are the accepted
+  // (and now explicitly authorized) exposure.
+  "orders", "positions-detail",
+] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
 const MIN_TOKEN_LEN = 24;
@@ -53,6 +62,56 @@ export function positionsSummary(positions: any[]): {
   return {
     count: stocks + options, stocks, options,
     grossExposure: Math.round(gross), netExposure: Math.round(net),
+  };
+}
+
+const num = (v: any): number | null => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** One Alpaca order, shaped for the "orders" probe (2026-07-07
+ *  authorization above). Whitelist shaping: only these fields, ever —
+ *  client_order_id is deliberately dropped (can carry long opaque
+ *  strings the sanitizer would mangle; the server-assigned UUID id is
+ *  enough to reference an order). */
+export function orderRow(o: any): Record<string, unknown> {
+  return {
+    id: String(o?.id || ""),
+    symbol: String(o?.symbol || ""),
+    asset_class: String(o?.asset_class || ""),
+    side: String(o?.side || ""),
+    type: String(o?.type || ""),
+    qty: num(o?.qty),
+    notional: num(o?.notional),
+    filled_qty: num(o?.filled_qty),
+    filled_avg_price: num(o?.filled_avg_price),
+    limit_price: num(o?.limit_price),
+    status: String(o?.status || ""),
+    submitted_at: String(o?.submitted_at || ""),
+    filled_at: o?.filled_at ? String(o.filled_at) : null,
+    canceled_at: o?.canceled_at ? String(o.canceled_at) : null,
+  };
+}
+
+/** One Alpaca position, shaped for the "positions-detail" probe
+ *  (2026-07-07 authorization above). lastday_price vs current_price is
+ *  the mark-move readout — it separates "the holding collapsed" from
+ *  "the holding was sold/vanished" in incident forensics. */
+export function positionRow(p: any): Record<string, unknown> {
+  return {
+    symbol: String(p?.symbol || ""),
+    asset_class: String(p?.asset_class || ""),
+    side: String(p?.side || ""),
+    qty: num(p?.qty),
+    avg_entry_price: num(p?.avg_entry_price),
+    current_price: num(p?.current_price),
+    lastday_price: num(p?.lastday_price),
+    change_today: num(p?.change_today),
+    market_value: num(p?.market_value),
+    cost_basis: num(p?.cost_basis),
+    unrealized_pl: num(p?.unrealized_pl),
+    unrealized_plpc: num(p?.unrealized_plpc),
   };
 }
 
