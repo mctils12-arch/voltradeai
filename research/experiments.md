@@ -7454,3 +7454,24 @@ exception to append-only; the log below it stays append-only)
   "imagery at centre: 2025-10-21 · Vantor" (the live-probed value;
   date will drift as Esri updates tiles — drift is the feature);
   zooming out past z11 flips to "capture date unknown at this zoom".
+
+## 2026-07-07 — [PIPELINE] OCC backfill APPROVED + default-on; v1.0.173 verify confirmed — v1.0.174
+
+- HUMAN DIRECTIVE (2026-07-07): volume headroom confirmed (~2GB of 5GB
+  used; backfill adds ~500MB gz) and OCC_DEEP_BACKFILL enablement
+  instructed. Railway env is not writable from a session, so the
+  mechanism flips to DEFAULT-ON in code with an explicit opt-out
+  (OCC_DEEP_BACKFILL=0) — the R8 caution was about UNAPPROVED
+  backfills; this one is approved, single-pass (done-marker), and
+  gz-on-write. Wishlist 9e closed as RESOLVED.
+- ALSO RECORDED: v1.0.173 (imagery capture-date chip) VERIFY CONFIRMED
+  on prod — the deployed bundle carries the chip states (bundle-string
+  probe), completing verification of every release this session
+  (v1.0.166→173, PRs #298-#302, #304-#308 all merged + verified).
+- GATES: node occVolume battery 6/6 (opt-out case now pinned); tsc 64
+  baseline. Version 1.0.173 → 1.0.174.
+- VERIFY (pre-stated): first boot after deploy logs "deep backfill:
+  walking 730 calendar days"; within ~30 min the occvolume dir holds
+  hundreds of day-files and backfill_done.json exists; archive stats
+  totalBytes grows ~+500MB and stabilizes; subsequent boots skip via
+  the marker.

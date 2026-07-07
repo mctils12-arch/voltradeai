@@ -95,17 +95,19 @@ test("refresh: not-yet-published and weekend bodies are honest no-ops; data day 
   assert.ok(occUrl("20260702").includes("productKind=ALL"), "only ALL is accepted (probed)");
 });
 
-test("deep backfill: env-gated OFF, walks oldest-first, honors aged_out, writes done-marker exactly once", async () => {
+test("deep backfill: default-on (2026-07-07 approval) with opt-out, walks oldest-first, honors aged_out, writes done-marker exactly once", async () => {
   _resetOccForTests();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "occ-"));
-  // OFF by default — no fetches at all (R8 lesson)
+  // DEFAULT-ON since 2026-07-07 (human-approved, volume headroom
+  // confirmed ~2GB/5GB); OCC_DEEP_BACKFILL=0 is the explicit opt-out.
   const neverCalled: string[] = [];
   await occDeepBackfillIfEnabled((async (url: string) => {
     neverCalled.push(url);
     return { ok: true, status: 200, text: async () => "No record(s) found" };
-  }) as any, Date.parse("2026-07-06T23:00:00Z"), base, {} as any, 10, 0);
-  assert.equal(neverCalled.length, 0, "OCC_DEEP_BACKFILL unset must be a no-op");
-  assert.equal(occDeepBackfillEnabled({} as any), false);
+  }) as any, Date.parse("2026-07-06T23:00:00Z"), base, { OCC_DEEP_BACKFILL: "0" } as any, 10, 0);
+  assert.equal(neverCalled.length, 0, "OCC_DEEP_BACKFILL=0 must be a no-op");
+  assert.equal(occDeepBackfillEnabled({} as any), true, "default-on per 2026-07-07 approval");
+  assert.equal(occDeepBackfillEnabled({ OCC_DEEP_BACKFILL: "0" } as any), false, "opt-out honored");
   assert.equal(occDeepBackfillEnabled({ OCC_DEEP_BACKFILL: "1" } as any), true);
 
   // ON: 10-calendar-day window (injectable — prod default stays 730),
