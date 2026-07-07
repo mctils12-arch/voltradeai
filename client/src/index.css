@@ -2657,6 +2657,38 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-streams-launch-sub { display: none; }
 }
 
+/* ── grid-stress descriptive reading (#/data/grid-stress, GRID VISION
+   A1 gate-2 FAIL path, 2026-07-07) — reuses the vt-filings/vt-streams
+   shell; adds only the honesty banner + tile/composite layout. ────────── */
+.vt-gridstress-banner {
+  display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 4px;
+  background: rgba(255, 90, 110, 0.08); border: 1px solid rgba(255, 90, 110, 0.3);
+  border-radius: 10px; padding: 10px 12px; color: var(--text-secondary);
+  font-size: 12.5px; line-height: 1.55;
+}
+.vt-gridstress-banner svg { color: var(--accent-red); flex-shrink: 0; margin-top: 2px; }
+.vt-gridstress-banner b { color: var(--text-primary); }
+.vt-gridstress-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin-top: 10px;
+}
+.vt-gridstress-tile {
+  background: var(--bg-card); border: 1px solid rgba(102, 128, 160, 0.25);
+  border-radius: 10px; padding: 12px;
+}
+.vt-gridstress-tile-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.03em; }
+.vt-gridstress-tile-value { font-family: var(--font-mono); font-size: 19px; color: var(--text-primary); margin: 4px 0 8px; }
+.vt-gridstress-bar { height: 5px; border-radius: 3px; background: rgba(102, 128, 160, 0.2); overflow: hidden; }
+.vt-gridstress-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.vt-gridstress-tile-sub { font-size: 10.5px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.4; }
+.vt-gridstress-composite {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 12px; padding: 12px 14px; background: var(--bg-card);
+  border: 1px solid rgba(102, 128, 160, 0.25); border-radius: 10px;
+}
+.vt-gridstress-composite-label { font-size: 12.5px; color: var(--text-secondary); }
+.vt-gridstress-composite-value { font-family: var(--font-mono); font-size: 16px; font-weight: 600; }
+
 /* ── /developers — API product page (T3, 2026-07-04) ─────────────────── */
 .vt-dev-page {
   max-width: 880px; margin: 0 auto; padding: 88px 20px 64px;

@@ -14,6 +14,7 @@ import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
 import GraphView from "./graph";
 import StreamsView from "./streams";
+import GridStressView from "./gridstress";
 import { mmsiFlag } from "@/lib/mmsiFlag";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
@@ -203,6 +204,9 @@ export default function DataMapPage() {
   const [graphOpen, setGraphOpen] = useState(() => window.location.hash === "#/data/graph");
   // Streams inventory (#/data/streams) — same overlay pattern (Phase 4).
   const [streamsOpen, setStreamsOpen] = useState(() => window.location.hash === "#/data/streams");
+  // Grid-stress descriptive reading (#/data/grid-stress) — same overlay
+  // pattern (GRID VISION A1 gate-2 FAIL path product, 2026-07-07).
+  const [gridStressOpen, setGridStressOpen] = useState(() => window.location.hash === "#/data/grid-stress");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -266,6 +270,7 @@ export default function DataMapPage() {
       setShortvolOpen(window.location.hash === "#/data/short-volume");
       setGraphOpen(window.location.hash === "#/data/graph");
       setStreamsOpen(window.location.hash === "#/data/streams");
+      setGridStressOpen(window.location.hash === "#/data/grid-stress");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -2358,6 +2363,9 @@ export default function DataMapPage() {
       {streamsOpen && (
         <StreamsView onBack={() => { window.location.hash = "#/data"; setStreamsOpen(false); }} />
       )}
+      {gridStressOpen && (
+        <GridStressView onBack={() => { window.location.hash = "#/data"; setGridStressOpen(false); }} />
+      )}
 
       {/* Phase 3a imagery capture-date chip (DESIGN.md imagery-honesty
           rule: display dates where available; unknown states stay loud) */}
@@ -2439,6 +2447,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/streams"; setStreamsOpen(true); }}>
               <DatabaseIcon size={13} /> Streams inventory
               <span className="vt-streams-launch-sub">every archived stream · health &amp; freshness</span>
+            </button>
+            {/* Grid-stress launcher (GRID VISION A1 gate-2 FAIL path, 2026-07-07):
+                TX/ERCOT-specific, not a spatial layer, so it launches from the
+                panel top like Streams inventory rather than joining the map's
+                on/off layer list. */}
+            <button type="button" className="vt-streams-launch" data-vt-gridstress-launch
+                    onClick={() => { window.location.hash = "#/data/grid-stress"; setGridStressOpen(true); }}>
+              <Zap size={13} /> Grid stress (TX) — descriptive only
+              <span className="vt-streams-launch-sub">gate-2 FAILED · non-predictive reading</span>
             </button>
             {PANEL_GROUPS.map((g) => renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id)))}
             {/* SELF-SEE FOR UNKNOWN GROUPS (BUILD ORDER 4 #2 — caught live by

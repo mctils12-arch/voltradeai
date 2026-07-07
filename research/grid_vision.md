@@ -298,10 +298,18 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   path (fresh design, later session, discount compounds): researched
   full public ERCOT event list 2019-2025 as ground truth +
   growth-aware extremes; criteria re-filed before computation.
+- ITEM (2) SHIPPED 2026-07-07 (v1.0.191, see experiments.md): descriptive
+  stress dashboard surface — server/gridStress.ts (ERCO-only archive fold
+  + CPC join, cache + 6h poll) + /api/data/grid-stress + #/data/grid-stress
+  panel (client/src/pages/gridstress.tsx, launcher on the /data panel).
+  Equal-weighted composite of the three raw ingredients, deliberately NOT
+  the voided gate-2 fitted weights; `predictive: false` on every response;
+  percentiles withheld (never guessed) below 5 same-month peer days. 9 new
+  node tests; npm run visual clean at 390/768/1440 (gridstress page
+  registered in the harness).
 - NEXT (each its own PR): (1) V3 gate-2 design prep — subagent
   research of the complete dated public ERCOT conservation/EEA event
-  list from primary sources; (2) descriptive stress dashboard
-  surface (honest FAIL-path product per the design); (3) Phase B
+  list from primary sources; (2) [SHIPPED — see above]; (3) Phase B
   training-data prep — ETDII download + OSM-seeded chips + NAIP/MPC
   streaming — then first RunPod fine-tune (amendment-governed);
   (4) Phase B1 VERIFY spec. Polygon arbiter for ambiguous pools: EIA

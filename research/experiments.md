@@ -13,6 +13,92 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-07 — [PRODUCT] Grid-stress descriptive dashboard surface — the A1 gate-2 FAIL path product, #/data/grid-stress (v1.0.191)
+
+- Territory: T-CLIENT (client/src/pages/gridstress.tsx, datamap.tsx launcher
+  + hash routing, index.css) + T-DATACORE (server/gridStress.ts + test) +
+  SHARED (server/routes.ts route, scripts/visual_check.mjs page/fixture,
+  package.json version, this file). Executes the NEXT queue item filed by
+  the 2026-07-07 gate-2 session (grid_vision_products.md "A1 gate-2
+  RESULT": "(2) descriptive stress dashboard surface (honest FAIL-path
+  product per the design)").
+- WHY THIS SHIP IS HONEST, NOT A BACKDOOR SIGNAL: the v0 index (demand
+  percentile x forecast strain x weather extremity) was gate-2 tested
+  against two pre-stated outcome definitions and VOIDED on both (0/10 and
+  insufficient spot-validation hits — datacore/gridvision/gate2_result.json,
+  v1.0.190). The design's own FAIL path, locked BEFORE computation, says
+  the index "demotes to a DESCRIPTIVE dashboard surface labeled
+  non-predictive" — this PR ships exactly that, nothing more: three raw
+  ingredients (same-month demand percentile, forecast strain, NOAA weather
+  extremity) plus a plain EQUAL-WEIGHTED composite. Deliberately NOT the
+  gate-2 script's fitted weights — those were fit against an outcome
+  variable that turned out wrong, so reusing them would smuggle a voided
+  claim back in under a new name. `predictive: false` ships on every
+  response, never omitted; the client leads with a red honesty banner
+  above the numbers, not a footnote (Amendment 5c: "premium presentation
+  of wrong numbers is fraud with good typography").
+- BUILD: `server/gridStress.ts` streams the ERCO-only griddemand archive
+  (readline + gz, same bounded-per-file idiom as shadowFleet.ts's
+  foldVesselArchiveAsync — the OOM lesson from that repair applies here:
+  state retained is one {peak, strainSum, strainCount} record per archive
+  DAY, never per-row) and joins the committed NOAA CPC TX degree-day
+  archive (datacore/cpc/degree_days.json, no new collection — same
+  datacore-boundary pattern as entityGraph.ts's registry joins). Percentile
+  is same-calendar-month, full available history (not gate-2's train/valid
+  split — that split is a backtest concern, already run, already voided;
+  this is a live descriptive read). WITHHELD, NEVER GUESSED: percentiles
+  return null with an honest sample-day count below MIN_SAMPLE_DAYS=5
+  same-month peers, and the composite is null unless all three percentiles
+  are present. Cache + 6h poll (server/routes.ts `bootGridStressPoll`) —
+  a full archive fold is too heavy for the request path; 6h matches how
+  slowly the inputs actually change (daily archive files, weekly CPC
+  refresh).
+- CLIENT: `client/src/pages/gridstress.tsx`, same hash-overlay pattern as
+  streams.tsx (#/data/grid-stress), reuses the .vt-filings/.vt-streams
+  shell. Launches from a panel-top button next to "Streams inventory"
+  (TX-specific, not a spatial layer, so it does not join the map's
+  on/off layer list). Three stat tiles with percentile bars + an
+  equal-weighted composite row; loading/warming_up/insufficient-history/
+  error states all designed, not just the happy path.
+- TESTS: 9 new node tests (server/gridStress.test.ts) — ERCO-only
+  filtering (other respondents must not leak into the peak), gz vs plain
+  day-files read identically, legacy typeless lines treated as demand
+  (mirrors gridDemand.ts's own v1/v2 archive-compat rule), pctRank math,
+  CPC H+C summation with null-handling, thin-history withholds
+  percentiles (never guesses), full end-to-end composite computation.
+  node 381/381 (372 baseline + 9 new); tsc 64 (unchanged baseline, zero
+  new errors — confirmed via grep against the full tsc log); `npm run
+  build` clean. python3 -m pytest not runnable in this container (no
+  pytest install available, no network attempted) — out of scope anyway,
+  zero .py files touched by this PR.
+- VISUAL VERIFICATION (promotion rule 6): `npm run visual` at 390/768/1440
+  for the new `gridstress` page (added to scripts/visual_check.mjs PAGES +
+  a deterministic /api/data/grid-stress fixture) plus a full-suite run
+  (data/streams/gridstress/developers/landing + data-all-off + data-scale)
+  — 0 hard failures. Self-reviewed screenshots at all three widths: no
+  occlusion, no truncation, honesty banner readable first at 390px, tiles
+  reflow to a single column on phone / two-plus-one on tablet / three-wide
+  on desktop. One cosmetic bug caught and fixed in this same PR before
+  shipping (not a follow-up): percentile ordinals rendered "72th"/"82th" —
+  added a proper ordinal() suffix helper, re-screenshotted to confirm
+  "72nd"/"82nd"/"61st"/"74th" render correctly.
+- NEXT (unclaimed, from the gate-2 session's queue, still open after this
+  PR): (1) V3 gate-2 design — subagent research of the complete dated
+  public ERCOT conservation/EEA event list 2019-2025 from primary sources,
+  fresh design filed before any computation (anti-fishing: this is a new
+  design, not a third same-session variant); (2) Phase B training-data
+  prep (ETDII download + OSM-seeded chips + NAIP/MPC streaming) toward the
+  first RunPod fine-tune; (3) Phase B1 VERIFY spec. Also open, unrelated
+  to grid vision: FINRA part 2 (weeklySummary/blocksSummary/
+  monthlySummary), USGS quakes + NDBC buoys, SEC MIDAS, EPA CAMD/ENTSO-E
+  on Mike's keys (9a/9c) — see wishlist.md DATACORE MAXIMUS resume block.
+- VERIFY (pre-stated): post-deploy /api/data/grid-stress serves
+  `predictive: false` + a non-null `reading` once the ERCO archive has
+  >=5 same-month peer days on file (history_depth_days should already be
+  well past that given the GRID_DEMAND_BACKFILL flag has been running on
+  prod since 2026-07-07); the #/data panel shows the "Grid stress (TX) —
+  descriptive only" launcher and it deep-links/back-buttons correctly.
+
 ## 2026-07-07 — [PRODUCT] Power grid map layer, TX pilot — OSM PMTiles vector layer on /data (DATACORE MAXIMUS Phase 2 item 1) (v1.0.166)
 
 - Territory: T-CLIENT (datamap.tsx layer + pmtiles protocol,
