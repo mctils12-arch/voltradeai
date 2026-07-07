@@ -1215,3 +1215,32 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
   ships browser-fetch-only (display works, no archive accumulation).
   Say "approved: satellite relay" (and add SAT_INGEST_TOKEN to
   Railway + the session env) or pick the alternative.
+
+## GOOGLE MAPS PLATFORM API DECISIONS (recorded 2026-07-07 — human review of the 32-API library)
+
+Map Tiles enabled (GOOGLE_MAPS_API_KEY in Railway). 2025 pricing:
+per-API free monthly allotments (Essentials 10k / Pro 5k / Enterprise
+1k). I cannot enable APIs from the session — enabling is a GCP console/
+IAM action on the human's Google account; the key only CALLS enabled
+APIs. So all are human-toggle actions; recommendations:
+
+- **Air Quality API — ENABLE (build shipped v1.0.202, #353).** Pro
+  tier 5,000 free/mo. 70+ pollutants incl PM2.5/NO2, 500m, 100+
+  countries, current + 30d history + heatmap tiles. Real stream +
+  industrial-activity-proxy hypothesis (open_questions). The stream is
+  built and waiting; ACTION: enable "Air Quality API" in the console.
+- **Solar API — HOLD, do not enable.** Building-level rooftop solar
+  potential — a real-estate/quoting tool; no market signal at building
+  granularity. No build → idle meter. Revisit only with a hypothesis.
+- **Pollen API — HOLD (ideas backlog).** Tree/grass/weed forecast, 65
+  countries. Tenuous market link (allergy retail? crop stress?). No
+  build; parked, not enabled.
+- **Aerial View API — HOLD.** Cinematic address flyover VIDEO. Pure
+  visual polish, zero data/signal. Maybe a site-card touch someday;
+  not worth a meter now.
+- **Weather API (if present) — SKIP.** We already have NOAA/NWS + OWM +
+  CPC free; Google's adds nothing.
+DISCIPLINE (human rule): don't enable a meter with no build. Only Air
+Quality has one. Heatmap-tile client OVERLAY for Air Quality is a
+possible LATER map-enhancement PR (the tile URL template is in
+server/airQuality.ts heatmapTileUrl) — build only if wanted.
