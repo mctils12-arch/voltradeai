@@ -7314,3 +7314,44 @@ exception to append-only; the log below it stays append-only)
   verify-the-positive-case discipline paid for itself same-day).
 - v1.0.169 JODI: manifest in the prod inventory (count 42), artifact
   in git; next monthly rerun ~2026-07-19.
+
+## 2026-07-07 — [PIPELINE] FINRA Query API part 1: short interest + threshold list (census build #4a) — v1.0.170
+
+- TERRITORY: T-DATACORE. Census rank #4. Contract LIVE-VERIFIED by
+  subagent workup before any code (probe-first rule): POST-only filters
+  (GET params SILENTLY IGNORED — verified), Accept JSON (GET CSV default
+  is unquoted and corrupts on issueName commas — 704/3000 sampled rows
+  broke), record-total header = count primitive, HTTP 204 = empty (not
+  200), limit>5000 silently clamped, partitions endpoint newest-first,
+  listed-but-empty partitions exist (monthlySummary 2014-16), unordered
+  pagination. Every quirk is in the module header + manifests.
+- BUILD: server/finraQuery.ts — partition-diff archiver (newest N per
+  6h cycle), count-verified fetch (a partition is archived ONLY when
+  rows === record-total; unordered pagination makes a partial read
+  unusable — the CNMS trailer-guard analog), SI gz-on-write (~1MB/
+  partition), threshold plain (~17 rows/day), env-gated full backfill
+  (FINRA_QUERY_BACKFILL=1, OFF — R8 lesson; SI 204 partitions ~80MB gz,
+  threshold 2,635 partitions ~8MB). Route /api/data/short-interest
+  (cache-only): SI leaderboards + threshold list.
+- LIVE END-TO-END from session before commit: settlement 2026-06-15 =
+  22,180 records (matches workup count exactly — pagination verified),
+  threshold 2026-07-02 = 17 names. The live run CAUGHT a data artifact:
+  changePercent +259,847,500% on a near-zero previous position (NVRI) —
+  leaderboards now floor BOTH ratio endpoints (SI_PREV_FLOOR added,
+  test pinned with the live number).
+- SCOPE: part 1 of 2 — ATS venue summaries (weekly/monthly/blocks,
+  66k-210k rows/week) are a separate build with their own volume
+  budget. SEC FTD workup ALSO complete (subagent, filed for the next
+  build): URL pattern is NON-uniform (202605a lives at
+  /files/data/other/ TODAY; 5 pattern eras since 2004; index-page
+  scrape is the robust source), half-month boundary is 1-14/15-EOM not
+  1-15/16-31, two-line trailer = free checksum, PRICE "." = null,
+  QUANTITY is a level not a flow, earliest data 2004-03-22.
+- GATES: node 346/346 (337 + 9 new); tsc 64 baseline; manifests
+  envelope green (44 manifests). Version 1.0.169 → 1.0.170.
+- VERIFY (pre-stated): post-deploy /api/data/short-interest serves
+  settlement_date 2026-06-15 with si_records=22180 and threshold
+  trade_date 2026-07-02 count=17 (or newer if FINRA publishes);
+  /api/data/streams count=44 with both new streams "live" after first
+  poll. Next SI publish (~Jul 9-10 for the 2026-06-30 settlement)
+  should appear within one 6h poll of dissemination.
