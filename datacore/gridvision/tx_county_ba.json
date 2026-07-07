@@ -1,0 +1,1885 @@
+{
+ "provenance": {
+  "source": "EIA-861 2024 final (f8612024.zip; Sales_Ult_Cust + Short_Form + Delivery_Companies + Service_Territory) + EIA-930 reference tables; downloaded 2026-07-07",
+  "license": "U.S. government publications, public domain; Source: U.S. Energy Information Administration",
+  "attribution": "U.S. Energy Information Administration",
+  "method": "scripts/grid_county_ba.py \u2014 county retail-BA union via serving utilities; NO primary BA designated for multi-BA counties (861 cannot weight them; polygon arbiter queued). RETAIL service, not grid topology \u2014 stated on every consumer surface."
+ },
+ "counties": {
+  "Anderson": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Andrews": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Angelina": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Aransas": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Archer": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 7
+  },
+  "Armstrong": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Atascosa": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Austin": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Bailey": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Bandera": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Bastrop": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Baylor": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 6
+  },
+  "Bee": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Bell": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Bexar": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Blanco": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Borden": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Bosque": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Bowie": {
+   "bas": [
+    "MISO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Brazoria": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Brazos": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 6
+  },
+  "Brewster": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Briscoe": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Brooks": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Brown": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Burleson": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Burnet": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Caldwell": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Calhoun": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Callahan": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Cameron": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Camp": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Carson": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 1
+  },
+  "Cass": {
+   "bas": [
+    "MISO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Castro": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Chambers": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 2
+  },
+  "Cherokee": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Childress": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 6
+  },
+  "Clay": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Cochran": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Coke": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Coleman": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Collin": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Collingsworth": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Colorado": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Comal": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Comanche": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Concho": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Cooke": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Coryell": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Cottle": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Crane": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Crockett": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Crosby": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Culberson": {
+   "bas": [
+    "EPE",
+    "ERCO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Dallam": {
+   "bas": [
+    "PNM",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Dallas": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Dawson": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "DeWitt": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Deaf Smith": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Delta": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Denton": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 8
+  },
+  "Dickens": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Dimmit": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Donley": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Duval": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Eastland": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Ector": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Edwards": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "El Paso": {
+   "bas": [
+    "EPE",
+    "ERCO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 2
+  },
+  "Ellis": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Erath": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Falls": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Fannin": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Fayette": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Fisher": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Floyd": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Foard": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Fort Bend": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 1
+  },
+  "Franklin": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Freestone": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Frio": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Gaines": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Galveston": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Garza": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Gillespie": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Glasscock": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Goliad": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Gonzales": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Gray": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Grayson": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Gregg": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Grimes": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Guadalupe": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Hale": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Hall": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Hamilton": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Hansford": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Hardeman": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Hardin": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Harris": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Harrison": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Hartley": {
+   "bas": [
+    "PNM",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Haskell": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Hays": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Hemphill": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Henderson": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Hidalgo": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Hill": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Hockley": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Hood": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Hopkins": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Houston": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Howard": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 2
+  },
+  "Hudspeth": {
+   "bas": [
+    "EPE",
+    "ERCO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 2
+  },
+  "Hunt": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Hutchinson": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Irion": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Jack": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Jackson": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Jasper": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Jeff Davis": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Jefferson": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 1
+  },
+  "Jim Hogg": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Jim Wells": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Johnson": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Jones": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Karnes": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Kaufman": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Kendall": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Kenedy": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Kent": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Kerr": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Kimble": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "King": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Kinney": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Kleberg": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Knox": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "La Salle": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Lamar": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Lamb": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Lampasas": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Lavaca": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 9
+  },
+  "Lee": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Leon": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Liberty": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Limestone": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Lipscomb": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Live Oak": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Llano": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Loving": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 1
+  },
+  "Lubbock": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Lynn": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Madison": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Marion": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Martin": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 2
+  },
+  "Mason": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Matagorda": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Maverick": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "McCulloch": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "McLennan": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "McMullen": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Medina": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Menard": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Midland": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 2
+  },
+  "Milam": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Mills": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Mitchell": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Montague": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Montgomery": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Moore": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Morris": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Motley": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Nacogdoches": {
+   "bas": [
+    "ERCO",
+    "MISO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Navarro": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Newton": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Nolan": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Nueces": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Ochiltree": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Oldham": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Orange": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Palo Pinto": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Panola": {
+   "bas": [
+    "MISO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Parker": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Parmer": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Pecos": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Polk": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Potter": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Presidio": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Rains": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Randall": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Reagan": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Real": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Red River": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Reeves": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Refugio": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Roberts": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 3
+  },
+  "Robertson": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Rockwall": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Runnels": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Rusk": {
+   "bas": [
+    "ERCO",
+    "MISO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 6
+  },
+  "Sabine": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "San Augustine": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "San Jacinto": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "San Patricio": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "San Saba": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Schleicher": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Scurry": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Shackelford": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Shelby": {
+   "bas": [
+    "ERCO",
+    "MISO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Sherman": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Smith": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Somervell": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Starr": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Stephens": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Sterling": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Stonewall": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Sutton": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Swisher": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Tarrant": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Taylor": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Terrell": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Terry": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Throckmorton": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Titus": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Tom Green": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Travis": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Trinity": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Tyler": {
+   "bas": [
+    "MISO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Upshur": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Upton": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Uvalde": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Val Verde": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Van Zandt": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 6
+  },
+  "Victoria": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Walker": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Waller": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Ward": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Washington": {
+   "bas": [
+    "ERCO",
+    "MISO"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Webb": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Wharton": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Wheeler": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Wichita": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 4
+  },
+  "Wilbarger": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Willacy": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Williamson": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 7
+  },
+  "Wilson": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 5
+  },
+  "Winkler": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Wise": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 6
+  },
+  "Wood": {
+   "bas": [
+    "ERCO",
+    "SWPP"
+   ],
+   "multi_ba": true,
+   "serving_utilities": 5
+  },
+  "Yoakum": {
+   "bas": [
+    "SWPP"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  },
+  "Young": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 4
+  },
+  "Zapata": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 2
+  },
+  "Zavala": {
+   "bas": [
+    "ERCO"
+   ],
+   "multi_ba": false,
+   "serving_utilities": 3
+  }
+ },
+ "summary": {
+  "county_count": 254,
+  "ba_county_counts": {
+   "EPE": 3,
+   "ERCO": 218,
+   "MISO": 36,
+   "PNM": 2,
+   "SWPP": 78
+  },
+  "multi_ba_counties": 80,
+  "counties_with_no_ba": [],
+  "ba_codes_not_in_eia930": [],
+  "unmatched_serving_utilities": []
+ }
+}
