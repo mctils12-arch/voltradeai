@@ -8280,3 +8280,60 @@ exception to append-only; the log below it stays append-only)
   (2.x -> ~8-12GW), and window_mean stabilizes; day-file growth
   stays modest (revisions are a small multiple of the leading edge
   only).
+
+## 2026-07-07 — [RESEARCH] GRID-STRESS GATE-2 COMPUTED: NOT PASSED — both outcome operationalizations voided on their own rules; index demoted to descriptive (v1.0.190)
+
+- Territory: T-GRIDVISION (scripts/grid_stress_gate2.py,
+  test_grid_stress_gate2.py, datacore/gridvision/gate2_result.json,
+  products plan result section, charter resume) + SHARED
+  (package.json, this file). Computed the same hour Mike flipped
+  GRID_DEMAND_BACKFILL=1 (backfill itself verified running on prod,
+  separate report below).
+- DATA (session-side, keyless — no prod dependency): EIA-930 bulk
+  six-month BALANCE files 2019-2026 (16 files, ~690MB, D + DF
+  columns) + the committed CPC TX degree-day artifact. ERCO scope
+  per the locked design.
+- PROCESS DISCIPLINE HELD: criteria quoted verbatim from the filed
+  design; operationalization v1 written in the script header BEFORE
+  its run; v2 pre-stated after v1's void with its own header block;
+  fitting confined to 2019-2022; thresholds frozen before
+  validation; TWO variants total, discount logged.
+- V1 (the design's forecast-exceedance stress definition): VOID by
+  its own spot-validation rule — 0/10 documented ERCOT emergency
+  days detected. Physical diagnosis VERIFIED in data before any
+  revision: famous event days max strain +0.4%..+1.3% (heat waves
+  are well-forecast) and Uri realized ran 29-32% BELOW forecast
+  (shed load caps metered demand). The design's outcome variable
+  measured demand surprise; Texas stress is supply-side scarcity
+  under well-forecast demand.
+- V2 (top-2% same-month pooled daily peaks): ALSO VOID — suspected
+  code bug first, ruled out by direct inspection; the real cause is
+  ~5-6%/yr ERCOT demand growth making pooled 2019-2022 percentiles
+  blind to early-year emergencies (top-5 Aug training peaks all from
+  2022; Uri's EEA day 4th behind the Feb-2022 cold snap; the demand
+  extreme was Feb 14, a day before the declaration date).
+- FOR THE RECORD (void, explicitly not claims): v1 lift 1.455
+  (entirely 2024-carried; 2023/2025 hit 0), v2 lift 1.554
+  (2023-carried 3.17; 2024 = 0.70) — BOTH independently fail the
+  pre-stated no-single-summer-carry clause. The stability test
+  caught regime-carry twice; it earned its keep.
+- STOPPING RULE APPLIED: a third same-session outcome variant would
+  be fitting the ruler to the event list (REASONING STANDARD #4 /
+  anti-fishing). V3 = fresh design in a later session: complete
+  public ERCOT conservation/EEA event list 2019-2025 from primary
+  sources (subagent research) as ground truth + growth-aware
+  extremes (same month x same year or detrended); criteria re-filed
+  before computation; discount compounds at variant 3.
+- CONSEQUENCE (the design's FAIL path, honored): the grid-stress
+  index ships as a DESCRIPTIVE dashboard surface labeled
+  non-predictive; NO predictive, tradable, or sellable claim. The
+  A1 ingredient chain (capacity registry, county-BA join, per-BA
+  distribution, D/DF archive) remains valid gate-1 infrastructure —
+  the SIGNAL layer is what did not validate.
+- GATES: pytest 474 passed 1 skipped (+3 battery: recomputable
+  verdicts, both diagnoses pinned); node 372 fail 0; tsc 64.
+  Version 1.0.189 -> 1.0.190.
+- VERIFY (pre-stated): the v3 design session must cite this entry's
+  stopping rule and produce its event list from primary sources
+  BEFORE re-deriving any outcome; the descriptive surface must carry
+  the non-predictive label per Amendment 5c.

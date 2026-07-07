@@ -282,12 +282,27 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
 - RUNPOD_API_KEY LANDED IN RAILWAY (Mike, 2026-07-07) — GPU
   training/sweeps UNBLOCKED. Purchase order in wishlist marked
   resolved.
-- NEXT (each its own PR): (1) Mike flips GRID_DEMAND_BACKFILL=1 →
-  verify backfill marker + archive depth on prod; (2) gate-2
-  computation per the filed criteria (fit 2019-2022 / validate
-  2023-2025), results to experiments.md whatever they say; (3)
-  Phase B training-data prep — ETDII download + OSM-seeded chips +
-  NAIP/MPC streaming — then first RunPod fine-tune (metrics vs the
-  Item-1 bar, per-mosaic-source); (4) Phase B1 VERIFY spec. Polygon
-  arbiter for ambiguous pools: EIA Atlas BA layer (re-check ~late
-  July).
+- BACKFILL FLAG FLIPPED (Mike, 2026-07-07): backfill verified
+  RUNNING on prod (1,466 day-files / 44MB plain mid-walk at check
+  time; gz-at-end; volume headroom confirmed ~2.5GB vs ~130MB peak).
+- GATE-2 COMPUTED 2026-07-07 (scripts/grid_stress_gate2.py against
+  keyless EIA-930 bulk history + committed CPC artifact; full record
+  datacore/gridvision/gate2_result.json): NOT PASSED — both
+  pre-stated outcome operationalizations VOIDED on their own
+  spot-validation rules (v1: ERCOT emergencies are well-forecast +
+  shed load caps metered demand; v2: pooled percentiles blind to
+  ~5-6%/yr demand growth). Recorded-not-claimed lifts 1.455/1.554,
+  both single-summer-carried — the stability clause caught real
+  regime-carry twice. CONSEQUENCE: stress index = DESCRIPTIVE-ONLY
+  surface, labeled non-predictive; no sellable/tradable claim. V3
+  path (fresh design, later session, discount compounds): researched
+  full public ERCOT event list 2019-2025 as ground truth +
+  growth-aware extremes; criteria re-filed before computation.
+- NEXT (each its own PR): (1) V3 gate-2 design prep — subagent
+  research of the complete dated public ERCOT conservation/EEA event
+  list from primary sources; (2) descriptive stress dashboard
+  surface (honest FAIL-path product per the design); (3) Phase B
+  training-data prep — ETDII download + OSM-seeded chips + NAIP/MPC
+  streaming — then first RunPod fine-tune (amendment-governed);
+  (4) Phase B1 VERIFY spec. Polygon arbiter for ambiguous pools: EIA
+  Atlas BA layer (re-check ~late July).

@@ -270,3 +270,40 @@ never tuned on validation).
 KILL DATE: if gate-2 has not been computed by 2026-08-15 (prereqs
 stalled), the stall is filed in wishlist.md honestly rather than
 left implicit.
+
+## A1 gate-2 RESULT (computed 2026-07-07, same day the backfill flag landed) — NOT PASSED; index is DESCRIPTIVE-ONLY
+
+Computation: scripts/grid_stress_gate2.py against EIA-930 bulk history
+(2019-2026, session-side keyless) + the committed CPC TX degree-day
+artifact; both outcome operationalizations pre-stated in the script
+header before their single runs; full record in
+datacore/gridvision/gate2_result.json.
+
+- OUTCOME v1 (the design's forecast-exceedance definition): VOID on
+  its own spot-validation rule — 0 of 10 documented ERCOT emergency
+  days detected. Physical diagnosis, verified in the data: ERCOT
+  emergencies are weather-driven and WELL-forecast (max strain on
+  famous days +0.4%..+1.3%), and load shedding caps metered demand
+  (Uri realized ran 29-32% BELOW forecast). Demand-beats-forecast is
+  not what Texas grid stress looks like.
+- OUTCOME v2 (top-2% same-month pooled daily peaks, pre-stated after
+  the v1 diagnosis; variant 2 of 2, discount applies): also VOID —
+  ERCOT demand grows ~5-6%/yr, so percentiles pooled across
+  2019-2022 are blind to early-year emergencies (all top-5 August
+  training peaks are from 2022; Uri's EEA day ranks 4th behind the
+  Feb-2022 cold snap; the demand extreme preceded the declaration
+  date by a day).
+- FOR THE RECORD (void, not claims): v1 lift 1.455 (2024-carried),
+  v2 lift 1.554 (2023-carried, 2024 = 0.70) — BOTH also fail the
+  pre-stated no-single-summer-carry clause on their own terms. The
+  stability test caught real regime-carry twice.
+- CONSEQUENCE (the design's FAIL path applies): the stress index
+  ships as a DESCRIPTIVE dashboard surface labeled non-predictive.
+  No predictive or sellable claim until a future gate-2 passes.
+- V3 PATH (a fresh design for a LATER session — not a third
+  same-session variant, anti-fishing): (a) research the complete
+  public ERCOT conservation-appeal/EEA event list 2019-2025 (primary
+  sources, subagent task) as the ground-truth event set; (b)
+  growth-aware extremes (same month x same year, or detrended);
+  (c) criteria re-filed before computation; discount compounds
+  (variant 3).
