@@ -9,7 +9,7 @@ import { getDisplaySide } from "../shared/inverseEtfs";
 import { evaluateDrawdown } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow } from "./diag";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
@@ -2095,6 +2095,28 @@ print(json.dumps(s))
         case "positions": {
           const positions = await alpaca("/v2/positions");
           return res.json(sanitizeDiag({ probe: "positions", ...positionsSummary(Array.isArray(positions) ? positions : []) }));
+        }
+        case "positions-detail": {
+          // Whitelist widened 2026-07-07 (human-directed) — see diag.ts.
+          const positions = await alpaca("/v2/positions");
+          const arr = Array.isArray(positions) ? positions : [];
+          return res.json(sanitizeDiag({
+            probe: "positions-detail",
+            ...positionsSummary(arr),
+            positions: arr.map(positionRow),
+          }));
+        }
+        case "orders": {
+          // Whitelist widened 2026-07-07 (human-directed) — see diag.ts.
+          const status = ["open", "closed", "all"].includes(String(req.query.status))
+            ? String(req.query.status) : "all";
+          const limit = Math.min(Math.max(parseInt(String(req.query.limit || "100"), 10) || 100, 1), 200);
+          const after = String(req.query.after || "").trim();
+          const qs = `status=${status}&limit=${limit}&direction=desc`
+            + (after ? `&after=${encodeURIComponent(after)}` : "");
+          const orders = await alpaca(`/v2/orders?${qs}`);
+          const arr = Array.isArray(orders) ? orders : [];
+          return res.json(sanitizeDiag({ probe: "orders", count: arr.length, orders: arr.map(orderRow) }));
         }
         case "scanner": {
           // REPAIR 2026-07-06: the free-text failure reason (subprocess

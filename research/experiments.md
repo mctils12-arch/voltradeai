@@ -8544,3 +8544,37 @@ FOLLOW-UP QUESTION filed in open_questions.md: coherence-class guard
 (cross-check equity against last_equity + positions + fills before
 accepting a catastrophic reading). Per the recurrence rule this is an
 RCA/design question, not a same-session patch.
+
+## 2026-07-07 — [REPAIR] R15: session trade visibility — diag "orders" + "positions-detail" probes (v1.0.193)
+
+TERRITORY: T-BOT (server/bot.ts diag route, server/diag.ts). Human-directed:
+"you need to see the trades somehow so you can learn ask questions."
+
+- PROBLEM: every fill/order/position-detail surface was owner-gated, and
+  the human-approved diag whitelist (2026-07-04) was deliberately
+  aggregate-only (counts + exposure, never symbols). Sessions could not
+  trace actual trades — the learning loop's judgment half was blind to
+  the very thing it judges. Today's incident made it concrete: the
+  session could not tell WHICH of 4 positions collapsed −$81k overnight.
+- AUTHORIZATION: direct human instruction (2026-07-07, quoted above)
+  widens the whitelist to per-order and per-position detail. Recorded in
+  diag.ts at the DIAG_PROBES declaration. Posture otherwise unchanged:
+  token-gated (min 24 chars, timing-safe), READ-ONLY, sanitizer applied,
+  no keys/user data/order placement. auth.ts (frozen) untouched.
+- CHANGE: diag.ts gains orderRow()/positionRow() whitelist shapers
+  (numerics null-not-NaN; client_order_id and unknown fields dropped);
+  bot.ts diag switch gains case "orders" (Alpaca /v2/orders, status/
+  limit<=200/after params) and case "positions-detail" (per-position
+  incl. lastday_price vs current_price — the mark-move forensics
+  readout). The original "positions" summary probe is NOT widened; a
+  ratchet asserts it stays aggregate-only.
+- RATCHETS: 4 new diag.test.ts tests — shaping whitelists, null-not-NaN,
+  wiring (probes exist, shaped, sanitized, limit capped), summary-probe
+  non-widening. DIAG_PROBES loop in the existing wiring test enforces
+  the route cases automatically.
+- GATES: node 388 pass 0 fail; tsc 64 (baseline); pytest at commit.
+  Version 1.0.192 -> 1.0.193.
+- FOLLOW-ON (same day, after deploy): use positions-detail to name the
+  collapsed holding in the Alpaca incoherence incident (R14 follow-up,
+  PR #335) and answer "what were the trades placed today" with actual
+  order rows instead of window bounds.
