@@ -169,6 +169,10 @@ STATUS as of 2026-07-07 later same session (claude/new-session-iu72vf):
   standing behavior). Human directive = the approval (HUMAN
   SOVEREIGNTY clause).
 
+## [RESOLVED same day — Mike funded RunPod and put RUNPOD_API_KEY in
+## Railway, 2026-07-07. GPU training/sweeps unblocked; first consumer
+## = Phase B training-data prep + fine-tune (charter RESUME STATE).]
+## Original order kept below for the record.
 ## BLOCKED-FOR-MIKE — GRID VISION GPU compute (2026-07-07; RunPod
 ## purchase order per the directive's paid-boundary rule)
 

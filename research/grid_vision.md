@@ -221,13 +221,23 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   operationalized without LMPs; fit 2015-2022 / validate 2023-2025;
   seasonal base-rate control; PASS = >=1.5x out-of-sample lift
   stable across three summers; kill date 2026-08-15.
-- NEXT (each its own PR): (1) gridDemand polls type DF alongside D;
-  (2) env-gated EIA-930 historical backfill server-side (OCC
-  pattern — key lives in Railway only); (3) gate-2 computation per
-  the filed criteria, results to experiments.md whatever they say;
-  (4) Phase B1 VERIFY spec (corridor detector, two-layer benchmark,
-  per-mosaic-source ratchet); detector work starts with the
-  labeling seed (OSM/HIFLD towers) + ETDII download. GPU waits on
-  RUNPOD_API_KEY in Railway (detect + activate without being told).
-  Polygon arbiter for ambiguous pools: EIA Atlas BA layer (re-check
-  ~late July).
+- GATE-2 PREREQS SHIPPED: DF polling (v1.0.183, #321); historical
+  backfill mechanism (v1.0.184) — env-gated GRID_DEMAND_BACKFILL=1
+  (opt-in OFF, R8; Mike asked to flip it), 2019->now D+DF,
+  done-marker, seed-window heap protection. HISTORY CORRECTION: the
+  endpoint serves ~2019+ (not 2015 as the design sketch said) — the
+  gate-2 split becomes fit 2019-2022 / validate 2023-2025 (same
+  three validation summers; note 2020 COVID anomaly sits in
+  training).
+- RUNPOD_API_KEY LANDED IN RAILWAY (Mike, 2026-07-07) — GPU
+  training/sweeps UNBLOCKED. Purchase order in wishlist marked
+  resolved.
+- NEXT (each its own PR): (1) Mike flips GRID_DEMAND_BACKFILL=1 →
+  verify backfill marker + archive depth on prod; (2) gate-2
+  computation per the filed criteria (fit 2019-2022 / validate
+  2023-2025), results to experiments.md whatever they say; (3)
+  Phase B training-data prep — ETDII download + OSM-seeded chips +
+  NAIP/MPC streaming — then first RunPod fine-tune (metrics vs the
+  Item-1 bar, per-mosaic-source); (4) Phase B1 VERIFY spec. Polygon
+  arbiter for ambiguous pools: EIA Atlas BA layer (re-check ~late
+  July).
