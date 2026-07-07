@@ -8903,3 +8903,57 @@ server half; the chat pane is the next client PR.
 - GATES: node 425 pass 0 fail; tsc 64 baseline; pytest 476 passed 1
   skipped. Version 1.0.198 -> 1.0.199. Built by worktree subagent;
   session line-by-line review before integration (partition rule).
+
+## 2026-07-07 — [REPAIR] R18: manipulation-scan catch block now audits failures — KNOWN BROKEN #14 (v1.0.200, PR #351)
+
+TERRITORY: T-BOT (server/bot.ts, tier3Strategic only). Loop-health
+check at session start: last 10 tagged entries were 6 REPAIR / 3
+PRODUCT / 1 PIPELINE — under the 7-REPAIR thrash threshold, no
+meta-problem to address. System health at session start:
+/api/health all green (bot active, drawdownPct 0.0, no liveness
+alarm, scanner ok, licensing ok) — no fire to fight.
+
+- WHAT: open_questions.md KNOWN BROKEN #14 (filed same-day as PR
+  #327's ML-retrain stdout-corruption fix, deliberately left
+  unrepaired there per one-logical-change-per-PR): tier3Strategic's
+  manipulation-detection scan catch block (`server/bot.ts`, ~line
+  4077) only `console.error`'d on failure — the same stdout-
+  corruption failure class the ML-retrain path already surfaces via
+  `TIER3-ML-ERROR`, but with zero trail in the persisted audit log.
+  A live scan failure was invisible to any session working outside
+  the container (no owner-only audit route access). Same visibility
+  gap KNOWN BROKEN #5 closed for social_data/finnhub_data via
+  extended_checks.
+- FIX: mirrored the ML-retrain catch block's audit-with-cause pattern
+  exactly — prefer stderr (Python traceback), fall back to stdout
+  (structured JSON error payloads), report exit code + kill signal.
+  New audit action `TIER3-MANIP-ERROR`, kept distinct from
+  `TIER3-ML-ERROR`. `console.error` retained (additive, not a
+  replacement). No scoring/sizing/order logic touched — pure
+  failure-visibility widening; REASONING STANDARD #1 downstream
+  trace: the only second-order effect is a new sibling audit action
+  appearing alongside `MANIPULATION`/`TIER3-ML-ERROR` if/when the
+  scan errors — future audit-log consumers should expect it.
+- RATCHET: new server/tier3ManipVisibility.test.ts (3 tests, static
+  source-assertion pattern matching scannerHealth.test.ts/
+  diag.test.ts) — pins the catch block calls
+  `audit("TIER3-MANIP-ERROR", ...)`, carries stderr/stdout/code/
+  signal cause rather than a bare error string, and stays a distinct
+  action from TIER3-ML-ERROR (regression guard against a future edit
+  merging the two failure classes).
+- GATES: node test:node 428/428 pass (425 baseline + 3 new); tsc 64
+  pre-existing errors unchanged (re-verified against documented
+  baseline after a fresh `npm ci`); python3 -m pytest 473 passed / 2
+  skipped (env had drifted — numpy/pandas/requests/openpyxl were
+  missing from this container and reinstalled from requirements.txt
+  to get a real baseline; no Python file touched by this change, so
+  this count is informational, not caused by the PR). Version
+  1.0.199 -> 1.0.200. PR #351, branch claude/funny-fermat-jmcz41,
+  subscribed to PR activity.
+- SESSION BUDGET: this was the single highest-value primary action
+  (a small, well-scoped, already-diagnosed known-broken repair beats
+  starting new research given system health was otherwise green and
+  the loop-health ratio was fine). Falling through to open_questions
+  queue items or new research was not reached this session — PR
+  review/CI babysitting is the remaining capacity sink per the
+  subscription now active on #351.
