@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, Orbit } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -16,6 +16,11 @@ import GraphView from "./graph";
 import StreamsView from "./streams";
 import GridStressView from "./gridstress";
 import { mmsiFlag } from "@/lib/mmsiFlag";
+import {
+  SAT_GROUPS, SAT_GROUP_LABEL, SATELLITE_GROUP_COLOR, SATELLITE_ATTRIBUTION,
+  ommToTle, periodMinutesFromMeanMotion, formatElementAge, celestrakSatcatUrl,
+  type SatGroup, type OmmLike,
+} from "@/lib/satelliteOrbits";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
@@ -52,7 +57,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge" | "alert";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge" | "alert" | "satellite";
   title: string;
   subtitle: string;
   body: string;
@@ -119,7 +124,7 @@ const PANEL_GROUPS = [
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base",
-  aircraft: "live", vessels: "live", trains: "live",
+  aircraft: "live", vessels: "live", trains: "live", satellites: "live",
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   rivergauges: "environmental",
@@ -173,6 +178,8 @@ const VESSEL_COLOR: Record<string, string> = {
   tanker: "#fbb24c", cargo: "#4ade80", passenger: "#c084fc",
   fishing: "#7cc4ff", tug: "#b3c2d8", other: "#4ade80",
 };
+// Per-group satellite tint (stations/starlink/gps-ops/geo) — SATELLITE_GROUP_COLOR,
+// imported above from @/lib/satelliteOrbits (pure + unit-tested there).
 
 // Legend entry that renders THE ACTUAL registry shape the map draws
 // (iconDataURL rasterizes the same ImageData registerIcons feeds maplibre).
@@ -303,6 +310,40 @@ export default function DataMapPage() {
   const [tempLabels, setTempLabels] = useState(false);
   const [tempUnitF, setTempUnitF] = useState(true);
   const [wxGrid, setWxGrid] = useState<any>(null);
+  // Satellite orbits sub-toggle (ANALYST CONSOLE W2 client half, 2026-07-07):
+  // heavy opt-in layer — "stations" (a dozen objects) is the only group
+  // preselected; the user adds gps-ops/geo/starlink explicitly. Persisted
+  // per-session like the other sub-controls (field opacity, wind arrows).
+  const [satGroups, setSatGroupsState] = useState<Record<SatGroup, boolean>>(() => {
+    const base: Record<SatGroup, boolean> = { stations: true, starlink: false, "gps-ops": false, geo: false };
+    try { return { ...base, ...JSON.parse(sessionStorage.getItem("vt-sat-groups") || "{}") }; }
+    catch { return base; }
+  });
+  const setSatGroup = (g: SatGroup, on: boolean) => {
+    setSatGroupsState((s) => {
+      const next = { ...s, [g]: on };
+      try { sessionStorage.setItem("vt-sat-groups", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  // read by the propagation tick (setInterval, not React state) so toggling
+  // a group doesn't need to tear down/rebuild the whole map layer
+  const satGroupsRef = useRef(satGroups);
+  useEffect(() => { satGroupsRef.current = satGroups; }, [satGroups]);
+  // one SatRec (satellite.js's parsed/initialized element set) per
+  // "group|NORAD_CAT_ID" — populated by the slow-cadence fetch effect,
+  // read every propagation tick. A ref (not state): rebuilding it must
+  // never itself trigger a React re-render on a multi-thousand-object feed.
+  const satRecRef = useRef<Map<string, { satrec: any; name: string; group: SatGroup; id: number; epoch: string; meanMotion: number }>>(new Map());
+  const satModuleRef = useRef<any>(null);
+  const satFetchedRef = useRef<Set<SatGroup>>(new Set());
+  // Per-group "why is this empty" reason — R17 (2026-07-07) found Railway's
+  // egress to CelesTrak is firewalled in production (connect timeouts), so
+  // this feed can sit at warming_up indefinitely until the pending relay
+  // decision in wishlist.md ships. That must render as an honest loading
+  // state (this file's `d.warming_up` convention, e.g. the fires/alerts/
+  // insider effects above), never as a silent "active, 0 objects".
+  const satIssueRef = useRef<Partial<Record<SatGroup, string>>>({});
   useEffect(() => {
     const onHash = () => {
       setFilingsOpen(window.location.hash === "#/data/filings");
@@ -1640,6 +1681,202 @@ export default function DataMapPage() {
     return () => { cancelled = true; };
   }, [enabled.powerplants, mapReady, mapSettled, setStatus]);
 
+  // ── satellite orbits (RAW; ANALYST CONSOLE W2 client half, 2026-07-07) ──
+  // server/satellites.ts serves the latest CelesTrak GP mean-element set
+  // per group (stations/starlink/gps-ops/geo) — NOT positions. This layer
+  // does the SGP4 propagation itself, client-side, with satellite.js
+  // (dependency-free 4.1.4 — see @/lib/satelliteOrbits's header for the
+  // version judgment call). Two cadences, deliberately kept apart per the
+  // perf budget:
+  //  - element FETCH: /api/data/satellites?group=<g>, only on enable/group-
+  //    toggle + a 20-min interval (server only refreshes every 6h; hammering
+  //    it would gain nothing and violate the courtesy-limit spirit).
+  //  - position PROPAGATION: a plain setInterval tick (never rAF — this
+  //    file's standing convention for exactly this CPU-cost reason), every
+  //    4s, hidden-tab gated. SGP4 propagation is cheap (sub-ms/satellite);
+  //    even Starlink's several-thousand objects cost low tens of ms once
+  //    every 4s, not per frame — the render itself (a `circle` layer, the
+  //    cheapest mark type) stays within the budget the aircraft layer's own
+  //    10k-feature fixture already proves smooth (scripts/visual_check.mjs).
+  useEffect(() => {
+    if (!enabled.satellites) { satFetchedRef.current.clear(); return; }
+    let stop = false;
+    const ensureSatModule = async () => {
+      if (!satModuleRef.current) satModuleRef.current = await import("satellite.js");
+      return satModuleRef.current;
+    };
+    const loadGroup = async (g: SatGroup) => {
+      try {
+        const r = await fetch(`/api/data/satellites?group=${g}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) {
+          satIssueRef.current[g] = d.issue ? String(d.issue) : "warming up — first poll can take a few minutes";
+          return;
+        }
+        delete satIssueRef.current[g];
+        const sat = await ensureSatModule();
+        if (stop) return;
+        // full replace of this group's entries — drops satellites that
+        // left the feed (decommissioned/re-entered) instead of leaking them
+        for (const k of Array.from(satRecRef.current.keys())) {
+          if (k.startsWith(`${g}|`)) satRecRef.current.delete(k);
+        }
+        for (const rec of (d.satellites || []) as OmmLike[]) {
+          try {
+            const [l1, l2] = ommToTle(rec);
+            const satrec = sat.twoline2satrec(l1, l2);
+            if (satrec.error) continue; // malformed element set — skip, never guess a position
+            const id = Number(rec.NORAD_CAT_ID);
+            satRecRef.current.set(`${g}|${id}`, {
+              satrec, name: rec.OBJECT_NAME || `NORAD ${id}`, group: g, id,
+              epoch: rec.EPOCH, meanMotion: Number(rec.MEAN_MOTION),
+            });
+          } catch { /* one bad record never sinks the group */ }
+        }
+      } catch { /* next interval retries; stale-with-timestamp already covers the gap */ }
+    };
+    // fetch every group newly enabled (including on first mount)
+    for (const g of SAT_GROUPS) {
+      if (satGroups[g] && !satFetchedRef.current.has(g)) {
+        satFetchedRef.current.add(g);
+        loadGroup(g);
+      }
+    }
+    // slow refresh cadence — server only advances every 6h, 20 min is plenty
+    const iv = window.setInterval(() => {
+      if (document.hidden) return;
+      for (const g of SAT_GROUPS) if (satGroupsRef.current[g]) loadGroup(g);
+    }, 20 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.satellites, satGroups]);
+
+  const openSatelliteDetail = useCallback((p: any) => {
+    const group = p.group as SatGroup;
+    const periodMin = periodMinutesFromMeanMotion(Number(p.meanMotion));
+    setDetail({
+      kind: "satellite",
+      title: `🛰 ${p.name}`,
+      subtitle: `${SAT_GROUP_LABEL[group] || group} · NORAD ${p.id}`,
+      body: `${Number.isFinite(periodMin) ? `Orbital period: ${periodMin.toFixed(1)} min\n` : ""}` +
+            `${Number.isFinite(p.altKm) ? `Altitude (propagated): ${Math.round(p.altKm)} km\n` : ""}` +
+            `Element-set epoch: ${formatElementAge(String(p.epoch))}\n\n` +
+            `Position is our own client-side SGP4 propagation from CelesTrak's mean element ` +
+            `set — not a directly observed location. RAW, no predictive claim.\n\n${SATELLITE_ATTRIBUTION}.`,
+      links: [{ label: `${p.name} — CelesTrak catalog lookup`, href: celestrakSatcatUrl(String(p.name)) }],
+    });
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.satellites) {
+      // the matching listener was already unbound by the previous run's own
+      // cleanup (below) before this "off" run started — React always tears
+      // down the prior effect first, so this is a defensive layer/source
+      // removal only (idempotent no-ops if already gone), never a fresh
+      // map.off() with a mismatched closure reference.
+      try {
+        if (map.getLayer("satellites-sym")) map.removeLayer("satellites-sym");
+        if (map.getSource("satellites")) map.removeSource("satellites");
+      } catch {}
+      satRecRef.current.clear();
+      setStatus("satellites", "off");
+      return;
+    }
+    setStatus("satellites", "loading");
+    // Named handler ([REPAIR 2026-07-05] map-perf precedent, wireLivePoints
+    // above): map.on/off must share the exact same function reference or
+    // the listener survives layer removal and stacks on every toggle.
+    const onSatClick = (e: any) => {
+      const f = e.features?.[0];
+      if (f) openSatelliteDetail(f.properties);
+    };
+    const tick = () => {
+      if (document.hidden) return;
+      const sat = satModuleRef.current;
+      if (!sat) return; // module still loading — next tick picks it up
+      const now = new Date();
+      const gmst = sat.gstime(now);
+      const features: any[] = [];
+      for (const entry of Array.from(satRecRef.current.values())) {
+        if (!satGroupsRef.current[entry.group]) continue;
+        try {
+          const pv = sat.propagate(entry.satrec, now);
+          if (!pv || !pv.position) continue;
+          const geo = sat.eciToGeodetic(pv.position, gmst);
+          const lon = sat.degreesLong(geo.longitude);
+          const lat = sat.degreesLat(geo.latitude);
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [lon, lat] },
+            properties: {
+              id: entry.id, name: entry.name, group: entry.group,
+              color: SATELLITE_GROUP_COLOR[entry.group],
+              meanMotion: entry.meanMotion, epoch: entry.epoch, altKm: geo.height,
+            },
+          });
+        } catch { /* one bad propagation never drops the whole layer */ }
+      }
+      const fc = { type: "FeatureCollection", features };
+      const src: any = map.getSource("satellites");
+      if (src) {
+        src.setData(fc);
+      } else {
+        // attribution feeds maplibre's built-in AttributionControl (same
+        // mechanism every other RAW overlay uses — weather/powergrid/
+        // surfacewater/forest all set this on their own source).
+        map.addSource("satellites", { type: "geojson", data: fc as any, attribution: SATELLITE_ATTRIBUTION } as any);
+        // circle layer (cheaper than symbol for a potentially multi-thousand
+        // point count — orbital motion has no heading to rotate a symbol to)
+        map.addLayer({
+          id: "satellites-sym", type: "circle", source: "satellites",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 1.6, 6, 3.2],
+            "circle-color": ["get", "color"],
+            "circle-stroke-color": "rgba(5,10,19,0.9)",
+            "circle-stroke-width": 0.6,
+            "circle-opacity": 0.9,
+          },
+        });
+        map.on("click", "satellites-sym", onSatClick);
+        map.on("mouseenter", "satellites-sym", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "satellites-sym", () => { map.getCanvas().style.cursor = ""; });
+      }
+      const enabledGroups = SAT_GROUPS.filter((g) => satGroupsRef.current[g]);
+      // honest empty state: no propagated satellite in ANY enabled group's
+      // recorded set means the server-side feed has never delivered data
+      // for it (first-poll warmup, or R17's Railway->CelesTrak egress
+      // block) — surface why, don't render "active, 0 objects" as if the
+      // layer is simply working over an empty sky.
+      const haveData = enabledGroups.some((g) =>
+        Array.from(satRecRef.current.keys()).some((k) => k.startsWith(`${g}|`)));
+      if (!haveData) {
+        const reason = enabledGroups.map((g) => satIssueRef.current[g]).find(Boolean);
+        setStatus("satellites", "loading", 0, reason || "warming up — first poll can take a few minutes");
+      } else {
+        const note = `${enabledGroups.map((g) => SAT_GROUP_LABEL[g]).join(" + ")} · client-side SGP4 (satellite.js) · ` +
+          `positions propagated from mean elements, not observed`;
+        setStatus("satellites", "active", features.length, note);
+      }
+    };
+    tick();
+    const iv = window.setInterval(tick, 4000);
+    const onVisible = () => { if (!document.hidden) tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVisible);
+      try {
+        map.off("click", "satellites-sym", onSatClick);
+        if (map.getLayer("satellites-sym")) map.removeLayer("satellites-sym");
+        if (map.getSource("satellites")) map.removeSource("satellites");
+      } catch {}
+    };
+  }, [enabled.satellites, mapReady, setStatus, openSatelliteDetail]);
+
   // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
   // per-source status from the server keeps coverage labeling honest) ──
   useEffect(() => {
@@ -2175,6 +2412,7 @@ export default function DataMapPage() {
     id === "sites" ? <MapPin size={15} /> :
     id === "powerplants" ? <Zap size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
+    id === "satellites" ? <Orbit size={15} /> :
     id === "fires" ? <Flame size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
@@ -2294,6 +2532,33 @@ export default function DataMapPage() {
                 {wxGrid?.note || "sampling grid…"}
               </span>
             ) : null}
+          </div>
+        )}
+        {l.id === "satellites" && on && (
+          // group chips (BUILD ORDER 4 #2 sub-toggle pattern, matching the
+          // weather field's arrows/labels checks above): "stations" is
+          // preselected as the cheapest group; the rest are opt-in. An
+          // honest cost callout appears the moment starlink is picked
+          // (several thousand objects — the registry's costTier:"heavy"
+          // badge already covers the layer overall via COST_WEIGHT/
+          // activeCostWeight; this note is the per-GROUP honesty add-on).
+          <div className="vt-field-controls" role="group" aria-label="Satellite groups">
+            {SAT_GROUPS.map((g) => (
+              <label key={g} className="vt-field-check">
+                <input type="checkbox" checked={!!satGroups[g]} onChange={() => setSatGroup(g, !satGroups[g])} />
+                <span>
+                  <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+                              background: SATELLITE_GROUP_COLOR[g], marginRight: 5 }} aria-hidden />
+                  {SAT_GROUP_LABEL[g]}
+                </span>
+              </label>
+            ))}
+            {satGroups.starlink && (
+              <span className="vt-field-note">
+                Starlink is several thousand objects — heaviest group selectable; client-side SGP4 propagation runs
+                every 4s (not per frame) to stay within budget.
+              </span>
+            )}
           </div>
         )}
         {l.id === "shadowstats" && on && shadowStats && shadowStats.loiter_events > 0 && (
@@ -2553,7 +2818,7 @@ export default function DataMapPage() {
               </button>
               {legendOpen && (
                 <div className="vt-legend-body">
-                  {(enabled.aircraft || enabled.vessels || enabled.trains) && (
+                  {(enabled.aircraft || enabled.vessels || enabled.trains || enabled.satellites) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Live Tracking</div>
                       <div className="vt-legend-items">
@@ -2577,6 +2842,11 @@ export default function DataMapPage() {
                           </>
                         )}
                         {enabled.trains && <LegendIcon icon="vt-train" color="#2dd4bf" label="Train" />}
+                        {enabled.satellites && SAT_GROUPS.filter((g) => satGroups[g]).map((g) => (
+                          <span key={g} className="vt-legend-chip">
+                            <i style={{ background: SATELLITE_GROUP_COLOR[g] }} /> {SAT_GROUP_LABEL[g]}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   )}

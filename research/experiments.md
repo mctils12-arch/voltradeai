@@ -8859,3 +8859,94 @@ DECISION RULE: A ships when approved; the 6h server poller stays in
 place at zero marginal cost (if Railway's range ever gets unblocked or
 the egress changes, the stream self-heals and the relay becomes
 redundant — staleness audit will catch that).
+
+## 2026-07-07 — [PRODUCT] ANALYST CONSOLE W2 client half: satellite orbits layer on /data (v1.0.199)
+
+Territory: T-CLIENT (client/src/pages/datamap.tsx, new client/src/lib/
+module) + minimal SHARED touches (datacore/layers.json, package.json —
+last commit, kept small per MERGE-ORDER PROTOCOL). Session-start health
+check: /api/health not reachable from this sandbox (no prod network
+access); reviewed audit trail via git history instead. KNOWN BROKEN #14
+(Tier-3 manipulation-scan audit visibility) has an open, unmerged fix
+(PR #343, held for post-market-close merge per its own note) — not a
+liveness-alarm-class break, doesn't block product work, left untouched.
+
+CHANGE: built the missing client half of W2 (server half + archive
+shipped 2026-07-07 v1.0.196, this repo's own commit 160581e). New
+`client/src/lib/satelliteOrbits.ts`: pure helpers — `ommToTle` (OMM JSON
+-> TLE line pair, satellite.js@4.1.4 has no JSON/OMM constructor so this
+repo does the conversion itself, round-trip-verified byte-for-byte
+against a live CelesTrak ISS OMM+TLE pair, not a hand-built fixture),
+TLE checksum, period-from-mean-motion, element-age formatting, CelesTrak
+catalog link. `datamap.tsx`: new "satellites" layer — `costTier: heavy`,
+OFF by default (Starlink alone is several thousand objects), only
+"stations" (cheapest group) preselected when turned on, per-group
+sub-toggle chips (stations/starlink/gps-ops/geo) with an honest cost
+callout when starlink is picked. Two deliberately separate cadences:
+element FETCH every 20 min (server only refreshes every 6h — matches
+this repo's courtesy-limit spirit), position PROPAGATION on a plain
+4s `setInterval` (never rAF, this file's standing CPU-cost convention),
+hidden-tab gated. Renders as a `circle` layer (cheaper than symbol for a
+potentially multi-thousand-point count). Click -> Detail panel: name,
+NORAD ID, orbital period, propagated altitude, element-set age, RAW/
+no-predictive-claim language, CelesTrak catalog link-out. Registry entry
++ `LAYER_GROUP`/harness-fixture wiring added in the same PR per the R15
+ratchet (`layersWiring.test.ts`) and the harness-fixture convention
+(`scripts/visual_check.mjs`, powergrid precedent).
+
+BUILT BY: worktree-isolated subagent (full build + its own test suite +
+tsc/build/visual verification), session-reviewed before integration
+(read-before-write) per the WORKSTREAM PARTITION's "judgment stays in
+the parent" rule. Independently re-ran the subagent's tsc/test/build/
+visual claims myself before trusting them — all confirmed (see GATES).
+
+FINDING DURING INTEGRATION (own contribution, not the subagent's): the
+subagent's build predates this session's rebase onto main, which had
+meanwhile picked up R17 (2026-07-07, PR #347/#348, entries above) —
+CelesTrak is UNREACHABLE from Railway's production egress entirely
+(connect timeouts, IP-range firewall), so the server-side poller this
+client layer reads from will sit at `warming_up` indefinitely until the
+human approves R17's pending session-relay-ingest decision
+(wishlist.md). The subagent's fetch effect silently swallowed
+`d.warming_up` (`if (stop || d.warming_up) return`) and its render tick
+unconditionally reported `setStatus("satellites", "active", 0, ...)` —
+which would have shipped a layer that silently claims to be "active"
+while showing an empty sky forever, violating this file's own
+established `warming_up` -> `setStatus(id, "loading", 0, "warming up —
+...")` idiom (used 7x elsewhere in datamap.tsx for exactly this shape of
+poller-cache route). Patched before merge: a per-group `satIssueRef`
+now captures the server's `issue` reason (e.g. the real connect-timeout
+cause R17's fix surfaces), and the render tick reports `"loading"` with
+that reason whenever no enabled group has ANY propagated satellite yet,
+falling back to `"active"` only once real data exists. This is a
+measurement-integrity fix to a not-yet-shipped feature (never touched
+any metric already in production), so it ships in this same PR rather
+than as its own — no existing behavior was weakened, a dishonest state
+that had not yet gone live was prevented from doing so.
+
+HYPOTHESIS / EXPECTED: once the human approves R17's relay decision (or
+Railway's egress is otherwise unblocked), this layer lights up with
+zero further client-side work — it was built to read the exact
+`/api/data/satellites` contract server/satellites.ts already serves.
+Until then it renders honestly as "loading — <real reason>", which is
+the correct state, not a bug.
+
+GATES (re-verified independently after rebasing onto origin/main
+e0dd255, which had advanced past this session's original fetch point to
+include W1 globe mode #346 and R17 #347/#348 — merged via stash + a
+one-line import conflict in datamap.tsx, resolved by combining both
+icon imports): `npx tsc --noEmit` 64 errors (baseline, unchanged);
+`npm run test:node` 418/418 passed (409 baseline + 2 from R17 + 7 new);
+`npm run build` succeeds, satellite.js lazy-chunks to 23.56 kB gzip
+11.41 kB (dynamic import keeps it out of the main bundle); `npm run
+visual -- --page data` 0 hard failures at 390/768/1440, "20 layers
+toggled clean" (toggle-consistency battery), legend-parity-ok. `python3
+-m pytest` not runnable in this sandbox (pytest not installed; no
+Python touched, not expected to matter). Version 1.0.198 -> 1.0.199.
+
+FALL-THROUGH: session budget spent on this one build (subagent dispatch
++ independent re-verification + rebase + honesty fix + this log). Not
+STARVED — console_charter.md's RESUME STATE names W3 (time scrubber) as
+the next queued ANALYST CONSOLE item; left for the next PRODUCT/EDGE
+session rather than starting a second build in the same session (one
+logical change per PR, and this session already ran long).

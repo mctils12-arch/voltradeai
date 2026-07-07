@@ -147,3 +147,30 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
   reviewed screenshots (curved vs flat field A/B at 390 confirmed).
   NEXT: W2 client satellite layer (satellite.js SGP4 on the globe;
   field-projection param on the route first), then W3 time scrubber.
+- 2026-07-07 (R17, different session, concurrent): W2's SERVER poller
+  found unreachable from Railway production (connect timeouts to both
+  celestrak.org/.com — IP-range firewall, not a rate limit or key
+  issue). Stream self-reports honestly (`warming_up`); a session-relay
+  ingest fix is filed in wishlist.md pending human approval. Full trace
+  in experiments.md.
+- 2026-07-07 (new session): W2 CLIENT HALF SHIPPED (v1.0.199) —
+  client/src/lib/satelliteOrbits.ts (OMM->TLE conversion, round-trip
+  verified against a live CelesTrak ISS pair — satellite.js@4.1.4 has
+  no JSON/OMM constructor) + the satellite orbits map layer in
+  datamap.tsx: circle-layer render, client-side SGP4 propagation on a
+  4s setInterval (never rAF, hidden-tab gated), OFF by default
+  (costTier heavy — Starlink is several thousand objects), only
+  "stations" preselected, per-group sub-toggle chips, Detail-panel
+  click-through with period/altitude/element-age + CelesTrak link-out.
+  Built by subagent (worktree-isolated), session-reviewed and
+  independently re-verified (tsc/tests/build/visual all re-run, not
+  just trusted). INTEGRATION FINDING: the render tick as built would
+  have reported `"active"` even with zero satellites forever — R17
+  (above) means that is exactly today's production state. Patched
+  before merge to surface the server's real `issue` reason as a
+  `"loading"` status instead (matches this file's own `warming_up`
+  idiom, used elsewhere in datamap.tsx). The layer is code-complete and
+  will light up automatically the moment R17's relay decision ships or
+  Railway's egress is unblocked — no further client work needed then.
+  NEXT: W3 time scrubber ("4D" playback over the archives), or W5
+  entity dossier v2.

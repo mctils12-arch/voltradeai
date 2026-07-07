@@ -247,6 +247,16 @@
    "costTier": "light",
    "source": "Copernicus Sentinel-2 shadow analysis",
    "description": "GATED: may not surface before ladder gate 2 (statistical validation vs EIA ground truth)."
+  },
+  {
+   "id": "satellites",
+   "name": "Satellite orbits",
+   "kind": "raw",
+   "status": "live",
+   "group": "live",
+   "costTier": "heavy",
+   "source": "Orbital data courtesy of CelesTrak (celestrak.org), Dr. T.S. Kelso — GP element sets (OMM JSON)",
+   "description": "Live orbital positions for space stations, Starlink, GPS, and geosynchronous satellites, propagated CLIENT-SIDE with SGP4 (satellite.js) from CelesTrak's latest mean element set per object. RAW: a propagated position from a periodically-refreshed mean element set, not a directly observed location — no predictive claim. Off by default (heavy: Starlink alone is several thousand objects); opt in and choose groups — stations (cheapest) is preselected."
   }
  ]
 }

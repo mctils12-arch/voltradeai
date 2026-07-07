@@ -89,6 +89,10 @@ const FIXTURES = {
       { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
       { id: "boundaries", name: "Country borders", kind: "raw", status: "live", group: "base", costTier: "light", source: "Natural Earth 1:110m (public domain)", description: "Reference borders, off by default." },
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", group: "signals", costTier: "light", source: "Copernicus", description: "Gate-2 locked." },
+      // Satellite orbits (ANALYST CONSOLE W2 client half, 2026-07-07): every
+      // toggleable registry layer must appear in this fixture array — see the
+      // powergrid comment above (R15, layersWiring.test.ts pins the source side).
+      { id: "satellites", name: "Satellite orbits", kind: "raw", status: "live", group: "live", costTier: "heavy", source: "CelesTrak GP element sets (OMM JSON)", description: "Client-side SGP4-propagated positions, off by default (heavy — Starlink alone is thousands of objects)." },
     ],
   },
   // 10,000 synthetic aircraft — the DESIGN.md performance budget says map
@@ -155,6 +159,25 @@ const FIXTURES = {
         owners: [{ cik: "1317904", name: "Oasis Management Co Ltd.", isDirector: false, isOfficer: false, isTenPercentOwner: true, officerTitle: null }],
         transactions: [{ table: "nonDerivative", kind: "open_market_sale", shares: 10000, pricePerShare: 28.9, transactionDate: "2026-06-30" }],
       },
+    ],
+  },
+  // Satellite orbits fixture (ANALYST CONSOLE W2 client half, 2026-07-07):
+  // exact-match on "/api/data/satellites" wins regardless of the real
+  // ?group= query (see the server loop above) — the client keys records by
+  // the group IT requested, never trusts this body's own `group` field, so
+  // one fixture body serving every group is harmless for the click battery.
+  "/api/data/satellites": {
+    kind: "raw", source: "CelesTrak GP element sets (OMM JSON, fixture)",
+    attribution: "Orbital data courtesy of CelesTrak (celestrak.org), Dr. T.S. Kelso",
+    groups: ["stations", "starlink", "gps-ops", "geo"], group: "stations", count: 1,
+    freshness: { newest_epoch: "2026-07-07T12:12:01.986912", fetched_at: 1751889121000 },
+    satellites: [
+      { OBJECT_NAME: "ISS (ZARYA)", OBJECT_ID: "1998-067A", EPOCH: "2026-07-07T12:12:01.986912",
+        MEAN_MOTION: 15.48933372, ECCENTRICITY: 0.0006687, INCLINATION: 51.6304,
+        RA_OF_ASC_NODE: 199.5144, ARG_OF_PERICENTER: 267.6545, MEAN_ANOMALY: 92.3678,
+        EPHEMERIS_TYPE: 0, CLASSIFICATION_TYPE: "U", NORAD_CAT_ID: 25544,
+        ELEMENT_SET_NO: 999, REV_AT_EPOCH: 57490, BSTAR: 0.00011369,
+        MEAN_MOTION_DOT: 5.806e-5, MEAN_MOTION_DDOT: 0 },
     ],
   },
   "/api/health": { status: "ok", checks: {} },

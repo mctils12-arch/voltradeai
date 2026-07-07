@@ -1,6 +1,6 @@
 {
   "name": "rest-express",
-  "version": "1.0.198",
+  "version": "1.0.199",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "tsx script/build.ts",
     "start": "node --max-old-space-size=512 dist/index.cjs",
     "check": "tsc",
-    "test:node": "tsx --test server/*.test.ts",
+    "test:node": "tsx --test server/*.test.ts client/src/lib/*.test.ts",
     "visual": "node scripts/visual_check.mjs"
   },
   "dependencies": {
@@ -74,6 +74,7 @@
     "react-icons": "^5.4.0",
     "react-resizable-panels": "^2.1.7",
     "recharts": "^2.15.2",
+    "satellite.js": "^4.1.4",
     "stripe": "^18.0.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
