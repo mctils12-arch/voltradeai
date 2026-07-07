@@ -8247,3 +8247,36 @@ exception to append-only; the log below it stays append-only)
   under-reporting (-> manifest data-quality note, keep archiving as
   published) vs leading-edge partial (-> same-hour-class fix like
   the US48 DF case).
+
+## 2026-07-07 — [REPAIR] euload archive froze partial leading-edge values — value-aware vintage dedup + gz merge (v1.0.189)
+
+- Territory: T-DATACORE (server/euLoad.ts + test, euload manifest) +
+  SHARED (package.json, this file).
+- FOUND BY THE v1.0.188 OBSERVABILITY FIELDS ON THEIR FIRST CYCLE
+  (the ratchet paying for itself same-day): (1) DE_LU absence =
+  TRANSIENT — back at sane 63.4GW; this cycle ES timed out instead
+  and issues.ES named it from outside; the 48h window + dedup
+  self-heal single-cycle misses, no action. (2) NL window
+  min/mean/max = 2.4/8.2/11.9GW and IT latest 19.3 vs max 44.9 —
+  DIAGNOSIS: partial leading-edge publication that revises upward
+  within hours (TenneT/Terna pattern), NOT series-wide
+  under-reporting.
+- THE REAL DEFECT the diagnosis exposed: dedup key zone|ts|res
+  meant the REVISED (correct) value could never re-archive — the
+  archive would keep the first partial number forever. Silent-
+  corruption class.
+- FIX: value-aware event identity (zone|ts|res|mw) — revisions
+  APPEND as vintage rows (fredMacro precedent; consumers take last
+  per zone|ts|res), exact re-publications still dedup; plus
+  gzipOldLoadDays now MERGES with an existing .gz instead of
+  overwriting (a late revision after gz would have dropped the gz'd
+  rows — second silent-loss edge found while fixing the first).
+  Both pinned in tests. Route/stats unchanged (each sweep already
+  serves current-best).
+- GATES: node 372 fail 0 (battery 7/7 incl. revision-append +
+  gz-merge); tsc 64. Version 1.0.188 -> 1.0.189.
+- VERIFY (pre-stated): after a few cycles, NL's archived vintages
+  for a given leading-edge ts show the upward revision sequence
+  (2.x -> ~8-12GW), and window_mean stabilizes; day-file growth
+  stays modest (revisions are a small multiple of the leading edge
+  only).
