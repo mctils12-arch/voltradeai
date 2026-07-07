@@ -109,7 +109,15 @@ const LAYER_GROUP: Record<string, string> = {
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
+  powergrid: "facilities",
 };
+// [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
+// declaration: the panel marks any live registry id missing from it
+// "reload to enable" (the honest mid-deploy state) — so an id that IS
+// wired but missing here renders PERMANENTLY un-enableable (powergrid
+// shipped v1.0.166 with wiring but no entry; stuck for a day). The
+// wiring ratchet (server/layersWiring.test.ts) now fails CI whenever a
+// non-signal/non-planned registry layer is absent from this map.
 // registry-native grouping (BUILD ORDER 4 #2): datacore/layers.json now
 // carries `group` per layer directly — a future pipeline can slot a new
 // layer into a panel group by editing the registry alone, no datamap.tsx
