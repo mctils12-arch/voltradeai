@@ -1,0 +1,94 @@
+{
+ "criteria": "quoted verbatim + operationalizations (v1 and v2) in scripts/grid_stress_gate2.py header, each written before its run",
+ "multiple_hypothesis_note": "two outcome variants were tried (v1 voided on its own spot-validation rule; v2 pre-stated after the physical diagnosis). Any v2 PASS carries the discount: live forward confirmation (ladder gates 3+) required before trust.",
+ "data": {
+  "erco_days": 2742,
+  "adjusted_demand_fallback_hours": 24,
+  "train_samples": 1460,
+  "valid_samples": 1092
+ },
+ "v1_forecast_exceedance": {
+  "stress_days_train": 157,
+  "stress_days_valid": 64,
+  "spot_validation": {
+   "detected": [],
+   "required": ">=6 of 10",
+   "passed": false
+  },
+  "fit": {
+   "weights_peak_strain_dd": [
+    0.3,
+    0.3,
+    0.4
+   ],
+   "flag_threshold": 0.804
+  },
+  "validation": {
+   "overall_lift": 1.455,
+   "flagged_days": 168,
+   "hit_rate": 0.071,
+   "per_summer": {
+    "2023": {
+     "lift": null,
+     "flagged": 50,
+     "hit_rate": 0.0
+    },
+    "2024": {
+     "lift": 3.001,
+     "flagged": 37,
+     "hit_rate": 0.108
+    },
+    "2025": {
+     "lift": null,
+     "flagged": 10,
+     "hit_rate": 0.0
+    }
+   }
+  },
+  "verdict": "VOID (outcome variable failed spot-validation)",
+  "void_diagnosis": "verified in data before v2: ERCOT emergencies are well-forecast (max strain on famous days +0.4%..+1.3%) and load shedding caps metered demand (Uri mean strain -29%..-32%) \u2014 forecast exceedance is not what Texas grid stress looks like"
+ },
+ "v2_extreme_peak": {
+  "stress_days_train": 36,
+  "stress_days_valid": 24,
+  "spot_validation": {
+   "detected": [],
+   "required": ">=5 of 10 (shed days physically uncapturable)",
+   "passed": false
+  },
+  "fit": {
+   "weights_peak_strain_dd": [
+    0.667,
+    0.167,
+    0.167
+   ],
+   "flag_threshold": 0.8403
+  },
+  "validation": {
+   "overall_lift": 1.554,
+   "flagged_days": 320,
+   "hit_rate": 0.034,
+   "per_summer": {
+    "2023": {
+     "lift": 3.172,
+     "flagged": 76,
+     "hit_rate": 0.079
+    },
+    "2024": {
+     "lift": 0.703,
+     "flagged": 60,
+     "hit_rate": 0.017
+    },
+    "2025": {
+     "lift": null,
+     "flagged": 44,
+     "hit_rate": 0.0
+    }
+   }
+  },
+  "verdict": "VOID (v2 outcome also failed spot-validation)",
+  "void_diagnosis": "verified in data after the run: ERCOT demand grows ~5-6%/yr, so same-month percentiles POOLED across 2019-2022 are blind to early-year emergencies (top-5 August training peaks are all from 2022; Uri's EEA day ranks 4th behind the Feb-2022 cold snap; the demand extreme was Feb 14, the day before the declaration dates). A v3 outcome needs growth-aware extremes + a researched full public event list \u2014 a fresh design for a later session, NOT a third same-session variant (anti-fishing rule)."
+ },
+ "stability_note": "both variants ALSO fail the pre-stated no-single-summer-carry clause on their own terms (v1 lift concentrated in 2024; v2 in 2023 with 2024 at 0.70) \u2014 the stability test caught real regime-carry twice.",
+ "verdict": "VOID (v2 outcome also failed spot-validation)"
+}
