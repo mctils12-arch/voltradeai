@@ -8337,3 +8337,22 @@ exception to append-only; the log below it stays append-only)
   stopping rule and produce its event list from primary sources
   BEFORE re-deriving any outcome; the descriptive surface must carry
   the non-predictive label per Amendment 5c.
+
+## 2026-07-07 — [NO-ACTION] EIA-930 historical backfill VERIFIED COMPLETE on prod (v1.0.184 pre-stated criteria all met; docs only)
+
+- Final state (13:07Z, ~40 min after Mike set GRID_DEMAND_BACKFILL=1):
+  2,927 day-files spanning 2019-01-01 -> 2026-07-08 — the full walk.
+  Archive bytes DROPPED 59MB (mid-pass plain) -> 17.7MB: the
+  gz-at-end ran, which only happens at the end of a completed pass —
+  done-marker confirmed by behavior. Compressed size landed inside
+  the predicted 15-25MB band; peak transient stayed ~130MB against
+  ~2.5GB headroom (volume check done BEFORE the pass per Mike's
+  instruction; no durability risk at any point).
+- Health through the pass: /api/health 200 in 0.24s and
+  /api/data/grid-demand 200 in 0.68s immediately after completion —
+  no R13-style memory/liveness trouble; the seed-window bound +
+  per-year prune protections held (or were never stressed).
+- The archive now holds ~7.5 years of hourly demand AND day-ahead
+  forecast for all 9 respondents — permanent raw material for the
+  gate-2 v3 design (which will use it with growth-aware extremes per
+  the stopping-rule entry above) and any future demand work.
