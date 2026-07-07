@@ -7553,3 +7553,35 @@ exception to append-only; the log below it stays append-only)
   (Appin M0005 centroid in NSW; Double E operating; counts pinned in
   tests); /api/data/streams count=47 with gem manifested after deploy;
   next GEM release re-runs the script and diffs cleanly.
+
+## 2026-07-07 — [REPAIR] R15: powergrid toggle permanently "reload to enable" — wired-list omission + double ratchet — v1.0.177
+
+- REPORTED BY MIKE: the Power grid (TX pilot) toggle stuck in "reload
+  to enable" even in fresh incognito. ROOT CAUSE (one grep): datamap's
+  unwired detection (`!(l.id in LAYER_GROUP)`) treats LAYER_GROUP as
+  the client-wired declaration — v1.0.166 shipped powergrid's registry
+  entry AND render wiring but no LAYER_GROUP entry, so the CURRENT
+  bundle declared its own layer unknown. "Reload to enable" that no
+  reload can fix — the exact class Mike named. Registry-vs-map diff
+  confirmed powergrid was the only affected id.
+- WHY THE HARNESS MISSED IT (double gap): the toggle-consistency
+  battery iterates the harness's hardcoded layers FIXTURE, which also
+  lacked powergrid — the battery never clicked the one toggle that was
+  broken. The v1.0.166 visual run was honestly green over an
+  incomplete universe (a silent-cap lesson applied to test fixtures).
+- FIX + RATCHETS: (1) powergrid → LAYER_GROUP (facilities);
+  (2) RATCHET A, server/layersWiring.test.ts: every non-signal/
+  non-planned id in datacore/layers.json MUST appear in datamap's
+  LAYER_GROUP — a registry entry without the wired declaration now
+  fails CI, making the permanent-unenableable state unrepresentable;
+  (3) RATCHET B: powergrid added to the harness layers fixture with a
+  comment requiring every toggleable registry layer to appear there —
+  the battery now clicks it every run (and did, green, exercising the
+  pmtiles source path).
+- GATES: node 363/363 (1 new ratchet test); tsc 64; build OK; visual
+  harness data-page PASS 390/768/1440 with powergrid exercised.
+  Version 1.0.176 → 1.0.177.
+- VERIFY (pre-stated): post-deploy, a fresh /data load shows the
+  "Power grid (TX pilot)" toggle ENABLED (no reload note); toggling it
+  on renders the TX voltage-classed lines; Mike confirms from his
+  phone (the original report path).

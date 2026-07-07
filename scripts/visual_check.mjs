@@ -68,6 +68,12 @@ const FIXTURES = {
       { id: "trains", name: "Live trains (rail)", kind: "raw", status: "live", group: "live", costTier: "light", source: "Digitraffic FI + Entur NO", description: "FI+NO launch coverage." },
       { id: "sites", name: "Strategic sites", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "datacore/sites", description: "Reference sites." },
       { id: "powerplants", name: "US power plants", kind: "raw", status: "live", group: "facilities", costTier: "moderate", source: "WRI GPPD (CC BY 4.0)", description: "US plants by fuel." },
+      // [REPAIR R15 2026-07-07] powergrid was absent here, so the
+      // toggle-consistency battery never clicked it — and the missing
+      // LAYER_GROUP entry (permanent "reload to enable") shipped unseen.
+      // Every toggleable registry layer must appear in this fixture;
+      // the wiring ratchet (layersWiring.test.ts) pins the source side.
+      { id: "powergrid", name: "Power grid (TX pilot)", kind: "raw", status: "live", group: "facilities", costTier: "moderate", source: "OpenStreetMap power features (© OpenStreetMap contributors, ODbL)", description: "TX pilot vector tiles." },
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
       { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
       { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest." },
