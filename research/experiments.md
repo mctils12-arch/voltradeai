@@ -8795,3 +8795,31 @@ ANALYST CONSOLE program, third build — the first visible one.
   camera — unmistakable; controls/attribution/nav all clear).
 - GATES: harness 0 hard failures; node 409 pass; tsc 64 baseline;
   pytest 476 passed 1 skipped. Version 1.0.196 -> 1.0.197.
+
+## 2026-07-07 — [REPAIR] R17: satellites stream unreachable from Railway — host fallback + real error causes (v1.0.198)
+
+TERRITORY: T-DATACORE (satellites module only). Evidence: two
+consecutive prod boots failed every group sweep with connection-level
+errors (stations/gps-ops "fetch failed", starlink 60s abort) while the
+identical fetch works off-cloud (the W2 build agent's live probe) and
+every OTHER stream's egress works — celestrak.org specifically is
+unreachable/throttled from Railway's ranges, consistent with
+CelesTrak's documented firewalling of abusive datacenter IPs.
+
+- CHANGE: (1) fetchFailureDetail() surfaces undici's buried
+  error.cause (ENOTFOUND/ETIMEDOUT/TLS) so the issues map names the
+  REAL failure, not "fetch failed"; (2) transport-level failures try
+  the alternate official host (celestrak.com) ONCE — the M2M courtesy
+  rule governs server RESPONSES, and a connection that never reached
+  them returned none; an HTTP non-200 still stops the sweep
+  immediately with no alternate-host attempt (pinned by test);
+  (3) fetch timeout 60s -> 120s (starlink is multi-MB; the 60s abort
+  in the evidence may be a slow-but-working pipe).
+- RATCHETS: 2 new tests — fallback-once + non-200-never-falls-back;
+  both-hosts-fail surfaces per-host causes verbatim.
+- NEXT EVIDENCE POINT: this PR's deploy runs a fresh eager sweep. If
+  .com works, done. If both hosts fail, the issues map now names the
+  cause and the fallback decision (session-side fetch? mirror?) gets
+  made on real data — filed as the follow-up path, not built blind.
+- GATES: node battery green (+2), tsc 64 baseline, pytest 476 passed
+  1 skipped. Version 1.0.197 -> 1.0.198.
