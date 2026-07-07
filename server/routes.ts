@@ -1841,7 +1841,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       attribution: "EIA-930 Hourly Electric Grid Monitor",
       time: hit.at,
       count: hit.stats.length,
-      note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; industrial-activity nowcast signals stay gate-locked until ladder validation",
+      note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; latest_forecast_mwh is EIA's day-ahead forecast FOR THE SAME HOUR as latest_mwh (null when not yet published); the US48 forecast aggregate back-fills progressively as BAs report, so it can understate near the leading edge; industrial-activity nowcast signals stay gate-locked until ladder validation",
       respondents: hit.stats,
     });
   });

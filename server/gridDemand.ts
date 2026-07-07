@@ -251,12 +251,14 @@ export async function refreshDemand(fetchImpl: FetchFn = fetch as any,
         const newest = d.length
           ? d.reduce((mx, r) => (r.period > mx.period ? r : mx), d[0])
           : rows.reduce((mx, r) => (r.period > mx.period ? r : mx), rows[0]);
-        const newestDf = df.length
-          ? df.reduce((mx, r) => (r.period > mx.period ? r : mx), df[0])
-          : null;
+        // SAME-period DF only — DF is day-ahead, so its newest rows sit in
+        // FUTURE hours where aggregates are partial (live probe 2026-07-07:
+        // US48 DF T+2h = 74k vs 550k once fully reported). The comparable
+        // number is the forecast for the hour the demand reading covers.
+        const dfAtPeriod = df.find((r) => r.period === newest.period) || null;
         stats.push({ respondent, latest_period: newest.period,
                      latest_mwh: d.length ? newest.mwh : null,
-                     latest_forecast_mwh: newestDf ? newestDf.mwh : null,
+                     latest_forecast_mwh: dfAtPeriod ? dfAtPeriod.mwh : null,
                      hours_in_window: d.length });
       });
       stats.sort((a, b) => a.respondent.localeCompare(b.respondent));

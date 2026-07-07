@@ -100,6 +100,9 @@ test("refresh sweep: one call per respondent, per-respondent stats cached", asyn
              text: async () => JSON.stringify(ENVELOPE([
                ROW("2026-07-06T21", resp, "100"), ROW("2026-07-06T20", resp, "90"),
                { ...ROW("2026-07-06T21", resp, "110"), type: "DF" },
+               // day-ahead: a FUTURE-hour forecast exists but is partial at the
+               // aggregate level (live-probed) — it must never be the readout
+               { ...ROW("2026-07-06T23", resp, "7"), type: "DF" },
              ])) };
   };
   await refreshDemand(ok as any, { EIA_API_KEY: "k" } as any, Date.parse("2026-07-06T22:00:00Z"), base, 0);
@@ -110,7 +113,7 @@ test("refresh sweep: one call per respondent, per-respondent stats cached", asyn
   assert.ok(hit!.stats.every((s) => s.latest_period === "2026-07-06T21" && s.hours_in_window === 2),
     "hours_in_window counts DEMAND rows only — meaning unchanged by v2");
   assert.ok(hit!.stats.every((s) => s.latest_mwh === 100 && s.latest_forecast_mwh === 110),
-    "forecast surfaces additively beside demand");
+    "forecast is the SAME-hour DF, never the newest (future, partial) DF row");
 });
 
 test("backfill: opt-in gate, oldest-first years, pagination, done-marker single pass", async () => {
