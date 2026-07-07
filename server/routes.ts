@@ -72,6 +72,7 @@ import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
+import { bootFinraQueryPoll, latestFinraSi } from "./finraQuery";
 
 const execAsync = promisify(exec);
 
@@ -1659,6 +1660,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
     }
+  });
+
+  // FINRA Query API — settlement-stress datasets (DATACORE MAXIMUS
+  // census build #4 part 1, contract live-verified 2026-07-07):
+  // consolidatedShortInterest (semi-monthly per-symbol SHORT INTEREST —
+  // positions, unlike the short-VOLUME flow above) + thresholdList
+  // (daily Reg SHO threshold names). Cache-only request path.
+  bootFinraQueryPoll();
+  app.get("/api/data/short-interest", (_req, res) => {
+    const hit = latestFinraSi();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "FINRA Query API (consolidatedShortInterest + thresholdList)", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "FINRA Query API — consolidated short interest (semi-monthly) + Reg SHO threshold list (daily); free with attribution",
+      attribution: "FINRA Query API",
+      time: hit.at,
+      settlement_date: hit.si?.settlement_date ?? null,
+      si_records: hit.si?.records ?? 0,
+      note: "SHORT INTEREST (positions, ~T+9 semi-monthly publish) — distinct from /api/data/short-volume (daily flow). " +
+            "Leaderboards floor ADV/position/previous-position (stated in payload) to keep near-zero-base artifacts out; " +
+            "threshold list here is FINRA's OTC side only.",
+      si: hit.si,
+      threshold: hit.threshold,
+    });
   });
 
   // CFTC Commitments of Traders, disaggregated futures-only (RAW —

@@ -1,0 +1,23 @@
+{
+ "stream": "finrashortinterest",
+ "storage": "one gzipped JSONL per SETTLEMENT date under <archive>/finrashortinterest/ (gz-on-write — ~22k rows ≈ 3MB plain, ~1MB gz); partition-level dedup (first capture kept; FINRA revisions carry revisionFlag in later partitions and are NOT re-fetched — stated trade-off)",
+ "written_by": "server/finraQuery.ts refreshFinraQuery (6h poll over the newest 3 settlement partitions; eager boot; full-history backfill env-gated FINRA_QUERY_BACKFILL=1, OFF by default per the R8 crash-loop lesson)",
+ "source": "FINRA Query API consolidatedShortInterest (api.finra.org, keyless; contract live-verified 2026-07-07): POST-only filters (GET params silently ignored), Accept: application/json (GET CSV default is UNQUOTED and corrupts on issueName commas — verified), record-total header = count primitive, HTTP 204 = empty, limit silently clamped at 5000, partitions endpoint lists settlement dates newest-first. Semi-monthly (15th + EOM settlement, ~T+9 publish), 2017-12-29 → present, ~22k records/partition. A partition is archived ONLY when rows fetched === record-total (unordered pagination makes partial reads unusable).",
+ "license": "FINRA data, free with attribution; redistribution/resale of raw data needs FINRA license review before monetization",
+ "attribution": "FINRA Query API",
+ "schema_version": 1,
+ "field_map": {
+  "settlementDate — partition/dedup key": "semi-monthly settlement date YYYY-MM-DD",
+  "symbolCode/issueName/marketClassCode": "issue identity + listing market (NYSE/NNM/OTC…)",
+  "currentShortPositionQuantity/previousShortPositionQuantity/changePercent/changePreviousNumber": "the position level and its change — changePercent EXPLODES on near-zero previous positions (live: +259,847,500%); leaderboards floor both endpoints",
+  "daysToCoverQuantity/averageDailyVolumeQuantity": "FINRA-precomputed days-to-cover + the ADV it divides by",
+  "rt": "capture date stamped by us (vintage honesty)"
+ },
+ "confidence_model": "RAW official semi-monthly short interest as disseminated by FINRA. HYPOTHESIS (gate-locked): days-to-cover extremes and position deltas on small caps join 13F/Form 4 clusters; with thresholdList + FTD + daily short volume forms the settlement-stress composite (census #4). The 2-week publication lag is the anti-crowding feature and the modeling constraint. Nothing is claimed until ladder gate 2.",
+ "geo_fields": [],
+ "entity_key": "settlementDate + symbolCode + marketClassCode",
+ "sentiment": null,
+ "started": "2026-07-07",
+ "cadence": "semi-monthly source (settlement 15th + month-end, published ~T+9); 6h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). Census build #4 part 1 of 2 — the ATS venue summaries (weeklySummary/monthlySummary/blocksSummary, 66k-210k records/week) are a separate follow-up build with their own volume budget."
+}

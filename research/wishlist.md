@@ -67,7 +67,25 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   into dist/datacore/; repoDataPath() resolver + ratchet battery.
   LESSON for every future stream: verify the POSITIVE case on prod,
   not just error-free responses.
-- NEXT CENSUS BUILDS: FINRA Query API cluster, SEC FTD; EPA
+- CENSUS BUILD #4a FINRA Query API: SHIPPED v1.0.170 —
+  server/finraQuery.ts + /api/data/short-interest
+  (consolidatedShortInterest semi-monthly + thresholdList daily;
+  contract live-verified: POST-only filters, record-total pagination,
+  204-as-empty, count-verified partitions; live end-to-end matched
+  the workup exactly: 22,180 records @ 2026-06-15, 17 threshold
+  names @ 2026-07-02). Part 2 (ATS venue summaries weekly/monthly/
+  blocks, 66k-210k rows/week) = separate build, volume budget first.
+  History backfill env-gated FINRA_QUERY_BACKFILL=1 (OFF by default,
+  R8 lesson; SI ~80MB gz + threshold ~8MB when Mike wants it).
+- SEC FTD workup COMPLETE (subagent, findings in experiments
+  2026-07-07): build is next — URL pattern NON-uniform (5 eras since
+  2004; index-page scrape is the robust source; 202605a lives at
+  /files/data/other/ TODAY), half-month boundary is 1-14/15-EOM (not
+  15/16 folklore), 2-line trailer = free checksum, PRICE "." = null,
+  QUANTITY is a level not a flow, earliest 2004-03-22, ~1.3MB zip
+  per half-month, SEC UA etiquette required (default UA → 403).
+- NEXT CENSUS BUILDS: SEC FTD (workup done), FINRA part 2 (ATS
+  summaries), then ECB/Eurostat/Bundesbank + USGS/NDBC; EPA
   CAMD/GEM/ENTSO-E on Mike's keys (9a/9b/9c below).
 
 ## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;

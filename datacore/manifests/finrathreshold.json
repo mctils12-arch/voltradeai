@@ -1,0 +1,23 @@
+{
+ "stream": "finrathreshold",
+ "storage": "one plain JSONL per TRADE date under <archive>/finrathreshold/ (~17 rows/day — gz would be noise); partition-level dedup",
+ "written_by": "server/finraQuery.ts refreshFinraQuery (6h poll over the newest 6 daily partitions; eager boot; full-history backfill env-gated FINRA_QUERY_BACKFILL=1 — 2,635 daily partitions since 2016-01-04, ~60k rows total)",
+ "source": "FINRA Query API thresholdList (api.finra.org, keyless; contract live-verified 2026-07-07 — same POST/record-total/204/partitions contract as finrashortinterest). Daily Reg SHO threshold securities, FINRA's OTC side ONLY (exchange-listed threshold names are published by their listing exchanges, not here — coverage honesty). 2016-01-04 → present, ~17 records/day.",
+ "license": "FINRA data, free with attribution; raw redistribution needs FINRA license review before monetization",
+ "attribution": "FINRA Query API",
+ "schema_version": 1,
+ "field_map": {
+  "tradeDate — partition/dedup key": "trading day YYYY-MM-DD (published nightly ~T+1)",
+  "issueSymbolIdentifier/issueName": "the threshold security",
+  "marketClassCode/marketCategoryDescription": "OTC market class (this dataset is OTC-only)",
+  "regShoThresholdFlag/rule4320Flag": "which fail-driven list the issue is on, as published",
+  "rt": "capture date stamped by us"
+ },
+ "confidence_model": "RAW official daily threshold list (persistent settlement fails ≥ Reg SHO thresholds). HYPOTHESIS (gate-locked): threshold-list PERSISTENCE (consecutive days on the list) x FTD levels x daily short volume = the settlement-stress composite nobody computes (census #4). OTC-only coverage is stated, never extrapolated to listed names.",
+ "geo_fields": [],
+ "entity_key": "tradeDate + issueSymbolIdentifier",
+ "sentiment": null,
+ "started": "2026-07-07",
+ "cadence": "daily source (nightly ~T+1 publish); 6h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). Census build #4 part 1 of 2, thresholdList leg."
+}
