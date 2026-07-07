@@ -2319,3 +2319,31 @@ requires evidence from accumulated EQUITY-READ-INVALID audit rows +
 this incident, one-threshold-at-a-time discipline, and a pre-stated
 rollback trigger. Blocked on: resolution of the 2026-07-07 incident
 (human fills check) so the design fits the true failure mode.
+
+## [HYPOTHESIS] NO2/PM2.5 as an industrial-activity proxy (Google Air Quality × strategic sites) — filed 2026-07-07
+
+Combustion/industrial throughput emits NO2 and PM2.5; AQI over a steel
+mill / tank farm / port should co-move with the facility's activity
+level, giving a near-real-time activity proxy that fuses with the
+power-plant, strategic-site, and grid layers (the Everything Graph).
+Google Air Quality current-conditions archived at our sites, 500m
+resolution; accumulation is the moat (Google exposes only 30d of
+history — every unrecorded day is permanently lost).
+LADDER PATH:
+- Gate 1 (DATA): validate archived AQI-near-site against the site's
+  known activity/output ground truth (e.g. STLD Sinton/Butler
+  utilization vs NO2; Cushing tank-farm activity; port throughput) —
+  is the AQI at 500m actually elevated OVER the facility vs regional
+  background, and does it track known up/down periods?
+- SECOND-ORDER (the confounder that will kill a naive version):
+  weather/wind dominate short-term AQI. De-trend against regional
+  background AND wind before crediting any site-specific signal.
+- DISCOUNT the observed edge by the number of site×pollutant
+  combinations tried (multiple-hypothesis fishing).
+- OUT-OF-SAMPLE confirmation required before Gate 2 (does the activity
+  proxy predict forward returns for the exposed ticker).
+RAW archive only until gated. Runtime: server/airQuality.ts (key-gated
+GOOGLE_MAPS_API_KEY, activates when the human enables the Air Quality
+API on the GCP project). BLOCKED-FOR-MIKE: enable the Air Quality API
+in the Google Cloud console — the stream then activates on the key
+already in Railway.

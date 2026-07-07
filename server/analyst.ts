@@ -42,6 +42,7 @@ import { satellitesResponse, GROUPS } from "./satellites";
 import { latestAlerts } from "./nwsAlerts";
 import { latestGridStress, gridStressEnabled } from "./gridStress";
 import { latestLoad, euLoadEnabled } from "./euLoad";
+import { latestAirQuality, airQualityEnabled } from "./airQuality";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
@@ -108,7 +109,7 @@ const SITES: SiteRef[] = ((datacoreSites as any).sites || [])
   .map((s: any) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon }));
 
 export const DATA_TOOL_NAMES = [
-  "query_window", "satellites", "nws_alerts", "grid_stress", "eu_load", "site_timeline",
+  "query_window", "satellites", "nws_alerts", "grid_stress", "eu_load", "site_timeline", "air_quality",
 ] as const;
 export type DataToolName = (typeof DATA_TOOL_NAMES)[number];
 
@@ -175,6 +176,14 @@ export const ANALYST_TOOLS: Array<{ name: string; description: string; input_sch
       "Latest realised electricity load per EU bidding zone (ENTSO-E cache, 2h poll): latest MW, " +
       "48h window min/max/mean MW, per-zone data issues. Zones: DE_LU, FR, ES, IT, NL, PL, BE, SE. " +
       "No input.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "air_quality",
+    description:
+      "Latest air-quality reading per tracked strategic site (Google Air Quality cache, 3h poll): " +
+      "universal AQI + US EPA AQI (value, category, dominant pollutant) and PM2.5/NO2 concentrations. " +
+      "Archived over time as an industrial-activity proxy. No input.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
@@ -370,6 +379,19 @@ export const defaultExecutors: Record<DataToolName, Executor> = {
       zones: hit.stats, issues: hit.issues,
     };
   },
+  air_quality: () => {
+    if (!airQualityEnabled()) return { enabled: false, awaiting_key: true, reason: "GOOGLE_MAPS_API_KEY not set" };
+    const hit = latestAirQuality();
+    if (!hit) return { warming_up: true, note: "air-quality cache not populated yet" };
+    return {
+      source: "Google Air Quality API (current conditions), 3h poll",
+      attribution: "Air quality data © Google",
+      fetched_at: iso(hit.at),
+      awaiting_enable: hit.awaiting_enable,
+      note: "universal + US EPA AQI, PM2.5/NO2 per strategic site; archived as an industrial-activity proxy (Google exposes only 30d history)",
+      sites: hit.readings, issues: hit.issues,
+    };
+  },
   site_timeline: async (input) => {
     const siteId = input?.siteId != null ? String(input.siteId) : null;
     const site = SITES.find((s) => s.id === siteId);
@@ -402,7 +424,7 @@ export function freshnessOf(tool: string, result: any): string | null {
       return max;
     }
     if (tool === "satellites") return result?.freshness?.newest_epoch ?? null;
-    if (tool === "nws_alerts" || tool === "eu_load") return result?.fetched_at ?? null;
+    if (tool === "nws_alerts" || tool === "eu_load" || tool === "air_quality") return result?.fetched_at ?? null;
     if (tool === "grid_stress") return result?.computed_at ?? null;
     if (tool === "site_timeline") return result?.as_of || null;
   } catch {}
@@ -428,6 +450,11 @@ function summarize(tool: string, result: any): string {
     if (tool === "eu_load") {
       if (result?.enabled === false) return "unavailable (no key)";
       return result?.warming_up ? "warming up" : `${(result?.zones || []).length} zones`;
+    }
+    if (tool === "air_quality") {
+      if (result?.enabled === false) return "unavailable (no key)";
+      if (result?.awaiting_enable) return "API not enabled on the GCP project";
+      return result?.warming_up ? "warming up" : `${(result?.sites || []).length} sites`;
     }
     if (tool === "site_timeline") {
       if (result?.unknown_site !== undefined) return `unknown site — listed ${(result?.known_sites || []).length} valid ids`;

@@ -1,0 +1,26 @@
+{
+ "stream": "airquality",
+ "storage": "append-only JSONL day-files under <archive>/airquality/, keyed by the reading's UTC day, with event-identity dedup (siteId|dateTime) across restarts — Google rounds dateTime down to the hour, so one row per site per hour; seed window 45d (> the API's 30-day history horizon; heap bound); gz after 3 days with merge-not-overwrite for late-arriving readings",
+ "written_by": "server/airQuality.ts archiveAirQuality (3h poll of strategic-site current conditions; 8 calls/day/site × 16 sites = 128/day, well under the 5,000/mo free tier; DAILY_CALL_BUDGET=150 self-limits to a rotating 18-sites/cycle subset if the site list grows; eager boot; key-gated on GOOGLE_MAPS_API_KEY)",
+ "source": "Google Maps Platform Air Quality API (airquality.googleapis.com/v1 currentConditions:lookup) — universalAqi + LOCAL_AQI + POLLUTANT_CONCENTRATION at the strategic_sites.json coordinates. 70+ pollutants incl. PM2.5/NO2 at 500m, 100+ countries. Contract mirrored from the documented reference; built against fixtures — no live call in the build. Two honest gate states: awaiting_key (no GOOGLE_MAPS_API_KEY) and awaiting_enable (key present but the API is not yet enabled on the GCP project → HTTP 403 PERMISSION_DENIED/SERVICE_DISABLED). Activates automatically once the human enables the API in the Google Cloud console.",
+ "license": "Google Maps Platform Air Quality API — usage governed by the Google Maps Platform Terms of Service; content requires the attribution 'Air quality data © Google' displayed on every surface",
+ "attribution": "Air quality data © Google",
+ "sentiment": null,
+ "schema_version": 1,
+ "field_map": {
+  "siteId|dateTime — event-identity dedup key": "strategic-site id + RFC3339 UTC hour-rounded observation time; exact re-publications drop, a new hour appends",
+  "dateTime": "RFC3339 UTC timestamp from the API, rounded down to the hour; never fabricated (a doc with no dateTime is skipped, not guessed)",
+  "uaqi / uaqi_category / uaqi_dominant": "Universal AQI index (code 'uaqi'): value 0-100, category label, dominant pollutant code",
+  "epa_aqi / epa_category / epa_dominant": "US EPA AQI index (LOCAL_AQI code 'usa_epa'): value, category label, dominant pollutant code",
+  "pm25 / pm25_units": "PM2.5 concentration value + units (typically MICROGRAMS_PER_CUBIC_METER)",
+  "no2 / no2_units": "NO2 concentration value + units (typically PARTS_PER_BILLION)",
+  "indexes / pollutants": "the full index and pollutant arrays kept verbatim (70+ pollutants available) — the extracted fields above are what the signal uses",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW measured/modelled air-quality readings as reported by Google's Air Quality API (a fusion of monitoring stations, satellites, and dispersion models — presented as-is with attribution, no predictive claim). HYPOTHESIS (gate-locked): NO2/PM2.5 over an industrial site is a combustion/activity proxy that fuses with the power-plant, strategic-site and grid layers; we archive over time because Google exposes only 30 days of history and accumulation is the moat. Nothing traded or sold until the ROOT VALIDATION LADDER gates (gate 1: AQI-near-site vs the site's known activity/output).",
+ "geo_fields": ["siteId (resolves to lat/lon in datacore/sites/strategic_sites.json)"],
+ "entity_key": "siteId + dateTime",
+ "started": "2026-07-07",
+ "cadence": "current conditions poll every 3h per strategic site (~hourly source resolution); 30-day hourly history available for a filed backfill decision (volume estimate first), NOT built in v1",
+ "_note": "Universal archive envelope (approved 2026-07-04). EDGE-DOCTRINE data root; T-DATACORE. Heatmap tiles (map overlay) and history backfill are separate LATER PRs."
+}

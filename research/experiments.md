@@ -9003,3 +9003,47 @@ server tool-loop shipped v1.0.199 (#349).
 - MILESTONE: the ANALYST CONSOLE front-end is COMPLETE end-to-end
   (chat + globe + query spine). It activates the moment
   ANTHROPIC_API_KEY lands in Railway — no further deploy needed.
+
+## 2026-07-07 — [PIPELINE] Google Air Quality stream — /api/data/air-quality + analyst tool (v1.0.202)
+
+TERRITORY: T-DATACORE (airQuality module + manifest) + routes.ts &
+analyst.ts (SHARED, minimal edits). New EDGE-DOCTRINE data root, human
+directive (Google Maps Platform API review): Air Quality is the one
+data-bearing Google API worth a real stream now.
+
+- WHAT: server/airQuality.ts — Google Air Quality API current
+  conditions archived at our ~16 strategic sites (universal AQI + US
+  EPA AQI + PM2.5 + NO2 at 500m). Key-gated on GOOGLE_MAPS_API_KEY
+  (already in Railway) with a SECOND honest state awaiting_enable
+  (key present but the Air Quality API not yet enabled on the GCP
+  project → 403 SERVICE_DISABLED → breaks the cycle, archives nothing,
+  activates automatically on enable). FREE-TIER BUDGET GUARD: 5,000
+  calls/mo free; 16 sites x 3h poll = 128/day; DAILY_CALL_BUDGET=150,
+  rotating-subset self-limit if the site list grows past 18/cycle,
+  stated in the route envelope — never silently exceeds, never
+  fabricates. Dedup siteId|dateTime; day-file per UTC day; gz-merge
+  after 3d; key scrubbed from every record/issue/log (it rides the
+  URL query per Google's contract). Route GET /api/data/air-quality
+  cache-only; analyst tool "air_quality" wired (7th data tool).
+- WHY / HYPOTHESIS (filed open_questions.md, gate-locked): NO2/PM2.5
+  over an industrial site is a combustion/activity proxy fusing with
+  power-plant/site/grid layers. Gate 1 = AQI-near-site vs the site's
+  known output, de-trended against regional background + wind (the
+  confounder), discounted for combinations tried, out-of-sample before
+  gate 2. RAW archive only until gated — accumulation is the moat
+  (Google exposes only 30d history).
+- BUILD-FIRST NOTE: of the Google Maps Platform environment APIs, only
+  Air Quality earns a stream now; Solar/Pollen/Aerial View have no
+  market-signal build and were NOT enabled (idle-meter discipline).
+- HOW: worktree subagent (fixtures only, NO live call — the API is
+  likely disabled); session read the module line-by-line and wired the
+  SHARED route + analyst tool itself (partition rule).
+- TESTS: 10 in airQuality.test.ts (key gate/zero-calls, url+body+
+  heatmap contract, parse extract, awaiting_enable, happy-path archive,
+  dedup, day-file+gz-merge, budget guard rotating-subset, key-scrub,
+  manifest). manifests.test.ts + analyst.test.ts pass with the new
+  tool.
+- GATES: node 438 pass 0 fail; tsc 64 baseline; pytest 476 passed 1
+  skipped. Version 1.0.201 -> 1.0.202.
+- BLOCKED-FOR-MIKE: enable the Air Quality API in the Google Cloud
+  console; the stream then lights up on the existing key.
