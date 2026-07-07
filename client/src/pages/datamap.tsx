@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -80,6 +80,22 @@ interface Detail {
 const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
+
+// ── W1 GLOBE MODE (ANALYST CONSOLE charter, 2026-07-07) ──
+// MapLibre v5 native globe projection is the default view; the library
+// itself interpolates globe→mercator as you zoom in, so close-in work is
+// unaffected. The choice is a lasting preference (localStorage, unlike the
+// per-session fullscreen flag). Read by both the map bootstrap (initial
+// style) and the toggle state so the two can never disagree.
+const GLOBE_PREF_KEY = "vt-map-globe";
+const readGlobePref = (): boolean => {
+  try {
+    const v = window.localStorage.getItem(GLOBE_PREF_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {}
+  return true; // charter default: the cinematic globe
+};
 
 // Harness kill switch (v2.4 ZERO-COST-WHEN-OFF assertion): with
 // vt-layers-all-off set, only the base imagery mounts — the harness then
@@ -235,6 +251,30 @@ export default function DataMapPage() {
       document.body.classList.remove("vt-map-fullscreen");
     };
   }, [fullscreen]);
+  // ── W1 globe/flat projection toggle (console charter) ──
+  // globeSupport: "ok" once the loaded maplibre exposes setProjection;
+  // "unavailable" if it doesn't OR a projection call throws at runtime
+  // (GPU/WebGL constraint) — then the map stays mercator and the toggle
+  // renders disabled with the reason in its title. Never a broken map,
+  // never a silent failure.
+  const [globeOn, setGlobeOn] = useState<boolean>(readGlobePref);
+  const [globeSupport, setGlobeSupport] = useState<"unknown" | "ok" | "unavailable">("unknown");
+  useEffect(() => {
+    try { window.localStorage.setItem(GLOBE_PREF_KEY, globeOn ? "1" : "0"); } catch {}
+    const map = mapRef.current;
+    if (!map || !mapReady || globeSupport !== "ok") return;
+    try {
+      // normalize: getProjection() is undefined until a projection was set
+      const cur = (map.getProjection?.() || {}).type || "mercator";
+      const want = globeOn ? "globe" : "mercator";
+      // zero-cost-when-off: with the flat preference the bootstrap style
+      // carries no projection and cur===want — no projection API work at all.
+      if (cur !== want) map.setProjection({ type: want });
+    } catch {
+      setGlobeSupport("unavailable");
+      setGlobeOn(false);
+    }
+  }, [globeOn, mapReady, globeSupport]);
   const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
@@ -339,10 +379,18 @@ export default function DataMapPage() {
           const { Protocol } = await import("pmtiles");
           maplibregl.addProtocol("pmtiles", new Protocol().tile);
         } catch {}
+        // W1 globe: feature-detect on the loaded library (an older bundle
+        // or constrained runtime without setProjection degrades to flat
+        // with the toggle disabled), then bake the initial projection into
+        // the style so the first paint is already in the preferred mode.
+        const canGlobe = typeof (maplibregl.Map.prototype as any).setProjection === "function";
+        setGlobeSupport(canGlobe ? "ok" : "unavailable");
+        const startGlobe = canGlobe && readGlobePref();
         const map = new maplibregl.Map({
           container: mapContainer.current,
           style: {
             version: 8,
+            ...(startGlobe ? { projection: { type: "globe" } } : {}),
             glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
             sources: {
               imagery: { type: "raster", tiles: [IMAGERY_TILES], tileSize: 256, attribution: IMAGERY_ATTRIB },
@@ -2383,6 +2431,25 @@ export default function DataMapPage() {
               onClick={() => setFullscreen((v) => !v)}>
         {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
       </button>
+      {/* W1 globe/flat projection toggle — same control family as the
+          fullscreen button above it (icon shows the action it performs,
+          matching the fullscreen convention). Disabled-with-reason when
+          the runtime can't do globe; the map stays flat, never broken. */}
+      {(() => {
+        const globeActive = globeOn && globeSupport !== "unavailable";
+        return (
+          <button className="vt-map-globe-btn" data-vt-globe
+                  aria-label={globeActive ? "Switch to flat map projection" : "Switch to 3D globe projection"}
+                  aria-pressed={globeActive}
+                  disabled={globeSupport === "unavailable"}
+                  title={globeSupport === "unavailable"
+                    ? "3D globe unavailable on this device (the map runtime lacks globe projection support) — flat map shown"
+                    : globeActive ? "Switch to flat map" : "Switch to 3D globe"}
+                  onClick={() => setGlobeOn((v) => !v)}>
+            {globeActive ? <FlatMapIcon size={18} /> : <GlobeIcon size={18} />}
+          </button>
+        );
+      })()}
       <div ref={mapContainer} className="vt-map-canvas" />
 
       {!mapReady && !mapError && (

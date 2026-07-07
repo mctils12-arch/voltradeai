@@ -8759,3 +8759,39 @@ TERRITORY: T-DATACORE (satellites module + manifest) + routes.ts
 - NEXT (charter RESUME STATE): W1 globe mode + client satellite layer
   (satellite.js propagation; field-projection param first — starlink
   payload is a few MB), then W3 time scrubber.
+
+## 2026-07-07 — [PRODUCT] W1: 3D globe mode default on the /data map (v1.0.197)
+
+TERRITORY: T-CLIENT (datamap.tsx, index.css, visual_check.mjs).
+ANALYST CONSOLE program, third build — the first visible one.
+
+- WHAT: MapLibre v5 NATIVE globe projection (zero new dependencies) is
+  now the /data map default; a [data-vt-globe] toggle (stacked under
+  the fullscreen control, same 44px family) flips globe/flat,
+  persisted in localStorage (a lasting preference, unlike the
+  per-session fullscreen flag — deviation from existing
+  sessionStorage toggles, accepted deliberately). Projection is baked
+  into the bootstrap style so the FIRST paint is already the
+  preferred mode. Degradation: runtime without setProjection (or a
+  throwing call) -> mercator + disabled toggle with the reason in its
+  title — never broken, never silent. Zero-cost-when-off: with the
+  flat pref no projection API work happens at all.
+- EVIDENCE (harness, 0 hard failures, all pages x 390/768/1440):
+  data 390 TTI 2061ms (<3000), median frame 33ms, p95 67ms; all-off
+  zero-cost TTI 1023-1086ms with 0 disallowed API calls; 19 layers
+  toggled clean IN GLOBE MODE; fields (temp/wind rasters) render on
+  the sphere; hillshade verified by synthetic-DEM pixel test
+  (meanDiff 24.05 globe vs 24.12 mercator). MOBILE DEFAULT = GLOBE on
+  A/B evidence: 390px globe median 33/33/33ms vs flat 17/33/33ms,
+  overlapping p95 — no perf case for a flat default.
+- RATCHETS (harness STRENGTHENED, nothing weakened): new GLOBE MODE
+  battery (default-is-globe assertion, globe->flat->globe round-trip,
+  localStorage persistence, aria-pressed sync, both-mode screenshots
+  at z1.3 every width); [data-vt-globe] added to BOTH occlusion
+  hit-tests (self-see + fields-on).
+- REVIEW: built by a worktree-isolated subagent; session re-ran the
+  full harness on the integrated tree and reviewed the screenshots
+  (390px curved-field globe shot vs axis-aligned flat shot, same
+  camera — unmistakable; controls/attribution/nav all clear).
+- GATES: harness 0 hard failures; node 409 pass; tsc 64 baseline;
+  pytest 476 passed 1 skipped. Version 1.0.196 -> 1.0.197.

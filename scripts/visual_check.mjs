@@ -641,6 +641,52 @@ async function main() {
         }
       }
 
+      // ── W1 GLOBE MODE (console charter, 2026-07-07): the /data map
+      // defaults to MapLibre's native globe projection; [data-vt-globe]
+      // flips to flat (mercator) and back, persisting the choice in
+      // localStorage. Asserts the default, the round-trip, and the
+      // persisted preference; screenshots both modes at a low zoom where
+      // the sphere silhouette is unmistakable (PR evidence — a black
+      // square or a flat rectangle in the "globe" shot is a review fail).
+      try {
+        if (!cfg.map) throw { skip: true };
+        const globeBtn = page.locator("[data-vt-globe]");
+        if (!(await globeBtn.count())) {
+          checks.failures.push("globe: [data-vt-globe] projection toggle missing");
+          throw { skip: true };
+        }
+        const projOf = () => page.evaluate(() => {
+          try { return (window.__vtMap.getProjection?.() || {}).type || "mercator"; } catch { return "probe-error"; }
+        });
+        const p0 = await projOf();
+        if (p0 !== "globe") checks.failures.push(`globe: default projection '${p0}' != 'globe' (charter default)`);
+        // low-zoom evidence shots: same camera for globe and flat
+        const cam = await page.evaluate(() => {
+          const m = window.__vtMap; const c = m.getCenter();
+          return { lng: c.lng, lat: c.lat, zoom: m.getZoom() };
+        });
+        await page.evaluate(() => window.__vtMap.jumpTo({ center: [-96.77, 30], zoom: 1.3 }));
+        await page.waitForTimeout(900);
+        await page.screenshot({ path: path.join(OUT, `${name}-globe-${vp.w}.png`) });
+        await globeBtn.click();
+        await page.waitForTimeout(700);
+        const p1 = await projOf();
+        const pref1 = await page.evaluate(() => { try { return localStorage.getItem("vt-map-globe"); } catch { return null; } });
+        if (p1 !== "mercator") checks.failures.push(`globe: after toggle projection '${p1}' != 'mercator'`);
+        if (pref1 !== "0") checks.failures.push(`globe: flat choice not persisted (vt-map-globe='${pref1}')`);
+        const pressed1 = await globeBtn.getAttribute("aria-pressed");
+        if (pressed1 !== "false") checks.failures.push(`globe: toggle aria-pressed '${pressed1}' desynced from flat state`);
+        await page.screenshot({ path: path.join(OUT, `${name}-flat-${vp.w}.png`) });
+        await globeBtn.click();
+        await page.waitForTimeout(700);
+        const p2 = await projOf();
+        if (p2 !== "globe") checks.failures.push(`globe: toggle back gave '${p2}' != 'globe'`);
+        // restore the default camera for the batteries that follow
+        await page.evaluate((c) => window.__vtMap.jumpTo({ center: [c.lng, c.lat], zoom: c.zoom }), cam);
+        await page.waitForTimeout(500);
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("globe: driver error — " + (e?.message || e));
+      }
       // ── SELF-SEE (DESIGN.md, human-approved 2026-07-04): after any panel/
       // overlay change, ALL registered content must be reachable — visible or
       // behind an on-screen expand control. The 2026-07-04 defect: the panel
@@ -685,7 +731,9 @@ async function main() {
           }
           // v2.4 CONTROL OCCLUSION: with the panel OPEN, no map control may
           // sit under it (the production defect: zoom buttons covered).
-          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]"]) {
+          // [data-vt-globe] added W1 (console charter): the projection
+          // toggle is a registered map control like the others.
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`self-see: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();
@@ -968,7 +1016,7 @@ async function main() {
           // v2.4 occlusion rule re-checked WITH fields on: enabling a layer
           // grows the attribution strip — it may not spread under controls
           // (the 390px defect this caught: 2-line attribution over zoom-out).
-          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]"]) {
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`fields-on: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();
