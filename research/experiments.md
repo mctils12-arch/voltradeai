@@ -8142,3 +8142,74 @@ exception to append-only; the log below it stays append-only)
   resolution on DE_LU specifically) within 2 poll cycles; streams
   inventory count grows to 50 with the euload envelope. If a zone
   acks persistently, the ack text is in the logs by design.
+
+## 2026-07-07 — [REPAIR] alpaca_feed SIP-transition logs corrupt subprocess stdout JSON — ML retrain failing 3/3 hourly cycles (v1.0.187, PR #327)
+
+- Territory: T-BOT (alpaca_feed.py is a shared data-plane module; the
+  break manifests through server/bot.ts's tier3Strategic retrain path
+  and ml_model_v2.py) + SHARED (package.json, this file).
+- SESSION-START HEALTH CHECK found this, not a queued item: /api/health
+  ok, equityPeak correctly persisted (109432.59, drawdownPct 0.0,
+  liveness.dark:false — the v1.0.35/v1.0.36 fixes both holding).
+  /api/diag/ml and /api/diag/audit (token-gated, human-approved
+  2026-07-04) showed model_age_hours climbing 27.2->27.3 with
+  feedback_live_count still 0 (all 1326 feedback rows seeded — expected
+  per KNOWN BROKEN #12's still-open reseed-check gate, not new). Pulled
+  the last 200 audit entries: 3/3 TIER3-ML-ERROR entries (09:26, 10:26,
+  10:55 — every hourly Tier-3 cycle in the window) with identical text:
+  `ML retrain failed (code=? signal=none): Unexpected token 'F',
+  "[FEED] SIP "... is not valid JSON`.
+- ROOT CAUSE (READ BEFORE WRITE trace): `alpaca_feed.data_feed()`
+  (v1.0.150's SIP-403 self-repair) prints `[FEED] SIP entitlement
+  rejected...` / `...restored...` straight to STDOUT on any feed-state
+  transition. `ml_retrain_safe.py` is invoked by bot.ts as
+  `execPythonSerialized("python3 ml_retrain_safe.py")` — a FRESH
+  subprocess every hour, so alpaca_feed's module-level `_state`
+  (`probed_at: 0.0`) always re-probes on first use. Since SIP is
+  currently 403-rejected in prod, this branch fires on literally every
+  invocation, and the print lands inside the exact stdout blob bot.ts
+  does `JSON.parse(trainOut.trim())` on — corrupting it every time.
+  SECOND FINDING, same root cause, worse blast radius: tier3Strategic's
+  manipulation_detect scan (bot.ts ~3987) shares the identical
+  subprocess-JSON-stdout contract and calls into the same data_feed()
+  path — its catch block only `console.error`s (never `audit()`s), so
+  this was ALSO silently failing every hour with zero trail in the
+  persisted audit log. Not touched this PR (would be a second logical
+  change) — flagged in open_questions.md below.
+- FIX: both prints -> `file=sys.stderr` (stderr is diagnostic-only by
+  every caller's existing contract; Railway still captures it in logs).
+  Zero behavior change to the feed-selection logic itself — pure I/O
+  channel fix.
+- RATCHET: `test_state_transition_logs_never_touch_stdout` in
+  test_alpaca_feed.py captures stdout via `contextlib.redirect_stdout`
+  across both the 403-downgrade and the restore transition, asserts
+  empty. A/B-VERIFIED: stashed the fix, test failed with the exact
+  production error string reproduced locally
+  (`AssertionError: '[FEED] SIP entitlement rejected...' != ''`);
+  restored the fix, test passes. This is not a hypothetical ratchet —
+  it reproduces the live incident byte-for-byte.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): fixed retrain -> model
+  actually refreshes hourly again -> ML features/predictions stop
+  silently drifting stale -> once live feedback accumulates beyond the
+  current 0 (all 1326 rows are seeded/backtest, per KNOWN BROKEN #12)
+  retrain quality directly affects scoring honesty (HONESTY METRIC).
+  No trading logic, threshold, or scoring changed — PROMOTION RULE 3's
+  backtest requirement does not apply (data-plane logging plumbing
+  only, not a strategy/parameter change).
+- GATES: `python3 -m pytest -q` 472 passed, 1 skipped (baseline 471 +
+  1 new). No .ts/.js files touched — node/tsc gates and the visual
+  harness don't apply (this session's environment also has no
+  node_modules installed, unrelated to this fix's scope: zero JS/TS
+  changed). Version 1.0.186 -> 1.0.187.
+- VERIFY (pre-stated): post-deploy, /api/diag/audit should show
+  TIER3-ML-ERROR entries stop recurring at the next hourly Tier-3 cycle
+  (or, if SIP is still 403 by then, a genuine retrain success/failure
+  with real Python error text instead of the stdout-corruption
+  artifact); model_age_hours in /api/diag/ml should drop after a
+  successful retrain instead of monotonically climbing.
+- FOLLOW-UP FILED (open_questions.md): manipulation_detect's tier3
+  scan failure path (bot.ts ~3998) logs to console.error only, never
+  audit() — same visibility gap the diagnostics extended_checks fix
+  (KNOWN BROKEN #5) closed for social_data/finnhub_data. A future
+  session should route it through audit() the same way, its own PR
+  since it's a distinct (if related) fix.

@@ -5,6 +5,8 @@ hardcoded feed choices from ever creeping back into runtime code.
 
 Run: python3 -m pytest test_alpaca_feed.py -q
 """
+import contextlib
+import io
 import os
 import re
 import unittest
@@ -54,6 +56,31 @@ class TestFeedResolution(unittest.TestCase):
         self.assertEqual(alpaca_feed.data_feed(now=1000 + 2 * (alpaca_feed.PROBE_TTL_S + 1),
                                                probe=lambda: 500), "delayed_sip",
                          "5xx while degraded keeps delayed_sip, no flapping")
+
+    def test_state_transition_logs_never_touch_stdout(self):
+        """[REPAIR 2026-07-07] alpaca_feed is imported by one-shot subprocesses
+        whose ENTIRE stdout is JSON.parse'd by the caller (ml_retrain_safe.py
+        -> bot.ts tier3Strategic; manipulation_detect scan). A fresh
+        subprocess always re-probes (probed_at resets to 0.0), so while SIP
+        stays 403 a stdout print here breaks that JSON.parse on EVERY
+        invocation — confirmed live in production: 3/3 hourly retrains failed
+        with "Unexpected token 'F', \\"[FEED] SIP \\"... is not valid JSON".
+        Any transition log MUST go to stderr, never stdout."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            feed = alpaca_feed.data_feed(now=1000, probe=lambda: 403)
+        self.assertEqual(feed, "delayed_sip")
+        self.assertEqual(out.getvalue(), "",
+            "a 403 downgrade transition wrote to stdout — this corrupts any "
+            "JSON.parse(subprocess_stdout) caller, e.g. ml_retrain_safe.py")
+
+        out2 = io.StringIO()
+        with contextlib.redirect_stdout(out2):
+            feed = alpaca_feed.data_feed(now=1000 + alpaca_feed.PROBE_TTL_S + 1,
+                                          probe=lambda: 200)
+        self.assertEqual(feed, "sip")
+        self.assertEqual(out2.getvalue(), "",
+            "a restore transition wrote to stdout — same corruption risk")
 
     def test_env_override_forces_and_skips_probe(self):
         os.environ["ALPACA_DATA_FEED"] = "iex"

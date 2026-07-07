@@ -368,6 +368,27 @@
     hex, since `hsl()` requires the bare-triple form) to confirm no
     visual regression before shipping.
 
+14. **[FOUND 2026-07-07, PR #327 — not repaired this PR, deliberately]
+    manipulation_detect's Tier-3 scan failure is invisible.** Same root
+    cause as the ML-retrain stdout-corruption bug this PR fixed
+    (alpaca_feed.data_feed() printing "[FEED] SIP..." to stdout inside
+    a one-shot subprocess whose stdout must be pure JSON) also breaks
+    `server/bot.ts`'s manipulation_detect scan (~line 3987) whenever SIP
+    stays 403-rejected — but that call site's catch block only
+    `console.error`s, never `audit()`s, so the failure leaves ZERO
+    trail in the persisted audit log (unlike the ML retrain path, which
+    at least surfaced as TIER3-ML-ERROR). This is the same visibility
+    gap KNOWN BROKEN #5 closed for social_data/finnhub_data via
+    extended_checks — a silent `except`/no-audit swallow hides a live
+    break exactly per the HONESTY METRIC risk. NOT fixed in the same PR
+    as the retrain fix (one logical change per PR) — the print->stderr
+    fix already resolves the underlying corruption for BOTH call sites
+    once deployed; what remains is adding `audit()` visibility to the
+    manipulation_detect catch block so a *future* failure of any kind
+    there doesn't go dark again. NEXT STEP: route bot.ts's
+    tier3Strategic manipulation-scan catch block through `audit()`
+    (mirroring the ML-retrain catch block's existing pattern), own PR.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
