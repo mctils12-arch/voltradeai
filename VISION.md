@@ -206,3 +206,48 @@ signals trade in paper, live-vs-backtest divergence stays the honesty
 metric, and the /data surface shows customers exactly what the bot sees
 (RAW) or has validated (SIGNAL). The factory (CLAUDE.md GOAL) is
 unchanged — this charter only names what the factory is building toward.
+
+## Strategic update — DATA IS THE MOAT, EXPERIENCE IS THE DOOR (human directive, 2026-07-07)
+
+> PROVENANCE: human-directed strategic update received 2026-07-07
+> in-session and installed the same day as CLAUDE.md Amendment 5
+> (GOAL weighting note + PREMIUM EXPERIENCE STANDARD standing
+> behavior). Quoted lines are verbatim from the directive; connective
+> text is session-condensed. This section appends to the charter — it
+> rewrites nothing above.
+
+The core asset is the proprietary data platform — the compounding
+archives, pipelines, and validated signals. The trading front-end is
+its showcase, and the bot is customer zero. But the door matters as
+much as the moat: "a premium, polished surface is not secondary to
+the data — it is how the data's accuracy becomes visible and
+believable. Neither is allowed to degrade for the other."
+
+**Priority weighting for self-proposed work** (within CLAUDE.md GOAL
+priorities 3–4; directed sessions follow their directives):
+
+1. Deepening irreplaceable archives — the data nobody can back-buy.
+2. Validated signal products — readings that have passed the ladder.
+3. Data products with clean licensing and API surfaces.
+4. Showcase/experience quality at the premium standard below.
+5. General SaaS features — after all of the above.
+
+**PREMIUM EXPERIENCE STANDARD** (the bar for every user-facing
+surface):
+
+- (a) One coherent design system (DESIGN.md governs).
+- (b) Perceived performance is a feature — skeletons, progressive
+  loading, zero jank; the perf harness gates feel, not just load
+  time.
+- (c) Every number visibly carries freshness, provenance, and
+  confidence — "the honesty machinery, surfaced beautifully, is
+  simultaneously the brand and the proof of accuracy."
+- (d) Periodic design-polish passes are real prioritized work, not
+  filler.
+- (e) Mobile-flawless at 390px, always.
+- (f) Shipping test: "would a paying data customer screenshot this
+  and trust it?"
+
+Accuracy stays non-negotiable: "premium presentation of wrong numbers
+is fraud with good typography. When polish and correctness ever
+conflict, correctness wins."

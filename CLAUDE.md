@@ -47,6 +47,19 @@ When priorities conflict, the higher number NEVER wins over the lower:
    (wishlist), web research, and the user-facing features that
    surface them.
 
+(Amendment 5, human-approved 2026-07-07 — DATA IS THE MOAT,
+EXPERIENCE IS THE DOOR; full directive text in VISION.md.) Within
+priorities 3–4, SELF-PROPOSED work weighs in this order: (1)
+deepening irreplaceable archives; (2) validated signal products; (3)
+data products with clean licensing and API surfaces; (4)
+showcase/experience quality at the PREMIUM EXPERIENCE STANDARD
+(STANDING BEHAVIORS); (5) general SaaS features after all of these.
+The core asset is the proprietary data platform; the trading
+front-end is its showcase and the bot is customer zero. A premium,
+polished surface is not secondary to the data — it is how the data's
+accuracy becomes visible and believable. Neither is allowed to
+degrade for the other.
+
 HONESTY METRIC, now two-sided: live-vs-backtest divergence for the
 bot; claimed-vs-ground-truth divergence for platform signals. When
 either diverges, the factory is fooling itself — fixing that
@@ -536,7 +549,15 @@ read-before-write review.
   received and installed later the same day (reconstruction replaced
   per its provenance banner). GIP.md installed 2026-07-04 as the
   companion charter (Global Intelligence Platform expansion, verbatim
-  human text + session-maintained reconciliation annex).
+  human text + session-maintained reconciliation annex). 2026-07-07:
+  VISION.md carries the human strategic update "DATA IS THE MOAT,
+  EXPERIENCE IS THE DOOR" as an appended dated section (installed as
+  Amendment 5: GOAL weighting note + PREMIUM EXPERIENCE STANDARD).
+- GRID VISION program installed 2026-07-07 (human directive):
+  research/grid_vision.md is the multi-session charter (ML-assisted
+  complete US power-grid mapping — OSM base, ML detection as
+  gap-filler/verifier, state-by-state national rollout). Phase A
+  research runs first; nothing builds until it files.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 
@@ -599,6 +620,20 @@ experiments.md.
   speculative ones; priors stated before testing; edges discounted by
   the number of combinations tried; out-of-sample confirmation
   required; a beautiful story never substitutes for validation.
+- PREMIUM EXPERIENCE STANDARD (human-approved 2026-07-07, Amendment
+  5 — full directive text appended to VISION.md): the bar for every
+  user-facing surface: (a) one coherent design system (DESIGN.md
+  governs); (b) perceived performance is a feature — skeletons,
+  progressive loading, zero jank; the perf harness gates feel, not
+  just load time; (c) every number visibly carries freshness,
+  provenance, and confidence — the honesty machinery, surfaced
+  beautifully, is simultaneously the brand and the proof of accuracy;
+  (d) periodic design-polish passes are real prioritized work, not
+  filler; (e) mobile-flawless at 390px, always; (f) shipping test:
+  "would a paying data customer screenshot this and trust it?"
+  Accuracy stays non-negotiable: premium presentation of wrong
+  numbers is fraud with good typography — when polish and correctness
+  ever conflict, correctness wins.
 - MONETIZATION TRIPWIRE (2026-07-03): any session touching billing,
   pricing, subscriptions, ads, or paid-feature gating MUST first re-run
   the aircraft-provider compliance check in wishlist.md (adsb.lol is
