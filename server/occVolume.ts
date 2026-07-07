@@ -258,8 +258,13 @@ export async function refreshOcc(fetchImpl: FetchFn = fetch as any, nowMs?: numb
 
 export const OCC_BACKFILL_CALENDAR_DAYS = 730; // the verified window
 
+// HUMAN-APPROVED DEFAULT-ON (2026-07-07): Mike confirmed volume headroom
+// (~2GB of 5GB used; backfill adds ~500MB gz) and instructed enabling.
+// Default-on with an explicit opt-out (OCC_DEEP_BACKFILL=0) — the R8
+// caution was about UNAPPROVED backfills; the done-marker still limits
+// this to a single pass ever.
 export function occDeepBackfillEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.OCC_DEEP_BACKFILL === "1";
+  return env.OCC_DEEP_BACKFILL !== "0";
 }
 
 const backfillMarker = (baseDir?: string) => path.join(occDir(baseDir), "backfill_done.json");

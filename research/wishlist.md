@@ -122,14 +122,13 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
 
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 
-9e. OCC 2-YEAR BACKFILL — mechanism SHIPPED v1.0.172, env-gated OFF.
-    The OCC purges its rolling window daily; ~500 trading days of
-    customer-vs-MM put/call history are recoverable TODAY and shrink
-    by one day every day. To run it: confirm the Railway volume has
-    ~500MB headroom (archive is 0.25GB now; volume size is in the
-    Railway dashboard), then set OCC_DEEP_BACKFILL=1 and redeploy.
-    One boot walks oldest-first (~20 min, gz-on-write), writes
-    backfill_done.json, never repeats. Remove the flag after.
+9e. OCC 2-YEAR BACKFILL — RESOLVED 2026-07-07: Mike confirmed
+    headroom (~2GB of 5GB used) and approved; v1.0.174 flips the
+    mechanism DEFAULT-ON (opt-out OCC_DEEP_BACKFILL=0). The backfill
+    runs once on the next deploy's boot (~20 min oldest-first walk,
+    gz-on-write, done-marker prevents repeats). VERIFY: occvolume dir
+    grows toward ~500 day-files; backfill_done.json appears with
+    days_fetched; /api/data/archive/stats shows the growth.
 
 ## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;
 ## each unlocks a census top-10 item; routed around meanwhile)
