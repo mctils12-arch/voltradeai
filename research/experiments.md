@@ -8442,3 +8442,58 @@ exception to append-only; the log below it stays append-only)
   forecast for all 9 respondents — permanent raw material for the
   gate-2 v3 design (which will use it with growth-aware extremes per
   the stopping-rule entry above) and any future demand work.
+
+## 2026-07-07 — [REPAIR] PRIORITY-1: kill switch fired at market open on a garbage equity read — validated-drawdown guard at both sites (v1.0.192; drafted v1.0.191 — #332 from a concurrent session took that version first, re-incremented per merge-order protocol)
+
+- Territory: T-BOT (server/bot.ts kill sites, server/drawdownGuard.ts
+  + battery) + SHARED (test_audit_critical.py ratchet update,
+  package.json, this file).
+- INCIDENT (found when Mike asked "what happened to the bot"):
+  /api/health showed bot status "killed" at 14:22Z (10:22 ET, market
+  OPEN) with equityPeak $109,432.59 and drawdownPct 0.0 — killed
+  with the account AT its peak. killSwitch is memory-only, so the
+  kill fired inside the current container's 53-min uptime, i.e.
+  9:29-10:22 ET. A real -10% round-trip inside an hour on this
+  account is implausible.
+- ROOT CAUSE (read, not guessed): both kill sites computed drawdown
+  from a single unvalidated Alpaca /v2/account read. The Tier-1 site
+  was `parseFloat(acct.equity || "100000")` — the || catches only
+  empty/undefined, so a transient "0" sails through and computes as
+  -100% drawdown -> kill; worse, an absent field FABRICATED $100k
+  equity. The account-route site parsed with no validation at all.
+  The persisted audit row (DRAWDOWN-KILL, owner-gated dashboard log)
+  carries the triggering dollar figure for confirmation.
+- FIX: server/drawdownGuard.ts evaluateDrawdown() — the ONLY
+  filtered class is impossible reads (non-finite or <= 0): no kill,
+  no peak update, audited as EQUITY-READ-INVALID at both sites.
+  Every credible read kills exactly as before at <= -10% (pinned:
+  exact-threshold, just-above, catastrophic-but-possible lows still
+  kill). The $100k fabrication is gone. MECHANISM PRESERVED — this
+  is input validation in T-BOT code, not a threshold or mechanism
+  change (risk_kill_switch.py untouched).
+- RATCHETS: TestKillSwitchPeakPersistence updated to track the
+  guarded form — intent unchanged (same-line peak persistence; halt
+  comparison verbatim, now pinned inside the guard) and STRENGTHENED
+  (both sites must evaluate through the guard; invalid reads must be
+  audited, never silent; the guard may filter nothing beyond the
+  impossible class). New node battery drawdownGuard.test.ts pins
+  both directions: garbage never kills / credible catastrophe always
+  kills.
+- RECOVERY: killSwitch is memory-only — this PR's deploy clears it
+  and the loop resumes; the kill cancelled open orders only
+  (positions untouched), so no state repair needed. Loop dark well
+  under the 2-market-hour liveness alarm threshold.
+- GATES: pytest 475 passed 1 skipped; node 375 fail 0; tsc 64.
+  Version 1.0.191 -> 1.0.192 (post-cherry-pick onto #332's main).
+- RECURRENCE EVIDENCE (found during the branch-reset recovery): the
+  bot showed "killed" AGAIN after #332's fresh deploy — killSwitch is
+  memory-only, so the garbage equity read is RE-FIRING on/after each
+  boot, not a one-off transient. This elevates the fix from
+  hardening to active outage repair; post-deploy the
+  EQUITY-READ-INVALID audit rows will record each bad read as
+  evidence for any upstream (Alpaca account API) follow-up.
+- VERIFY (pre-stated): post-deploy /api/health bot status returns
+  "active" with equityPeak intact ($109,432.59); any future garbage
+  read appears as EQUITY-READ-INVALID in the audit log WITHOUT a
+  kill; a recurrence of a peak-equity kill = RCA per the recurrence
+  rule, not a re-patch.

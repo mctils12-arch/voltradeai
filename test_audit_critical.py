@@ -275,20 +275,45 @@ class TestKillSwitchPeakPersistence(unittest.TestCase):
 
     def test_every_peak_raise_is_saved(self):
         import re
-        # Every line that raises the peak from live equity must persist it on
-        # the same line, so no future call site can silently skip the save.
-        raises = [l for l in self.src.split("\n") if re.search(r"state\.equityPeak\s*=\s*equity\b", l)]
-        self.assertGreaterEqual(len(raises), 4,
-                                "expected the two known kill-switch sites (2 lines each)")
+        # Every line that raises the peak must persist it on the same line,
+        # so no future call site can silently skip the save. Form updated
+        # 2026-07-07 with the validated-drawdown repair: both kill sites now
+        # assign from the guard's newPeak (seed + raise folded into one line
+        # per site by server/drawdownGuard.ts) — the persistence intent is
+        # unchanged and still enforced per-line.
+        raises = [l for l in self.src.split("\n")
+                  if re.search(r"state\.equityPeak\s*=\s*(t1)?dd\.newPeak", l)]
+        self.assertGreaterEqual(len(raises), 2,
+                                "expected the two known kill-switch sites (guarded form)")
         for line in raises:
             self.assertIn("saveEquityPeak", line,
                           f"peak raised without persisting it: {line.strip()}")
+        # and no site may regress to the old unguarded direct assignment
+        # without persisting on the same line
+        for line in (l for l in self.src.split("\n")
+                     if re.search(r"state\.equityPeak\s*=\s*equity\b", l)):
+            self.assertIn("saveEquityPeak", line,
+                          f"unguarded peak assignment without persist: {line.strip()}")
 
     def test_halt_logic_untouched(self):
-        # Scope guard for the approved change: the halt condition itself must
-        # remain exactly the drawdown-vs-threshold comparison.
-        self.assertIn("drawdownPct <= state.maxDrawdownPct && !state.killSwitch", self.src)
-        self.assertIn("t1Drawdown <= state.maxDrawdownPct && !state.killSwitch", self.src)
+        # Scope guard: the halt condition remains exactly the drawdown-vs-
+        # threshold comparison. Since the 2026-07-07 validated-reads repair
+        # (market-open incident: a garbage equity read killed the loop with
+        # the account at its peak) the comparison lives VERBATIM in
+        # server/drawdownGuard.ts and both bot.ts sites gate on its
+        # verdict — the mechanism is intact; only its INPUT is validated.
+        with open(os.path.join(os.path.dirname(__file__), "server", "drawdownGuard.ts")) as f:
+            guard = f.read()
+        self.assertIn("drawdownPct <= maxDrawdownPct", guard,
+                      "the halt comparison itself must live unchanged in the guard")
+        self.assertIn("!Number.isFinite(equity) || equity <= 0", guard,
+                      "the ONLY filtered class is impossible reads — nothing else")
+        self.assertIn("dd.kill && !state.killSwitch", self.src)
+        self.assertIn("t1dd.kill && !state.killSwitch", self.src)
+        self.assertGreaterEqual(self.src.count("evaluateDrawdown("), 2,
+                                "both kill sites must evaluate through the guard")
+        self.assertGreaterEqual(self.src.count("EQUITY-READ-INVALID"), 2,
+                                "invalid reads must be audited at both sites, never silent")
 
 
 class TestBacktestV2Engine(unittest.TestCase):

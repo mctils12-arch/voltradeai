@@ -6,6 +6,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
+import { evaluateDrawdown } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag } from "./diag";
@@ -917,18 +918,23 @@ export function registerBotRoutes(app: Express) {
       // Update bot state with current daily P&L
       state.dailyPnL = dailyPnL;
 
-      // ── Max Drawdown Kill Switch ──
-      if (state.equityPeak === 0) { state.equityPeak = equity; saveEquityPeak(); }
-      if (equity > state.equityPeak) { state.equityPeak = equity; saveEquityPeak(); }
-      const drawdownPct = ((equity - state.equityPeak) / state.equityPeak) * 100;
-      if (drawdownPct <= state.maxDrawdownPct && !state.killSwitch) {
-        state.killSwitch = true;
-        state.active = false;
-        const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${equity.toFixed(0)} is ${drawdownPct.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}. All trading stopped.`;
-        audit("DRAWDOWN-KILL", msg);
-        notify("critical", msg);
-        sendEmailAlert("MAX DRAWDOWN — Trading Stopped", msg);
-        try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
+      // ── Max Drawdown Kill Switch (validated reads only — 2026-07-07
+      // incident: a garbage equity read killed the loop at market open
+      // with the account at peak; see server/drawdownGuard.ts) ──
+      const dd = evaluateDrawdown(acct.equity, state.equityPeak, state.maxDrawdownPct);
+      if (!dd.valid) {
+        audit("EQUITY-READ-INVALID", `account route: equity=${JSON.stringify(acct.equity)} — drawdown eval skipped (no kill, no peak update)`);
+      } else {
+        if (dd.newPeak !== state.equityPeak) { state.equityPeak = dd.newPeak; saveEquityPeak(); }
+        if (dd.kill && !state.killSwitch) {
+          state.killSwitch = true;
+          state.active = false;
+          const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${dd.equity!.toFixed(0)} is ${dd.drawdownPct!.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}. All trading stopped.`;
+          audit("DRAWDOWN-KILL", msg);
+          notify("critical", msg);
+          sendEmailAlert("MAX DRAWDOWN — Trading Stopped", msg);
+          try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
+        }
       }
 
       res.json({
@@ -2736,13 +2742,19 @@ print(json.dumps(result[:20]))
     morningQueue.sort((a, b) => b.score - a.score);
 
     const acct = await alpaca("/v2/account");
-    const equity = parseFloat(acct.equity || "100000");
 
-    // Max drawdown check on every Tier 1 cycle
-    if (state.equityPeak === 0) { state.equityPeak = equity; saveEquityPeak(); }
-    if (equity > state.equityPeak) { state.equityPeak = equity; saveEquityPeak(); }
-    const t1Drawdown = ((equity - state.equityPeak) / state.equityPeak) * 100;
-    if (t1Drawdown <= state.maxDrawdownPct && !state.killSwitch) {
+    // Max drawdown check on every Tier 1 cycle — VALIDATED reads only
+    // (2026-07-07 incident: the old `parseFloat(acct.equity || "100000")`
+    // let a garbage "0" through — computing as -100% — and fabricated
+    // equity when the field was absent; see server/drawdownGuard.ts)
+    const t1dd = evaluateDrawdown(acct.equity, state.equityPeak, state.maxDrawdownPct);
+    if (!t1dd.valid) {
+      audit("EQUITY-READ-INVALID", `tier1: equity=${JSON.stringify(acct.equity)} — drawdown eval skipped (no kill, no peak update)`);
+    }
+    const equity = t1dd.valid ? t1dd.equity! : state.equityPeak;
+    if (t1dd.valid && t1dd.newPeak !== state.equityPeak) { state.equityPeak = t1dd.newPeak; saveEquityPeak(); }
+    const t1Drawdown = t1dd.drawdownPct ?? 0;
+    if (t1dd.valid && t1dd.kill && !state.killSwitch) {
       state.killSwitch = true;
       state.active = false;
       const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${equity.toFixed(0)} is ${t1Drawdown.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}`;
