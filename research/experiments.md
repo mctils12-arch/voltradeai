@@ -8578,3 +8578,48 @@ TERRITORY: T-BOT (server/bot.ts diag route, server/diag.ts). Human-directed:
   collapsed holding in the Alpaca incoherence incident (R14 follow-up,
   PR #335) and answer "what were the trades placed today" with actual
   order rows instead of window bounds.
+
+## 2026-07-07 — [REPAIR] R14/R15 forensics: the −$81k is an Alpaca account-state discontinuity, NOT trading losses (probes v1.0.193, first use)
+
+First production use of the R15 orders/positions-detail probes, same
+hour they deployed. Findings, all from Alpaca's own order/position API
+via the token-gated diag surface:
+
+- CORRECTION of the PR #335 record: "no trades today" was WRONG. The
+  audit log does not visibly record order placements (only Smart
+  Execution boot banners) — the earlier inference from audit types was
+  an inference from absence. Ground truth from /v2/orders: the bot
+  FILLED 4 buys today (SMH 6@580.525 13:34Z; QQQ 17@709.99, KWEB
+  95@25.64, VXUS 43@84.93 all ~14:10Z; ~$21.6k total) plus ~57
+  canceled unfilled SMH limit orders (pre-market queue churn,
+  stale-order sweeper working as designed). Follow-up: order
+  placements should write an audit row (small T-BOT item, queued).
+- THE DECISIVE FACT: ZERO sell orders exist since at least 2026-07-01.
+  Yesterday (07-06) the bot bought QQQ 13@725.27 + VXUS 151@86.06
+  (~$22.4k). Those shares are GONE today — current positions are
+  exactly and only today's 4 buys (avg_entry prices match today's
+  fills to the cent), all healthy (combined unrealized −$127).
+  Positions cannot leave an account without sells, expirations, or
+  transfers; none exist in the order history.
+- CASH MATH: cash now $5,583.78 + today's buys $21.6k ⇒ cash at
+  today's open ≈ $27.2k. Equity at yesterday's close (Alpaca's own
+  last_equity) ≈ $109.4k. Between Monday 15:31Z (last fill) and
+  Tuesday 13:29Z (boot), positions vanished and cash was re-set to
+  ~$27.2k with NO orders. This is an Alpaca-side paper-account state
+  discontinuity (manual dashboard reset, or their paper platform
+  losing/replacing account state) — nothing in our system did it, and
+  the frozen order-transmission paths could not have (any sell would
+  appear in Alpaca's own order list).
+- BOT BEHAVIOR THROUGH IT: correct at every step. It sized today's
+  buys to the actual ~$27k account, the guard killed on the credible
+  ~$27.1k readings vs the $109,432.59 persisted peak (both kills
+  14:19Z/15:07Z, both post-fill), kills canceled open orders only.
+  Memory-only killSwitch means each deploy boots active and re-kills
+  on the next tier-1 read — by design, safe while the peak/account
+  mismatch persists.
+- DECISION FOR THE HUMAN (filed, not self-applied): if the account was
+  deliberately reset, equityPeak must be re-based to the new account
+  (delete voltrade_equity_peak.json state or set peak to current
+  equity) and the bot resumes on the ~$27k base; if NOT deliberate,
+  this is an Alpaca support case and the bot stays down. Re-basing the
+  peak is an account-truth decision, not a session's.
