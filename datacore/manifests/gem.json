@@ -1,0 +1,22 @@
+{
+ "stream": "gem",
+ "storage": "git-versioned artifacts under datacore/gem/ — WHOLE-FILE REBUILD per GEM release (releases ~2x/year; git history keeps vintages): coal_mines.json (250-mine registry w/ bbox/centroid/owners), coal_mine_features.geojson.gz (full 2,116-feature master), gas_pipelines.json (4,246-row registry), gas_finance.json (243 LNG + 531 plant finance rows)",
+ "written_by": "scripts/gem_ingest.py (Python, session-run on each release delivery; never on Railway — GEM downloads are form-gated, the human delivers the files; see cot.json _note on envelope coverage of Python writers)",
+ "source": "Global Energy Monitor release files, delivered by the human 2026-07-07 (census #5 / wishlist 9b RESOLVED — Mike completed the download form): Coal Mine Boundaries and Methane Sources v1.0.2 (May 2026 build; 250 mines, 2,116 boundary/methane/infrastructure features); Global Gas Infrastructure Tracker — Gas Pipelines Nov 2025 (4,246 segment rows; THIS VARIANT CARRIES NO ROUTE COORDINATES — registry fields only, stated in the artifact provenance); Gas Finance Tracker Dec 2025 (LNG terminals + gas power plants with financiers/FID). More release files may follow from the human's Drive.",
+ "license": "CC BY 4.0, verified verbatim from the releases' own Copyright sheets ('Distributed under a Creative Commons Attribution 4.0 International License') — commercial reuse OK with attribution; recommended citations carried in each artifact's provenance block",
+ "attribution": "Global Energy Monitor",
+ "schema_version": 1,
+ "field_map": {
+  "coal_mines.json mines.<GEM Mine ID>": "name/country/coal_grade/owners/parent/wiki + bbox + centroid (bbox midpoint — display anchor, NOT a surveyed point, labeled) + per-category feature counts",
+  "coal_mine_features.geojson.gz": "the full master FeatureCollection as released (boundaries, methane sources, prep plants…) — future map layer + satellite-join geometry",
+  "gas_pipelines.json pipelines[]": "all 53 release fields per segment (status, CapacityBcm/y, LengthMergedKm, start/end locations, Owner/Parent/ParentEntityIDs, FID, costs); nulls dropped per row",
+  "gas_finance.json": "lng_terminals[] + gas_power_plants[] with Financier / Type of Financier / FID Status / Project Cost"
+ },
+ "confidence_model": "RAW research-grade registry data compiled by GEM (their sourcing notes are preserved per feature). HYPOTHESES (gate-locked): (1) mine boundaries x FIRMS/S1/S2 = mine-activity proxies; (2) Parent Company / ParentEntityIDs = the equity join spine into the entity graph (GEOT ownership tracker is the richer follow-up); (3) pipeline FID/status by parent = capex-cycle features; (4) finance-tracker financier networks. Nothing traded until ladder gates; geometry joins need gate-1 vs known mine activity first.",
+ "geo_fields": ["coal mine bbox/centroid + full feature geometry (gz); pipelines have NO coordinates in this variant (start/end location TEXT only)"],
+ "entity_key": "GEM Mine ID / ProjectID+SegmentName / GEM Terminal ID + Train + Financier row",
+ "sentiment": null,
+ "started": "2026-07-07",
+ "cadence": "GEM releases ~2x/year per tracker; session-run re-ingest on each delivery",
+ "_note": "Universal archive envelope (approved 2026-07-04). Census build #5. Raw release files NOT committed (5MB, re-obtainable via GEM's form) — the artifacts capture all fields. Volume-side shows no-data in the streams inventory (session-run writer — expected)."
+}

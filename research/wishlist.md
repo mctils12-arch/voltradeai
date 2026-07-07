@@ -121,9 +121,18 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   live end-to-end matched the workup exactly). Follow-up filed:
   ILM balance-sheet COMPOSITION items (enumerate BS_ITEM codes
   before coding).
-- NEXT CENSUS BUILDS: FINRA part 2 (design notes above), USGS quakes
-  + NDBC buoys, SEC MIDAS; EPA CAMD/GEM/ENTSO-E on Mike's keys
-  (9a/9b/9c below).
+- CENSUS #5 GEM: PART 1 SHIPPED v1.0.176 (9b RESOLVED — Mike
+  delivered release files): datacore/gem/ = coal mines (250, full
+  geometry gz), gas pipelines registry (4,246 rows, NO route coords
+  in this variant), gas finance tracker (243 LNG + 531 plants). MORE
+  FILES IN MIKE'S GOOGLE DRIVE — connector installed but toggled OFF
+  for the chat; Mike enables it, then ingest the rest (extend
+  scripts/gem_ingest.py + gem manifest). Follow-ups filed: coal-mine
+  map layer from the geojson.gz; parent-company -> ticker join into
+  the entity graph; GEOT ownership tracker.
+- NEXT CENSUS BUILDS: remaining GEM Drive files (blocked on connector
+  toggle), FINRA part 2 (design notes above), USGS quakes + NDBC
+  buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys (9a/9c below).
 
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 

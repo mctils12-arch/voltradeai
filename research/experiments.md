@@ -7517,3 +7517,39 @@ exception to append-only; the log below it stays append-only)
   newer); /api/data/streams count=46 with eumacro live after first
   poll; next Tuesday's ILM print (~2026-07-08 PM CET) appends a new
   W27 point within one 6h cycle.
+
+## 2026-07-07 — [PIPELINE] GEM asset registry ingest, part 1 — census #5 unblocked by human delivery (v1.0.176)
+
+- UNLOCK: Mike completed GEM's download form (wishlist 9b) and uploaded
+  three release files; he says MORE files are in his Google Drive — the
+  Drive connector is installed for the org but toggled OFF for this
+  chat (enabledInChat:false), so the remainder waits on him enabling it.
+  This PR preserves + processes the delivered three (uploads are
+  container-ephemeral — processed before anything else).
+- INGEST (scripts/gem_ingest.py, session-run per release; license
+  verified verbatim CC BY 4.0 from the files' own Copyright sheets):
+  (1) Coal Mine Boundaries & Methane Sources v1.0.2 → coal_mines.json
+  (250-mine registry: owners/parent/grade + bbox + centroid labeled
+  "bbox midpoint — not a surveyed point") + coal_mine_features
+  .geojson.gz (full 2,116-feature master — future map layer +
+  satellite-join geometry); (2) GGIT Gas Pipelines Nov 2025 →
+  gas_pipelines.json (4,246 segments, all 53 fields; THIS VARIANT HAS
+  NO ROUTE COORDINATES — honesty note in provenance; RouteAccuracy/
+  RouteType reference GEM's separate geometry product); (3) Gas
+  Finance Tracker Dec 2025 → gas_finance.json (243 LNG-terminal + 531
+  gas-plant finance rows).
+- PARSE HONESTY: xlsx max_row inflation diagnosed before trusting
+  counts (LNG sheet reports 973 rows; 729 are trailing formatted-empty
+  — verified by full scan; 243 real data rows); nulls dropped per row
+  never zero-filled; datetimes ISO-ified; zero-rows refusal on every
+  artifact.
+- HYPOTHESES filed in the manifest (gate-locked): mine boundaries x
+  FIRMS/S1/S2 activity proxies; Parent Company / ParentEntityIDs =
+  equity join spine into the entity graph; pipeline FID/status
+  capex-cycle features; financier networks.
+- GATES: pytest 460 passed 1 skipped (4 new); node 362/362 (envelope
+  green, 47 manifests). Version 1.0.175 → 1.0.176.
+- VERIFY (pre-stated): artifacts in git with coherent spot-checks
+  (Appin M0005 centroid in NSW; Double E operating; counts pinned in
+  tests); /api/data/streams count=47 with gem manifested after deploy;
+  next GEM release re-runs the script and diffs cleanly.
