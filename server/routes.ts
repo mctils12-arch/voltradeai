@@ -55,6 +55,7 @@ import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled } from "./gridStress";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
+import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
@@ -1883,6 +1884,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.stats.length,
       note: "realised total load in MW per bidding zone, ~1-2h publication lag; stored at zone-native resolution, never resampled; zones absent from a cycle are absent, never zero-filled — their last sweep outcome is in `issues`; window min/max/mean expose series shape (some TSOs under-report or publish partial leading edges)",
       zones: hit.stats,
+      issues: hit.issues,
+    });
+  });
+
+  // Google Air Quality (RAW — strategic-site AQI/PM2.5/NO2 archive; key-gated
+  // on GOOGLE_MAPS_API_KEY, activates on API-enable). Serves the poller's
+  // cache only (event-loop rule); never fetches on request. Free-tier budget
+  // guard in the module keeps polling under 150 calls/day.
+  bootAirQualityPoll();
+  app.get("/api/data/air-quality", (_req, res) => {
+    if (!airQualityEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "GOOGLE_MAPS_API_KEY not set", awaiting_key: true, count: 0, sites: [] });
+    }
+    const hit = latestAirQuality();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "Google Air Quality API", attribution: "Air quality data \u00a9 Google", warming_up: true, count: 0, sites: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "Google Maps Platform Air Quality API (current conditions)",
+      attribution: "Air quality data \u00a9 Google",
+      time: hit.at,
+      awaiting_enable: hit.awaiting_enable,
+      note: hit.awaiting_enable
+        ? "Air Quality API is not yet enabled on the GCP project — enable it in the Google Cloud console; readings populate on the next poll"
+        : "latest current-conditions reading per strategic site; universal + US EPA AQI, PM2.5/NO2; archived over time (Google exposes only 30d history)",
+      budget: hit.budget,
+      count: hit.readings.length,
+      sites: hit.readings,
       issues: hit.issues,
     });
   });
