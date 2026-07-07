@@ -84,9 +84,19 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   15/16 folklore), 2-line trailer = free checksum, PRICE "." = null,
   QUANTITY is a level not a flow, earliest 2004-03-22, ~1.3MB zip
   per half-month, SEC UA etiquette required (default UA → 403).
-- NEXT CENSUS BUILDS: SEC FTD (workup done), FINRA part 2 (ATS
-  summaries), then ECB/Eurostat/Bundesbank + USGS/NDBC; EPA
-  CAMD/GEM/ENTSO-E on Mike's keys (9a/9b/9c below).
+- CENSUS BUILD #6 SEC FTD: SHIPPED v1.0.171 — server/secFtd.ts +
+  /api/data/ftd (trailer-checksummed, URL-fallback-chain, live
+  end-to-end: 58,328 rows @ 202606a exact-match to trailer). The
+  SETTLEMENT-STRESS COMPOSITE is now ingredient-complete
+  (finrathreshold + secftd + finrashortvol) — computing it is a
+  queued [RESEARCH] task with a gate-1 plan (threshold persistence x
+  FTD balance delta x short-volume ratio; base rates per REASONING
+  STANDARD #3). 2004→present backfill = filed volume-budget decision
+  (~370MB gz).
+- NEXT CENSUS BUILDS: FINRA part 2 (ATS venue summaries, volume
+  budget first), settlement-stress composite [RESEARCH], then
+  ECB/Eurostat/Bundesbank + USGS/NDBC; EPA CAMD/GEM/ENTSO-E on
+  Mike's keys (9a/9b/9c below).
 
 ## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;
 ## each unlocks a census top-10 item; routed around meanwhile)
