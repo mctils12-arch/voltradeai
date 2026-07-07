@@ -134,6 +134,16 @@ export function parseLoad(xml: string, zone: string, rt: string): LoadObs[] {
 
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
+/** Per-zone outcome of the LAST sweep — surfaced on the route so a
+ *  silently-missing zone is self-diagnosing from outside (R7
+ *  attention-stream precedent; found needed on day one: DE_LU absent
+ *  from the first prod cycle with its ack visible only in logs). */
+const lastIssues: Record<string, string> = {};
+
+export function sweepIssues(): Record<string, string> {
+  return { ...lastIssues };
+}
+
 export async function fetchLoad(fetchImpl: FetchFn = fetch as any,
                                 env: NodeJS.ProcessEnv = process.env,
                                 nowMs?: number, spacingMs = CALL_SPACING_MS): Promise<LoadObs[]> {
@@ -142,6 +152,7 @@ export async function fetchLoad(fetchImpl: FetchFn = fetch as any,
   const now = nowMs ?? Date.now();
   const rt = new Date(now).toISOString().slice(0, 10);
   const out: LoadObs[] = [];
+  for (const k of Object.keys(lastIssues)) delete lastIssues[k];
   for (const [zone, eic] of Object.entries(ZONES)) {
     try {
       const r = await fetchImpl(loadUrl(eic, key, now - HOURS_PER_FETCH * 3600_000, now), {
@@ -150,14 +161,22 @@ export async function fetchLoad(fetchImpl: FetchFn = fetch as any,
       });
       const body = await r.text();
       if (!r.ok) {
-        console.error(`[datacore] euload ${zone} -> ${r.status} ${parseAck(body) || ""}`);
+        lastIssues[zone] = `http ${r.status}: ${parseAck(body) || ""}`.trim().slice(0, 200);
+        console.error(`[datacore] euload ${zone} -> ${lastIssues[zone]}`);
       } else {
         const ack = parseAck(body);
-        if (ack) console.error(`[datacore] euload ${zone} ack: ${ack}`);
-        else out.push(...parseLoad(body, zone, rt));
+        if (ack) {
+          lastIssues[zone] = `ack: ${ack}`;
+          console.error(`[datacore] euload ${zone} ${lastIssues[zone]}`);
+        } else {
+          const rows = parseLoad(body, zone, rt);
+          if (!rows.length) lastIssues[zone] = "empty document (no parseable points)";
+          out.push(...rows);
+        }
       }
     } catch (e: any) {
-      console.error(`[datacore] euload ${zone}:`, e?.message || e);
+      lastIssues[zone] = String(e?.message || e).slice(0, 200);
+      console.error(`[datacore] euload ${zone}:`, lastIssues[zone]);
     }
     if (spacingMs > 0) await sleep(spacingMs);
   }
@@ -255,9 +274,16 @@ export interface ZoneStat {
   latest_mw: number | null;
   resolution: string;
   points_in_window: number;
+  // window shape — makes data-quality anomalies visible from the route
+  // (found needed on day one: NL's latest point read 2.4GW, physically
+  // wrong for Dutch total load; min/max/mean shows whether the whole
+  // series is low or just the leading edge)
+  window_min_mw: number | null;
+  window_max_mw: number | null;
+  window_mean_mw: number | null;
 }
 
-let cache: { at: number; stats: ZoneStat[] } | null = null;
+let cache: { at: number; stats: ZoneStat[]; issues: Record<string, string> } | null = null;
 let polling = false;
 
 export function latestLoad() {
@@ -281,11 +307,17 @@ export async function refreshLoad(fetchImpl: FetchFn = fetch as any,
       const stats: ZoneStat[] = [];
       byZone.forEach((rows, zone) => {
         const newest = rows.reduce((mx, r) => (r.ts > mx.ts ? r : mx), rows[0]);
+        const vals = rows.map((r) => r.mw).filter((v): v is number => v != null);
         stats.push({ zone, latest_ts: newest.ts, latest_mw: newest.mw,
-                     resolution: newest.res, points_in_window: rows.length });
+                     resolution: newest.res, points_in_window: rows.length,
+                     window_min_mw: vals.length ? Math.min(...vals) : null,
+                     window_max_mw: vals.length ? Math.max(...vals) : null,
+                     window_mean_mw: vals.length
+                       ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+                       : null });
       });
       stats.sort((a, b) => a.zone.localeCompare(b.zone));
-      cache = { at: Date.now(), stats };
+      cache = { at: Date.now(), stats, issues: sweepIssues() };
     }
     gzipOldLoadDays(baseDir, nowMs);
   } catch (e: any) {

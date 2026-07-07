@@ -8213,3 +8213,37 @@ exception to append-only; the log below it stays append-only)
   (KNOWN BROKEN #5) closed for social_data/finnhub_data. A future
   session should route it through audit() the same way, its own PR
   since it's a distinct (if related) fix.
+## 2026-07-07 — [PIPELINE] euload v1.0.186 verify: LIVE with 2 anomalies -> per-zone observability shipped (v1.0.188; drafted v1.0.187 — #327 from a concurrent session took that version first, re-incremented per merge-order protocol)
+
+- Territory: T-DATACORE (server/euLoad.ts + test) + SHARED
+  (server/routes.ts note line, package.json, this file).
+- VERIFY RESULT (pre-stated criteria vs observed, ~15 min
+  post-deploy): stream LIVE — 7 zones at plausible scales (FR 52.5GW
+  in the predicted 45-60 band, ES 35.1, IT 41.1, PL 20.4, SE 14.3,
+  BE 11.4; ~190 pts/zone in the 48h window); euload in the streams
+  inventory. All zones publish PT15M (not PT60M-mostly as I sketched
+  — consistent with the EU's 2025 15-minute MTU harmonization;
+  stored as published, so no code impact).
+- TWO ANOMALIES, surfaced not shelved:
+  (1) DE_LU ABSENT — the one zone the verify specifically predicted.
+  Its ack/error text existed only in prod logs (invisible from
+  outside). (2) NL latest 2.4GW — physically wrong for Dutch total
+  load (~10-15GW expected); could be TenneT under-reporting (a known
+  TP data-quality pattern) or a partial leading-edge point — the
+  route couldn't distinguish because it showed only the latest
+  point.
+- FIX (one logical change — route self-diagnosis, R7 precedent):
+  per-zone `issues` map on the route (last sweep outcome: http
+  status+ack text / ack reason / exception / empty-document) and
+  window_min/max/mean_mw per zone (series shape exposes whether NL
+  is low across the window or only at the edge). Both lessons pinned
+  in tests. No archive/measurement change.
+- GATES: node 371 fail 0; tsc 64. Version 1.0.187 -> 1.0.188 (post-rebase).
+- VERIFY (pre-stated): next cycle post-deploy — if DE_LU still
+  absent, `issues.DE_LU` names the reason from outside (then
+  diagnose: suspect either an ack like 'No matching data' needing a
+  different domain code, or a timeout on the largest document); NL's
+  window mean/min/max classifies its 2.4GW as series-wide
+  under-reporting (-> manifest data-quality note, keep archiving as
+  published) vs leading-edge partial (-> same-hour-class fix like
+  the US48 DF case).
