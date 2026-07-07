@@ -19,5 +19,5 @@
  "sentiment": null,
  "started": "2026-07-06",
  "cadence": "hourly source (~1-2h publication lag); 2h poll with a 48h trailing window per respondent",
- "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS Phase 0 / BUILD ORDER 6 #6 — activated the day the key landed in Railway."
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS Phase 0 / BUILD ORDER 6 #6 — activated the day the key landed in Railway. HISTORICAL BACKFILL (v1.0.184, GRID VISION gate-2 prereq 2): one-time 2019->now walk of D+DF, env-gated GRID_DEMAND_BACKFILL=1 (opt-in OFF, R8 lesson; ~270 calls spaced 1.5s, ~1.2M rows -> ~20MB gz, done-marker single pass, gz-at-end); seed-window bound (120d) keeps the dedup set out of the 512MB heap after the backfill; re-run contract stated in the marker file."
 }

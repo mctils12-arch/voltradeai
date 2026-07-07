@@ -132,10 +132,26 @@ function demandDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "griddemand");
 }
 
+/** Seed-window bound: after the historical backfill the archive holds
+ *  ~2,700 day-files (~1.2M rows) — seeding them ALL into the in-memory
+ *  set would cost a material slice of the 512MB Node heap on every
+ *  restart. The live poll only fetches a trailing 48h window, so dedup
+ *  only ever needs recent days; 120d is a huge margin. Re-running the
+ *  backfill therefore requires deleting the archive dir with the
+ *  done-marker (stated in the marker file), or old rows would dupe. */
+export const SEED_WINDOW_DAYS = 120;
+
+export function seedFileInWindow(fileName: string, nowMs: number): boolean {
+  const day = Date.parse(fileName.slice(0, 10));
+  return Number.isFinite(day) && nowMs - day <= SEED_WINDOW_DAYS * 86400_000;
+}
+
 function seedSeen(dir: string): void {
   try {
+    const nowMs = Date.now();
     for (const f of fs.readdirSync(dir)) {
       if (!/^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
+      if (!seedFileInWindow(f, nowMs)) continue;
       const fp = path.join(dir, f);
       let text: string;
       try {
@@ -252,11 +268,112 @@ export async function refreshDemand(fetchImpl: FetchFn = fetch as any,
   }
 }
 
+// ── Historical backfill (env-gated OFF — R8 lesson; GRID VISION gate-2 prereq 2) ──
+// The region-data endpoint serves history to ~2019 (module header,
+// verified live 2026-07-06). Gate-2 wants the deepest honest history
+// for the fit/validate split — one-time walk, oldest-first, done-marker.
+// Volume: 9 respondents x 2 series x hourly x ~7.5yr ≈ 1.2M rows ≈
+// ~110MB plain -> ~20MB once the day-files gz (compressed explicitly at
+// the end of the pass, not left for the 3-day cycle).
+
+export const GRID_DEMAND_BACKFILL_START_YEAR = 2019;
+const BACKFILL_PAGE = 5000;          // EIA v2 max length per request
+const BACKFILL_MAX_PAGES_PER_YEAR = 8; // 2 series x 8784h = 17,568 rows -> 4 pages; guard x2
+
+export function gridDemandBackfillEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.GRID_DEMAND_BACKFILL === "1"; // opt-in OFF (R8 lesson; Mike flips it)
+}
+
+const backfillMarker = (baseDir?: string) => path.join(demandDir(baseDir), "backfill_done.json");
+
+export function backfillUrl(respondent: string, key: string, year: number, offset: number): string {
+  return "https://api.eia.gov/v2/electricity/rto/region-data/data/" +
+    `?api_key=${encodeURIComponent(key)}` +
+    "&frequency=hourly&data%5B0%5D=value" +
+    `&facets%5Brespondent%5D%5B%5D=${encodeURIComponent(respondent)}` +
+    "&facets%5Btype%5D%5B%5D=D" +
+    "&facets%5Btype%5D%5B%5D=DF" +
+    `&start=${year}-01-01T00&end=${year}-12-31T23` +
+    "&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=asc" +
+    `&length=${BACKFILL_PAGE}&offset=${offset}`;
+}
+
+/** Drop a completed backfill year's keys from the in-memory set —
+ *  years are walked once, oldest-first, so their keys are dead weight
+ *  (1.2M keys would otherwise sit in the 512MB heap for the process
+ *  lifetime). The current live window is never pruned. */
+function pruneSeenYear(year: number): void {
+  const tag = `|${year}-`;
+  for (const k of Array.from(seenObs)) {
+    if (k.includes(tag)) seenObs.delete(k);
+  }
+}
+
+export async function gridDemandBackfillIfEnabled(
+  fetchImpl: FetchFn = fetch as any,
+  env: NodeJS.ProcessEnv = process.env,
+  nowMs?: number,
+  baseDir?: string,
+  spacingMs = 1500,
+  startYear = GRID_DEMAND_BACKFILL_START_YEAR,
+): Promise<void> {
+  if (!gridDemandBackfillEnabled(env)) return;
+  if (fs.existsSync(backfillMarker(baseDir))) return;
+  const key = env.EIA_API_KEY || "";
+  if (!key) return;
+  const now = nowMs ?? Date.now();
+  const nowYear = new Date(now).getUTCFullYear();
+  const rt = new Date(now).toISOString().slice(0, 10);
+  console.log(`[datacore] griddemand backfill: ${startYear}..${nowYear}, ${RESPONDENTS.length} respondents (one-time)`);
+  let rows = 0, calls = 0;
+  for (let y = startYear; y <= nowYear; y++) {       // oldest-first
+    for (const resp of RESPONDENTS) {
+      for (let page = 0; page < BACKFILL_MAX_PAGES_PER_YEAR; page++) {
+        let got = 0;
+        try {
+          calls++;
+          const r = await fetchImpl(backfillUrl(resp, key, y, page * BACKFILL_PAGE), {
+            headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+            signal: AbortSignal.timeout(60000) as any,
+          });
+          if (!r.ok) {
+            console.error(`[datacore] griddemand backfill ${resp} ${y} p${page} -> ${r.status}`);
+            break; // next respondent; dedup makes any re-run safe
+          }
+          const obs = parseDemand(JSON.parse(await r.text()), rt);
+          got = obs.length;
+          rows += archiveDemand(obs, baseDir);
+        } catch (e: any) {
+          console.error(`[datacore] griddemand backfill ${resp} ${y}:`, e?.message || e);
+          break;
+        }
+        if (spacingMs > 0) await sleep(spacingMs);
+        if (got < BACKFILL_PAGE) break;             // year exhausted for this respondent
+      }
+    }
+    if (y < nowYear) pruneSeenYear(y);              // heap hygiene; live window untouched
+  }
+  // compress immediately — don't leave ~110MB plain for the 3-day cycle
+  const gzd = gzipOldDemandDays(baseDir, now);
+  try {
+    fs.writeFileSync(backfillMarker(baseDir), JSON.stringify({
+      done_rt: new Date(now).toISOString(), rows_archived: rows, calls,
+      start_year: startYear, gz_files: gzd,
+      note: "one-time pass; to re-run, delete this marker AND the day-files " +
+            "(dedup only seeds the last " + SEED_WINDOW_DAYS + " days — old rows would dupe)",
+    }));
+  } catch {}
+  console.log(`[datacore] griddemand backfill done: ${rows} rows, ${calls} calls, ${gzd} day-files gz`);
+}
+
 /** Hourly source with ~1-2h lag — 2h poll (9 spaced calls/cycle) keeps
- *  the archive within ~2h of real time without hammering. Eager boot. */
+ *  the archive within ~2h of real time without hammering. Eager boot;
+ *  historical backfill (env opt-in, one-time) after current data is up
+ *  — the OCC deep-backfill pattern. */
 export function bootGridDemandPoll(intervalMs = 2 * 60 * 60_000): void {
   if (polling) return;
   polling = true;
-  refreshDemand();
+  refreshDemand().then(() => gridDemandBackfillIfEnabled())
+    .catch((e) => console.error("[datacore] griddemand boot:", e?.message || e));
   setInterval(() => { refreshDemand(); }, intervalMs).unref?.();
 }

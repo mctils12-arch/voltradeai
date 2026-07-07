@@ -7982,3 +7982,39 @@ exception to append-only; the log below it stays append-only)
   archived day-files start carrying type:"DF" rows alongside
   typeless legacy + type:"D" rows. Next prereq: env-gated EIA-930
   historical backfill (server-side, OCC pattern).
+
+## 2026-07-07 — [PIPELINE] GRID VISION gate-2 prereq 2 — EIA-930 historical backfill mechanism (v1.0.184); RUNPOD_API_KEY landed
+
+- Territory: T-DATACORE (server/gridDemand.ts + test) + SHARED
+  (griddemand manifest, package.json, research/*).
+- BACKFILL (OCC deep-backfill pattern): one-time 2019->now walk of
+  D+DF for all 9 respondents — year-windowed asc pagination (5000/
+  page, EIA v2 max; ~270 calls at 1.5s spacing ≈ 7 min), oldest-
+  first, done-marker single pass, gz-at-end (nothing sits plain for
+  the 3-day cycle). Env-gated GRID_DEMAND_BACKFILL=1, opt-in OFF per
+  R8; Mike asked to flip it (he is responsive today — the OCC
+  default-on precedent required explicit approval first).
+- HEAP PROTECTION (new failure mode found in design): a full
+  backfill creates ~1.2M dedup keys; the seed pass would reload them
+  into the 512MB Node heap on every restart (R13 territory). Fixes:
+  (a) seed window bounded to 120d (the live poll fetches 48h — huge
+  margin); (b) completed backfill years pruned from the in-memory
+  set as the pass walks. Re-run contract stated in the marker file
+  (delete marker AND day-files together).
+- HISTORY CORRECTION (honest amendment to the gate-2 design): this
+  endpoint serves ~2019+, not 2015 as the design sketch assumed —
+  split becomes fit 2019-2022 / validate 2023-2025 (same three
+  validation summers; 2020 COVID anomaly sits in training, noted).
+- RUNPOD_API_KEY LANDED (Mike, same session): wishlist purchase
+  order marked RESOLVED; GPU training/sweeps unblocked. First
+  consumer = Phase B training-data prep (ETDII + OSM-seeded chips +
+  NAIP/MPC streaming) then the first fine-tune, next GRID VISION
+  build arc.
+- GATES: node 365 fail 0 (battery 7/7 — opt-in gate, oldest-first,
+  pagination, marker single-shot, seed-window bound); pytest 471
+  passed 1 skipped; tsc 64. Version 1.0.183 -> 1.0.184.
+- VERIFY (pre-stated): once Mike sets GRID_DEMAND_BACKFILL=1 —
+  backfill_done.json appears in the archive dir with rows_archived
+  ~1.2M-scale and calls ~270-scale; day-files back to 2019-01-01
+  gz'd; memory flat after the pass (no R13-style restarts); the
+  gate-2 computation then has its history.

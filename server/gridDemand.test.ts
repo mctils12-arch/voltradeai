@@ -112,3 +112,52 @@ test("refresh sweep: one call per respondent, per-respondent stats cached", asyn
   assert.ok(hit!.stats.every((s) => s.latest_mwh === 100 && s.latest_forecast_mwh === 110),
     "forecast surfaces additively beside demand");
 });
+
+test("backfill: opt-in gate, oldest-first years, pagination, done-marker single pass", async () => {
+  const { gridDemandBackfillEnabled, gridDemandBackfillIfEnabled, backfillUrl, SEED_WINDOW_DAYS, seedFileInWindow } =
+    await import("./gridDemand");
+  assert.equal(gridDemandBackfillEnabled({} as any), false, "OFF by default (R8 lesson)");
+  assert.equal(gridDemandBackfillEnabled({ GRID_DEMAND_BACKFILL: "1" } as any), true);
+
+  const u = backfillUrl("ERCO", "k", 2019, 5000);
+  assert.ok(u.includes("start=2019-01-01T00") && u.includes("end=2019-12-31T23"), "year-windowed");
+  assert.ok(u.includes("direction%5D=asc"), "ascending walk");
+  assert.ok(u.includes("offset=5000") && u.includes("length=5000"), "EIA v2 max page");
+  assert.ok(u.includes("facets%5Btype%5D%5B%5D=DF"), "both series backfilled");
+
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "grid-"));
+  const years: number[] = [];
+  let calls = 0;
+  const fake = async (url: string) => {
+    calls++;
+    const y = Number(url.match(/start=(\d{4})/)?.[1]);
+    years.push(y);
+    // small page (< BACKFILL_PAGE) -> one page per respondent-year
+    return { ok: true, status: 200,
+             text: async () => JSON.stringify(ENVELOPE([
+               { ...ROW(`${y}-03-01T05`, "US48", "77"), type: "D" },
+               { ...ROW(`${y}-03-01T05`, "US48", "80"), type: "DF" },
+             ])) };
+  };
+  const env = { GRID_DEMAND_BACKFILL: "1", EIA_API_KEY: "k" } as any;
+  const now = Date.parse("2020-06-01T00:00:00Z"); // two-year walk: 2019, 2020
+  await gridDemandBackfillIfEnabled(fake as any, env, now, base, 0);
+  assert.equal(calls, 2 * RESPONDENTS.length, "one page per respondent per year");
+  assert.ok(years.slice(0, RESPONDENTS.length).every((y) => y === 2019), "oldest year first");
+  const dir = path.join(base, "griddemand");
+  assert.ok(fs.existsSync(path.join(dir, "backfill_done.json")), "done-marker written");
+  // rows landed in observation day-files, gz'd at end of pass (2019+2020 both old vs now)
+  assert.ok(fs.existsSync(path.join(dir, "2019-03-01.jsonl.gz")), "backfilled day gz'd immediately");
+  const marker = JSON.parse(fs.readFileSync(path.join(dir, "backfill_done.json"), "utf8"));
+  assert.ok(marker.rows_archived >= 4, "D+DF rows for both years archived");
+  assert.ok(marker.note.includes("delete this marker"), "re-run contract stated");
+
+  calls = 0;
+  await gridDemandBackfillIfEnabled(fake as any, env, now, base, 0);
+  assert.equal(calls, 0, "done-marker makes the pass single-shot");
+
+  // seed-window bound: heap protection after a deep backfill
+  assert.ok(seedFileInWindow("2026-07-01.jsonl", Date.parse("2026-07-07")));
+  assert.ok(!seedFileInWindow("2019-03-01.jsonl.gz", Date.parse("2026-07-07")),
+    `files older than ${SEED_WINDOW_DAYS}d never seed the in-memory set`);
+});
