@@ -55,6 +55,7 @@ import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled } from "./gridStress";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
+import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
@@ -1871,6 +1872,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       zones: hit.stats,
       issues: hit.issues,
     });
+  });
+
+  // CelesTrak GP satellite element sets (RAW overlay — ANALYST CONSOLE W2,
+  // keyless; licensing verified 2026-07-07: freely available, courtesy
+  // limits enforced in the module — 6h/group vs the 2h update cycle).
+  // Serves the poller's cache only (event-loop rule); never fetches here.
+  bootSatellitesPoll();
+  app.get("/api/data/satellites", (req, res) => {
+    const { status, body } = satellitesResponse(req.query.group);
+    if (status === 200) res.set("Cache-Control", "public, max-age=1800");
+    res.status(status).json(body);
   });
 
   // EIA-930 hourly grid demand (RAW — DATACORE MAXIMUS Phase 0,

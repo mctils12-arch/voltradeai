@@ -1185,3 +1185,19 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
 - **OPTIONAL — Windy webcams API key (free tier):** W7 public-camera
   layer candidate alongside state DOT traffic cams (public).
   Licensing research files BEFORE any code per the charter.
+
+- **LICENSING RECORD — CelesTrak GP data (verified 2026-07-07, W2):**
+  PROCEED. No terms of use or redistribution restriction exists;
+  usage-policy.php frames limits as resource courtesy: "Only download
+  the data you need... For GP data, updates are once every 2 hours."
+  GP docs FAQ acknowledges commercial users without prohibition
+  ("...including those who profit from our efforts..."). Enforcement
+  is technical (HTTP 403/firewall for abusers; M2M software must stop
+  on any non-200 — implemented in server/satellites.ts). We fetch
+  from CelesTrak only (NOT Space-Track — their user agreement does
+  not bind us). Attribution carried on every surface though not
+  formally required. DECENT-CITIZEN NOTE for the human: CelesTrak is
+  a non-profit; a donation would be appropriate if the satellite
+  layer ever goes commercial. TIME-SENSITIVE FACT: 5-digit catalog
+  numbers exhaust ~2026-07-12; our OMM JSON format is the mandated
+  migration (TLE format breaks at 69999).
