@@ -98,10 +98,27 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   FTD balance delta x short-volume ratio; base rates per REASONING
   STANDARD #3). 2004→present backfill = filed volume-budget decision
   (~370MB gz).
-- NEXT CENSUS BUILDS: FINRA part 2 (ATS venue summaries, volume
-  budget first), settlement-stress composite [RESEARCH], then
-  ECB/Eurostat/Bundesbank + USGS/NDBC; EPA CAMD/GEM/ENTSO-E on
-  Mike's keys (9a/9b/9c below).
+- FINRA PART 2 DESIGN NOTES (for the build session): weeklySummary
+  partitions are 66k-210k rows — EXCEEDS finraQuery's sync
+  MAX_PAGES=12 (60k cap); use the workup-verified ASYNC path (POST
+  async:true → 202 checkStatusLink → poll → presigned S3 CSV, ≤100k
+  rows, 12h expiry, 20 async/min) OR raise MAX_PAGES to 45 with the
+  count-verify guard (simpler; 210k-row 2021 weeks only matter for
+  backfill). Volume: ~4-6MB gz per week ≈ 200-300MB/yr — comparable
+  to finrashortvol growth, acceptable; state the estimate in the
+  manifest. blocksSummary (192/mo) + monthlySummary (63k/mo) ride
+  along trivially in the same module.
+- SETTLEMENT-STRESS COMPOSITE [RESEARCH] (queued): ingredients all
+  recording (finrathreshold + secftd + finrashortvol). Gate-1 plan:
+  threshold-persistence (consecutive days listed) x FTD balance
+  DELTA (it's a level — diff it) x short-vol ratio percentile;
+  base-rate control = same-universe random entry (REASONING STANDARD
+  #3); needs the env-gated backfills for depth — design can precede
+  data.
+- NEXT CENSUS BUILDS: ECB/Eurostat/Bundesbank (workup agent OUT
+  2026-07-07, report pending — regime features, fredMacro pattern),
+  FINRA part 2 (notes above), USGS quakes + NDBC buoys; EPA
+  CAMD/GEM/ENTSO-E on Mike's keys (9a/9b/9c below).
 
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 
