@@ -103,8 +103,16 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
 
 ## RESUME STATE (update every session that touches this program)
 
-- 2026-07-07: charter installed. NOTHING BUILT YET. Next action: W4
-  query engine (server, T-DATACORE territory) — design the envelope,
-  build over 3-4 highest-value layers first (aircraft, vessels,
-  fires, alerts), tests, then widen. Wishlist entries for the three
-  keys filed same day.
+- 2026-07-07: charter installed. Wishlist entries for the three keys
+  filed same day.
+- 2026-07-07 (same session): W4 SHIPPED (v1.0.195) —
+  server/queryEngine.ts + /api/data/query. Six layers (aircraft,
+  vessels, trains, fires, alerts, gauges — exactly the archives that
+  exist), point+radius+window fold with per-layer provenance +
+  freshness, caps stated, rejected_layers surfaced, LRU cache (5 min,
+  50 entries, 0.05-deg rounding). Built by subagent, session-reviewed
+  (read-before-write) before integration. FOLLOW-UP noted: add a
+  concurrent-scan gate if /api/data/query sees real traffic (public
+  endpoint, uncached scans are disk-heavy; mitigations today: LRU +
+  coord rounding + Cache-Control 300s). NEXT: W2 satellite orbits
+  (CelesTrak licensing check first), then W1 globe mode.
