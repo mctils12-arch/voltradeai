@@ -8859,3 +8859,47 @@ DECISION RULE: A ships when approved; the 6h server poller stays in
 place at zero marginal cost (if Railway's range ever gets unblocked or
 the egress changes, the stream self-heals and the relay becomes
 redundant — staleness audit will catch that).
+
+## 2026-07-07 — [PRODUCT] W6 server half: the LLM Analyst tool-loop — POST /api/analyst (v1.0.199)
+
+TERRITORY: T-DATACORE (analyst module) + routes.ts (SHARED, minimal:
+one import + one session-gated route). ANALYST CONSOLE centerpiece,
+server half; the chat pane is the next client PR.
+
+- WHAT: key-gated Anthropic Messages tool-use loop answering
+  natural-language questions STRICTLY from our own data tools — 7
+  tools, all cache/archive reads (query_window, satellites,
+  nws_alerts, grid_stress, eu_load, site_timeline, map_command).
+  Port-dwell and shadow-fleet tools deliberately EXCLUDED: their
+  exported functions trigger multi-day archive scans per call — the
+  exact event-loop defect R4/R5 repaired by moving to pollers.
+- COST DISCIPLINE (human directive: cheapest model): ANALYST_MODEL
+  default claude-haiku-4-5, 1024 output tokens/turn, ~1 cent per
+  question expected. Budgets enforced in CODE and stated in every
+  envelope: 8 tool calls + 4 LLM round-trips per question with
+  honest force-close notes; ANALYST_DAILY_TOKENS (default 500k)
+  day-keyed and PERSISTED to the volume so deploys never reset
+  spend; budget_exhausted is a first-class honest state; 2
+  concurrent questions max (429 beyond).
+- HONESTY MACHINERY: system prompt forbids memory facts, requires
+  per-figure tool citations, forbids predictions/trading advice,
+  mandates reporting warming_up/awaiting_key/truncation; grid_stress
+  carries predictive:false + gate-2-failed status VERBATIM into the
+  model context AND its schema description; tool results slim()ed
+  with every truncation stated first; empty model output yields an
+  explicit no-answer, never an invention.
+- SECURITY: session auth required (_checkSession — anonymous
+  visitors cannot burn the token budget; evidence-based choice, only
+  cheap capture POSTs are public); ANTHROPIC_API_KEY never logged,
+  every outgoing envelope deep-scrubbed against it (transport errors
+  can quote headers); transport errors carry status + API error text
+  only. AWAITING_KEY honesty: activates on key detect.
+- TESTS: 14 in analyst.test.ts — awaiting_key, happy path, tool-call
+  cap force-close, round-trip cap, map_command validation (bad lat /
+  unknown layer as is_error to the model, never a throw), daily
+  budget exhaust + persistence across module reset + day rollover
+  (injectable nowMs), slim() truncation notes, key-scrub even on
+  hostile transport errors, 429 concurrency, question validation.
+- GATES: node 425 pass 0 fail; tsc 64 baseline; pytest 476 passed 1
+  skipped. Version 1.0.198 -> 1.0.199. Built by worktree subagent;
+  session line-by-line review before integration (partition rule).

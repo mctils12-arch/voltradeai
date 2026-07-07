@@ -147,3 +147,21 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
   reviewed screenshots (curved vs flat field A/B at 390 confirmed).
   NEXT: W2 client satellite layer (satellite.js SGP4 on the globe;
   field-projection param on the route first), then W3 time scrubber.
+- 2026-07-07 (same session): W6 SERVER HALF SHIPPED (v1.0.199) —
+  server/analyst.ts + POST /api/analyst (session-gated). Anthropic
+  tool-use loop, ANALYST_MODEL default claude-haiku-4-5 (cheapest
+  tier), 7 tools (query_window, satellites, nws_alerts, grid_stress,
+  eu_load, site_timeline, map_command) — all cache/archive reads,
+  port-dwell/shadow-fleet deliberately EXCLUDED (their exports
+  trigger per-call archive scans, the R4/R5 hazard). Budgets enforced
+  in code: 8 tool calls + 4 round-trips per question (force-close
+  stated), ANALYST_DAILY_TOKENS/day persisted across deploys,
+  2-concurrent cap. Key-gated awaiting_key honesty — ACTIVATES ON
+  ANTHROPIC_API_KEY DETECT. Envelope: answer + tool_trace +
+  map_commands + source chips + usage + budget. grid_stress carries
+  predictive:false verbatim; system prompt forbids memory facts,
+  requires citations, allows refusal. Every envelope key-scrubbed.
+  Built by subagent, session-reviewed line-by-line. NEXT: W6 client
+  chat pane (T-CLIENT, renders the envelope: answer + chips + map
+  command execution; harness at 3 widths), then W2 client satellite
+  layer, then W3 time scrubber.
