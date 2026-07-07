@@ -1,0 +1,231 @@
+{
+  "_doc": "ORBITAL PROGRAM workstream e-entity (research/orbital_program.md cross-tie (b)): seed mapping of the biggest / most-relevant satellite operators & launch providers to the public company + ticker where one exists, so a company lookup can show its ORBITAL footprint beside its jets / vessels / plants in the Everything Graph (server/entityGraph.ts pattern). RAW reference data, mirroring datacore/entity_map.json's discipline: asserts an operator->company->ticker relationship with provenance, NO predictive claim. HONESTY RULE (hard): a wrong ticker is worse than an honest 'unmapped'. ticker is null wherever the operator is private, governmental, or the mapping is uncertain -- never a guessed symbol. Corporate structures churn (M&A, going-private, spinoffs, ticker changes) so re-verify before any inference is trusted or traded; per research/orbital_program.md the trading signal from constellation-size change is SPECULATIVE and slow -- structural / showcase value is the real justification here.",
+  "schema_version": 1,
+  "asof": "2026-07-07",
+  "provenance": "All public tickers verified via live WebSearch on 2026-07-07 against company IR pages / SEC filings / exchange listings. Private and governmental owners carry no ticker by construction (nothing to verify). Two stale-symbol corrections caught this build: EchoStar changed its Nasdaq ticker SATS->ECHO effective 2026-06-24 (SATS is now WRONG); Iridium (IRDM) is under an announced ~$8B acquisition by Rocket Lab (RKLB) and could delist if it closes.",
+  "coverage": {
+    "operators": 24,
+    "with_public_ticker": 15,
+    "null_ticker": 9,
+    "null_breakdown": { "private": 3, "government": 6 }
+  },
+  "category_values": ["launch-provider", "comms", "earth-observation", "navigation", "defense", "gov", "other"],
+  "operators": [
+    {
+      "company": "SpaceX (Space Exploration Technologies Corp.)",
+      "operator_name_variants": ["SpaceX", "Space Exploration Technologies", "Space Exploration Technologies Corp", "Space Exploration Holdings", "Starlink", "SpaceX Starlink"],
+      "ticker": null,
+      "exchange": null,
+      "category": "launch-provider",
+      "country": "US",
+      "notes": "Privately held -- NO public equity as of 2026-07-07 (Starlink not separately listed either). Operates the Starlink LEO comms mega-constellation (thousands of sats) plus Falcon/Starship launch. ticker deliberately null; never map the private parent to a proxy. Verified 2026-07-07."
+    },
+    {
+      "company": "Rocket Lab Corporation",
+      "operator_name_variants": ["Rocket Lab", "Rocket Lab USA", "Rocket Lab Corporation", "RocketLab"],
+      "ticker": "RKLB",
+      "exchange": "Nasdaq",
+      "category": "launch-provider",
+      "country": "US",
+      "notes": "Nasdaq: RKLB (Rocket Lab Corp). Small-lift Electron / Neutron launch + Photon spacecraft bus. WATCH: announced an ~$8B agreement to acquire Iridium (IRDM) -- would fold IRDM assets under RKLB if it closes. Verified 2026-07-07."
+    },
+    {
+      "company": "AST SpaceMobile, Inc.",
+      "operator_name_variants": ["AST SpaceMobile", "AST & Science", "AST and Science", "ASTS", "BlueBird", "AST SpaceMobile Inc"],
+      "ticker": "ASTS",
+      "exchange": "Nasdaq",
+      "category": "comms",
+      "country": "US",
+      "notes": "Nasdaq: ASTS. Direct-to-cell BlueBird LEO constellation. Verified 2026-07-07."
+    },
+    {
+      "company": "Viasat, Inc.",
+      "operator_name_variants": ["Viasat", "Viasat Inc", "ViaSat", "Inmarsat", "Inmarsat Global"],
+      "ticker": "VSAT",
+      "exchange": "Nasdaq",
+      "category": "comms",
+      "country": "US",
+      "notes": "Nasdaq: VSAT. Acquired Inmarsat (2023) -- Inmarsat-labelled satellites now roll up to VSAT, so Inmarsat operator strings are mapped here. Verified 2026-07-07."
+    },
+    {
+      "company": "Iridium Communications Inc.",
+      "operator_name_variants": ["Iridium", "Iridium Communications", "Iridium Satellite", "Iridium Satellite LLC", "Iridium LLC", "Iridium NEXT"],
+      "ticker": "IRDM",
+      "exchange": "Nasdaq",
+      "category": "comms",
+      "country": "US",
+      "notes": "Nasdaq: IRDM. 66-active-sat cross-linked LEO voice/data/IoT constellation. WATCH: under an announced ~$8B acquisition by Rocket Lab (RKLB) as of mid-2026 -- still independently listed on 2026-07-07 but may delist if the deal closes; re-verify. Verified 2026-07-07."
+    },
+    {
+      "company": "Globalstar, Inc.",
+      "operator_name_variants": ["Globalstar", "Globalstar Inc", "Globalstar LP"],
+      "ticker": "GSAT",
+      "exchange": "Nasdaq",
+      "category": "comms",
+      "country": "US",
+      "notes": "Nasdaq: GSAT (Nasdaq Global Select). Uplisted from NYSE American to Nasdaq on 2025-02-11 alongside a 1-for-15 reverse split -- symbol unchanged (GSAT), exchange changed. LEO voice/IoT; major Apple satellite-connectivity customer. Verified 2026-07-07."
+    },
+    {
+      "company": "EchoStar Corporation (Hughes / DISH / Boost)",
+      "operator_name_variants": ["EchoStar", "EchoStar Corporation", "Hughes", "Hughes Network Systems", "HughesNet", "DISH Network", "Dish Operating"],
+      "ticker": "ECHO",
+      "exchange": "Nasdaq",
+      "category": "comms",
+      "country": "US",
+      "notes": "Nasdaq: ECHO. CRITICAL STALE-SYMBOL CORRECTION -- EchoStar changed its Nasdaq ticker from SATS to ECHO effective 2026-06-24; do NOT use SATS. Parent of Hughes (GEO broadband), DISH, Boost Mobile, Sling. Verified 2026-07-07."
+    },
+    {
+      "company": "SES S.A.",
+      "operator_name_variants": ["SES", "SES SA", "SES Global", "SES Astra", "SES Americom", "SES World Skies", "O3b", "O3b Networks", "O3b mPOWER"],
+      "ticker": "SESG",
+      "exchange": "Euronext Paris",
+      "category": "comms",
+      "country": "Luxembourg",
+      "notes": "Euronext Paris: SESG (Yahoo/quote suffix SESG.PA; also on Luxembourg exchange). GEO fleet + O3b/O3b mPOWER MEO constellation. Agreed to acquire Intelsat (deal announced Apr-2024) -- if closed, Intelsat assets fold under SES. Verified 2026-07-07."
+    },
+    {
+      "company": "Eutelsat Group (Eutelsat OneWeb)",
+      "operator_name_variants": ["Eutelsat", "Eutelsat Communications", "Eutelsat Group", "OneWeb", "Eutelsat OneWeb", "One Web"],
+      "ticker": "ETL",
+      "exchange": "Euronext Paris",
+      "category": "comms",
+      "country": "France",
+      "notes": "Euronext Paris: ETL (quote suffix ETL.PA). Formed by the 2023 Eutelsat (GEO) + OneWeb (LEO) combination -- OneWeb-labelled sats map here. Verified 2026-07-07."
+    },
+    {
+      "company": "Intelsat S.A.",
+      "operator_name_variants": ["Intelsat", "Intelsat SA", "Intelsat US", "Intelsat Corp", "Intelsat Global"],
+      "ticker": null,
+      "exchange": null,
+      "category": "comms",
+      "country": "Luxembourg / US",
+      "notes": "PRIVATE -- no public equity since emerging from Chapter 11 in 2022 as a privately held company. SES agreed to acquire Intelsat (announced Apr-2024, ~$3.1B); if/when the deal closes the economic parent is SES (Euronext: SESG), but Intelsat itself has no ticker. ticker deliberately null. Verified 2026-07-07."
+    },
+    {
+      "company": "Planet Labs PBC",
+      "operator_name_variants": ["Planet Labs", "Planet Labs PBC", "Planet Labs Inc", "Planet", "PlanetLabs", "Planet Labs Germany"],
+      "ticker": "PL",
+      "exchange": "NYSE",
+      "category": "earth-observation",
+      "country": "US",
+      "notes": "NYSE: PL. Daily-imaging Dove/SuperDove + SkySat fleet -- the dominant commercial EO smallsat operator. Verified 2026-07-07."
+    },
+    {
+      "company": "Maxar Intelligence (Maxar Technologies)",
+      "operator_name_variants": ["Maxar", "Maxar Technologies", "Maxar Intelligence", "DigitalGlobe", "Space Systems Loral", "SSL", "WorldView"],
+      "ticker": null,
+      "exchange": null,
+      "category": "earth-observation",
+      "country": "US",
+      "notes": "PRIVATE -- taken private by Advent International + BCI, completed 2023-05-03 (~$6.4B); previously NYSE/TSX: MAXR. Its manufacturing arm (Maxar Space Systems) was divested to Intuitive Machines as 'Lanteris Space Systems' in Nov-2025; the high-res WorldView imaging business (Maxar Intelligence) remains privately held. NO public equity -> ticker null. Verified 2026-07-07."
+    },
+    {
+      "company": "Spire Global, Inc.",
+      "operator_name_variants": ["Spire", "Spire Global", "Spire Global Inc", "Spire Maritime"],
+      "ticker": "SPIR",
+      "exchange": "NYSE",
+      "category": "earth-observation",
+      "country": "US",
+      "notes": "NYSE: SPIR. RF/GNSS-RO smallsat constellation (weather, AIS ship-tracking, ADS-B). Verified 2026-07-07."
+    },
+    {
+      "company": "BlackSky Technology Inc.",
+      "operator_name_variants": ["BlackSky", "BlackSky Technology", "BlackSky Global", "Black Sky", "Spaceflight Industries"],
+      "ticker": "BKSY",
+      "exchange": "NYSE",
+      "category": "earth-observation",
+      "country": "US",
+      "notes": "NYSE: BKSY. High-revisit Gen-2/Gen-3 EO smallsats + analytics; heavy US-government exposure. Verified 2026-07-07."
+    },
+    {
+      "company": "Lockheed Martin Corporation",
+      "operator_name_variants": ["Lockheed Martin", "Lockheed", "Lockheed Martin Space", "Lockheed Martin Corp", "Lockheed Martin Corporation"],
+      "ticker": "LMT",
+      "exchange": "NYSE",
+      "category": "defense",
+      "country": "US",
+      "notes": "NYSE: LMT. Builder/operator of many defense and civil satellites (GPS III, SBIRS, weather, comsats). Attribution is as BUILDER/prime, not necessarily on-orbit owner (many are USSF/NOAA-owned). Verified 2026-07-07."
+    },
+    {
+      "company": "Northrop Grumman Corporation",
+      "operator_name_variants": ["Northrop Grumman", "Northrop", "Northrop Grumman Space", "Orbital ATK", "Orbital Sciences", "Northrop Grumman Corp"],
+      "ticker": "NOC",
+      "exchange": "NYSE",
+      "category": "defense",
+      "country": "US",
+      "notes": "NYSE: NOC. Defense/space prime (absorbed Orbital ATK 2018); builds military and civil buses, MEV servicing vehicles. BUILDER/prime attribution, not always on-orbit owner. Verified 2026-07-07."
+    },
+    {
+      "company": "The Boeing Company",
+      "operator_name_variants": ["Boeing", "The Boeing Company", "Boeing Satellite Systems", "Boeing Defense", "Boeing Space", "Hughes Space and Communications"],
+      "ticker": "BA",
+      "exchange": "NYSE",
+      "category": "defense",
+      "country": "US",
+      "notes": "NYSE: BA. Builds 702-series comsats and defense/space systems. BUILDER/prime attribution, not always on-orbit owner. Verified 2026-07-07."
+    },
+    {
+      "company": "Telesat Corporation",
+      "operator_name_variants": ["Telesat", "Telesat Canada", "Telesat Corporation", "Telesat Lightspeed"],
+      "ticker": "TSAT",
+      "exchange": "Nasdaq / TSX",
+      "category": "comms",
+      "country": "Canada",
+      "notes": "Dual-listed Nasdaq: TSAT and TSX: TSAT. GEO fleet + Lightspeed LEO constellation (first launches slated late 2026). Verified 2026-07-07."
+    },
+    {
+      "company": "National Aeronautics and Space Administration (NASA)",
+      "operator_name_variants": ["NASA", "National Aeronautics and Space Administration", "NASA GSFC", "NASA JPL", "Goddard Space Flight Center"],
+      "ticker": null,
+      "exchange": null,
+      "category": "gov",
+      "country": "US",
+      "notes": "US federal agency -- no public equity. Owner/operator of science & Earth-observation missions (Landsat with USGS, Terra/Aqua, etc.). ticker null by construction."
+    },
+    {
+      "company": "National Oceanic and Atmospheric Administration (NOAA)",
+      "operator_name_variants": ["NOAA", "National Oceanic and Atmospheric Administration", "NOAA NESDIS"],
+      "ticker": null,
+      "exchange": null,
+      "category": "gov",
+      "country": "US",
+      "notes": "US federal agency -- no public equity. Owns the GOES + JPSS/NOAA weather-satellite fleets (built by primes like LMT). ticker null by construction."
+    },
+    {
+      "company": "European Space Agency (ESA)",
+      "operator_name_variants": ["ESA", "European Space Agency", "Agence Spatiale Europeenne"],
+      "ticker": null,
+      "exchange": null,
+      "category": "gov",
+      "country": "Europe (multinational)",
+      "notes": "Intergovernmental agency -- no public equity. Operates/co-operates Copernicus Sentinel EO missions (with the EU) and science missions. ticker null by construction."
+    },
+    {
+      "company": "United States Space Force (USSF)",
+      "operator_name_variants": ["US Space Force", "United States Space Force", "USSF", "Space Force", "US Air Force", "USAF", "US Space Command", "Space Systems Command"],
+      "ticker": null,
+      "exchange": null,
+      "category": "gov",
+      "country": "US",
+      "notes": "US military service -- no public equity. On-orbit owner/operator of GPS (navigation), SBIRS/missile-warning, WGS/AEHF milcomms (sats built by LMT/BA/NOC primes). ticker null by construction; use this to attribute government-owned GPS/defense payloads honestly rather than to a prime's ticker."
+    },
+    {
+      "company": "EUMETSAT",
+      "operator_name_variants": ["EUMETSAT", "European Organisation for the Exploitation of Meteorological Satellites"],
+      "ticker": null,
+      "exchange": null,
+      "category": "gov",
+      "country": "Europe (multinational)",
+      "notes": "Intergovernmental meteorological organisation -- no public equity. Operates Meteosat (MTG) and Metop/EPS weather satellites. ticker null by construction."
+    },
+    {
+      "company": "National Reconnaissance Office (NRO)",
+      "operator_name_variants": ["NRO", "National Reconnaissance Office"],
+      "ticker": null,
+      "exchange": null,
+      "category": "gov",
+      "country": "US",
+      "notes": "US intelligence agency -- no public equity. Owner of classified reconnaissance payloads (often SATCAT-typed as classified/unknown). ticker null by construction; never map a classified payload to a builder's ticker."
+    }
+  ]
+}
