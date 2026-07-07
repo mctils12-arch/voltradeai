@@ -202,6 +202,20 @@ data); full-state discovery sweeps use the same account later.
 - CPU-FEASIBLE MEANWHILE (no purchase): Phase B1 corridor-verify
   over ERCOT OSM buffers (~7 h @0.6 m streamed free from Planetary
   Computer) and the entire A1→grid-stress-index product path.
+- OPEN SUB-DECISION (2026-07-07, non-blocking) — LAUNCH PATH:
+  RUNPOD_API_KEY is in Railway but NOT in the agent session
+  (presence-checked 0), so a session cannot itself call the RunPod
+  API to launch a pod. The cost-cap gate + spend ledger are BUILT and
+  tested (scripts/runpod_budget.py, test_runpod_budget.py,
+  research/runpod_ledger.md); the actual pod launch must run as a
+  server-side / Railway routine that reads the key and calls
+  authorize_job() first (refuses any unbounded job, passes the hard
+  max_runtime_seconds cap to RunPod) — OR the key is added to the
+  session. Either is fine; Mike's call. This gates only the GPU
+  launch step, NOT the non-GPU Phase B data-prep (ETDII download +
+  OSM-seeded chips), which proceeds now. SATELLITE SPLATTING is
+  CANCELLED ($0 GPU) — model research found 0 splat candidates; glTF
+  covers it. The whole $50 is reserved for grid-vision.
 
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 
