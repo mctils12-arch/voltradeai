@@ -7294,3 +7294,23 @@ exception to append-only; the log below it stays append-only)
   appends 2026-05 points as a clean git diff; the streams inventory
   shows the jodi manifest (count 42) with volume-side no-data honesty
   (session-run writer — expected, not a defect).
+
+## 2026-07-07 — VERIFY CONFIRMATIONS: v1.0.167/168/169 all live (appended for the record; rides with the next PR)
+
+- R14 (v1.0.168) VERIFIED ON PROD exactly as pre-stated:
+  /api/data/streams now serves the full census — count=42 (41 + jodi,
+  the v1.0.169 deploy landed during verification), manifest_dir_found:
+  true, occvolume "live" with a real 153,181-record newest-file peek,
+  griddemand + cropconditions "live" with files, railep724/eiaweekly
+  honestly "no-data" (session-run writers — expected). AND
+  /api/data/platform/stats serves sentinel2_last_reading=2026-06-27
+  (age 10d) — NON-NULL IN PRODUCTION FOR THE FIRST TIME since the D2
+  surface shipped 2026-07-05. The 10-day age now visible is the
+  staleness signal that repair was built to surface; a sentinel2
+  pipeline rerun is a queued follow-up, and the age being loud is the
+  feature working.
+- v1.0.167 streams tab: end-to-end live (was blocked only by the R14
+  packaging defect its own pre-stated verify caught — the
+  verify-the-positive-case discipline paid for itself same-day).
+- v1.0.169 JODI: manifest in the prod inventory (count 42), artifact
+  in git; next monthly rerun ~2026-07-19.
