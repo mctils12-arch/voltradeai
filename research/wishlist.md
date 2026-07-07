@@ -130,9 +130,17 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   scripts/gem_ingest.py + gem manifest). Follow-ups filed: coal-mine
   map layer from the geojson.gz; parent-company -> ticker join into
   the entity graph; GEOT ownership tracker.
-- NEXT CENSUS BUILDS: remaining GEM Drive files (blocked on connector
-  toggle), FINRA part 2 (design notes above), USGS quakes + NDBC
-  buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys (9a/9c below).
+- CENSUS #5 GEM COMPLETE (v1.0.176 part 1 + v1.0.178 part 2): full
+  tracker catalog ingested (18 artifacts ~40MB: GEOT ownership graph
+  w/ SEC-CIK crosswalk, GIPT 182k power units, GMET methane plumes,
+  coal/oil/gas/LNG/steel/cement/chemicals registries; every skip
+  stated in suite_skips.json). QUEUED FOLLOW-UPS: (a) pipelines
+  PMTiles map layer from the GIS zips (68-72MB geojsons in Mike's
+  Drive copy + scratchpad); (b) entity-graph CIK join (GEOT <->
+  EDGAR); (c) LNG-carrier IMO join to AIS archive; (d) GMET plumes
+  as a dated map/event layer.
+- NEXT CENSUS BUILDS: FINRA part 2 (design notes above), USGS quakes
+  + NDBC buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys (9a/9c).
 
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 
