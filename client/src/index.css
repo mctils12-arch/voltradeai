@@ -89,7 +89,7 @@
   --secondary-foreground: 213 53% 95%;
   --muted: 213 27% 22%;
   --muted-foreground: 213 22% 60%;
-  --accent: 212 100% 65%;
+  --shadcn-accent: 212 100% 65%;
   --accent-foreground: 213 53% 5%;
   --destructive: 351 100% 67%;
   --destructive-foreground: 0 0% 98%;
@@ -116,7 +116,7 @@
   --primary-border: hsl(var(--primary));
   --secondary-border: hsl(var(--secondary));
   --muted-border: hsl(var(--muted));
-  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(var(--shadcn-accent));
   --destructive-border: hsl(var(--destructive));
 }
 
@@ -151,7 +151,7 @@
   --secondary-foreground: 213 53% 95%;
   --muted: 213 27% 22%;
   --muted-foreground: 213 22% 60%;
-  --accent: 212 100% 65%;
+  --shadcn-accent: 212 100% 65%;
   --accent-foreground: 213 53% 5%;
   --destructive: 351 100% 67%;
   --destructive-foreground: 0 0% 98%;
@@ -163,7 +163,7 @@
   --primary-border: hsl(var(--primary));
   --secondary-border: hsl(var(--secondary));
   --muted-border: hsl(var(--muted));
-  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(var(--shadcn-accent));
   --destructive-border: hsl(var(--destructive));
 }
 
