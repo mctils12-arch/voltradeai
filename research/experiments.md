@@ -7948,3 +7948,37 @@ exception to append-only; the log below it stays append-only)
 - VERIFY (pre-stated): the gate-2 computation session must quote
   this design's criteria verbatim and may not adjust them after
   seeing data; weight-fitting confined to the training split.
+
+## 2026-07-07 — [PIPELINE] GRID VISION gate-2 prereq 1 — EIA-930 day-ahead forecast (DF) rides the gridDemand poll (v1.0.183)
+
+- Territory: T-DATACORE (server/gridDemand.ts + test) + SHARED
+  (griddemand manifest, package.json, this file). First prereq from
+  the filed gate-2 design (#320): forecast strain = realized D minus
+  DF per hour.
+- DESIGN (read-before-write findings encoded): the archive's dedup
+  identity was respondent|period — a second series would COLLIDE
+  with demand rows. Key extended to respondent|period|type with
+  LEGACY COMPAT: pre-v2 archived lines carry no type field (the
+  facet forced D) and hash as D, so the existing archive seeds
+  correctly and no demand hour re-archives. DF rides the SAME API
+  call via a second type facet; length doubled (two series x the
+  same 48h window) — call count unchanged (9/cycle). Stats additive:
+  latest_forecast_mwh beside latest_mwh; hours_in_window still
+  counts demand rows only (meaning unchanged for consumers).
+- TEST NOTES: legacy-compat test placed FIRST in the file
+  deliberately — the seed pass fires once per process (comment in
+  test); one fixture collision with the pre-existing battery via the
+  process-global seen set found and avoided with distinct
+  respondent/period. The url assertion updated for the INTENTIONAL
+  length change (48->96) and strengthened (both facets pinned) — no
+  assertion weakened.
+- GATES: node 364 pass 0 fail (gridDemand battery 6/6 incl. new
+  legacy-seed + DF-stats tests); pytest 471 passed 1 skipped; tsc 64
+  baseline. Version 1.0.182 -> 1.0.183.
+- VERIFY (pre-stated): post-deploy, /api/data/grid-demand stats grow
+  latest_forecast_mwh (non-null once EIA publishes DF for the
+  window; DF exists for BAs not for US48 total — if US48 stays null
+  that is the source's shape, not a defect: check ERCO first);
+  archived day-files start carrying type:"DF" rows alongside
+  typeless legacy + type:"D" rows. Next prereq: env-gated EIA-930
+  historical backfill (server-side, OCC pattern).

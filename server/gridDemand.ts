@@ -16,6 +16,13 @@
  * a bounded 9-call sweep. Respondent list is a curated constant;
  * expansion is a one-line change.
  *
+ * v2 (2026-07-07, GRID VISION gate-2 prereq 1): day-ahead demand
+ * forecast (type DF) rides the SAME call via a second type facet
+ * (length doubled to keep the 48h window across two series). Archived
+ * rows carry an explicit type; LEGACY lines without one are demand
+ * (the facet forced D before this change) and dedup as such —
+ * forecast strain = realized D minus DF for the same hour.
+ *
  * HYPOTHESIS (gate-locked in the build order — archive + RAW only):
  * weather-adjusted regional demand residuals (join: our CPC degree-days
  * archive) nowcast industrial activity; joins the power-plants layer
@@ -42,7 +49,8 @@ const CALL_SPACING_MS = 300;
 export interface DemandObs {
   period: string;            // "YYYY-MM-DDTHH" (UTC hour as published)
   respondent: string;        // BA code
-  mwh: number | null;        // demand, megawatthours
+  type?: "D" | "DF";         // demand | day-ahead forecast; absent = D (legacy)
+  mwh: number | null;        // megawatthours (demand or forecast per type)
   rt: string;                // as-seen UTC date
 }
 
@@ -52,7 +60,7 @@ const num = (v: any): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/** EIA v2 envelope -> DemandObs (type D only, defensive). */
+/** EIA v2 envelope -> DemandObs (types D and DF, defensive). */
 export function parseDemand(json: any, rt: string): DemandObs[] {
   const data = json?.response?.data;
   if (!Array.isArray(data)) return [];
@@ -61,8 +69,10 @@ export function parseDemand(json: any, rt: string): DemandObs[] {
     const period = r?.period;
     const respondent = r?.respondent;
     if (typeof period !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(period)) continue;
-    if (!respondent || (r.type && r.type !== "D")) continue;
-    out.push({ period, respondent: String(respondent), mwh: num(r.value), rt });
+    if (!respondent) continue;
+    const type = r.type == null ? "D" : r.type; // facet forced D pre-v2
+    if (type !== "D" && type !== "DF") continue;
+    out.push({ period, respondent: String(respondent), type, mwh: num(r.value), rt });
   }
   return out;
 }
@@ -78,8 +88,9 @@ export function demandUrl(respondent: string, key: string): string {
     "&frequency=hourly&data%5B0%5D=value" +
     `&facets%5Brespondent%5D%5B%5D=${encodeURIComponent(respondent)}` +
     "&facets%5Btype%5D%5B%5D=D" +
+    "&facets%5Btype%5D%5B%5D=DF" + // day-ahead forecast rides the same call
     "&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=desc" +
-    `&length=${HOURS_PER_FETCH}`;
+    `&length=${HOURS_PER_FETCH * 2}`; // two series x the same 48h window
 }
 
 export async function fetchDemand(fetchImpl: FetchFn = fetch as any,
@@ -108,12 +119,14 @@ export async function fetchDemand(fetchImpl: FetchFn = fetch as any,
   return out;
 }
 
-// ── Archive (event-identity dedup respondent|period, day-file per UTC day) ──
+// ── Archive (event-identity dedup respondent|period|type, day-file per UTC day) ──
 
 const seenObs = new Set<string>();
 let seeded = false;
 
-const obsKey = (o: DemandObs) => `${o.respondent}|${o.period}`;
+// legacy archived lines carry no type field — they are demand rows
+// (the pre-v2 facet forced D), so they hash identically to new D rows
+const obsKey = (o: DemandObs) => `${o.respondent}|${o.period}|${o.type || "D"}`;
 
 function demandDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "griddemand");
@@ -190,7 +203,8 @@ export interface RespondentStat {
   respondent: string;
   latest_period: string;
   latest_mwh: number | null;
-  hours_in_window: number;
+  latest_forecast_mwh: number | null;  // newest DF value; null until DF flows
+  hours_in_window: number;             // demand (D) rows only — meaning unchanged
 }
 
 let cache: { at: number; stats: RespondentStat[] } | null = null;
@@ -216,9 +230,18 @@ export async function refreshDemand(fetchImpl: FetchFn = fetch as any,
       }
       const stats: RespondentStat[] = [];
       byResp.forEach((rows, respondent) => {
-        const newest = rows.reduce((mx, r) => (r.period > mx.period ? r : mx), rows[0]);
+        const d = rows.filter((r) => (r.type || "D") === "D");
+        const df = rows.filter((r) => r.type === "DF");
+        const newest = d.length
+          ? d.reduce((mx, r) => (r.period > mx.period ? r : mx), d[0])
+          : rows.reduce((mx, r) => (r.period > mx.period ? r : mx), rows[0]);
+        const newestDf = df.length
+          ? df.reduce((mx, r) => (r.period > mx.period ? r : mx), df[0])
+          : null;
         stats.push({ respondent, latest_period: newest.period,
-                     latest_mwh: newest.mwh, hours_in_window: rows.length });
+                     latest_mwh: d.length ? newest.mwh : null,
+                     latest_forecast_mwh: newestDf ? newestDf.mwh : null,
+                     hours_in_window: d.length });
       });
       stats.sort((a, b) => a.respondent.localeCompare(b.respondent));
       cache = { at: Date.now(), stats };
