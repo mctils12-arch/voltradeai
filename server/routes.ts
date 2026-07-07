@@ -73,6 +73,7 @@ import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
 import { bootFinraQueryPoll, latestFinraSi } from "./finraQuery";
+import { bootFtdPoll, latestFtd } from "./secFtd";
 
 const execAsync = promisify(exec);
 
@@ -1686,6 +1687,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             "threshold list here is FINRA's OTC side only.",
       si: hit.si,
       threshold: hit.threshold,
+    });
+  });
+
+  // SEC CNS fails-to-deliver (census build #6, public domain — the
+  // resale-safe source). Half-month files, trailer-checksummed;
+  // QUANTITY is a fail BALANCE (level), not a flow. Cache-only path.
+  bootFtdPoll();
+  app.get("/api/data/ftd", (_req, res) => {
+    const hit = latestFtd();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "SEC CNS fails-to-deliver (half-month files)", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "SEC CNS fails-to-deliver, half-month files (public domain)",
+      attribution: "U.S. Securities and Exchange Commission (CNS fails-to-deliver)",
+      time: hit.at,
+      note: "aggregate net fail BALANCES per settlement date (a level, not a daily flow); published on a 2.5-4.5 week lag; " +
+            "top list covers the newest settlement date, floors quantity at " +
+            `${hit.summary.qty_floor.toLocaleString()} shares (stated); raw FTD spikes alone are a crowded signal — ` +
+            "this stream exists for the settlement-stress composite (see manifest)",
+      summary: hit.summary,
     });
   });
 

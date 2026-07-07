@@ -1,0 +1,22 @@
+{
+ "stream": "secftd",
+ "storage": "one gzipped JSONL per HALF-MONTH publication unit under <archive>/secftd/ (<YYYYMM><a|b>.jsonl.gz, ~58k rows ≈ 3.5MB plain → ~1.5MB gz, gz-on-write); period-level dedup (a published half-month file is final)",
+ "written_by": "server/secFtd.ts refreshFtd (12h poll over the newest 5 half-month periods; eager boot; 2004→present history backfill is a SEPARATE filed task — ~370MB gz total, volume-budget decision first)",
+ "source": "SEC CNS fails-to-deliver (sec.gov cnsfails zips; contract live-verified 2026-07-07): URL pattern NON-uniform across 5 eras since 2004 — poller tries the verified fallback chain (standard path → /files/data/other/ → _0 suffix; the 202605a file lives at the second variant TODAY, confirmed live end-to-end). Half-month boundary VERIFIED as 1st-14th ('a') / 15th-EOM ('b'), publishing ~EOM and ~15th-next-month (2.5-4.5wk lag). Pipe-delimited single-.txt zips (dependency-free ZIP reader, stored+deflate); pure ASCII; LF current / CRLF 2004-era. TWO trailer lines = free integrity checksum, enforced (mismatch refuses the file; live 202606a matched exactly: 58,328 rows). Default UA → 403; SEC-etiquette UA used.",
+ "license": "US government work, public domain — the resale-safe census source; attribution 'SEC CNS fails-to-deliver data'",
+ "attribution": "U.S. Securities and Exchange Commission (CNS fails-to-deliver)",
+ "schema_version": 1,
+ "field_map": {
+  "date": "ISO settlement date (source YYYYMMDD, business days only)",
+  "cusip/symbol/name": "9-char CUSIP OR CINS (letter prefix = foreign, ~9% of rows — never validated numeric); name is source-truncated at 30 chars, trailing spaces stripped",
+  "qty": "aggregate net CNS fail BALANCE outstanding that settlement date — a LEVEL, not a daily flow (consecutive dates = the same balance evolving); min observed 1 (no 10k-share reporting floor in current files)",
+  "price/rt": "prior-day close, or null when source prints '.' (~0.6% now, 100% of 2004-era rows); rt = our capture date"
+ },
+ "confidence_model": "RAW official CNS fails data. HYPOTHESIS (gate-locked): raw FTD spikes are maximally crowded — the edge is ONLY the settlement-stress composite (threshold-list persistence x FTD level x daily short volume; census #4/#6 joint), computed against the finrathreshold + finrashortvol archives. Nothing claimed until ladder gate 2.",
+ "geo_fields": [],
+ "entity_key": "date + cusip",
+ "sentiment": null,
+ "started": "2026-07-07",
+ "cadence": "half-month files: 'a' (1st-14th) publishes ~EOM same month, 'b' (15th-EOM) ~the 15th next month; 12h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS census build #6. History depth available upstream: 2004-03-22 (quarterly-era files have different URLs/multi-member zips — backfill task covers them)."
+}

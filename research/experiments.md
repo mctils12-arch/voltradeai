@@ -7355,3 +7355,37 @@ exception to append-only; the log below it stays append-only)
   /api/data/streams count=44 with both new streams "live" after first
   poll. Next SI publish (~Jul 9-10 for the 2026-06-30 settlement)
   should appear within one 6h poll of dissemination.
+
+## 2026-07-07 — [PIPELINE] SEC fails-to-deliver stream (census build #6) — v1.0.171
+
+- TERRITORY: T-DATACORE. Census rank #6, the resale-safe public-domain
+  source. Contract from the subagent workup (filed in the v1.0.170
+  entry); build verified LIVE end-to-end before commit: 3 real half-
+  month zips fetched+parsed+archived — 202606a parsed 58,328 rows
+  matching the file's own trailer checksum EXACTLY, and 202605a landed
+  via the /files/data/other/ fallback (the nonstandard-path case the
+  workup flagged works in practice).
+- BUILD: server/secFtd.ts — dependency-free single-member ZIP reader
+  (central-directory walk, stored+deflate; build-don't-buy applies to
+  dependencies too), trailer-checksummed parser (BOTH trailer lines
+  enforced — count and share-quantity; mismatch refuses the file),
+  verified URL fallback chain, half-month period math (1-14/'a',
+  15-EOM/'b' — the workup's boundary correction, pinned in tests incl.
+  the 14th/15th edge), period-level dedup gz-on-write archive, 12h
+  poll. Route /api/data/ftd (cache-only) with the level-not-flow note
+  and stated quantity floor.
+- HONESTY NOTES: PRICE "." → null never zero; CINS letter-prefix
+  cusips preserved; QUANTITY documented as a BALANCE (level) —
+  composite math must diff it, not sum it. Raw FTD spikes stated as
+  maximally crowded in manifest + route note — this stream exists for
+  the settlement-stress composite (threshold persistence x FTD x short
+  volume), which is now fully ingredient-complete (finrathreshold +
+  secftd + finrashortvol all recording). The composite itself is a
+  queued [RESEARCH] task with its own gate-1 plan, not part of this PR.
+- GATES: node 354/354 (346 + 8 new); tsc 64 baseline (one Set-iteration
+  regression caught and fixed pre-commit); manifests envelope green (45
+  manifests). Version 1.0.170 → 1.0.171.
+- VERIFY (pre-stated): post-deploy /api/data/ftd serves period 202606a,
+  rows 58328, newest_date 2026-06-12 (or newer once 202606b publishes
+  ~Jul 15 — within one 12h poll); /api/data/streams count=45 with
+  secftd live after first poll.
