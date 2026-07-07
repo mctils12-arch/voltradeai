@@ -200,3 +200,73 @@ work (shared spine).
    Railway. Needed for detector TRAINING regardless (no released
    weights exist); full-state sweeps later. The A1→B1-index path
    above deliberately needs no GPU meanwhile.
+
+## A1 gate-2 design — TX/ERCOT stress index v0 (filed 2026-07-07, BEFORE any computation)
+
+Design filed with criteria pre-stated per REASONING STANDARD #10; the
+index has not been computed as of this filing.
+
+### Index definition (v0) — three components, no fabricated capacity
+
+HONESTY CONSTRAINT THAT SHAPES v0: circuit-km is NOT MW transfer
+capacity. v0 therefore makes NO capacity-denominator claim — the grid
+map's role is SPATIALIZATION (which counties/corridors/facilities
+hang off a stressed BA, via tx_ba_capacity.json + the Everything
+Graph), not a denominator. A capacity-normalized index waits until a
+validated per-line MW ratings join exists (future work; would need
+EIA-860/utility ratings data, filed separately).
+
+1. DEMAND PERCENTILE — per-BA hourly demand vs its own history
+   (same-month-hour distribution, rolling window). Requires
+   historical depth (prereq 2).
+2. FORECAST STRAIN — realized demand minus the EIA-930 day-ahead
+   demand forecast (type "DF"), as a percentage. Our gridDemand
+   stream currently polls type "D" only — prereq 1 adds DF.
+3. WEATHER EXTREMITY — CPC degree-day percentile for TX (10-yr
+   archive already recording).
+
+v0 index = per-BA composite of (1)-(3). Exact weights are a gate-2
+FITTING question (stated as such — fit on the training split only,
+never tuned on validation).
+
+### Gate-2 criteria (pre-stated)
+
+- OUTCOME VARIABLE (operationalized without LMP data, which we do
+  not archive): a "stress hour" = top-decile same-month demand AND
+  realized demand exceeding the day-ahead forecast by >=3%. As
+  independent spot-validation (not fitting): a hand-collected dated
+  list of public ERCOT conservation appeals / EEA events must
+  overlap the detected stress days — if the operationalized events
+  don't capture the famous ones, the outcome variable is wrong.
+- TEST: index computed from data available by day-D morning must
+  predict D+1 stress hours above base rate.
+- SPLIT: fit weights on 2015-2022 history; validate 2023-2025
+  strictly out-of-sample. VINTAGE CAVEAT (stated): EIA-930 history
+  is current-vintage (revised); our live archive accumulates true
+  vintages via rt timestamps going forward — the backtest carries
+  this caveat until enough live vintage accumulates.
+- BASE-RATE CONTROL: same-calendar-month random-day predictor —
+  seasonality is the dominant confounder (July always looks
+  stressed); the index must beat the seasonal base, not just
+  climatology.
+- PASS: out-of-sample lift >= 1.5x over the seasonal base rate on
+  top-decile index days, stable across all three validation summers
+  (no single-summer carry). FAIL: layer of death logged in
+  experiments.md; the index demotes to a DESCRIPTIVE dashboard
+  surface labeled non-predictive (still a product, honestly framed).
+
+### Prerequisites (each its own PR)
+
+1. gridDemand polls type "DF" alongside "D" (small server change;
+   same endpoint, same envelope).
+2. Env-gated one-time EIA-930 historical backfill, server-side (the
+   EIA key lives in Railway only) — OCC deep-backfill pattern:
+   default-off flag, done-marker, oldest-first, spacing; volume
+   estimate stated in the PR (9 respondents x hourly x ~10yr ~ 800k
+   rows, modest gz).
+3. Gate-2 computation per the criteria above (session-run analysis,
+   results to experiments.md whatever they say).
+
+KILL DATE: if gate-2 has not been computed by 2026-08-15 (prereqs
+stalled), the stall is filed in wishlist.md honestly rather than
+left implicit.
