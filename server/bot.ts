@@ -4029,7 +4029,22 @@ print(json.dumps(scan_for_manipulation()))
           audit('MANIPULATION', alert.message || JSON.stringify(alert));
         }
       }
-    } catch (err: any) { console.error("[tier3-manip]", err?.message || err); }
+    } catch (err: any) {
+      // KNOWN BROKEN #14 (2026-07-07, PR #327): this catch block only
+      // logged to console.error, so a manipulation-scan failure (same
+      // stdout-corruption class the ML-retrain fix addressed in
+      // v1.0.187) left zero trail in the persisted audit log — a silent
+      // HONESTY METRIC gap identical to the one KNOWN BROKEN #5 closed
+      // for the enrichment fetchers. Mirrors the ML-retrain catch
+      // block's audit visibility above.
+      const _stderr = String(err?.stderr || "");
+      const _stdout = String(err?.stdout || "");
+      const _primary = _stderr.trim() ? _stderr : _stdout;
+      const _tail = _primary.length > 500 ? "…" + _primary.slice(-500) : _primary;
+      const _detail = _tail.trim() || String(err?.message || err);
+      audit("TIER3-MANIP-ERROR", `Manipulation scan failed: ${_detail}`);
+      console.error("[tier3-manip]", err?.message || err);
+    }
 
     // 3. Run full diagnostics
     try {

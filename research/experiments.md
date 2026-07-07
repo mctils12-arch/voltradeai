@@ -8623,3 +8623,100 @@ via the token-gated diag surface:
   equity) and the bot resumes on the ~$27k base; if NOT deliberate,
   this is an Alpaca support case and the bot stays down. Re-basing the
   peak is an account-truth decision, not a session's.
+
+## 2026-07-07 — [REPAIR] KNOWN BROKEN #14 closed: manipulation-detect Tier-3 scan failure now audited, not silently swallowed (v1.0.194)
+
+TERRITORY: T-BOT (server/bot.ts tier3Strategic). Session-start checks:
+loop-health ratio over the last 10 tagged entries = 6/10 REPAIR (PIPELINE,
+REPAIR, PIPELINE, REPAIR, RESEARCH, NO-ACTION, REPAIR, REPAIR, REPAIR,
+REPAIR) — below the 7+ stop-normal-work threshold but elevated; today was
+an unusually eventful day (one unfolding Alpaca account-discontinuity
+incident spanning several PRs, not a recurring same-fix failure), so this
+reads as legitimate incident response rather than thrash. Noting it here
+per the ratio-watch rule so the next session's count is informed.
+/api/health at session start: all checks "ok", bot "active",
+equityPeak $109,432.59, drawdownPct "0.0", liveness.dark false —
+the v1.0.192 kill-switch guard and R14/R15 forensics from earlier today
+are holding.
+
+PRIMARY ACTION: KNOWN BROKEN #14 (filed 2026-07-07, PR #327) — the
+Tier-3 manipulation-detect scan's catch block (server/bot.ts
+tier3Strategic, ~line 4032) only did `console.error`, so a scan failure
+of the exact stdout-corruption class the ML-retrain fix addressed in
+v1.0.187 would leave ZERO trail in the persisted audit log — identical
+HONESTY METRIC gap to KNOWN BROKEN #5 (silent enrichment-fetcher
+failures). Unblocked, well-scoped, explicitly queued as this item's
+"NEXT STEP" — highest-value unblocked bug already sitting in the
+open-questions queue (SESSION BUDGET tier: "fix a bug seen in audit
+logs").
+
+CHANGE: mirrored the ML-retrain catch block immediately above it —
+classify stderr/stdout (prefer stderr, fall back to stdout, tail at
+500 chars), audit a new `TIER3-MANIP-ERROR` type with the failure
+detail, then still console.error for local/dev visibility. No behavior
+change to the scan itself, no change to what counts as a manipulation
+alert, no /api/health wiring (this item's scope was audit-log
+visibility only, not a health-status degrade — unlike KNOWN BROKEN #5's
+extended_checks, which explicitly earned its own bucket to avoid
+touching reduce_position_size's auto-fix trigger; there is no analogous
+auto-fix keyed on manipulation-scan health today, so no such bucket is
+needed here).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): a manipulation-scan failure
+now writes a `TIER3-MANIP-ERROR` row to the persisted SQLite audit log
+-> queryable via the token-gated `/api/diag/audit?type=TIER3-MANIP-ERROR`
+probe and the owner-gated `/api/bot/audit` dashboard -> a future
+intermittent failure (e.g. another stdout-corruption regression) is
+diagnosable from the audit trail on the next check instead of requiring
+a fresh live incident to discover it blind. Nothing else consumes this
+audit type; no auto-fix, no threshold, no health status is affected —
+this is pure observability.
+
+RATCHET: new server/manipulationVisibility.test.ts (2 tests, source-
+inspection style matching scannerHealth.test.ts's established pattern
+since tier3Strategic isn't exported as a pure function): (1) slices the
+manipulation-scan call site's try/catch out of bot.ts and asserts the
+catch block calls `audit("TIER3-MANIP-ERROR", ...)` and still
+console.errors; (2) sanity-checks the new audit type is distinct from
+the sibling `TIER3-ML-ERROR`. Both would fail on the pre-fix code.
+
+GATES: `npx tsc --noEmit` — 64 errors, unchanged from documented
+baseline (all pre-existing Buffer/Map-iteration issues in unrelated
+files, none touch tier3Strategic). `npm run test:node` — 390 passed, 0
+failed (388 baseline + 2 new). `python3 -m pytest -q` — 472 passed, 2
+skipped (no Python touched; full-gate sanity check). Version 1.0.193 ->
+1.0.194 (read-and-increment).
+
+SECONDARY OBSERVATION (not actioned — explicitly blocked on a pending
+human decision, filed here for continuity): live audit log right now
+shows `TIER2-LIMIT "Daily loss limit: -74.9%"` firing on every Tier-2
+cycle since market open, which is halting all new-candidate scanning
+(0 candidates every cycle). Traced (server/bot.ts:3249-3258): this is
+`dailyPnlPct = (equity - lastEquity) / lastEquity`, computed directly
+from Alpaca's own account fields with no coherence check — a DIFFERENT
+site from the v1.0.192 drawdown guard (which only filters non-finite/<=0
+"impossible" reads; both equity ($27k) and last_equity ($109k) here are
+individually valid finite positive numbers, so that guard correctly
+lets them through). The -74.9% is the direct arithmetic consequence of
+the same Alpaca account-state discontinuity R14/R15 already diagnosed
+today (positions vanished / cash reset with zero sell orders). The
+matching design item — "KILL-SWITCH INPUT COHERENCE" in
+open_questions.md — is explicitly gated: "Blocked on: resolution of the
+2026-07-07 incident (human fills check) so the design fits the true
+failure mode." Per the recurrence rule and that item's own stated
+blocker, this session does NOT patch it (would be re-touching a design
+question already filed as pending human input, not a same-session fix).
+Net effect while it stays open: the bot is technically "active" per
+/api/health but functionally cannot open any new position until either
+(a) Alpaca's last_equity naturally rolls to today's close tomorrow, or
+(b) the human resolves the account-state question and a coherence guard
+ships. Flagged to the human via push notification this session — this
+is exactly the kind of dark-but-not-degraded state the LIVENESS ALARM
+clause exists to surface, even though it doesn't cross the 2-market-hour
+threshold as of this writing.
+
+PR opened from claude/eloquent-dijkstra-ngf8ct; per this run's
+market-hours instruction, held for merge until after 4:00 PM ET (this
+is an observability-only change, not a critical live break — the
+manipulation scanner itself is not confirmed broken today, only its
+failure path was unaudited).
