@@ -490,11 +490,77 @@ export default function DataMapPage() {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     try { map.setLayoutProperty("imagery", "visibility", enabled.imagery ? "visible" : "none"); } catch {}
-    // IMAGERY METADATA honesty (DESIGN.md 2026-07-04): never imply
-    // freshness — Esri base tiles expose no capture date, so say so.
-    if (enabled.imagery) setStatus("imagery", "active", undefined, "capture date unavailable (Esri base tiles)");
+    // IMAGERY METADATA honesty (DESIGN.md 2026-07-04): the rule says
+    // display capture dates WHERE AVAILABLE — available since the
+    // identify endpoint was verified (census §3 #9, DATACORE MAXIMUS
+    // Phase 3a); the live readout below owns the on-map chip and this
+    // panel note points to it.
+    if (enabled.imagery) setStatus("imagery", "active", undefined, "capture date of the view centre shown on-map (bottom-left); dates vary within a view");
     else setStatus("imagery", "off");
   }, [enabled.imagery, mapReady, setStatus]);
+
+  // ── Phase 3a: live viewport capture-date readout (2026-07-07) ──
+  // Esri World_Imagery identify at the VIEW CENTRE on every settle
+  // (debounced moveend), picking the metadata level that spans the
+  // current zoom. Honesty: low zooms have no dated metadata (verified:
+  // TerraColor NextGen carries no DATE) → "date unknown at this zoom",
+  // never a fabricated or stale-implying value. Esri terms reading
+  // (census §3 #9): a recency check displayed on the imagery it
+  // describes — client-side only, nothing archived, no API route.
+  const [imageryDate, setImageryDate] = useState<{ label: string; known: boolean }>(
+    { label: "capture date: checking…", known: false });
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !enabled.imagery) return;
+    let timer: number | undefined;
+    let ctrl: AbortController | null = null;
+    let gone = false;
+    const lookup = async () => {
+      try {
+        ctrl?.abort();
+        ctrl = new AbortController();
+        const c = map.getCenter();
+        const b = map.getBounds();
+        const zoom = Math.round(map.getZoom());
+        const el = map.getContainer();
+        const url = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/identify" +
+          `?geometry=${c.lng.toFixed(5)},${c.lat.toFixed(5)}&geometryType=esriGeometryPoint&sr=4326&tolerance=1` +
+          `&mapExtent=${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}` +
+          `&imageDisplay=${el.clientWidth || 400},${el.clientHeight || 400},96&layers=all&returnGeometry=false&f=json`;
+        const r = await fetch(url, { signal: ctrl.signal });
+        const d = await r.json();
+        const hit = (d?.results || [])
+          .map((x: any) => x?.attributes || {})
+          .find((a: any) => {
+            const raw = a["DATE (YYYYMMDD)"];
+            if (!raw || !/^\d{8}$/.test(String(raw))) return false;
+            const lo = parseInt(a.MinMapLevel, 10), hi = parseInt(a.MaxMapLevel, 10);
+            return !(Number.isFinite(lo) && zoom < lo) && !(Number.isFinite(hi) && zoom > hi);
+          });
+        if (gone) return;
+        if (hit) {
+          const raw = String(hit["DATE (YYYYMMDD)"]);
+          const iso = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+          const src = hit.SOURCE ? ` · ${hit.SOURCE}` : "";
+          setImageryDate({ label: `imagery at centre: ${iso}${src}`, known: true });
+        } else {
+          setImageryDate({ label: "capture date unknown at this zoom", known: false });
+        }
+      } catch {
+        // transport/abort: keep a known value; never fabricate one
+        if (!gone) setImageryDate((v) => (v.known ? v : { label: "capture date unknown", known: false }));
+      }
+    };
+    const onMove = () => { window.clearTimeout(timer); timer = window.setTimeout(lookup, 1200); };
+    map.on("moveend", onMove);
+    onMove();
+    return () => {
+      gone = true;
+      map.off("moveend", onMove);
+      window.clearTimeout(timer);
+      ctrl?.abort();
+    };
+  }, [mapReady, enabled.imagery]);
 
   // ── terrain hillshade (RAW; Mapterhorn terrarium DEM — geospatial Tier-1(a),
   // licensing register 2026-07-04: commercial-OK, © Mapterhorn attribution via
@@ -2283,6 +2349,15 @@ export default function DataMapPage() {
       )}
       {streamsOpen && (
         <StreamsView onBack={() => { window.location.hash = "#/data"; setStreamsOpen(false); }} />
+      )}
+
+      {/* Phase 3a imagery capture-date chip (DESIGN.md imagery-honesty
+          rule: display dates where available; unknown states stay loud) */}
+      {enabled.imagery && (
+        <div className="vt-imagery-date-chip" data-testid="imagery-date" role="status"
+             title="Capture date of the Esri World Imagery at the view centre — dates vary within a view and by zoom level">
+          {imageryDate.label}
+        </div>
       )}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}

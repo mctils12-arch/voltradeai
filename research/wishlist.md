@@ -38,9 +38,14 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   powergrid entry with full coverage-honesty text. Items remaining:
   2 = US-full (boot-fetch-from-Release design, filed above, NOT
   built); 3 = EIA-930 demand join (needs item 2 or region mapping).
-- PHASE 3 (imagery): unblocked, not started — Esri identify endpoint
-  verified w/ exact params (census §3 #9); CDSE quota mandate:
-  scheduled facility chips only.
+- PHASE 3 (imagery): item 3a SHIPPED v1.0.173 — live viewport
+  capture-date chip on /data (moveend identify at view centre,
+  zoom-level-aware, 'unknown' honesty states, harness ratchet pins
+  the chip; two occlusion drafts caught in screenshot self-review).
+  Remaining Phase 3: 3b Latest Sentinel-2 cloud-free toggle (CDSE
+  quota mandate: scheduled facility chips ONLY, never per-viewport —
+  10k req + 10k PU/month); 3c S2 utilization review across asset
+  classes; per-layer freshness chips (with Phase 5).
 - PHASE 4 (UI): Streams inventory tab SHIPPED v1.0.167 — server
   aggregate /api/data/streams (manifests × archive scan; cache-only
   route; health derived from age vs cadence, raw age always shown;

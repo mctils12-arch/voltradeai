@@ -593,6 +593,27 @@ async function main() {
       const checks = await page.evaluate(CHECKS_SNIPPET(vp.w, vp.touch, cfg.map));
       checks.failures.push(...errors);
 
+      // ── IMAGERY CAPTURE-DATE RATCHET (Phase 3a/5, 2026-07-07): the
+      // DESIGN.md imagery-honesty rule requires the capture-date chip on
+      // the map whenever the imagery base is on. External Esri calls
+      // abort in the harness, so the chip must show a designed honest
+      // state ("checking…"/"unknown") — its ABSENCE is the failure.
+      if (cfg.map) {
+        try {
+          const chip = await page.waitForSelector('[data-testid="imagery-date"]', { timeout: 5000 }).catch(() => null);
+          if (!chip) {
+            checks.failures.push("imagery-date: chip absent with imagery base on (data-testid=imagery-date) — DESIGN.md imagery-honesty rule");
+          } else {
+            const txt = (await chip.textContent()) || "";
+            if (!/imagery at centre|capture date/.test(txt)) {
+              checks.failures.push(`imagery-date: chip text not a designed state: '${txt.slice(0, 60)}'`);
+            }
+          }
+        } catch (e) {
+          checks.failures.push("imagery-date: driver error — " + (e?.message || e));
+        }
+      }
+
       // ── SELF-SEE (DESIGN.md, human-approved 2026-07-04): after any panel/
       // overlay change, ALL registered content must be reachable — visible or
       // behind an on-screen expand control. The 2026-07-04 defect: the panel
