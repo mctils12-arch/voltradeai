@@ -567,6 +567,22 @@ read-before-write review.
   Each slice ships with a harness perf assertion proving flat frame/
   query time as feature count rises. NOTHING BUILT YET; S1 step (a) is
   next.
+- ORBITAL program installed 2026-07-07 (human directive):
+  research/orbital_program.md is the multi-session charter — full
+  satellite population (CelesTrak GP + SATCAT, ~10k+, SGP4) as a
+  premium hero-globe visual + toggleable clickable /data layer, plus
+  cross-system ties (EO pass-over prediction, entity-graph operator
+  joins, launch events, GEO-comms infra tier). GPU/WebGL mandatory,
+  perf-harness-gated at 10k objects; real positions only. DATA-PATH
+  SPLIT: client-fetch viz is UNBLOCKED; server archive + server-computed
+  ties are relay-gated (CelesTrak firewalls Railway, R17). O1 perf spike
+  gates the rest. Cross-tie hypotheses in open_questions.md.
+- CROSS-SYSTEM INTEGRATION PRINCIPLE (human-directed 2026-07-07): every
+  system ties into the others where it adds real value; the ENTITY GRAPH
+  is the connective tissue; no isolated silos. When adding or proposing
+  ANY stream/feature, assess and wire its cross-system links and file
+  them — NEVER fabricate a tie that isn't real; state honestly which
+  links are real signal vs operational vs pure showcase.
 - ANALYST CONSOLE program COMPLETE front-end 2026-07-07
   (research/console_charter.md): W4 query engine, W2 satellite stream
   (CelesTrak firewalled from Railway — relay decision with human),
