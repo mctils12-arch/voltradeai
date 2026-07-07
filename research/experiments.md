@@ -8077,3 +8077,30 @@ exception to append-only; the log below it stays append-only)
   the first Phase C state PR must ship the per-state accuracy
   numbers in manifest + layer info per item 3, with the promotion
   bar stated BEFORE measurement per item 4.
+
+## 2026-07-07 — [NO-ACTION] v1.0.185 post-deploy verify record (session close; docs only)
+
+- /api/data/grid-demand VERIFIED live post-#324: count 9 (CISO
+  returned — the watch item was a transient single-cycle miss, as
+  hypothesized); same-hour semantics serving with the note. Per-BA
+  strain ratios sane (ERCO 0.989, MISO 0.990, SWPP 1.087, CISO
+  1.000). OBSERVED SOURCE SHAPES for the gate-2 session to know:
+  (a) FPL/ISNE/NYIS/PJM show DF=null at the latest D hour — these
+  BAs' past-hour DF rows are not in the trailing window; the readout
+  correctly refuses to guess. Gate-2 works from the ARCHIVE (all DF
+  rows land) and must record per-BA DF coverage before computing
+  strain. (b) US48 same-hour DF remains a partial aggregate at the
+  leading edge (0.626 x demand at T05, matching the direct source
+  probe) — surfaced as-is WITH the printed caveat; the pre-stated
+  "null or same-scale" criterion was imprecise, the honest state is
+  same-hour + caveat, recorded here rather than papered over.
+- Brief root-endpoint timeouts during the #324 cutover, recovered
+  (200 in 0.5s on retry); /api/health stayed 200. No liveness alarm.
+- SESSION CLOSE (claude/new-session-iu72vf, 2026-07-07): 11 PRs
+  merged this session's GRID VISION arc (#315-#324 + the earlier
+  #312/#314 fixes); versions 1.0.180-185; charter + 2 amendments +
+  research doc + products plan installed; A1 chain complete with
+  gate-1 PASS; gate-2 prereqs shipped (backfill awaits Mike's
+  GRID_DEMAND_BACKFILL=1); RUNPOD_API_KEY active. NOT STARVED —
+  high-value work queued: gate-2 computation (on flag), Phase B
+  training-data arc (amendment-governed), B1 stress-index surface.
