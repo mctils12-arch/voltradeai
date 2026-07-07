@@ -2299,3 +2299,23 @@ Every layer's data path to permanent storage, verified in code:
   archiving ingredients, not derivations, is the rule.
 - imagery -> NOT archived (CDN tiles; licensing + volume); the
   Sentinel-2 pipeline will archive scene IDs + readings when it lands.
+
+## KILL-SWITCH INPUT COHERENCE (filed 2026-07-07, from R14 follow-up)
+
+HYPOTHESIS: single-field validation (drawdownGuard: finite, >0) is
+necessary but not sufficient — Alpaca paper account snapshots can be
+INTERNALLY inconsistent (2026-07-07: headline $27k vs last_equity at
+$109.4k peak vs own chart ~$106.8k, no visible fills). A
+coherence-class check could treat a catastrophic equity reading as
+INVALID unless corroborated: |equity − last_equity| large ⇒ require
+matching same-day fills or position-value change before accepting.
+RISK (why not patched immediately): a too-clever coherence check that
+wrongly rejects a REAL catastrophic reading would disable the halt —
+the exact failure the mechanism exists to prevent. Design must be
+fail-safe: incoherent ⇒ still halt trading (pause-new-orders state)
+but tag the halt as data-suspect rather than drawdown-confirmed.
+LADDER PATH: not a data root — a risk-mechanism design change;
+requires evidence from accumulated EQUITY-READ-INVALID audit rows +
+this incident, one-threshold-at-a-time discipline, and a pre-stated
+rollback trigger. Blocked on: resolution of the 2026-07-07 incident
+(human fills check) so the design fits the true failure mode.
