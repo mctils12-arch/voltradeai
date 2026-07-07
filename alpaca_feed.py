@@ -33,6 +33,7 @@ DESIGN: one probe, one switch, zero per-site error wiring.
 Pure-ish module: stdlib + requests only; no imports from trading code.
 """
 import os
+import sys
 import time
 import threading
 
@@ -80,14 +81,25 @@ def data_feed(now: float | None = None, probe=None) -> str:
         if status == 403 and _state["feed"] != _DELAYED:
             _state["feed"] = _DELAYED
             _state["downgraded_since"] = t
+            # REPAIR 2026-07-07: this module is imported by one-shot
+            # subprocesses whose ENTIRE stdout is JSON.parse'd by the caller
+            # (ml_retrain_safe.py -> bot.ts tier3Strategic; manipulation_detect
+            # scan). A fresh subprocess always starts with probed_at=0.0, so
+            # while SIP stays 403 this branch fires on literally every
+            # invocation, and a stdout print here breaks that JSON.parse every
+            # time (confirmed live: TIER3-ML-ERROR "Unexpected token 'F',
+            # \"[FEED] SIP \"... is not valid JSON" on 3/3 hourly retrains).
+            # stderr is diagnostic output, not a caller-consumed contract —
+            # Railway still captures it in logs — so log there instead.
             print(f"[FEED] SIP entitlement rejected (HTTP 403) — downgrading to "
                   f"{_DELAYED} (full consolidated tape, 15-min delay). Restore the "
                   f"Alpaca data subscription to return to real-time automatically.",
-                  flush=True)
+                  file=sys.stderr, flush=True)
         elif status == 200 and _state["feed"] != _PREFERRED:
             _state["feed"] = _PREFERRED
             _state["downgraded_since"] = None
-            print("[FEED] SIP entitlement restored — back to real-time sip.", flush=True)
+            print("[FEED] SIP entitlement restored — back to real-time sip.",
+                  file=sys.stderr, flush=True)
         # 0 / 5xx / 429: inconclusive — keep the current feed
         return _state["feed"]
 
