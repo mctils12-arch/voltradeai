@@ -213,14 +213,21 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   ERCO-exclusive 345kV+ backbone: 19,207 circuit-km. Multi-BA
   county km pooled AMBIGUOUS by BA set — never split by invented
   ratio.
-- NEXT (build order per products plan): (1) B1 stress-index v0
-  gate-2 DESIGN (criteria stated before computing: index = per-BA
-  capacity x EIA-930 demand x weather; validated vs realized ERCOT
-  stress out-of-sample with same-universe base-rate control) then
-  the /data + /api/v1 surface; (2) Phase B1 VERIFY spec (corridor
-  detector, two-layer benchmark, per-mosaic-source evaluation
-  ratchet); detector work starts with the labeling seed (OSM/HIFLD
-  towers) + ETDII download. GPU work waits on RUNPOD_API_KEY
-  appearing in Railway (detect + activate without being told).
-  Polygon arbiter for the ambiguous pools: EIA Atlas BA layer
-  (re-check ~late July).
+- A1 GATE-2 DESIGN FILED (products plan, appended section
+  2026-07-07, BEFORE any computation): stress index v0 = demand
+  percentile x forecast strain (EIA-930 type DF) x CPC degree-day
+  extremity; NO capacity denominator (circuit-km is not MW — the
+  map spatializes exposure, honestly); outcome variable
+  operationalized without LMPs; fit 2015-2022 / validate 2023-2025;
+  seasonal base-rate control; PASS = >=1.5x out-of-sample lift
+  stable across three summers; kill date 2026-08-15.
+- NEXT (each its own PR): (1) gridDemand polls type DF alongside D;
+  (2) env-gated EIA-930 historical backfill server-side (OCC
+  pattern — key lives in Railway only); (3) gate-2 computation per
+  the filed criteria, results to experiments.md whatever they say;
+  (4) Phase B1 VERIFY spec (corridor detector, two-layer benchmark,
+  per-mosaic-source ratchet); detector work starts with the
+  labeling seed (OSM/HIFLD towers) + ETDII download. GPU waits on
+  RUNPOD_API_KEY in Railway (detect + activate without being told).
+  Polygon arbiter for ambiguous pools: EIA Atlas BA layer (re-check
+  ~late July).

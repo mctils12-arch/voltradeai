@@ -7919,3 +7919,32 @@ exception to append-only; the log below it stays append-only)
   ba_exclusive + ambiguous pools with the ambiguity carried into the
   index's stated uncertainty, not resolved by assumption; arbiter =
   EIA Atlas BA polygons when their migration completes (~late July).
+
+## 2026-07-07 — [RESEARCH] GRID VISION A1 gate-2 DESIGN filed — stress index v0 criteria pre-stated before computation (docs, no version bump)
+
+- Territory: T-GRIDVISION (research/grid_vision_products.md appended
+  design section, charter resume) + SHARED (this file).
+- DESIGN (full text in the products plan): v0 index = per-BA demand
+  percentile x forecast strain (realized vs EIA-930 day-ahead DF) x
+  CPC degree-day extremity. THE HONESTY CONSTRAINT SHAPED IT:
+  circuit-km is not MW, so v0 carries NO capacity denominator — the
+  grid map spatializes exposure (which counties/corridors/facilities
+  hang off a stressed BA) instead of pretending to a rating we don't
+  have. Capacity-normalized version waits on a real per-line MW
+  ratings join.
+- GATE-2 CRITERIA (pre-stated, dated): operationalized stress hours
+  (top-decile same-month demand + >=3% forecast exceedance),
+  spot-validated against a hand-collected ERCOT conservation-appeal
+  list (validation, never fitting); D-morning index predicts D+1;
+  fit 2015-2022 / validate 2023-2025 (current-vintage caveat stated
+  — live archive accumulates true vintages via rt); seasonal
+  same-month base-rate control; PASS = >=1.5x out-of-sample lift
+  stable across all three validation summers; FAIL = descriptive
+  dashboard demotion, labeled non-predictive. Kill date 2026-08-15.
+- PREREQS QUEUED (each own PR): gridDemand DF polling; env-gated
+  EIA-930 historical backfill (server-side, OCC pattern — EIA key
+  never leaves Railway); then the computation, results filed
+  whatever they say.
+- VERIFY (pre-stated): the gate-2 computation session must quote
+  this design's criteria verbatim and may not adjust them after
+  seeing data; weight-fitting confined to the training split.
