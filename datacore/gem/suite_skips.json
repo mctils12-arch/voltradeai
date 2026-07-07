@@ -1,0 +1,23 @@
+{
+ "provenance": {
+  "attribution": "Global Energy Monitor",
+  "license": "CC BY 4.0 (per-release Copyright sheets)",
+  "release": "suite-level decisions",
+  "built_at": "2026-07-07T03:07:15.400428+00:00",
+  "raw_source": "gem-data.zip (Mike's Drive \u2014 durable full-fidelity copy)"
+ },
+ "skipped": {
+  "Portal_Energetico_tracker_2026-06-24.xlsx": "Latin-America regional extract \u2014 pure duplication of other trackers (verified)",
+  "Global-Coal-Mine-Tracker-September-2024-Supplement-v2.xlsx": "superseded by GCMT May-2026 Historic Production sheet",
+  "Global-Coal-Mine-Tracker-December-2024-Supplement-Historical-Production-from-2018-to-2023.xlsx": "superseded by GCMT May-2026 Historic Production sheet",
+  "Global-Coal-Plant-Tracker-January-2026.xlsx": "exact subset of GIPT projection (KNOWN DROP: GCPT-only CO2/heat-rate cols \u2014 in raw zip)",
+  "Global-Solar-Power-Tracker-February-2026.xlsx": "in GIPT projection (distributed-solar country aggregates dropped, stated)",
+  "Global-Wind-Power-Tracker-February-2026.xlsx": "in GIPT projection",
+  "Global-Hydropower-Tracker-March-2026.xlsx": "in GIPT projection",
+  "Global-Oil-and-Gas-Plant-Tracker-GOGPT-January-2026.xlsx": "in GIPT projection",
+  "Global-Bioenergy-Power-Tracker-GBPT-V3.xlsx": "in GIPT projection",
+  "Global-Nuclear-Power-Tracker-September-2025.xlsx": "in GIPT projection",
+  "Geothermal-Power-Tracker-March-2026-Final.xlsx": "in GIPT projection"
+ },
+ "geot_rollups": "nine per-tracker ownership rollup sheets skipped \u2014 recomputable transitive closure of entities+edges"
+}

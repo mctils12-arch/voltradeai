@@ -7674,3 +7674,37 @@ exception to append-only; the log below it stays append-only)
   not per-view) — no further sites found this session via
   `grep -rn "var(--accent)"` across `client/src` (20 total: 18 in
   index.css + filings.tsx + analyze.tsx, all now fixed).
+
+## 2026-07-07 — [PIPELINE] GEM suite ingest part 2 — full tracker catalog via Drive (v1.0.179; was drafted v1.0.178 — #313 from a concurrent session took that version first, re-incremented per merge-order protocol)
+
+- DELIVERY: gem-data.zip (224MB, 34 members) pulled from Mike's Drive
+  after he enabled the connector + link-sharing (the connector's
+  inline-base64 download can't carry 224MB — direct-download URL used).
+  A structure-probe subagent mapped every sheet contract first (header-
+  row exceptions, Excel-truncated + trailing-space sheet names,
+  combined-Coordinates columns, float year headers, GEOT's
+  inconsistent rollup headers) — the ingester encodes all of them.
+- KEY VERIFICATIONS from the probe: GIPT (182,428 power units) is the
+  EXACT union of the 8 standalone power trackers (per-type row counts
+  match to the row) → standalones skipped, GIPT ingested as a STATED
+  12-field projection (4.2MB gz; full 52-col detail in the raw zip;
+  KNOWN DROP: GCPT-only CO2 columns). Portal Energetico = LatAm
+  regional duplicate → skipped. GEOT rollup sheets = recomputable
+  transitive closure → skipped (ingredients kept: 26,250 entity nodes
+  + 24,351 entity edges + 49,391 asset edges, 3.8MB gz).
+- THE JOINS THIS UNLOCKS (hypotheses in manifest, gate-locked):
+  GEOT entities carry an SEC-CIK/LEI/PermID crosswalk — the DIRECT
+  bridge between our EDGAR pipeline and every GEM asset; LNG carriers
+  key on IMO → joins our AIS archive; GMET ships 3,474 DATED satellite
+  methane plumes (events, joinable to mines/fields); coal-finance =
+  6,556 financier->unit edges.
+- ARTIFACTS: 18 files, ~36MB (gz over 4MB plain; nulls dropped; every
+  skip decision recorded in suite_skips.json — stated, never silent).
+  GIS route zips (68-72MB geojsons) NOT ingested — filed as the
+  pipelines PMTiles map-layer build.
+- GATES: pytest 461 passed 1 skipped (suite coherence battery incl.
+  full 8-type census of power_units, CIK-survival check, header-row-2
+  contract); node 363/363. Version 1.0.178 → 1.0.179.
+- VERIFY (pre-stated): artifacts load + counts pinned in tests; next
+  GEM release re-runs both scripts; the entity-graph CIK join and the
+  pipelines map layer are the queued follow-ups.

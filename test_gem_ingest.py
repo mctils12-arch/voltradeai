@@ -100,3 +100,52 @@ def test_committed_artifacts_coherent():
     fin = json.load(open(os.path.join(base, "gas_finance.json")))
     assert fin["lng_terminal_count"] == len(fin["lng_terminals"]) == 243
     assert fin["gas_plant_count"] == len(fin["gas_power_plants"]) == 531
+
+
+def test_suite_artifacts_coherent():
+    """Part-2 suite artifacts (gem_suite_ingest.py) — committed-file
+    coherence: counts self-consistent, join keys present, projections
+    and skips stated."""
+    import gzip
+    base = os.path.join(os.path.dirname(__file__), "datacore", "gem")
+
+    def load(name):
+        gz = os.path.join(base, name + ".json.gz")
+        if os.path.exists(gz):
+            with gzip.open(gz, "rt") as f:
+                return json.load(f)
+        return json.load(open(os.path.join(base, name + ".json")))
+
+    own = load("ownership")
+    assert own["counts"] == {"entities": 26250, "entity_edges": 24351, "asset_edges": 49391}
+    ent0 = own["entities"][0]
+    assert "Entity ID" in ent0
+    ciks = [e for e in own["entities"][:2000] if e.get("US SEC Central Index Key")]
+    assert len(ciks) > 0, "SEC CIK crosswalk must survive ingest (the EDGAR join spine)"
+    edge = own["entity_edges"][0]
+    assert "Subject Entity ID" in edge and "Interested Party ID" in edge
+
+    power = load("power_units")
+    assert power["unit_count"] == len(power["units"]) == 182428
+    assert power["fields"][0] == "Type" and "Latitude" in power["fields"]
+    assert "projection" in power["provenance_note" if "provenance_note" in power else "projection_note"].lower()
+    types = {u[0] for u in power["units"]}  # full pass — the sheet is type-ordered
+    assert types == {"bioenergy", "coal", "geothermal", "hydropower", "nuclear",
+                     "oil/gas", "utility-scale solar", "wind"}, f"unexpected type census: {sorted(types)}"
+
+    mines = load("coal_mine_tracker")
+    assert mines["counts"]["non_closed"] == 5382
+
+    fin = load("coal_finance")
+    assert fin["counts"]["financings"] == 6556
+    assert "Financier" in fin["financings"][0], "header-row-2 contract (banner row skipped)"
+
+    carriers = load("lng_carriers")
+    assert any("IMO number" in c for c in carriers["carriers"][:5]), "IMO join key to the AIS archive"
+
+    gmet = load("methane_emitters")
+    assert gmet["counts"]["plumes"] == 3474
+
+    skips = json.load(open(os.path.join(base, "suite_skips.json")))
+    assert "Portal_Energetico_tracker_2026-06-24.xlsx" in skips["skipped"], "skips must be stated, never silent"
+    assert "geot_rollups" in skips
