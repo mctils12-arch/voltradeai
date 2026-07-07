@@ -26,14 +26,15 @@ import path from "path";
 import zlib from "zlib";
 import { promisify } from "util";
 import { archiveBaseDir } from "./datacoreArchive";
+import { repoDataPath } from "./repoFiles";
 
 const gunzip = promisify(zlib.gunzip);
 
-// process.cwd(), NOT import.meta.url: the server ships as a CJS bundle
-// (dist/index.cjs) where import.meta doesn't survive esbuild. Runtime
-// repo-file access via cwd is the proven pattern (platformStats
-// sentinel2Freshness, audit defect #9 repair).
-export const MANIFEST_DIR_DEFAULT = path.resolve(process.cwd(), "datacore", "manifests");
+// Resolved through repoDataPath, NOT bare process.cwd(): the production
+// image ships only dist/ (frozen Dockerfile) — the working-tree datacore/
+// is absent there and the manifests live in the dist/datacore copy that
+// script/build.ts stages ([REPAIR 2026-07-07], see repoFiles.ts).
+export const MANIFEST_DIR_DEFAULT = repoDataPath(path.join("datacore", "manifests"));
 
 // Peek safety: never load more than this many compressed bytes for the
 // latest-record preview — honesty over completeness on jumbo files.
@@ -141,9 +142,13 @@ export async function buildStreamsInventory(
   baseDir?: string,
   manifestDir?: string,
   now: number = Date.now(),
-): Promise<{ time: number; count: number; streams: StreamInventoryEntry[] }> {
+): Promise<{ time: number; count: number; manifest_dir_found: boolean; note?: string; streams: StreamInventoryEntry[] }> {
   const base = baseDir || archiveBaseDir();
-  const manifests = readManifests(manifestDir || MANIFEST_DIR_DEFAULT);
+  const mdir = manifestDir || MANIFEST_DIR_DEFAULT;
+  // Never silently empty: a missing manifest dir is a deploy/packaging
+  // defect (the 2026-07-07 prod finding), not "no streams".
+  const dirFound = fs.existsSync(mdir);
+  const manifests = readManifests(mdir);
   const streams: StreamInventoryEntry[] = [];
   for (const name of Object.keys(manifests).sort()) {
     const m = manifests[name];
@@ -186,7 +191,13 @@ export async function buildStreamsInventory(
       health_note: note,
     });
   }
-  return { time: now, count: streams.length, streams };
+  return {
+    time: now,
+    count: streams.length,
+    manifest_dir_found: dirFound,
+    ...(dirFound ? {} : { note: `manifest directory not found at ${mdir} — packaging defect, not an empty archive (see repoFiles.ts)` }),
+    streams,
+  };
 }
 
 // ── cache + poller (event-loop rule: routes serve the cache only) ───────────

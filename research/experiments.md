@@ -7214,3 +7214,48 @@ exception to append-only; the log below it stays append-only)
   viewport.
 - STARVED: no — queue continues (census builds JODI → FINRA Query
   cluster → SEC FTD; Phase 3 imagery freshness; grid item 2 US-full).
+
+## 2026-07-07 — [REPAIR] R14: runtime datacore reads silently empty on prod — image ships dist/ only — v1.0.168
+
+- FOUND BY the v1.0.167 pre-stated VERIFY: post-deploy /api/data/streams
+  returned {count:0, streams:[]} with a non-null scan time — the scan ran
+  and found NO manifests. ROOT CAUSE (traced to the packaging layer, not
+  the code): the frozen Dockerfile ships dist/, content/, *.py,
+  strategies/, alphadesk/ — the repo datacore/ tree is NOT in the runtime
+  image, so every server-side runtime DISK read of datacore/ files
+  resolves to nothing on Railway. Statically-imported JSON (layers.json,
+  entity_spine.json, us_power_plants.json, …) is unaffected — esbuild
+  inlines it at build time, which is why 20+ surfaces work fine and this
+  class stayed invisible.
+- PRE-EXISTING INSTANCE PROVEN, not just mine: /api/data/platform/stats
+  serves sentinel2_last_reading:null on prod — the audit-defect-#9
+  "repair" (D2, 2026-07-05) shipped a cwd read of
+  datacore/sentinel2/readings.jsonl that has NEVER worked in production;
+  null was a designed value so nothing looked broken. Honest correction
+  to that entry: the fix worked locally and its prod path was never
+  live-verified for the non-null case. The verify-the-positive-case
+  lesson is the real ratchet here.
+- FIX (class, not instance; Dockerfile untouched — frozen):
+  (1) script/build.ts (not frozen) stages the runtime-read set into
+  dist/datacore/ — manifests (172KB) + sentinel2/readings.jsonl (11KB);
+  NOT the whole datacore/ (254MB, sentinel2 chip corpus).
+  (2) server/repoFiles.ts repoDataPath(): working-tree path when present
+  (dev/CI), dist/ fallback (prod image), direct path returned when both
+  missing so callers surface the miss. platformStats + streamsInventory
+  now resolve through it.
+  (3) NEVER SILENTLY EMPTY: buildStreamsInventory payload carries
+  manifest_dir_found + an explicit "packaging defect" note when the dir
+  is missing — an empty inventory can no longer masquerade as an empty
+  archive.
+- RATCHETS: repoFiles.test.ts — resolver fallback battery (3 layouts) +
+  source pin on script/build.ts's copy step (its removal would regress
+  prod with no other failing signal) + never-silently-empty payload
+  assertions. 6 new tests.
+- GATES: node 337/337 (331 + 6); build verified staging 42 manifests +
+  readings.jsonl into dist/datacore/; tsc 64 baseline; client untouched
+  (no harness run needed). Version 1.0.167 → 1.0.168.
+- VERIFY (pre-stated): post-deploy /api/data/streams returns count=41
+  with manifest_dir_found:true and real archive facts (occvolume live
+  with peek), AND /api/data/platform/stats serves a NON-NULL
+  sentinel2_last_reading (2026-06-27 per the repo readings file) for the
+  first time in production.
