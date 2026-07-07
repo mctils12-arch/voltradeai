@@ -173,3 +173,43 @@ test("refresh sweep + route envelope: cache-only serving, freshness, attribution
   // archive landed under satellites/<group>/<fetch-day>.jsonl
   assert.ok(fs.existsSync(path.join(base, "satellites", "stations", "2026-07-07.jsonl")));
 });
+
+// ---- R17 2026-07-07: transport-failure host fallback + cause surfacing ----
+
+test("R17: transport failure on .org falls back to .com once; non-200 NEVER tries the alternate host", async () => {
+  resetSatellitesForTests();
+  const calls: string[] = [];
+  const okBody = JSON.stringify([{ NORAD_CAT_ID: 25544, EPOCH: "2026-07-07T12:00:00", OBJECT_NAME: "ISS" }]);
+  // transport failure on first host, success on second
+  const recs = await fetchGroup("stations", (async (url: string) => {
+    calls.push(url);
+    if (url.includes("celestrak.org")) { const e: any = new Error("fetch failed"); e.cause = { code: "ETIMEDOUT" }; throw e; }
+    return { ok: true, status: 200, text: async () => okBody };
+  }) as any);
+  assert.ok(recs && recs.length === 1, "alternate host result must be used");
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].includes("celestrak.org") && calls[1].includes("celestrak.com"));
+  // non-200: answered by their server -> stop immediately, no second host
+  resetSatellitesForTests();
+  const calls2: string[] = [];
+  const r2 = await fetchGroup("stations", (async (url: string) => {
+    calls2.push(url);
+    return { ok: false, status: 403, text: async () => "" };
+  }) as any);
+  assert.equal(r2, null);
+  assert.equal(calls2.length, 1, "M2M rule: an HTTP response stops the sweep — no alternate-host retry");
+  assert.ok(satIssues()["stations"].includes("http 403"));
+});
+
+test("R17: both hosts failing at transport level surfaces per-host REAL causes (undici error.cause), not 'fetch failed'", async () => {
+  resetSatellitesForTests();
+  const r = await fetchGroup("stations", (async (url: string) => {
+    const e: any = new Error("fetch failed");
+    e.cause = url.includes(".org") ? { code: "ETIMEDOUT" } : { code: "ENOTFOUND" };
+    throw e;
+  }) as any);
+  assert.equal(r, null);
+  const issue = satIssues()["stations"];
+  assert.ok(issue.includes("celestrak.org: fetch failed | ETIMEDOUT"), `org cause missing: ${issue}`);
+  assert.ok(issue.includes("celestrak.com: fetch failed | ENOTFOUND"), `com cause missing: ${issue}`);
+});

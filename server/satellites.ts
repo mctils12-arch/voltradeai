@@ -62,8 +62,27 @@ export interface GpRecord {
   [k: string]: unknown;
 }
 
-export function gpUrl(group: string): string {
-  return `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(group)}&FORMAT=json`;
+/** Both official CelesTrak hosts. R17 2026-07-07: the first two prod boots
+ *  failed with connection-level errors on celestrak.org ("fetch failed",
+ *  abort-timeout) while the same fetch works off-cloud — consistent with
+ *  their documented firewalling of abusive datacenter ranges. On a
+ *  TRANSPORT-level failure (no HTTP response ever reached us) we try the
+ *  alternate host once; an HTTP non-200 still stops the sweep immediately
+ *  (the M2M rule governs server RESPONSES — a connection that never
+ *  reached them returned none). */
+export const GP_HOSTS = ["https://celestrak.org", "https://celestrak.com"] as const;
+
+export function gpUrl(group: string, host: string = GP_HOSTS[0]): string {
+  return `${host}/NORAD/elements/gp.php?GROUP=${encodeURIComponent(group)}&FORMAT=json`;
+}
+
+/** undici buries the real network error (ENOTFOUND / ETIMEDOUT / TLS) in
+ *  error.cause — surface it so the issues map names the actual failure. */
+export function fetchFailureDetail(e: any): string {
+  const cause = e?.cause;
+  const parts = [String(e?.message || e)];
+  if (cause) parts.push(String(cause?.code || cause?.message || cause));
+  return parts.join(" | ").slice(0, 200);
 }
 
 /** Parsed-JSON payload -> valid GpRecords. Malformed entries are dropped,
@@ -96,36 +115,47 @@ export function satIssues(): Record<string, string> {
 }
 
 export async function fetchGroup(group: GpGroup, fetchImpl: FetchFn = fetch as any): Promise<GpRecord[] | null> {
-  try {
-    const r = await fetchImpl(gpUrl(group), {
-      headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
-      signal: AbortSignal.timeout(60000) as any,
-    });
-    if (!r.ok) {
-      // CelesTrak policy: a non-200 will not change on retry — record and
-      // stop; the next attempt is the next 6h sweep, never a tight loop.
-      lastIssues[group] = `http ${r.status} — per CelesTrak usage policy, not retried until next sweep`;
-      console.error(`[datacore] satellites ${group} -> ${lastIssues[group]}`);
-      return null;
+  const transportFailures: string[] = [];
+  for (const host of GP_HOSTS) {
+    try {
+      const r = await fetchImpl(gpUrl(group, host), {
+        headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+        // 120s: starlink is a multi-MB document; the R17 prod evidence
+        // included a 60s abort on it. A slow-but-working pipe deserves
+        // the window; a blocked one fails on connect long before this.
+        signal: AbortSignal.timeout(120000) as any,
+      });
+      if (!r.ok) {
+        // CelesTrak policy: a non-200 RESPONSE will not change on retry —
+        // record and stop the whole attempt (no alternate host: their
+        // server answered). Next attempt is the next 6h sweep.
+        lastIssues[group] = `${host.replace("https://", "")}: http ${r.status} — per CelesTrak usage policy, not retried until next sweep`;
+        console.error(`[datacore] satellites ${group} -> ${lastIssues[group]}`);
+        return null;
+      }
+      let parsed: unknown;
+      try { parsed = JSON.parse(await r.text()); } catch {
+        lastIssues[group] = "unparseable JSON body";
+        console.error(`[datacore] satellites ${group}: unparseable JSON body`);
+        return null;
+      }
+      const recs = parseGp(parsed);
+      if (!recs.length) {
+        lastIssues[group] = "empty document (no valid GP records)";
+        return null;
+      }
+      delete lastIssues[group];
+      return recs;
+    } catch (e: any) {
+      // Transport-level failure (no HTTP response) — record the REAL cause
+      // and try the alternate host once. If both hosts fail at transport
+      // level, the issues map carries per-host causes for the next session.
+      transportFailures.push(`${host.replace("https://", "")}: ${fetchFailureDetail(e)}`);
     }
-    let parsed: unknown;
-    try { parsed = JSON.parse(await r.text()); } catch {
-      lastIssues[group] = "unparseable JSON body";
-      console.error(`[datacore] satellites ${group}: unparseable JSON body`);
-      return null;
-    }
-    const recs = parseGp(parsed);
-    if (!recs.length) {
-      lastIssues[group] = "empty document (no valid GP records)";
-      return null;
-    }
-    delete lastIssues[group];
-    return recs;
-  } catch (e: any) {
-    lastIssues[group] = String(e?.message || e).slice(0, 200);
-    console.error(`[datacore] satellites ${group}:`, lastIssues[group]);
-    return null;
   }
+  lastIssues[group] = transportFailures.join(" ; ").slice(0, 300);
+  console.error(`[datacore] satellites ${group}:`, lastIssues[group]);
+  return null;
 }
 
 // ── Archive (append-only JSONL day-file per UTC fetch day per group) ────────
