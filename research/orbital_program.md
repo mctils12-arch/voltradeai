@@ -243,3 +243,51 @@ guessed cone presented as exact.
 COVERAGE-TOOL VALUE (honest labels): EO next-pass = OPERATIONAL (imagery
 feed); GPS-DOP + Starlink-coverage + what's-overhead = SHOWCASE + real
 utility, no trading alpha claimed.
+
+## O1 SPIKE RESULT (2026-07-07) — FEASIBLE with wide margin; the render approach is LOCKED
+
+Durable record of the O1 feasibility spike (workstream b). Reference
+implementation lives in the session scratchpad (orbital-spike/) — the
+load-bearing files to PORT into client/src for O2/O3 are
+`render_harness.html` (the globe-aware custom WebGL point layer) and
+`sat_worker.js` (the Web-Worker SGP4 loop). If a future session lacks
+the scratchpad, re-derive from this record.
+
+VERDICT: 10k+ live satellites on the /data MapLibre globe passes every
+perf gate at 390/768/1440 with large headroom; the point-field stays
+smooth to ~100k objects (no decimation of the dots needed).
+Progressive-resolve-on-zoom is only for per-satellite DETAIL (labels,
+orbit lines, click targets), never for keeping the field smooth —
+honors never-drop-silently. Mobile 390px is the EASIEST width.
+
+LOCKED APPROACH (O2/O3 build to this):
+- Render: MapLibre v5 CustomLayer (renderingMode "2d"), instanced
+  gl.POINTS, projected via the v5 shaderData vertexShaderPrelude
+  projectTile / projectTileFor3D (globe + mercator + ALTITUDE — bind
+  the 5 defaultProjectionData uniforms). Altitude via
+  projectTileFor3D so LEO/MEO/GEO shells are visually distinct (GEO at
+  ~36,000km = large globe radius). NO deck.gl (rejected — 200KB+ for a
+  problem the custom layer clears with margin).
+- Propagation: satellite.js (NEW DEP, ~11KB gz, WORKER-ONLY so it
+  never enters the main bundle) in a dedicated Web Worker; propagate
+  all ~10-16k objects to now at ~1 Hz; post a transferable
+  Float32Array(N*3) of lon/lat/alt; the vertex shader interpolates
+  along track velocity between ticks for smooth 60fps. 10k propagates
+  in ~29ms (V8); worker keeps the main thread free (proven).
+- Picking: custom layers have no queryRenderedFeatures → CPU
+  nearest-point lookup against the last propagated Float32Array
+  (trivial at 10k).
+- TLE plumbing: CLIENT-SIDE fetch (CelesTrak firewalls Railway, R17);
+  real GROUP=active pull = 15,932 objects.
+- Landing hero globe is a SEPARATE canvas (D3/topojson, not MapLibre)
+  — satellites there is its own decision, not a drop-in of the /data
+  layer.
+DEP DECISION FOR THE PARENT AT INTEGRATION: `npm i satellite.js`
+(worker-only import). No other new deps.
+
+RESUME-STATE UPDATE: O1 DONE (feasible, approach locked). NEXT after
+the parallel workstreams (a data pipeline, d geometry, e-entity, c
+model research) land + serial-integrate: O2/O3 build ports the spike
+reference code into a real MapLibre custom layer + worker + the /data
+satellites layer + click detail UI. O7 coverage tools consume the
+geometry engine. O4 + server ties remain relay-gated.
