@@ -687,6 +687,107 @@ async function main() {
       } catch (e) {
         if (!e?.skip) checks.failures.push("globe: driver error — " + (e?.message || e));
       }
+      // ── W6 ANALYST PANE (console charter, 2026-07-07): [data-vt-analyst]
+      // opens the chat panel; the panel must sit fully inside the viewport
+      // at every width (SELF-SEE rule — no overflow past the viewport
+      // bottom), its input + send control must be reachable and
+      // hit-testable, and close must work. At side-panel widths (>=640)
+      // the open panel may not occlude any map control. HONESTY
+      // CONSTRAINT: this battery NEVER sends a question — the pane fires
+      // POST /api/analyst only on an explicit user send, and the battery
+      // asserts exactly zero analyst calls (no faked API responses).
+      let analystPosts = 0;
+      const onAnalystReq = (r) => {
+        try { if (new URL(r.url()).pathname === "/api/analyst") analystPosts++; } catch {}
+      };
+      try {
+        if (!cfg.map) throw { skip: true };
+        page.on("request", onAnalystReq);
+        const aBtn = page.locator("[data-vt-analyst]");
+        if (!(await aBtn.count())) {
+          checks.failures.push("analyst: [data-vt-analyst] control missing");
+          throw { skip: true };
+        }
+        await aBtn.click();
+        // the pane is a lazy chunk: wait past the Suspense fallback for the
+        // real input, not just the panel shell
+        const aPanel = await page.waitForSelector("[data-vt-analyst-panel]", { timeout: 8000 }).catch(() => null);
+        const aInput = await page.waitForSelector("[data-vt-analyst-input]", { timeout: 8000 }).catch(() => null);
+        if (!aPanel) {
+          checks.failures.push("analyst: panel did not open from its own control");
+        } else {
+          if (!aInput) checks.failures.push("analyst: input never appeared (lazy chunk failed to load?)");
+          // settle the pane's 0.18s entry animation + one composited paint
+          // BEFORE geometry checks and the evidence screenshot (2026-07-07
+          // flake: at 1440 the DOM checks passed but the capture composited
+          // before the panel's first stable paint — an empty-map screenshot
+          // with a green battery is worthless as PR evidence)
+          await page.waitForTimeout(450);
+          const aChecks = await page.evaluate(() => {
+            const fails = [];
+            const p = document.querySelector("[data-vt-analyst-panel]");
+            if (!p) return ["analyst: panel vanished mid-check"];
+            const r = p.getBoundingClientRect();
+            if (r.bottom > innerHeight + 1) fails.push(`analyst: panel bottom ${Math.round(r.bottom)} past viewport ${innerHeight} — SELF-SEE`);
+            if (r.top < -1 || r.left < -1 || r.right > innerWidth + 1) {
+              fails.push(`analyst: panel outside viewport (l=${Math.round(r.left)} t=${Math.round(r.top)} r=${Math.round(r.right)})`);
+            }
+            for (const [label, sel] of [["input", "[data-vt-analyst-input]"], ["send", "[data-vt-analyst-send]"]]) {
+              const el = document.querySelector(sel);
+              if (!el) { fails.push(`analyst: ${label} control missing`); continue; }
+              const b = el.getBoundingClientRect();
+              if (b.width < 4 || b.height < 4) { fails.push(`analyst: ${label} has no size`); continue; }
+              if (b.bottom > innerHeight + 1 || b.top < -1) { fails.push(`analyst: ${label} not inside the viewport`); continue; }
+              const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+              if (hit && !el.contains(hit) && hit !== el && !hit.contains(el)) {
+                fails.push(`analyst: ${label} covered by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'>`);
+              }
+            }
+            // side-panel widths: the open pane may not occlude map controls
+            // (phone is a bottom sheet — transient, closable, same accepted
+            // behavior as the detail-card sheet over the zoom cluster)
+            if (innerWidth >= 640) {
+              for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]"]) {
+                const el = document.querySelector(sel);
+                if (!el) { fails.push(`analyst: map control ${sel} missing with pane open`); continue; }
+                const b = el.getBoundingClientRect();
+                const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+                if (hit && !el.contains(hit) && hit !== el && !hit.contains(el)) {
+                  fails.push(`analyst: map control ${sel} OCCLUDED by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'> with pane open`);
+                }
+              }
+            }
+            return fails;
+          });
+          checks.failures.push(...aChecks);
+          // input is editable — fill/verify/clear, never submit
+          if (aInput) {
+            await page.fill("[data-vt-analyst-input]", "harness reachability probe");
+            const v = await page.inputValue("[data-vt-analyst-input]");
+            if (v !== "harness reachability probe") checks.failures.push("analyst: input not editable");
+            await page.fill("[data-vt-analyst-input]", "");
+          }
+          // animations:"disabled" fast-forwards the entry fade at capture —
+          // under software GL the composited frame otherwise races the
+          // animation (2026-07-07: blank/ghosted panel shots with green
+          // DOM checks). Capture-time only; the page itself is untouched.
+          await page.screenshot({ path: path.join(OUT, `${name}-analyst-${vp.w}.png`), animations: "disabled" });
+          // close via the panel's own close control, then re-assert gone
+          await page.click('[data-vt-analyst-panel] [aria-label="Close analyst"]', { timeout: 2000 })
+            .catch(() => checks.failures.push("analyst: close control unclickable"));
+          await page.waitForTimeout(250);
+          if (await page.locator("[data-vt-analyst-panel]").count()) {
+            checks.failures.push("analyst: panel still open after its close control");
+          }
+        }
+        if (analystPosts > 0) {
+          checks.failures.push(`analyst: battery fired ${analystPosts} POST /api/analyst — the battery must never send a question`);
+        }
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("analyst: driver error — " + (e?.message || e));
+      } finally {
+        page.off("request", onAnalystReq);
+      }
       // ── SELF-SEE (DESIGN.md, human-approved 2026-07-04): after any panel/
       // overlay change, ALL registered content must be reachable — visible or
       // behind an on-screen expand control. The 2026-07-04 defect: the panel
@@ -731,9 +832,9 @@ async function main() {
           }
           // v2.4 CONTROL OCCLUSION: with the panel OPEN, no map control may
           // sit under it (the production defect: zoom buttons covered).
-          // [data-vt-globe] added W1 (console charter): the projection
-          // toggle is a registered map control like the others.
-          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]"]) {
+          // [data-vt-globe] added W1, [data-vt-analyst] added W6 (console
+          // charter): both are registered map controls like the others.
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`self-see: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();
@@ -1016,7 +1117,7 @@ async function main() {
           // v2.4 occlusion rule re-checked WITH fields on: enabling a layer
           // grows the attribution strip — it may not spread under controls
           // (the 390px defect this caught: 2-line attribution over zoom-out).
-          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]"]) {
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`fields-on: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();

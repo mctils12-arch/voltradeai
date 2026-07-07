@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -15,6 +15,10 @@ import ShortVolView from "./shortvol";
 import GraphView from "./graph";
 import StreamsView from "./streams";
 import GridStressView from "./gridstress";
+// W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
+// analyst code at all (zero-cost-when-off spirit) and never polls.
+const AnalystPane = lazy(() => import("@/components/AnalystPane"));
+import type { AnalystMapCommand } from "@/components/AnalystPane";
 import { mmsiFlag } from "@/lib/mmsiFlag";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
@@ -237,6 +241,10 @@ export default function DataMapPage() {
   // disclosure cap (BUILD ORDER 4 #2 panel-scale item) — starts empty
   // (every group capped) until the user explicitly expands one past 12 rows.
   const [groupShowAll, setGroupShowAll] = useState<Record<string, boolean>>({});
+  // W6 ANALYST pane — closed by default at every width (a chat panel is a
+  // deliberate act, never a permanent overlay); no persistence: the pane's
+  // session history lives inside the lazy chunk instead.
+  const [analystOpen, setAnalystOpen] = useState(false);
   // v2.3 fullscreen map mode — nav hidden via a body class; remembered per
   // session; the map needs a resize after the container jumps.
   const [fullscreen, setFullscreen] = useState<boolean>(() => {
@@ -457,6 +465,7 @@ export default function DataMapPage() {
       setDetail(null);
       clearTrail();
       setShowRawInfo(false);
+      setAnalystOpen(false); // DESIGN.md: Escape closes panels/popovers
       if (window.innerWidth < 768) setPanelOpen(false);
     };
     window.addEventListener("keydown", onKey);
@@ -2202,6 +2211,37 @@ export default function DataMapPage() {
 
   const toggleable = (l: LayerMeta) => l.status === "live";
 
+  // ── W6 ANALYST map commands (console charter): the pane executes the
+  // server-validated commands through THIS callback so toggle_layer drives
+  // the exact same `enabled` state the layer panel's switches use (no
+  // parallel state) and fly_to uses the live map ref. Returns the
+  // human-readable note the chat renders ("→ flew to …"). Honesty: a layer
+  // this bundle can't toggle (awaiting key, planned, unwired mid-deploy)
+  // says so instead of flipping a switch that paints nothing.
+  const runAnalystMapCommand = useCallback((cmd: AnalystMapCommand): string => {
+    if (cmd?.command === "fly_to" && Number.isFinite(cmd.lat) && Number.isFinite(cmd.lon)) {
+      try {
+        mapRef.current?.flyTo({
+          center: [cmd.lon, cmd.lat],
+          ...(cmd.zoom != null ? { zoom: cmd.zoom } : {}),
+        });
+      } catch { return `fly_to failed — map not ready`; }
+      return `flew to ${cmd.lat!.toFixed(2)}, ${cmd.lon!.toFixed(2)}${cmd.zoom != null ? ` (z${cmd.zoom})` : ""}`;
+    }
+    if (cmd?.command === "toggle_layer" && typeof cmd.layer === "string" && typeof cmd.on === "boolean") {
+      const id = cmd.layer, on = cmd.on;
+      const meta = layers.find((l) => l.id === id);
+      if (!meta) return `layer '${id}' is not in this page's registry — not toggled`;
+      // same unwired guard as the panel row (open-tab skew, [REPAIR R15])
+      const unwired = !(id in LAYER_GROUP) && meta.kind !== "signal" && meta.status !== "planned";
+      if (!toggleable(meta) || unwired)
+        return `layer '${meta.name}' can't be toggled (${unwired ? "reload to enable" : meta.status.replace("_", " ")})`;
+      setEnabled((s) => ({ ...s, [id]: on }));
+      return `turned ${on ? "on" : "off"} ${meta.name}`;
+    }
+    return "unrecognized map command — ignored";
+  }, [layers]);
+
   // active-cost-budget advisory (BUILD ORDER 4 #2): sums the registry-native
   // costTier of every currently-active layer. Today's default-on set
   // (imagery+aircraft+sites+insider+earnings+shortvol+powerplants+trains+
@@ -2450,6 +2490,27 @@ export default function DataMapPage() {
           </button>
         );
       })()}
+      {/* W6 ANALYST toggle — third button in the top-left control column
+          (same 44px family as fullscreen/globe above it). The pane itself
+          is a lazy chunk: closed = zero analyst code loaded, ever. */}
+      <button className="vt-map-analyst-btn" data-vt-analyst
+              aria-label={analystOpen ? "Close analyst" : "Open analyst"}
+              aria-pressed={analystOpen}
+              title="Analyst — ask questions answered strictly from the platform's own data"
+              onClick={() => setAnalystOpen((v) => !v)}>
+        <MessageSquareText size={18} />
+      </button>
+      {analystOpen && (
+        <Suspense fallback={
+          <div className="vt-analyst-panel vt-analyst-panel-boot" data-vt-analyst-panel
+               role="dialog" aria-label="Analyst loading">
+            <div className="vt-map-skeleton-shimmer" />
+            <span>Loading analyst…</span>
+          </div>
+        }>
+          <AnalystPane onClose={() => setAnalystOpen(false)} onMapCommand={runAnalystMapCommand} />
+        </Suspense>
+      )}
       <div ref={mapContainer} className="vt-map-canvas" />
 
       {!mapReady && !mapError && (
