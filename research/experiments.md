@@ -8692,3 +8692,34 @@ ANALYST CONSOLE program (research/console_charter.md, human directive
 - FOLLOW-UP (charter RESUME STATE): concurrent-scan gate if the
   public endpoint sees real traffic; W2 satellites next (licensing
   check first), then W1 globe mode.
+
+## 2026-07-07 — [REPAIR] R14 incident update: Alpaca equity reading recovered to ~peak; bot active again BY THE RULES (observation, docs-only)
+
+Observed ~16:08-16:15Z, via /api/health + the R15 probes:
+- No DRAWDOWN-KILL since 15:07Z across multiple active windows (~65+
+  min) — after a day of kills firing within seconds-to-minutes of any
+  active window. Tier-1 runs ~30s; the bot surviving 5+ min active
+  means equity now reads >= ~90% of the $109,432.59 peak.
+- Positions UNCHANGED (same 4 morning buys, ~$21.6k, upl ~ -$3 net).
+  Therefore cash must now read ~ $87k for equity ~ $109k —
+  consistent with Alpaca RECONCILING the vanished positions by
+  crediting their value back as cash (unverifiable from the diag
+  surface, which has no cash field; the human's dashboard check
+  settles it).
+- No new orders since 14:10Z (bot active but scans yield no
+  candidates).
+- STATE HONESTY: the earlier "bot stays killed" decision presumed the
+  kill condition persisted. It cleared on its own (dd ~ 0), so the
+  bot is ACTIVE — correct under the mechanism's rules (the halt is a
+  drawdown halt, and there is no drawdown). The kill LATCH (v1.0.194)
+  never engaged because no kill has fired since it deployed; it will
+  latch the next real kill. If the human wants the bot down
+  regardless, the dashboard kill switch is owner-only by design —
+  the session cannot and will not force it down absent a kill
+  condition.
+- PENDING for closure: human confirms dashboard shows ~ $109k equity
+  / ~ $87k cash (reconciliation theory) — then the incident closes as
+  "Alpaca paper-account state corruption, ~5h duration, reconciled
+  upstream; zero real trading losses; guard + latch + probes shipped
+  as permanent hardening." A recurrence enters as a NEW incident
+  under the recurrence rule.
