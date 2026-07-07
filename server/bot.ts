@@ -4074,7 +4074,25 @@ print(json.dumps(scan_for_manipulation()))
           audit('MANIPULATION', alert.message || JSON.stringify(alert));
         }
       }
-    } catch (err: any) { console.error("[tier3-manip]", err?.message || err); }
+    } catch (err: any) {
+      // R18 (KNOWN BROKEN #14, PR #327 follow-up): this catch previously
+      // only console.error'd, leaving zero trail in the persisted audit
+      // log whenever the scan failed — invisible from outside the
+      // container. Mirror the ML-retrain catch block's audit-with-cause
+      // pattern (same stdout-corruption failure class) so a future
+      // manipulation-scan failure of any kind surfaces in the audit log.
+      const _stderr = String(err?.stderr || "");
+      const _stdout = String(err?.stdout || "");
+      const _rawCode = err?.code;
+      const _code: string | number =
+        _rawCode === undefined || _rawCode === null || _rawCode === "" ? "?" : _rawCode;
+      const _signal = err?.signal || "none";
+      const _primary = _stderr.trim() ? _stderr : _stdout;
+      const _tail = _primary.length > 500 ? "…" + _primary.slice(-500) : _primary;
+      const _detail = _tail.trim() || String(err?.message || err);
+      audit("TIER3-MANIP-ERROR", `Manipulation scan failed (code=${_code} signal=${_signal}): ${_detail}`);
+      console.error("[tier3-manip]", err?.message || err);
+    }
 
     // 3. Run full diagnostics
     try {
