@@ -1,0 +1,22 @@
+{
+ "stream": "jodi",
+ "storage": "git-versioned keyed JSON datacore/jodi/primary_stocks.json — WHOLE-FILE REBUILD per run (the source ships full history 2002+ every month; git history keeps vintages and JODI's own revisions surface as diffs — eiaweekly precedent), NOT append-only",
+ "written_by": "scripts/jodi_oil.py (Python, session-run monthly after the ~19th; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "source": "JODI Oil World Primary database (jodidata.org world_Primary_CSV.zip, keyless static 23.3MB zip; probed + full-file scanned 2026-07-06: 6,872,400 rows, 118 REF_AREAs, dense 10-flow x 4-product x 5-unit grid, latest period 2026-04 = the documented ~2-month lag). OBS_VALUE markers verified by full scan: '-' and 'N/A' = not available, 'x' = not applicable — SKIPPED, never zeroed (the header probe alone missed 'N/A'; 29,736 occurrences)",
+ "license": "free with acknowledgment (JODI data are publicly available for use with attribution); redistribution of the raw database not restricted for informational use — resale review before monetization",
+ "attribution": "JODI Oil World Database (Joint Organisations Data Initiative)",
+ "schema_version": 1,
+ "field_map": {
+  "series.<AREA>|<PRODUCT>.points": "[[YYYY-MM, kbbl_level, assessment_code], ...] — closing stock LEVELS (FLOW=CLOSTLV) in thousand barrels (UNIT=KBBL); assessment code preserved verbatim (JODI's own quality flag, recorded not interpreted)",
+  "series.<key>.n/first/last": "span + count provenance per series",
+  "selection": "CLOSTLV x KBBL x {CRUDEOIL, NGL, OTHERCRUDE, TOTCRUDE} x 118 areas, full history — 350 series, ~61k numeric points; markers_skipped and bad_rows reported in the artifact",
+  "source_last_modified/built_at": "upstream Last-Modified header + build timestamp (vintage provenance)"
+ },
+ "confidence_model": "RAW official self-reported country data (quality varies by country — that is what the assessment code flags). HYPOTHESIS (gate-locked): non-OECD crude stock builds (Saudi/UAE/India) are invisible in EIA weeklies but feed Brent term structure; the 2-month lag deters fast money — value is in level trends and revisions. GATE 1 (data vs external truth): first US spot check 2026-07-06 found a DEFINITIONAL gap, not a match — JODI US CRUDEOIL 2026-04 = 705,195 kbbl vs EIA commercial 459,495 / commercial+SPR 857,419; reconciling JODI's stock definition (lease/in-transit/SPR treatment) against EIA monthlies is the filed gate-1 workup before any signal use. DIRECT gate-1 partner for the tank-shadow root.",
+ "geo_fields": ["REF_AREA (ISO-2 country code in series key)"],
+ "entity_key": "REF_AREA + ENERGY_PRODUCT + TIME_PERIOD",
+ "sentiment": null,
+ "started": "2026-07-06",
+ "cadence": "monthly source update (~19th, 2-month publication lag); session-run monthly rebuild",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS census build #3 (JODI ranked #3 in research/data_census.md; #1 OCC and #2 EPA CAMD key-blocked 9a). Secondary (products) file world_Secondary_CSV.zip is a separate future build — one logical change per PR."
+}
