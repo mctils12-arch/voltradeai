@@ -8957,3 +8957,49 @@ alarm, scanner ok, licensing ok) — no fire to fight.
   queue items or new research was not reached this session — PR
   review/CI babysitting is the remaining capacity sink per the
   subscription now active on #351.
+## 2026-07-07 — [PRODUCT] W6 client: the Analyst chat pane on /data (v1.0.200)
+
+TERRITORY: T-CLIENT (AnalystPane.tsx NEW, datamap.tsx, index.css,
+visual_check.mjs). ANALYST CONSOLE centerpiece — client half; the
+server tool-loop shipped v1.0.199 (#349).
+
+- WHAT: chat pane opened from a third top-left map control
+  ([data-vt-analyst], 44px control family). React.lazy chunk — a
+  closed pane loads ZERO analyst code (zero-cost-when-off) and never
+  polls (single fetch on explicit send). 390px bottom sheet
+  (vt-sheet-in, clears the mobile tab bar) / >=640px side panel
+  (left:64px, width-capped to clear an open layers panel at 768).
+- HONESTY MACHINERY SURFACED: all 8 server response states rendered
+  distinctly — awaiting_key ("activates when the key is added — no
+  key, no fake answers"), budget_exhausted (spent/limit + reset
+  time), 429 busy (retry hint), 401 (sign-in link into the existing
+  /login?next= flow, pricing.tsx precedent), 400, 502 ("no answer is
+  invented in its place"), network, success. SUCCESS = answer text +
+  SOURCE CHIPS (tool + relative freshness, params in tooltip) +
+  collapsible "how I got this" tool-trace (per-call ok/error dots) +
+  tokens/spent-today/daily-limit/model footline + note/transport_error
+  force-close banners.
+- MAP COMMANDS EXECUTE LIVE via runAnalystMapCommand: fly_to through
+  the map ref; toggle_layer through the SAME `enabled` state the
+  layer panel switches use (datamap.tsx:199/2290) — no parallel state,
+  and it mirrors the panel's honesty guards (unknown-layer,
+  non-live-status, R15 unwired-mid-deploy all return an honest chat
+  note instead of flipping a dead switch). Executed commands render
+  as "→ flew to 35.94, -96.74" / "→ turned on Severe weather alerts".
+- RATCHETS (harness STRENGTHENED, nothing weakened): [data-vt-analyst]
+  added to BOTH occlusion hit-tests; new ANALYST battery (button
+  exists → opens → panel fully inside viewport [self-see] → input+send
+  reachable → close → asserts panel gone AND zero POST /api/analyst
+  fired). A SwiftShader capture race on the pane's 0.18s entry
+  animation was fixed at capture time only (450ms settle +
+  animations:disabled on that one screenshot; page untouched, no
+  assertion touched).
+- GATES: visual harness 0 hard failures (all pages x 390/768/1440;
+  data 390 TTI 1728ms, all-off 1003ms with 0 disallowed calls); node
+  425 pass; tsc 64 baseline; pytest unaffected. Version 1.0.199 ->
+  1.0.200. Built by worktree subagent (2 sessions — one resumed after
+  a transient API cutoff); session re-built the client, re-ran the
+  full harness, and reviewed the screenshots before integration.
+- MILESTONE: the ANALYST CONSOLE front-end is COMPLETE end-to-end
+  (chat + globe + query spine). It activates the moment
+  ANTHROPIC_API_KEY lands in Railway — no further deploy needed.

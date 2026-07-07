@@ -131,6 +131,24 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
   satellite layer (satellite.js SGP4 propagation) — consider a
   field-projection param on the route first (starlink full payload is
   a few MB); then W3 time scrubber.
+- 2026-07-07 (same session): W6 CLIENT SHIPPED (v1.0.201) — Analyst
+  chat pane on /data (client/src/components/AnalystPane.tsx, lazy
+  chunk = zero analyst code until first open, never polls). Third
+  top-left control ([data-vt-analyst]); 390px bottom sheet / desktop
+  side panel (clears controls + open layers panel; harness occlusion
+  + self-see pass). All 8 server states rendered distinctly
+  (awaiting_key / budget_exhausted / 429 / 401 sign-in / 400 / 502 /
+  network / success). Success = answer + source chips (tool +
+  freshness) + collapsible "how I got this" trace + tokens/budget/
+  model footline. map_commands EXECUTE live: fly_to via map ref,
+  toggle_layer via the SAME enabled-state the layer panel uses (no
+  parallel state; honest "can't toggle" note for unwired/keyless
+  layers). Harness ANALYST battery added (open/close/layout, asserts
+  NO POST fires); [data-vt-analyst] in both occlusion lists; no
+  assertion weakened. Built by subagent, session re-ran harness +
+  reviewed screenshots. THE ANALYST CONSOLE FRONT-END IS COMPLETE:
+  activates end-to-end the moment ANTHROPIC_API_KEY lands in Railway.
+  NEXT: W2 client satellite layer, W3 time scrubber, W5 dossier v2.
 - 2026-07-07 (same session): W1 SHIPPED (v1.0.197) — 3D globe mode is
   the /data map DEFAULT (MapLibre v5 native projection, zero new
   deps). Toggle stacked under fullscreen ([data-vt-globe],
