@@ -307,10 +307,28 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   percentiles withheld (never guessed) below 5 same-month peer days. 9 new
   node tests; npm run visual clean at 390/768/1440 (gridstress page
   registered in the harness).
+- PHASE B DATA-PREP SHIPPED 2026-07-07 (#362, v1.0.206, research/
+  grid_vision_phaseb.md; non-GPU, stdlib-only): scripts/gridvision_etdii.py
+  (CC-BY label downloader/parser — ETDII CC-BY-4.0 figshare 14935434 +
+  Duke CC-BY-4.0 6931088 verified live), scripts/gridvision_chips.py
+  (OSM-seeded NAIP chip-INDEX builder, corridor-restricted), scripts/
+  gridvision_naip_stac.py (MPC STAC/SAS NAIP client — root verified; STAC
+  `license` field returns "proprietary" placeholder, real license is
+  USDA/FSA public domain, documented), datacore/gridvision/labels_manifest
+  .json. 22 tests. VERIFIED US composition: 74 images → 1408 towers, 6
+  substations → substation underrep CONFIRMED severe → **v0 is a TOWER
+  detector**. FIRST GPU JOB pre-validated vs scripts/runpod_budget.py:
+  grid-detector-v0, RTX 4090, max_hours=4, worst-case $1.36, AUTHORIZED,
+  unbounded refused. RUNPOD COST-CAP GATE shipped separately (#360,
+  scripts/runpod_budget.py + research/runpod_ledger.md — $50 balance,
+  ledger, never-unbounded rule).
 - NEXT (each its own PR): (1) V3 gate-2 design prep — subagent
   research of the complete dated public ERCOT conservation/EEA event
-  list from primary sources; (2) [SHIPPED — see above]; (3) Phase B
-  training-data prep — ETDII download + OSM-seeded chips + NAIP/MPC
-  streaming — then first RunPod fine-tune (amendment-governed);
-  (4) Phase B1 VERIFY spec. Polygon arbiter for ambiguous pools: EIA
-  Atlas BA layer (re-check ~late July).
+  list from primary sources; (2) [SHIPPED]; (3a) **RunPod fine-tune of
+  grid-detector-v0** — BLOCKED only on the launch path (RUNPOD_API_KEY is
+  in Railway not the session → needs a server-side launcher routine
+  calling authorize_job first, OR the key added to the session;
+  BLOCKED-FOR-MIKE). (3b) fix build_power_tiles.sh osmium filter to add
+  `power=tower` (currently substation-only seeds); (3c) fetch Duke-US zips
+  to make substations trainable; (4) Phase B1 VERIFY spec. Polygon arbiter
+  for ambiguous pools: EIA Atlas BA layer (re-check ~late July).

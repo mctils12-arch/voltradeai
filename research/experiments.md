@@ -9092,3 +9092,45 @@ First slice of the SCALE program (research/scale_program.md), answering
   S1 sweep applies applyViewport to vessels/trains/etc.
 - GATES: node 454 pass 0 fail (incl. routeGuards guard); tsc 64
   baseline; pytest 476 passed 1 skipped. Version 1.0.202 -> 1.0.203.
+
+## 2026-07-07 [PIPELINE]+[PRODUCT] — full-program parallel wave (T-DATACORE + T-CLIENT), 5 PRs
+
+Territory: RunPod tooling (scripts/, research/), GRID VISION (scripts/gridvision_*,
+datacore/gridvision/, research/), ORBITAL client libs (client/src/lib/orbital/,
+datacore/orbital/, research/). Parallelism actually run: 4-agent orbital fan-out
+(disjoint lib files) + 1 grid-vision agent; parent serial-merged every PR through
+CI. Width bounded by the serial merge gate + the datamap.tsx single-writer hotspot
+(O2 wiring is the one serial client job) — stated to the human, not a cap.
+
+- #360 (v1.0.204) [runpod cost-cap gate] scripts/runpod_budget.py — pure, tested
+  ($50 balance, append-only JSONL ledger; authorize_job refuses UNBOUNDED / bad
+  rate / over-$5-floor and returns the hard max_runtime_seconds the launcher must
+  hand RunPod). 16 tests. PLAN: grid-vision detector is the ONLY GPU workload;
+  satellite splatting CANCELLED $0 (model research found 0 splat candidates from
+  free imagery, glTF covers ~90% at 1/30th size). PRIOR held: the honest free-vs-
+  paid analysis flipped the earlier "1-3 marquee splats" scope to zero.
+- #361 (v1.0.205) [orbital foundation] client/src/lib/orbital/ tle+propagate+
+  geometry+entityJoin (+operators.json, orbital_models.md). propagate.ts = INLINE
+  SGP4, 0 KB, validated 0.000e+0 km ECI vs satellite.js@7 + Spacetrack Report #3
+  vector — deviated from the "use satellite.js" charter wording, justified
+  (hermetic, 0-dep, machine-precision). Deep-space returns null (never faked).
+- #362 (v1.0.206) [grid-vision Phase B] scripts/gridvision_* + labels_manifest +
+  research/grid_vision_phaseb.md. CC-BY licenses verified LIVE (ETDII/Duke
+  figshare CC-BY-4.0; NAIP USDA public domain — STAC field's "proprietary"
+  placeholder documented). VERIFIED US composition 74 imgs -> 1408 towers / 6
+  substations => v0 is a TOWER detector (substation underrep confirmed, not
+  papered over). First GPU job pre-validated vs #360: RTX 4090, max_hours=4,
+  worst-case $1.36, authorized.
+- #363 (v1.0.207) [orbital render-lib] satWorker+satLayer(CustomLayerInterface)+
+  satBuffer. 68 orbital tests, tsc 64. satBuffer split out to keep the SGP4 kernel
+  off the main bundle (good call by the builder). classCode=-1 sentinel for
+  deep-space/invalid; no silent decimation; getCounts() honesty.
+- MERGE MECHANICS: render-lib committed on top of grid-vision then `git rebase
+  --onto origin/main <gridvision-sha>` after #362 merged — clean single-commit
+  replay, no bundling, preserved the agent's output in git immediately (recycle
+  safety) rather than leaving it untracked.
+- NEXT (own PRs): O2 datamap.tsx wiring (recipe in orbital_program.md RESUME
+  STATE; real build + visual harness; watch Vite worker bundling + SwiftShader
+  WebGL2) -> O3 detail panel -> O7 coverage tools. Grid-vision: RunPod fine-tune
+  BLOCKED-FOR-MIKE on launch path; build_power_tiles.sh needs power=tower;
+  Duke-US zips for substations. Backtest: N/A (no strategy/measurement change).
