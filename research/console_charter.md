@@ -131,3 +131,19 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
   satellite layer (satellite.js SGP4 propagation) — consider a
   field-projection param on the route first (starlink full payload is
   a few MB); then W3 time scrubber.
+- 2026-07-07 (same session): W1 SHIPPED (v1.0.197) — 3D globe mode is
+  the /data map DEFAULT (MapLibre v5 native projection, zero new
+  deps). Toggle stacked under fullscreen ([data-vt-globe],
+  localStorage vt-map-globe), projection baked into the bootstrap
+  style (first paint correct), zero-cost-when-off (flat pref = no
+  projection API calls), degradation = mercator + disabled-with-reason
+  toggle. Mobile default GLOBE kept on A/B evidence (390px globe
+  median 33ms vs flat 17-33ms, overlapping p95, all inside gates). 19
+  layers verified toggling clean in globe mode incl. rasters +
+  hillshade (synthetic-DEM pixel test). Harness gains a GLOBE MODE
+  battery (default assertion, round-trip, persistence, aria-pressed)
+  + the toggle added to both occlusion hit-tests; no assertion
+  weakened. Built by subagent; session re-ran the harness and
+  reviewed screenshots (curved vs flat field A/B at 390 confirmed).
+  NEXT: W2 client satellite layer (satellite.js SGP4 on the globe;
+  field-projection param on the route first), then W3 time scrubber.
