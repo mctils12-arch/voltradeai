@@ -7259,3 +7259,38 @@ exception to append-only; the log below it stays append-only)
   with peek), AND /api/data/platform/stats serves a NON-NULL
   sentinel2_last_reading (2026-06-27 per the repo readings file) for the
   first time in production.
+
+## 2026-07-07 — [PIPELINE] JODI oil closing stocks — census build #3 (session-run, git-artifact) — v1.0.169
+
+- TERRITORY: T-DATACORE (scripts/ + datacore/). Census rank #3 (#1 OCC
+  built; #2 EPA CAMD key-blocked 9a).
+- SOURCE probed + FULL-FILE SCANNED before coding (the shape-probe rule
+  earned its keep again): world_Primary_CSV.zip = 23.3MB zip / 6,872,400
+  rows / 118 REF_AREAs / dense 10-flow x 4-product x 5-unit grid /
+  latest 2026-04 (the documented ~2-month lag). Header probe alone
+  MISSED a third not-available marker: 'N/A' (29,736 occurrences in the
+  filtered subset) — found because the parser counts every unparsed row
+  instead of dropping silently; markers are '-', 'N/A' (not available),
+  'x' (not applicable) — skipped, never zeroed (0.0 is a real level).
+- BUILD (eiaweekly precedent — monthly source, session-run Python,
+  whole-file-rebuild git artifact; ZIP handling + 283MB CSV are the
+  wrong cost shape for the Node poller): scripts/jodi_oil.py filters
+  FLOW=CLOSTLV (closing stock LEVELS) x UNIT=KBBL x 4 primary products
+  x full history -> datacore/jodi/primary_stocks.json (1.4MB, 350
+  series, ~61k points, assessment codes preserved verbatim). Refuses to
+  write on zero series; header change raises loudly.
+- GATE-1 FIRST LOOK (honest non-match, filed): JODI US CRUDEOIL 2026-04
+  = 705,195 kbbl vs our own EIA artifact — commercial 459,495 /
+  commercial+SPR 857,419. A DEFINITIONAL gap (lease stocks, in-transit,
+  SPR treatment), not a data error; reconciling JODI's stock definition
+  against EIA monthlies is the gate-1 workup before any signal use.
+  Saudi 139,967 kbbl is in the plausible historical band. HYPOTHESIS
+  stays gate-locked: non-OECD stock builds (SA/AE/IN) invisible in EIA
+  weeklies -> Brent structure; 2-month lag deters fast money.
+- TESTS: test_jodi_oil.py 7/7 (marker honesty incl. real-zero-stays,
+  filter correctness, sort order, header-change alarm, refuse-empty,
+  committed-artifact coherence). Full pytest 456 passed 1 skipped.
+- VERIFY (pre-stated): next monthly rerun (~2026-07-19 publication)
+  appends 2026-05 points as a clean git diff; the streams inventory
+  shows the jodi manifest (count 42) with volume-side no-data honesty
+  (session-run writer — expected, not a defect).

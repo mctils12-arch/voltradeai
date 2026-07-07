@@ -55,9 +55,20 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   the visual harness PAGES (perf/layout gate at 390/768/1440).
   Remaining: imagery capture-date requirement (with Phase 3),
   per-layer freshness chips.
-- NEXT CENSUS BUILDS after grid pilot: JODI (keyless static, easiest),
-  FINRA Query API cluster, SEC FTD; EPA CAMD/GEM/ENTSO-E on Mike's
-  keys (9a/9b/9c below).
+- CENSUS BUILD #3 JODI: SHIPPED v1.0.169 — scripts/jodi_oil.py +
+  datacore/jodi/primary_stocks.json (350 series, 61k closing-stock
+  points, full history 2002+; monthly session-run rebuild ~19th).
+  Gate-1 workup filed: reconcile JODI US stock definition vs EIA
+  (first look found a definitional gap, honest non-match in
+  experiments.md). Secondary (products) file = separate future build.
+- R14 PACKAGING REPAIR (v1.0.168): the image ships dist/ only —
+  runtime datacore/ disk reads were silently empty on prod (streams
+  inventory + sentinel2 freshness). build.ts now stages runtime files
+  into dist/datacore/; repoDataPath() resolver + ratchet battery.
+  LESSON for every future stream: verify the POSITIVE case on prod,
+  not just error-free responses.
+- NEXT CENSUS BUILDS: FINRA Query API cluster, SEC FTD; EPA
+  CAMD/GEM/ENTSO-E on Mike's keys (9a/9b/9c below).
 
 ## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;
 ## each unlocks a census top-10 item; routed around meanwhile)
