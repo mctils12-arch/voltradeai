@@ -9047,3 +9047,48 @@ data-bearing Google API worth a real stream now.
   skipped. Version 1.0.201 -> 1.0.202.
 - BLOCKED-FOR-MIKE: enable the Air Quality API in the Google Cloud
   console; the stream then lights up on the existing key.
+
+## 2026-07-07 — [PRODUCT] SCALE S1(a): viewport-bounded serving helper + aircraft proof (v1.0.203)
+
+TERRITORY: T-DATACORE (viewport module) + routes.ts (SHARED, minimal).
+First slice of the SCALE program (research/scale_program.md), answering
+"faster with everything on, more data, no lost detail/latency".
+
+- FINDING (investigate-first): the aircraft route already accepts a
+  viewport but only to derive a center+radius CIRCLE for the upstream
+  ADS-B query — the circle circumscribes the on-screen rectangle, so it
+  OVER-returns corner aircraft; nothing viewport-filters the SERVED
+  payload. No serve-time zoom decimation exists (P-PERF's decimation is
+  client-side render styling; archive "adaptive thinning" is storage).
+  So S1(a) correctly targets aircraft.
+- WHAT: server/viewport.ts — pure, reusable serve-time filter.
+  parseBbox (validates ranges, rejects degenerate/garbage, never
+  throws), inBbox (boundary-inclusive, antimeridian wrap handled),
+  filterByViewport (single-pass O(n)), and applyViewport(payload,
+  bboxStr, arrayKey, getLatLon) — the route-facing helper. Aircraft
+  route: optional ?bbox= filters served aircraft to the exact viewport
+  before serving; absent/invalid bbox = byte-for-byte unchanged; no
+  silent caps (viewport_filtered + count_before_viewport +
+  count_dropped_offscreen stated). Serve-time only; archive untouched.
+- REVIEW NOTE (my own, on the subagent's draft): the subagent placed
+  the filter as a ~20-line handler PREAMBLE, which pushed `raceDeadline(`
+  toward the routeGuards.test.ts 3000-char guard window (~59 char
+  margin — it did NOT weaken the test, correctly). I REFACTORED to
+  applyViewport() in viewport.ts and wrapped the 3 response sites
+  inline, so the handler body does not grow, raceDeadline stays put,
+  and the guard margin is fully restored — AND the helper is now
+  directly reusable for the S1 layer sweep. No brittle-guard change
+  needed.
+- PERF PROOF (viewport.test.ts): fixed 50-point in-bbox cluster + N
+  off-screen points; total 1,050 vs 100,050 (95x more data) both return
+  50, byte-identical serialized payload; accessor called exactly
+  features.length times (O(n), no quadratic). Rendered payload stays
+  FLAT as total grows — the program's whole claim, asserted as numbers.
+  Plus backward-compat (null/invalid bbox = same object reference),
+  parseBbox validation, antimeridian, delta-envelope pass-through.
+- FOLLOW-UP (T-CLIENT, own PR): client sends the current map bounds as
+  &bbox= on the aircraft fetch (datamap.tsx:~1194) — one line; until
+  then this server capability is inert (backward-compatible). Then the
+  S1 sweep applies applyViewport to vessels/trains/etc.
+- GATES: node 454 pass 0 fail (incl. routeGuards guard); tsc 64
+  baseline; pytest 476 passed 1 skipped. Version 1.0.202 -> 1.0.203.

@@ -19,6 +19,7 @@ import {
   archiveAircraft, archiveVessels, archiveTrains, compressOldHours, rollupOldDays,
   recentTrack, archiveStats,
 } from "./datacoreArchive";
+import { applyViewport } from "./viewport";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
@@ -873,7 +874,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (String(req.query.since || "") === String(hit.data.time)) {
         return res.json({ unchanged: true, time: hit.data.time, count: hit.data.count });
       }
-      return res.json({ ...hit.data, cached: true });
+      // SCALE S1(a): optional ?bbox= viewport filter (scale_program.md).
+      // Absent/invalid bbox = payload unchanged; helper lives in viewport.ts
+      // so this handler body (and the raceDeadline guard window) is untouched.
+      return res.json(applyViewport(({ ...hit.data, cached: true }), req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
     }
     try {
       // In-flight dedup: concurrent visitors on the same bbox share ONE
@@ -898,11 +902,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (String(req.query.since || "") === String(data.time)) {
         return res.json({ unchanged: true, time: data.time, count: data.count });
       }
-      res.json(data);
+      res.json(applyViewport(data, req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
     } catch (e: any) {
       // Stale-beats-spinner (DESIGN.md performance budget): serve the last
       // snapshot with its timestamp rather than an empty error.
-      if (hit) return res.json({ ...hit.data, cached: true, stale: true, stale_at: hit.at });
+      if (hit) return res.json(applyViewport(({ ...hit.data, cached: true, stale: true, stale_at: hit.at }), req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
       res.status(502).json({ error: `aircraft feed unavailable: ${e?.message || e}`, aircraft: [] });
     }
   });
