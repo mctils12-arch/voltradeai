@@ -558,6 +558,21 @@ read-before-write review.
   complete US power-grid mapping — OSM base, ML detection as
   gap-filler/verifier, state-by-state national rollout). Phase A
   research runs first; nothing builds until it files.
+- SCALE program installed 2026-07-07 (human directive: "faster with
+  everything on, way more data, no lost detail/latency/info"):
+  research/scale_program.md is the multi-session charter — decouple
+  storage fidelity (archive keeps everything) from render fidelity
+  (viewport + LOD). Levers: S1 viewport-bounded serving (bbox+zoom),
+  S2 server-side tiling/clustering, S3 spatial index on the archives.
+  Each slice ships with a harness perf assertion proving flat frame/
+  query time as feature count rises. NOTHING BUILT YET; S1 step (a) is
+  next.
+- ANALYST CONSOLE program COMPLETE front-end 2026-07-07
+  (research/console_charter.md): W4 query engine, W2 satellite stream
+  (CelesTrak firewalled from Railway — relay decision with human),
+  W1 globe-default map, W6 analyst (server tool-loop + chat pane).
+  Activates on ANTHROPIC_API_KEY. Remaining: W2 client sat layer, W3
+  time scrubber, W5 dossier v2.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 
