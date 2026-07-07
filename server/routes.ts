@@ -62,6 +62,7 @@ import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
+import { queryWindowCached } from "./queryEngine";
 import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1580,6 +1581,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         density: t?.density ?? {},
       });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // ANALYST CONSOLE W4: cross-layer geo-temporal query — everything the
+  // archives know about a point+radius+window, per-layer provenance and
+  // freshness. Archive reads only; no network at query time. RAW overlay
+  // composition — each element labeled at its source stream, no ladder gate.
+  app.get("/api/data/query", async (req, res) => {
+    try {
+      const lat = parseFloat(String(req.query.lat));
+      const lon = parseFloat(String(req.query.lon));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        res.status(400).json({ error: "lat and lon are required numbers" }); return;
+      }
+      const radiusKm = req.query.radiusKm != null ? parseFloat(String(req.query.radiusKm)) : undefined;
+      const days = req.query.days != null ? parseInt(String(req.query.days), 10) : undefined;
+      const layers = req.query.layers
+        ? String(req.query.layers).split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      res.set("Cache-Control", "public, max-age=300");
+      res.json({ kind: "raw", ...(await queryWindowCached({ lat, lon, radiusKm, days, layers })) });
+    } catch (e: any) {
+      res.status(String(e?.message).startsWith("invalid") ? 400 : 500).json({ error: e?.message });
+    }
   });
 
   // Census monthly port imports (RAW — BUILD ORDER 3 #4, key-gated like

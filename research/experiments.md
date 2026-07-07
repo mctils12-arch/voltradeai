@@ -8655,3 +8655,40 @@ trading window, not a formality.
   (dashboard kill-switch button) after re-basing the peak, or Alpaca's
   account state is resolved. This makes the promised "bot stays down"
   actually true.
+
+## 2026-07-07 — [PRODUCT] W4: ANALYST CONSOLE query engine — /api/data/query (v1.0.195)
+
+TERRITORY: T-DATACORE (queryEngine module) + routes.ts (SHARED,
+smallest-possible edit, last commit before PR). First build of the
+ANALYST CONSOLE program (research/console_charter.md, human directive
+2026-07-07).
+
+- WHAT: server/queryEngine.ts — cross-layer geo-temporal query: point
+  + radius (cap 250km) + day window (cap = 7d raw retention) + layer
+  set over the six archives that exist (aircraft/vessels/trains
+  hourly position files; fires/alerts/gauges daily event files).
+  Per-layer provenance labels, freshness = newest MATCHED timestamp
+  (null when nothing matched), byDay with absent-days-absent,
+  topEntities (cap 10), events (cap 50, newest first),
+  rejected_layers surfaced, every cap stated in the envelope, honesty
+  note on adaptive-thinning lower bounds. LRU cache (5 min TTL, 50
+  entries, 0.05-deg coord rounding). GET /api/data/query, kind:"raw"
+  (raw-vs-signals rule), Cache-Control 300s.
+- HOW: built by a worktree-isolated subagent against a written spec;
+  session performed the read-before-write review line-by-line before
+  integration (partition rule: subagent output ships only after the
+  session's own review). Layouts mirrored from the writers
+  (datacoreArchive.ts, nasaFirms.ts, nwsAlerts.ts, usgsWater.ts), not
+  guessed; positions stream via readline+gunzip (R4/R5 event-loop
+  lesson applied); record-level day guard beyond file-name filtering;
+  zone-only alerts excluded (geometry honesty, matches siteTimeline).
+- TESTS: server/queryEngine.test.ts — 11 tests: radius/window
+  inclusion-exclusion, absent-days-absent, topEntities ranking+cap,
+  event ordering+cap, unknown-layer rejection surfaced, cap clamping
+  visible in result.query, gz day files, cache TTL/reset via
+  injectable nowMs, empty-archive zero-results-no-throw.
+- GATES: node full battery green (includes the 11 new); tsc 64
+  baseline; pytest 476 passed 1 skipped. Version 1.0.194 -> 1.0.195.
+- FOLLOW-UP (charter RESUME STATE): concurrent-scan gate if the
+  public endpoint sees real traffic; W2 satellites next (licensing
+  check first), then W1 globe mode.
