@@ -7418,3 +7418,39 @@ exception to append-only; the log below it stays append-only)
   boot logs "deep backfill: walking 730 calendar days", the occvolume
   dir grows toward ~500 day-files, backfill_done.json appears with
   days_fetched, and the flag can then be removed.
+
+## 2026-07-07 — [PRODUCT] Phase 3a: live imagery capture-date readout on /data — v1.0.173
+
+- TERRITORY: T-CLIENT. NOT a DESIGN.md amendment: the human-approved
+  imagery-honesty rule (2026-07-04) already REQUIRES dates "where
+  available" — they became available when the census verified the
+  World_Imagery identify endpoint (§3 #9), so the old "capture date
+  unavailable (Esri base tiles)" note was overtaken by facts and this
+  change is rule-REQUIRED.
+- BUILD: debounced moveend identify at the VIEW CENTRE (CORS verified
+  Access-Control-Allow-Origin:* live); picks the metadata level
+  spanning the current zoom; chip states: "imagery at centre:
+  YYYY-MM-DD · SOURCE" / "capture date unknown at this zoom" (verified
+  real case: low-zoom TerraColor NextGen carries no DATE) / "capture
+  date unknown" on transport failure — never fabricated, never
+  stale-implying. Esri-terms reading applied: recency check displayed
+  ON the imagery it describes; client-side only, nothing archived, no
+  API route (census licensing note: internal recency checks fine, no
+  redistribution).
+- SELF-REVIEW CAUGHT TWO OCCLUSIONS the harness didn't (the reason the
+  screenshot rule exists): draft 1 covered the zoom-out button (Z3
+  class); draft 2 clipped the © Esri attribution — a LICENSING surface.
+  Final position (left 52px / bottom 32px) clears both; offsets
+  documented in the CSS with the reason.
+- RATCHET (Phase 5): harness now FAILS any map-page run where the
+  imagery base is on and [data-testid=imagery-date] is absent or not in
+  a designed state — external Esri calls abort in the harness, so the
+  honest unknown state is what CI pins forever.
+- GATES: tsc 64 baseline; build OK; visual harness PASS 390/768/1440
+  full run + data-page re-runs after each occlusion fix; 390px
+  screenshot self-reviewed (chip beside zoom column, attribution fully
+  readable). Version 1.0.172 → 1.0.173.
+- VERIFY (pre-stated): on prod /data, panning to Cushing at z≥12 shows
+  "imagery at centre: 2025-10-21 · Vantor" (the live-probed value;
+  date will drift as Esri updates tiles — drift is the feature);
+  zooming out past z11 flips to "capture date unknown at this zoom".

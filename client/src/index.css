@@ -2626,6 +2626,23 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-streams-foot { padding-top: 2px; }
 .vt-spin { animation: vt-streams-spin 1s linear infinite; }
 @keyframes vt-streams-spin { to { transform: rotate(360deg); } }
+/* Phase 3a imagery capture-date chip — bottom-left inside the map page
+   (the page already clears the mobile tab bar), left of the compact
+   maplibre attribution. Never intercepts map gestures. */
+.vt-imagery-date-chip {
+  /* left: 52px clears the maplibre zoom column (~40px); bottom: 32px
+     clears the attribution line (a LICENSING surface — © Esri must stay
+     readable). Both offsets exist because the first drafts covered the
+     zoom-out button and then the attribution, caught in the 390px
+     screenshot self-review (the Z3 occlusion class). */
+  position: absolute; left: 52px; bottom: 32px; z-index: 9;
+  background: rgba(10, 15, 26, 0.78); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.14); border-radius: 6px;
+  padding: 3px 8px; font-family: var(--font-mono); font-size: 10.5px;
+  pointer-events: none; max-width: 70vw;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* panel launcher row */
 .vt-streams-launch {
   display: flex; align-items: center; gap: 6px; width: 100%;
