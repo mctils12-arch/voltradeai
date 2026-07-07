@@ -8104,3 +8104,41 @@ exception to append-only; the log below it stays append-only)
   GRID_DEMAND_BACKFILL=1); RUNPOD_API_KEY active. NOT STARVED —
   high-value work queued: gate-2 computation (on flag), Phase B
   training-data arc (amendment-governed), B1 stress-index surface.
+
+## 2026-07-07 — [PIPELINE] ENTSO-E EU load stream — wishlist 9c activated same-day on key landing (v1.0.186)
+
+- Territory: T-DATACORE (server/euLoad.ts + test, euload manifest) +
+  SHARED (server/routes.ts, package.json, research/*). Standing
+  detect-and-activate directive: Mike set ENTSOE_API_KEY -> built and
+  shipped the same hour.
+- CONTRACT VERIFIED BEFORE CODE (docs pages 400/403'd — routed
+  around): (a) live keyless probe of web-api.tp.entsoe.eu returned
+  the Acknowledgement_MarketDocument with Reason 999 "Authentication
+  failed." (the error shape, pinned in tests); (b) params + codes +
+  all 8 EIC zone codes verified from the ecosystem-canonical
+  entsoe-py mapping/client source (A65/A16, outBiddingZone_Domain,
+  periodStart/End YYYYMMDDHHMM); (c) GL_MarketDocument structure
+  (Period > timeInterval/resolution/Point(position, quantity))
+  from its parser source.
+- BUILD (gridDemand pattern): 8 country-level zones, 48h trailing
+  window, 2h poll (8 spaced calls, limit is 400/min); regex-XML
+  parse (edgarForm4 precedent); points stored AS PUBLISHED at
+  zone-native resolution (PT15M Germany vs PT60M others — dedup key
+  zone|ts|resolution; absent positions stay absent, never
+  interpolated); acked zones absent from stats, never zero-filled;
+  token accepted under BOTH names (ENTSOE_API_KEY as set,
+  ENTSOE_TOKEN as the wishlist proposed) and never logged; seed
+  window 120d (heap precedent).
+- HYPOTHESIS (gate-locked, manifest): EU zonal load vs seasonal norm
+  = demand side of European energy regime features; joins eumacro
+  (census #7) for industrial-production nowcast residuals; the
+  EIA-930 analog for any future GRID VISION Europe work.
+- GATES: node 371 fail 0 (battery 6/6: key gate both names, url
+  contract, ack detect, PT60M/PT15M position math incl. gap
+  honesty, cross-resolution dedup, sweep stats); pytest 471 passed
+  1 skipped; tsc 64. Version 1.0.185 -> 1.0.186.
+- VERIFY (pre-stated): post-deploy /api/data/eu-load serves 8 zones
+  with sane MW scales (FR daytime ~45-60GW, DE_LU ~50-70GW, PT15M
+  resolution on DE_LU specifically) within 2 poll cycles; streams
+  inventory count grows to 50 with the euload envelope. If a zone
+  acks persistently, the ack text is in the logs by design.

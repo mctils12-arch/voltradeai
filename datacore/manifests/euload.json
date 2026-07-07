@@ -1,0 +1,23 @@
+{
+ "stream": "euload",
+ "storage": "append-only JSONL day-files under <archive>/euload/, keyed by OBSERVATION day (point timestamp date) with event-identity dedup (zone|ts|resolution) across restarts; seed window 120d (heap bound, gridDemand precedent); gz after 3 days",
+ "written_by": "server/euLoad.ts archiveLoad (2h poll, 8 politeness-spaced calls/cycle — far under the 400/min limit; eager boot; key-gated on ENTSOE_API_KEY or ENTSOE_TOKEN — activated the day Mike's key landed, 2026-07-07)",
+ "source": "ENTSO-E Transparency Platform RESTful API (web-api.tp.entsoe.eu) — actual total load, documentType A65 / processType A16 (realised), per bidding zone. Contract live-verified 2026-07-07 (keyless probe returned the Acknowledgement document with Reason 999 'Authentication failed.'); EIC codes verified against the ecosystem-canonical entsoe-py mapping. Scope v1: DE_LU, FR, ES, IT, NL, PL, BE, SE (country-level zones). Publication resolutions vary by zone (PT15M Germany, PT60M most others) — stored as published, never resampled.",
+ "license": "ENTSO-E Transparency Platform data — free re-use with source attribution per the platform's terms; attribution carried on every surface",
+ "attribution": "ENTSO-E Transparency Platform",
+ "sentiment": null,
+ "schema_version": 1,
+ "field_map": {
+  "zone|ts|resolution — event-identity dedup key": "bidding zone short code + UTC point timestamp + publication resolution (a PT15M and PT60M point at the same instant are distinct publications)",
+  "ts": "UTC YYYY-MM-DDTHH:MM computed as period start + (position-1) x resolution — points stored as PUBLISHED; absent positions stay absent, never interpolated",
+  "mw": "actual total load in MW; empty quantities are null, never zero",
+  "res": "publication resolution (PT15M/PT30M/PT60M)",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official TSO-reported realised load. HYPOTHESIS (gate-locked): EU zonal load vs seasonal norm = the demand side of European energy regime features; joins the eumacro cluster (census #7: ECB/Eurostat/Bundesbank) for industrial-production nowcast residuals, and is the European analog of the EIA-930 stream for any future GRID VISION Europe work. Nothing traded or sold until ladder gates.",
+ "geo_fields": ["zone (bidding-zone code; EIC in module ZONES map)"],
+ "entity_key": "zone + ts + resolution",
+ "started": "2026-07-07",
+ "cadence": "realised load publishes with ~1-2h lag at zone-native resolution; 2h poll with a 48h trailing window per zone",
+ "_note": "Universal archive envelope (approved 2026-07-04). Wishlist 9c RESOLVED — activated same-day on key landing per the standing detect-and-activate directive. API history reaches 2015 — a historical backfill is a filed follow-up decision (volume estimate first), NOT built in v1."
+}

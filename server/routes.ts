@@ -53,6 +53,7 @@ import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
+import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
@@ -1819,6 +1820,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.failures.length,
       note: "most recent US bank failures/assistance events, amounts in $ thousands as published; cost is the estimated DIF loss and is null until estimated; regional-bank-stress signals stay gate-locked until ladder validation",
       failures: hit.failures,
+    });
+  });
+
+  // ENTSO-E actual total load by EU bidding zone (RAW — wishlist 9c,
+  // key-gated on ENTSOE_API_KEY/ENTSOE_TOKEN, activated 2026-07-07).
+  // Serves the poller's cached per-zone stats only (event-loop rule).
+  bootEuLoadPoll();
+  app.get("/api/data/eu-load", (_req, res) => {
+    if (!euLoadEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "ENTSOE_API_KEY not set (free token — see wishlist 9c)", count: 0, zones: [] });
+    }
+    const hit = latestLoad();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ENTSO-E Transparency Platform", warming_up: true, count: 0, zones: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "ENTSO-E Transparency Platform (actual total load, A65/A16)",
+      attribution: "ENTSO-E Transparency Platform",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "realised total load in MW per bidding zone, ~1-2h publication lag; stored at zone-native resolution (PT15M Germany, PT60M most others), never resampled; zones absent from a cycle are absent, never zero-filled",
+      zones: hit.stats,
     });
   });
 
