@@ -15,6 +15,7 @@ import path from "path";
 import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
+import { repoDataPath } from "./repoFiles";
 
 /** Archive dir -> registry layer id, where the names differ. */
 export const DIR_LAYER_MAP: Record<string, string> = {
@@ -90,7 +91,12 @@ let inflight: Promise<number> | null = null;
  *  Surfacing the newest reading date + age here makes staleness a finding
  *  every DAILY health check and dashboard can see. Reads the bundled repo
  *  file; parse failure returns nulls, never throws. */
-export function sentinel2Freshness(nowMs = Date.now(), fp = path.resolve(process.cwd(), "datacore/sentinel2/readings.jsonl")): { last: string | null; age_days: number | null } {
+// [REPAIR 2026-07-07] repoDataPath, not bare cwd: the production image
+// has no working-tree datacore/ — this default silently resolved to a
+// missing file on Railway, so prod served sentinel2_last_reading:null
+// since this surface shipped. The dist/datacore copy (script/build.ts)
+// is the runtime source there.
+export function sentinel2Freshness(nowMs = Date.now(), fp = repoDataPath("datacore/sentinel2/readings.jsonl")): { last: string | null; age_days: number | null } {
   try {
     const lines = fs.readFileSync(fp, "utf8").trim().split("\n");
     let last: string | null = null;

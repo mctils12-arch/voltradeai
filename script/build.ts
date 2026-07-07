@@ -1,6 +1,6 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { rm, readFile, cp } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -57,6 +57,18 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  // [REPAIR 2026-07-07] Runtime datacore files → dist/datacore/. The
+  // production image ships dist/ only (frozen Dockerfile — no repo
+  // datacore/ tree), so server code that READS these from disk at
+  // runtime (streamsInventory manifests, platformStats sentinel2
+  // freshness) found nothing on Railway. Statically-imported JSON is
+  // unaffected (esbuild inlines it). Keep this list to what the server
+  // actually reads at runtime — datacore/ is 254MB (sentinel2 chips);
+  // the runtime set is ~184KB. See server/repoFiles.ts for resolution.
+  console.log("copying runtime datacore files into dist/ ...");
+  await cp("datacore/manifests", "dist/datacore/manifests", { recursive: true });
+  await cp("datacore/sentinel2/readings.jsonl", "dist/datacore/sentinel2/readings.jsonl");
 }
 
 buildAll().catch((err) => {
