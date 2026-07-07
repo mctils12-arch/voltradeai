@@ -183,12 +183,19 @@ export async function fetchLoad(fetchImpl: FetchFn = fetch as any,
   return out;
 }
 
-// ── Archive (dedup zone|ts|res, day-file per UTC day; gridDemand pattern) ──
+// ── Archive (dedup zone|ts|res|VALUE — vintage capture; day-file per UTC day) ──
+// Found live on day one (window stats, first diagnostic cycle): NL and IT
+// publish PARTIAL leading-edge points that revise upward within hours
+// (NL newest 2.4GW vs window mean 8.2/max 11.9). A value-free dedup key
+// would freeze the first, partial number forever — so the VALUE is part
+// of the event identity: revisions APPEND as new rows (fredMacro vintage
+// precedent; consumers take the last row per zone|ts|res), exact
+// re-publications still dedup.
 
 const seenObs = new Set<string>();
 let seeded = false;
 
-const obsKey = (o: LoadObs) => `${o.zone}|${o.ts}|${o.res}`;
+const obsKey = (o: LoadObs) => `${o.zone}|${o.ts}|${o.res}|${o.mw}`;
 
 function loadDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "euload");
@@ -258,7 +265,11 @@ export function gzipOldLoadDays(baseDir?: string, nowMs?: number): number {
       if (!f.endsWith(".jsonl")) continue;
       if (now - Date.parse(f.slice(0, 10)) < 3 * 86400_000) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+      // a late revision can append a plain file AFTER the day was gz'd —
+      // merge, never overwrite (overwriting would drop the gz'd rows)
+      const gzPath = `${fp}.gz`;
+      const prior = fs.existsSync(gzPath) ? zlib.gunzipSync(fs.readFileSync(gzPath)) : Buffer.alloc(0);
+      fs.writeFileSync(gzPath, zlib.gzipSync(Buffer.concat([prior, fs.readFileSync(fp)])));
       fs.unlinkSync(fp);
       n++;
     }

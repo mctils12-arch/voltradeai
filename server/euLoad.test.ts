@@ -75,20 +75,42 @@ test("parseLoad: PT60M and PT15M position math; published points only, never int
     "empty quantity stays null; position<1 dropped");
 });
 
-test("archive: zone|ts|res dedup; day-file by observation day; PT15M vs PT60M same ts are distinct", () => {
+test("archive: value-aware dedup (vintage capture); day-file by observation day; revisions APPEND", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "euload-"));
   const obs = parseLoad(GL(
     PERIOD("2026-07-05T23:00Z", "PT60M", [[1, "48000"], [2, "47000"]]) + // 23:00 + next-day 00:00
     PERIOD("2026-07-05T23:00Z", "PT15M", [[1, "48050"]])                  // same ts, finer res
   ), "DE_LU", "2026-07-07");
   assert.equal(archiveLoad(obs, base), 3);
-  assert.equal(archiveLoad(obs, base), 0, "never re-archives");
+  assert.equal(archiveLoad(obs, base), 0, "exact re-publication never re-archives");
+  // the NL/IT leading-edge lesson (found live on day one): a REVISED value
+  // for the same zone|ts|res is a new vintage and must append — a
+  // value-free key would freeze the first partial number forever
+  const revised = parseLoad(GL(PERIOD("2026-07-05T23:00Z", "PT15M", [[1, "51200"]])), "DE_LU", "2026-07-07");
+  assert.equal(archiveLoad(revised, base), 1, "revision appends as a new vintage row");
   const dir = path.join(base, "euload");
-  assert.ok(fs.existsSync(path.join(dir, "2026-07-05.jsonl")));
+  const lines = fs.readFileSync(path.join(dir, "2026-07-05.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const pt15 = lines.filter((r) => r.res === "PT15M" && r.ts === "2026-07-05T23:00");
+  assert.deepEqual(pt15.map((r) => r.mw), [48050, 51200], "both vintages kept in arrival order — consumers take the last");
   assert.ok(fs.existsSync(path.join(dir, "2026-07-06.jsonl")), "hour 24 lands in the next UTC day");
   assert.ok(seedFileInWindow("2026-07-05.jsonl", Date.parse("2026-07-07")));
   assert.ok(!seedFileInWindow("2020-01-01.jsonl.gz", Date.parse("2026-07-07")),
     `seed window bounded to ${SEED_WINDOW_DAYS}d (heap protection, gridDemand precedent)`);
+});
+
+test("gz merge: a late revision after the day gz'd must merge, never overwrite", async () => {
+  const { gzipOldLoadDays } = await import("./euLoad");
+  const zlib = await import("node:zlib");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "euload-"));
+  const dir = path.join(base, "euload");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "2026-06-01.jsonl"), '{"a":1}\n');
+  assert.equal(gzipOldLoadDays(base, Date.parse("2026-07-07")), 1);
+  // late vintage arrives after gz — appends a fresh plain file
+  fs.writeFileSync(path.join(dir, "2026-06-01.jsonl"), '{"a":2}\n');
+  assert.equal(gzipOldLoadDays(base, Date.parse("2026-07-07")), 1);
+  const merged = zlib.gunzipSync(fs.readFileSync(path.join(dir, "2026-06-01.jsonl.gz"))).toString();
+  assert.equal(merged, '{"a":1}\n{"a":2}\n', "prior gz rows survive the late-revision re-gz");
 });
 
 test("refresh sweep: one call per zone, per-zone stats + window shape, acked zone surfaced in issues", async () => {
