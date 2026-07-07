@@ -146,27 +146,53 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
 ## authoritative handoff — this entry is the pointer)
 
-STATUS as of 2026-07-07 (session claude/new-session-iu72vf):
+STATUS as of 2026-07-07 later same session (claude/new-session-iu72vf):
 - Charter installed (research/grid_vision.md): phases A (research
   first) / A2 (products plan — "the products define the spec") /
   B (VERIFY→EXTEND→DISCOVER detection w/ provenance tags) /
   C (national rollout, TX first, per-state honest coverage) /
   D (visualization at the premium standard) / E (ratchets).
-- PHASE A IN FLIGHT: four parallel research subagents launched
-  (GV-A1 T&F detection-pipeline paper/code; GV-A2 labeled datasets
-  Duke/PLAD/TTPLA; GV-A3 methods survey RetinaNet-routing/HOT-OSM/
-  SAR/shadow-height; GV-A4 imagery inventory + compute assessment).
-  Reports assemble into research/grid_vision_research.md; A2
-  products plan follows; NOTHING BUILDS until both file.
+- PHASE A COMPLETE + PHASE A2 COMPLETE, same day: all four subagent
+  reports filed in research/grid_vision_research.md (Items 1–4 +
+  cross-cutting summary); products plan filed in
+  research/grid_vision_products.md. Headlines: retraining mandatory
+  (no released weights anywhere); Esri ML use forbidden by quoted
+  contract clauses → NAIP public-domain substrate via free Planetary
+  Computer STAC streaming; honest detection scope = transmission
+  towers + substations (not poles); TX corridor-verify CPU-feasible
+  ~7 h; first product needs NO ML (grid-stress index from OSM TX +
+  EIA-930 + weather, all already archived). The charter's RESUME
+  STATE block carries the full build order.
 - Strategic update installed same day: "DATA IS THE MOAT, EXPERIENCE
   IS THE DOOR" (VISION.md appended section; CLAUDE.md Amendment 5 —
   GOAL self-proposed-work weighting + PREMIUM EXPERIENCE STANDARD
   standing behavior). Human directive = the approval (HUMAN
   SOVEREIGNTY clause).
-- Expected BLOCKED-FOR-MIKE from Phase A: possible GPU purchase
-  order for detection inference (GV-A4 will file exact
-  service/cost/link/credential if warranted; CPU-feasible scope
-  continues meanwhile).
+
+## BLOCKED-FOR-MIKE — GRID VISION GPU compute (2026-07-07; RunPod
+## purchase order per the directive's paid-boundary rule)
+
+WHAT: prepaid GPU rental for the GRID VISION detector. Training is
+needed REGARDLESS of scope (Phase A finding: no usable released
+weights exist anywhere — we must fine-tune our own on CC-BY labeled
+data); full-state discovery sweeps use the same account later.
+- SERVICE: RunPod — https://www.runpod.io/ (per-second billing, no
+  quota approval, prepaid credit; L4 $0.39/hr, RTX 4090 $0.69/hr,
+  prices verified 2026-07-07).
+- COST: initial deposit $50 (covers the full training/experiment
+  cycle, est. $50–100 total, + a Texas full sweep $5–25); national
+  sweeps later ~$100–400 depending on resolution mix.
+- SIGNUP: create account at runpod.io → add $50 credit → Settings →
+  API Keys → create key.
+- CREDENTIAL: put it in Railway as RUNPOD_API_KEY (presence-checked
+  only, never echoed). The session that sees it appear activates GPU
+  work without being told.
+- CAPABILITY UNLOCKED: detector training + repeatable full-state ML
+  sweeps at ~$4–15/state/pass (change detection on every NAIP
+  refresh, not one-time mapping).
+- CPU-FEASIBLE MEANWHILE (no purchase): Phase B1 corridor-verify
+  over ERCOT OSM buffers (~7 h @0.6 m streamed free from Planetary
+  Computer) and the entire A1→grid-stress-index product path.
 
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 
