@@ -1,0 +1,22 @@
+{
+ "stream": "eumacro",
+ "storage": "append-only JSONL day-files under <archive>/eumacro/ (one file per CAPTURE day, gz after 2d); vintage dedup = latest-value per (series,date) — a revision OR revert appends a new row with a fresh rt (fredMacro mechanism, audit-defect-#6 semantics)",
+ "written_by": "server/euMacro.ts refreshEuMacro (6h poll catches €STR 08:00 CET, BBK midday, EXR 16:00 CET, ILM Tuesday PM, Eurostat monthly; eager boot; keyless — always on)",
+ "source": "European macro cluster, all contracts live-verified 2026-07-07: ECB Data Portal SDMX-CSV (EXR EUR/USD daily; EST €STR daily; ILM weekly Eurosystem balance sheet — ISO-week periods normalized to the statement's FRIDAY reference date, raw week kept in wk); Eurostat JSON-stat 2.0 (sts_inpr_m EA20 SCA 2021=100 — value{} is SPARSE and a wrong dimension returns a SILENT 200 with empty value{}, treated as fetch failure never truth; status flags like 'i'=imputed carried); Bundesbank SDMX-JSON (BBSIS 10y Bund, Svensson — values are STRINGS, null placeholder rows skipped never zeroed). ECB 4xx bodies can be HTML — error bodies are never JSON.parsed.",
+ "license": "all three permit commercial reuse with attribution, verified from the license docs: ECB 'Policy regarding the reuse of ESCB statistics' → 'Source: ECB statistics.'; Eurostat CC BY 4.0 → 'Source: Eurostat, sts_inpr_m, [access date]'; Bundesbank conditions §4.1 → 'Source: Deutsche Bundesbank'. Attribution carried PER SERIES in the payload.",
+ "attribution": "Source: ECB statistics. / Source: Eurostat / Source: Deutsche Bundesbank (per series)",
+ "schema_version": 1,
+ "field_map": {
+  "s/d/v": "series key (5 curated: ECB_EURUSD, ECB_ESTR, ECB_BS_TOTAL, EU_INDPROD, DE_BUND10Y), observation date (weekly = Friday reference), numeric value",
+  "rt": "capture date — the vintage record; ILM and Eurostat revise in place (documented), so every transition is archived as-seen",
+  "wk": "raw ISO week (e.g. 2026-W26) for the weekly ECB series only",
+  "flag": "source status flag when present (Eurostat 'i' = imputed)"
+ },
+ "confidence_model": "RAW official statistics. HYPOTHESIS (gate-locked, same as fredmacro): REGIME INPUT only — never traded alone; the weekly Eurosystem balance-sheet series is the least-crowded piece and only compounds value through the vintage archive (every Tuesday print + revisions as-seen). Balance-sheet COMPOSITION items (beyond the T000000 total) are a filed follow-up — enumerate ILM BS_ITEM codes before coding them in.",
+ "geo_fields": ["(euro area / Germany national series)"],
+ "entity_key": "s + d (+ rt for vintages)",
+ "sentiment": null,
+ "started": "2026-07-07",
+ "cadence": "daily (EXR/EST/BBK business days), weekly (ILM, Tuesday publish for preceding Friday), monthly (Eurostat ~t+35d); 6h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS census build #7 (section-2 European cluster, ranked items 2-4 built as one stream per the workup's recommendation). ~25KB per poll cycle — negligible volume."
+}
