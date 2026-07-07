@@ -1,15 +1,16 @@
 {
  "stream": "griddemand",
- "storage": "append-only JSONL day-files under <archive>/griddemand/, keyed by OBSERVATION day (period date, not fetch date) with event-identity dedup (respondent|period) across restarts; gz after 3 days (late hours keep arriving within the lag window)",
+ "storage": "append-only JSONL day-files under <archive>/griddemand/, keyed by OBSERVATION day (period date, not fetch date) with event-identity dedup (respondent|period|type) across restarts; LEGACY lines without a type field are demand (pre-v2 facet forced D) and dedup as such; gz after 3 days (late hours keep arriving within the lag window)",
  "written_by": "server/gridDemand.ts archiveDemand (2h poll, 9 politeness-spaced calls/cycle, eager boot; key-gated on EIA_API_KEY — fredMacro/censusImports pattern)",
  "source": "EIA v2 API electricity/rto/region-data (EIA-930 hourly grid monitor) — free key, US government public domain. Shape verified live 2026-07-06 (DEMO_KEY): hourly demand (type D) per balancing authority, value as STRING MWh; bracketed params must be URL-encoded. API history to 2019. Scope v1: US48 + CISO/ERCO/MISO/PJM/NYIS/ISNE/SWPP/FPL",
  "license": "US government work, public domain; attribution 'EIA-930 Hourly Electric Grid Monitor'",
  "attribution": "EIA-930 Hourly Electric Grid Monitor",
  "schema_version": 1,
  "field_map": {
-  "respondent|period — event-identity dedup key": "balancing-authority code + UTC hour; the same hour never re-archives",
+  "respondent|period|type — event-identity dedup key": "balancing-authority code + UTC hour + series type; the same observation never re-archives",
   "period": "YYYY-MM-DDTHH as published (hour granularity)",
-  "mwh": "demand in megawatthours; missing/empty values are null, never zero",
+  "type": "D = demand, DF = day-ahead demand forecast (added 2026-07-07, GRID VISION gate-2 prereq — forecast strain = D minus DF per hour); absent on legacy lines = D",
+  "mwh": "megawatthours for the row's type; missing/empty values are null, never zero",
   "rt": "as-seen UTC date"
  },
  "confidence_model": "RAW official hourly demand. The industrial-activity-nowcast hypothesis stays gate-locked: gate 1 = US48 daily sum vs EIA's own Grid Monitor dashboard; gate 2 = degree-day-adjusted demand residual vs industrial-sector returns. Joins: CPC degree-days archive (live), power-plants layer, the Phase-2 grid layer.",
