@@ -314,3 +314,80 @@ datacore/gridvision/gate2_result.json.
   growth-aware extremes (same month x same year, or detrended);
   (c) criteria re-filed before computation; discount compounds
   (variant 3).
+
+## A1 gate-2 v3 design (filed 2026-07-07, BEFORE any computation — computation deferred to a later session per the anti-fishing stopping rule)
+
+Variant 3 of the stress-index outcome/design family; every discount
+compounds. v1 and v2 died on PROXY outcome definitions (forecast
+exceedance; pooled percentiles), each refuted by a physical mechanism
+found in the data (well-forecast weather emergencies + shed-suppressed
+metered demand; ~5-6%/yr demand growth blinding pooled percentiles).
+v3 therefore abandons proxies entirely on both sides of the equation:
+
+### Ground truth (outcome variable)
+
+The primary-source ERCOT event list 2019-2025 compiled in
+research/grid_vision_events_ercot.md (subagent research, primary
+sources, no guessed dates — date-uncertain events flagged and EXCLUDED
+from scoring). An "event day" is a calendar day on the confirmed list.
+Two tiers, scored separately:
+- TIER-E (emergency): EEA-1/2/3 days — the events that matter.
+- TIER-C (conservation): voluntary appeals — supporting evidence only;
+  a pass cannot rest on appeals alone.
+
+### Index (v3) — growth-aware, no fitted weights
+
+All three components are DETRENDED before percentile ranking to remove
+the growth blindness that killed v2. Exactly one operationalization
+each, stated here first:
+
+1. DETRENDED DEMAND EXTREMITY: per-BA daily peak demand divided by
+   that BA's trailing-365-day mean demand; percentile of this ratio
+   within same-calendar-month across all years.
+2. FORECAST EXTREMITY (replaces v1's forecast-strain, inverted
+   lesson): the day-ahead FORECAST (type DF) for day D+1, detrended by
+   the same trailing-365d realized mean, same-month percentile.
+   Rationale: v1 proved ERCOT emergencies are WELL-forecast — so the
+   forecast itself is the earliest clean signal, and it is immune to
+   shed-suppressed realized demand.
+3. WEATHER EXTREMITY: CPC TX degree-day same-month percentile
+   (unchanged from v0; already growth-free — weather doesn't trend at
+   5%/yr over this window).
+
+Composite = EQUAL WEIGHTS, pre-committed. NOTHING IS FITTED — v3 has
+zero free parameters, so there is no training split to leak through.
+Timing: components use only data available by day-D morning to score
+day D+1 (DF is published day-ahead; CPC daily; demand through D-1).
+
+### Split and contamination honesty
+
+2019-2022 is DESIGN-CONTAMINATED: v1/v2 diagnostics examined those
+years, and this design responds to what was seen there. It is reported
+but carries no evidential weight. The claim stands or falls on
+2023-2025 ONLY (clean in the sense that no variant was tuned on it;
+still discounted as variant 3).
+
+### PASS criteria (pre-stated)
+
+- Score: fraction of TIER-E event days (2023-2025) whose D-morning
+  index sits in the top decile of that year's same-month index values,
+  vs the seasonal base rate (same-calendar-month random-day control).
+- PASS requires ALL of: (a) lift >= 2.0x over the seasonal base
+  (raised from 1.5x — the variant-3 discount is paid in the bar, not
+  in prose); (b) >= half of TIER-E days detected (recall floor — lift
+  alone can be carried by TIER-C appeals); (c) no-single-summer-carry:
+  the lift must hold with each validation year removed, per the clause
+  that correctly killed v1 and v2 twice.
+- FAIL: layer of death logged; the descriptive surface (already
+  shipped, v1.0.191) remains the product; the stress-index predictive
+  claim is then CLOSED as a research line absent new data (LMP archive
+  or per-line ratings), not re-varied a fourth time on the same
+  ingredients.
+
+### Sequencing
+
+1. Event list lands (research/grid_vision_events_ercot.md) — this PR.
+2. Computation in a LATER session: script with this section quoted in
+   its header, single run per the one-shot rule, results to
+   experiments.md and gate2_result.json whatever they say.
+KILL DATE: computed by 2026-08-15 or the stall is filed in wishlist.md.
