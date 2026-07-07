@@ -74,6 +74,7 @@ import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
 import { bootFinraQueryPoll, latestFinraSi } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
+import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 
 const execAsync = promisify(exec);
 
@@ -1687,6 +1688,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             "threshold list here is FINRA's OTC side only.",
       si: hit.si,
       threshold: hit.threshold,
+    });
+  });
+
+  // European macro cluster (census build #7): ECB + Eurostat +
+  // Bundesbank regime features, keyless, per-series attribution
+  // (all three licenses verified — commercial reuse w/ attribution).
+  // Vintage-honest archive; cache-only request path.
+  bootEuMacroPoll();
+  app.get("/api/data/eu-macro", (_req, res) => {
+    const hit = latestEuMacro();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ECB + Eurostat + Bundesbank (European macro cluster)", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "European macro cluster — ECB Data Portal + Eurostat + Deutsche Bundesbank (keyless, free with attribution)",
+      attribution: "per-series (each series carries its required attribution string)",
+      time: hit.at,
+      note: "REGIME INPUT feed (never a direct signal). Values as currently published; sources revise in place — " +
+            "our archive keeps every vintage as-seen. Weekly ECB balance-sheet dates are the statement's Friday reference date.",
+      series: hit.series,
     });
   });
 

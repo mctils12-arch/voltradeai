@@ -115,10 +115,15 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   base-rate control = same-universe random entry (REASONING STANDARD
   #3); needs the env-gated backfills for depth — design can precede
   data.
-- NEXT CENSUS BUILDS: ECB/Eurostat/Bundesbank (workup agent OUT
-  2026-07-07, report pending — regime features, fredMacro pattern),
-  FINRA part 2 (notes above), USGS quakes + NDBC buoys; EPA
-  CAMD/GEM/ENTSO-E on Mike's keys (9a/9b/9c below).
+- CENSUS BUILD #7 EU MACRO: SHIPPED v1.0.175 — server/euMacro.ts +
+  /api/data/eu-macro (ECB EXR/EST/ILM + Eurostat sts_inpr_m + BBK
+  Bund 10y; keyless, per-series attribution verified, vintage-honest;
+  live end-to-end matched the workup exactly). Follow-up filed:
+  ILM balance-sheet COMPOSITION items (enumerate BS_ITEM codes
+  before coding).
+- NEXT CENSUS BUILDS: FINRA part 2 (design notes above), USGS quakes
+  + NDBC buoys, SEC MIDAS; EPA CAMD/GEM/ENTSO-E on Mike's keys
+  (9a/9b/9c below).
 
 ## BLOCKED-FOR-MIKE — OCC backfill flag (2026-07-07)
 

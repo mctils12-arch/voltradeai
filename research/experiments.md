@@ -7475,3 +7475,45 @@ exception to append-only; the log below it stays append-only)
   hundreds of day-files and backfill_done.json exists; archive stats
   totalBytes grows ~+500MB and stabilizes; subsequent boots skip via
   the marker.
+
+## 2026-07-07 — [PIPELINE] European macro cluster — ECB + Eurostat + Bundesbank regime feed (census build #7) — v1.0.175
+
+- TERRITORY: T-DATACORE. Census section-2 items 2-4 built as ONE keyless
+  stream per the workup's recommendation (fredMacro pattern; cadences
+  span 08:00 CET €STR → Tuesday-PM ILM → monthly Eurostat, which only a
+  daemon poll records vintage-honestly). All three contracts
+  LIVE-VERIFIED by the re-run workup agent (the first run was killed by
+  an accidental stop; Mike confirmed unintentional and it was re-run —
+  its one surviving finding, the ECB license doc, was corrected by the
+  re-run: the live document is "Policy regarding the reuse of ESCB
+  statistics", attribution string "Source: ECB statistics.").
+- BUILD: server/euMacro.ts — 5 curated series (EUR/USD, €STR, weekly
+  Eurosystem balance-sheet total, EA20 industrial production, 10y
+  Bund), fredMacro vintage mechanism verbatim (latest-value per (s,d);
+  revisions AND reverts append), per-series attribution (all three
+  licenses verified commercial-OK w/ attribution). Route
+  /api/data/eu-macro (cache-only).
+- SOURCE QUIRKS encoded from the workup: ECB column positions vary per
+  dataflow → header-name parse only; ECB 4xx bodies can be HTML → never
+  parse error bodies; ILM ISO-week periods → normalized to the
+  statement's Friday reference date (raw week kept in wk; isoWeekFriday
+  tested incl. the 2020-W53 spillover — a wrong test assertion using
+  nonexistent 2021-W53 was itself caught and fixed); Eurostat value{}
+  is SPARSE + wrong-dimension = SILENT 200 with empty value{} → treated
+  as fetch failure, alarmed, never cached as truth; Bundesbank values
+  are STRINGS with null placeholder rows → parseFloat + skip, never
+  zeroed.
+- LIVE END-TO-END from session pre-commit: all five series match the
+  workup exactly — EUR/USD 1.1415 @ 2026-07-06, €STR 2.183 @ 07-03,
+  balance sheet 6,117,260 EUR-millions @ W26→2026-06-26, EA20 indprod
+  98.3 @ 2026-04, Bund 2.98 @ 07-06.
+- ALSO CONFIRMED THIS BATCH: the v1.0.174 OCC deep backfill is RUNNING
+  on prod — occvolume 3 → 61+ day-files and climbing during this
+  build's gates; the poll continues toward the ~500-file target.
+- GATES: node 362/362 (7 new); tsc 64 baseline; manifests envelope
+  green (46 manifests). Version 1.0.174 → 1.0.175.
+- VERIFY (pre-stated): post-deploy /api/data/eu-macro serves all 5
+  series with non-null latest (values matching the live probe or
+  newer); /api/data/streams count=46 with eumacro live after first
+  poll; next Tuesday's ILM print (~2026-07-08 PM CET) appends a new
+  W27 point within one 6h cycle.
