@@ -295,6 +295,39 @@ class TestKillSwitchPeakPersistence(unittest.TestCase):
             self.assertIn("saveEquityPeak", line,
                           f"unguarded peak assignment without persist: {line.strip()}")
 
+    def test_kill_switch_latch_is_persisted(self):
+        """R16 2026-07-07: the kill-switch LATCH itself was memory-only —
+        every deploy booted the bot ACTIVE, opening a live trading window
+        until the next tier-1 read re-killed it (observed same day: ~50 min,
+        $21.6k of buys, during a disputed account state). These assertions
+        require: a persistence file, boot restore, and a same-adjacent save
+        on EVERY latch transition (both drawdown kill sites + owner toggle).
+        """
+        self.assertIn("voltrade_kill_switch.json", self.src,
+                      "killSwitch has no persistence path — a deploy un-kills the bot")
+        self.assertIn("state.killSwitch = loadKillSwitch()", self.src,
+                      "killSwitch is never restored on boot")
+        import re as _re
+        # every `state.killSwitch = true;` must be followed by saveKillSwitch
+        # within the next 2 lines (same transition block)
+        lines = self.src.split("\n")
+        kill_sets = [i for i, l in enumerate(lines)
+                     if _re.search(r"state\.killSwitch\s*=\s*true\s*;", l)]
+        self.assertGreaterEqual(len(kill_sets), 2,
+                                "expected both drawdown kill sites to latch killSwitch")
+        for i in kill_sets:
+            window = "\n".join(lines[i:i + 3])
+            self.assertIn("saveKillSwitch", window,
+                          f"killSwitch latched without persisting (line {i + 1}): {lines[i].strip()}")
+        # the owner toggle must persist BOTH directions (single save after flip)
+        toggles = [i for i, l in enumerate(lines)
+                   if _re.search(r"state\.killSwitch\s*=\s*!state\.killSwitch", l)]
+        self.assertGreaterEqual(len(toggles), 1, "owner /api/bot/kill toggle missing")
+        for i in toggles:
+            window = "\n".join(lines[i:i + 3])
+            self.assertIn("saveKillSwitch", window,
+                          "owner toggle flips killSwitch without persisting it")
+
     def test_halt_logic_untouched(self):
         # Scope guard: the halt condition remains exactly the drawdown-vs-
         # threshold comparison. Since the 2026-07-07 validated-reads repair

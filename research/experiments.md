@@ -8623,3 +8623,35 @@ via the token-gated diag surface:
   equity) and the bot resumes on the ~$27k base; if NOT deliberate,
   this is an Alpaca support case and the bot stays down. Re-basing the
   peak is an account-truth decision, not a session's.
+
+## 2026-07-07 — [REPAIR] R16: kill-switch latch persisted across deploys (v1.0.194)
+
+TERRITORY: T-BOT. Evidence: today's incident timeline — the latch was
+memory-only, so every merge-triggered redeploy booted the bot ACTIVE;
+in one such window it traded for ~50 minutes ($21.6k of buys) on an
+account whose state was in dispute, before the tier-1 read re-killed
+it. The R14 follow-up entry earlier today called memory-only
+"by design, safe" — today's order forensics (R15 probes) SUPERSEDE that
+judgment with evidence: the boot-to-first-tier-1-read window is a real
+trading window, not a formality.
+
+- CHANGE: killSwitch latch persisted exactly like equityPeak (KNOWN
+  BROKEN #7 pattern): voltrade_kill_switch.json on the volume with
+  /tmp fallback, restored on boot, saved (with reason) on all three
+  transitions — both drawdown kill sites and the owner /api/bot/kill
+  toggle. The owner toggle remains the ONLY clear path; a deploy can
+  no longer un-kill the bot. MECHANISM PRESERVED: halt logic, guard,
+  thresholds all untouched — this persists the latch's STATE only.
+- RATCHET: test_audit_critical.py gains
+  test_kill_switch_latch_is_persisted — persistence file + boot
+  restore + same-adjacent save on every latch transition (2-line
+  window), both directions of the owner toggle.
+- GATES: pytest 476 passed 1 skipped (new test included); tsc 64
+  baseline; node drawdownGuard+diag batteries pass. Version
+  1.0.193 -> 1.0.194.
+- OPERATIONAL NOTE: after this deploys, the bot will kill once more on
+  the next tier-1 read (~$27k vs $109k peak) and then STAY killed
+  through all future deploys until the human either toggles it off
+  (dashboard kill-switch button) after re-basing the peak, or Alpaca's
+  account state is resolved. This makes the promised "bot stays down"
+  actually true.

@@ -465,6 +465,48 @@ function saveEquityPeak() {
 // at the kill-switch sites behaves exactly as before.
 state.equityPeak = loadEquityPeak();
 
+// R16 2026-07-07: the kill-switch LATCH was memory-only — every deploy booted
+// the bot ACTIVE, opening a live trading window until the next tier-1 equity
+// read re-killed it (observed 2026-07-07 during the Alpaca account-state
+// incident: ~50-minute window, $21.6k of buys, on an account whose state was
+// in dispute). Persist the latch exactly like the peak above: restore on
+// boot, save on every transition. The owner /api/bot/kill toggle remains the
+// ONLY clear path — a deploy can no longer un-kill the bot.
+const KILL_SWITCH_PATH = "/data/voltrade/voltrade_kill_switch.json";
+const KILL_SWITCH_FALLBACK = "/tmp/voltrade_kill_switch.json";
+
+function loadKillSwitch(): boolean {
+  for (const p of [KILL_SWITCH_PATH, KILL_SWITCH_FALLBACK]) {
+    try {
+      if (fs.existsSync(p)) {
+        const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+        if (typeof parsed?.killSwitch === "boolean") return parsed.killSwitch;
+      }
+    } catch (e: any) {
+      console.error(`[kill-switch] could not load ${p}:`, e?.message || e);
+    }
+  }
+  return false;
+}
+
+function saveKillSwitch(reason: string) {
+  for (const p of [KILL_SWITCH_PATH, KILL_SWITCH_FALLBACK]) {
+    try {
+      const dir = p.substring(0, p.lastIndexOf("/"));
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      fs.writeFileSync(p, JSON.stringify({ killSwitch: state.killSwitch, reason, savedAt: new Date().toISOString() }));
+      return;
+    } catch (e: any) {
+      console.error(`[kill-switch] could not save to ${p}:`, e?.message || e);
+    }
+  }
+}
+
+state.killSwitch = loadKillSwitch();
+if (state.killSwitch) {
+  console.log("[kill-switch] restored ON from disk — bot boots halted; only the owner /api/bot/kill toggle clears it");
+}
+
 // ─── LIVENESS ALARM (Amendment 2 runtime half, human-approved 2026-07-04) ──
 // The loop paused/halted >2 market hours (or 24h wall-clock) degrades
 // /api/health. Heartbeat persisted like equityPeak so deploys never reset
@@ -928,6 +970,7 @@ export function registerBotRoutes(app: Express) {
         if (dd.newPeak !== state.equityPeak) { state.equityPeak = dd.newPeak; saveEquityPeak(); }
         if (dd.kill && !state.killSwitch) {
           state.killSwitch = true;
+          saveKillSwitch("drawdown-kill (account route)");
           state.active = false;
           const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${dd.equity!.toFixed(0)} is ${dd.drawdownPct!.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}. All trading stopped.`;
           audit("DRAWDOWN-KILL", msg);
@@ -1932,6 +1975,7 @@ print(json.dumps(result, default=str))
   // Kill switch
   app.post("/api/bot/kill", requireOwner, async (_req, res) => {
     state.killSwitch = !state.killSwitch;
+    saveKillSwitch(state.killSwitch ? "owner toggle ON" : "owner toggle OFF");
     if (state.killSwitch) {
       sendEmailAlert("Kill Switch Activated", "Kill switch manually activated. All trading stopped. Open orders cancelled.");
       state.active = false;
@@ -2778,6 +2822,7 @@ print(json.dumps(result[:20]))
     const t1Drawdown = t1dd.drawdownPct ?? 0;
     if (t1dd.valid && t1dd.kill && !state.killSwitch) {
       state.killSwitch = true;
+      saveKillSwitch("drawdown-kill (tier1)");
       state.active = false;
       const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${equity.toFixed(0)} is ${t1Drawdown.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}`;
       audit("DRAWDOWN-KILL", msg);
