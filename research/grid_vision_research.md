@@ -902,3 +902,93 @@ full-state discovery sweeps begin (CPU 23 days/state @0.3m vs GPU
 4. The Esri wall is absolute for imagery, but the World_Imagery
    **identify/date-metadata** use we already ship remains legitimate
    and useful (e.g., to know imagery vintage per region).
+
+---
+
+## Item 5 — County/BA region-attribution source chain (GV-A5 workup)
+
+Date: 2026-07-07. Session type: [RESEARCH]. Purpose: verified, free,
+license-clean chain to assign grid features to counties and EIA-930
+balancing authorities. The agent VERIFIED end-to-end by downloading
+the files and computing the actual TX join; the build
+(scripts/grid_county_ba.py) reproduced it exactly after one
+investigated divergence (below).
+
+### 5.1 Ranked recommendation (implemented)
+
+- **County polygons:** Census cartographic boundary counties 1:500k —
+  cb_2025_us_county_500k.zip (~12MB, 3,235 records, TX=254 confirmed
+  by DBF parse). VERIFIED public domain ("Copyright protection is not
+  available for any work of the United States Government"; cite
+  Census; 'TIGER/Line' is a trademark — don't use it in product
+  names). Full TIGER (84MB) only if coastline detail matters.
+- **County -> BA:** EIA-861 2024 final (f8612024.zip, released
+  2025-10-07) — public domain, "Source: U.S. Energy Information
+  Administration". CRITICAL STRUCTURE (verified live): the
+  Balancing_Authority file is only a BA<->state list; utility->BA
+  lives in THREE files, each with a BA Code column — Sales_Ult_Cust
+  (sheet 'States', header row 3), Short_Form (sheet '861S', header
+  row 1), and Delivery_Companies (sheet 'Delivery Companies', header
+  row 3) — **the big ERCOT TDUs (Oncor, CenterPoint, AEP TX x2,
+  TNMP) live ONLY in Delivery_Companies**; skipping it strands five
+  counties. County link: Service_Territory sheet 'Counties_States'
+  (utility x state x county, 11,776 rows).
+- **BA codes match EIA-930 directly** (reference tables sheet 'BAs',
+  81 codes): ERCO/SWPP/MISO/EPE/PNM all identical — no crosswalk.
+- Computed TX result (agent and build converge exactly): 254/254
+  counties; ERCO 218, SWPP 78, MISO 36, EPE 3 (El Paso, Hudspeth,
+  Culberson), PNM 2 (Dallam, Hartley); **80 multi-BA counties**
+  (Panhandle ERCO/SWPP seam, East-TX MISO/SWPP seam).
+
+### 5.2 Failure modes (verified in data; encoded in the build)
+
+- BA is filed per (utility, state) — an any-state union smears
+  out-of-state codes: Rio Grande EC's NM-row EPE landed on its 18 TX
+  counties whose TX row says ERCO (caught 2026-07-07 as an
+  EPE=18-vs-3 divergence from the workup, root-caused, fixed with
+  STATE-PREFERRED lookup + any-state fallback only for utilities
+  with no TX row — the Farmers-NM case, 6198/SWPP).
+- Retail marketers (Tesla/Sunnova) carry huge BA sets but zero
+  Service_Territory rows — no pollution; utility 99999 ('Adjustment')
+  filtered defensively; Short_Form BA can be literal "NA".
+- 861 has NO per-county weights — multi-BA counties cannot be
+  resolved to a primary BA from 861 alone. The build therefore emits
+  the BA SET + multi_ba flag and fabricates nothing; polygon arbiter
+  queued (below).
+- CONCEPTUAL: 861 is RETAIL service, not grid topology — a
+  transmission asset in an SWPP-retail Panhandle county can be an
+  ERCOT (CREZ) asset. Every consumer surface labels this "county
+  retail BA".
+- Precedent validating the method: PNNL
+  IMMM-SFA/electricity_entity_boundaries (BSD-2) does the same join
+  (2016-2018 vintages, predates the Delivery_Companies fix).
+
+### 5.3 Polygon arbiter options (for multi-BA counties + line-asset BA)
+
+- **HIFLD Control Areas**: HIFLD Open DISCONTINUED 2025-08-26 (portal
+  offline; successor HIFLD Secure needs a DHS GII account + DUA — not
+  usable). The archived data.gov layer (2022-10-24) is **US
+  Government Work — license clean; staleness is the problem, not the
+  license**. Archived copies: DataLumos 239072 (browser-only), NASA
+  NCCS ArcGIS mirror (unreachable from the sandbox — test from
+  Railway), a third-party AGOL copy (queryable, 2024-09 edit, empty
+  copyrightText — sanity checks only, not product input).
+- **EIA US Energy Atlas 'Balancing Authorities' layer**: normally the
+  right answer (public domain, GeoJSON/WFS) but the Atlas is
+  MID-MIGRATION as of 2026-07-07 ("US Energy Atlas (Dev)" renamed
+  2026-06-10; downloads 500, hub APIs 403/empty). RE-CHECK in a few
+  weeks — when back, it supersedes HIFLD as the arbiter.
+- EPA eGRID subregions (VERIFIED, Jan-2025 zip, public domain):
+  coarser than BA (ERCT ≈ ERCOT) — coarse fallback only.
+- DOE FEMP BA Lookup Tool (VERIFIED page): ZIP-code->BA xlsx,
+  vintage unstated — cross-validation only.
+- ERCOT itself: county/zone maps are JPG-only, no machine-readable
+  membership list; site terms allow reuse but there is nothing
+  county-shaped worth taking. INFERIOR — closed.
+
+### 5.4 Refresh cadence
+
+f861{YYYY}.zip finalizes ~October (2024 final released 2025-10-07,
+revised 2025-12-03); re-run the crosswalk annually and on Census
+county-boundary vintage changes. All chain licenses are
+public-domain-with-attribution — safe for commercial resale.

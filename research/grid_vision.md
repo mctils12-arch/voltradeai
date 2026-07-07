@@ -194,13 +194,22 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   500/230/115kV only at non-ERCOT edges). Definitional caveat
   (route-miles vs circuit-miles) stated in the manifest — gate-2
   refines vs EIA/HIFLD.
-- NEXT (build order per products plan): (1) region attribution
-  (assign lines/substations to BA/ISO + county — needs feature-level
-  pass, sets up the EIA-930 join); (2) B1 stress-index v0 gate-2
-  design (index vs realized ERCOT stress, out-of-sample, base-rate
-  control) then /data + /api/v1 surface; (3) Phase B1 VERIFY spec
-  (corridor detector, two-layer benchmark, per-mosaic-source
-  evaluation ratchet); detector work starts with the labeling seed
-  (OSM/HIFLD towers) + ETDII download. GPU work waits on
-  RUNPOD_API_KEY appearing in Railway (detect + activate without
-  being told).
+- A1 STEP 2 SHIPPED (v1.0.181): county->BA crosswalk
+  (datacore/gridvision/tx_county_ba.json via scripts/
+  grid_county_ba.py; source chain = GV-A5 workup, research doc Item
+  5). 254/254 TX counties, BA codes join EIA-930 directly (ERCO 218
+  counties / SWPP 78 / MISO 36 / EPE 3 / PNM 2; 80 multi-BA, NO
+  primary fabricated — polygon arbiter queued: EIA Atlas BA layer
+  mid-migration, re-check ~late July). State-preferred BA lookup
+  (Rio Grande NM-row smear caught + fixed; Harris/MISO Entergy edge
+  verified real). RETAIL-BA honesty labeled everywhere.
+- NEXT (build order per products plan): (1) feature->county
+  assignment (point-in-polygon over cb_2025_us_county_500k, Item
+  5.1) -> per-BA/per-county capacity aggregates in the registry;
+  (2) B1 stress-index v0 gate-2 design (index vs realized ERCOT
+  stress, out-of-sample, base-rate control) then /data + /api/v1
+  surface; (3) Phase B1 VERIFY spec (corridor detector, two-layer
+  benchmark, per-mosaic-source evaluation ratchet); detector work
+  starts with the labeling seed (OSM/HIFLD towers) + ETDII download.
+  GPU work waits on RUNPOD_API_KEY appearing in Railway (detect +
+  activate without being told).

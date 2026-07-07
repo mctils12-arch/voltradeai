@@ -7842,3 +7842,43 @@ exception to append-only; the log below it stays append-only)
   writer, gem precedent); next A1 step = region attribution
   (feature-level BA/ISO+county assignment) feeding the EIA-930 join,
   with gate-2 criteria stated before the index is computed.
+
+## 2026-07-07 — [PIPELINE] GRID VISION A1 step 2 — TX county->BA crosswalk from EIA-861, EIA-930-joinable (v1.0.181)
+
+- Territory: T-GRIDVISION (scripts/grid_county_ba.py,
+  test_grid_county_ba.py, datacore/gridvision/tx_county_ba.json,
+  research doc Item 5) + SHARED (gridvision manifest, package.json,
+  research/*). Products-plan A1 continuation: the join key between
+  the capacity registry (v1.0.180) and per-BA EIA-930 demand.
+- SOURCE CHAIN (GV-A5 workup, filed as research doc Item 5, all
+  public domain): EIA-861 2024 final — utility->BA lives in THREE
+  files (Sales_Ult_Cust hdr row 3 + Short_Form hdr row 1 +
+  Delivery_Companies hdr row 3 — the big ERCOT TDUs are ONLY in the
+  third); county link via Service_Territory Counties_States; BA
+  codes verified identical to EIA-930's (no crosswalk). HIFLD Open
+  discontinued 2025-08-26 (archived 2022 layer is US-Gov-Work
+  license-clean but stale); EIA Atlas BA polygons mid-migration
+  (re-check ~late July — becomes the multi-BA arbiter when back).
+- VERIFICATION BY CONVERGENCE: the workup agent computed the join
+  independently; my build reproduced it EXACTLY (254/254 counties;
+  ERCO 218 / SWPP 78 / MISO 36 / EPE 3 / PNM 2; 80 multi-BA) —
+  after one investigated divergence: first run showed EPE=18 because
+  an any-state union smeared Rio Grande EC's NM-row EPE across its
+  18 TX counties whose TX filing says ERCO. Fix = STATE-PREFERRED
+  lookup (TX-row codes win; any-state fallback only for utilities
+  with no TX row — the Farmers-NM case). Second finding during test
+  writing: my geographic intuitions were wrong twice (El Paso county
+  IS multi-BA {EPE,ERCO} via Rio Grande; Harris carries MISO via
+  Entergy Texas — verified in the join, real) — tests now pin
+  data-verified facts, not prettier assumptions.
+- HONESTY: artifact emits BA SETS + multi_ba flags; NO primary BA
+  fabricated (861 cannot weight multi-BA counties); provenance
+  states RETAIL service =/= grid topology on every surface.
+- GATES: pytest 468 passed 1 skipped (+2 batteries); node 363 fail
+  0; tsc 64 baseline. Version 1.0.180 -> 1.0.181. Also this session:
+  v1.0.180 VERIFY confirmed on prod (streams inventory count 48,
+  gridvision envelope live).
+- VERIFY (pre-stated): next A1 step consumes this artifact for
+  feature->county->BA capacity aggregates (point-in-polygon over the
+  Census cartographic counties, Item 5.1); annual refresh ~October
+  when f861-2025 finalizes.
