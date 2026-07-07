@@ -8048,3 +8048,32 @@ exception to append-only; the log below it stays append-only)
 - VERIFY (pre-stated): post-deploy US48 latest_forecast_mwh is
   either null or same-scale as latest_mwh; per-BA values unchanged
   in scale; CISO present within two cycles.
+
+## 2026-07-07 — [RESEARCH] GRID VISION amendment installed (DATA STRATEGY & ACCURACY HONESTY) + two backlog roots filed (docs, no version bump)
+
+- Territory: T-GRIDVISION (charter amendment) + SHARED
+  (open_questions.md, this file).
+- AMENDMENT (human directive, key language verbatim in the charter):
+  (1) self-bootstrapping training data with a strict gate — only
+  high-confidence OSM-corroborated detections enter the training
+  set, never the model's own uncertain guesses; training-set size +
+  composition logged per iteration; close the US-NAIP and
+  substation gaps first; (2) human-resolved model-vs-OSM
+  disagreements become labeled examples ("corrections are training
+  data, not just fixes"); (3) per-state precision/recall published
+  in coverage manifests AND map layer info — never a single
+  national number; disclosed error rate is a product feature; (4)
+  accuracy-gated promotion from 'ml-discovered' with PRE-STATED
+  bars; each retraining round reports per-state accuracy movement.
+  Phase B/C/D/E specs absorb these as requirements.
+- BACKLOG ROOTS (open_questions.md, explicitly NOT active build):
+  NOAA SWPC space weather (GIC outage-risk hypothesis; gate-1
+  ground truth candidate = DOE OE-417 disturbance reports; pairs
+  with the grid layer + A3 exposure screens) and ground-magnetometer
+  per-line load sensing (physically real, needs deployed hardware —
+  parked as the "if we ever do physical sensors" note).
+- VERIFY (pre-stated): the Phase B training PR must cite amendment
+  items 1-2 in its design (bootstrap gate + corrections pipeline);
+  the first Phase C state PR must ship the per-state accuracy
+  numbers in manifest + layer info per item 3, with the promotion
+  bar stated BEFORE measurement per item 4.

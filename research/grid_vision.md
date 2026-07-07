@@ -147,6 +147,56 @@ complete.
 - Detection metrics vs labeled datasets published per model rev —
   "no cherry-picked metrics."
 
+## AMENDMENT — DATA STRATEGY & ACCURACY HONESTY (human directive, 2026-07-07)
+
+> PROVENANCE: human amendment received in-session 2026-07-07, installed
+> same day. Key language verbatim. Rationale (Mike's framing): the
+> initial labeled data (PLAD, Duke) is modest and mostly non-US/
+> non-NAIP — training-data growth and honest accuracy reporting are
+> FIRST-CLASS, ONGOING work, not one-time setup.
+
+1. SELF-BOOTSTRAPPING TRAINING DATA: use high-confidence OSM-verified
+   detections as new labeled examples to expand the training set on
+   each round — "the model's confirmed agreements with OSM become
+   tomorrow's training data." GATE THIS CAREFULLY: "only
+   high-confidence, OSM-corroborated detections enter the training
+   set (never the model's own uncertain guesses — that would teach it
+   its own errors)." Log the training-set size and composition each
+   iteration. Prioritize closing the known gaps: US NAIP-domain
+   examples and substations (both underrepresented at start).
+2. HUMAN-IN-THE-LOOP CORRECTIONS FEED BACK: every disagreement
+   between model and OSM that a human resolves becomes a labeled
+   example, per the HOT/OSM pattern. "Corrections are training data,
+   not just fixes."
+3. PER-STATE ACCURACY, REPORTED OPENLY: for every state, measure
+   detection accuracy against OSM ground truth (precision/recall on
+   verified corridors) and publish it in the coverage manifest AND on
+   the map's layer info (e.g. "Texas: 91% verified against OSM;
+   Montana: 61%, sparse imagery, flagged for revisit"). "Never a
+   single national accuracy number that hides weak states." The
+   measured, disclosed accuracy is a product feature and a selling
+   point — "a data buyer trusts a vendor who states their error
+   rate. Cherry-picking or hiding weak coverage violates the honesty
+   rules." (Consistent with Item 2.8's evidence asymmetry: OSM
+   corridors measure RECALL; precision claims still require the
+   human-sampled pass — the published per-state number states which
+   it is.)
+4. ACCURACY-GATED PROMOTION: a state's detections only get promoted
+   from 'ml-discovered' toward higher-trust presentation as its
+   measured accuracy clears a PRE-STATED bar; below it, they stay
+   visibly low-confidence. Improvement over time is expected and
+   logged — each retraining round reports whether per-state accuracy
+   moved up.
+
+CONTINUOUS: "the model, the training set, and the reported accuracy
+all improve as the system runs, and the honesty about where it's weak
+is never traded away for a cleaner-looking map." Phase B/C/E specs
+absorb these as requirements: training-set composition log per
+iteration; corrections pipeline from the adjudication UI; per-state
+accuracy in the coverage manifest (Phase E ratchet) and layer info
+(Phase D); promotion bars pre-stated before any state's first
+measurement.
+
 ---
 
 ## RESUME STATE (update every session that works the program)
