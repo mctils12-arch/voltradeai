@@ -8018,3 +8018,33 @@ exception to append-only; the log below it stays append-only)
   ~1.2M-scale and calls ~270-scale; day-files back to 2019-01-01
   gz'd; memory flat after the pass (no R13-style restarts); the
   gate-2 computation then has its history.
+
+## 2026-07-07 — [REPAIR] grid-demand forecast readout showed partial future-hour aggregates — same-hour DF fix + surface caveat (v1.0.185)
+
+- Territory: T-DATACORE (server/gridDemand.ts + test) + SHARED
+  (server/routes.ts note line, package.json, this file).
+- FOUND BY THE PRE-STATED VERIFY (v1.0.183 post-deploy): per-BA DF
+  values sane (ERCO 65,948 D vs 65,250 DF — real +1.1% strain), but
+  US48 showed DF=74,297 against D=544,125. SOURCE-PROBED before
+  fixing (DEMO_KEY): DF is day-ahead, so its NEWEST rows sit in
+  FUTURE hours where the US48 aggregate is only partially reported
+  (T+2h = 74k -> back-fills to 550k+ as BAs file). Picking "newest
+  DF" was the defect; premium-standard-wise, a misleading number
+  beats no number for badness.
+- FIX: latest_forecast_mwh = DF at the SAME hour as latest_mwh (null
+  when unpublished — honest); route note states the semantics AND
+  the US48 progressive-back-fill caveat. Test adds a future-hour
+  partial DF row that must never be surfaced. ARCHIVE UNAFFECTED:
+  all DF rows still archive (gate-2 wants the full series; the
+  analysis aligns hours itself) — only the readout changed.
+- Also observed in verify: CISO absent from one cycle's stats
+  (transient single-call failure; poll retries 2h, archive dedups).
+  WATCH: if CISO is persistently absent next session, investigate
+  the dual-facet call against CISO specifically.
+- GATES: node 365 fail 0 (battery 7/7); tsc 64. Version 1.0.184 ->
+  1.0.185. (Measurement-adjacent but a READOUT-only change: archive
+  and gate-2 inputs untouched; direction of bias removed, not
+  introduced.)
+- VERIFY (pre-stated): post-deploy US48 latest_forecast_mwh is
+  either null or same-scale as latest_mwh; per-BA values unchanged
+  in scale; CISO present within two cycles.
