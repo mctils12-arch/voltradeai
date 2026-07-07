@@ -160,6 +160,45 @@ KNOWN STATE; woven into every future build's assessment.)
   Cross-tie hypotheses filed in open_questions.md. Server-tie slices
   (O4 + server-computed ties) blocked on the CelesTrak relay decision
   (wishlist).
+- 2026-07-07 (later, 4-agent parallel wave): O1 SPIKE PASSED (#359 —
+  feasible with wide margin, custom WebGL layer + worker SGP4, no
+  deck.gl). FOUNDATION SHIPPED (#361, v1.0.205, client/src/lib/orbital/):
+  tle.ts (CelesTrak GP/OMM+SATCAT parse/join, fields confirmed live),
+  propagate.ts (INLINE SGP4 — 0 KB, validated 0.000e+0 km ECI vs
+  satellite.js; near-earth only, deep-space returns null+isDeepSpace()),
+  geometry.ts (footprint/look-angle/next-pass/DOP), entityJoin.ts +
+  datacore/orbital/operators.json (operator→ticker, 24 ops/15 tickers,
+  honest nulls, ECHO stale-symbol guard), orbital_models.md (0 splat
+  candidates → glTF-everywhere; drove the RunPod $0-splat call).
+  RENDER-LIB SHIPPED (#363, v1.0.207): satWorker.ts (worker SGP4 loop,
+  typed protocol, transferable Float32Array, classCode=-1 sentinel for
+  deep-space/invalid — never faked), satLayer.ts (SatLayer implements
+  CustomLayerInterface, instanced GPU points, projectTileFor3D globe
+  path, no silent decimation, getCounts() honesty), satBuffer.ts (pure
+  layout, keeps SGP4 kernel off the main bundle). 68 tests, tsc 64.
+  NEXT = O2 WIRING (datamap.tsx, its own PR + REAL BUILD + visual harness
+  at 390/768/1440 — the ONE unverified path is Vite worker bundling).
+  EXACT RECIPE (from the render-lib builder): (1) worker =
+  `new Worker(new URL('../lib/orbital/satWorker.ts', import.meta.url),
+  {type:'module'})` — the literal URL is required so Vite emits a
+  separate worker bundle; type-only imports of satWorker on the main
+  thread are fine, never import it for runtime. (2) client-fetch
+  `fetchGp('active')`+`fetchSatcat` from CelesTrak (browser reaches it;
+  Railway does not — R17), keep the GpRecord[] in a ref (that order IS
+  the picking index), `postMessage({type:'init',gp})` then
+  `{type:'start',hz:1}`. (3) `new SatLayer({id:'orbital-sats'})` +
+  `map.addLayer(layer)`. (4) `w.onmessage`: on `positions` →
+  `layer.updatePositions(new Float32Array(m.buf), {shown,
+  deepSpaceSkipped, invalidSkipped})`. (5) unmount:
+  `w.postMessage({type:'stop'}); w.terminate(); map.removeLayer(id)`.
+  (6) O3 picking: CPU nearest over `layer.getPositions()` stride
+  `layer.getStride()` → gp[i] metadata + `epochAgeDays(gp[i].epoch,now)`.
+  Register as a normal /data layer toggle (zero-cost-when-off); surface
+  the deep-space skip count in the panel ("N not rendered, needs SDP4").
+  WATCH: WebGL2 (#version 300 es) — may not render under the harness's
+  SwiftShader; verify visual on a real GPU / accept a documented harness
+  caveat. THEN O3 detail panel, O7 coverage tools (geometry.ts is ready),
+  O4 relay-gated.
 
 ## MASTER-BUILD EXTENSION (human directive 2026-07-07 — fidelity tiers + coverage geometry)
 

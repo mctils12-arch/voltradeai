@@ -577,6 +577,26 @@ read-before-write review.
   SPLIT: client-fetch viz is UNBLOCKED; server archive + server-computed
   ties are relay-gated (CelesTrak firewalls Railway, R17). O1 perf spike
   gates the rest. Cross-tie hypotheses in open_questions.md.
+  BUILD PROGRESS 2026-07-07 (4-agent parallel wave): O1 spike PASSED
+  (#359); orbital FOUNDATION shipped (#361, v1.0.205 — client/src/lib/
+  orbital/ tle+propagate[inline SGP4, 0KB]+geometry+entityJoin+operators
+  .json+orbital_models.md); RENDER-LIB shipped (#363, v1.0.207 —
+  satWorker+satLayer[CustomLayerInterface]+satBuffer, 68 tests). NEXT =
+  O2 datamap.tsx wiring (own PR + real build + visual harness; exact
+  recipe in orbital_program.md RESUME STATE; watch Vite worker bundling +
+  SwiftShader WebGL2).
+- RUNPOD GPU cost-cap gate shipped 2026-07-07 (#360, v1.0.204 —
+  scripts/runpod_budget.py + research/runpod_ledger.md): $50 balance,
+  append-only ledger, authorize_job refuses unbounded/bad-rate/over-floor
+  and returns the hard max_runtime_seconds. PLAN: grid-vision detector is
+  the ONLY GPU workload ($50); satellite splatting CANCELLED $0 (0 splat
+  candidates, glTF covers it). RUNPOD_API_KEY is in Railway not the
+  session → launch is a server-routine step (BLOCKED-FOR-MIKE).
+- GRID VISION Phase B data-prep shipped 2026-07-07 (#362, v1.0.206 —
+  scripts/gridvision_* + research/grid_vision_phaseb.md): CC-BY labels
+  (ETDII/Duke verified), OSM-seeded NAIP chip index, MPC STAC client;
+  v0 = TOWER detector (substations underrepresented, confirmed);
+  first GPU job pre-validated against the cost-cap gate ($1.36).
 - CROSS-SYSTEM INTEGRATION PRINCIPLE (human-directed 2026-07-07): every
   system ties into the others where it adds real value; the ENTITY GRAPH
   is the connective tissue; no isolated silos. When adding or proposing
