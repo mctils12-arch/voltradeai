@@ -1,0 +1,2 @@
+{"job_id": "smoke-1783481987", "workload": "smoke", "gpu": "NVIDIA GeForce RTX 4090", "hourly": 0.34, "max_hours": 0.05, "reserved_cost": 0.017, "actual_cost": null, "opened_utc": "2026-07-08T03:39:47Z", "closed_utc": null, "note": "launch: creating pod"}
+{"job_id": "smoke-1783481987", "workload": "smoke", "gpu": "NVIDIA GeForce RTX 4090", "hourly": 0.34, "max_hours": 0.05, "reserved_cost": 0.017, "actual_cost": 0.017639, "opened_utc": "2026-07-08T03:42:54Z", "closed_utc": "2026-07-08T03:42:54Z", "note": "closed: elapsed 186s | closed"}

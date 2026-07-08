@@ -114,7 +114,38 @@ chips, runs the tower-detector fine-tune, writes weights back), plus the two
 Phase-B data gaps (`build_power_tiles.sh` `power=tower`; Duke-US zips). The
 tower-only v0 can train on ETDII US without the gaps.
 
+## SMOKE TEST — safety path PROVEN LIVE 2026-07-08
+
+First fresh session with `RUNPOD_API_KEY` in env (presence-checked len=50 at
+boot). Ran `python3 scripts/runpod_launch.py smoke`. The full safety chain
+executed end-to-end against live RunPod:
+
+- **gate** authorized (worst-case $0.02, well inside the $5 floor),
+- **create** → pod `vexp05mhozdprm` (RTX 4090 community),
+- **watchdog** polled every ~11s, status `RUNNING`, then fired
+  `TERMINATE:cap` at the 180s cap (elapsed 186s — one 10s poll past the cap,
+  expected granularity),
+- **terminate** → DELETE succeeded; independently confirmed the pod is gone
+  (GET returns HTTP 404 "pod not found"),
+- **ledger** recorded actual cost **$0.017639**; remaining **$49.98**.
+
+Conclusion: create→watchdog→terminate→ledger works live. The cost-cap
+mandate is enforced by a real pod DELETE, not just in-session bookkeeping.
+
+LEDGER-READER FIX shipped same session: the append-only close protocol writes
+a NEW close row (same job_id) rather than rewriting the open row, so a finished
+job appears as TWO rows. `spent()`/`remaining()`/open-jobs did NOT reconcile by
+job_id, so the smoke run initially showed **$0.03 committed + 1 phantom open
+job** (reserved $0.017 counted ON TOP of actual $0.0176). Added `reconcile()`
+(one effective row per job_id, last-write-wins — the reader half the `close`
+docstring already promised) + regression tests. Post-fix status reads correctly:
+committed **$0.02**, remaining **$49.98**, **0 open jobs**.
+
 ## LEDGER (human-readable mirror; source of truth is the JSONL)
 
-_No jobs opened yet. First entry will be the grid-vision detector fine-tune
-once Phase B data-prep lands._
+| job_id             | workload | gpu      | reserved | actual   | note                    |
+|--------------------|----------|----------|----------|----------|-------------------------|
+| smoke-1783481987   | smoke    | RTX 4090 | $0.017   | $0.0176  | live safety-path proof  |
+
+Next entry will be the grid-vision detector fine-tune once Phase B data-prep
+lands (ETDII US download + OSM-seeded NAIP chips + on-pod training script).
