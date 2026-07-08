@@ -154,10 +154,17 @@ def _pod_status(pod_obj):
 
 
 def run_launch(job_id, workload, gpu, hourly, max_hours, image, train_cmd,
-               cloud_type="COMMUNITY", interruptible=True, poll_s=POLL_SECONDS):
+               cloud_type="COMMUNITY", interruptible=True, poll_s=POLL_SECONDS,
+               env=None):
     """Full lifecycle: gate -> create -> watchdog -> terminate -> ledger. Returns
     a result dict. Refuses (and never touches RunPod) if the gate says no or the
-    key is absent."""
+    key is absent.
+
+    `env` (dict) is passed to the pod as RunPod pod env vars — the clean channel
+    for a secret the on-pod command needs (e.g. a GH token to clone a private
+    repo), so the secret rides the pod env instead of being baked into the
+    logged command string. It is NOT the RunPod API key (that stays in the
+    Authorization header, never the pod)."""
     key = api_key()
     if not key:
         return {"ok": False, "state": "awaiting_key",
@@ -170,7 +177,8 @@ def run_launch(job_id, workload, gpu, hourly, max_hours, image, train_cmd,
 
     max_seconds = auth["max_runtime_seconds"]
     body = build_create_body(job_id, gpu, image, train_cmd, max_seconds,
-                             cloud_type=cloud_type, interruptible=interruptible)
+                             cloud_type=cloud_type, interruptible=interruptible,
+                             env=env)
 
     # Reserve worst-case in the ledger BEFORE creating the pod.
     rb._append_row({
@@ -236,8 +244,25 @@ def _cmd_smoke(a):
     sys.exit(0 if res.get("ok") else 2)
 
 
+def parse_env_pairs(pairs):
+    """Pure: ['K=V', 'A=b=c'] -> {'K': 'V', 'A': 'b=c'}. Splits on the FIRST '='
+    only (values may contain '='). Ignores empty/'='-less entries. Used to turn
+    repeated --env flags into the pod env dict."""
+    out = {}
+    for item in pairs or []:
+        if not item or "=" not in item:
+            continue
+        k, v = item.split("=", 1)
+        k = k.strip()
+        if k:
+            out[k] = v
+    return out
+
+
 def _cmd_launch(a):
-    res = run_launch(a.job, a.workload, a.gpu, a.hourly, a.max_hours, a.image, a.cmd)
+    env = parse_env_pairs(getattr(a, "env", None))
+    res = run_launch(a.job, a.workload, a.gpu, a.hourly, a.max_hours, a.image, a.cmd,
+                     env=env or None)
     print(json.dumps(res, indent=2))
     sys.exit(0 if res.get("ok") else 2)
 
@@ -262,6 +287,10 @@ def _build_parser():
     sm.add_argument("--epoch", type=int, default=0, help="pass a timestamp for a unique job id")
     lp = sub.add_parser("launch", help="real run")
     lp.add_argument("--job", required=True)
+    lp.add_argument("--env", action="append", metavar="KEY=VAL", default=[],
+                    help="pod env var (repeatable) — the clean channel for a secret "
+                         "the on-pod --cmd needs (e.g. --env GH_TOKEN=... to clone a "
+                         "private repo). NEVER the RunPod API key.")
     common(lp)
     return p
 
