@@ -13,9 +13,32 @@ import runpod_launch as rl  # noqa: E402
 # --- build_create_body -------------------------------------------------------
 
 def test_body_wraps_command_in_timeout():
+    # The whole train_cmd is handed to `timeout` as a single `bash -lc <quoted>`
+    # argument so the cap bounds the ENTIRE command (see the chaining test below).
     b = rl.build_create_body("job1", "NVIDIA GeForce RTX 4090",
                              "img:tag", "python train.py", 14400)
-    assert b["dockerStartCmd"] == ["/bin/bash", "-lc", "timeout 14400s python train.py"]
+    assert b["dockerStartCmd"] == ["/bin/bash", "-lc",
+                                   "timeout 14400s bash -lc 'python train.py'"]
+
+
+def test_cost_cap_bounds_the_whole_chained_command():
+    # COST-CAP SAFETY regression: a chained command must be bounded IN FULL, not
+    # just its first segment. The bug: `timeout Ns a && b && c` parses as
+    # `(timeout Ns a) && b && c`, leaving b/c UNBOUNDED — the in-pod half of the
+    # cost cap silently defeated. The fix wraps the chain in `bash -lc <quoted>`
+    # so the whole thing is one bounded unit.
+    import shlex
+    chain = "pip install x && python train.py && upload.sh"
+    b = rl.build_create_body("j", "g", "i", chain, 14400)
+    wrapped = b["dockerStartCmd"][2]
+    toks = shlex.split(wrapped)
+    # timeout <cap>s bash -lc "<the ENTIRE chain as ONE token>"
+    assert toks[0] == "timeout" and toks[1] == "14400s"
+    assert toks[2] == "bash" and toks[3] == "-lc"
+    assert toks[4] == chain, "the full && chain must be a single timeout-bounded arg"
+    # there must be exactly ONE timeout and no chain operator OUTSIDE the quoted arg
+    assert wrapped.count("timeout ") == 1
+    assert "&&" not in wrapped[:wrapped.index("bash -lc")], "no && ahead of the bounded unit"
 
 
 def test_body_core_fields():
