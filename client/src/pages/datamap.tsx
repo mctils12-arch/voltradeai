@@ -674,6 +674,7 @@ export default function DataMapPage() {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.terrain) {
+      try { map.setTerrain(null); } catch {}
       try {
         if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade");
         if (map.getSource("terrain-dem")) map.removeSource("terrain-dem");
@@ -689,6 +690,13 @@ export default function DataMapPage() {
           encoding: "terrarium",
         } as any);
       }
+      // REAL 3D relief (worldview-globe upgrade): deform the base mesh from the
+      // same DEM so mountains rise and valleys sink — a physical globe, not a
+      // flat sphere — especially with pitch. exaggeration 1.3 reads premium
+      // without cartoonish spikes. Hillshade below stays for shading detail on
+      // the raised mesh. Guarded: if a device/projection can't do terrain the
+      // catch keeps the base map alive (degrade, never break).
+      map.setTerrain({ source: "terrain-dem", exaggeration: 1.3 } as any);
       if (!map.getLayer("terrain-hillshade")) {
         // insert beneath the lowest data layer (symbol/circle/line) so
         // shading never covers markers or velocity vectors
@@ -703,7 +711,7 @@ export default function DataMapPage() {
           },
         } as any, firstMarker?.id);
       }
-      setStatus("terrain", "active", undefined, "hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
+      setStatus("terrain", "active", undefined, "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
     } catch {
       setStatus("terrain", "error");
     }

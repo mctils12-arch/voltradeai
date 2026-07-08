@@ -13,13 +13,13 @@
   },
   {
    "id": "terrain",
-   "name": "Terrain (hillshade)",
+   "name": "Terrain (3D relief)",
    "kind": "raw",
    "status": "live",
    "group": "base",
    "costTier": "moderate",
    "source": "Mapterhorn terrain tiles (Copernicus GLO-30 + national open DEMs; \u00a9 Mapterhorn)",
-   "description": "Global elevation hillshade rendered under all data layers. Off by default \u2014 the imagery base already shows relief; this is the opt-in accent (and the DEM source future 3D terrain reuses)."
+   "description": "Real 3D elevation relief: the globe mesh is deformed from the DEM so mountains rise and valleys sink (best with pitch/tilt), plus a hillshade accent under all data layers. Off by default \u2014 opt-in premium relief; global elevation from Copernicus GLO-30 + national open DEMs."
   },
   {
    "id": "weather",
