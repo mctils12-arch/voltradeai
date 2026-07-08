@@ -1125,6 +1125,43 @@ R6. **Dashboards from monitoring we already emit (charter directive
   still-open TEMPO (US hourly) and SO₂ (point-source smelter on/off) layers would
   deepen exactly this cross-tie once the sub-daily factory work lands.
 
+## LOW-WATER / GENERATION-EXPOSURE HYPOTHESIS (RAW cross-tie shipped 2026-07-08,
+   v1.0.232 — server/riverPlants.ts + /api/data/plants-near-rivergauges,
+   worldview-globe Pillar 6 backend inference)
+
+- **Low water on a barge-corridor river = operational risk for the generating
+  capacity that depends on that stretch → the owning/operating utilities.**
+  PRIOR before any test: a sustained low-stage/low-discharge reading at a
+  Mississippi/Ohio/Missouri/Illinois gauge stresses the nearby plants two ways —
+  (a) river-cooled thermal plants (coal/gas/nuclear) face cooling-water-intake
+  and thermal-discharge-permit limits, forcing derates, and (b) coal plants that
+  receive fuel by barge face draft restrictions that raise delivered fuel cost
+  and can force switching. Effect real but EVENT-DRIVEN and rare (only bites in
+  genuine drought — 2022's Mississippi low-water is the reference event), highly
+  operator-specific, and confounded by weather-driven demand at the same time.
+  Second-order (STANDARD #5): drought-on-the-Mississippi is a headline event, so
+  the gross link is known; the under-mined residual for a small system is the
+  PRE-COMPUTED, NAMED exposure — the instant a specific gauge crosses a
+  low-water threshold, this cross-tie already lists the exact plants + total MW +
+  fuel mix exposed on that reach, before the wire story names them.
+- Ladder: gate 0/1 DATA — pure PROXIMITY join over two published datasets (USGS
+  NWIS live gauge positions × WRI Global Power Plant DB coordinates), fully
+  offline-tested (server/riverPlants.test.ts: known distances, radius cutoff,
+  dedupe, nearest-first, capacity aggregation, never-fabricated MW). Gate 2
+  SIGNAL blocked on (a) a low-water THRESHOLD/percentile per gauge (the raw
+  stage number alone is not "low" — needs each gauge's own historical
+  distribution, which the USGS archive is only now accumulating), (b) a plant→
+  ticker join for the operators, and (c) an event study on the 2022 low-water
+  episode as out-of-sample confirmation. RAW today, no predictive claim on the
+  endpoint.
+- HONEST LIMITS built into the tie: only 14 barge-corridor gauges exist, so
+  coverage is the Mississippi/Ohio system, NOT all US rivers; plant locations are
+  WRI 2021-vintage static; the "dependence" is inferred from PROXIMITY (within
+  R km), not from confirmed water-intake permits — a plant near the river may
+  draw from a different source. All stated on the endpoint. CROSS-TIE: this is
+  the river-gauge arm of the same facility spine the fires (#388) and NO₂ (#392)
+  cross-ties use — one geography, multiple exposure lenses.
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are

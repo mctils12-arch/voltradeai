@@ -71,6 +71,7 @@ import { queryWindowCached } from "./queryEngine";
 import { analystResponse } from "./analyst";
 import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse } from "./nasaFirms";
 import { firesNearFacilities } from "./firesFacilities";
+import { gaugePoints, plantsNearGauges, type PlantTuple } from "./riverPlants";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
@@ -1125,6 +1126,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         facilities: hits,
         note: "RAW cross-tie: strategic assets with active VIIRS 375m fire detections nearby (NRT ~3h). No predictive claim — the fires-near-assets → insurer/utility hypothesis is validation-gated. Not for safety-of-life use.",
         source: "NASA FIRMS/LANCE (VIIRS_SNPP_NRT) × datacore/sites strategic facilities",
+      });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Plants × river gauges cross-tie (worldview-globe Pillar 6, backend inference).
+  // Joins the WRI power-plant archive to the live barge-corridor USGS gauges: which
+  // generating capacity sits near each gauge, so a LOW-WATER reading immediately
+  // names the plants exposed to cooling-water limits (river-cooled thermal) and to
+  // barge coal-delivery draft restrictions. RAW cross-tie (gate-0 observation), NOT
+  // a validated signal — the low-water→operator/utility-returns hypothesis is filed
+  // in open_questions.md and gated. Cache-only read (USGS poller already runs);
+  // default radius 50 km, capped 1–200. Keyless: USGS public domain × WRI CC BY 4.0.
+  app.get("/api/data/plants-near-rivergauges", (req, res) => {
+    try {
+      const hit = latestGauges();
+      if (!hit) return res.json({ warming_up: true, gauges: [], note: "river-gauge feed warming up" });
+      const r = Math.min(200, Math.max(1, parseFloat(String(req.query.radius_km)) || 50));
+      const pts = gaugePoints(hit.gauges || []);
+      const plants = (datacorePowerplants as unknown as PlantTuple[]) || [];
+      const gauges = plantsNearGauges(pts, plants, r);
+      res.json({
+        kind: "raw", as_of: hit.at, radius_km: r,
+        gauges_checked: pts.length, plants_checked: plants.length,
+        gauges_with_plants: gauges.length, gauges,
+        note: "RAW cross-tie: generating capacity near each barge-corridor river gauge, so a low-water reading names the plants exposed to cooling-water limits and barge coal-delivery draft restrictions. No predictive claim — the low-water → operator/utility hypothesis is validation-gated. Static plant locations (WRI 2021 vintage) × live USGS gauge positions.",
+        source: "USGS NWIS barge-corridor gauges (public domain) × WRI Global Power Plant DB (CC BY 4.0)",
       });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
