@@ -241,6 +241,10 @@ export default function DataMapPage() {
   // enable/disable effect can tear both down cleanly (zero-cost-when-off).
   const satWorkerRef = useRef<Worker | null>(null);
   const satLayerRef = useRef<SatLayer | null>(null);
+  // Pillar-6 cross-tie cache: generating capacity near each river gauge, keyed
+  // by USGS site, populated when the rivergauges layer loads so the gauge-click
+  // detail can surface the exposed plants without a network round-trip on click.
+  const riverPlantsRef = useRef<Record<string, any>>({});
   const [layers, setLayers] = useState<LayerMeta[]>([]);
   const [enabled, setEnabled] = useState<Record<string, boolean>>(DEFAULT_ON);
   const [runtime, setRuntime] = useState<Record<string, { status: RuntimeStatus; count?: number; note?: string }>>({});
@@ -2270,6 +2274,18 @@ export default function DataMapPage() {
         const d = await r.json();
         if (stop) return;
         if (d.warming_up) { setStatus("rivergauges", "loading", 0, "warming up — first poll can take a minute"); return; }
+        // Pillar-6 cross-tie: fetch the generating capacity near each gauge once
+        // per load and index it by site, so the gauge-click detail can name the
+        // exposed plants (RAW proximity join — see /api/data/plants-near-rivergauges).
+        fetch("/api/data/plants-near-rivergauges")
+          .then((pr) => pr.json())
+          .then((pd) => {
+            if (stop || !pd || !Array.isArray(pd.gauges)) return;
+            const bySite: Record<string, any> = {};
+            for (const g of pd.gauges) bySite[g.site] = g;
+            riverPlantsRef.current = bySite;
+          })
+          .catch(() => {});
         const fc = {
           type: "FeatureCollection",
           features: (d.gauges || []).filter((g: any) => g.lat != null && g.lon != null).map((g: any) => ({
@@ -2304,6 +2320,27 @@ export default function DataMapPage() {
             if (!f) return;
             const p = f.properties;
             const unit = p.param === "00060" ? "ft³/s (discharge)" : "ft (gage height)";
+            // Pillar-6 cross-tie surface: generating capacity within 50 km of this
+            // gauge (RAW proximity join). No predictive claim — this is the exposed
+            // capacity a low-water reading would name, not a forecast that it will.
+            const xt = riverPlantsRef.current[p.site];
+            let exposure = "";
+            if (xt && xt.plant_count > 0) {
+              const fuels = Object.entries(xt.capacity_by_fuel || {})
+                .sort((a: any, b: any) => b[1] - a[1])
+                .slice(0, 4)
+                .map(([fuel, mw]: any) => `${fuel} ${Math.round(mw).toLocaleString()} MW`)
+                .join(", ");
+              const top = (xt.plants || []).slice(0, 3)
+                .map((pl: any) => `${pl.name} (${pl.capacity_mw.toLocaleString()} MW ${pl.fuel}, ${pl.distance_km} km)`)
+                .join("\n  ");
+              exposure =
+                `\n\nGenerating capacity within 50 km: ${xt.plant_count} plants, ` +
+                `${xt.total_capacity_mw.toLocaleString()} MW\n  ${fuels}` +
+                `${top ? `\nNearest:\n  ${top}` : ""}` +
+                `\nRAW proximity join (plants near this reach), NOT confirmed water-intake ` +
+                `dependence — low-water → operator-risk is validation-gated.`;
+            }
             setDetail({
               kind: "gauge",
               title: `≈ ${p.name || p.site}`,
@@ -2311,7 +2348,7 @@ export default function DataMapPage() {
               body: `${p.v} ${unit}\nObserved ${p.d}\n` +
                     `${p.q === "P" ? "PROVISIONAL — subject to revision" : p.q === "A" ? "Approved reading" : ""}\n\n` +
                     `Data courtesy U.S. Geological Survey. Raw readings only — ` +
-                    `low-water interpretation is validation-gated.`,
+                    `low-water interpretation is validation-gated.` + exposure,
               links: [{ label: "USGS monitoring page", href: `https://waterdata.usgs.gov/monitoring-location/${p.site}/` }],
             });
           });

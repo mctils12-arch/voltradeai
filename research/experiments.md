@@ -13,6 +13,32 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PRODUCT] Surface the plants×river-gauges cross-tie on the map — inference made VISIBLE (v1.0.233)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx only) + SHARED minimal
+(package.json). Solo. Makes the #393 inference endpoint VISIBLE — the master
+directive's "the globe is the showcase for inference" made real on LIVE data
+(USGS gauges are live, so this actually populates on prod, unlike the
+NASA_FIRMS-key-gated fires cross-tie).
+
+- WHAT: the rivergauges layer now fetches /api/data/plants-near-rivergauges
+  once per load and indexes it by USGS site in a ref; the gauge-click detail
+  panel appends the exposed generating capacity (plant count, total MW,
+  per-fuel breakdown top-4, nearest 3 plants with distance). Zero network on
+  click (ref lookup); degrade-safe — the exposure block only renders when the
+  cross-tie returned plants for that site (guarded `if (xt && xt.plant_count
+  > 0)`), so a warming-up/empty endpoint changes nothing.
+- HONESTY: the panel text states RAW proximity join, NOT confirmed
+  water-intake dependence, and that low-water→operator-risk is
+  validation-gated — same framing as the endpoint, surfaced beautifully per
+  the PREMIUM EXPERIENCE STANDARD (the honesty machinery IS the brand).
+- VERIFY: tsc unchanged 64-error baseline (zero new); client+server build
+  clean. The live gauge-click interaction is prod-only (offline SwiftShader
+  harness can't drive the map), but the change is a type-safe, guarded
+  detail-panel text addition with no new layer/tiles — lowest-risk client
+  change class. No backtest (RAW display). Anti-churn: one logical change
+  (surface one endpoint), own PR, own tag.
+
 ## 2026-07-08 — [PRODUCT] Plants × river-gauges cross-tie — low-water generation-exposure inference (v1.0.232)
 
 TERRITORY: T-DATACORE-adjacent server module (server/riverPlants.ts) + SHARED
