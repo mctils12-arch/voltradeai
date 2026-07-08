@@ -13,6 +13,124 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PIPELINE] USGS real-time earthquakes — free-data pipeline, EDGE DOCTRINE #1 (v1.0.209)
+
+TERRITORY: T-DATACORE (server/usgsQuakes.ts, server/usgsQuakes.test.ts,
+datacore/manifests/earthquakes.json) + SHARED (server/routes.ts new route
++ import, package.json version, this file, wishlist.md, open_questions.md
+— all minimized to the last commit per MERGE-ORDER PROTOCOL).
+
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md (EDGE DOCTRINE
+  emphasized per the task brief), all of research/. LIVE HEALTH CHECK:
+  `GET .../api/health` returned 200 — server/db/Alpaca/python-bridge/bot
+  all healthy, `bot.liveness.dark:false`, drawdownPct 0.0 — no LIVENESS
+  ALARM condition, nothing to surface top-of-report.
+- KNOWN BROKEN triage (repair-mandate-first check): every item is
+  RESOLVED, gated on human-only live-audit-log access (#3/#4), gated on
+  accumulating shadow-portfolio/live-verification evidence not yet ripe
+  (#10, #12b/c), or — item #14 — turned out to be ALREADY FIXED in code
+  (v1.0.200, PR #351, 2026-07-07) despite open_questions.md still
+  reading "not repaired this PR, deliberately". Confirmed via
+  `git log -p -- server/tier3ManipVisibility.test.ts` and reading the
+  current `tier3Strategic` catch block directly (it already audits
+  `TIER3-MANIP-ERROR`) — not a new repair, a stale-documentation bug.
+  Fixed the doc in this PR (cheap, high-value: prevents a future session
+  from re-diagnosing an already-closed item) and flagged the still-open
+  near-duplicate PR #343 as redundant rather than closing it myself
+  (GitHub state changes outside this session's explicit scope). Also
+  caught and fixed a second stale note while reading R5 (Everything
+  Graph): the `/data` graph panel (step 3) has been live since
+  `client/src/pages/graph.tsx` shipped, but open_questions.md still
+  called it "unclaimed" — a prior session (2026-07-08 FINRA-part-2
+  entry) had already flagged this exact staleness without fixing it;
+  fixed here. No LIVE CODE repair remained actionable without owner-
+  gated audit-log access this session had no path to — so this became
+  a primary-axis EDGE session per the task brief, not a REPAIR session.
+- PRIMARY ACTION SELECTION: task brief named 6 standing free-data-
+  pipeline examples; checked each against research/ before picking —
+  Sentinel-2 tank shadows, EDGAR Form4, CFTC COT, USAspending, and FDA
+  calendars are ALL ALREADY BUILT (verified via experiments.md search,
+  not assumed); Google Trends/pytrends already FAILED gate 1 (upstream
+  archived 2025-04, replaced by Wikimedia pageviews). Checked open PRs
+  (`mcp__github__list_pull_requests`) to avoid the CONCURRENT-SESSIONS-
+  DOUBLE-BUILD failure mode in OPS GOTCHAS — #350 (satellite orbits
+  client layer) and #343 (superseded manip-visibility duplicate) don't
+  touch this scope. Landed on wishlist.md's DATACORE MAXIMUS NEXT
+  pointer: "USGS quakes + NDBC buoys" — unclaimed, well-precedented
+  (RAW keyless hazard feed, same shape as nasaFirms.ts), fully outside
+  any hot/contested file (no datamap.tsx or routes.ts hotspot beyond a
+  minimal SHARED addition). Picked quakes over buoys for this PR to keep
+  one logical change (CLAUDE.md promotion rule 5) rather than bundling
+  two unrelated domains; buoys is now the explicit next unclaimed item.
+- LIVE CONTRACT VERIFICATION (READ BEFORE WRITE for an external API):
+  curled `earthquake.usgs.gov/earthquakes/feed/v1.0/summary/*.geojson`
+  directly before writing any code. Compared magnitude-threshold feed
+  sizes live: significant_day=0, 4.5_day=17, 2.5_day=39, 1.0_day=193,
+  all_day=242 (2026-07-08 sample) — picked 2.5_day as USGS's own
+  recommended general-use default (below it, dense regional swarms swamp
+  a global archive; above it, too sparse). Confirmed the feed's actual
+  property/geometry shape (stable `id`, `[lon,lat,depth]` coordinates,
+  `updated` timestamp that legitimately revises post-publish) directly
+  from a live response, not from memory of "how earthquake APIs usually
+  work" (READ BEFORE WRITE — CLAUDE.md is explicit that training
+  knowledge does not describe any specific external API either).
+- BUILD: server/usgsQuakes.ts mirrors nasaFirms.ts's shape (day-file
+  JSONL archive, dedup Set, gzip-after-2-days, in-memory cache + eager
+  boot poll) with one deliberate deviation: USGS's own `id` never
+  changes but `updated` legitimately does (magnitude/location revised
+  during review) — a pure id-dedup would freeze every event at its
+  first-seen, often-"automatic"/unreviewed values forever. Added a
+  parallel `archivedUpdated` Map so a newer `updated` timestamp for a
+  known id re-archives it (append-only, both versions kept — no
+  overwrite, matching the archive's forward-only philosophy elsewhere).
+  Keyless — no gating needed (simpler than nasaFirms.ts's key-gated
+  boot), boots eagerly per KNOWN BROKEN #9's lesson. No map layer this
+  PR — pipeline+API-first sequencing, same precedent as sec8kEarnings/
+  finraQuery part 1.
+- ANGLE-HUNTING (standing behavior, filed not attempted): earthquake
+  hazard-adjacency as an insurer/utility/supply-chain proximity signal
+  — filed in open_questions.md under EARTHQUAKE HAZARD-ADJACENT
+  HYPOTHESES with PRIOR stated (second-order reasoning per STANDARD #5:
+  the edge, if real, comes from loss-reserve/reinsurance revision lag,
+  not "nobody noticed a quake") and explicit gate-1/gate-2 ladder paths.
+  Gate 1 is trivial here (USGS is ground truth, no separate verification
+  needed) — gate 2 is honestly blocked on archive depth just started
+  today, logged rather than faked.
+- TESTS: 11 in usgsQuakes.test.ts — real-feed-shaped fixture (captured
+  verbatim from a live GET during this build, ROOT VALIDATION LADDER
+  gate-1 discipline matching nasaFirms.test.ts's VIIRS/MODIS fixtures),
+  missing-id drop, tsunami-flag numeric/boolean coercion, fetch UA +
+  error-status handling, archive dedup + the updated-timestamp re-
+  archive path (caught and fixed a test-isolation bug from this
+  session's own module-level dedup state colliding across tests before
+  landing on unique per-test ids), gzip-after-2-days, idempotent boot.
+  LIVE E2E: ran `fetchQuakes()` through this repo's own `tsx` against
+  the real USGS URL (not just curl) — 38 live events parsed cleanly,
+  confirming Node's own `fetch` + the parser work end-to-end, not just
+  against a hand-shaped fixture.
+- GATES: `npm install` first (node_modules was effectively empty in this
+  sandbox — @types/node missing, `npm run test:node`'s `tsx` binary
+  unresolved via npm script though `npx tsx` worked; installed to get an
+  accurate tsc baseline rather than trusting a broken toolchain). node
+  test:node 473/473 pass (462 baseline + 11 new — the 3 pre-existing
+  failures this session first observed in compression/gdeltEvents/
+  owmTiles were an artifact of the missing node_modules, not real: they
+  pass clean post-install, confirmed via `git stash` A/B on the
+  unmodified baseline). tsc 64 (unchanged baseline — one new Set-
+  iteration TS2802 error was introduced and fixed in-session by
+  switching to `.forEach()`, matching nasaFirms.ts's own established
+  workaround for the same tsconfig target constraint). `npm run build`
+  succeeds; `dist/datacore/manifests/earthquakes.json` confirmed staged
+  (R14 packaging lesson — verify the POSITIVE case, not just error-free
+  responses). `python3 -m pytest`: not runnable in this sandbox (pytest
+  not installed) — no Python touched, matches PR #350's precedent that
+  this doesn't block a client/server-only change.
+  Version 1.0.208 -> 1.0.209 (read-and-increment; `git fetch origin main`
+  confirmed the tip was unchanged from this session's branch point
+  before bumping).
+- Backtest: N/A — RAW data-pipeline build, no strategy/measurement code
+  touched.
+
 ## 2026-07-08 — [PIPELINE] FINRA Query API part 2: ATS venue summaries (census build #4, part 2 of 2) — weeklySummary + monthlySummary + blocksSummary (v1.0.208)
 
 - Territory: T-DATACORE (server/finraQuery.ts extension, server/finraQuery.test.ts,
