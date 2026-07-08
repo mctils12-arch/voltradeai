@@ -1162,6 +1162,38 @@ R6. **Dashboards from monitoring we already emit (charter directive
   the river-gauge arm of the same facility spine the fires (#388) and NO₂ (#392)
   cross-ties use — one geography, multiple exposure lenses.
 
+## SEVERE-WEATHER / GENERATION-DISRUPTION HYPOTHESIS (RAW cross-tie shipped
+   2026-07-08, v1.0.234 — server/plantsUnderAlerts.ts +
+   /api/data/plants-under-alerts, worldview-globe Pillar 6 backend inference)
+
+- **Generating capacity inside an active NWS severe-weather WARNING polygon =
+  near-term generation-disruption risk → the operating utilities / the regional
+  grid balancing authority.** PRIOR before any test: a tornado/hurricane/severe-
+  thunderstorm/ice warning over a cluster of plants raises the odds of forced
+  outages, transmission trips, and demand spikes on that balancing authority in
+  the next hours-to-days. Effect real but VERY event-driven and short-horizon
+  (warnings last hours), and the market already reacts to major storms; the
+  under-mined residual for a small system is the PRE-COMPUTED, NAMED exposure —
+  the instant a warning polygon is issued, this cross-tie lists the exact plants
+  + MW + fuel mix inside it, before the outage reports come in, and (with a BA
+  join) the balancing authority whose reserve margin is about to be tested.
+- Ladder: gate 0/1 DATA — pure POINT-IN-POLYGON join over two published sources
+  (NWS active-warning polygons × WRI plant coordinates), fully offline-tested
+  (server/plantsUnderAlerts.test.ts: ray-cast containment, bbox pre-filter,
+  per-fuel aggregation, most-exposed ordering, zone-only skip, never-fabricated
+  MW). Gate 2 SIGNAL blocked on (a) a plant→operator→ticker join, (b) a
+  plant→balancing-authority join (the gridvision TX BA work is the seed), and
+  (c) an event study on historical warning×outage×price episodes for
+  out-of-sample confirmation.
+- HONEST LIMITS on the endpoint: only POLYGON-carrying warnings are testable —
+  zone-only alerts (no geometry) are EXCLUDED and counted (zone_only_excluded),
+  never silently treated as covering nothing; warning severity ≠ realized
+  impact; WRI plant locations are 2021-vintage static. CROSS-TIE: the
+  severe-weather arm of the SAME facility spine as the fires (#388), NO₂ (#392),
+  and low-water (#393) cross-ties — four hazard/throughput lenses on one plant/
+  facility geography, which is the Everything-Graph substrate a future gate-2
+  composite signal would be built on (no single lens is a signal alone).
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are

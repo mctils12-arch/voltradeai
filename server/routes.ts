@@ -72,6 +72,7 @@ import { analystResponse } from "./analyst";
 import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse } from "./nasaFirms";
 import { firesNearFacilities } from "./firesFacilities";
 import { gaugePoints, plantsNearGauges, type PlantTuple } from "./riverPlants";
+import { plantsUnderAlerts } from "./plantsUnderAlerts";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
@@ -1152,6 +1153,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         gauges_with_plants: gauges.length, gauges,
         note: "RAW cross-tie: generating capacity near each barge-corridor river gauge, so a low-water reading names the plants exposed to cooling-water limits and barge coal-delivery draft restrictions. No predictive claim — the low-water → operator/utility hypothesis is validation-gated. Static plant locations (WRI 2021 vintage) × live USGS gauge positions.",
         source: "USGS NWIS barge-corridor gauges (public domain) × WRI Global Power Plant DB (CC BY 4.0)",
+      });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Plants × severe-weather warnings cross-tie (worldview-globe Pillar 6, backend
+  // inference). Which generating capacity sits INSIDE an active NWS warning
+  // polygon right now — a live storm-risk-to-generation read, distinct from the
+  // water-risk river cross-tie above. RAW cross-tie (gate-0 observation), NOT a
+  // validated signal — the warning-over-generation→operator/grid hypothesis is
+  // filed in open_questions.md and gated. Cache-only read (NWS poller already
+  // runs, polygon-carrying alerts only; zone-only alerts have no geometry to test
+  // and are honestly excluded). Keyless: NWS public domain × WRI CC BY 4.0.
+  app.get("/api/data/plants-under-alerts", (_req, res) => {
+    try {
+      const hit = latestAlerts();
+      if (!hit) return res.json({ warming_up: true, alerts: [], note: "NWS alerts feed warming up" });
+      const plants = (datacorePowerplants as unknown as PlantTuple[]) || [];
+      const alerts = plantsUnderAlerts((hit.display || []) as any, plants);
+      res.json({
+        kind: "raw", as_of: hit.at,
+        alerts_checked: (hit.display || []).length, zone_only_excluded: hit.zoneOnly ?? 0,
+        plants_checked: plants.length,
+        alerts_with_plants: alerts.length, alerts,
+        note: "RAW cross-tie: generating capacity inside active NWS warning polygons — the plants a severe-weather event currently covers. No predictive claim — the warning-over-generation → operator/grid-disruption hypothesis is validation-gated. Zone-only alerts (no polygon) are excluded, not silently counted as covering nothing. Static plant locations (WRI 2021 vintage) × live NWS warnings.",
+        source: "NWS api.weather.gov active warnings (public domain) × WRI Global Power Plant DB (CC BY 4.0)",
       });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
