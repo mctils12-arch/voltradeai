@@ -40,10 +40,15 @@ Any routine that launches a RunPod job MUST, in order:
      hard rule: no time cap → no launch),
    - `bad_rate` — `hourly` ≤ 0 or absurd (fat-finger guard),
    - `insufficient` — worst-case cost would leave < $5 floor buffer.
-2. Pass the returned **`max_runtime_seconds`** to RunPod as a hard
-   terminate-after cap, so a hung/runaway job self-kills at the cost cap
-   (RunPod bills per second and honours a max-runtime ceiling). A cost
-   cap that only lives in our head is not a cost cap.
+2. Enforce the returned **`max_runtime_seconds`**. CORRECTION (verified vs
+   docs.runpod.io 2026-07-07): **RunPod pods have NO native auto-terminate /
+   TTL field** — a pod bills until it is DELETEd or exits. So the cap is NOT
+   a value handed to RunPod; it is enforced two ways, belt-and-suspenders:
+   (a) a **wall-clock watchdog** that polls the pod and DELETEs it at the cap
+   (`scripts/runpod_launch.py`), and (b) the training command wrapped in an
+   in-pod `timeout <max_seconds>s` so the training PROCESS self-kills even if
+   the watchdog disconnects. A cost cap that only lives in our head is not a
+   cost cap — it has to actually terminate the pod.
 
 Worst-case accounting is conservative: an OPEN job reserves
 `hourly × max_hours` against the balance until it is CLOSED with its
@@ -81,15 +86,33 @@ single RTX 4090 / A40 for a few hours — a first run is a **few dollars**,
 not tens, so the $50 covers the initial train + several sweep iterations
 with wide margin.
 
-## OPEN DECISION FOR MIKE (routed, non-blocking)
+## LAUNCH PATH — RESOLVED: OPTION A (key in session), 2026-07-08
 
-`RUNPOD_API_KEY` is in Railway but not in the agent session, so this
-session cannot itself call the RunPod API to launch a pod. The launch
-step therefore runs as a **server-side / Railway routine** that reads the
-key and calls `authorize_job` first — OR the key is added to the session.
-This is filed in `wishlist.md`; it does **not** block the non-GPU
-data-prep (ETDII download + chip building), which proceeds now. See
-BLOCKED-FOR-MIKE.
+Mike chose **Option A**: add `RUNPOD_API_KEY` to the Claude Code **session
+environment** (done). The launcher `scripts/runpod_launch.py` runs from the
+session: gate → create pod → wall-clock watchdog → terminate → ledger, with
+the in-pod `timeout` wrapper as backup (see the HARD RULE correction above).
+
+IMPORTANT — env vars load at SESSION START. The session in which the key was
+added was already running, so it did NOT see the key. **The next FRESH session
+will have it** (presence-checked at boot). Then:
+- `python3 scripts/runpod_launch.py dry-run --cmd "..."` — gate + create body,
+  no key needed (already verified locally).
+- `python3 scripts/runpod_launch.py smoke` — cheap `nvidia-smi` run (~$0.01),
+  proves the whole path (create → watchdog → terminate → ledger) end-to-end
+  BEFORE the real training script exists. Run this first.
+- `python3 scripts/runpod_launch.py launch --job gd-v0 --cmd "<train>"` — real.
+
+OPTION A CAVEAT (accepted): the watchdog lives in the session — keep it alive
+during a run; the in-pod `timeout` still bounds the training process if it dies.
+Option B (server-side watchdog, key stays in Railway) removes the caveat and is
+the better long-term home if GPU jobs become recurring/automated — not built.
+
+STILL NEEDED before the REAL fine-tune (independent of the launch path): the
+training container/script that runs ON the pod (pulls ETDII US + builds NAIP
+chips, runs the tower-detector fine-tune, writes weights back), plus the two
+Phase-B data gaps (`build_power_tiles.sh` `power=tower`; Duke-US zips). The
+tower-only v0 can train on ETDII US without the gaps.
 
 ## LEDGER (human-readable mirror; source of truth is the JSONL)
 
