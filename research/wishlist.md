@@ -195,6 +195,26 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   with quakes in the prior NEXT line) is now the next unclaimed item —
   a single global `latest_obs.txt` fetch (~866 stations, live-verified
   2026-07-08), no per-station requests needed.
+- **NDBC BUOYS: SHIPPED 2026-07-08 (v1.0.220)** — server/ndbcBuoys.ts +
+  /api/data/buoys (RAW, ~889 reporting stations worldwide, keyless
+  US-government-public-domain feed; live-verified end-to-end from
+  this session's own `fetch`, not just curl — 889 stations, 553 with
+  a valid wave-height reading). Single global whitespace-delimited
+  text file (NOT fixed-width despite the aligned header — confirmed
+  against the live sample, including 4-char vs 5-char station ids and
+  negative lat/lon rows); "MM" missing-sensor tokens map to null,
+  never coerced to 0. Archive dedup keyed on (station, observation
+  time) rather than a simple id, since every station reappears every
+  poll (a snapshot feed, not a discrete-event feed like USGS quakes) —
+  a station only re-archives when its own timestamp advances, so
+  30-min over-polling against an hourly-reporting station is a cheap
+  no-op, not archive bloat. No map layer yet — same pipeline+API-first
+  sequencing as earthquakes/sec8kEarnings/finraQuery part 1. Sea-state
+  (WVHT/DPD) and pressure-tendency fields are a filed ANGLE-HUNTING
+  candidate (marine-forecasting technique import) in open_questions.md
+  — gate 1/2 unattempted. NEXT unclaimed DATACORE MAXIMUS item: SEC
+  MIDAS (EPA CAMD/ENTSO-E already gated on Mike's keys, see 9a/9c
+  above).
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the

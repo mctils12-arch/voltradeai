@@ -13,6 +13,101 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PIPELINE] NDBC buoys — free-data pipeline (v1.0.220)
+
+TERRITORY: T-DATACORE primary (server/ndbcBuoys.ts + test + its manifest)
++ SHARED minimal (server/routes.ts route registration, package.json
+version — last commit per MERGE-ORDER PROTOCOL). Solo session, no
+concurrent-territory conflict expected.
+
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md in full, this file's
+  head (2 entries, dated today — #377 fires-layer repair, thrash ratio
+  ~4-5/10 REPAIR across last 10 merged PRs, no Priority-1 meta-problem),
+  open_questions.md KNOWN BROKEN (items 1-14 all resolved/superseded, #12
+  partially open on sub-items already gated, nothing new past #14),
+  wishlist.md DATACORE MAXIMUS resume block. AUDIT REGISTER: staleness
+  next due 2026-08-04, constitutional 4 proposals awaiting human approval
+  (not this session's job), calendar-year-add not due — nothing overdue.
+  PROGRESS FLOOR: PIPELINE/PRODUCT work shipped today and within the last
+  2-3 days — no 14-day gap, no STARVED streak. SYSTEM HEALTH: no
+  documented production URL in the repo (same finding as the prior
+  entry) — honestly skipped rather than guessed; no reported break makes
+  this urgent for a PRODUCT session (repair-first only preempts when a
+  break blocks the chosen work, which it does not here).
+- WHAT (session's chosen highest-value PRODUCT action, per this session's
+  scoping instructions: advance a datacore/ pipeline through gate 1):
+  wishlist.md's DATACORE MAXIMUS resume block named NDBC buoys as the
+  explicit next unclaimed item ("a single global `latest_obs.txt` fetch
+  (~866 stations)... no per-station requests needed") — deepening the
+  archive (CLAUDE.md's #1 self-proposed-work priority under Amendment 5)
+  with a well-scoped, already-queued item beats speculative new scope.
+  Built `server/ndbcBuoys.ts` (fetch/parse/archive/cache/poll) mirroring
+  `usgsQuakes.ts`'s exact shape, wired `/api/data/buoys` in routes.ts
+  right after the earthquakes route (same no-map-layer-yet, API-first
+  sequencing), and `datacore/manifests/buoys.json` (picked up
+  automatically by the streams-inventory ratchet — verified via
+  `streamsInventory.test.ts`, no manual registration needed).
+- GATE 1 (DATA) verification, live not assumed: pulled the real feed via
+  `curl` this session (`https://www.ndbc.noaa.gov/data/latest_obs/
+  latest_obs.txt`) — 889 reporting stations, whitespace-delimited (NOT
+  fixed-width despite the header's visual column alignment; confirmed
+  splitting on whitespace handles both 4-char station ids like YRSV2 and
+  5-char ids like 22101, plus negative lat/lon rows like `32ST0 -22.000
+  -85.000`, without special-casing). "MM" is NDBC's missing-sensor
+  marker — mapped to `null`, never coerced to 0 (a station without a
+  wave sensor must never look like it read a real 0m sea state). 553/889
+  stations carried a real WVHT reading at fetch time; PTDY (pressure
+  tendency) values carry a literal sign prefix (`+0.8`) — verified
+  `parseFloat` handles it without a strip-sign step.
+- REASONING STANDARD #1 (downstream chain, stated per CLAUDE.md): this
+  is a snapshot feed (same station id reappears every poll), unlike
+  USGS quakes' discrete-event id stream — a naive per-id dedup would
+  either archive nothing after the first poll (stale forever) or
+  duplicate every unchanged row every 30 min (archive bloat). Traced the
+  chain and keyed dedup on (station, observation `time`) instead: a
+  station only re-archives when ITS OWN timestamp advances past what was
+  last recorded, independent of what any other field changed to — so
+  30-min polling against buoys that typically report hourly is a cheap
+  no-op re-confirmation, not wasted archive growth, and a station that
+  goes silent (sensor failure, buoy adrift) simply stops advancing
+  rather than falsely re-archiving stale data under a new timestamp.
+  Regression test pins this exact behavior (same time + changed reading
+  → 0 new rows; newer time → 1 new row for just that station).
+- ANGLE-HUNTING (per the standing behavior, since this PRODUCT session
+  wasn't consumed by repair): filed two marine/buoy hypotheses in
+  open_questions.md under a new MARINE/BUOY HAZARD-ADJACENT HYPOTHESES
+  section — (1) sea-state (WVHT) as a shipping-lane/insurance-exposure
+  proxy via a buoy-to-AIS-archive proximity join (FOREIGN-FIELD IMPORT:
+  marine forecasting), (2) pressure-tendency (PTDY) cluster swings as a
+  fast-storm precursor ahead of official NHC advisories. Both explicitly
+  gate-1/gate-2 unattempted, discounted per REASONING STANDARD #4/#7 —
+  archive started today, zero history to test against yet.
+- TESTS: 12 new tests in `server/ndbcBuoys.test.ts` (parse shape incl.
+  4-char vs 5-char ids, negative coords, signed PTDY, MM→null, header/
+  blank-line skipping; fetch UA + error-status; archive dedup incl. the
+  same-time-different-reading-is-NOT-re-archived case; gzip-after-2-days;
+  idempotent boot). Full node suite: 476/479 pass — 3 pre-existing
+  failures (compression/gdeltEvents/owmTiles) confirmed via `git stash`
+  to fail identically on main without this change (missing `pngjs`
+  module / other environment gaps, unrelated to this PR). `tsc --noEmit`
+  after a fresh `npm install`: zero errors in ndbcBuoys.ts or the
+  routes.ts diff; all reported errors are pre-existing in untouched
+  files (bot.ts Buffer/.trim, shadowFleet.ts/portDwell.ts Map iteration
+  target-flag gaps, billing.ts, owmTiles.ts pngjs types) — confirmed by
+  grepping the tsc output for this PR's filenames (no hits). Python
+  suite could not run in this session's environment (`pytest` not
+  installed) — this PR touches zero Python, out of scope to fix here.
+- MERGE TIMING: session started ~09:13 ET, inside the 9:30-16:00 ET
+  deploy-coupling window by the time this lands — per this session's
+  instructions, the PR notes the merge should wait for market close.
+- HYPOTHESIS / expected effect: no trading-path behavior change (new RAW
+  API surface only, zero imports from trading logic per the datacore
+  boundary rule) — the bet is purely archival: every day of buoy history
+  not recorded from today forward is unrecoverable, and NDBC's own
+  historical query tools are far less convenient for a from-scratch pull
+  than continuous point-in-time archiving from day one (BUILD-FIRST
+  rule #2 — accumulation substitutes for a future purchase/scrape).
+
 ## 2026-07-08 — [REPAIR] fires layer viewport-bound + honest cap (PR #377, v1.0.219)
 
 TERRITORY: T-CLIENT primary (client/src/pages/datamap.tsx) + T-DATACORE
