@@ -79,7 +79,7 @@ import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
-import { bootFinraQueryPoll, latestFinraSi } from "./finraQuery";
+import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 
@@ -1733,6 +1733,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             "threshold list here is FINRA's OTC side only.",
       si: hit.si,
       threshold: hit.threshold,
+    });
+  });
+
+  // FINRA Query API — ATS venue summaries (census build #4 part 2,
+  // contract live-verified 2026-07-08): weeklySummary + monthlySummary
+  // (per-symbol ATS/OTC volume leaderboards, *_SMBL rows only — see
+  // finraQuery.ts header for the granularity-mixing rationale) +
+  // blocksSummary (per-venue block-trading ranks). RAW, no predictive
+  // claim; the settlement-stress composite hypothesis stays a queued
+  // [RESEARCH] item until ladder gate 2. bootFinraQueryPoll() above
+  // already polls this alongside part 1 — same 6h cadence, same cache
+  // shape, cache-only request path.
+  app.get("/api/data/ats-summary", (_req, res) => {
+    const hit = latestFinraAts();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "FINRA Query API (weeklySummary + monthlySummary + blocksSummary)", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "FINRA Query API — ATS/OTC weekly + monthly per-symbol volume, ATS venue block-trading ranks; free with attribution",
+      attribution: "FINRA Query API",
+      time: hit.at,
+      note: "Weekly/monthly leaderboards use only the per-symbol cross-firm rows (summaryTypeCode *_SMBL) — " +
+            "composition[] on each summary states every granularity mixed in the source partition, so nothing " +
+            "ranked here double-counts firm-level rows. tiers_covered states exactly which tiers fed the reading.",
+      weekly: hit.weekly,
+      monthly: hit.monthly,
+      blocks: hit.blocks,
     });
   });
 

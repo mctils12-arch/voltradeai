@@ -13,6 +13,162 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PIPELINE] FINRA Query API part 2: ATS venue summaries (census build #4, part 2 of 2) — weeklySummary + monthlySummary + blocksSummary (v1.0.208)
+
+- Territory: T-DATACORE (server/finraQuery.ts extension, server/finraQuery.test.ts,
+  3 new datacore/manifests/*.json) + SHARED (server/routes.ts new route,
+  package.json version, this file, wishlist.md). [PRODUCT] session per the
+  task brief — filed as [PIPELINE] per CLAUDE.md's "[PRODUCT] counts as
+  [PIPELINE] for progress-floor/thrash-ratio purposes" and to match part
+  1's own tag (v1.0.170 entry below) for the same build.
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md, all of research/.
+  Loop-health ratio over the last 10 entries: 2/10 REPAIR — no thrash.
+  LIVE HEALTH CHECK: `GET .../api/health` returned 200 before any other
+  action — server/db/Alpaca/python-bridge/bot all reported healthy, no
+  LIVENESS ALARM condition, nothing to surface top-of-report (a critical
+  trading-loop break would not have blocked this PRODUCT session anyway
+  per the task brief, but none existed to note).
+- PRIMARY ACTION SELECTION: considered building the O2 orbital
+  satellite-layer wiring (fully-specified NEXT step in
+  research/orbital_program.md's RESUME STATE) but found open, unmerged
+  PR #350 already adds a DIFFERENT "satellite orbits" layer to the same
+  datamap.tsx file (ANALYST CONSOLE W2 track — server-polled, blocked by
+  the CelesTrak/Railway firewall) — building O2's client-fetch GPU layer
+  concurrently would create two competing "satellites" layers on one file
+  and collide badly on merge (the exact CONCURRENT-SESSIONS-DOUBLE-BUILD
+  failure mode in open_questions.md's OPS GOTCHAS). Also checked R5's
+  Everything Graph panel (open_questions.md flagged step 3 "unclaimed")
+  and found it was ALREADY SHIPPED (client/src/pages/graph.tsx, fully
+  wired into datamap.tsx at #/data/graph) — that open_questions.md note
+  was stale, not caught by this session's read (worth a housekeeping
+  pass: R5 in open_questions.md still reads as step-3-unclaimed and
+  should be updated to reflect completion — flagged here for whoever
+  next touches R5, not fixed in this PR to keep scope to one logical
+  change). Landed on wishlist.md's DATACORE MAXIMUS resume block's
+  explicit "NEXT CENSUS BUILDS: FINRA part 2 (design notes above)" —
+  fully-specified, unclaimed, builds on an already-shipped module
+  (finraQuery.ts part 1), no collision risk with any open PR.
+- LIVE CONTRACT VERIFICATION (READ BEFORE WRITE for an external API,
+  not just internal code): curled api.finra.org directly from this
+  session before writing any code — confirmed weeklySummary and
+  monthlySummary are COMPOSITE-KEY partitions ([weekStartDate,
+  tierIdentifier] and [monthStartDate, tierIdentifier] respectively),
+  which the existing fetchPartitions/fetchPartitionRows primitives
+  (built single-key-only for part 1) cannot express — a real gap the
+  design notes hadn't flagged. Also live-measured weeklySummary T1's
+  record-total at 66,080 for the newest week (exceeds part 1's
+  MAX_PAGES=12 / 60k-row cap) and sampled real rows for all three
+  datasets to confirm field shapes and the summaryTypeCode granularity
+  mix (see BUILD below) — none of this was guessed from the design
+  notes' prose alone.
+- BUILD:
+  - `fetchPartitionTuples()` (new) parallels `fetchPartitions()` but
+    keeps the full composite tuple instead of flattening to `tuples[0]`;
+    `fetchPartitions()` now delegates to it (zero behavior change for
+    part 1's single-key callers, still covered by the existing test).
+  - `fetchPartitionRowsMulti()` (new) generalizes pagination + the
+    count-verify truncation guard to N EQUAL filters and a configurable
+    `maxPages`; `fetchPartitionRows()` (part 1's original signature) now
+    delegates through it with a single filter and the original
+    `MAX_PAGES=12` default — existing part-1 tests pass unmodified,
+    proving no behavior change. New `ATS_MAX_PAGES=50` (250k-row
+    ceiling) used only for weeklySummary/monthlySummary.
+  - `compositeKey()` joins tuple parts with `"__"` for the archive
+    filename/dedup-set key; `seedSeen()`'s restart-reseeding regex
+    generalized from a hardcoded `YYYY-MM-DD` pattern to match any
+    value before `.jsonl(.gz)?` — needed since composite keys aren't
+    dates.
+  - Went with the design notes' "simpler" option (raise the page cap)
+    over the async-job S3-presigned-CSV path — current live weeks fit
+    comfortably under the new 250k ceiling; the notes flagged the async
+    path as only mattering for ~210k-row 2021 backfill weeks, and no
+    backfill is built for part 2 (matches part 1's own no-boot-backfill
+    posture, R8 crash-loop lesson).
+  - GRANULARITY HONESTY (live-verified, not assumed): a live full-page
+    pull of weeklySummary 2026-06-15/T1 showed SIX summaryTypeCode
+    values mixed in one partition (ATS_W_SMBL_FIRM 3263, OTC_W_SMBL_FIRM
+    1248, ATS_W_SMBL 194, OTC_W_FIRM 168, OTC_W_SMBL 95, ATS_W_FIRM 32 in
+    a 5000-row sample) — FIRM-level and per-symbol-per-firm rows would
+    double- or under-count volume if ranked alongside the clean
+    per-symbol cross-firm `*_SMBL` rows. `summarizeWeeklyBySymbol`/
+    `summarizeMonthlyBySymbol` rank ONLY `*_SMBL` rows and report a
+    `composition{}` count of every granularity actually present, so none
+    of the excluded rows are silently dropped from view — they're
+    accounted for, just not blended into a misleading leaderboard.
+    `summarizeAtsBlocks` (blocksSummary) has no such split — one clean
+    row per ATS venue/month with FINRA-precomputed ranks — ranked
+    directly.
+  - Empty tier/venue checks (e.g. weekly OTCE/NA when only T1 has data
+    for the newest week — live-confirmed, not assumed) are deliberately
+    NOT marked archived, matching part 1's existing 204-is-not-a-
+    done-marker pattern for SI/threshold — they're honestly re-polled
+    every 6h cycle rather than permanently skipped, since a listed
+    partition can still fill in later (part 1's own docstring already
+    notes this precedent for monthlySummary 2014-2016).
+  - `bootFinraQueryPoll()` now runs `refreshFinraQuery()` then
+    `refreshFinraAts()` in the same 6h cycle (no second timer).
+  - New route `GET /api/data/ats-summary` (RAW, no predictive claim,
+    cache-only request path, 1h Cache-Control) mirrors the existing
+    `/api/data/short-interest` shape.
+  - 3 new manifests (finraweekly/finramonthly/finrablocks) — picked up
+    automatically by the streams-inventory ratchet (enumerates
+    `datacore/manifests/` at runtime, R14/Phase-5 precedent) with zero
+    code change required; confirmed via a live `streamsInventory.test.ts`
+    run.
+  - No UI page — same pipeline+API-first sequencing sec8kEarnings and
+    finraQuery part 1 both used (a view follows once archive history
+    accumulates).
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): new archived ATS partitions
+  -> `/api/data/ats-summary` exposes RAW weekly/monthly per-symbol
+  ATS/OTC volume leaderboards + ATS venue block-trading ranks ->
+  discoverable via the streams inventory (#/data/streams) -> feeds the
+  still-unstarted settlement-stress composite [RESEARCH] item's
+  eventual venue-concentration angle (that composite's ingredients today
+  are finrathreshold+secftd+finrashortvol only — this PR adds
+  observability, not a new ingredient to that specific hypothesis) ->
+  nothing here is claimed as predictive; every response carries
+  `kind: "raw"` and an explicit composition/tiers_covered honesty note.
+  Nothing in the trading loop (bot_engine.py, server/bot.ts) reads this
+  route — zero live trading behavior change.
+- GATES: `npx tsc --noEmit` — 64 errors, unchanged baseline (grep-
+  confirmed zero hits in finraQuery.ts/finraQuery.test.ts/routes.ts).
+  `npm run test:node` — 462/462 passed (445 baseline + 17 new:
+  compositeKey, fetchPartitionTuples, fetchPartitionRowsMulti AND-not-OR
+  + raised-cap pagination, all three new summarizers incl. the
+  FIRM-row-exclusion assertions, end-to-end refreshFinraAts incl. the
+  empty-tier-repoll behavior on a second run, transport-failure honesty).
+  `npm run build` — clean; `dist/datacore/manifests/` confirmed to
+  contain the 3 new files (R14 packaging lesson re-checked, not assumed).
+  `python3 -m pytest` — not runnable in this sandbox (no pytest
+  install, no network attempted); zero .py files touched, out of scope.
+  VISUAL VERIFICATION not applicable — zero client/ files touched.
+  Version 1.0.207 -> 1.0.208 (read-and-increment; confirmed against the
+  live GitHub API `main` HEAD — c0c8732/1.0.207 — immediately before
+  bumping, per the OPS GOTCHAS stale-cache lesson).
+- PROMOTION RULES: (1) tests pass; (2) new behavior has new tests (17,
+  above); (3) not a strategy/parameter change — RAW reference data, no
+  backtest required; (4) version bumped for code_version attribution
+  hygiene even though nothing here touches the trading path; (5) one
+  logical change (FINRA part 2's three datasets, one module, one route,
+  one PR) — the SHARED-file touches (routes.ts route registration,
+  package.json version, this research/ log + wishlist.md update) are the
+  small SHARED-file tail per WORKSTREAM PARTITION's merge-order protocol,
+  not a second logical change; (6) N/A, no client/ files.
+- HOUSEKEEPING NOTE (not actioned this PR, filed for the next session
+  that touches R5): open_questions.md's Everything Graph section (MAP V2
+  ROADMAP R5) still reads "NEXT (unclaimed): step (3) — the `/data`
+  graph panel" — that step shipped (client/src/pages/graph.tsx, wired at
+  #/data/graph) at some point after that note was written and the note
+  was never updated to reflect it. Low-stakes (append-only research docs
+  drift is expected) but worth a one-line correction next time R5 is
+  touched, to stop a future session from re-discovering "already done"
+  the hard way like this session did.
+- NEXT: still open per wishlist.md's DATACORE MAXIMUS block — USGS
+  quakes + NDBC buoys, SEC MIDAS census builds; EPA CAMD/ENTSO-E on
+  Mike's keys (9a/9c); a FINRA part 2 UI view once weeks of archive
+  accumulate; the settlement-stress composite [RESEARCH] item (separate,
+  unblocked, ingredients already recording).
+
 ## 2026-07-07 — [PRODUCT] Grid-stress descriptive dashboard surface — the A1 gate-2 FAIL path product, #/data/grid-stress (v1.0.191)
 
 - Territory: T-CLIENT (client/src/pages/gridstress.tsx, datamap.tsx launcher

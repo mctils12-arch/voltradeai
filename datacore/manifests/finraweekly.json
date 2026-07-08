@@ -1,0 +1,23 @@
+{
+ "stream": "finraweekly",
+ "storage": "one gzipped JSONL per composite key <weekStartDate>__<tierIdentifier> under <archive>/finraweekly/ (gz-on-write — a populated tier runs 60k-200k+ rows); partition-level dedup per (week, tier)",
+ "written_by": "server/finraQuery.ts refreshFinraAts (6h poll, newest 2 weekStartDate values × 4 tiers T1/T2/OTCE/NA — most tier/week combos are empty (204); no backfill built)",
+ "source": "FINRA Query API weeklySummary (api.finra.org, keyless; contract live-verified 2026-07-08). Composite-key partitions [weekStartDate, tierIdentifier]. Weekly per-firm and per-symbol OTC/ATS volume, published ~T+3 weeks. A populated tier can exceed 60k rows/partition — fetched with a raised page cap (ATS_MAX_PAGES=50, 250k-row ceiling), not the part-1 default.",
+ "license": "FINRA data, free with attribution; redistribution/resale of raw data needs FINRA license review before monetization",
+ "attribution": "FINRA Query API",
+ "schema_version": 1,
+ "field_map": {
+  "weekStartDate + tierIdentifier — partition/dedup key": "week (Monday) + tier (T1/T2/OTCE/NA — NMS Tier 1/2, OTC Equity, N/A)",
+  "summaryTypeCode": "granularity flag — *_SMBL_FIRM (per symbol per firm), *_SMBL (per symbol, all firms combined), *_FIRM (per firm, all symbols combined); ATS_ vs OTC_ prefix distinguishes venue type. Only *_SMBL rows are ranked (server-side) — mixing granularities double-counts volume.",
+  "issueSymbolIdentifier/issueName": "populated on *_SMBL(_FIRM) rows only; null on *_FIRM rows",
+  "totalWeeklyShareQuantity/totalWeeklyTradeCount/totalNotionalSum": "the volume figures",
+  "rt": "capture date stamped by us"
+ },
+ "confidence_model": "RAW official weekly ATS/OTC volume as disseminated by FINRA. No signal claim — a future settlement-stress or venue-concentration hypothesis is unstarted (gate 1 DATA only).",
+ "geo_fields": [],
+ "entity_key": "weekStartDate + tierIdentifier + summaryTypeCode + (issueSymbolIdentifier | MPID)",
+ "sentiment": null,
+ "started": "2026-07-08",
+ "cadence": "weekly source (published ~T+3 weeks); 6h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). Census build #4 part 2 of 2 (wishlist.md DATACORE MAXIMUS FINRA PART 2 DESIGN NOTES) — the weeklySummary leg."
+}
