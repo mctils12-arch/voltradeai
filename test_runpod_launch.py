@@ -65,6 +65,22 @@ def test_body_seconds_are_integers():
     assert "timeout 3600s" in b["dockerStartCmd"][2]
 
 
+def test_body_env_rides_the_pod_env_not_the_command():
+    # A secret the pod needs (e.g. a clone token) goes in the pod env, NOT baked
+    # into the (logged) dockerStartCmd string.
+    b = rl.build_create_body("j", "g", "i", "python t.py", 60, env={"GH_TOKEN": "s3cr3t"})
+    assert b["env"] == {"GH_TOKEN": "s3cr3t"}
+    assert "s3cr3t" not in b["dockerStartCmd"][2], "secret must not leak into the command string"
+
+
+def test_parse_env_pairs():
+    assert rl.parse_env_pairs(["K=V"]) == {"K": "V"}
+    assert rl.parse_env_pairs(["A=b=c"]) == {"A": "b=c"}, "split on FIRST '=' only"
+    assert rl.parse_env_pairs(["X=1", "Y=2"]) == {"X": "1", "Y": "2"}
+    assert rl.parse_env_pairs(["noeq", "", "=val", " K =v"]) == {"K": "v"}
+    assert rl.parse_env_pairs(None) == {}
+
+
 # --- watchdog_should_terminate ----------------------------------------------
 
 def test_watchdog_terminates_at_cap():
