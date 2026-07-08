@@ -26,6 +26,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { applyViewport } from "./viewport";
 
 /** The key env var accepts BOTH names: the module shipped reading
  *  NASA_FIRMS_MAP_KEY, but the human set the key in Railway as
@@ -258,6 +259,51 @@ let polling = false;
 
 export function latestFirms(): { at: number; detections: FireDetection[] } | null {
   return cache;
+}
+
+// [REPAIR 2026-07-08] the route used to slice(0, FIRES_SERVE_CAP) for the
+// served array but report `count: detections.length` (uncapped) — during a
+// busy global fire season the status pill could claim thousands more
+// detections than were actually drawn, a silent-cap honesty violation (the
+// exact "reliability BUG 2/3" class flagged in PR #372/#374). Fixed by
+// reusing the SCALE S1 applyViewport helper (server/viewport.ts) so a
+// caller-supplied bbox narrows to the visitor's current view FIRST (the
+// natural fix for a global feed, not just a truncation), and only capping
+// as a last-resort safety net — with the cap stated honestly, never folded
+// into `count`.
+export const FIRES_SERVE_CAP = 8000;
+
+export function buildFiresResponse(
+  detections: FireDetection[],
+  bboxStr: unknown,
+  atMs: number,
+  cap = FIRES_SERVE_CAP,
+): Record<string, unknown> {
+  const viewported = applyViewport(
+    { fires: detections },
+    bboxStr,
+    "fires",
+    (f: FireDetection) => [f.lon, f.lat],
+  );
+  let fires = viewported.fires as FireDetection[];
+  const preCapCount = fires.length;
+  const capped = preCapCount > cap;
+  if (capped) fires = fires.slice(0, cap);
+  return {
+    enabled: true,
+    kind: "raw",
+    source: "NASA FIRMS / LANCE — VIIRS 375m NRT (not for safety-of-life use)",
+    time: Math.floor(atMs / 1000),
+    count: fires.length,
+    total_detections: detections.length,
+    ...(viewported.viewport_filtered ? {
+      viewport_filtered: true,
+      count_before_viewport: viewported.count_before_viewport,
+      count_dropped_offscreen: viewported.count_dropped_offscreen,
+    } : {}),
+    ...(capped ? { capped: true, count_before_cap: preCapCount } : {}),
+    fires,
+  };
 }
 
 export async function refreshFirmsCache(env: NodeJS.ProcessEnv = process.env): Promise<void> {
