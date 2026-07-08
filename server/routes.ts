@@ -20,7 +20,8 @@ import {
   recentTrack, archiveStats,
 } from "./datacoreArchive";
 import { applyViewport } from "./viewport";
-import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger } from "./tiles3dBudget";
+import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
+import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
@@ -1119,6 +1120,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         budget: tiles3dBudgetStatus(loadTiles3dLedger(), Date.now()),
       });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // 3D Tiles ROOT — the one BILLABLE request (starts a session). Key-gated,
+  // guard-gated (authorizeRoot refuses past the daily/monthly free-tier cap), and
+  // ledgered on success. Returns Google's tileset JSON; the client's loader then
+  // fetches children through /proxy (below), so the key never leaves the server.
+  app.get("/api/data/3dtiles/root", async (_req, res) => {
+    const key = (process.env.GOOGLE_MAPS_API_KEY || "").trim();
+    if (!key) return res.status(503).json({ enabled: false, awaiting_key: true, error: "GOOGLE_MAPS_API_KEY not set" });
+    const decision = tiles3dAuthorizeRoot(loadTiles3dLedger(), Date.now());
+    if (!decision.authorized) return res.status(429).json({ error: decision.detail, reason: decision.reason, budget: decision });
+    try {
+      const r = await fetch(tiles3dWithKey(TILES3D_ROOT_URL, key), { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return res.status(502).json({ error: `google 3dtiles root ${r.status}` });
+      const json = await r.json();
+      tiles3dRecordRoot(Date.now(), "root"); // ledger only on a real, successful spend
+      res.json(json);
+    } catch (e: any) { res.status(502).json({ error: e?.message || "root fetch failed" }); }
+  });
+
+  // 3D Tiles CHILD PROXY — free within the session. Streams a Google 3D-tiles
+  // child (json/glTF/glb) with the key appended server-side. Tight allowlist
+  // (is3dTilesUrl) so this can never become an open proxy / SSRF vector.
+  app.get("/api/data/3dtiles/proxy", async (req, res) => {
+    const key = (process.env.GOOGLE_MAPS_API_KEY || "").trim();
+    if (!key) return res.status(503).end();
+    const u = String(req.query.u || "");
+    if (!is3dTilesUrl(u)) return res.status(400).json({ error: "url not allowed" });
+    try {
+      const r = await fetch(tiles3dWithKey(u, key), { signal: AbortSignal.timeout(20000) });
+      if (!r.ok) return res.status(502).end();
+      res.setHeader("content-type", r.headers.get("content-type") || "application/octet-stream");
+      res.setHeader("cache-control", "public, max-age=3600");
+      res.end(Buffer.from(await r.arrayBuffer()));
+    } catch { res.status(502).end(); }
   });
 
   // Streams inventory (DATACORE MAXIMUS Phase 4, 2026-07-06): one call =
