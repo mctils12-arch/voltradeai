@@ -20,6 +20,7 @@ import {
   recentTrack, archiveStats,
 } from "./datacoreArchive";
 import { applyViewport } from "./viewport";
+import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger } from "./tiles3dBudget";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
@@ -1098,6 +1099,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Archive growth observability (volume watch — see wishlist).
   app.get("/api/data/archive/stats", (_req, res) => {
     try { res.json(archiveStats()); } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Google Photorealistic 3D Tiles cost-guard status (worldview-globe G3). Safe,
+  // NO-SPEND: reports the daily/monthly root-request budget so the client and a
+  // health check can see headroom before 3D mode is ever activated. The actual
+  // key-holding root proxy (which spends a billable root request) ships WITH the
+  // deck.gl deep-zoom client, gated by authorizeRoot() — same discipline as the
+  // RunPod budget shipping before the launcher.
+  app.get("/api/data/3dtiles/status", (_req, res) => {
+    try {
+      const keyed = !!(process.env.GOOGLE_MAPS_API_KEY || "").trim();
+      res.json({
+        enabled: keyed,
+        awaiting_key: !keyed,
+        note: keyed
+          ? "3D Tiles available; activates only at deep zoom, root requests capped in the free tier"
+          : "GOOGLE_MAPS_API_KEY not set — 3D Tiles inactive",
+        budget: tiles3dBudgetStatus(loadTiles3dLedger(), Date.now()),
+      });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
   // Streams inventory (DATACORE MAXIMUS Phase 4, 2026-07-06): one call =
