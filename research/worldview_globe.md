@@ -131,9 +131,18 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
 - G2d Drought/soil-moisture `SMAP_L4_Analyzed_Root_Zone_Soil_Moisture`,
   `GRACE_..._Mascon_CRI`. Hypothesis: basin drought = ag-yield-down + hydro-down +
   barge-draft → ag futures, hydro utilities, inland shipping.
-- G2e Vegetation `MODIS_Terra_L3_NDVI_16Day` / `VIIRS_SNPP_NDVI_8Day`; disturbance
-  `OPERA_L3_DIST-ALERT-HLS_Color_Index`. Hypothesis: NDVI anomaly over crop belt =
-  yield → CBOT corn/soy/wheat; disturbance clusters → palm/pulp/miner concessions.
+- [SHIPPED v1.0.229] G2e Vegetation `VIIRS_SNPP_NDVI_8Day` (PNG,
+  `GoogleMapsCompatible_Level8`, 8-day composite — access + non-blank LAND
+  coverage re-verified live 2026-07-08: a yesterday request returns the current
+  composite, US/N.America tile 41% coverage, ocean legitimately transparent).
+  Registry `vegetation` (RAW, field:true, environmental); same gibs.ts factory +
+  dated-scrubber mirror (Leaf icon). Hypothesis (Pillar 6): NDVI anomaly over a
+  named crop belt = yield proxy → CBOT corn/soy/wheat; filed open_questions.md
+  with prior (seasonal/weather-confounded → residual is anomaly-vs-crop-calendar),
+  ladder path (gate-2 blocked on an NDVI archive over crop-belt polygons + a
+  planting-calendar baseline). Still-open: `MODIS_Terra_L3_NDVI_16Day` variant
+  and disturbance `OPERA_L3_DIST-ALERT-HLS_Color_Index` (palm/pulp/miner
+  concessions) as future adds.
 - G2f Floods `OPERA_L3_Dynamic_Surface_Water_Extent-HLS`, `MODIS_Combined_Flood_3-Day`.
   Hypothesis: flood over industrial parks/ports/farmland → insurers, auto/semi
   plants, acreage loss.

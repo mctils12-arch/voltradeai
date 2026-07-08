@@ -13,6 +13,43 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PRODUCT] G2e vegetation NDVI GIBS layer + crop-yield hypothesis (v1.0.229)
+
+TERRITORY: T-CLIENT (datamap.tsx, one dated GIBS raster layer) + SHARED
+minimal last (package.json 1.0.229 read-and-incremented after #389's 1.0.228;
+datacore/layers.json; scripts/visual_check.mjs; research/*). Solo, no
+concurrent GIBS session. Continuation of the same session that shipped G2c
+(#389) — each GIBS layer is a DISTINCT hypothesis + distinct real data, so
+this is genuine platform expansion (mission priority 3/4), not churn: night
+lights (radiance→regional economy), AOD (haze→industrial output), NDVI
+(greenness→crop yield) are three different observables, not the same layer
+recolored.
+
+- WHAT: registry `vegetation` (RAW, field:true, environmental) + a datamap
+  effect mirroring the aerosol/night-lights layer (VIIRS_SNPP_NDVI_8Day, PNG,
+  GoogleMapsCompatible_Level8, maxzoom 8, opacity slider, own date scrubber,
+  legend, Leaf icon).
+- VERIFICATION (verify-live discipline): the NDVI product is an 8-DAY
+  COMPOSITE, not true-daily, so I did NOT assume the yesterday-default works —
+  I tested it: a 2026-07-07 request returns the current composite, and
+  land tiles are non-blank (US/N.America 41%, Eurasia 24%) while ocean tiles
+  are legitimately 0% (NDVI is a land-vegetation index). Wiring ratchet PASS;
+  tsc unchanged baseline (zero new); client Vite + server esbuild build clean.
+  Visual harness times out under SwiftShader + external GIBS tiles don't load
+  offline → live render confirmable only on prod; low risk (line-for-line
+  mirror of two already-live GIBS layers + live-verified tile URL).
+- HYPOTHESIS (Pillar 6, open_questions.md): NDVI anomaly over a named crop belt
+  = yield proxy → CBOT corn/soy/wheat. PRIOR: THE most-mined satellite-ag
+  signal, so LOW prior on new alpha (discounted per STANDARD #4/#5); residual —
+  if any — is de-seasonalized anomaly vs. a crop-calendar baseline + tight
+  regional windows + pairing with our own facility archive, not the level.
+  RAW, no predictive claim; gate 2 blocked on an NDVI archive over crop-belt
+  polygons + a planting-calendar baseline. CROSS-TIE: NDVI × (future) drought/
+  soil-moisture × river-gauge barge-draft = a coherent RAW ag-supply-chain view
+  over one geography.
+- No backtest (display-only RAW layer, no signal, no trading path). Anti-churn:
+  one logical change, own PR, own tag.
+
 ## 2026-07-08 — [PRODUCT] G2c aerosol optical depth GIBS layer + AOD×facility cross-tie hypothesis (v1.0.228)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, one new dated-daily GIBS
