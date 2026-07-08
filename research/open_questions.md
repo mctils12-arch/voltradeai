@@ -675,6 +675,23 @@
   squash-merged PRs; scheduled sessions (fresh branch each run) are immune,
   interactive sessions must reset the branch onto main after each merge.
 
+- **RECURRENCE 2026-07-08, two instances found in one routine sweep**: #379
+  (globe 3D terrain, opened 2026-07-08) and #350 (satellite orbits layer,
+  opened 2026-07-07) were BOTH `mergeable_state: "dirty"` with
+  `get_status total_count: 0` (zero CI checks ever ran) — confirming this
+  gotcha isn't a one-off. #379 rescued this session (rebuilt cleanly onto
+  current main, re-verified fresh, PR #386; #379 and the now-confirmed-
+  redundant #343 both closed with pointer comments). **#350 STILL NEEDS
+  THE SAME RESCUE** — not done this session (one logical change per PR).
+  Its diff is small enough to reapply directly from `pull_request_read
+  get_diff` on #350 (`client/src/lib/satelliteOrbits.ts` new file +
+  `datamap.tsx` layer wiring + `datacore/layers.json` + `LAYER_GROUP`
+  fixture) — check `datamap.tsx`'s current satellites-layer state first in
+  case a concurrent session already built an equivalent client half before
+  rescuing (avoid the double-build gotcha above). Its live effect stays
+  muted regardless (CelesTrak firewalled from Railway per R17) so it is
+  not urgent, just queued.
+
 ## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
 
 All EDGE-DOCTRINE data pipelines live in datacore/ with no imports from or
