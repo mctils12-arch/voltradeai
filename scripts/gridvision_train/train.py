@@ -1,0 +1,413 @@
+#!/usr/bin/env python3
+"""train.py — GRID VISION tower-detector v0 ON-POD training entrypoint.
+
+Runs on a RunPod GPU pod (image runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-
+ubuntu22.04). Fine-tunes an Ultralytics YOLOv8 detector from COCO-pretrained
+weights on the CC-BY ETDII US TOWER labels, downsampled to 0.60 m GSD to match
+NAIP, then pushes weights + metrics off the ephemeral pod.
+
+  full pipeline:  pip-bootstrap -> fetch ETDII US zips -> build YOLO dataset (B)
+                  -> [optional] materialize NAIP chips (A) -> train -> write-back (D)
+
+HONEST v0 SCOPE (research/grid_vision_phaseb.md, pre-stated prior): TOWER ONLY.
+1408 clean US towers; 6 substations is NOT a trainable class, so substation is
+excluded (never blended in). Pre-stated prior: tower AP50 0.55-0.75 @0.6 m (below
+the 0.73 @0.3 m bar — we train/infer at 2x coarser GSD on 2 US regions). This
+script does not judge the result; it produces it and reports metrics honestly.
+
+LICENSE FLAG (surfaced, must reach the human — this is stricter than the phase-B
+note assumed): Ultralytics YOLOv8 CODE and its COCO-pretrained weights are
+AGPL-3.0 (network copyleft), NOT the CC-BY-SA the phase-B weights-hygiene note
+assumed for a Detectron2 starter. Under AGPL, SERVING detections from a
+YOLOv8-derived model can trigger source-disclosure obligations. The fine-tuned
+weights stay INTERNAL regardless (research/grid_vision_phaseb.md). If the plan is
+to SELL served detections, a permissively-licensed detector (Detectron2 code is
+Apache-2.0; PI-Detection MIT starter) is the clean-commercial path — a human
+decision, flagged here, not silently taken.
+
+----------------------------------------------------------------------------
+ON-POD BOOTSTRAP RECIPE (F) — what the pod runs; no Dockerfile needed because the
+base image already carries CUDA + torch 2.1. The launcher's --cmd wraps this in an
+in-pod `timeout <cap>s` (scripts/runpod_launch.py build_create_body):
+
+    cd /workspace && \
+    git clone --depth 1 --branch claude/gridvision-train-container \
+        https://github.com/<owner>/voltradeai.git repo && \
+    cd repo && \
+    python3 scripts/gridvision_train/train.py --epochs 60 --imgsz 512 \
+        --model yolov8n.pt --out /workspace/gv_out
+
+(train.py pip-installs ultralytics + rasterio + pillow itself on first run, so the
+--cmd can also be just the clone + train.py call. The repo is public-cloneable; if
+private, pass a token via the pod env — BLOCKED-FOR-MIKE. Simplest keyless path:
+the launcher --cmd curls this repo's tarball for the branch instead of git+token.)
+----------------------------------------------------------------------------
+
+CLI:
+  # provable-wired, CPU, NO GPU / rasterio / ultralytics needed:
+  python3 scripts/gridvision_train/train.py --dry-run
+  # real (on the pod):
+  python3 scripts/gridvision_train/train.py --epochs 60 --out /workspace/gv_out
+"""
+import argparse
+import json
+import os
+import sys
+import zipfile
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)                              # sibling train modules
+sys.path.insert(0, os.path.dirname(_HERE))             # scripts/ (gridvision_etdii, _naip_stac)
+
+import cog_reader                # noqa: E402  pure geometry (rasterio guarded inside)
+import etdii_to_yolo as e2y      # noqa: E402  pure conversion
+import weight_sink               # noqa: E402  pure parsing + guarded upload
+import gridvision_etdii as etdii  # noqa: E402  reuse the verified parser
+
+# ETDII US zips (figshare 14935434 v2) — file ids VERIFIED 2026-07-07.
+ETDII_US_FILE_IDS = {"USA_AZ_Tucson": 28887792, "USA_KS_Colwich_Maize": 28887795}
+ETDII_NDOWNLOAD = "https://ndownloader.figshare.com/files/{fid}"
+ETDII_NATIVE_GSD = 0.30
+TARGET_GSD = 0.60
+IMG_EXTS = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
+
+
+# ── pip bootstrap (on-pod) ──────────────────────────────────────────────────
+
+def pip_bootstrap(packages=("ultralytics", "rasterio", "pillow")):
+    """Install on-pod deps. On-pod only; skipped by --dry-run. Kept here so the
+    container needs no custom image."""
+    import subprocess
+    print(f"[train] pip installing {packages} ...", flush=True)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", *packages])
+
+
+# ── fetch ETDII US zips (on-pod) ────────────────────────────────────────────
+
+def fetch_etdii_us(dest_dir):
+    """Download the two ETDII US zips to dest_dir -> {city: zip_path}. On-pod
+    (network). Uses stdlib urllib; ~220 MB total."""
+    import urllib.request
+    os.makedirs(dest_dir, exist_ok=True)
+    paths = {}
+    for city, fid in ETDII_US_FILE_IDS.items():
+        out = os.path.join(dest_dir, f"etdii_{city}_{fid}.zip")
+        if not os.path.exists(out):
+            url = ETDII_NDOWNLOAD.format(fid=fid)
+            print(f"[train] fetching {city} ({url}) ...", flush=True)
+            req = urllib.request.Request(url, headers={"User-Agent": weight_sink.UA})
+            with urllib.request.urlopen(req, timeout=300) as r, open(out, "wb") as f:
+                f.write(r.read())
+        paths[city] = out
+    return paths
+
+
+# ── build the YOLO dataset (on-pod: unzip + read dims + resize + write) ──────
+
+def _index_zip_images(names):
+    """Map an image STEM -> its path inside the zip, for sibling-of-geojson lookup.
+    Pure helper (list of names in -> dict out)."""
+    idx = {}
+    for name in names:
+        stem, ext = os.path.splitext(os.path.basename(name))
+        if ext.lower() in IMG_EXTS:
+            idx.setdefault(stem, name)
+    return idx
+
+
+def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",)):
+    """Unzip ETDII US, convert each image's geojson -> YOLO labels (downsampled to
+    0.60 m), split train/val deterministically, write images/ + labels/ +
+    data.yaml. On-pod (needs PIL to read+resize imagery). Returns a summary dict.
+
+    Honest unknown surfaced at runtime: the exact IMAGE filename convention inside
+    the ETDII zips is verified ON-POD (the session could not download the 100 MB+
+    zips). This matches every image geojson to a sibling raster by STEM across
+    common extensions; images with no sibling raster are counted + skipped, never
+    guessed."""
+    from PIL import Image  # on-pod pip dep
+
+    img_train = os.path.join(out_root, "images", "train")
+    img_val = os.path.join(out_root, "images", "val")
+    lbl_train = os.path.join(out_root, "labels", "train")
+    lbl_val = os.path.join(out_root, "labels", "val")
+    for d in (img_train, img_val, lbl_train, lbl_val):
+        os.makedirs(d, exist_ok=True)
+
+    factor = cog_reader.downsample_factor(ETDII_NATIVE_GSD, TARGET_GSD)  # 2.0
+
+    # first pass: collect per-image geojson + sibling image across all zips
+    per_image = {}  # stem -> {"gj": records, "img_name": ..., "zip": path}
+    skipped_no_image = 0  # geojsons with no sibling raster — counted, never guessed
+    for zpath in zip_paths.values():
+        with zipfile.ZipFile(zpath) as z:
+            names = z.namelist()
+            img_idx = _index_zip_images(names)
+            for name in names:
+                if not name.endswith(".geojson"):
+                    continue
+                stem = os.path.splitext(os.path.basename(name))[0]
+                img_name = img_idx.get(stem)
+                if img_name is None:
+                    skipped_no_image += 1  # no raster for this geojson -> cannot train on it
+                    continue
+                try:
+                    gj = json.loads(z.read(name))
+                except (ValueError, KeyError):
+                    continue
+                recs = etdii.parse_geojson(gj, "ETDII", "CC BY 4.0")
+                per_image[stem] = {"records": recs, "img_name": img_name, "zip": zpath}
+
+    train_ids, val_ids = e2y.train_val_split(list(per_image.keys()), val_frac)
+    split_of = {i: "train" for i in train_ids}
+    split_of.update({i: "val" for i in val_ids})
+
+    written = {"train": 0, "val": 0}
+    boxes = {"train": 0, "val": 0}
+    for stem, info in per_image.items():
+        split = split_of[stem]
+        with zipfile.ZipFile(info["zip"]) as z:
+            raw = z.read(info["img_name"])
+        import io
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+        w0, h0 = im.size
+        ow, oh = e2y.downsample_image_dims(w0, h0, factor)
+        im = im.resize((ow, oh), Image.BILINEAR)
+        # labels are normalized => computed against ORIGINAL dims == resized dims
+        lines = e2y.records_to_yolo_lines(info["records"], w0, h0, keep_classes)
+        img_dir = img_train if split == "train" else img_val
+        lbl_dir = lbl_train if split == "train" else lbl_val
+        im.save(os.path.join(img_dir, stem + ".png"))
+        with open(os.path.join(lbl_dir, stem + ".txt"), "w") as f:
+            f.write("\n".join(lines) + ("\n" if lines else ""))
+        written[split] += 1
+        boxes[split] += len(lines)
+
+    ymap = e2y.data_yaml_dict(out_root, e2y.CLASS_NAMES)
+    yaml_path = os.path.join(out_root, "data.yaml")
+    with open(yaml_path, "w") as f:
+        f.write(e2y.dump_simple_yaml(ymap))
+
+    return {"data_yaml": yaml_path, "images": written, "boxes": boxes,
+            "n_images": len(per_image), "skipped_no_image": skipped_no_image,
+            "downsample_factor": factor, "classes": e2y.CLASS_NAMES}
+
+
+# ── optional: materialize NAIP chips for the OSM-weak-label augmentation (A) ─
+
+def materialize_naip_chips(chip_index_path, out_dir, limit=None, target_gsd=TARGET_GSD):
+    """Stream NAIP COG windows for chips in a chip index (gridvision_chips output)
+    and save them as PNGs. On-pod (rasterio inside cog_reader.read_cog_window).
+    OPTIONAL and OFF by default for v0: OSM tower seeds are the documented Phase-B
+    gap (build_power_tiles.sh omits power=tower) and OSM boxes are point-weak, so
+    v0 trains on ETDII labels; this path exists so the COG reader is real and can
+    feed later weak-label / domain-adaptation experiments and inference."""
+    import gridvision_naip_stac as naip
+    from PIL import Image
+    import numpy as np
+
+    os.makedirs(out_dir, exist_ok=True)
+    with open(chip_index_path) as f:
+        idx = json.load(f)
+    chips = idx.get("chips", [])
+    if limit:
+        chips = chips[:limit]
+    made, failed = 0, 0
+    for i, chip in enumerate(chips):
+        try:
+            items, _ = naip.search(chip["chip_bbox"], *idx["meta"]["naip_date_window"], limit=10)
+            best = naip.best_item(items)
+            if not best:
+                failed += 1
+                continue
+            signed, _ = naip.sign_href(best["image_href"])
+            arr, meta = cog_reader.read_cog_window(signed, chip["chip_bbox"], target_gsd)
+            if arr is None:
+                failed += 1
+                continue
+            rgb = np.transpose(arr, (1, 2, 0)).astype("uint8")
+            Image.fromarray(rgb).save(os.path.join(out_dir, f"chip_{i}_{chip.get('osm_id','x')}.png".replace("/", "_")))
+            made += 1
+        except Exception as e:
+            print(f"[train] chip {i} failed: {e}", flush=True)
+            failed += 1
+    return {"chips_made": made, "chips_failed": failed, "chips_total": len(chips)}
+
+
+# ── training (on-pod: ultralytics) ──────────────────────────────────────────
+
+def run_training(data_yaml, out_root, epochs=60, imgsz=512, model="yolov8n.pt", device=0):
+    """Fine-tune Ultralytics YOLO from COCO weights. On-pod. Returns
+    (best_weights_path, metrics dict). Small epoch budget so a 2-region tower set
+    finishes well inside the 4 h cap on a 4090."""
+    from ultralytics import YOLO
+    yolo = YOLO(model)  # COCO-pretrained
+    results = yolo.train(data=data_yaml, epochs=epochs, imgsz=imgsz, device=device,
+                         project=out_root, name="tower_v0", exist_ok=True,
+                         verbose=True)
+    # locate best.pt
+    save_dir = getattr(results, "save_dir", os.path.join(out_root, "tower_v0"))
+    best = os.path.join(str(save_dir), "weights", "best.pt")
+    metrics = {}
+    try:
+        rd = getattr(results, "results_dict", {}) or {}
+        # normalize the common Ultralytics metric keys to friendly names
+        metrics = {
+            "map50": rd.get("metrics/mAP50(B)"),
+            "map50_95": rd.get("metrics/mAP50-95(B)"),
+            "precision": rd.get("metrics/precision(B)"),
+            "recall": rd.get("metrics/recall(B)"),
+            "raw": rd,
+        }
+    except Exception as e:
+        metrics = {"error": f"metric extraction failed: {e!r}"}
+    return best, metrics
+
+
+# ── dry-run (E): CPU, no GPU / rasterio / ultralytics ───────────────────────
+
+def dry_run():
+    """Exercise the WHOLE wiring on CPU with stdlib + repo pure modules only — no
+    training, no GPU, no rasterio, no ultralytics. Proves the container is wired
+    before a GPU dollar is spent. Returns a summary dict (also printed as JSON)."""
+    report = {"dry_run": True, "checks": []}
+
+    def check(name, ok, detail=""):
+        report["checks"].append({"name": name, "ok": bool(ok), "detail": detail})
+        return ok
+
+    # 1) the real labels manifest parses and carries the verified 1408/6 counts
+    manifest_path = os.path.join(os.path.dirname(_HERE), "..", "datacore",
+                                 "gridvision", "labels_manifest.json")
+    towers = subs = None
+    try:
+        with open(manifest_path) as f:
+            man = json.load(f)
+        head = man["composition_headline"]["clean_us_labels_available_now"]
+        towers, subs = head["tower"], head["substation"]
+    except Exception as e:
+        check("labels_manifest", False, f"read failed: {e!r} (regenerate with "
+              "gridvision_etdii.py --write-manifest)")
+    else:
+        check("labels_manifest", towers == 1408 and subs == 6,
+              f"clean US labels tower={towers} substation={subs} (expect 1408/6)")
+
+    # 2) build a tiny YOLO dataset structure from a synthetic ETDII-shaped sample
+    #    (reuses the REAL parser + the REAL converter, just no image bytes)
+    sample = {"type": "FeatureCollection", "features": [
+        {"type": "Feature",
+         "geometry": {"type": "Polygon", "coordinates": [[[-110.9, 32.0], [-110.9, 32.001],
+                      [-110.899, 32.001], [-110.899, 32.0], [-110.9, 32.0]]]},
+         "properties": {"label": "T", "filename": "USA_AZ_Tucson_1.geojson",
+                        "country": "USA", "city/state": "AZ",
+                        "pixel_coordinates": [[100, 100], [100, 148], [148, 148], [148, 100]]}},
+        {"type": "Feature",  # a substation: in-scope but excluded from tower-v0 dataset
+         "geometry": {"type": "Polygon", "coordinates": [[[-110.8, 32.1], [-110.8, 32.11],
+                      [-110.79, 32.11], [-110.79, 32.1], [-110.8, 32.1]]]},
+         "properties": {"label": "SS", "filename": "USA_AZ_Tucson_1.geojson",
+                        "country": "USA", "pixel_coordinates": [[10, 10], [10, 60], [60, 60], [60, 10]]}},
+        {"type": "Feature",  # a line: out of scope, must not become a box
+         "geometry": {"type": "LineString", "coordinates": [[-110.0, 32.0], [-110.0, 32.01]]},
+         "properties": {"label": "L", "filename": "USA_AZ_Tucson_1.geojson", "country": "USA"}},
+    ]}
+    recs = etdii.parse_geojson(sample, "ETDII", "CC BY 4.0")
+    by_img = e2y.group_records_by_image(recs)
+    img_w, img_h = 512, 512
+    lines = e2y.records_to_yolo_lines(by_img["USA_AZ_Tucson_1.geojson"], img_w, img_h)
+    # exactly ONE tower box; substation + line excluded from tower-v0
+    check("yolo_conversion", len(lines) == 1 and lines[0].startswith("0 "),
+          f"lines={lines}")
+
+    # 3) downsample invariance: normalized YOLO label is identical at 0.30 and 0.60 m
+    factor = cog_reader.downsample_factor(ETDII_NATIVE_GSD, TARGET_GSD)
+    ow, oh = e2y.downsample_image_dims(img_w, img_h, factor)
+    line_ds = e2y.pixel_bbox_to_yolo_line(
+        [v / factor for v in [100, 100, 148, 148]], ow, oh, 0)
+    check("downsample_invariance", line_ds == lines[0],
+          f"factor={factor} dims={ow}x{oh} native='{lines[0]}' downsampled='{line_ds}'")
+
+    # 4) train/val split determinism
+    ids = [f"img_{i}" for i in range(50)]
+    tr1, va1 = e2y.train_val_split(ids, 0.2)
+    tr2, va2 = e2y.train_val_split(list(reversed(ids)), 0.2)
+    check("split_determinism", (tr1, va1) == (tr2, va2) and 0 < len(va1) < len(ids),
+          f"train={len(tr1)} val={len(va1)} (stable under input reorder)")
+
+    # 5) pure COG window geometry (no rasterio): a north-up UTM-like transform
+    transform = cog_reader.north_up_transform(500000.0, 3550000.0, 0.6)  # 0.6 m pixels
+    win = cog_reader.pixel_window_from_bounds(
+        500100.0, 3549700.0, 500300.0, 3550000.0, transform, raster_size=(10000, 10000))
+    out_shape = cog_reader.out_shape_for_window(win[2], win[3], factor)
+    check("cog_window_geometry", win[2] > 0 and win[3] > 0 and out_shape[0] > 0,
+          f"window(col,row,w,h)={win} out_shape@0.6m={out_shape}")
+
+    # 6) data.yaml serializes as a single-class 'tower' dataset
+    ytxt = e2y.dump_simple_yaml(e2y.data_yaml_dict("/tmp/ds"))
+    check("data_yaml", "names: ['tower']" in ytxt and "nc: 1" in ytxt, ytxt.strip())
+
+    # 7) weight-sink URL parsing (no network)
+    url = weight_sink.parse_upload_url("https://0x0.st/abcd.pt\n")
+    check("weight_sink_parse", url == "https://0x0.st/abcd.pt", f"url={url}")
+
+    report["ok"] = all(c["ok"] for c in report["checks"])
+    report["summary"] = {"manifest_tower": towers, "manifest_substation": subs,
+                         "tower_boxes_from_sample": len(lines),
+                         "downsample_factor": factor}
+    return report
+
+
+# ── main ────────────────────────────────────────────────────────────────────
+
+def run_full(args):
+    """The real on-pod pipeline. Everything heavy is imported inside the callees."""
+    pip_bootstrap()
+    work = args.out
+    os.makedirs(work, exist_ok=True)
+    zips = fetch_etdii_us(os.path.join(work, "etdii"))
+    ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac)
+    print("[train] dataset:", json.dumps(ds), flush=True)
+    if args.chip_index:
+        chip_report = materialize_naip_chips(
+            args.chip_index, os.path.join(work, "naip_chips"), limit=args.chip_limit)
+        print("[train] naip chips:", json.dumps(chip_report), flush=True)
+    best, metrics = run_training(ds["data_yaml"], work, epochs=args.epochs,
+                                 imgsz=args.imgsz, model=args.model)
+    # write-back (D): push weights out + ALWAYS print metrics to stdout
+    sink = {"ok": False, "url": None, "note": "no best.pt found"}
+    if best and os.path.exists(best):
+        sink = weight_sink.upload_weight(best)
+        print("[train] weight upload:", json.dumps(sink), flush=True)
+    else:
+        print("[train] WARNING: best.pt not found; metrics-only survival.", flush=True)
+    # the single machine-parseable survival line (metrics survive even if upload failed)
+    print(weight_sink.result_line(metrics, weight_url=sink.get("url"),
+                                  extra={"dataset": ds, "weight_sink": sink}), flush=True)
+    return 0
+
+
+def build_parser():
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--dry-run", action="store_true",
+                   help="CPU-only wiring proof: no GPU/rasterio/ultralytics, no training")
+    p.add_argument("--epochs", type=int, default=60)
+    p.add_argument("--imgsz", type=int, default=512)
+    p.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starter")
+    p.add_argument("--val-frac", dest="val_frac", type=float, default=0.2)
+    p.add_argument("--out", default="/workspace/gv_out", help="pod work/output dir")
+    p.add_argument("--chip-index", default=None,
+                   help="optional gridvision_chips index JSON -> materialize NAIP chips (A)")
+    p.add_argument("--chip-limit", type=int, default=None)
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    if args.dry_run:
+        report = dry_run()
+        print(json.dumps(report, indent=2))
+        sys.exit(0 if report["ok"] else 1)
+    sys.exit(run_full(args))
+
+
+if __name__ == "__main__":
+    main()
