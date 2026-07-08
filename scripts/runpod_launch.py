@@ -75,8 +75,17 @@ def build_create_body(
 ):
     """Pure: the POST /pods body. The training command is wrapped in an in-pod
     `timeout <max_seconds>s` so the job self-kills even if the watchdog dies —
-    the second half of the cost cap. Never includes the API key."""
-    wrapped = f"timeout {int(max_seconds)}s {train_cmd}"
+    the second half of the cost cap. Never includes the API key.
+
+    COST-CAP SAFETY (repair): the whole train_cmd is handed to `timeout` as a
+    SINGLE `bash -lc <quoted>` argument, so `timeout` bounds the ENTIRE command
+    tree. Without this, a chained command — `a && b && c` — parses as
+    `(timeout Ns a) && b && c`: timeout bounds only `a`, and `b`/`c` run
+    UNBOUNDED, silently defeating the in-pod half of the cost cap. Quoting via
+    shlex keeps the chain intact as one bounded unit. (The wall-clock watchdog
+    DELETE remains the PRIMARY enforcer; this is the belt-and-suspenders backup,
+    and it now actually holds for chained commands.)"""
+    wrapped = f"timeout {int(max_seconds)}s bash -lc {shlex.quote(train_cmd)}"
     body = {
         "name": name,
         "gpuTypeIds": [gpu],
