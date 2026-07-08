@@ -29,6 +29,11 @@ import { mmsiFlag } from "@/lib/mmsiFlag";
 import { SatLayer } from "@/lib/orbital/satLayer";
 import { fetchGp, type GpRecord } from "@/lib/orbital/tle";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
+// Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
+// orbital_sats) had no fetch timeout and no retry — one stalled/failed request
+// left them spinning or dead until a manual toggle. runResilientLoad adds a hard
+// timeout + auto-retry backoff so a transient blip self-heals.
+import { runResilientLoad } from "@/lib/resilientLoad";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
@@ -798,27 +803,21 @@ export default function DataMapPage() {
       return;
     }
 
-    let cancelled = false;
     setStatus("orbital_sats", "loading", undefined, "fetching orbital elements (CelesTrak)…");
 
-    (async () => {
-      let gp: GpRecord[];
-      try {
+    // Resilient fetch+init: a CelesTrak stall/blip now retries automatically with
+    // backoff instead of leaving the layer dead until a manual toggle (BUG 1). The
+    // timeout signal is threaded into fetchGp's fetchImpl so a hung request aborts.
+    const stopLoad = runResilientLoad(
+      async (signal) => {
         const fixture = (window as any).__vtOrbitalGpFixture;
-        gp = Array.isArray(fixture) && fixture.length
+        const gp: GpRecord[] = Array.isArray(fixture) && fixture.length
           ? (fixture as GpRecord[])
-          : await fetchGp("active");
-      } catch {
-        if (!cancelled) setStatus("orbital_sats", "error", undefined,
-          "could not reach CelesTrak — toggle off/on to retry");
-        return;
-      }
-      if (cancelled) return;
-      if (!gp.length) {
-        setStatus("orbital_sats", "error", undefined, "no orbital elements returned");
-        return;
-      }
-      try {
+          : await fetchGp("active", (url: string) => fetch(url, { signal }) as any);
+        if (signal.aborted) return;
+        if (!gp.length) throw new Error("no orbital elements returned");
+        if (satWorkerRef.current) return; // already initialized — don't double-add
+
         const layer = new SatLayer({ id: "orbital_sats" });
         satLayerRef.current = layer;
         map.addLayer(layer);
@@ -843,14 +842,12 @@ export default function DataMapPage() {
         };
         worker.postMessage({ type: "init", gp });
         worker.postMessage({ type: "start", hz: 1 });
-      } catch {
-        if (!cancelled) setStatus("orbital_sats", "error", undefined,
-          "satellite layer failed to initialize");
-        teardown();
-      }
-    })();
+      },
+      (failures) => setStatus("orbital_sats", "error", undefined,
+        failures === 0 ? "could not reach CelesTrak — retrying automatically…" : "still retrying automatically…"),
+    );
 
-    return () => { cancelled = true; teardown(); };
+    return () => { stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // ── country borders (RAW; Natural Earth 1:110m admin-0, PUBLIC DOMAIN —
@@ -868,14 +865,13 @@ export default function DataMapPage() {
       setStatus("boundaries", "off");
       return;
     }
-    let stop = false;
-    (async () => {
-      setStatus("boundaries", "loading");
-      try {
-        const r = await fetch("/api/data/boundaries");
+    setStatus("boundaries", "loading");
+    return runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/boundaries", { signal });
         if (!r.ok) throw new Error(String(r.status));
         const d = await r.json();
-        if (stop) return;
+        if (signal.aborted) return;
         if (!map.getSource("ne-boundaries")) {
           map.addSource("ne-boundaries", { type: "geojson", data: d as any } as any);
         }
@@ -891,11 +887,10 @@ export default function DataMapPage() {
         }
         setStatus("boundaries", "active", d?.features?.length,
           "1:110m generalized (Natural Earth, public domain) — reference, not survey-grade");
-      } catch {
-        if (!stop) setStatus("boundaries", "error");
-      }
-    })();
-    return () => { stop = true; };
+      },
+      (failures) => setStatus("boundaries", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
   }, [enabled.boundaries, mapReady, setStatus]);
 
   // ── power grid (RAW; OSM power features © OpenStreetMap contributors,
@@ -1563,12 +1558,14 @@ export default function DataMapPage() {
       return;
     }
     setStatus("sites", "loading");
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/data/sites");
+    return runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/sites", { signal });
+        if (!r.ok) throw new Error(String(r.status));
         const d = await r.json();
-        if (cancelled || !d.sites || map.getSource("sites")) return;
+        if (signal.aborted) return;
+        if (!d.sites) throw new Error("no sites in response");
+        if (map.getSource("sites")) return;
         const colors: Record<string, string> = {};
         const catLabels: Record<string, string> = {};
         Object.entries(d.categories || {}).forEach(([k, v]: any) => { colors[k] = v.color; catLabels[k] = v.label; });
@@ -1628,11 +1625,10 @@ export default function DataMapPage() {
         map.on("mouseenter", "sites-icons", () => { map.getCanvas().style.cursor = "pointer"; });
         map.on("mouseleave", "sites-icons", () => { map.getCanvas().style.cursor = ""; });
         setStatus("sites", "active", d.sites.length);
-      } catch {
-        if (!cancelled) setStatus("sites", "error");
-      }
-    })();
-    return () => { cancelled = true; };
+      },
+      (failures) => setStatus("sites", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
   }, [enabled.sites, mapReady, setStatus]);
 
   // ── US power plants (RAW; static reference data, WRI GPPD CC BY 4.0) ──
@@ -1653,12 +1649,14 @@ export default function DataMapPage() {
     }
     if (!mapSettled) { setStatus("powerplants", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("powerplants", "loading");
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/data/powerplants");
+    return runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/powerplants", { signal });
+        if (!r.ok) throw new Error(String(r.status));
         const d = await r.json();
-        if (cancelled || !d.plants || map.getSource("powerplants")) return;
+        if (signal.aborted) return;
+        if (!d.plants) throw new Error("no plants in response");
+        if (map.getSource("powerplants")) return;
         map.addSource("powerplants", {
           type: "geojson",
           cluster: true, clusterMaxZoom: 7, clusterRadius: 50,
@@ -1740,11 +1738,10 @@ export default function DataMapPage() {
         }
         setStatus("powerplants", "active", d.count ?? d.plants.length,
           `top ${d.verified_count ?? 100} by MW imagery-verified · rest approximate`);
-      } catch {
-        if (!cancelled) setStatus("powerplants", "error");
-      }
-    })();
-    return () => { cancelled = true; };
+      },
+      (failures) => setStatus("powerplants", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
   }, [enabled.powerplants, mapReady, mapSettled, setStatus]);
 
   // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
