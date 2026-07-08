@@ -13,6 +13,151 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [RESEARCH] COT gate-2 Newey-West HAC significance test — resolves the SLV/USO/TLT methodological finding (v1.0.221)
+
+TERRITORY: T-DATACORE-adjacent (cot_gate2_test.py / test_cot_gate2.py are
+root-level EDGE-DOCTRINE signal-validation scripts, not under datacore/,
+but same domain as cftc_cot.py) + SHARED minimal (package.json version,
+research/* — last commit per MERGE-ORDER PROTOCOL). Solo session, market
+hours (scheduled DAILY-adjacent routine) — PR held for after-hours merge
+per this run's instructions, not a live break.
+
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md in full, this file's
+  last 10 tagged entries (PIPELINE/REPAIR/PIPELINE/PIPELINE/PRODUCT/
+  PRODUCT/PIPELINE/PIPELINE/RESEARCH/PIPELINE — 1 REPAIR of 10, no
+  thrash meta-problem, PRODUCT counts as PIPELINE per the rule), all of
+  open_questions.md and wishlist.md. Checked `git ls-remote` for this
+  session's designated branch: the remote branch no longer exists (last
+  PR #378 already merged and the branch auto-deleted) and the local
+  branch's tip already equals origin/main — treated as a fresh start per
+  the merged-branch protocol, no reset needed since content already
+  matches main.
+- HEALTH CHECK: `/api/health` all green (server/database/alpaca/python/
+  scanner/licensing all "ok"; bot "active", equityPeak $109,432.59,
+  drawdownPct 0.0, liveness.dark=false — no Priority-1 liveness alarm).
+  No owner-auth audit-log access from this session (KNOWN BROKEN #4's
+  standing access limitation) — nothing else to check there.
+- PRIMARY ACTION SELECTION per SESSION BUDGET: no live bug surfaced by
+  the health check (first priority, "fix a bug seen in audit logs" —
+  N/A this run); no experiment has newly matured (OpenSky review-by is
+  2026-08-17, not yet; SCORE_BAND_MAX dead-config item still waits on
+  >=90d shadow_portfolio history). That leaves "start a new experiment."
+  Considered DATACORE MAXIMUS's flagged "next unclaimed item" (SEC
+  MIDAS) first — probed live (`www.sec.gov/securities-topics/
+  market-structure-analytics/midas-market-information-data-analytics-
+  system` returns a description-only page; no direct CSV download link
+  found there or via several historical URL-pattern guesses, all 404) —
+  the actual current MIDAS download endpoint needs its own discovery
+  session (a research-agent probe, not blind guessing) and would have
+  consumed this run's whole budget without a clean win; parked, not
+  claimed, so a future session doesn't waste time on my dead-end guesses
+  (recorded below in WHAT DIDN'T WORK) but also doesn't skip it as
+  already-tried. Picked instead the COT open_questions.md item's own
+  explicit NEXT STEP (option (a): "a block-bootstrap or Newey-West-style
+  test that accounts for the overlap") — fully self-contained (no new
+  external source to discover), directly resolves a standing
+  METHODOLOGICAL FINDING that applies to every future weekly-cadence
+  gate-2 screen in this repo, and both CFTC's Socrata API and Yahoo
+  price history are reachable live from this session (verified before
+  committing to the plan), so the result could be run for real today
+  instead of only designed.
+- WHAT DIDN'T WORK (logged so nobody re-walks it): SEC MIDAS current
+  data URLs — `sec.gov/data/market-structure/metrics-security-and-lit-
+  market-venue`, `sec.gov/marketstructure/midas.html` /`-system` (both
+  301-redirect circularly back to the description page),
+  `sec.gov/files/opa/data/market-structure/metrics-by-{security,market}/
+  {year}/q{n}/*.{csv,zip}` (all 404, guessed from memory of the old
+  site's URL shape — unverified, do not trust this pattern). The 2026-
+  07-06 census entry that flagged MIDAS "probed 200" did not record the
+  actual URL used; next session should re-probe via the "Market Activity
+  Data Visualizations" interactive chart page's own network calls
+  (likely a JS-driven fetch to a JSON/CSV endpoint, not a plain scraped
+  href) rather than guessing static paths.
+- BUILT: `cot_gate2_test.py` gains `_newey_west_diff_test()` +
+  `hac_significance()`. Implementation: OLS of forward return on a 0/1
+  extreme-bucket dummy over ALL weeks in chronological order (the
+  dummy's OLS coefficient is algebraically exactly the conditional mean
+  difference — verified by test, not assumed), with a Newey-West
+  (Bartlett-kernel) HAC sandwich covariance for the coefficient's
+  standard error. Truncation lag = round(horizon / 5) weeks (4 for 20d,
+  12 for 60d) — exactly the overlap span the prior session's
+  METHODOLOGICAL FINDING named as the effective-sample-size problem.
+  DELIBERATE BASELINE CHANGE, stated honestly: this test's baseline is
+  the COMPLEMENT (non-bucket weeks), not `summarize()`'s all-weeks-
+  inclusive pool — the standard two-sample comparison, and the more
+  conservative one (the raw screen's baseline is diluted by including
+  the bucket's own observations). `run()` now returns a `significance`
+  key alongside the existing `summary` key; zero change to `summarize()`
+  or any existing field.
+- TESTS: 6 new (`test_cot_gate2.py`, 19 total in the file): OLS-dummy-
+  equals-conditional-mean-difference algebraic check; too-few-
+  observations returns None (never a fabricated number); degenerate
+  all-bucket / no-bucket dummy both return None; and the key regression
+  — a synthetic strongly-positively-autocorrelated (smooth, contiguous-
+  block dummy) series where the HAC-adjusted SE at a realistic lag is
+  measurably LARGER than the lag=0 (White-only) SE for the IDENTICAL
+  point estimate, i.e. the correction actually moves in the direction
+  the methodological finding predicts, not an arbitrary direction (first
+  attempt used an interleaved dummy + short-period sinusoid and produced
+  the WRONG-directioned result — traced to the interleaving injecting
+  its own negatively-autocorrelated jump into the residual; fixed by
+  using a contiguous bucket block, documented in the test's comments so
+  the failure mode isn't rediscovered). Full suite: 555 passed, 2
+  skipped (549 baseline + 6 new; `pip install -r requirements.txt pytest
+  openpyxl` needed first — none of numpy/scipy/pytest/openpyxl were
+  preinstalled in this session's sandbox despite being in
+  requirements.txt, consistent with CI's own explicit `pip install`
+  step, not a repo bug).
+- LIVE RESULT (not a backtest — a SIGNAL-gate statistical screen; ran
+  `python3 cot_gate2_test.py` for real against live CFTC Socrata + Yahoo
+  price data fetched fresh this session, all 7 symbols, same 156-week
+  construction as the 2026-07-05 screen):
+  - **SLV now reads as KILLED**: no bucket/horizon combo is significant
+    (p from 0.48 to 0.87) — the carried-forward raw-mean gap does not
+    survive the overlap correction, exactly as the methodological
+    finding predicted could happen.
+  - **USO stays carried forward, NOT promoted**: 60d extreme_high is
+    nominally significant (mean_diff -14.96pp, HAC SE 7.12pp, t=-2.10,
+    p=0.0355) and 60d extreme_low is marginal (+13.88pp, t=1.84,
+    p=0.066), both in the same mean-reversion direction as before — but
+    this session alone ran 28 comparisons (7 symbols x 2 buckets x 2
+    horizons), so p=0.0355 does not clear even a same-session
+    Bonferroni bar (~0.0018 at 28, ~0.00625 restricted to USO+SLV's own
+    8). REASONING STANDARD #4 discounting applies at full force; the
+    only honest next test is NEW weekly COT reports from here forward
+    (this exact window cannot re-confirm itself) — restated precisely
+    in open_questions.md with a concrete restart date/sample-size floor.
+  - **TLT's already-killed single-horizon flash is now quantified,
+    verdict UNCHANGED**: 20d extreme_low is genuinely significant
+    (t=-4.11, p<0.001) but still does not replicate at 60d (p=0.89) —
+    a real, significant, non-replicating effect is still not tradeable
+    (cross-horizon-replication failure, same reasoning as the original
+    kill).
+  - GLD/CORN/SPY/QQQ: no significant hits (p > 0.24 throughout),
+    consistent with their original kill.
+- HYPOTHESIS / PRIOR (stated before running, matches the standing
+  methodological finding): expected the HAC correction to shrink or kill
+  at least one of the two "not killed" carries, since raw overlapping-
+  window means are known to overstate apparent significance; did not
+  have a directional prior on WHICH of SLV/USO would survive. RESULT
+  matches: SLV killed, USO's strongest leg survives nominally but not
+  under multiple-comparison discounting — an update, not a
+  rationalization, since the prior was written before the live run.
+- FULL trace + open_questions.md's updated COT subsection is the
+  detailed record; this entry is the session log. Downstream chain
+  (REASONING STANDARD #1): nothing here changes deep_score, sizing, or
+  any live trading behavior — COT is still gate-1-only, not wired to any
+  decision path — so there is no downstream trading effect to trace;
+  the only consumer of this change is future gate-2 research sessions
+  (this repo's own analysis code) and the open_questions.md ladder
+  bookkeeping.
+- FALL-THROUGH: session budget allows further work, but this PR is held
+  unmerged until after 4pm ET per this run's explicit instruction (not a
+  critical live break), so no second action was started this session —
+  the next session should either re-probe SEC MIDAS's real download
+  endpoint (see WHAT DIDN'T WORK above) or wait out the USO
+  out-of-sample restart date.
+
 ## 2026-07-08 — [PIPELINE] NDBC buoys — free-data pipeline (v1.0.220)
 
 TERRITORY: T-DATACORE primary (server/ndbcBuoys.ts + test + its manifest)

@@ -524,6 +524,59 @@
     resolved horizon, not per week) — n=58 becomes ~n=5-13 either way,
     so also keep accumulating weekly history to raise the useful sample
     over time. Do not promote SLV/USO on raw means alone.
+  - **NEWEY-WEST FOLLOW-UP RUN 2026-07-08** (option (a) above; see
+    `cot_gate2_test.py`'s `hac_significance()` / `_newey_west_diff_test()`,
+    `test_cot_gate2.py`; full JSON in this session's PR description). All
+    7 symbols re-screened live (156 fresh weeks, same construction, no
+    lookahead) with a Newey-West (Bartlett-kernel) HAC test: each
+    extreme-bucket dummy regressed against the COMPLEMENT weeks (not the
+    all-weeks-inclusive baseline `summarize()` uses — a deliberately more
+    conservative two-sample comparison), truncation lag = round(horizon /
+    5) weeks (4 for 20d, 12 for 60d — exactly the overlap span the
+    methodological finding above named).
+    - **SLV now reads as KILLED**: neither bucket at either horizon is
+      significant (20d extreme_high p=0.52, extreme_low p=0.65; 60d
+      extreme_high p=0.48, extreme_low p=0.87) — the raw-mean gap this
+      screen was carried forward on does not survive correcting for the
+      overlap autocorrelation. Matches this finding's own prediction
+      ("a large raw mean gap can come from a handful of correlated
+      episodes").
+    - **USO stays carried forward, still NOT a gate-2 pass, but now with
+      an actual number instead of an eyeballed gap**: 60d extreme_high
+      is nominally significant (mean_diff -14.96pp, HAC SE 7.12pp,
+      t=-2.10, p=0.0355) and 60d extreme_low is marginal (+13.88pp, SE
+      7.56pp, t=1.84, p=0.066) — both legs still point the same
+      mean-reversion direction as the original raw-means read. REASONING
+      STANDARD #4 still applies with full force: this session alone ran
+      28 symbol x bucket x horizon comparisons (7x2x2), and the original
+      screen ran the same 28 — a single p=0.0355 hit among that many
+      trials does not clear even a same-session Bonferroni bar (0.05/28
+      ~= 0.0018, or 0.05/8 ~= 0.00625 restricted to just SLV+USO's own 4
+      combos each) — DO NOT promote USO to LOGIC gate 3 on this number.
+      What changed: the effect is no longer just "the biggest raw gap in
+      a noisy table," it is a specific, quantified, correctly-signed
+      result that is WORTH the next real test. NEXT STEP (unchanged in
+      kind from the prior note, now sharper): this exact 156-week window
+      cannot be reused as its own confirmation — the only honest
+      out-of-sample test is NEW weekly COT reports as they accumulate
+      from here forward (the archive is already recording); re-run this
+      screen restricted to weeks published after 2026-07-08 once there
+      are enough of them (~15-20 new weeks minimum given the horizon
+      overlap) and require the same sign and a nominal p-value that
+      clears the Bonferroni bar above before this heads toward LOGIC
+      gate 3.
+    - **TLT's already-killed single-horizon flash is now quantified, not
+      just eyeballed, and the kill verdict is UNCHANGED**: the 20d
+      extreme_low deviation this session's screen also caught
+      (mean_diff -4.60pp, SE 1.12pp, t=-4.11, p<0.001) is a genuinely
+      strong statistical result — but it still does not appear at 60d
+      (t=-0.13, p=0.89), which is exactly the cross-horizon-replication
+      failure REASONING STANDARD #4 disqualifies on. A real, significant,
+      NON-replicating effect is still not a tradeable one; no change to
+      TLT's kill.
+    - GLD/CORN/SPY/QQQ: no significant HAC hits at either horizon or
+      bucket (all p > 0.24) — consistent with, and now backed by an
+      actual test statistic instead of, their original raw-means kill.
   - Discount applied throughout per REASONING STANDARD #4: 7 symbols x
     2 buckets x 2 horizons = 28 comparisons run in one pass; 2 "hits"
     out of 28 is within what noise alone would produce, which is exactly

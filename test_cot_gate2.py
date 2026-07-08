@@ -4,12 +4,15 @@ Regression tests for cot_gate2_test.py — the ROOT VALIDATION LADDER gate 2
 network calls, no dependency on cftc_cot's live Socrata fetch or
 backtest_v2's Alpaca/Yahoo fetch.
 """
+import math
 import unittest
 
 from cot_gate2_test import (
+    _newey_west_diff_test,
     bucket_for,
     compute_forward_returns,
     find_entry_index,
+    hac_significance,
     summarize,
 )
 
@@ -113,6 +116,101 @@ class TestSummarize(unittest.TestCase):
         summary = summarize(rows)
         self.assertEqual(summary["20"]["baseline"]["n"], 0)
         self.assertIsNone(summary["20"]["baseline"]["mean_pct"])
+
+
+class TestNeweyWestDiffTest(unittest.TestCase):
+    def test_beta_equals_conditional_mean_difference(self):
+        # For a 0/1 dummy regressor, the OLS coefficient on the dummy is
+        # ALWAYS exactly the conditional mean difference (basic OLS
+        # algebra) — this must hold regardless of the HAC covariance
+        # correction, which only affects the reported standard error.
+        rows = [
+            {"bucket": "extreme_high", "forward_returns": {20: 0.05}},
+            {"bucket": "extreme_high", "forward_returns": {20: 0.07}},
+            {"bucket": "mid", "forward_returns": {20: 0.01}},
+            {"bucket": "extreme_low", "forward_returns": {20: -0.02}},
+            {"bucket": "mid", "forward_returns": {20: 0.02}},
+            {"bucket": "extreme_high", "forward_returns": {20: 0.03}},
+        ]
+        result = _newey_west_diff_test(rows, 20, "extreme_high", lag=1)
+        self.assertIsNotNone(result)
+        bucket_mean = (0.05 + 0.07 + 0.03) / 3
+        complement_mean = (0.01 - 0.02 + 0.02) / 3
+        # mean_diff_pct is rounded to 3dp by the function, so compare at
+        # that precision rather than full float precision.
+        self.assertAlmostEqual(result["mean_diff_pct"] / 100,
+                                bucket_mean - complement_mean, places=3)
+        self.assertEqual(result["n"], 6)
+        self.assertEqual(result["lag_weeks"], 1)
+
+    def test_too_few_observations_returns_none_not_a_fake_number(self):
+        rows = [
+            {"bucket": "extreme_high", "forward_returns": {20: 0.05}},
+            {"bucket": "mid", "forward_returns": {20: 0.01}},
+        ]
+        self.assertIsNone(_newey_west_diff_test(rows, 20, "extreme_high"))
+
+    def test_degenerate_all_bucket_dummy_returns_none(self):
+        rows = [{"bucket": "extreme_high", "forward_returns": {20: 0.01 * i}}
+                for i in range(10)]
+        self.assertIsNone(_newey_west_diff_test(rows, 20, "extreme_high"))
+
+    def test_degenerate_no_bucket_weeks_returns_none(self):
+        rows = [{"bucket": "mid", "forward_returns": {20: 0.01 * i}}
+                for i in range(10)]
+        self.assertIsNone(_newey_west_diff_test(rows, 20, "extreme_high"))
+
+    def test_hac_correction_inflates_se_under_autocorrelated_residuals(self):
+        # The whole point of the fix (see open_questions.md's METHODOLOGICAL
+        # FINDING): overlapping weekly windows create positively
+        # autocorrelated residuals, which the naive (lag=0, White-only)
+        # standard error understates. Construct a smoothly-varying
+        # (strongly autocorrelated) noise series riding under a real dummy
+        # effect and confirm the HAC-adjusted SE at a realistic lag is
+        # LARGER than the lag=0 baseline for the identical data — i.e. the
+        # correction moves in the direction the methodology finding
+        # predicts, not an arbitrary direction.
+        n = 40
+        rows = []
+        for t in range(n):
+            # A CONTIGUOUS bucket block (not interleaved) matters here: if
+            # bucket membership alternated every few steps, subtracting a
+            # different per-group mean at alternating positions would
+            # inject its own high-frequency, NEGATIVELY autocorrelated
+            # jump into the residual and mask the effect under test.
+            is_bucket = 15 <= t < 25
+            # Smooth, slowly-varying (period ~42 steps) noise stays
+            # strongly POSITIVELY autocorrelated across the lag-1..8
+            # window under test.
+            noise = math.sin(t * 0.15) * 0.02
+            fr = 0.05 + (0.03 if is_bucket else 0.0) + noise
+            rows.append({
+                "bucket": "extreme_high" if is_bucket else "mid",
+                "forward_returns": {10: fr},
+            })
+        naive = _newey_west_diff_test(rows, 10, "extreme_high", lag=0)
+        hac = _newey_west_diff_test(rows, 10, "extreme_high", lag=8)
+        self.assertIsNotNone(naive)
+        self.assertIsNotNone(hac)
+        # Same underlying data -> identical point estimate; only the SE
+        # (and therefore t-stat/p-value) should move.
+        self.assertAlmostEqual(naive["mean_diff_pct"], hac["mean_diff_pct"],
+                                places=6)
+        self.assertGreater(hac["hac_se_pct"], naive["hac_se_pct"])
+        self.assertLess(abs(hac["t_stat"]), abs(naive["t_stat"]))
+
+
+class TestHacSignificance(unittest.TestCase):
+    def test_covers_every_horizon_and_extreme_bucket(self):
+        rows = [
+            {"bucket": ["extreme_high", "mid", "extreme_low", "mid"][i % 4],
+             "forward_returns": {20: 0.01 * i, 60: -0.01 * i}}
+            for i in range(20)
+        ]
+        sig = hac_significance(rows)
+        self.assertEqual(set(sig.keys()), {"20", "60"})
+        for h in sig.values():
+            self.assertEqual(set(h.keys()), {"extreme_high", "extreme_low"})
 
 
 if __name__ == "__main__":
