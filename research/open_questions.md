@@ -2603,3 +2603,22 @@ LADDER/DATA-PATH: TLEs from CelesTrak. Client-computed ties (a on the
 imagery UI, b/d in the client graph view) are UNBLOCKED. Server-computed
 ties (served pass-over schedule, launch-event detection) need TLEs
 server-side → blocked on the CelesTrak-relay decision (wishlist).
+
+---
+HYPOTHESIS (2026-07-08, worldview-globe Pillar 6 — filed with the fires×facilities
+cross-tie, PR pending): FIRES NEAR STRATEGIC ASSETS → INSURER/UTILITY/OPERATOR
+RETURNS. Live NASA VIIRS active-fire detections joined to our strategic-facility
+archive (server/firesFacilities.ts → /api/data/fires-near-facilities) surface
+which assets have fires within R km right now. TESTABLE FORM: does an active-fire
+cluster within R km of an insured/industrial/utility asset precede negative
+returns (or vol) in the owning/insuring ticker over +1d/+5d/+20d vs a base rate
+of random asset-days? LADDER: gate-0 = the join exists + records (SHIPPED as a
+RAW cross-tie, no predictive claim); gate-1 blocked on (a) ARCHIVING the
+fires×facility hits daily (the endpoint is display-only now — no history yet)
+and (b) an asset→ticker/insurer join (entity graph). gate-2 = the outcome study
+above with base rates + regime split. PRIOR: weak-to-moderate and highly
+event-driven (most fires are immaterial; the tail — a refinery/mill/large-utility
+service territory — is where any signal lives); discount hard for the
+multiple-asset multiple-comparison. NOT a signal until gate 2. Second-order: fire
+proximity is public/fast (NASA NRT ~3h), so any edge is in the ASSET→TICKER join
+and the materiality filter we build, not the fire data itself.
