@@ -13,6 +13,52 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PRODUCT] G2c aerosol optical depth GIBS layer + AOD×facility cross-tie hypothesis (v1.0.228)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, one new dated-daily GIBS
+raster layer) + SHARED minimal, last per MERGE-ORDER PROTOCOL (package.json
+version read-and-incremented at commit time = 1.0.228 after #388's 1.0.227;
+datacore/layers.json registry entry; scripts/visual_check.mjs fixture;
+research/*). Solo — no active concurrent GIBS session (the G2a session's PR
+#384 already merged; no open GIBS PR at start).
+
+- PRIMARY pick reasoning: both concrete deliverables I could otherwise chase
+  were BLOCKED on secrets not reaching this session — grid-vision fine-tune
+  needs the real GITHUB_TOKEN (session env still holds the 14-char "prox…"
+  proxy placeholder, not the PAT) and live Google 3D-Tiles (G3 step 3) needs
+  GOOGLE_MAPS_API_KEY (empty in session). Building G3's deck.gl client would
+  ship blind (unverifiable offline + no key), which the human explicitly said
+  not to do. So the highest-value UNBLOCKED, VISIBLE, real-data step was the
+  charter's own documented next GIBS layer — chose G2c AOD over G2b (GOES fire
+  raster) because a point NASA-FIRMS `fires` layer already exists, so a second
+  fire layer is redundant UX; AOD is genuinely distinct.
+- WHAT: registry `aerosol` (RAW, field:true, environmental) + a datamap effect
+  mirroring the shipped night-lights layer exactly (add/remove source+layer on
+  toggle & date change, opacity slider, own date scrubber, legend, CloudFog
+  icon). MODIS_Combined_Value_Added_AOD, PNG, GoogleMapsCompatible_Level6.
+- VERIFICATION (per READ-BEFORE-WRITE + the gibs.ts "verify live, don't trust
+  the charter" rule): fetched GIBS GetCapabilities live 2026-07-08 → confirmed
+  Level6 is this layer's max TileMatrixSet (not Level8/9); fetched a real
+  yesterday tile → HTTP 200, 5.3KB PNG, 21% non-transparent pixels (real
+  aerosol data, not a blank tile). Wiring ratchet (layersWiring.test.ts) PASS;
+  tsc unchanged 64-error baseline (zero new); client Vite build (1723 modules)
+  + server esbuild both succeed. Visual harness TIMED OUT under SwiftShader as
+  in prior sessions and external GIBS tiles don't load offline — the LIVE tile
+  render is confirmable only on prod. Risk is low because the layer is a
+  line-for-line mirror of the already-live night-lights layer + the tile URL
+  itself is live-verified; NOT the novel-renderer blind-ship risk G3 carries.
+- HYPOTHESIS (Pillar 6, filed open_questions.md, ladder path stated): AOD
+  anomaly over a NAMED industrial basin/shipping lane = output/throughput
+  proxy. PRIOR: weak, heavily meteorology/dust confounded → tradeable residual
+  (if any) is anomaly-vs-baseline not raw level; discounted per STANDARD #4
+  (AOD-as-activity is published). RAW, no predictive claim; gate 2 blocked on
+  a daily-AOD archive over facility polygons + a de-confounding baseline.
+  CROSS-TIE: AOD × the SAME strategic-facility archive #388 joins fires to —
+  one facility spine, both observations hang off it (2026-07-07 integration
+  principle).
+- No backtest (display-only RAW layer, no trading path, no signal). Anti-churn:
+  one logical change, own PR, own tag.
+
 ## 2026-07-08 — [RESEARCH] COT gate-2 Newey-West HAC significance test — resolves the SLV/USO/TLT methodological finding (v1.0.221)
 
 TERRITORY: T-DATACORE-adjacent (cot_gate2_test.py / test_cot_gate2.py are

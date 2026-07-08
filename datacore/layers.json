@@ -207,6 +207,17 @@
    "field": true
   },
   {
+   "id": "aerosol",
+   "name": "Aerosol optical depth (GIBS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NASA GIBS/ESDIS — MODIS Combined Value-Added AOD (Terra+Aqua), public domain",
+   "description": "Daily aerosol optical depth — how much haze, smoke, and dust the atmosphere holds — dated (default: yesterday; step back via the on-panel scrubber). As-is display, no predictive claim: AOD over an industrial basin or shipping lane as an output/PMI proxy (dry-bulk, air-freight, China-export) is an open gate-2 hypothesis (research/open_questions.md), not yet a signal. Gaps over cloud/glint/high-albedo areas render blank — the retrieval's honest coverage, not a bug.",
+   "field": true
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",
