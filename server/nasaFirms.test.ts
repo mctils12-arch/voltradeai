@@ -14,7 +14,17 @@ import {
   gzipOldFireDays,
   readFireHistory,
   bootFirmsPoll,
+  buildFiresResponse,
+  FIRES_SERVE_CAP,
+  type FireDetection,
 } from "./nasaFirms";
+
+function fakeDetection(i: number, lat: number, lon: number): FireDetection {
+  return {
+    id: `fake:${i}`, lat, lon, brightness: 300, confidence: "nominal", frp: 5,
+    acq_date: "2026-07-08", acq_time: "0000", satellite: "N", daynight: "D",
+  };
+}
 
 // ROOT VALIDATION LADDER gate 1 (DATA) fixtures — column layouts copied
 // verbatim from the FIRMS API documentation's sample rows for VIIRS_SNPP_NRT
@@ -139,4 +149,62 @@ test("gzipOldFireDays: compresses day files older than 2 days, leaves recent one
   const files = fs.readdirSync(firesDir);
   assert.ok(files.some((f) => f.endsWith(".jsonl.gz")));
   assert.ok(files.some((f) => f.endsWith(".jsonl") && !f.endsWith(".gz")));
+});
+
+// [REPAIR 2026-07-08] regression coverage for the fires-route honesty fix:
+// the route used to slice(0, 8000) for `fires` but report the UNCAPPED
+// `detections.length` as `count` — a silent-cap violation (the status pill
+// could claim more detections than were ever drawn). These tests fail
+// against the old `{ ...res.json({ count: detections.length, fires:
+// detections.slice(0, cap) }) }` shape and pass against buildFiresResponse.
+
+test("buildFiresResponse: count NEVER exceeds the served fires array length (the bug this fixes)", () => {
+  const many = Array.from({ length: FIRES_SERVE_CAP + 500 }, (_, i) => fakeDetection(i, 10, 10));
+  const out = buildFiresResponse(many, undefined, Date.parse("2026-07-08T00:00:00Z")) as any;
+  assert.equal(out.fires.length, FIRES_SERVE_CAP, "must still cap the served array");
+  assert.equal(out.count, out.fires.length, "count must equal what was actually served, never the pre-cap total");
+  assert.equal(out.capped, true);
+  assert.equal(out.count_before_cap, FIRES_SERVE_CAP + 500, "the drop must be stated, not silent");
+  assert.equal(out.total_detections, FIRES_SERVE_CAP + 500);
+});
+
+test("buildFiresResponse: no bbox and under the cap — full set served, no cap flag", () => {
+  const few = [fakeDetection(1, 10, 10), fakeDetection(2, -5, -5)];
+  const out = buildFiresResponse(few, undefined, Date.parse("2026-07-08T00:00:00Z")) as any;
+  assert.equal(out.fires.length, 2);
+  assert.equal(out.count, 2);
+  assert.equal(out.capped, undefined);
+  assert.equal(out.viewport_filtered, undefined);
+});
+
+test("buildFiresResponse: a valid bbox filters to the viewport FIRST, count reflects the served (post-filter) length", () => {
+  const dets = [
+    fakeDetection(1, 10, 10),   // inside
+    fakeDetection(2, 50, 50),   // outside
+    fakeDetection(3, 10.5, 10.5), // inside
+  ];
+  const out = buildFiresResponse(dets, "9,9,11,11", Date.parse("2026-07-08T00:00:00Z")) as any;
+  assert.equal(out.fires.length, 2);
+  assert.equal(out.count, 2);
+  assert.equal(out.viewport_filtered, true);
+  assert.equal(out.count_before_viewport, 3);
+  assert.equal(out.count_dropped_offscreen, 1);
+  assert.equal(out.total_detections, 3, "total_detections is the true global count, independent of the viewport");
+});
+
+test("buildFiresResponse: viewport filtering happens BEFORE the cap — a dense viewport still caps and states it honestly", () => {
+  const many = Array.from({ length: FIRES_SERVE_CAP + 200 }, (_, i) => fakeDetection(i, 10, 10));
+  const out = buildFiresResponse(many, "9,9,11,11", Date.parse("2026-07-08T00:00:00Z")) as any;
+  assert.equal(out.viewport_filtered, true);
+  assert.equal(out.count_before_viewport, FIRES_SERVE_CAP + 200);
+  assert.equal(out.fires.length, FIRES_SERVE_CAP);
+  assert.equal(out.capped, true);
+  assert.equal(out.count_before_cap, FIRES_SERVE_CAP + 200, "cap counts from the post-viewport set, not the global total");
+});
+
+test("buildFiresResponse: an invalid bbox is backward-compatible (full unfiltered set, same as no bbox)", () => {
+  const dets = [fakeDetection(1, 10, 10), fakeDetection(2, 50, 50)];
+  const out = buildFiresResponse(dets, "not-a-bbox", Date.parse("2026-07-08T00:00:00Z")) as any;
+  assert.equal(out.fires.length, 2);
+  assert.equal(out.viewport_filtered, undefined);
 });

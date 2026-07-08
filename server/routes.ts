@@ -67,7 +67,7 @@ import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { queryWindowCached } from "./queryEngine";
 import { analystResponse } from "./analyst";
-import { firmsEnabled, bootFirmsPoll, latestFirms } from "./nasaFirms";
+import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse } from "./nasaFirms";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
@@ -1334,7 +1334,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   archiveTick();
   setInterval(archiveTick, 10 * 60_000).unref?.();
 
-  app.get("/api/data/fires", (_req, res) => {
+  app.get("/api/data/fires", (req, res) => {
     if (!firmsEnabled()) {
       return res.json({
         enabled: false,
@@ -1347,14 +1347,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!hit) {
       return res.json({ enabled: true, kind: "raw", warming_up: true, count: 0, fires: [] });
     }
-    res.json({
-      enabled: true,
-      kind: "raw",
-      source: "NASA FIRMS / LANCE — VIIRS 375m NRT (not for safety-of-life use)",
-      time: Math.floor(hit.at / 1000),
-      count: hit.detections.length,
-      fires: hit.detections.slice(0, 8000),
-    });
+    res.json(buildFiresResponse(hit.detections, req.query.bbox, hit.at));
   });
 
   // USGS real-time earthquakes (RAW, M2.5+, global, rolling 24h) — free-data

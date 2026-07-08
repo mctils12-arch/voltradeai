@@ -1873,7 +1873,15 @@ export default function DataMapPage() {
     let detach = () => {};
     const load = async () => {
       try {
-        const r = await fetch("/api/data/fires");
+        // SCALE S1: bound the served payload to the current viewport (the
+        // NASA FIRMS feed is global — during an active fire season the
+        // uncapped world set can run into the tens of thousands, so a
+        // viewport-first cut is both cheaper AND more useful than an
+        // arbitrary head-of-array slice; server/nasaFirms.ts still caps as a
+        // last-resort safety net and states it honestly, never inside `count`).
+        const b = map.getBounds();
+        const bbox = `${b.getWest().toFixed(2)},${b.getSouth().toFixed(2)},${b.getEast().toFixed(2)},${b.getNorth().toFixed(2)}`;
+        const r = await fetch(`/api/data/fires?bbox=${bbox}`);
         const d = await r.json();
         if (stop) return;
         if (d.enabled === false) { setStatus("fires", "awaiting_key"); return; }
@@ -1922,8 +1930,11 @@ export default function DataMapPage() {
             });
           });
         }
-        setStatus("fires", "active", d.count ?? (d.fires || []).length,
-          "NASA FIRMS/LANCE · VIIRS 375m · ~3h latency · not for safety-of-life use");
+        const baseNote = "NASA FIRMS/LANCE · VIIRS 375m · ~3h latency · not for safety-of-life use";
+        const note = d.capped
+          ? `showing ${d.count.toLocaleString()} of ${d.count_before_cap.toLocaleString()} in view (capped) · ${baseNote}`
+          : baseNote;
+        setStatus("fires", "active", d.count ?? (d.fires || []).length, note);
       } catch {
         if (!stop) setStatus("fires", "error");
       }

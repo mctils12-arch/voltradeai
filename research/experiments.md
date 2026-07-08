@@ -13,6 +13,119 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [REPAIR] fires layer viewport-bound + honest cap (PR #377, v1.0.219)
+
+TERRITORY: T-CLIENT primary (client/src/pages/datamap.tsx) + T-DATACORE
+(server/nasaFirms.ts + its test file) + SHARED minimal (server/routes.ts
+one-line route swap, package.json version — last commit per MERGE-ORDER
+PROTOCOL). Solo session, no concurrent-territory conflict expected.
+
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md, this file's tail,
+  open_questions.md, wishlist.md. LOOP-HEALTH RATIO: counted tags across
+  the last 10 MERGED PRs (github, since this file's own tail had gone
+  stale — see finding below) rather than this file's last 10 entries:
+  #365 PIPELINE, #366 PIPELINE, #367 PIPELINE(tooling), #368 REPAIR-ish
+  (ledger bug fix), #369 PRODUCT, #370 PIPELINE/PRODUCT, #371 REPAIR,
+  #372 REPAIR, #373 PIPELINE, #374 REPAIR, #375 REPAIR (satellites
+  cache/timeout). ~4-5/10 REPAIR — elevated but under the 7+ thrash
+  threshold, and every REPAIR in the window is a distinct, previously-
+  undiagnosed defect (no recurring same-fix pattern) — legitimate ongoing
+  audit work, not thrash. No Priority-1 meta-problem to address.
+- SYSTEM HEALTH: could not reach a live `/api/health` — no production URL
+  is documented anywhere in the repo (package.json/railway.json/railway.toml/
+  README all checked) and this session has no Railway dashboard access;
+  guessing a URL would violate the "never guess URLs" rule, so this check
+  is HONESTLY SKIPPED rather than faked. Recommend the human paste the
+  live `/api/health` JSON into a future session if a routine needs it
+  verified, or add the URL to KNOWN STATE so it's checkable without
+  guessing. No CSP/#3/#4-style symptom was reported this session to make
+  this urgent.
+- FINDING (not this PR's scope, flagged for whoever runs the next
+  staleness pass): `research/experiments.md`'s own tail was stale by 12
+  merged PRs (#365-#376, v1.0.208->v1.0.218) — real, already-shipped
+  [REPAIR]/[PIPELINE]/[PRODUCT] work (FINRA part 2, USGS quakes, the
+  RunPod launcher chain, orbital O2, grid-vision training container, the
+  reliability BUG1/BUG4 map-layer fixes, and #375's satellite-toggle
+  cache fix) that never got a MEMORY PROTOCOL log entry here — those
+  sessions' own PR bodies carry the trace, but this file is supposed to
+  be the single append-only ledger. Not backfilling all 12 in this PR
+  (that would bundle unrelated changes and dilute this PR's own
+  attribution) — recovered the missing context via `mcp__github__
+  list_pull_requests` instead. Flagged here so a future [REPAIR] session
+  treats "keep this file current" as itself a loop-health item, not just
+  a courtesy.
+- WHAT (the primary action — repair-mandate-first: this is a concrete,
+  already-diagnosed defect, not new research): `/api/data/fires`
+  (server/routes.ts) sliced the served array to `hit.detections.
+  slice(0, 8000)` but reported `count: hit.detections.length` — the
+  UNCAPPED total. NASA FIRMS/VIIRS is a GLOBAL feed; during an active
+  fire season the world total can run into the tens of thousands, so
+  the client's status pill could claim thousands more detections than
+  were ever drawn on the map — a silent-cap violation (the "no silent
+  caps: state what was dropped" convention) of exactly the class PR
+  #372/#374's bodies flagged as still-open ("BUG 2/3 — wire the
+  built-but-unused SCALE S1 applyViewport into fires ... the silent
+  8000-cap + over-reported count"). Independently verified the defect by
+  reading the route + the client's `setStatus("fires", "active",
+  d.count, ...)` call site before trusting the prior PRs' framing
+  (READ BEFORE WRITE) — confirmed real, not stale documentation.
+- FIX: new pure `buildFiresResponse(detections, bboxStr, atMs, cap)` in
+  `server/nasaFirms.ts`, reusing the already-shipped, already-unit-tested
+  SCALE S1 `applyViewport` helper (server/viewport.ts, PR #363/v1.0.203 —
+  built but left "inert" per that PR's own note, since no caller ever
+  passed a real `bbox`). A caller-supplied bbox narrows to the visitor's
+  current VIEWPORT first (the right fix for a global feed, not just a
+  truncation), and only caps as a last-resort safety net, stated
+  honestly (`capped`, `count_before_cap`, `total_detections`) and never
+  folded into `count`. `server/routes.ts`'s `/api/data/fires` handler
+  now reads `req.query.bbox` and delegates to the new function — zero
+  change to key-gating or the `warming_up` path. Client
+  (`datamap.tsx`) now sends `&bbox=` from `map.getBounds()` on each poll
+  (mirrors the aircraft route's existing viewport-query precedent) and
+  surfaces the cap in the status note when it fires.
+  DELIBERATELY NOT touching `powerplants` in this same PR (one logical
+  change per PR, PROMOTION RULE 5): it's a single day-cached, client-
+  clustered static fetch (maplibre native clustering handles density
+  already) with no count-honesty defect — wiring a viewport filter there
+  is a bandwidth nice-to-have, not a bug fix, and stays a separate
+  follow-up (noted, not filed as a new wishlist item — it's cheap enough
+  to just do next time this file is touched).
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): only the `/api/data/fires`
+  response envelope and its one route caller change. No trading-path,
+  scoring, or archive code touched — `nasaFirms.ts`'s fetch/parse/archive
+  functions are untouched; only a new response-shaping function was
+  added on top. The fires layer is RAW/no-predictive-claim (CLAUDE.md's
+  RAW-vs-SIGNAL rule) — this is a display-honesty fix, not a signal or
+  trading change, so no backtest applies.
+- TESTS: 5 new in `server/nasaFirms.test.ts`, each written to fail against
+  the OLD `{ count: detections.length, fires: detections.slice(0, cap) }`
+  shape and pass against the fix: count never exceeds the served array
+  length (the core bug); under-cap/no-bbox full-set pass-through; a valid
+  bbox filters to viewport first with count/count_before_viewport/
+  count_dropped_offscreen all correct and total_detections staying the
+  true global count; viewport filtering happens BEFORE the cap (a dense
+  viewport still caps, stated from the post-viewport count, not the
+  global total); an invalid bbox is backward-compatible.
+- GATES: `npm run test:node` 478/478 pass (473 baseline + 5 new; had to
+  `npm ci` first — node_modules was effectively empty in this sandbox).
+  `npx tsc --noEmit` 66 errors — confirmed via `git stash` A/B to be the
+  pre-existing baseline (drifted from the last-documented 64; zero new
+  errors from this change). `npm run build` clean. `npm run visual --
+  page data` at 390/768/1440: 0 hard failures, results.json confirms
+  `"failures": []` at every width (pre-existing nav-bar touch-target
+  warnings are unrelated). `python3 -m pytest` not runnable in this
+  sandbox (no pytest install, matches PR #366's precedent) — no `.py`
+  file touched, informational only. Version 1.0.218 -> 1.0.219
+  (read-and-increment, after rebasing onto main's tip which had moved to
+  1.0.218 via #375 mid-session).
+- SESSION BUDGET: this was the single highest-value primary action (a
+  small, well-scoped, already-diagnosed defect beats starting new
+  research; SESSION BUDGET ranks "fix a bug seen in audit logs" above
+  "start a new experiment"). PR #377 opened, subscribed to PR activity;
+  falling through to the open_questions queue or new research was not
+  reached this session — PR review/CI babysitting is the remaining
+  capacity sink now that the subscription is active.
+
 ## 2026-07-08 — [PIPELINE] USGS real-time earthquakes — free-data pipeline, EDGE DOCTRINE #1 (v1.0.209)
 
 TERRITORY: T-DATACORE (server/usgsQuakes.ts, server/usgsQuakes.test.ts,
