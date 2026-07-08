@@ -20,6 +20,15 @@ import GridStressView from "./gridstress";
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
 import type { AnalystMapCommand } from "@/components/AnalystPane";
 import { mmsiFlag } from "@/lib/mmsiFlag";
+// ORBITAL program O2 (research/orbital_program.md): live satellites on the
+// globe. GP elements are client-fetched from CelesTrak (the browser is NOT
+// firewalled from CelesTrak the way Railway is — charter DATA-PATH SPLIT),
+// SGP4 runs off-thread in a Web Worker, and the population draws as
+// GPU-instanced points. REAL positions only — deep-space objects need SDP4
+// and are skipped + COUNTED, never fabricated.
+import { SatLayer } from "@/lib/orbital/satLayer";
+import { fetchGp, type GpRecord } from "@/lib/orbital/tle";
+import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
@@ -131,6 +140,7 @@ const LAYER_GROUP: Record<string, string> = {
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
+  orbital_sats: "live",
 };
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
@@ -195,6 +205,10 @@ export default function DataMapPage() {
   const mapRef = useRef<any>(null);
   const glRef = useRef<any>(null);
   const sinceRef = useRef<Record<string, string>>({});
+  // ORBITAL O2: the satellite worker + GPU layer live across renders so the
+  // enable/disable effect can tear both down cleanly (zero-cost-when-off).
+  const satWorkerRef = useRef<Worker | null>(null);
+  const satLayerRef = useRef<SatLayer | null>(null);
   const [layers, setLayers] = useState<LayerMeta[]>([]);
   const [enabled, setEnabled] = useState<Record<string, boolean>>(DEFAULT_ON);
   const [runtime, setRuntime] = useState<Record<string, { status: RuntimeStatus; count?: number; note?: string }>>({});
@@ -754,6 +768,90 @@ export default function DataMapPage() {
       setStatus("forest", "error");
     }
   }, [enabled.forest, mapReady, setStatus]);
+
+  // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
+  // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
+  // GPU-instanced points on the globe with LEO/MEO/GEO altitude shells. HEAVY
+  // + off by default → zero-cost-when-off: the worker + layer only exist while
+  // the toggle is on. REAL positions only — deep-space objects (GEO comms,
+  // MEO nav) need SDP4 the near-earth kernel lacks, so they are skipped and
+  // COUNTED in the status note, never faked. __vtOrbitalGpFixture is a
+  // prod-inert test seam so the render path is verifiable offline. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const teardown = () => {
+      try { satWorkerRef.current?.postMessage({ type: "stop" }); } catch {}
+      try { satWorkerRef.current?.terminate(); } catch {}
+      satWorkerRef.current = null;
+      try {
+        const layer = satLayerRef.current;
+        if (layer && map.getLayer(layer.id)) map.removeLayer(layer.id);
+      } catch {}
+      satLayerRef.current = null;
+    };
+
+    if (!enabled["orbital_sats"]) {
+      teardown();
+      setStatus("orbital_sats", "off");
+      return;
+    }
+
+    let cancelled = false;
+    setStatus("orbital_sats", "loading", undefined, "fetching orbital elements (CelesTrak)…");
+
+    (async () => {
+      let gp: GpRecord[];
+      try {
+        const fixture = (window as any).__vtOrbitalGpFixture;
+        gp = Array.isArray(fixture) && fixture.length
+          ? (fixture as GpRecord[])
+          : await fetchGp("active");
+      } catch {
+        if (!cancelled) setStatus("orbital_sats", "error", undefined,
+          "could not reach CelesTrak — toggle off/on to retry");
+        return;
+      }
+      if (cancelled) return;
+      if (!gp.length) {
+        setStatus("orbital_sats", "error", undefined, "no orbital elements returned");
+        return;
+      }
+      try {
+        const layer = new SatLayer({ id: "orbital_sats" });
+        satLayerRef.current = layer;
+        map.addLayer(layer);
+
+        const worker = new Worker(
+          new URL("../lib/orbital/satWorker.ts", import.meta.url),
+          { type: "module" },
+        );
+        satWorkerRef.current = worker;
+        worker.onmessage = (ev: MessageEvent<SatWorkerOutbound>) => {
+          const m = ev.data;
+          if (m.type === "positions") {
+            satLayerRef.current?.updatePositions(new Float32Array(m.buf), {
+              shown: m.shown,
+              deepSpaceSkipped: m.deepSpaceSkipped,
+              invalidSkipped: m.invalidSkipped,
+            });
+            const skipped = m.deepSpaceSkipped + m.invalidSkipped;
+            setStatus("orbital_sats", "active", m.shown,
+              `${m.shown.toLocaleString()} live · ${skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
+          }
+        };
+        worker.postMessage({ type: "init", gp });
+        worker.postMessage({ type: "start", hz: 1 });
+      } catch {
+        if (!cancelled) setStatus("orbital_sats", "error", undefined,
+          "satellite layer failed to initialize");
+        teardown();
+      }
+    })();
+
+    return () => { cancelled = true; teardown(); };
+  }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // ── country borders (RAW; Natural Earth 1:110m admin-0, PUBLIC DOMAIN —
   // atlas-parity layer 3. Self-hosted datacore compile served by our own
@@ -2715,6 +2813,17 @@ export default function DataMapPage() {
                             <span className="vt-legend-note">(approx — amplified for dark basemap)</span>
                           </>
                         )}
+                      </div>
+                    </div>
+                  )}
+                  {enabled["orbital_sats"] && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Orbital</div>
+                      <div className="vt-legend-items">
+                        <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn</span>
                       </div>
                     </div>
                   )}

@@ -158,6 +158,14 @@ export class SatLayer implements CustomLayerInterface {
   private colorMEO: Rgba;
   private colorGEO: Rgba;
 
+  // Set true if render throws (e.g. shaders fail to compile/link on a
+  // constrained GL — a SwiftShader harness, an old device). render() is called
+  // by MapLibre inside its per-frame loop; an uncaught throw there would break
+  // the ENTIRE map every frame, not just this layer. So we catch once, disable
+  // ourselves, and let the base map carry on (mirrors the globeSupport
+  // "unavailable" degrade pattern). getRenderFailed() surfaces it for honesty.
+  private renderFailed = false;
+
   constructor(opts: SatLayerOptions = {}) {
     this.id = opts.id ?? 'orbital-sats';
     this.pointSize = opts.pointSize ?? 3.0;
@@ -179,7 +187,25 @@ export class SatLayer implements CustomLayerInterface {
   }
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
+    if (this.renderFailed) return; // disabled after a prior failure — never crash the map
     if (!this.data || this.total === 0) return;
+    try {
+      this.renderInner(gl, args);
+    } catch (e) {
+      this.renderFailed = true;
+      // eslint-disable-next-line no-console
+      console.error('SatLayer: disabling after render failure (map continues):', e);
+    }
+  }
+
+  /** True once render has failed and the layer has self-disabled (for the honesty panel). */
+  getRenderFailed(): boolean {
+    return this.renderFailed;
+  }
+
+  private renderInner(gl: AnyGl, args: CustomRenderMethodInput): void {
+    if (!this.data || this.total === 0) return; // re-narrow for TS (render() already guarded)
+    const data = this.data;
     const sd = args.shaderData;
     if (this.program == null || this.cachedVariant !== sd.variantName) {
       this.compile(gl, sd.vertexShaderPrelude, sd.define, sd.variantName);
@@ -225,11 +251,11 @@ export class SatLayer implements CustomLayerInterface {
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     if (this.dataDirty) {
-      if (this.data.length !== this.uploadedFloats) {
-        gl.bufferData(gl.ARRAY_BUFFER, this.data, gl.DYNAMIC_DRAW);
-        this.uploadedFloats = this.data.length;
+      if (data.length !== this.uploadedFloats) {
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+        this.uploadedFloats = data.length;
       } else {
-        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
       }
       this.dataDirty = false;
     }
