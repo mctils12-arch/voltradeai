@@ -1029,6 +1029,38 @@ R6. **Dashboards from monitoring we already emit (charter directive
   so both fire-thermal and aerosol observations hang off the one facility
   spine, which is the honest place any future signal would be built.
 
+## VEGETATION / NDVI YIELD HYPOTHESIS (RAW layer shipped 2026-07-08, v1.0.229
+   — client/src/pages/datamap.tsx "vegetation" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2e — NASA GIBS VIIRS/SNPP NDVI 8-day)
+
+- **NDVI anomaly over a NAMED crop belt as a yield proxy (Pillar 6, per
+  worldview_globe.md's G2e text).** PRIOR stated before any test: a positive
+  (negative) NDVI anomaly over a defined crop belt vs. its own planting-calendar
+  baseline co-moves with the season's yield outcome for that crop, and — because
+  it is observable continuously through the growing season — may LEAD the
+  USDA/WASDE print the market prices off. Expected effect moderate, but this is
+  THE most heavily mined satellite-ag signal (commercial ag-analytics firms,
+  USDA's own NASS/VegScape, every ag-commodity desk already run NDVI), so per
+  STANDARD #4/#5 the tradeable residual for a small system is NOT the level — it
+  is (a) the de-seasonalized anomaly vs. a crop-calendar baseline, (b) tight
+  regional windows the aggregate national number smooths over, and (c) pairing
+  NDVI with our OWN facility/entity archive (an ethanol plant, a grain elevator,
+  a single-region ag-input name) rather than the front-month future everyone
+  watches. Honest expectation: LOW prior on new alpha vs. well-capitalized
+  incumbents; the layer's near-term value is HONEST CONTEXT on the globe and a
+  substrate for cross-ties, not a standalone edge.
+- Ladder: gate 1 DATA — NASA-published product; verification is mechanical
+  (confirm our tile fetch reproduces GIBS imagery; a yesterday tile was
+  pixel-checked non-blank over land, 41%, at build time — NDVI is land-only so
+  ocean transparency is correct, not a gap). Gate 2 SIGNAL blocked on (a) an
+  NDVI archive over crop-belt polygons and (b) a planting-calendar / prior-year
+  baseline so the residual is anomaly, not season. RAW, no predictive claim.
+- CROSS-TIE (2026-07-07 integration principle): NDVI joins the drought/
+  soil-moisture (future G2d) and river-gauge (barge-draft) layers into a
+  coherent ag-supply-chain view — crop health × water availability × the barge
+  corridor that ships the grain — all RAW observations over the same geography;
+  a future gate-2 ag signal would be built on that stack, not NDVI alone.
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are

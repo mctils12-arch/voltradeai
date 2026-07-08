@@ -218,6 +218,17 @@
    "field": true
   },
   {
+   "id": "vegetation",
+   "name": "Vegetation health (NDVI, GIBS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NASA GIBS/ESDIS — VIIRS/SNPP NDVI 8-day composite, public domain",
+   "description": "Vegetation greenness (NDVI) as an 8-day composite — greener = denser/healthier canopy — dated (default: yesterday returns the current composite; step back via the on-panel scrubber). As-is display, no predictive claim: an NDVI anomaly over a named crop belt as a yield proxy (CBOT corn/soy/wheat) is an open gate-2 hypothesis (research/open_questions.md), not yet a signal. Ocean and barren areas are legitimately blank — NDVI is a land-vegetation index, not a bug.",
+   "field": true
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",
