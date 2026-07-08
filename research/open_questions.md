@@ -988,6 +988,47 @@ R6. **Dashboards from monitoring we already emit (charter directive
   claimed edge here is specifically the finer time granularity and the
   small/regional universe, not the existence of the underlying proxy.
 
+## AEROSOL OPTICAL DEPTH HYPOTHESIS (RAW layer shipped 2026-07-08, v1.0.228
+   — client/src/pages/datamap.tsx "aerosol" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2c — NASA GIBS MODIS Combined Value-Added AOD)
+
+- **Aerosol optical depth over an industrial basin / shipping lane as an
+  output-and-throughput proxy (Pillar 6, per worldview_globe.md's G2c
+  text).** PRIOR stated before any test: sustained AOD ELEVATION over a
+  defined industrial cluster or a busy shipping lane co-moves with, and may
+  slightly LEAD, that region's production/throughput — combustion haze and
+  ship-plume aerosol are a physical by-product of activity. Expected effect
+  weak-to-moderate and heavily confounded (meteorology, wildfire smoke,
+  Saharan/Asian dust transport all dwarf the industrial signal on most
+  days), so the tradeable residual — if any — is in ANOMALY vs. a
+  local seasonal/meteorological baseline, not raw AOD level. Second-order
+  (STANDARD #5): satellite-AOD-as-economic-activity is published research
+  (COVID-era industrial-slowdown AOD drops are well documented), so the
+  residual edge, if real, is in (a) daily cadence on a NAMED small cluster
+  vs. the usual national/annual composite and (b) pairing AOD with our own
+  facility archive (a smelter/refinery/port we already geolocate) rather
+  than a diffuse regional average. Universe bias per EDGE DOCTRINE #2:
+  single-basin operators and their commodity, not diversified mega-caps.
+- Ladder: gate 1 DATA — NASA-published product (MODIS Combined Value-Added
+  AOD), so verification is mechanical: confirm OUR tile fetch/date
+  alignment reproduces GIBS's own published imagery (a real yesterday tile
+  was already pixel-checked non-blank, 21% coverage, at build time; a
+  spot-check of a few dates against the GIBS Worldview UI is the remaining
+  step). Gate 2 SIGNAL is blocked on (a) a daily-AOD ARCHIVE over our
+  facility/lane polygons (this PR is display-only — no pipeline yet, same
+  as night lights) and (b) a de-confounding baseline (subtract a
+  meteorology/dust reference so the residual is industrial, not weather).
+  NOT a signal; ships RAW with no predictive claim, blank-over-cloud/glint
+  areas stated as honest retrieval coverage in the layer description and
+  status note.
+- Discount per STANDARD #4: AOD-as-activity is a known effect; expect a LOW
+  prior on new alpha except through the daily-cadence + named-facility +
+  de-confounded-anomaly angle. CROSS-TIE (2026-07-07 integration principle):
+  the natural join is AOD × the strategic-facility archive — the same
+  archive the fires × facilities cross-tie (#388, v1.0.227) already joins —
+  so both fire-thermal and aerosol observations hang off the one facility
+  spine, which is the honest place any future signal would be built.
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are

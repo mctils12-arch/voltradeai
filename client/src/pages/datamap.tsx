@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, ChevronLeft, ChevronRight } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, ChevronLeft, ChevronRight } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -157,6 +157,7 @@ const LAYER_GROUP: Record<string, string> = {
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
+  aerosol: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
@@ -370,6 +371,10 @@ export default function DataMapPage() {
   // worldview_globe.md G2a: night-lights time-scrubber state. Defaults to
   // the charter's "yesterday" — GIBS daily layers never carry today's data.
   const [nightlightsDate, setNightlightsDate] = useState<string>(() => gibsDefaultDate(Date.now()));
+  // worldview_globe.md G2c: aerosol optical depth time-scrubber state (same
+  // yesterday-default rule as night lights — GIBS daily layers never carry
+  // same-day data).
+  const [aerosolDate, setAerosolDate] = useState<string>(() => gibsDefaultDate(Date.now()));
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
   // slider; default 60% so the basemap + live layers stay visible beneath
@@ -377,6 +382,7 @@ export default function DataMapPage() {
   const FIELD_MAP_LAYER: Record<string, string> = {
     weather: "weather-radar", weather_temp: "wx-temp_new", weather_wind: "wx-wind_new",
     surfacewater: "gsw-occurrence", forest: "jrc-forest", nightlights: "gibs-nightlights",
+    aerosol: "gibs-aerosol",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -896,6 +902,48 @@ export default function DataMapPage() {
       setStatus("nightlights", "error");
     }
   }, [enabled.nightlights, nightlightsDate, mapReady, setStatus]);
+
+  // ── aerosol optical depth (RAW; worldview_globe.md Phase G2c — NASA GIBS
+  // via the shared gibs.ts factory, same DATED-daily pattern as night lights.
+  // Tile access verified live 2026-07-08 against GIBS GetCapabilities:
+  // MODIS_Combined_Value_Added_AOD is PNG at GoogleMapsCompatible_Level6
+  // (max native zoom 6); a real yesterday tile pixel-checked non-blank (21%
+  // coverage over land). field:true — opacity slider inherited; date scrubber
+  // is this layer's own extra control, rendered next to it like night lights. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.aerosol) {
+      try {
+        if (map.getLayer("gibs-aerosol")) map.removeLayer("gibs-aerosol");
+        if (map.getSource("gibs-aerosol")) map.removeSource("gibs-aerosol");
+      } catch {}
+      setStatus("aerosol", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gibs-aerosol")) map.removeLayer("gibs-aerosol");
+      if (map.getSource("gibs-aerosol")) map.removeSource("gibs-aerosol");
+      const url = gibsTileUrl(
+        { layer: "MODIS_Combined_Value_Added_AOD", tileMatrixSet: "GoogleMapsCompatible_Level6", ext: "png" },
+        aerosolDate,
+      );
+      map.addSource("gibs-aerosol", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 6,
+        attribution: "Aerosol optical depth · MODIS (Terra+Aqua) · NASA GIBS/ESDIS (public domain)",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gibs-aerosol", type: "raster", source: "gibs-aerosol",
+        paint: { "raster-opacity": opacityOf("aerosol") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("aerosol", "active", undefined,
+        `aerosol optical depth for ${aerosolDate} (UTC) · NASA GIBS/ESDIS — blank over cloud/glint/` +
+        `high-albedo areas is the retrieval's honest coverage; step back a day if a region is empty`);
+    } catch {
+      setStatus("aerosol", "error");
+    }
+  }, [enabled.aerosol, aerosolDate, mapReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
@@ -2419,6 +2467,7 @@ export default function DataMapPage() {
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
     id === "nightlights" ? <Moon size={15} /> :
+    id === "aerosol" ? <CloudFog size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -2581,6 +2630,24 @@ export default function DataMapPage() {
                   aria-label="Next day"
                   disabled={gibsIsLatestAvailable(nightlightsDate, Date.now())}
                   onClick={() => setNightlightsDate((d) => gibsStepDate(d, 1))}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+            {l.id === "aerosol" && (
+              <div className="vt-gibs-scrubber" role="group" aria-label="Aerosol optical depth date">
+                <button
+                  aria-label="Previous day"
+                  onClick={() => setAerosolDate((d) => gibsStepDate(d, -1))}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="vt-gibs-scrubber-date">{aerosolDate} UTC</span>
+                <button
+                  aria-label="Next day"
+                  disabled={gibsIsLatestAvailable(aerosolDate, Date.now())}
+                  onClick={() => setAerosolDate((d) => gibsStepDate(d, 1))}
                 >
                   <ChevronRight size={13} />
                 </button>
@@ -2932,7 +2999,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.rivergauges || enabled.alerts) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.rivergauges || enabled.alerts) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -2971,6 +3038,12 @@ export default function DataMapPage() {
                           <>
                             <span className="vt-legend-chip"><i style={{ background: "#ffe873" }} /> Night Lights Radiance</span>
                             <span className="vt-legend-note">(daily, NASA GIBS/VIIRS — {nightlightsDate})</span>
+                          </>
+                        )}
+                        {enabled.aerosol && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#c8842a" }} /> Aerosol Optical Depth</span>
+                            <span className="vt-legend-note">(daily, NASA GIBS/MODIS — {aerosolDate})</span>
                           </>
                         )}
                       </div>

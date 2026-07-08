@@ -114,9 +114,20 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
   `*_Thermal_Anomalies_*_All` layers are MVT VECTOR (use a vector source or the
   GOES raster). Hypothesis: fires within N km of insured/industrial/utility
   assets → P&C insurers, wildfire-liability utilities, timber REITs.
-- G2c Aerosols/dust `MODIS_Combined_Value_Added_AOD`, `GOES-East_ABI_Dust`,
-  `OMPS_Aerosol_Index`. Hypothesis: AOD over basin/shipping lane = output/PMI
-  proxy → dry-bulk, air-freight, China-export.
+- [SHIPPED v1.0.228] G2c Aerosol optical depth `MODIS_Combined_Value_Added_AOD`
+  (PNG, `GoogleMapsCompatible_Level6`, daily — access + TileMatrixSet re-verified
+  LIVE against GetCapabilities 2026-07-08, a real yesterday tile pixel-checked
+  non-blank at 21% coverage, NOT trusted from the charter). Registry `aerosol`
+  (RAW, field:true, group "environmental"); reuses the `gibs.ts` factory + the
+  night-lights dated-daily pattern (own date scrubber, opacity slider, legend,
+  CloudFog icon). Hypothesis (Pillar 6): AOD anomaly over a NAMED industrial
+  basin/shipping lane = output/throughput proxy → single-basin operators +
+  commodity; filed in open_questions.md with prior (weak/heavily meteorology-and-
+  dust-confounded → residual is anomaly-vs-baseline, not level), ladder path
+  (gate-2 blocked on a daily-AOD archive over facility/lane polygons + a
+  de-confounding baseline), and the AOD × facility-archive cross-tie to #388.
+  Still-open dust/aerosol-index variants (`GOES-East_ABI_Dust`,
+  `OMPS_Aerosol_Index`) remain future adds.
 - G2d Drought/soil-moisture `SMAP_L4_Analyzed_Root_Zone_Soil_Moisture`,
   `GRACE_..._Mascon_CRI`. Hypothesis: basin drought = ag-yield-down + hydro-down +
   barge-draft → ag futures, hydro utilities, inland shipping.
