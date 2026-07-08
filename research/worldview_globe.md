@@ -155,11 +155,17 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
 - G2f Floods `OPERA_L3_Dynamic_Surface_Water_Extent-HLS`, `MODIS_Combined_Flood_3-Day`.
   Hypothesis: flood over industrial parks/ports/farmland → insurers, auto/semi
   plants, acreage loss.
-- G2g NO2 throughput `TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column`; US hourly
-  `TEMPO_L3_NO2_Vertical_Column_Troposphere` (genuinely differentiated). SO2
-  `OMPS_SO2_Planetary_Boundary_Layer` (point-source smelter/refinery on/off).
-  Hypothesis: NO2 over industrial zones/ports = real-time throughput nowcast (leads
-  PMI/IP); SO2 over a named smelter = operating rate → operator + its commodity.
+- [SHIPPED v1.0.231] G2g NO2 throughput `TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column`
+  (PNG, `GoogleMapsCompatible_Level6`, DAILY — access + continuous non-blank field
+  verified live 2026-07-08: yesterday tile 100% over N.America; ocean legitimately
+  LOW/dark, industrial zones HIGH). Registry `no2` (RAW, field:true, environmental);
+  Factory icon; same daily-scrubber mirror. Hypothesis (Pillar 6): NO2 over an
+  industrial zone/port = real-time throughput nowcast leading PMI/IP; filed
+  open_questions.md. STILL OPEN (needs the sub-daily/ISO-timestamp factory work
+  the daily scrubber can't do yet): US hourly `TEMPO_L3_NO2_Vertical_Column_Troposphere`
+  (geostationary, irregular per-scan ISO timestamps — genuinely differentiated but
+  needs a scan-time picker, not a day scrubber) and `OMPS_SO2_Planetary_Boundary_Layer`
+  (point-source smelter/refinery on/off — daily, a clean future add).
 - G2h Sea ice `AMSRU2_Sea_Ice_Concentration_12km`; snowpack `MODIS_Terra_NDSI_Snow_Cover`
   + SWE; chlorophyll `MODIS_Aqua_L2_Chlorophyll_A`; biomass `GEDI_..._Biomass..._Mean`
   (STATIC, no slider). Hypotheses per inventory (routing/hydro/seafood/carbon).

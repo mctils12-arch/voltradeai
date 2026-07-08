@@ -13,6 +13,50 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PRODUCT] G2g tropospheric NO2 GIBS layer — the charter's "genuinely differentiated" throughput-nowcast layer (v1.0.231)
+
+TERRITORY: T-CLIENT (datamap.tsx, one daily GIBS raster layer) + SHARED
+minimal last (package.json 1.0.231; datacore/layers.json; visual fixture;
+research/*). Solo, no concurrent GIBS session.
+
+- WHY THIS ONE: the charter names NO2/TEMPO the "genuinely differentiated" G2
+  layer, and NO2 is the strongest of the G2 hypotheses for a small system —
+  short-lived combustion by-product (hours, not weeks), so its column density
+  tracks CURRENT operating rate and the daily read LEADS monthly PMI/IP. Picked
+  the DAILY global TROPOMI product (TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_
+  Column) over the US-hourly TEMPO product deliberately: TEMPO uses irregular
+  per-scan ISO timestamps (e.g. 2026-07-08T18:13:32Z), which the daily-step
+  scrubber cannot represent honestly — TEMPO needs a scan-time picker, filed as
+  still-open, NOT hacked onto the day scrubber.
+- REJECTED floods (MODIS_Combined_Flood_3-Day) this round on an HONESTY ground,
+  not a technical one: its tiles are 68-93% non-transparent because the product
+  renders ALL surface water (oceans included), which would read as "everywhere
+  is flooded" — premium presentation of a misleading picture. Logged so a future
+  session uses the OPERA DSWx flood-vs-reference product or a flood-only styling
+  instead.
+- WHAT: registry `no2` (RAW, field:true, environmental) + datamap effect
+  mirroring the daily GIBS layers (Level6, PNG, opacity slider, date scrubber,
+  Factory icon, legend).
+- VERIFY-LIVE: yesterday tile is a real continuous column-density FIELD (100%
+  over N.America, ocean low/dark, industrial zones high — a genuine gradient,
+  NOT the flood layer's misleading fill). Wiring ratchet PASS; tsc unchanged
+  64-error baseline (zero new); client+server build clean. Live render prod-only
+  (offline harness can't load external tiles); low risk — mirror of 4 already-
+  live GIBS layers + a live-verified tile.
+- HYPOTHESIS (Pillar 6, open_questions.md): NO2 over a named industrial zone/port
+  = throughput nowcast leading PMI/IP. PRIOR: the most promising G2 hypothesis
+  (physically direct, high time-resolution vs the print it anticipates, spatially
+  specific to a single basin). Residual for us = named-facility, daily, de-
+  weathered anomaly (NO2 depends on wind/insolation) joined to the operator
+  ticker, NOT the national index (COVID NO2 collapse means the gross link is
+  known — STANDARD #5). RAW, no predictive claim; gate 2 blocked on (a) server-
+  side raster→point sampling over facility polygons, (b) meteorological de-
+  confounding, (c) facility→ticker join.
+- CROSS-TIE: NO2 × the strategic-facility/powerplant archive = the most direct
+  "is this specific asset RUNNING right now" observable we have; same facility
+  spine as the fires cross-tie (#388). No backtest (display-only RAW). Anti-churn:
+  one logical change, own PR, own tag.
+
 ## 2026-07-08 — [PRODUCT] G2d SMAP soil-moisture layer + latency-aware GIBS date default; completes ag-supply-chain triad (v1.0.230)
 
 TERRITORY: T-CLIENT (datamap.tsx + client/src/lib/gibs.ts factory) + SHARED
