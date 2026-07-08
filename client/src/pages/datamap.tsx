@@ -34,6 +34,10 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
 // timeout + auto-retry backoff so a transient blip self-heals.
 import { runResilientLoad } from "@/lib/resilientLoad";
+// Reliability (BUG 4): six hand-rolled layers stacked click/hover listeners
+// across toggle cycles. attachLayerInteractions binds them with named handlers
+// and returns a detach() the effect cleanup calls — no more stacking.
+import { attachLayerInteractions } from "@/lib/mapInteractions";
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
@@ -192,6 +196,7 @@ const VESSEL_COLOR: Record<string, string> = {
   tanker: "#fbb24c", cargo: "#4ade80", passenger: "#c084fc",
   fishing: "#7cc4ff", tug: "#b3c2d8", other: "#4ade80",
 };
+
 
 // Legend entry that renders THE ACTUAL registry shape the map draws
 // (iconDataURL rasterizes the same ImageData registerIcons feeds maplibre).
@@ -1558,7 +1563,8 @@ export default function DataMapPage() {
       return;
     }
     setStatus("sites", "loading");
-    return runResilientLoad(
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
       async (signal) => {
         const r = await fetch("/api/data/sites", { signal });
         if (!r.ok) throw new Error(String(r.status));
@@ -1600,7 +1606,7 @@ export default function DataMapPage() {
             "icon-halo-width": 1.4,
           },
         });
-        map.on("click", "sites-icons", (e: any) => {
+        detach = attachLayerInteractions(map, "sites-icons", (e: any) => {
           const f = e.features?.[0];
           if (!f) return;
           setDetail({
@@ -1622,13 +1628,12 @@ export default function DataMapPage() {
               .catch(() => {});
           }
         });
-        map.on("mouseenter", "sites-icons", () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", "sites-icons", () => { map.getCanvas().style.cursor = ""; });
         setStatus("sites", "active", d.sites.length);
       },
       (failures) => setStatus("sites", "error", undefined,
         failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
     );
+    return () => { stopLoad(); detach(); };
   }, [enabled.sites, mapReady, setStatus]);
 
   // ── US power plants (RAW; static reference data, WRI GPPD CC BY 4.0) ──
@@ -1649,7 +1654,8 @@ export default function DataMapPage() {
     }
     if (!mapSettled) { setStatus("powerplants", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("powerplants", "loading");
-    return runResilientLoad(
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
       async (signal) => {
         const r = await fetch("/api/data/powerplants", { signal });
         if (!r.ok) throw new Error(String(r.status));
@@ -1709,7 +1715,7 @@ export default function DataMapPage() {
             "icon-halo-width": 1.3,
           },
         });
-        map.on("click", "pp-clusters", (e: any) => {
+        const detachClusters = attachLayerInteractions(map, "pp-clusters", (e: any) => {
           const f = e.features?.[0];
           if (!f) return;
           const src: any = map.getSource("powerplants");
@@ -1717,7 +1723,7 @@ export default function DataMapPage() {
             if (!err) map.easeTo({ center: f.geometry.coordinates, zoom: zoom + 0.3 });
           });
         });
-        map.on("click", "pp-points", (e: any) => {
+        const detachPoints = attachLayerInteractions(map, "pp-points", (e: any) => {
           const f = e.features?.[0];
           if (!f) return;
           const p = f.properties;
@@ -1732,16 +1738,14 @@ export default function DataMapPage() {
                   `Static reference data — WRI GPPD v1.3.0 (CC BY 4.0) + EIA-860.`,
           });
         });
-        for (const l of ["pp-clusters", "pp-points"]) {
-          map.on("mouseenter", l, () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", l, () => { map.getCanvas().style.cursor = ""; });
-        }
+        detach = () => { detachClusters(); detachPoints(); };
         setStatus("powerplants", "active", d.count ?? d.plants.length,
           `top ${d.verified_count ?? 100} by MW imagery-verified · rest approximate`);
       },
       (failures) => setStatus("powerplants", "error", undefined,
         failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
     );
+    return () => { stopLoad(); detach(); };
   }, [enabled.powerplants, mapReady, mapSettled, setStatus]);
 
   // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
@@ -1760,6 +1764,7 @@ export default function DataMapPage() {
     if (!mapSettled) { setStatus("trains", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("trains", "loading");
     let stop = false;
+    let detach = () => {};
     const load = async () => {
       try {
         const r = await fetch("/api/data/trains");
@@ -1799,7 +1804,7 @@ export default function DataMapPage() {
               "icon-halo-width": 1.3,
             },
           });
-          map.on("click", "trains-icons", async (e: any) => {
+          detach = attachLayerInteractions(map, "trains-icons", async (e: any) => {
             const f = e.features?.[0];
             if (!f) return;
             const p = f.properties;
@@ -1813,8 +1818,6 @@ export default function DataMapPage() {
             const { note, lastT } = await showTrail("trains", p.id);
             setDetail(prev => prev && prev.trailId === p.id ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
           });
-          map.on("mouseenter", "trains-icons", () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", "trains-icons", () => { map.getCanvas().style.cursor = ""; });
         }
         const per = (d.sources || []).map((s: any) => `${s.country} ${s.status === "ok" ? s.count : s.status}`).join(" · ");
         setStatus("trains", "active", d.count, per || undefined);
@@ -1826,7 +1829,7 @@ export default function DataMapPage() {
     // hidden-tab gate ([REPAIR 2026-07-05] map perf) — refresh resumes on
     // the next tick after the tab returns; server cache covers the gap
     const iv = window.setInterval(() => { if (!document.hidden) load(); }, 30_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.trains, mapReady, mapSettled, setStatus]);
 
   // ── active fires (RAW; NASA FIRMS/LANCE VIIRS 375m NRT — Tier-1(c)
@@ -1849,6 +1852,7 @@ export default function DataMapPage() {
     if (!map || !mapReady) return;
     setStatus("fires", "loading");
     let stop = false;
+    let detach = () => {};
     const load = async () => {
       try {
         const r = await fetch("/api/data/fires");
@@ -1884,7 +1888,7 @@ export default function DataMapPage() {
             },
             paint: { "icon-color": ["get", "color"], "icon-opacity": 0.9 },
           });
-          map.on("click", "fires-sym", (e: any) => {
+          detach = attachLayerInteractions(map, "fires-sym", (e: any) => {
             const f = e.features?.[0];
             if (!f) return;
             const p = f.properties;
@@ -1899,8 +1903,6 @@ export default function DataMapPage() {
               links: [{ label: "NASA FIRMS map", href: "https://firms.modaps.eosdis.nasa.gov/map/" }],
             });
           });
-          map.on("mouseenter", "fires-sym", () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", "fires-sym", () => { map.getCanvas().style.cursor = ""; });
         }
         setStatus("fires", "active", d.count ?? (d.fires || []).length,
           "NASA FIRMS/LANCE · VIIRS 375m · ~3h latency · not for safety-of-life use");
@@ -1910,7 +1912,7 @@ export default function DataMapPage() {
     };
     load();
     const iv = window.setInterval(load, 15 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.fires, mapReady, layers, setStatus]);
 
   // ── USGS river gauges (RAW; stream #6 surface — 14 barge-corridor
@@ -1929,6 +1931,7 @@ export default function DataMapPage() {
     if (!map || !mapReady) return;
     setStatus("rivergauges", "loading");
     let stop = false;
+    let detach = () => {};
     const load = async () => {
       try {
         const r = await fetch("/api/data/rivergauges");
@@ -1964,7 +1967,7 @@ export default function DataMapPage() {
               "icon-halo-width": 1.3,
             },
           });
-          map.on("click", "rivergauges-sym", (e: any) => {
+          detach = attachLayerInteractions(map, "rivergauges-sym", (e: any) => {
             const f = e.features?.[0];
             if (!f) return;
             const p = f.properties;
@@ -1980,8 +1983,6 @@ export default function DataMapPage() {
               links: [{ label: "USGS monitoring page", href: `https://waterdata.usgs.gov/monitoring-location/${p.site}/` }],
             });
           });
-          map.on("mouseenter", "rivergauges-sym", () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", "rivergauges-sym", () => { map.getCanvas().style.cursor = ""; });
         }
         setStatus("rivergauges", "active", fc.features.length, "USGS NWIS · provisional readings revise");
       } catch {
@@ -1991,7 +1992,7 @@ export default function DataMapPage() {
     load();
     // hourly refresh, hidden-tab gated (matches the server's 1h poll)
     const iv = window.setInterval(() => { if (!document.hidden) load(); }, 60 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.rivergauges, mapReady, setStatus]);
 
   // ── NWS severe-weather alerts (RAW overlay — official warnings as-is,
@@ -2010,6 +2011,7 @@ export default function DataMapPage() {
     if (!map || !mapReady) return;
     setStatus("alerts", "loading");
     let stop = false;
+    let detach = () => {};
     const SEV_COLOR: any = ["match", ["get", "severity"],
       "Extreme", "#ff3b3b", "Severe", "#ff8c42", "Moderate", "#ffd23f", "Minor", "#4d9fff",
       "#9aa4b2"];
@@ -2040,7 +2042,7 @@ export default function DataMapPage() {
             id: "alerts-line", type: "line", source: "alerts",
             paint: { "line-color": SEV_COLOR, "line-width": 1.2, "line-opacity": 0.8 },
           });
-          map.on("click", "alerts-fill", (e: any) => {
+          detach = attachLayerInteractions(map, "alerts-fill", (e: any) => {
             const f = e.features?.[0];
             if (!f) return;
             const p = f.properties;
@@ -2054,8 +2056,6 @@ export default function DataMapPage() {
               links: [{ label: "weather.gov alerts", href: "https://www.weather.gov/alerts" }],
             });
           });
-          map.on("mouseenter", "alerts-fill", () => { map.getCanvas().style.cursor = "pointer"; });
-          map.on("mouseleave", "alerts-fill", () => { map.getCanvas().style.cursor = ""; });
         }
         const note = d.zone_only ? `NWS · ${d.zone_only} zone-coded alerts not drawn` : "NWS api.weather.gov";
         setStatus("alerts", "active", fc.features.length, note);
@@ -2066,7 +2066,7 @@ export default function DataMapPage() {
     load();
     // 5-min refresh, hidden-tab gated (server polls upstream every 10)
     const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.alerts, mapReady, setStatus]);
 
   // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
