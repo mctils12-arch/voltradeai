@@ -82,6 +82,7 @@ import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsIn
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
+import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
 
 const execAsync = promisify(exec);
 
@@ -1353,6 +1354,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: Math.floor(hit.at / 1000),
       count: hit.detections.length,
       fires: hit.detections.slice(0, 8000),
+    });
+  });
+
+  // USGS real-time earthquakes (RAW, M2.5+, global, rolling 24h) — free-data
+  // pipeline build (EDGE DOCTRINE #1: build data, don't buy it). US
+  // government public domain, keyless, no rate limit documented — boots
+  // eagerly, no key gate needed (see server/usgsQuakes.ts). No map layer
+  // yet — pipeline+API-first sequencing, same as sec8kEarnings/finraQuery
+  // part 1 (client picks it up once archive history accumulates).
+  bootQuakesPoll();
+  app.get("/api/data/earthquakes", (_req, res) => {
+    const hit = latestQuakes();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "USGS Earthquake Hazards Program", warming_up: true, count: 0, quakes: [] });
+    }
+    res.set("Cache-Control", "public, max-age=120");
+    res.json({
+      kind: "raw",
+      source: "USGS Earthquake Hazards Program (M2.5+, global, rolling 24h)",
+      attribution: "U.S. Geological Survey",
+      time: hit.at,
+      count: hit.events.length,
+      quakes: hit.events,
     });
   });
 

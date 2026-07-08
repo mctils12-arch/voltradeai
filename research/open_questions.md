@@ -368,7 +368,22 @@
     hex, since `hsl()` requires the bare-triple form) to confirm no
     visual regression before shipping.
 
-14. **[FOUND 2026-07-07, PR #327 — not repaired this PR, deliberately]
+14. **[RESOLVED 2026-07-07 — v1.0.200, PR #351]** ~~manipulation_detect's
+    Tier-3 scan failure is invisible.~~ FIXED: `tier3Strategic`'s
+    manipulation-scan catch block now routes through `audit("TIER3-MANIP-
+    ERROR", ...)` with the same stderr/stdout/code/signal classification
+    the ML-retrain catch block already used, mirroring the pattern KNOWN
+    BROKEN #5 established. Regression battery: `server/tier3ManipVisibility
+    .test.ts` (3 tests, statically pins the catch block through `audit()`).
+    STALE-DOC NOTE (caught this session, 2026-07-08, while doing the
+    KNOWN-BROKEN-first repair check): this entry was still marked
+    "not repaired this PR, deliberately" even though the fix had already
+    merged the same day — a near-duplicate unmerged PR #343 proposing the
+    identical fix under nearly the same title is still open, evidence the
+    original close-out never happened here. #343 is now fully superseded
+    by main's already-shipped fix; flagged for whoever next touches open
+    PRs to close it as redundant rather than re-merge duplicate work.
+    Original finding text preserved below for the record.
     manipulation_detect's Tier-3 scan failure is invisible.** Same root
     cause as the ML-retrain stdout-corruption bug this PR fixed
     (alpaca_feed.data_feed() printing "[FEED] SIP..." to stdout inside
@@ -717,10 +732,15 @@ R5. **THE EVERYTHING GRAPH — flagship (charter directive 2026-07-04).**
     `server/entityGraph.test.ts` (10 tests) pins node/edge counts,
     operates-edge honesty (unmapped operators produce no edge),
     insider_of aggregation math, calls_at median-dwell aggregation, and
-    the neighborhood BFS. NEXT (unclaimed): step (3) — the `/data` graph
-    panel (entity search -> neighborhood card; DESIGN.md self-see, three
-    widths) — and, smaller/independent, an `/api/v1/graph` keyed mirror
-    (mirrors the existing `stats/portdwell`/`stats/shadow` pattern).
+    the neighborhood BFS.
+    **[STEP 3 SHIPPED — v1.0.208 wishlist.md note flagged this as stale
+    2026-07-08]** the `/data` graph panel is already live
+    (`client/src/pages/graph.tsx`, wired into `datamap.tsx` at
+    `#/data/graph`) — this entry's "unclaimed" language was stale
+    documentation, not a real gap; caught reading this file at session
+    start, not fixed by the shipping session itself. STILL OPEN,
+    smaller/independent: an `/api/v1/graph` keyed mirror (mirrors the
+    existing `stats/portdwell`/`stats/shadow` pattern).
 
 R6. **Dashboards from monitoring we already emit (charter directive
     2026-07-04).** Three /data panels, no new collection: (a)
@@ -771,6 +791,46 @@ R6. **Dashboards from monitoring we already emit (charter directive
   above. Capacity-constrained corner: mid-cap single-plant operators.
 - Both hypotheses use the archive-first pattern: start recording EIA-930
   + NRC dailies NOW (cheap cron), judge after a quarter of history.
+
+## EARTHQUAKE HAZARD-ADJACENT HYPOTHESES (RAW layer shipped 2026-07-08,
+   v1.0.209 — server/usgsQuakes.ts, /api/data/earthquakes, keyless USGS
+   M2.5+ global feed, archive-first from day one)
+
+- **Insurer (P&C) exposure trades.** PRIOR stated before any test: a
+  significant event (USGS `sig` score, which already folds magnitude +
+  population exposure) within a capacity-constrained P&C insurer's known
+  concentration region (e.g. a regional carrier writing CA/PNW
+  earthquake policies) should show forward underperformance vs. the
+  insurance-sector baseline in the days after, before reinsurance/loss
+  estimates are public — REASONING STANDARD #5's second-order test:
+  the trade exists because loss-reserve revisions lag the event by days
+  while the market's initial reaction is often noisy/overdone in either
+  direction, not because "nobody noticed a quake." Ladder: gate 1 DATA
+  passed today (USGS feed is ground truth, not a proxy — no separate
+  verification needed, unlike tank shadows or satellite proxies); gate 2
+  SIGNAL needs (a) a small-cap/regional-insurer universe with disclosed
+  geographic concentration and (b) enough archived event history to test
+  forward N/5/20-day returns vs. a same-universe random-entry baseline
+  (REASONING STANDARD #3) — not attempted yet, blocked on accumulating
+  archive depth (started today, needs weeks-months).
+- **Utility/infrastructure exposure.** Same construction as the NRC
+  outage-adjacent hypothesis above: a significant event near a mapped
+  facility in `entity_map.json`/`us_power_plants.json`/`strategic_sites
+  .json` (join on lat/lon proximity, not yet built) is a same-day
+  operator-impact estimate nobody prices for small single-region
+  utilities. Ladder: gate 1 = proximity join reconciles against known
+  plant coordinates (mechanical, no new data needed); gate 2 = event-
+  adjacent operator returns vs. baseline. Capacity-constrained corner:
+  small single-plant/single-region utilities, per EDGE DOCTRINE #2.
+- **Supply-chain disruption (industrial/logistics sites).** Same
+  proximity-join construction against port/rail/site registries already
+  archived (R2 maritime, `datacore/rail`). Speculative — filed per the
+  ACTIVE ANGLE-HUNTING standing behavior's explicit invitation to log
+  even weird hypotheses with their ladder path; no work done beyond
+  filing.
+- Discount all three per REASONING STANDARD #4 before any of them run:
+  they share one raw event feed, so a "hit" on one is not independent
+  evidence for the others' validity as a class.
 
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 

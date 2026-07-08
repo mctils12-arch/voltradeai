@@ -174,10 +174,27 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   confirmed staged (R14 packaging lesson). No UI page — same
   pipeline+API-first sequencing as sec8kEarnings/finraQuery part 1
   (view once archive history accumulates). NEXT: still open —
-  USGS quakes + NDBC buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys
+  NDBC buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys
   (9a/9c); a FINRA part 2 UI view once weeks of archive accumulate;
   the settlement-stress composite [RESEARCH] item (unrelated to part 2,
   ingredients from finrathreshold+secftd+finrashortvol only).
+- **USGS EARTHQUAKES: SHIPPED 2026-07-08 (v1.0.209)** —
+  server/usgsQuakes.ts + /api/data/earthquakes (RAW, M2.5+, global,
+  rolling 24h, keyless US-government-public-domain feed; live-verified
+  end-to-end from this session's own `fetch`, not just curl). Every
+  event carries USGS's own stable id (no composite key needed); a
+  revised `updated` timestamp re-archives the row (append-only) so
+  in-review magnitude/location corrections aren't silently frozen at
+  their first-seen "automatic" values. No map layer yet — same
+  pipeline+API-first sequencing as sec8kEarnings/finraQuery part 1.
+  Hazard-adjacent SIGNAL hypotheses (insurer P&C exposure, utility/
+  infra proximity, supply-chain proximity) filed in open_questions.md
+  under EARTHQUAKE HAZARD-ADJACENT HYPOTHESES — gate 1 trivially passes
+  (USGS is ground truth), gate 2 blocked on archive depth (started
+  today) or an unbuilt facility-proximity join. NDBC buoys (grouped
+  with quakes in the prior NEXT line) is now the next unclaimed item —
+  a single global `latest_obs.txt` fetch (~866 stations, live-verified
+  2026-07-08), no per-station requests needed.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
