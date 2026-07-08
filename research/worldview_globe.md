@@ -128,9 +128,18 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
   de-confounding baseline), and the AOD × facility-archive cross-tie to #388.
   Still-open dust/aerosol-index variants (`GOES-East_ABI_Dust`,
   `OMPS_Aerosol_Index`) remain future adds.
-- G2d Drought/soil-moisture `SMAP_L4_Analyzed_Root_Zone_Soil_Moisture`,
-  `GRACE_..._Mascon_CRI`. Hypothesis: basin drought = ag-yield-down + hydro-down +
-  barge-draft → ag futures, hydro utilities, inland shipping.
+- [SHIPPED v1.0.230] G2d Root-zone soil moisture `SMAP_L4_Analyzed_Root_Zone_Soil_Moisture`
+  (PNG, `GoogleMapsCompatible_Level6`; ~6-day processing lag — access + non-blank
+  land coverage re-verified live 2026-07-08: 07-01/07-02 carry data, 07-07 does
+  NOT, so the scrubber defaults 7 days back via the new `gibsDefaultDate(now,
+  latencyDays)` factory param rather than to a guaranteed-blank "yesterday").
+  Registry `soilmoisture` (RAW, field:true, environmental); Droplets icon.
+  COMPLETES the ag-supply-chain cross-tie triad: NDVI (crop health) × soil
+  moisture (water in the root zone) × river gauges (barge draft on the corridor
+  that ships the grain) — three RAW observations over one geography; a future
+  gate-2 ag signal would be built on that stack. Hypothesis filed
+  open_questions.md. Still-open: `GRACE_..._Mascon_CRI` groundwater (NOT in the
+  EPSG:3857 GetCapabilities as of 2026-07-08 — needs a different endpoint/CRS).
 - [SHIPPED v1.0.229] G2e Vegetation `VIIRS_SNPP_NDVI_8Day` (PNG,
   `GoogleMapsCompatible_Level8`, 8-day composite — access + non-blank LAND
   coverage re-verified live 2026-07-08: a yesterday request returns the current

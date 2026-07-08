@@ -13,6 +13,42 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PRODUCT] G2d SMAP soil-moisture layer + latency-aware GIBS date default; completes ag-supply-chain triad (v1.0.230)
+
+TERRITORY: T-CLIENT (datamap.tsx + client/src/lib/gibs.ts factory) + SHARED
+minimal last (package.json 1.0.230; datacore/layers.json; visual fixture;
+research/*). Solo, no concurrent GIBS session.
+
+- WHAT: registry `soilmoisture` (RAW, field:true, environmental) — NASA GIBS
+  SMAP L4 root-zone soil moisture. Distinct observable from the three prior
+  GIBS layers; ships specifically to COMPLETE the ag-supply-chain cross-tie
+  triad promised in #390's log: NDVI (crop health) × soil moisture (root-zone
+  water) × river gauges (barge draft) — three RAW layers over one geography.
+- FACTORY CHANGE (bundled because it exists ONLY for this layer + preserves all
+  existing callers): gibsDefaultDate/gibsIsLatestAvailable gained a
+  backward-compatible `latencyDays=1` param. SMAP L4 lags ~6 days, so
+  defaulting to "yesterday" (the prior hardcode) would open the scrubber on a
+  GUARANTEED-BLANK tile — the same dishonesty the "never offer today" rule
+  prevents. datamap passes SOIL_LATENCY_DAYS=7. 2 new gibs.test.ts cases
+  (latency step-back; ceiling honors the same lag) — 7/7 pass.
+- VERIFY-LIVE: tested the lag rather than trusting it — SMAP at 07-01 and 07-02
+  return data (46% land coverage), 07-07 (yesterday) returns blank, confirming
+  ~6-day latency and the 7-day default. TMS Level6/PNG confirmed from the same
+  live GetCapabilities. Wiring ratchet PASS; gibs tests 7/7; tsc unchanged
+  64-error baseline (zero new); client+server build clean. Live render prod-only
+  (offline SwiftShader harness can't load external tiles); low risk — mirror of
+  3 already-live GIBS layers + a live-verified tile URL + the date-default now
+  provably non-blank.
+- HYPOTHESIS (Pillar 6, open_questions.md): soil-moisture deficit over a named
+  basin = ag-supply + barge-draft proxy; PRIOR real-but-slow-and-lagged, already
+  mined → residual is the JOINT triad reading, not the level (discounted per
+  STANDARD #4/#5). RAW, no predictive claim; gate 2 blocked on archives of all
+  three layers over basin polygons + a seasonal baseline.
+- GRACE groundwater (the other G2d candidate) is NOT in the EPSG:3857
+  GetCapabilities — needs a different endpoint/CRS; filed as still-open, not
+  faked. No backtest (display-only RAW). Anti-churn: one logical change (the
+  layer + its enabling date-default), own PR, own tag.
+
 ## 2026-07-08 — [PRODUCT] G2e vegetation NDVI GIBS layer + crop-yield hypothesis (v1.0.229)
 
 TERRITORY: T-CLIENT (datamap.tsx, one dated GIBS raster layer) + SHARED

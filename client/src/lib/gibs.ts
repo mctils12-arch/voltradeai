@@ -30,10 +30,18 @@ export function gibsTileUrl(spec: GibsLayerSpec, dateISO: string): string {
 const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
 
 /** Charter: "default the time-slider to yesterday." Daily GIBS layers are
- *  never available same-day, so "today" is never an offerable date. */
-export function gibsDefaultDate(nowMs: number): string {
+ *  never available same-day, so "today" is never an offerable date.
+ *
+ *  `latencyDays` is the layer's typical processing lag in days (1 = a
+ *  true-daily layer whose newest data is yesterday). NOT every GIBS product
+ *  is same-day-minus-one: SMAP soil moisture lands ~6 days back, MODIS/VIIRS
+ *  multi-day composites lag their compositing window. Passing the real lag
+ *  keeps the scrubber from DEFAULTING to a guaranteed-blank tile — the same
+ *  honesty rule as never offering "today". Default 1 preserves every existing
+ *  caller's behavior unchanged. */
+export function gibsDefaultDate(nowMs: number, latencyDays = 1): string {
   const d = new Date(nowMs);
-  d.setUTCDate(d.getUTCDate() - 1);
+  d.setUTCDate(d.getUTCDate() - Math.max(1, Math.floor(latencyDays)));
   return toISODate(d);
 }
 
@@ -43,10 +51,11 @@ export function gibsStepDate(dateISO: string, deltaDays: number): string {
   return toISODate(d);
 }
 
-/** A date is honestly un-offerable once it reaches "yesterday" relative to
- *  now — GIBS daily layers do not carry today's data. Used to disable the
- *  scrubber's "next day" control rather than silently serving a guaranteed-
- *  blank tile. */
-export function gibsIsLatestAvailable(dateISO: string, nowMs: number): boolean {
-  return dateISO >= gibsDefaultDate(nowMs);
+/** A date is honestly un-offerable once it reaches the layer's latest
+ *  AVAILABLE date (now minus its processing lag) — GIBS does not carry data
+ *  newer than that. Used to disable the scrubber's "next day" control rather
+ *  than silently serving a guaranteed-blank tile. `latencyDays` must match the
+ *  value passed to gibsDefaultDate for the same layer (default 1 = yesterday). */
+export function gibsIsLatestAvailable(dateISO: string, nowMs: number, latencyDays = 1): boolean {
+  return dateISO >= gibsDefaultDate(nowMs, latencyDays);
 }

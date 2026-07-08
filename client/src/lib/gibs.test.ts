@@ -37,3 +37,19 @@ test("gibsIsLatestAvailable: true only once the date reaches the honest 'yesterd
   // never claims "today" or a future date is behind the ceiling either
   assert.equal(gibsIsLatestAvailable("2026-07-08", nowMs), true);
 });
+
+test("gibsDefaultDate: latencyDays steps the default back by a layer's real lag (SMAP ~6d)", () => {
+  const nowMs = Date.parse("2026-07-08T15:00:00Z");
+  assert.equal(gibsDefaultDate(nowMs), "2026-07-07");        // default = yesterday
+  assert.equal(gibsDefaultDate(nowMs, 1), "2026-07-07");     // explicit 1 = same
+  assert.equal(gibsDefaultDate(nowMs, 7), "2026-07-01");     // 7-day-lag layer
+  // never returns "today" even if given a nonsense sub-1 latency
+  assert.equal(gibsDefaultDate(nowMs, 0), "2026-07-07");
+});
+
+test("gibsIsLatestAvailable: ceiling honors the same latencyDays as the default", () => {
+  const nowMs = Date.parse("2026-07-08T15:00:00Z"); // 7-day ceiling = 2026-07-01
+  assert.equal(gibsIsLatestAvailable("2026-06-30", nowMs, 7), false);
+  assert.equal(gibsIsLatestAvailable("2026-07-01", nowMs, 7), true);
+  assert.equal(gibsIsLatestAvailable("2026-07-05", nowMs, 7), true);
+});
