@@ -300,6 +300,11 @@ export default function DataMapPage() {
   // never a silent failure.
   const [globeOn, setGlobeOn] = useState<boolean>(readGlobePref);
   const [globeSupport, setGlobeSupport] = useState<"unknown" | "ok" | "unavailable">("unknown");
+  // Style presets (worldview-globe G1): switch the BASE look on the one globe —
+  // real-first geographic identities, no tactical FLIR/NVG. Persisted per browser.
+  const [mapPreset, setMapPreset] = useState<string>(() => {
+    try { return window.localStorage.getItem("vt-map-preset") || "natural"; } catch { return "natural"; }
+  });
   useEffect(() => {
     try { window.localStorage.setItem(GLOBE_PREF_KEY, globeOn ? "1" : "0"); } catch {}
     const map = mapRef.current;
@@ -316,6 +321,47 @@ export default function DataMapPage() {
       setGlobeOn(false);
     }
   }, [globeOn, mapReady, globeSupport]);
+
+  // Style-preset base look (worldview-globe G1). Switches the BASE imagery on the
+  // one globe — real-first geographic presets, never a tactical filter:
+  //   natural  = Esri World Imagery (default)
+  //   night    = NASA VIIRS Black Marble (Earth at night — city lights)
+  //   terrain  = Esri imagery + auto-enable the 3D relief layer
+  //   minimal  = no imagery (clean dark astro base + boundaries for reference)
+  // Only base-imagery visibility changes here; all data layers are untouched.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    try { window.localStorage.setItem("vt-map-preset", mapPreset); } catch {}
+    try {
+      const BLACK_MARBLE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png";
+      if (mapPreset === "night") {
+        if (!map.getSource("blackmarble")) {
+          map.addSource("blackmarble", {
+            type: "raster", tiles: [BLACK_MARBLE], tileSize: 256, maxzoom: 8,
+            attribution: "Earth at Night — VIIRS Black Marble · NASA GIBS/ESDIS (public domain)",
+          } as any);
+        }
+        if (!map.getLayer("blackmarble")) {
+          map.addLayer({ id: "blackmarble", type: "raster", source: "blackmarble" } as any, "imagery");
+        }
+      } else {
+        if (map.getLayer("blackmarble")) map.removeLayer("blackmarble");
+        if (map.getSource("blackmarble")) map.removeSource("blackmarble");
+      }
+      // Base imagery hidden for night (black marble shows through) + minimal
+      // (clean dark base shows through); visible for natural + terrain.
+      const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
+      if (map.getLayer("imagery")) {
+        map.setLayoutProperty("imagery", "visibility", imageryVisible ? "visible" : "none");
+      }
+      // Terrain preset auto-enables the 3D relief + boundaries give minimal a
+      // reference frame — set once, the user can still toggle afterwards.
+      if (mapPreset === "terrain") setEnabled((s) => (s.terrain ? s : { ...s, terrain: true }));
+      if (mapPreset === "minimal") setEnabled((s) => (s.boundaries ? s : { ...s, boundaries: true }));
+    } catch { /* base swap failed — data layers unaffected, map stays alive */ }
+  }, [mapPreset, mapReady]);
+
   const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
@@ -449,7 +495,11 @@ export default function DataMapPage() {
         // v2.4 control occlusion: zoom lives bottom-LEFT — the layers panel
         // (right side, full-height allowance) can never cover it at any
         // width. Self-see asserts non-occlusion mechanically.
-        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
+        // Compass + pitch indicator (worldview-globe G0b): shows heading, resets
+        // north on click, and the needle tilts to visualize pitch — the
+        // orientation cue the 3D globe/terrain view needs. Clean Google-Earth-
+        // style nav, our styling (index.css .maplibregl-ctrl-compass*).
+        map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "bottom-left");
         map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
@@ -2635,6 +2685,26 @@ export default function DataMapPage() {
           <AnalystPane onClose={() => setAnalystOpen(false)} onMapCommand={runAnalystMapCommand} />
         </Suspense>
       )}
+      {/* Style presets (worldview-globe G1) — real-first geographic looks,
+          bottom-center segmented control. No tactical filters. */}
+      <div className="vt-preset-switch" role="group" aria-label="Map style preset">
+        {([
+          ["natural", "Natural"],
+          ["night", "Night"],
+          ["terrain", "Terrain"],
+          ["minimal", "Minimal"],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            className={`vt-preset-pill${mapPreset === id ? " vt-preset-pill-on" : ""}`}
+            aria-pressed={mapPreset === id}
+            onClick={() => setMapPreset(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div ref={mapContainer} className="vt-map-canvas" />
 
       {!mapReady && !mapError && (
