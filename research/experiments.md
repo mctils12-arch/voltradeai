@@ -9761,3 +9761,87 @@ CI. Width bounded by the serial merge gate + the datamap.tsx single-writer hotsp
   WebGL2) -> O3 detail panel -> O7 coverage tools. Grid-vision: RunPod fine-tune
   BLOCKED-FOR-MIKE on launch path; build_power_tiles.sh needs power=tower;
   Duke-US zips for substations. Backtest: N/A (no strategy/measurement change).
+
+## 2026-07-08 — [PRODUCT] G0b double-build collision + G2a: GIBS factory + time-scrubber + night-lights layer (v1.0.224)
+
+TERRITORY: T-CLIENT. Session-start check: re-read open_questions.md KNOWN
+BROKEN — no new critical trading-loop item (see the PR #383 body for the
+full check); loop-health ratio of the last 10 tagged entries was fine, no
+7-REPAIR thrash to address. Picked worldview_globe.md's stated NEXT item
+(G0b compass) as the highest-value queued product action.
+
+- COLLISION (OPS GOTCHAS double-build, recurred): built G0b (identical
+  `NavigationControl` config change), opened PR #383, only to find on
+  status-check that #382 — a concurrent session — had ALREADY merged the
+  exact same change plus G1 style presets, seconds before my push landed.
+  Neither session had appended a `[CLAIMED <date> <PR#>]` marker to the
+  roadmap entry before starting, so neither could see the other was
+  building it. Per the supersession precedent (first-merged wins, the
+  duplicate salvages its unique delta): closed #383 with an explanation
+  comment, no force-push, no re-litigating #382's (equivalent, slightly
+  more complete) implementation. Zero code delta survived from #383 — its
+  own CSS hairline rule is superseded by #382's fuller `.maplibregl-ctrl-group`
+  restyle. Restated the lesson in worldview_globe.md's STATUS LOG rather
+  than letting it happen again silently.
+- FELL THROUGH (session budget rule: a superseded primary action isn't a
+  completed one) to the actual next queued item once G0b+G1 were both
+  already done: G2a (night lights, first NASA GIBS layer) — a real,
+  charter-specified chunk of work ("ship a shared GIBS raster-layer
+  factory + a time-scrubber, then add layers by value").
+- VERIFIED BEFORE BUILDING (not trusted from the charter's earlier
+  research pass alone): live-curled the exact tile URL this PR ships.
+  `GoogleMapsCompatible_Level8` -> HTTP 200, real PNG (256x256, ~70% of
+  pixels non-transparent — genuine radiance data, not a blank tile).
+  `GoogleMapsCompatible_Level9` -> HTTP 400 with an explicit WMTS
+  `InvalidParameterValue: TILEMATRIXSET is invalid for LAYER` exception —
+  confirms Level8 is this layer's actual native max, not a guess carried
+  over from #382's Black Marble usage (a different GIBS product, whose
+  correct level doesn't necessarily transfer).
+- WHAT: `client/src/lib/gibs.ts` — shared factory for every G2 layer
+  (`gibsTileUrl`, `gibsDefaultDate` [yesterday, UTC — GIBS never has
+  same-day data], `gibsStepDate`, `gibsIsLatestAvailable` [bounds the
+  scrubber's "next day" so it can never reach a guaranteed-blank date]).
+  5 tests in `gibs.test.ts` (URL construction, UTC month/year boundaries,
+  step forward/back, the availability ceiling).
+  `datamap.tsx`: new `nightlights` layer, wired exactly like the existing
+  surfacewater/forest RAW field layers (add/remove source+layer on
+  toggle; `field:true` inherits the opacity slider) but re-adds the
+  source whenever the scrubbed date changes — fine at human click
+  cadence, no polling. Per-row date scrubber (prev/next day buttons,
+  32x32 touch targets matching this panel's existing dense-control
+  precedent) renders next to the opacity slider the same way
+  weather_temp/weather_wind already add their own sub-controls. Legend
+  entry added to the Environmental section. `datacore/layers.json` +
+  `scripts/visual_check.mjs` FIXTURES both got the new registry entry
+  (the FIXTURES-sync requirement is the R15 lesson stated in-file at
+  line ~77 — skipping it is exactly the bug class that shipped
+  powergrid unreachable for a day).
+- HONESTY: registry description states plainly that some dates/areas
+  render blank on the daylight side of the terminator or from sensor
+  gaps — expected behavior, not a defect; the on-panel status note
+  repeats it. No archive yet — this PR is client-display only (direct
+  browser->GIBS tile fetch, zero server cost, same pattern as
+  surfacewater/forest), so gate-2 on the Pillar-6 hypothesis below is
+  explicitly blocked on a future archiving pipeline, not implied done.
+- HYPOTHESIS FILED (Pillar 6, open_questions.md): night-lights radiance
+  MoM/YoY delta as a regional-economic-activity proxy, small/regional
+  ticker universe — PRIOR discounted going in (REASONING STANDARD #4/#5):
+  "nighttime lights predict GDP" is one of the most heavily studied
+  remote-sensing proxies in economics; the only plausible residual edge
+  is daily-cadence + small-cap-residual, stated as the actual claim, not
+  the existence of the underlying proxy itself.
+- GATES: `npm run build` clean. `npm run visual` at 390/768/1440 — 0 hard
+  failures (self-reviewed data-390.png/data-1440.png: nightlights row
+  renders with icon, RAW badge, opacity slider, and date scrubber intact;
+  toggle-consistency battery covers it via the FIXTURES entry). `npm run
+  check` (tsc) 64 errors, unchanged baseline, none in any file this PR
+  touches. `npx tsx --test client/src/lib/gibs.test.ts` 5/5 pass; `npx tsx
+  --test client/src/lib/*.test.ts client/src/lib/orbital/*.test.ts` 75/75
+  pass (client-lib suite, run the way prior orbital-lib PRs ran it —
+  `npm run test:node`'s glob only covers server/, a pre-existing scope
+  gap unrelated to this change). `npm run test:node` (server) 490/490
+  pass. `python3 -m pytest -q` 555 passed, 2 skipped (no Python touched).
+  Version 1.0.223 -> 1.0.224 (read-and-incremented at commit time, after
+  re-fetching main to confirm no further advance past #382).
+- NEXT: G2b fires (GOES-East_ABI_FireTemp) reusing the same gibs.ts
+  factory, or G0c deep-zoom policy — either is a reasonable next pick.

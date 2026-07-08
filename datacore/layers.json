@@ -196,6 +196,17 @@
    "description": "Active-fire detections, ~3h latency. Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration \u2014 see wishlist). No free history exists upstream \u2014 detections archive from the day the key activates."
   },
   {
+   "id": "nightlights",
+   "name": "Night lights radiance (GIBS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NASA GIBS/ESDIS — VIIRS/SNPP Day/Night Band, public domain",
+   "description": "Daily night-lights radiance imagery, dated (default: yesterday — GIBS never carries same-day data; step back further via the on-panel scrubber). As-is display, no predictive claim — metro/industrial radiance MoM/YoY delta as a regional-economic-activity proxy is an open gate-2 hypothesis (research/open_questions.md), not yet surfaced as a signal. Some dates/areas render blank on the daylight side of the terminator or from sensor gaps — honest, not a bug.",
+   "field": true
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",

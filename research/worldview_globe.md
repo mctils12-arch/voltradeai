@@ -67,19 +67,24 @@ Remaining reliability is opportunistic; the visual build below is now UNGATED.
 - [SHIPPED #379] G0a Real 3D terrain relief — `map.setTerrain({source:"terrain-dem",
   exaggeration:1.3})` on the existing Mapterhorn terrarium DEM (confirmed valid by
   research; globe+terrain compatible in MapLibre v5). Degrade-safe.
-- G0b Compass + nav craft — swap `NavigationControl({showCompass:false})` →
-  `{showCompass:true, showZoom:true, visualizePitch:true}` (the pitch/heading
-  indicator the directive wants); style `.maplibregl-ctrl-compass*` in index.css.
-  Zero cost. datamap.tsx:452.
+- [SHIPPED #382] G0b Compass + nav craft — `NavigationControl({showCompass:true,
+  showZoom:true, visualizePitch:true})`, themed `.maplibregl-ctrl-group`/
+  `.maplibregl-ctrl-compass` chrome in index.css. Zero cost. datamap.tsx:~502.
+  (COLLISION NOTE: a concurrent session shipped this same item as #383, unaware
+  #382 had already merged it — closed as a pure duplicate per the OPS GOTCHAS
+  double-build rule; no code survived from #383, only its docs-correction
+  landed via this entry. Restating the OPS GOTCHAS lesson: CLAIM a roadmap item
+  in your first commit before building it, not after.)
 - G0c Deep-zoom policy — raise/rationalize maxZoom; keep Esri imagery to its
   native z, plan the hand-off zoom (~z16) to Google 3D Tiles (Phase G3).
 
 ### Phase G1 — style presets (Natural / Night / Terrain / Minimal)
-Switcher in the top-left control column (next to globe/fullscreen). Preset =
-imagery/DEM/label layer set toggled on the ONE MapLibre globe (mutate layer
-visibility / `setStyle` while preserving data layers — insertion point is the
-inline style object). Night = VIIRS Black Marble base (ties Phase G2). Real-first
-identity; NO tactical filters as defaults (at most one optional tasteful extra).
+[SHIPPED #382] Switcher in the top-left control column. Preset = imagery/DEM/
+label layer set toggled on the ONE MapLibre globe (`mapPreset` state +
+`vt-preset-switch` bottom-center segmented control); Night = VIIRS Black Marble
+base (static, `blackmarble` source/layer — a base-look swap, distinct from G2a's
+dated/toggleable Night lights DATA layer below, which uses its own source and
+carries a real date). Real-first identity; no tactical filters.
 
 ### Phase G2 — NASA GIBS layers (biggest free-data unlock)
 Access pattern (verified vs live GetCapabilities 2026-07-08, EPSG:3857, no key,
@@ -90,9 +95,21 @@ public domain, attribution "imagery via NASA GIBS/ESDIS"):
 default to T-1/T-2 and a missing date returns a SILENT transparent tile → build a
 "step back one day" fallback and default the time-slider to yesterday. Ship a
 shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
-- G2a Night lights `VIIRS_SNPP_DayNightBand_At_Sensor_Radiance` (+NOAA20; clean
-  `VIIRS_Black_Marble`). Hypothesis: metro/industrial radiance MoM/YoY delta =
-  regional economic activity → regional-bank/retail/utility by CBSA.
+- [SHIPPED v1.0.224] G2a Night lights `VIIRS_SNPP_DayNightBand_At_Sensor_Radiance`.
+  Factory: `client/src/lib/gibs.ts` (`gibsTileUrl`/`gibsDefaultDate`/`gibsStepDate`/
+  `gibsIsLatestAvailable`, 5 tests) — reusable by G2b-h. Access re-verified LIVE
+  2026-07-08 (not just trusted from the charter's earlier research): Level8 is
+  the correct TileMatrixSet for this specific layer, Level9 explicitly rejected
+  by GIBS with a WMTS `InvalidParameterValue` exception (not a network fluke);
+  fetched tile pixel-checked (70% non-transparent, real data, not a blank tile).
+  Registry entry `nightlights` (RAW, field:true, group "environmental");
+  per-row date scrubber (prev/next day, "next" disabled once at the honest
+  "yesterday" ceiling — GIBS never has same-day data). Hypothesis (Pillar 6)
+  filed in open_questions.md: metro/industrial radiance MoM/YoY delta =
+  regional economic activity → regional-bank/retail/utility by CBSA — gate 2
+  blocked on (a) a daily-radiance ARCHIVE (this PR is display-only, no
+  pipeline yet — the actual gate-2 prerequisite) and (b) a metro→ticker join;
+  NOT yet a signal. NEXT (G2b): fires (GOES-East_ABI_FireTemp).
 - G2b Fires — raster `GOES-East_ABI_FireTemp` (10-min) for the map; the
   `*_Thermal_Anomalies_*_All` layers are MVT VECTOR (use a vector source or the
   GOES raster). Hypothesis: fires within N km of insured/industrial/utility
@@ -182,3 +199,9 @@ version = read-and-increment at commit time; rebase on collision.
   (#372/#374/#375/#376/#377). Research verified: GIBS access + 15-layer inventory
   (live GetCapabilities), Google 3D Tiles path (deck.gl, key-only auth, cost model).
   NEXT: G0b compass, then G1 style presets, then G2a night-lights (first GIBS layer).
+- 2026-07-08: G0b + G1 SHIPPED together via #382 (a concurrent session, unclaimed —
+  see the G0b collision note above; #383's identical G0b attempt closed as a
+  duplicate, no code delta survived).
+- 2026-07-08: G2a (GIBS factory + time-scrubber + night-lights layer) SHIPPED
+  v1.0.224. NEXT: G2b fires (GOES-East_ABI_FireTemp), or G0c deep-zoom policy —
+  either fits; pick per the next session's own judgment.
