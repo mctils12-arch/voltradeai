@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, ChevronLeft, ChevronRight } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -34,6 +34,9 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
 // timeout + auto-retry backoff so a transient blip self-heals.
 import { runResilientLoad } from "@/lib/resilientLoad";
+// worldview_globe.md Phase G2: shared NASA GIBS raster-layer factory. G2a
+// (night lights) is the first consumer; G2b-h reuse this same helper.
+import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable } from "@/lib/gibs";
 // Reliability (BUG 4): six hand-rolled layers stacked click/hover listeners
 // across toggle cycles. attachLayerInteractions binds them with named handlers
 // and returns a detach() the effect cleanup calls — no more stacking.
@@ -153,6 +156,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
+  nightlights: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
@@ -363,13 +367,16 @@ export default function DataMapPage() {
   }, [mapPreset, mapReady]);
 
   const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
+  // worldview_globe.md G2a: night-lights time-scrubber state. Defaults to
+  // the charter's "yesterday" — GIBS daily layers never carry today's data.
+  const [nightlightsDate, setNightlightsDate] = useState<string>(() => gibsDefaultDate(Date.now()));
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
   // slider; default 60% so the basemap + live layers stay visible beneath
   // (directive: the field is context, never a curtain).
   const FIELD_MAP_LAYER: Record<string, string> = {
     weather: "weather-radar", weather_temp: "wx-temp_new", weather_wind: "wx-wind_new",
-    surfacewater: "gsw-occurrence", forest: "jrc-forest",
+    surfacewater: "gsw-occurrence", forest: "jrc-forest", nightlights: "gibs-nightlights",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -837,6 +844,50 @@ export default function DataMapPage() {
       setStatus("forest", "error");
     }
   }, [enabled.forest, mapReady, setStatus]);
+
+  // ── night lights (RAW; worldview_globe.md Phase G2a — the first NASA
+  // GIBS layer, via the shared gibs.ts factory. DATED daily layer (unlike
+  // surfacewater/forest above): re-adds the source/layer whenever the
+  // scrubbed date changes, which is fine at human click cadence (no
+  // polling). Tile access verified live 2026-07-08 (Level8 is the correct
+  // TileMatrixSet for this layer; Level9 is explicitly rejected by GIBS,
+  // not a network fluke — see gibs.ts header). field:true — opacity slider
+  // inherited; the date scrubber is this layer's own extra control,
+  // rendered next to it the same way weather_temp/weather_wind add theirs.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.nightlights) {
+      try {
+        if (map.getLayer("gibs-nightlights")) map.removeLayer("gibs-nightlights");
+        if (map.getSource("gibs-nightlights")) map.removeSource("gibs-nightlights");
+      } catch {}
+      setStatus("nightlights", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gibs-nightlights")) map.removeLayer("gibs-nightlights");
+      if (map.getSource("gibs-nightlights")) map.removeSource("gibs-nightlights");
+      const url = gibsTileUrl(
+        { layer: "VIIRS_SNPP_DayNightBand_At_Sensor_Radiance", tileMatrixSet: "GoogleMapsCompatible_Level8", ext: "png" },
+        nightlightsDate,
+      );
+      map.addSource("gibs-nightlights", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 8,
+        attribution: "Night lights radiance · VIIRS/SNPP · NASA GIBS/ESDIS (public domain)",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gibs-nightlights", type: "raster", source: "gibs-nightlights",
+        paint: { "raster-opacity": opacityOf("nightlights") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("nightlights", "active", undefined,
+        `radiance for ${nightlightsDate} (UTC) · NASA GIBS/ESDIS — some dates/areas may render blank ` +
+        `(daylight side of the terminator, sensor gaps); step back a day if so`);
+    } catch {
+      setStatus("nightlights", "error");
+    }
+  }, [enabled.nightlights, nightlightsDate, mapReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
@@ -2359,6 +2410,7 @@ export default function DataMapPage() {
     id === "powerplants" ? <Zap size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
+    id === "nightlights" ? <Moon size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -2508,6 +2560,24 @@ export default function DataMapPage() {
                 {wxGrid?.note || "sampling grid…"}
               </span>
             ) : null}
+            {l.id === "nightlights" && (
+              <div className="vt-gibs-scrubber" role="group" aria-label="Night lights date">
+                <button
+                  aria-label="Previous day"
+                  onClick={() => setNightlightsDate((d) => gibsStepDate(d, -1))}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="vt-gibs-scrubber-date">{nightlightsDate} UTC</span>
+                <button
+                  aria-label="Next day"
+                  disabled={gibsIsLatestAvailable(nightlightsDate, Date.now())}
+                  onClick={() => setNightlightsDate((d) => gibsStepDate(d, 1))}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
           </div>
         )}
         {l.id === "shadowstats" && on && shadowStats && shadowStats.loiter_events > 0 && (
@@ -2854,7 +2924,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.rivergauges || enabled.alerts) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.rivergauges || enabled.alerts) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -2887,6 +2957,12 @@ export default function DataMapPage() {
                           <>
                             <span className="vt-legend-chip"><i style={{ background: "#2e7d32" }} /> Forest Extent</span>
                             <span className="vt-legend-note">(2020 10m, JRC GFC2020)</span>
+                          </>
+                        )}
+                        {enabled.nightlights && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#ffe873" }} /> Night Lights Radiance</span>
+                            <span className="vt-legend-note">(daily, NASA GIBS/VIIRS — {nightlightsDate})</span>
                           </>
                         )}
                       </div>

@@ -926,6 +926,51 @@ R6. **Dashboards from monitoring we already emit (charter directive
   the archive only started today — neither hypothesis has any history to
   test against yet.
 
+## NIGHT-LIGHTS RADIANCE HYPOTHESIS (RAW layer shipped 2026-07-08, v1.0.224
+   — client/src/pages/datamap.tsx "nightlights" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2a — the first NASA GIBS layer)
+
+- **Metro/industrial radiance delta as a regional-economic-activity proxy
+  (Pillar 6, per worldview_globe.md's own G2a text).** PRIOR stated before
+  any test: sustained MoM/YoY radiance INCREASES over a metro/industrial
+  area (VIIRS/SNPP Day/Night Band, daily) correlate with regional economic
+  activity upticks — the classic "nighttime lights as GDP proxy" literature,
+  applied here at a finer time cadence (daily vs. the usual annual composite)
+  and joined to our OWN archive once enough daily history accumulates.
+  Second-order test (REASONING STANDARD #5): the residual edge, if any, is
+  in TIMING (daily granularity most GDP-proxy studies don't use) and in
+  SMALL/REGIONAL names — regional-bank, retail, and single-region utility
+  tickers by CBSA, not mega-cap names where satellite-radiance research is
+  already well-mined. Ladder: gate 1 DATA — this is a NASA-published,
+  publicly documented product (not a proxy we're inferring from raw
+  pixels the way tank-shadow analysis is); the verification step is
+  confirming OUR tile fetch/date-alignment reproduces GIBS's own published
+  imagery for a handful of known dates (mechanical, not yet done — next
+  session can spot-check a few dates against the GIBS Worldview UI
+  directly). Gate 2 SIGNAL is blocked on (a) building a metro/CBSA →
+  ticker join (reuses the entity_map.json/CBSA-mapping pattern already
+  established for other hypotheses) and (b) accumulating enough daily
+  archive history to compute a MoM/YoY delta at all — the archive starts
+  today, nothing to test yet.
+- **Honesty constraints already built into the layer itself** (not
+  deferred to gate 2): the layer ships RAW/as-is with no predictive claim
+  in its registry description; it is NOT archived yet (this PR is
+  client-only display — a display layer, not a data pipeline — so there
+  is no daily-radiance archive to query until a follow-up PIPELINE session
+  adds one, which is the actual prerequisite for gate 2's (b) above, not
+  yet started); dates that render blank (daylight side of the terminator,
+  real sensor gaps) are stated as an honest, expected outcome in both the
+  layer description and the on-panel status note, never silently retried
+  as if something were broken.
+- Discount per REASONING STANDARD #4: "nighttime lights predict economic
+  activity" is one of the most heavily studied remote-sensing proxies in
+  economics — expect a LOW prior on finding genuinely new alpha here vs.
+  the daily-cadence/small-cap-residual angle actually being real; this is
+  exactly the kind of well-known effect REASONING STANDARD #5 says to be
+  skeptical of ("because nobody noticed" is almost never the answer) — the
+  claimed edge here is specifically the finer time granularity and the
+  small/regional universe, not the existence of the underlying proxy.
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are
