@@ -449,7 +449,13 @@ export default function DataMapPage() {
         // v2.4 control occlusion: zoom lives bottom-LEFT — the layers panel
         // (right side, full-height allowance) can never cover it at any
         // width. Self-see asserts non-occlusion mechanically.
-        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
+        // G0b (worldview_globe.md): compass + pitch indicator restored —
+        // dragRotate/pitchWithRotate are on by default (never disabled above),
+        // so the control now reflects real, already-available bearing/tilt.
+        map.addControl(
+          new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }),
+          "bottom-left",
+        );
         map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).

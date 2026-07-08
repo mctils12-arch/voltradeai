@@ -2309,6 +2309,12 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 }
 .vt-map-page .maplibregl-ctrl-group button:hover { background-color: rgba(77, 159, 255, 0.15); }
 .vt-map-page .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.9); }
+/* G0b: compass/pitch indicator — separate it from the zoom pair with a
+   hairline so the 3-button cluster still reads as one group, not a mis-sized
+   zoom control; the rotating arrow inherits the same invert as zoom icons. */
+.vt-map-page .maplibregl-ctrl-group button.maplibregl-ctrl-compass {
+  border-top: 1px solid rgba(77, 159, 255, 0.2);
+}
 .vt-map-page .maplibregl-ctrl-attrib {
   background: rgba(5, 10, 19, 0.75); color: var(--text-tertiary);
   font-size: 10px; font-family: var(--font-body); border-radius: 6px 0 0 0;

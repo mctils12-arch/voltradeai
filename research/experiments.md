@@ -9761,3 +9761,58 @@ CI. Width bounded by the serial merge gate + the datamap.tsx single-writer hotsp
   WebGL2) -> O3 detail panel -> O7 coverage tools. Grid-vision: RunPod fine-tune
   BLOCKED-FOR-MIKE on launch path; build_power_tiles.sh needs power=tower;
   Duke-US zips for substations. Backtest: N/A (no strategy/measurement change).
+
+## 2026-07-08 — [PRODUCT] G0b: compass + pitch indicator restored on the data globe (v1.0.222)
+
+TERRITORY: T-CLIENT (datamap.tsx, index.css). First build item off the
+worldview_globe.md charter filed earlier today (#381) — the reliability gate
+(BUG 1/4, satellite cache, aircraft/vessel caps, fires viewport-bound) is fully
+cleared per that charter's PRIORITY GATE, so the visual build queue is
+unblocked; G0a (3D terrain, #379) already shipped, this is G0b next-in-line.
+KNOWN-BROKEN-FIRST CHECK (session start): re-read open_questions.md KNOWN
+BROKEN — no new critical trading-loop item; the open sub-items (#3 CSP
+verification needing owner-only audit access, #10 dead score-band config
+awaiting shadow_portfolio history, #12(a)/(b)/(c) ML-feedback follow-ups
+gated on live verification) are all already tracked with their own next
+steps and external gates, none of which this session can unblock or that
+block product work — consistent with the routine-partition rule that
+[PRODUCT] sessions don't preempt DAILY repair duty for non-blocking items.
+
+- WHAT: `NavigationControl({showCompass:false})` → `{showCompass:true,
+  showZoom:true, visualizePitch:true}` (datamap.tsx:452). READ-BEFORE-WRITE:
+  confirmed via git history this was the ONLY NavigationControl call site
+  (compass disabled since the control's introduction, no prior reasoning
+  found in comments/history) and that dragRotate/pitchWithRotate were never
+  disabled on the Map constructor — bearing/tilt were already fully
+  interactive, just invisible. Added a `.maplibregl-ctrl-compass` hairline in
+  index.css to visually separate the compass button from the zoom pair within
+  the same control group; the existing blanket `.maplibregl-ctrl-icon { filter:
+  invert(0.9) }` rule already covers the compass arrow (verified — no new
+  color rule needed).
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): new button in an existing,
+  already-occlusion-tested control group at bottom-left → group grows by one
+  40px cell → self-see occlusion checks target `.maplibregl-ctrl-zoom-in`/
+  `-zoom-out` specifically (scripts/visual_check.mjs:1120), not a button count,
+  so no test assumption breaks → no other on-screen element sits at
+  bottom-left at any width (verified against the control-occlusion comment at
+  datamap.tsx:449-451) → zero occlusion risk introduced.
+- WHY IT MATTERS (charter Pillar 5 / UI craft): a rotate-capable globe with no
+  bearing indicator hides state the user is already changing via
+  two-finger/right-drag rotate — the reference-quality craft the charter asks
+  for is showing what's already true, not adding new capability.
+- RISK: none identified — pure control-config + CSS change, no data/API/route
+  touched, no behavior change to any layer, signal, or trading path.
+- GATES: `npm run visual` at 390/768/1440 — 0 hard failures, no new occlusion
+  or self-see violations (self-reviewed data-390.png/data-1440.png: the
+  compass renders as the third stacked button below zoom in/out, fully
+  on-screen, hairline separator visible, matches the existing dark control
+  chrome); pre-existing touch-target/clipped-control warnings on the top nav
+  are unrelated to this change (same warnings present before it). `npm run
+  build` clean. `npm run check` (tsc) 64 errors — unchanged baseline, none in
+  datamap.tsx/index.css (confirmed by isolating the datamap.tsx grep; the one
+  hit there is a pre-existing layer-id union-type error at line 2729,
+  untouched by this PR). `npm run test:node` 490/490 pass. `python3 -m
+  pytest -q` 555 passed, 2 skipped (no Python touched — informational
+  baseline, not caused by this change). Version 1.0.221 -> 1.0.222.
+- NEXT (charter order, unchanged): G1 style presets (Natural/Night/Terrain/
+  Minimal switcher), then G2a night-lights (first GIBS raster layer).

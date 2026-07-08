@@ -67,10 +67,12 @@ Remaining reliability is opportunistic; the visual build below is now UNGATED.
 - [SHIPPED #379] G0a Real 3D terrain relief — `map.setTerrain({source:"terrain-dem",
   exaggeration:1.3})` on the existing Mapterhorn terrarium DEM (confirmed valid by
   research; globe+terrain compatible in MapLibre v5). Degrade-safe.
-- G0b Compass + nav craft — swap `NavigationControl({showCompass:false})` →
-  `{showCompass:true, showZoom:true, visualizePitch:true}` (the pitch/heading
-  indicator the directive wants); style `.maplibregl-ctrl-compass*` in index.css.
-  Zero cost. datamap.tsx:452.
+- [SHIPPED v1.0.222] G0b Compass + nav craft — `NavigationControl({showCompass:false})`
+  → `{showCompass:true, showZoom:true, visualizePitch:true}` (datamap.tsx:452);
+  dragRotate/pitchWithRotate were already on by default (never disabled), so the
+  control now surfaces real bearing/tilt state that was already interactive but
+  invisible. `.maplibregl-ctrl-compass` hairline added in index.css — see
+  experiments.md 2026-07-08 [PRODUCT] for the full trace.
 - G0c Deep-zoom policy — raise/rationalize maxZoom; keep Esri imagery to its
   native z, plan the hand-off zoom (~z16) to Google 3D Tiles (Phase G3).
 
@@ -182,3 +184,5 @@ version = read-and-increment at commit time; rebase on collision.
   (#372/#374/#375/#376/#377). Research verified: GIBS access + 15-layer inventory
   (live GetCapabilities), Google 3D Tiles path (deck.gl, key-only auth, cost model).
   NEXT: G0b compass, then G1 style presets, then G2a night-lights (first GIBS layer).
+- 2026-07-08: G0b (compass + pitch indicator) SHIPPED v1.0.222. NEXT: G1 style
+  presets (Natural/Night/Terrain/Minimal switcher), then G2a night-lights.
