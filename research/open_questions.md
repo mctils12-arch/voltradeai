@@ -832,6 +832,47 @@ R6. **Dashboards from monitoring we already emit (charter directive
   they share one raw event feed, so a "hit" on one is not independent
   evidence for the others' validity as a class.
 
+## MARINE/BUOY HAZARD-ADJACENT HYPOTHESES (RAW layer shipped 2026-07-08,
+   v1.0.220 — server/ndbcBuoys.ts, /api/data/buoys, keyless NOAA NDBC
+   latest-observations feed, ~889 stations, archive-first from day one)
+
+- **Sea-state as a shipping-cost/insurance-exposure proxy (FOREIGN-FIELD
+  IMPORT — marine forecasting technique).** PRIOR stated before any test:
+  sustained significant-wave-height (WVHT) spikes at buoys clustered near
+  major shipping lanes/chokepoints (Gulf of Mexico, mid-Atlantic, West
+  Coast approaches — cross-reference against the existing AIS port-dwell
+  archive's traffic density) should correlate with same-week vessel transit
+  slowdowns/rerouting and marine-insurance (P&C) loss-adjacent moves,
+  analogous to the earthquake hazard hypotheses above but for a slower-
+  building, multi-day hazard rather than an instantaneous event. Second-
+  order test (REASONING STANDARD #5): the trade would exist because
+  routine NWS marine forecasts are public but the SPECIFIC correlation
+  between a given buoy cluster's readings and a given operator's fleet
+  exposure requires joining our own AIS archive to NDBC stations, which
+  nobody else has built — not because the raw sea-state data itself is
+  hidden. Ladder: gate 1 = buoy readings already ground truth (NOAA's own
+  instruments, no proxy-verification step needed, unlike tank shadows);
+  gate 2 = build the buoy-to-shipping-lane proximity join (mechanical,
+  reuses the port-dwell/entity_map join pattern) then test forward
+  N/5/20-day shipping-sector or single-operator returns vs. a same-
+  universe random-entry baseline — not attempted, blocked on (a) the
+  join and (b) archive depth (started today).
+- **Pressure-tendency (PTDY) as a fast-moving-storm precursor.** A rapid
+  negative PTDY swing across a cluster of Gulf/Atlantic buoys is a
+  classical marine-forecasting precursor to a fast-developing storm
+  system, ahead of the NHC's own official advisories in the earliest
+  hours. Speculative — filed per the ACTIVE ANGLE-HUNTING standing
+  behavior's explicit invitation to log even weird hypotheses; no work
+  done beyond filing. Gate 1 = PTDY reconciles against NHC's own
+  advisory timing on a handful of known past storms (mechanical,
+  retrospective); gate 2 = does an early PTDY cluster-swing predict
+  next-day energy/insurance-sector moves better than waiting for the
+  official advisory?
+- Discount both per REASONING STANDARD #4: same raw feed, so a "hit" on
+  one does not independently validate the other; and per STANDARD #7,
+  the archive only started today — neither hypothesis has any history to
+  test against yet.
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are

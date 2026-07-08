@@ -83,6 +83,7 @@ import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery"
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
+import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
 
 const execAsync = promisify(exec);
 
@@ -1370,6 +1371,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.events.length,
       quakes: hit.events,
+    });
+  });
+
+  // NOAA NDBC buoy/C-MAN latest observations (RAW, ~889 stations worldwide,
+  // one row per station) — free-data pipeline build (EDGE DOCTRINE #1). US
+  // government public domain, keyless, single global file — boots eagerly,
+  // no key gate needed (see server/ndbcBuoys.ts). No map layer yet —
+  // pipeline+API-first sequencing, same as usgsQuakes/sec8kEarnings (client
+  // picks it up once archive history accumulates).
+  bootBuoysPoll();
+  app.get("/api/data/buoys", (_req, res) => {
+    const hit = latestBuoys();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "NOAA National Data Buoy Center", warming_up: true, count: 0, buoys: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "NOAA National Data Buoy Center (latest observations, all reporting stations)",
+      attribution: "NOAA National Data Buoy Center",
+      time: hit.at,
+      count: hit.obs.length,
+      buoys: hit.obs,
     });
   });
 
