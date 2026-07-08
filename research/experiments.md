@@ -9845,3 +9845,79 @@ full check); loop-health ratio of the last 10 tagged entries was fine, no
   re-fetching main to confirm no further advance past #382).
 - NEXT: G2b fires (GOES-East_ABI_FireTemp) reusing the same gibs.ts
   factory, or G0c deep-zoom policy — either is a reasonable next pick.
+
+## 2026-07-08 — [REPAIR] Rescue two silently-stalled dirty PRs (#379 rebuilt as #386; #343 closed as redundant) — v1.0.225
+
+TERRITORY: T-CLIENT (touched `client/src/pages/datamap.tsx` only; `datacore/layers.json`
+and `package.json` are SHARED, edited last per the merge-order protocol).
+
+SESSION-START CHECKS (per CLAUDE.md MEMORY PROTOCOL): read CLAUDE.md, this file's
+last ~60 tagged entries, open_questions.md, wishlist.md RESUME blocks. Loop-health
+ratio of the last 10 tagged entries (W1 globe mode -> G0b/G2a) was 3 [REPAIR] / 10
+— PRODUCT-heavy, no thrash, well under the 7+ stop-normal-work threshold.
+`/api/health` clean: status ok, bot active, drawdownPct 0.0, liveness.dark false,
+alpaca ACTIVE, scanner 0 consecutiveFailures — no LIVENESS ALARM, nothing in
+KNOWN BROKEN required owner-gated audit-log access I don't have this session.
+
+PRIMARY ACTION CHOICE: before picking a new queued research/product item, checked
+the open PR list (SESSION BUDGET step 0 — verify nothing built is being lost).
+Found THREE PRs worth acting on:
+- **#343** `[REPAIR] Audit manipulation-scan Tier-3 failures (KNOWN BROKEN #14)` —
+  open_questions.md itself already flagged this as redundant (its fix shipped in
+  #351 / v1.0.200 on 2026-07-07, same day #343 opened, and the close-out never
+  happened). Confirmed via `git log`/`grep` that v1.0.200's R18 entry is on main.
+  Closed #343 with a pointer comment. No code action needed — pure duplicate.
+- **#379** `globe: real 3D terrain relief` (opened 2026-07-08) and **#350**
+  `satellite orbits map layer` (opened 2026-07-07) — both `mergeable_state:
+  "dirty"` with `get_status` returning `total_count: 0` (zero CI checks ever
+  ran). This is the exact silent-stall gotcha already documented in
+  open_questions.md's OPS GOTCHAS: no merge ref -> `pull_request` workflows
+  never start -> no checks, no automerge, no error, nothing surfaces until
+  someone checks mergeability directly. Both are legitimate, already-reviewed,
+  already-tested work (full gates, screenshots, reasoning chains in their PR
+  bodies) that would have silently rotted forever otherwise — exactly the fate
+  the COT PR (2026-07-05 entry) barely escaped.
+
+RESCUE EXECUTED (one logical change, per PROMOTION RULES): reapplied #379's
+identical diff (`client/src/pages/datamap.tsx`'s Terrain toggle now calls
+`map.setTerrain({source:"terrain-dem", exaggeration:1.3})` so the globe mesh
+deforms from the existing Mapterhorn DEM instead of only hillshade-shading a
+flat sphere; `datacore/layers.json` name/description updated; degrade-safe via
+the existing try/catch) cleanly onto current `main` in a fresh checkout of this
+session's branch, rather than trusting the stale PR's inherited claims. Re-ran
+every gate fresh:
+- `npx tsc --noEmit`: 64 errors, unchanged baseline.
+- `npm run test:node`: 490/490 passed.
+- `npm run build`: succeeds.
+- `npm run visual -- --page data` at 390/768/1440: 0 hard failures (pre-existing
+  touch-target warnings present before this change too, unrelated to it).
+- `python3 -m pytest -q`: not runnable in this sandbox (pytest not installed) —
+  no Python touched, same limitation #350's session already hit.
+Version 1.0.224 -> 1.0.225 (read-and-incremented at commit time; `main` had
+already advanced past #379's original base twice by the time this landed —
+confirmed no conflicting terrain-code changes with a targeted grep before
+editing).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `setTerrain` deforms the render mesh
+only -> no data-layer coordinates change -> markers/velocity vectors/detail
+cards unaffected -> the only user-visible effect is elevated relief when
+Terrain is toggled on (opt-in, off by default). No trading-path code touched.
+
+Opened PR #386 (`claude/funny-fermat-4dfmag` -> `main`), closed #379 and #343
+with pointer comments explaining why. `mergeable_state` on #386 read
+`"unstable"` (checks pending, no conflicts) immediately after opening —
+materially different from the "dirty" state that stalled #379, i.e. the
+rescue actually produced a mergeable PR this time. Subscribed to #386's PR
+activity; will re-check status in ~1h per the standard PR-babysitting
+protocol since webhooks don't deliver CI success or merge-conflict
+transitions.
+
+NOT DONE THIS SESSION (logged, not actioned — one logical change per PR):
+**#350 (satellite orbits layer) needs the identical rescue treatment.** Filed
+in open_questions.md's OPS GOTCHAS section with its specific file list and a
+note to check for a concurrent double-build first. Its live effect stays
+muted regardless of merge state (CelesTrak firewalled from Railway per R17),
+so it's queued, not urgent.
+
+Backtest: N/A (no strategy/measurement/parameter change — pure client
+render-mesh change + PR hygiene).
