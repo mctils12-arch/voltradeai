@@ -85,6 +85,16 @@
    "description": "Live passenger-rail positions. Coverage: Finland + Norway (launch). US freight positions are proprietary \u2014 no free source exists."
   },
   {
+   "id": "orbital_sats",
+   "name": "Satellites (live)",
+   "kind": "raw",
+   "status": "live",
+   "group": "live",
+   "costTier": "heavy",
+   "source": "CelesTrak GP element sets (T.S. Kelso; client-fetched in the browser, SGP4 propagated on-device)",
+   "description": "Live positions of the tracked near-earth satellite population (~8,000+ of the ~16,000 catalogued objects), propagated on-device from CelesTrak GP elements with SGP4 and drawn as GPU points colored by orbit class (LEO/MEO/GEO). REAL positions only: deep-space objects (most GEO comms and MEO navigation sats) require SDP4, which the near-earth kernel does not implement \u2014 they are skipped and COUNTED in the layer status, never fabricated. No predictive claim."
+  },
+  {
    "id": "sites",
    "name": "Strategic sites",
    "kind": "raw",
