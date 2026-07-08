@@ -70,6 +70,7 @@ import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { queryWindowCached } from "./queryEngine";
 import { analystResponse } from "./analyst";
 import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse } from "./nasaFirms";
+import { firesNearFacilities } from "./firesFacilities";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
@@ -1100,6 +1101,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Archive growth observability (volume watch — see wishlist).
   app.get("/api/data/archive/stats", (_req, res) => {
     try { res.json(archiveStats()); } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // Fires × facilities cross-tie (worldview-globe Pillar 6, backend inference).
+  // Joins live NASA active-fire detections to our strategic-facility archive:
+  // which assets have fires nearby right now. RAW cross-tie (gate-0 observation),
+  // NOT a validated signal — the fires-near-assets→insurer/utility-returns
+  // hypothesis is filed in open_questions.md and gated. Cache-only read (fires
+  // poller already runs); default radius 25 km, capped 1–200. Sites-only for now
+  // (16 assets = cheap exact join); powerplants need a spatial index (SCALE S3).
+  app.get("/api/data/fires-near-facilities", (req, res) => {
+    try {
+      if (!firmsEnabled()) return res.json({ enabled: false, awaiting_key: true, note: "NASA_FIRMS_MAP_KEY not set — fires feed inactive", facilities: [] });
+      const latest = latestFirms();
+      if (!latest) return res.json({ warming_up: true, facilities: [], note: "fires feed warming up" });
+      const r = Math.min(200, Math.max(1, parseFloat(String(req.query.radius_km)) || 25));
+      const sites: any[] = (datacoreSites as any).sites || (datacoreSites as any) || [];
+      const hits = firesNearFacilities(sites, latest.detections || [], r);
+      res.json({
+        enabled: true, kind: "raw", as_of: latest.at, radius_km: r,
+        fires_checked: (latest.detections || []).length,
+        facilities_with_fires: hits.length,
+        facilities: hits,
+        note: "RAW cross-tie: strategic assets with active VIIRS 375m fire detections nearby (NRT ~3h). No predictive claim — the fires-near-assets → insurer/utility hypothesis is validation-gated. Not for safety-of-life use.",
+        source: "NASA FIRMS/LANCE (VIIRS_SNPP_NRT) × datacore/sites strategic facilities",
+      });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
   // Google Photorealistic 3D Tiles cost-guard status (worldview-globe G3). Safe,
