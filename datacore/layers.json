@@ -229,6 +229,17 @@
    "field": true
   },
   {
+   "id": "soilmoisture",
+   "name": "Soil moisture (SMAP, GIBS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NASA GIBS/ESDIS — SMAP L4 root-zone soil moisture, public domain",
+   "description": "Root-zone soil moisture from NASA SMAP L4, dated. NOTE the ~6-day processing lag: the scrubber defaults ~7 days back (not yesterday) because SMAP L4 does not carry recent days — defaulting to yesterday would show a guaranteed-blank tile. As-is display, no predictive claim: soil moisture over a named crop belt (with drought/river layers) as an agricultural-supply proxy is an open gate-2 hypothesis (research/open_questions.md), not yet a signal. Ocean is legitimately blank — this is a land soil index.",
+   "field": true
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",

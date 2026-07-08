@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, ChevronLeft, ChevronRight } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, ChevronLeft, ChevronRight } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -150,6 +150,11 @@ const PANEL_GROUPS = [
   { id: "graph", label: "Everything Graph" },
   { id: "signals", label: "Signals — coming soon" },
 ] as const;
+// SMAP L4 root-zone soil moisture lands ~6 days behind real time; default the
+// scrubber a conservative 7 days back so it never opens on a guaranteed-blank
+// tile (verified live 2026-07-08: 07-01 and 07-02 both carry data, 07-07 does
+// not). Passed to gibsDefaultDate/gibsIsLatestAvailable as latencyDays.
+const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base",
@@ -159,6 +164,7 @@ const LAYER_GROUP: Record<string, string> = {
   nightlights: "environmental",
   aerosol: "environmental",
   vegetation: "environmental",
+  soilmoisture: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
@@ -380,6 +386,11 @@ export default function DataMapPage() {
   // yesterday-default; NDVI is an 8-day composite, so a yesterday request
   // returns the current composite (verified non-blank over land at build time).
   const [vegetationDate, setVegetationDate] = useState<string>(() => gibsDefaultDate(Date.now()));
+  // worldview_globe.md G2d: root-zone soil moisture (SMAP). Unlike the daily/
+  // composite layers above, SMAP L4 lands ~6 days back, so the default steps
+  // back a conservative 7 days (SOIL_LATENCY_DAYS) rather than "yesterday" —
+  // otherwise the scrubber would default to a guaranteed-blank tile.
+  const [soilmoistureDate, setSoilmoistureDate] = useState<string>(() => gibsDefaultDate(Date.now(), SOIL_LATENCY_DAYS));
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
   // slider; default 60% so the basemap + live layers stay visible beneath
@@ -389,6 +400,7 @@ export default function DataMapPage() {
     surfacewater: "gsw-occurrence", forest: "jrc-forest", nightlights: "gibs-nightlights",
     aerosol: "gibs-aerosol",
     vegetation: "gibs-vegetation",
+    soilmoisture: "gibs-soilmoisture",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -991,6 +1003,46 @@ export default function DataMapPage() {
       setStatus("vegetation", "error");
     }
   }, [enabled.vegetation, vegetationDate, mapReady, setStatus]);
+
+  // ── root-zone soil moisture (RAW; worldview_globe.md Phase G2d — NASA GIBS
+  // SMAP L4 via the shared gibs.ts factory. PNG at GoogleMapsCompatible_Level6.
+  // ~6-day processing lag (SOIL_LATENCY_DAYS), so the date defaults 7 days back
+  // rather than "yesterday" — verified live 2026-07-08 (07-01/07-02 carry data,
+  // 07-07 does not). Land-only, like NDVI; ocean tiles legitimately blank. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.soilmoisture) {
+      try {
+        if (map.getLayer("gibs-soilmoisture")) map.removeLayer("gibs-soilmoisture");
+        if (map.getSource("gibs-soilmoisture")) map.removeSource("gibs-soilmoisture");
+      } catch {}
+      setStatus("soilmoisture", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gibs-soilmoisture")) map.removeLayer("gibs-soilmoisture");
+      if (map.getSource("gibs-soilmoisture")) map.removeSource("gibs-soilmoisture");
+      const url = gibsTileUrl(
+        { layer: "SMAP_L4_Analyzed_Root_Zone_Soil_Moisture", tileMatrixSet: "GoogleMapsCompatible_Level6", ext: "png" },
+        soilmoistureDate,
+      );
+      map.addSource("gibs-soilmoisture", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 6,
+        attribution: "Root-zone soil moisture · SMAP L4 · NASA GIBS/ESDIS (public domain)",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gibs-soilmoisture", type: "raster", source: "gibs-soilmoisture",
+        paint: { "raster-opacity": opacityOf("soilmoisture") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("soilmoisture", "active", undefined,
+        `SMAP L4 root-zone soil moisture for ${soilmoistureDate} (UTC, ~6-day lag) · NASA GIBS/ESDIS — ` +
+        `wetter soils darker/bluer; ocean is legitimately blank (land soil index)`);
+    } catch {
+      setStatus("soilmoisture", "error");
+    }
+  }, [enabled.soilmoisture, soilmoistureDate, mapReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
@@ -2516,6 +2568,7 @@ export default function DataMapPage() {
     id === "nightlights" ? <Moon size={15} /> :
     id === "aerosol" ? <CloudFog size={15} /> :
     id === "vegetation" ? <Leaf size={15} /> :
+    id === "soilmoisture" ? <Droplets size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -2714,6 +2767,24 @@ export default function DataMapPage() {
                   aria-label="Next day"
                   disabled={gibsIsLatestAvailable(vegetationDate, Date.now())}
                   onClick={() => setVegetationDate((d) => gibsStepDate(d, 1))}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+            {l.id === "soilmoisture" && (
+              <div className="vt-gibs-scrubber" role="group" aria-label="Soil moisture date">
+                <button
+                  aria-label="Previous day"
+                  onClick={() => setSoilmoistureDate((d) => gibsStepDate(d, -1))}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="vt-gibs-scrubber-date">{soilmoistureDate} UTC</span>
+                <button
+                  aria-label="Next day"
+                  disabled={gibsIsLatestAvailable(soilmoistureDate, Date.now(), SOIL_LATENCY_DAYS)}
+                  onClick={() => setSoilmoistureDate((d) => gibsStepDate(d, 1))}
                 >
                   <ChevronRight size={13} />
                 </button>
@@ -3065,7 +3136,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.rivergauges || enabled.alerts) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.rivergauges || enabled.alerts) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -3116,6 +3187,12 @@ export default function DataMapPage() {
                           <>
                             <span className="vt-legend-chip"><i style={{ background: "#2e9e4a" }} /> Vegetation (NDVI)</span>
                             <span className="vt-legend-note">(8-day, NASA GIBS/VIIRS — {vegetationDate})</span>
+                          </>
+                        )}
+                        {enabled.soilmoisture && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#2b6cb0" }} /> Soil Moisture (SMAP)</span>
+                            <span className="vt-legend-note">(~6-day lag, NASA GIBS/SMAP — {soilmoistureDate})</span>
                           </>
                         )}
                       </div>

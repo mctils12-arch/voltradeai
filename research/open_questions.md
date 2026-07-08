@@ -1061,6 +1061,34 @@ R6. **Dashboards from monitoring we already emit (charter directive
   corridor that ships the grain — all RAW observations over the same geography;
   a future gate-2 ag signal would be built on that stack, not NDVI alone.
 
+## SOIL-MOISTURE / AG-SUPPLY-CHAIN HYPOTHESIS (RAW layer shipped 2026-07-08,
+   v1.0.230 — client/src/pages/datamap.tsx "soilmoisture" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2d — NASA GIBS SMAP L4 root-zone soil moisture)
+
+- **Root-zone soil moisture over a NAMED crop belt / river basin as an
+  agricultural-supply and inland-shipping proxy (Pillar 6, G2d text).** PRIOR
+  before any test: a sustained soil-moisture DEFICIT (surplus) in a defined
+  basin during the growing season co-moves with lower (higher) realized yield
+  for that crop AND lower (higher) navigable draft on the barge corridor that
+  ships it — the same drought that stresses the crop drops the river. Expected
+  effect real but slow and heavily lagged (SMAP is ~6 days behind and soil
+  moisture integrates over weeks), and — like NDVI — already mined by ag desks,
+  so per STANDARD #4/#5 the residual for a small system is NOT the level; it is
+  the JOINT reading across our own layers: soil-moisture deficit AND NDVI
+  anomaly AND a falling river gauge on the same basin is a stronger, less-mined
+  composite than any one alone.
+- Ladder: gate 1 DATA — NASA-published product; verification mechanical (a
+  07-01/07-02 tile pixel-checked non-blank over land at build time; 07-07 blank,
+  confirming the ~6-day lag that the layer's date-default now honors rather than
+  hiding). Gate 2 SIGNAL blocked on (a) archives of all three layers over
+  basin/crop-belt polygons and (b) a seasonal/drought baseline so the residual
+  is anomaly, not climatology. RAW, no predictive claim.
+- CROSS-TIE (the point of shipping this one): with G2d live, the ag-supply-chain
+  TRIAD is complete on the globe — NDVI (crop health) × soil moisture (root-zone
+  water) × river gauges (barge draft). This is the honest substrate for a future
+  gate-2 ag composite; none of the three is a signal alone, but the STACK is the
+  differentiated, small-system-appropriate view (EDGE DOCTRINE #2/#3).
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are
