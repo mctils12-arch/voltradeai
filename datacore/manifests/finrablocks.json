@@ -1,0 +1,23 @@
+{
+ "stream": "finrablocks",
+ "storage": "one plain JSONL per MONTH under <archive>/finrablocks/ (~192 rows/month — gz would be noise); partition-level dedup",
+ "written_by": "server/finraQuery.ts refreshFinraAts (6h poll over the newest 2 monthStartDate partitions; no backfill built)",
+ "source": "FINRA Query API blocksSummary (api.finra.org, keyless; contract live-verified 2026-07-08). Single-key partitions (monthStartDate only) — one row per ATS venue (MPID) per month with FINRA-precomputed block-trading ranks, no granularity split needed.",
+ "license": "FINRA data, free with attribution; redistribution/resale of raw data needs FINRA license review before monetization",
+ "attribution": "FINRA Query API",
+ "schema_version": 1,
+ "field_map": {
+  "monthStartDate — partition/dedup key": "month (1st)",
+  "MPID/marketParticipantName": "the ATS venue",
+  "ATSBlockQuantity/ATSBlockCount/averageBlockSize": "block-trading volume for the venue",
+  "ATSSharePercent/ATSBlockSharePercent/ATSBlockShareRank/ATSShareRank/ATSTradeRank/ATSBlockTradeRank/averageBlockSizeRank/averageTradeSizeRank": "FINRA-precomputed venue rankings",
+  "rt": "capture date stamped by us"
+ },
+ "confidence_model": "RAW official monthly ATS venue block-trading stats as disseminated by FINRA. No signal claim — gate 1 DATA only.",
+ "geo_fields": [],
+ "entity_key": "monthStartDate + MPID",
+ "sentiment": null,
+ "started": "2026-07-08",
+ "cadence": "monthly source (published ~T+1 month); 6h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). Census build #4 part 2 of 2 (wishlist.md DATACORE MAXIMUS FINRA PART 2 DESIGN NOTES) — the blocksSummary leg."
+}

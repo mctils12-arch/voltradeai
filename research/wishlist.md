@@ -139,8 +139,45 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   Drive copy + scratchpad); (b) entity-graph CIK join (GEOT <->
   EDGAR); (c) LNG-carrier IMO join to AIS archive; (d) GMET plumes
   as a dated map/event layer.
-- NEXT CENSUS BUILDS: FINRA part 2 (design notes above), USGS quakes
-  + NDBC buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys (9a/9c).
+- CENSUS BUILD #4 FINRA PART 2: SHIPPED v1.0.208 — server/finraQuery.ts
+  extended (not a new file — same module, same contract family) with
+  weeklySummary + monthlySummary (composite-key partitions
+  [period, tierIdentifier], live-verified 2026-07-08: weekly tiers
+  T1/T2/OTCE/NA, monthly tiers NMS/OTCE) + blocksSummary (single-key,
+  per-ATS-venue ranks). Live-probed sizing found weeklySummary runs
+  66k+ rows for a populated tier — exceeds part 1's MAX_PAGES=12 (60k)
+  cap, so a new ATS_MAX_PAGES=50 (250k ceiling) is used for weekly/
+  monthly only via a generalized fetchPartitionRowsMulti (part 1's
+  fetchPartitionRows now delegates through it, zero behavior change,
+  covered by the existing test suite). Went with the "simpler" option
+  the design notes flagged as acceptable (raised page cap over the
+  async-job S3 path) — current live weeks fit comfortably under 250k;
+  the async path stays unbuilt, only relevant to 2021-era ~210k-row
+  backfill weeks, which aren't in scope (no backfill built for part 2).
+  GRANULARITY FINDING (live-probed, not assumed): each partition mixes
+  per-symbol-per-firm/per-symbol/per-firm rows in one response
+  (summaryTypeCode field) — only the *_SMBL (no _FIRM suffix) rows are
+  ranked into the weekly ATS/OTC-by-symbol and monthly OTC-by-symbol
+  leaderboards; the composition[] field on every summary states every
+  granularity mixed in, so nothing is silently blended. Empty tier/
+  venue checks (e.g. weekly OTCE/NA when only T1 is populated) are
+  NOT marked archived — matches part 1's existing "204 isn't a done-
+  marker" pattern, so they're honestly re-polled every 6h cycle rather
+  than permanently skipped. New route GET /api/data/ats-summary
+  (RAW, no predictive claim); 3 new manifests (finraweekly/finramonthly/
+  finrablocks) picked up automatically by the streams-inventory ratchet
+  (enumerates datacore/manifests/ at runtime — no hardcoded list to
+  update). 17 new server tests (composite-key tuples, multi-filter
+  AND-not-OR, raised page cap, all three summarizers, end-to-end
+  refresh incl. the empty-tier-repoll behavior); node 462/462 total;
+  tsc 64 (unchanged baseline); build clean, dist/datacore manifests
+  confirmed staged (R14 packaging lesson). No UI page — same
+  pipeline+API-first sequencing as sec8kEarnings/finraQuery part 1
+  (view once archive history accumulates). NEXT: still open —
+  USGS quakes + NDBC buoys, SEC MIDAS; EPA CAMD/ENTSO-E on Mike's keys
+  (9a/9c); a FINRA part 2 UI view once weeks of archive accumulate;
+  the settlement-stress composite [RESEARCH] item (unrelated to part 2,
+  ingredients from finrathreshold+secftd+finrashortvol only).
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the

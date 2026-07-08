@@ -1,0 +1,23 @@
+{
+ "stream": "finramonthly",
+ "storage": "one gzipped JSONL per composite key <monthStartDate>__<tierIdentifier> under <archive>/finramonthly/ (gz-on-write); partition-level dedup per (month, tier)",
+ "written_by": "server/finraQuery.ts refreshFinraAts (6h poll, newest 2 monthStartDate values × 2 tiers NMS/OTCE; no backfill built)",
+ "source": "FINRA Query API monthlySummary (api.finra.org, keyless; contract live-verified 2026-07-08). Composite-key partitions [monthStartDate, tierIdentifier]. Monthly per-firm and per-symbol OTC volume (no ATS/OTC venue split at this cadence — tiers are NMS/OTCE, unlike weeklySummary's ATS_/OTC_ prefix split), published ~T+1 month. Fetched with the raised page cap (ATS_MAX_PAGES=50) shared with weeklySummary.",
+ "license": "FINRA data, free with attribution; redistribution/resale of raw data needs FINRA license review before monetization",
+ "attribution": "FINRA Query API",
+ "schema_version": 1,
+ "field_map": {
+  "monthStartDate + tierIdentifier — partition/dedup key": "month (1st) + tier (NMS/OTCE)",
+  "summaryTypeCode": "granularity flag — OTC_M_SMBL_FIRM (per symbol per firm), OTC_M_SMBL (per symbol, all firms), OTC_M_FIRM (per firm, all symbols). Only OTC_M_SMBL rows are ranked (server-side) — mixing granularities double-counts volume.",
+  "issueSymbolIdentifier/issueName": "populated on *_SMBL(_FIRM) rows only; null on *_FIRM rows",
+  "totalMonthlyShareQuantity/totalMonthlyTradeCount/totalNotionalSum": "the volume figures",
+  "rt": "capture date stamped by us"
+ },
+ "confidence_model": "RAW official monthly OTC volume as disseminated by FINRA. No signal claim — gate 1 DATA only.",
+ "geo_fields": [],
+ "entity_key": "monthStartDate + tierIdentifier + summaryTypeCode + (issueSymbolIdentifier | MPID)",
+ "sentiment": null,
+ "started": "2026-07-08",
+ "cadence": "monthly source (published ~T+1 month); 6h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). Census build #4 part 2 of 2 (wishlist.md DATACORE MAXIMUS FINRA PART 2 DESIGN NOTES) — the monthlySummary leg."
+}
