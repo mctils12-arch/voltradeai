@@ -12,9 +12,10 @@ plus an append-only ledger. It deliberately does NOT launch or terminate a pod
 (presence-checked 0 here). Any routine that DOES launch a pod MUST:
   1. call authorize_job() first and refuse to launch if it returns authorized
      == False, and
-  2. pass the returned `max_runtime_seconds` to RunPod as a HARD auto-terminate
-     cap (RunPod's per-second billing + terminate-after ceiling), so a hung or
-     runaway job self-kills at the cost cap instead of draining the balance.
+  2. ENFORCE the returned `max_runtime_seconds` — RunPod has NO native TTL
+     (verified 2026-07-07), so a watchdog must DELETE the pod at the cap and the
+     training command is wrapped in an in-pod `timeout` (see runpod_launch.py),
+     so a hung/runaway job self-kills instead of draining the balance.
 
 Balance model
 -------------
