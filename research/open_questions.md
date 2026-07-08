@@ -1089,6 +1089,42 @@ R6. **Dashboards from monitoring we already emit (charter directive
   gate-2 ag composite; none of the three is a signal alone, but the STACK is the
   differentiated, small-system-appropriate view (EDGE DOCTRINE #2/#3).
 
+## NO2-THROUGHPUT HYPOTHESIS (RAW layer shipped 2026-07-08, v1.0.231 —
+   client/src/pages/datamap.tsx "no2" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2g — NASA GIBS Sentinel-5P/TROPOMI NO₂)
+
+- **Tropospheric NO₂ column over a NAMED industrial zone / port as a real-time
+  throughput nowcast (Pillar 6, G2g text — the charter's "genuinely
+  differentiated" layer).** PRIOR before any test: because NO₂ is a short-lived
+  combustion by-product (hours, not weeks — unlike CO₂), its column density over
+  a defined industrial cluster or port tracks CURRENT operating rate, and the
+  daily satellite read should LEAD monthly PMI / industrial-production prints
+  that the market trades. This is the most PROMISING of the G2 hypotheses for a
+  small system because the effect is (a) physically direct (emission ∝ activity),
+  (b) HIGH TIME-RESOLUTION relative to the economic print it anticipates, and
+  (c) SPATIALLY SPECIFIC — resolvable to a single industrial basin, exactly the
+  small/regional target EDGE DOCTRINE #2 favors over crowded aggregates.
+  Second-order (STANDARD #5): the COVID-lockdown NO₂ collapse is famous, so the
+  gross "NO₂ = activity" link is known; the under-mined residual for us is the
+  NAMED-facility, daily-cadence, de-weathered anomaly (NO₂ also depends on wind
+  dispersion and photochemistry — a still, sunny day concentrates it), joined to
+  the specific operator/utility ticker rather than a national index.
+- Ladder: gate 1 DATA — ESA/NASA-published product; verification mechanical
+  (yesterday tile pixel-checked as a real continuous field, 100% over N.America,
+  ocean low). Gate 2 SIGNAL blocked on (a) a daily-NO₂ archive sampled over
+  industrial-zone/port polygons (raster→point sampling — needs server-side tile
+  sampling, a real build), (b) a meteorological de-confounding (wind/insolation
+  normalization) so the residual is throughput not weather, and (c) a
+  facility→ticker join. RAW, no predictive claim; swath gaps/cloud stated as
+  honest coverage in the layer description + status note.
+- CROSS-TIE (2026-07-07 integration principle): NO₂ × the strategic-facility /
+  powerplant archive is the natural join — the same facility spine the fires and
+  (future) AOD cross-ties hang off. NO₂ over a named smelter/refinery/port is the
+  most direct "is this specific asset RUNNING right now" observable we have; a
+  future gate-2 signal would sample this field at our facility coordinates. The
+  still-open TEMPO (US hourly) and SO₂ (point-source smelter on/off) layers would
+  deepen exactly this cross-tie once the sub-daily factory work lands.
+
 ## FREIGHT-ACTIVITY PROXIES (trucks directive 2026-07-04 — build-first conclusion + research)
 
 - **TRUCKS CONCLUSION (do not chase): individual truck positions are

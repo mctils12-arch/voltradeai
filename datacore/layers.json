@@ -240,6 +240,17 @@
    "field": true
   },
   {
+   "id": "no2",
+   "name": "Nitrogen dioxide (TROPOMI, GIBS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NASA GIBS/ESDIS — Sentinel-5P/TROPOMI tropospheric NO₂ column, public domain",
+   "description": "Tropospheric nitrogen-dioxide column density (daily, from ESA Sentinel-5P/TROPOMI via NASA GIBS), dated (default: yesterday; step back via the on-panel scrubber). NO₂ is a short-lived combustion by-product, so the field tracks active industry and traffic. As-is display, no predictive claim: NO₂ over an industrial zone/port as a real-time throughput nowcast (leads PMI/industrial-production) is an open gate-2 hypothesis (research/open_questions.md), not yet a signal. Satellite-swath gaps and cloud cover leave stripes/blanks — honest coverage, not a bug.",
+   "field": true
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",

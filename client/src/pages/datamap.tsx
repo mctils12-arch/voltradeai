@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, ChevronLeft, ChevronRight } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -165,6 +165,7 @@ const LAYER_GROUP: Record<string, string> = {
   aerosol: "environmental",
   vegetation: "environmental",
   soilmoisture: "environmental",
+  no2: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
@@ -391,6 +392,10 @@ export default function DataMapPage() {
   // back a conservative 7 days (SOIL_LATENCY_DAYS) rather than "yesterday" —
   // otherwise the scrubber would default to a guaranteed-blank tile.
   const [soilmoistureDate, setSoilmoistureDate] = useState<string>(() => gibsDefaultDate(Date.now(), SOIL_LATENCY_DAYS));
+  // worldview_globe.md G2g: tropospheric NO2 column (TROPOMI). Daily, ~1-day
+  // lag like the other daily layers — the charter's "genuinely differentiated"
+  // layer (industrial/traffic combustion throughput nowcast).
+  const [no2Date, setNo2Date] = useState<string>(() => gibsDefaultDate(Date.now()));
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
   // slider; default 60% so the basemap + live layers stay visible beneath
@@ -401,6 +406,7 @@ export default function DataMapPage() {
     aerosol: "gibs-aerosol",
     vegetation: "gibs-vegetation",
     soilmoisture: "gibs-soilmoisture",
+    no2: "gibs-no2",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -1043,6 +1049,47 @@ export default function DataMapPage() {
       setStatus("soilmoisture", "error");
     }
   }, [enabled.soilmoisture, soilmoistureDate, mapReady, setStatus]);
+
+  // ── tropospheric NO2 (RAW; worldview_globe.md Phase G2g — NASA GIBS TROPOMI
+  // via the shared gibs.ts factory. Daily, PNG at GoogleMapsCompatible_Level6;
+  // access + non-blank field verified live 2026-07-08 (yesterday tile 100% over
+  // N.America — a continuous column-density field: ocean legitimately LOW/dark,
+  // industrial zones/ports HIGH. The charter's "genuinely differentiated" layer:
+  // NO2 as a real-time combustion/throughput nowcast). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.no2) {
+      try {
+        if (map.getLayer("gibs-no2")) map.removeLayer("gibs-no2");
+        if (map.getSource("gibs-no2")) map.removeSource("gibs-no2");
+      } catch {}
+      setStatus("no2", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gibs-no2")) map.removeLayer("gibs-no2");
+      if (map.getSource("gibs-no2")) map.removeSource("gibs-no2");
+      const url = gibsTileUrl(
+        { layer: "TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column", tileMatrixSet: "GoogleMapsCompatible_Level6", ext: "png" },
+        no2Date,
+      );
+      map.addSource("gibs-no2", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 6,
+        attribution: "Tropospheric NO₂ column · Sentinel-5P/TROPOMI · NASA GIBS/ESDIS (public domain)",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gibs-no2", type: "raster", source: "gibs-no2",
+        paint: { "raster-opacity": opacityOf("no2") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("no2", "active", undefined,
+        `tropospheric NO₂ column for ${no2Date} (UTC) · Sentinel-5P/TROPOMI via NASA GIBS/ESDIS — ` +
+        `redder = more NO₂ (industry/traffic); satellite swath gaps and cloud can leave stripes/blanks`);
+    } catch {
+      setStatus("no2", "error");
+    }
+  }, [enabled.no2, no2Date, mapReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
@@ -2569,6 +2616,7 @@ export default function DataMapPage() {
     id === "aerosol" ? <CloudFog size={15} /> :
     id === "vegetation" ? <Leaf size={15} /> :
     id === "soilmoisture" ? <Droplets size={15} /> :
+    id === "no2" ? <Factory size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -2785,6 +2833,24 @@ export default function DataMapPage() {
                   aria-label="Next day"
                   disabled={gibsIsLatestAvailable(soilmoistureDate, Date.now(), SOIL_LATENCY_DAYS)}
                   onClick={() => setSoilmoistureDate((d) => gibsStepDate(d, 1))}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+            {l.id === "no2" && (
+              <div className="vt-gibs-scrubber" role="group" aria-label="NO2 date">
+                <button
+                  aria-label="Previous day"
+                  onClick={() => setNo2Date((d) => gibsStepDate(d, -1))}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="vt-gibs-scrubber-date">{no2Date} UTC</span>
+                <button
+                  aria-label="Next day"
+                  disabled={gibsIsLatestAvailable(no2Date, Date.now())}
+                  onClick={() => setNo2Date((d) => gibsStepDate(d, 1))}
                 >
                   <ChevronRight size={13} />
                 </button>
@@ -3136,7 +3202,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.rivergauges || enabled.alerts) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.rivergauges || enabled.alerts) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -3193,6 +3259,12 @@ export default function DataMapPage() {
                           <>
                             <span className="vt-legend-chip"><i style={{ background: "#2b6cb0" }} /> Soil Moisture (SMAP)</span>
                             <span className="vt-legend-note">(~6-day lag, NASA GIBS/SMAP — {soilmoistureDate})</span>
+                          </>
+                        )}
+                        {enabled.no2 && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#e53e3e" }} /> NO₂ (TROPOMI)</span>
+                            <span className="vt-legend-note">(daily, NASA GIBS/Sentinel-5P — {no2Date})</span>
                           </>
                         )}
                       </div>
