@@ -13,6 +13,47 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PRODUCT] Plants × river-gauges cross-tie — low-water generation-exposure inference (v1.0.232)
+
+TERRITORY: T-DATACORE-adjacent server module (server/riverPlants.ts) + SHARED
+routes.ts (one endpoint) + package.json/research. Solo. DELIBERATE SHIFT off
+raster-layer stacking to Pillar-1 INFERENCE (the master directive's #1
+priority: "the value is inference; the globe is the showcase"), after the
+clean daily-GIBS layer candidates were exhausted (see below).
+
+- WHY THE SHIFT (not more layers): honestly evaluated every remaining GIBS
+  candidate live and NONE is a clean daily-mirror showcase — floods
+  (MODIS_Combined_Flood_3-Day) render ALL surface water (68-93% fill, reads as
+  "everywhere flooded"); SO2 (OMPS_SO2_PBL) is no-data/too sparse over
+  industrial Asia at the default date (0%/blank); TEMPO NO2 is partial-disk
+  hourly scans (0-5% per tile) needing a scan-time picker. Forcing another
+  would be churn. So shifted to inference on live keyless data.
+- WHAT: server/riverPlants.ts — pure gaugePoints() (dedupe a site's stage+
+  discharge series to one located point) + plantsNearGauges() (for each
+  barge-corridor gauge, WRI plants within R km, nearest-first, aggregate MW +
+  per-fuel breakdown, gauges ordered by most-exposed-capacity). Endpoint
+  GET /api/data/plants-near-rivergauges (cache-only read of latestGauges() ×
+  the 9,833-plant WRI table; default 50 km, capped 1–200). Reuses haversineKm
+  from firesFacilities.ts (#388) — same proximity-join pattern.
+- HYPOTHESIS (Pillar 6, open_questions.md): low water on a barge-corridor reach
+  = cooling-water + barge-draft risk for the nearby generating capacity → the
+  operating utilities. PRIOR: real but EVENT-DRIVEN/rare (2022 Mississippi
+  low-water is the reference), operator-specific; the under-mined residual is
+  the PRE-COMPUTED named exposure the instant a gauge crosses a low threshold.
+  RAW, no predictive claim; gate 2 blocked on (a) a per-gauge low-water
+  percentile (raw stage isn't "low" without each gauge's own history — the
+  archive is only now accumulating), (b) a plant→ticker join, (c) a 2022
+  event study for out-of-sample confirmation.
+- HONEST LIMITS on the endpoint: only 14 gauges (Mississippi/Ohio system, not
+  all US rivers); WRI plant locations are 2021-vintage static; "dependence" is
+  inferred from PROXIMITY, not confirmed intake permits.
+- VERIFY: 5 pure tests (server/riverPlants.test.ts — known distances, radius
+  cutoff, site dedupe + bad-coord drop, nearest-first + most-exposed ordering +
+  fuel breakdown, NaN capacity → 0 never fabricated, empty-gauge omitted) pass;
+  tsc unchanged 64-error baseline (zero new); server bundle builds. Server-side
+  only — no client change, disjoint from the GIBS client work. No backtest
+  (RAW cross-tie, no signal). Anti-churn: one logical change, own PR, own tag.
+
 ## 2026-07-08 — [PRODUCT] G2g tropospheric NO2 GIBS layer — the charter's "genuinely differentiated" throughput-nowcast layer (v1.0.231)
 
 TERRITORY: T-CLIENT (datamap.tsx, one daily GIBS raster layer) + SHARED
