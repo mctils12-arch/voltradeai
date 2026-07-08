@@ -827,7 +827,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const r2 = await fetch(fb.url, { headers: UA, signal: AbortSignal.timeout(12000) });
         if (!r2.ok) throw new Error(`${fb.key} ${r2.status}`);
         const raw2: any = await r2.json();
-        aircraft = (raw2[fb.arr] || []).slice(0, 5000).map((a: any) => ({
+        aircraft = (raw2[fb.arr] || []).slice(0, 10000).map((a: any) => ({
           icao24: a.hex,
           callsign: String(a.flight || "").trim(),
           origin_country: a.r || "",
@@ -1019,11 +1019,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const lamin = num(req.query.lamin, -85), lamax = num(req.query.lamax, 85);
     const lomin = num(req.query.lomin, -180), lomax = num(req.query.lomax, 180);
     const cutoff = Date.now() - 20 * 60_000;
+    // Raised 5000→15000: the WebGL symbol layer handles 10k+ (DESIGN.md budget),
+    // so at wide zoom in dense AIS regions the layer no longer SILENTLY drops
+    // ships. total_in_view counts every fresh in-bbox vessel so, when the cap
+    // still bites, we disclose it honestly (coverage_note, surfaced by the
+    // client's existing partial-coverage note path) instead of hiding the drop.
+    const VESSEL_CAP = 15000;
     const vessels: any[] = [];
+    let totalInView = 0;
     vesselPositions.forEach((v, mmsi) => {
-      if (vessels.length >= 5000) return;
       if (v.at < cutoff) return;
       if (v.lat < lamin || v.lat > lamax || v.lon < lomin || v.lon > lomax) return;
+      totalInView += 1;
+      if (vessels.length >= VESSEL_CAP) return;
       const st = vesselStatics.get(mmsi);
       vessels.push({
         mmsi, name: st?.name || v.name, lat: v.lat, lon: v.lon,
@@ -1032,12 +1040,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         destination: st?.destination ?? null,
       });
     });
+    const capped = totalInView > vessels.length;
     res.json({
       enabled: true,
       source: "aisstream.io (AIS, terrestrial receivers — mid-ocean coverage gaps are inherent)",
       kind: "raw",
       warming_up: vessels.length === 0 && Date.now() - vesselSocketUp < 30_000,
       count: vessels.length,
+      total_in_view: totalInView,
+      ...(capped ? {
+        coverage: "partial",
+        coverage_note: `showing ${vessels.length.toLocaleString()} of ${totalInView.toLocaleString()} vessels in view — zoom in to see the rest`,
+      } : {}),
       vessels,
     });
   });
