@@ -13,6 +13,39 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-08 — [PRODUCT] Plants × NWS severe-weather warnings cross-tie — storm generation-disruption inference (v1.0.234)
+
+TERRITORY: T-DATACORE-adjacent server module (server/plantsUnderAlerts.ts) +
+SHARED routes.ts (one endpoint) + package.json/research. Solo. Third live-
+keyless inference cross-tie this session, DISTINCT hazard: storm (point-in-
+polygon) vs. water (proximity, #393) vs. fire (proximity, #388). Not churn —
+different data source (NWS warning polygons), different algorithm (even-odd
+ray cast, not haversine), different exposure lens.
+
+- WHAT: server/plantsUnderAlerts.ts — pure pointInRing (ray cast) +
+  pointInAnyRing + ringsBbox (cheap pre-filter) + plantsUnderAlerts() (for each
+  polygon-carrying NWS warning, plants inside it, biggest-first, aggregate MW +
+  per-fuel, alerts ordered by most-exposed capacity). 7 pure tests. Endpoint
+  GET /api/data/plants-under-alerts (cache-only read of latestAlerts() × the
+  9,833-plant WRI table). Reuses the PlantTuple type from riverPlants.ts.
+- HYPOTHESIS (Pillar 6, open_questions.md): generation inside an active warning
+  polygon = near-term disruption risk → operators / the balancing authority.
+  PRIOR: real but VERY event-driven/short-horizon; market already reacts to big
+  storms → residual is the PRE-COMPUTED named exposure the instant a polygon is
+  issued (before outage reports). RAW, no predictive claim; gate 2 blocked on
+  plant→operator→ticker + plant→balancing-authority joins + a warning×outage×
+  price event study.
+- HONEST LIMITS: only POLYGON warnings are testable — zone-only alerts (no
+  geometry) are EXCLUDED and counted (zone_only_excluded), never silently
+  treated as covering nothing; warning severity ≠ realized impact; WRI locations
+  2021 static.
+- VERIFY: 7 tests pass (ray-cast containment, bbox pre-filter, per-fuel agg,
+  most-exposed ordering, zone-only skip, NaN MW → 0 never fabricated); tsc
+  unchanged 64-error baseline (zero new); server bundle builds. Server-side
+  only, disjoint from client work. No backtest (RAW cross-tie). Anti-churn: one
+  logical change, own PR, own tag. This completes a FOUR-lens hazard/throughput
+  view on the one plant/facility geography (fire #388, NO₂ #392, low-water #393,
+  storm this) — the Everything-Graph substrate for a future gate-2 composite.
 ## 2026-07-08 — [PRODUCT] Surface the plants×river-gauges cross-tie on the map — inference made VISIBLE (v1.0.233)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx only) + SHARED minimal
