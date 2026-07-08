@@ -87,6 +87,31 @@ def _utcstamp():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def reconcile(rows):
+    """Collapse the append-only ledger to one EFFECTIVE row per job_id, keeping
+    the LAST row written for each (last-write-wins). This is the reader half of
+    the append-only close protocol: `close` (CLI) and the launcher both write a
+    NEW row with the same job_id + the actual cost rather than rewriting the open
+    row in place, so a job that has finished appears TWICE — an open row
+    (actual_cost None, reserved worst-case) followed by a close row (actual_cost
+    set). Without this reconciliation, spend would double-count the reservation
+    AND the actual, and the finished job would linger forever as an open job.
+
+    Rows with no job_id each stand alone (defensive — never merged together)."""
+    latest = {}
+    order = []
+    standalone = []
+    for r in rows:
+        jid = r.get("job_id")
+        if jid is None:
+            standalone.append(r)
+            continue
+        if jid not in latest:
+            order.append(jid)
+        latest[jid] = r
+    return [latest[j] for j in order] + standalone
+
+
 def row_cost(row):
     """Cost this row contributes to spend: the ACTUAL cost once the job is
     closed, otherwise the reserved worst-case while it is still in flight."""
@@ -97,9 +122,11 @@ def row_cost(row):
 
 
 def spent(rows):
-    """Total committed spend = sum of every row's cost (actual if closed,
-    reserved worst-case if open)."""
-    return round(sum(row_cost(r) for r in rows), 6)
+    """Total committed spend = sum of each JOB's effective cost (actual if
+    closed, reserved worst-case if open). Reconciles the append-only ledger to
+    one row per job_id first, so an open+close pair for the same job counts the
+    actual cost once — not reserved + actual."""
+    return round(sum(row_cost(r) for r in reconcile(rows)), 6)
 
 
 def remaining(rows, start=START_BALANCE):
@@ -236,7 +263,9 @@ def _append_row(row, path=LEDGER):
 def _cmd_status(_args):
     rows = load_ledger()
     lb = low_balance(rows)
-    open_jobs = [r for r in rows if r.get("actual_cost") is None]
+    # Reconcile first so a finished job (open row + later close row) is NOT
+    # listed as open — only jobs whose latest row is still un-closed count.
+    open_jobs = [r for r in reconcile(rows) if r.get("actual_cost") is None]
     print(f"START           ${START_BALANCE:.2f}")
     print(f"committed spend ${spent(rows):.2f}  (actual closed + reserved open)")
     print(f"remaining       ${remaining(rows):.2f}")

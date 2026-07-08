@@ -56,6 +56,44 @@ def test_mixed_open_and_closed():
     assert rb.spent(rows) == round(1.10 + 4.92, 6)
 
 
+# --- append-only reconciliation: open row THEN a separate close row ----------
+# The CLI `close` and the launcher both APPEND a new close row rather than
+# rewriting the open row, so a finished job appears as TWO rows with the same
+# job_id. spend must count the ACTUAL once (not reserved + actual), and the job
+# must no longer be considered open. (Regression: the reader used to sum every
+# row, double-counting the reservation and leaving a phantom open job forever.)
+
+def test_open_then_close_same_job_counts_actual_once():
+    open_r = _open_row("j1", 0.34, 6)          # reserves 2.04
+    close_r = dict(open_r)
+    close_r["actual_cost"] = 1.10              # closed later, real cost 1.10
+    close_r["closed_utc"] = "2026-07-07T06:00:00Z"
+    rows = [open_r, close_r]                    # append-only: both rows present
+    assert rb.spent(rows) == 1.10              # NOT 2.04 + 1.10 = 3.14
+    assert rb.remaining(rows) == round(rb.START_BALANCE - 1.10, 6)
+
+
+def test_reconcile_drops_finished_job_from_open_list():
+    open_r = _open_row("j1", 0.34, 6)
+    close_r = dict(open_r)
+    close_r["actual_cost"] = 0.017639
+    close_r["closed_utc"] = "2026-07-07T06:00:00Z"
+    reconciled = rb.reconcile([open_r, close_r])
+    assert len(reconciled) == 1                              # one effective row
+    assert reconciled[0]["actual_cost"] == 0.017639          # the close wins
+    open_jobs = [r for r in reconciled if r.get("actual_cost") is None]
+    assert open_jobs == []                                   # no phantom open
+
+
+def test_reconcile_keeps_still_open_job_open():
+    # An opened-but-not-yet-closed job stays open and reserves its worst case.
+    rows = [_open_row("j1", 0.34, 6)]
+    reconciled = rb.reconcile(rows)
+    assert len(reconciled) == 1
+    assert reconciled[0]["actual_cost"] is None
+    assert rb.spent(rows) == 2.04                            # reservation held
+
+
 # --- authorize_job: the unbounded guard (the mandate's hard rule) -----------
 
 def test_refuses_unbounded_none():
