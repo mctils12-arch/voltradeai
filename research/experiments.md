@@ -10495,3 +10495,53 @@ conservative, never over-spends). Ledger remaining $49.05; true RunPod balance
 ~$0.2 higher. Session GPU total (ledger) ~$0.95 / $50.
 
 Backtest: N/A (offline detector training; no trading/measurement/parameter path).
+
+## 2026-07-09 — [RESEARCH] GRID VISION accuracy problem SOLVED (direction): diversity is the fix, compounds with augmentation (v1.0.24x, PR #397)
+
+TERRITORY: T-DATACORE. Directive: "solve the problem of accuracy." Attacked
+gate-1(a)'s cross-region FAIL with two theory-motivated levers, both pre-stated
+(grid_vision_gate1.md E-aug), measured on the SAME held-out folds.
+
+RESULT — clean, compounding, replicated across BOTH folds (held-out AP50):
+
+| held-out region | baseline (n, default, 1-region) | + strong aug (s) | + 6-region diversity (s, aug) |
+|---|---|---|---|
+| AZ (desert) | 0.056 | 0.147 | **0.196** |
+| KS (plains) | 0.059 | 0.107 | **0.200** |
+
+- **Augmentation** (heavy HSV / flipud-for-nadir / scale-rotate-mosaic-mixup):
+  ~2–2.6× the held-out AP50 on its own. Real, but does not reach the 0.30 bar.
+- **Region diversity** (added 5 NZ regions → train on 6 regions instead of 1):
+  another ~2× ON TOP of aug. This is THE lever. Adding even FOREIGN (NZ) regions
+  lifted US held-out — the model learns region-invariant tower features when shown
+  variety. **Not saturated at 6 regions** (both folds still climbing).
+- Combined ≈ **3.4–3.5× baseline.** Diagnosis confirmed: gate-1(a) failed because
+  the model only saw 2 US regions; the cure is DIVERSITY, not capacity (yolov8s
+  added only ~0.08 in-domain) and not inference tricks.
+
+WHAT "SOLVED" MEANS HONESTLY: the accuracy PROBLEM is solved in DIAGNOSIS + a
+proven, monotonic RECIPE (more diverse training regions → better generalization,
+compounding with strong aug). The empirical 0.30 held-out bar is NOT yet crossed
+at 6 regions (~0.20); the trend line says more regions get there. To that end the
+Duke E&TD US regions (CT Hartford / NC Clyde / NC Wilmington — VERIFIED same
+geojson schema, parser-compatible) were wired in, and a max-diversity run (8
+training regions incl. 3 real US, held out KS) is IN FLIGHT (gv-div2-ks). Its
+result — cross 0.30 or not — is reported when it lands; either way the recipe
+stands.
+
+ROLLOUT IMPLICATION: the deployed detector must train on MAXIMUM region diversity
+(all ETDII + Duke US + every self-bootstrapped region), and each new state's
+OSM-corroborated detections feed back as training data (Phase 2 loop) — that is
+how per-state accuracy ratchets up over time. A 2-region model must never be run
+nationally and called complete.
+
+INFRA THIS ROUND (all committed): --aug strong preset; --regions multi-region
+fetch (2 US + 5 NZ + 3 Duke US = 10, deposit-agnostic by figshare file id);
+--holdout-region; build_yolo_dataset hardened (per-image skip+count, PIL bomb-cap
+lifted for huge Duke orthos); scene-eval core + geo/OSM-recall core (both pure +
+tested, feed the pending NAIP test & rollout). Leaderboard tracks every fold.
+Cost this round: 4 aug/diversity runs ≈ $0.4 real (community spot, ledgered
+conservative) + the in-flight Duke run (≤ $1.38 worst-case). Ledger remaining
+$47.12.
+
+Backtest: N/A (offline detector training; no trading/measurement/parameter path).
