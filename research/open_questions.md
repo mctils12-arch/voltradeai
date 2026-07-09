@@ -36,14 +36,24 @@
    time and can never accumulate a true peak. Fix (persist equityPeak in
    the existing /data/voltrade state) touches frozen kill-switch machinery
    -> proposed in wishlist.md for human approval, not edited.
-   ACCESS LIMITATION: every deeper diagnostic route (/api/bot/audit,
+   ACCESS LIMITATION — STALE, CORRECTED 2026-07-09: the requireOwner routes
+   below are still cookie-gated as described, but a token-gated read-only
+   alternative was built and human-approved 2026-07-04/07 (server/diag.ts,
+   `/api/diag/:probe` — audit/ml/daemon/positions/positions-detail/orders/
+   scanner) specifically to close this gap, and `DIAG_TOKEN` is present in
+   the autonomous session env as of this session. Future sessions: query
+   `/api/diag/*?token=$DIAG_TOKEN` directly instead of writing "gated, no
+   access" — see the R19 entry in experiments.md (2026-07-09) for a worked
+   example (traced KNOWN BROKEN #12's live-feedback gate to root cause this
+   way). Original (now-outdated) text preserved below for context.
+   ~~every deeper diagnostic route (/api/bot/audit,
    /positions, /performance, /api/daemon/health, /api/bot/ml-status,
    /api/monitoring/*) is requireOwner (session cookie for OWNER_EMAIL,
    auth.ts — frozen). Autonomous sessions cannot read audit logs or
    trade_feedback from outside the container. Deeper #3/#4 verification
    (CSP fills firing? feedback accumulating? Tier-3 retrain green?) needs
    either the human pasting /api/bot/audit + /api/bot/ml-status JSON into
-   a session, or the wishlist read-only-diagnostics proposal.
+   a session, or the wishlist read-only-diagnostics proposal.~~
    Original symptom list to collect: Symptoms to
    collect from audit logs: are trades firing at expected frequency? Are
    fills tracked into trade_feedback? Is the ML retrain loop (Tier 3)
@@ -403,6 +413,73 @@
     there doesn't go dark again. NEXT STEP: route bot.ts's
     tier3Strategic manipulation-scan catch block through `audit()`
     (mirroring the ML-retrain catch block's existing pattern), own PR.
+
+15. **[PARTIALLY FIXED 2026-07-09, R19, v1.0.260 — root cause; live
+    verification still pending] Real-time position-exit monitor (WS
+    stream) was silently non-functional for at least 22+ hours.** Full
+    trace in experiments.md's R19 entry. Summary: `checkPositionOnTick`
+    (the sole executor of stop-loss/take-profit/trailing-stop/scale-out
+    exits per bot.ts's own design comment) only runs on bars delivered by
+    a WebSocket hardcoded to `wss://stream.data.alpaca.markets/v2/sip` —
+    the same paid-entitlement tier whose 2026-07-06 rejection required
+    `alpaca_feed.py`'s resolver for every REST call site, but that fix's
+    ratchet (`test_alpaca_feed.py`, Python-file-only) could not see this
+    TypeScript file, so the hardcoding was never caught. Live evidence
+    (`/api/diag/audit`, this session): zero "Real-time feed live", zero
+    WS-EXIT, across 19 restarts / 22+ hours, while bot_engine.py's
+    `manage_positions()` repeatedly flagged trailing_stop conditions that
+    Node deliberately never executes itself (by design, defers entirely
+    to the — broken — WS path). FIXED: switched to `/v2/iex` (no
+    entitlement dependency; this consumer only needs `close` price, never
+    volume, so the volume-undercount reason `alpaca_feed.py` rejects iex
+    for REST discovery doesn't apply) + added audit visibility for the
+    stream-error frame and every disconnect (both were previously
+    silent). STILL OPEN: this session could not deploy or observe the
+    fix live. NEXT: the first session after this deploys should query
+    `/api/diag/audit?type=STREAM&limit=5` for a "Real-time feed live —"
+    entry (must appear now) and `?type=WS-EXIT&limit=5` (should go
+    non-empty once any tracked position's stop/target is hit), then
+    `/api/diag/ml` for `feedback_live_count` > 0 (was stuck at exactly 0
+    for 3+ days despite the D1/D2 fix in KNOWN BROKEN #12). If STREAM
+    still never reaches "live" on /v2/iex, the new STREAM-ERROR/
+    STREAM-DISCONNECT logging this PR added will name the actual
+    rejection reason directly — treat that as a NEW finding, not a
+    reopening of this one (RECURRENCE ESCALATES only applies to the same
+    root cause recurring, not a different cause behind the same symptom).
+
+16. **[FOUND 2026-07-09, not yet repaired] Extended-hours market orders
+    are rejected and blindly retried instead of queued.** Observed live
+    via `/api/diag/orders` (this session, R19 investigation): on
+    2026-07-07 ~11:39-13:24 ET (pre-market), "SMH buy market 6" was
+    submitted and immediately `canceled` roughly every 5 minutes for
+    ~2 hours straight (about 20 consecutive reject/retry cycles). This
+    contradicts the system's own stated rule (`server/bot.ts` RULES audit
+    dump: "Smart Execution: Extended hours → queue for morning, no
+    chasing thin liquidity") — a market order during extended hours
+    should either be queued as a limit order for the open or held, not
+    resubmitted as a market order and rejected on a ~5-minute loop. NOT
+    diagnosed to a specific call site or fixed this session (found while
+    investigating R19, kept out of that PR per one-logical-change-per-PR;
+    this is a wasted-cycles/possible-missed-fill issue, not obviously a
+    safety issue, so it did not preempt R19). NEXT: find the call site
+    that resubmits "SMH buy market" every ~5 minutes during extended
+    hours (likely the morning-queue or stale-order-sweeper path in
+    tier1Reflex) and confirm whether `getOrderParams`'s `extended_hours`
+    branch (KNOWN BROKEN #8) is actually reached for this order type, or
+    whether this path bypasses it entirely.
+
+17. **[FOUND 2026-07-09, not yet repaired, low priority] `TIER3-ML-ERROR:
+    ML retrain failed: failed` — a real but content-free error message.**
+    Observed live via `/api/diag/audit` this session (2026-07-09
+    19:01:59Z). The audited detail is the literal string "failed" with no
+    stderr/stdout/cause — unlike the ML-retrain catch block's usual
+    pattern (KNOWN BROKEN #14's R18 fix documents the richer
+    stderr/stdout/code/signal shape other TIER3 error paths now use).
+    `/api/diag/ml` shows the model retrained successfully within the same
+    hour (`model_age_hours: 1.1` at query time), so this is self-healing,
+    not currently blocking — logged for a future session to trace why
+    this one call site's error detail collapsed to a bare "failed" instead
+    of a real message.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

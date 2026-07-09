@@ -13,6 +13,175 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-09 — [REPAIR] R19: real-time position-exit monitor was silently starved for days — hardcoded /v2/sip stream, zero WS-EXIT in 22h+ of live trading (v1.0.260)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths).
+
+SESSION-START CHECKS (MEMORY PROTOCOL / DAILY routine): read CLAUDE.md in
+full, then experiments.md tail (last 10 tagged entries: 2 REPAIR / 3
+PIPELINE / 2 RESEARCH / 3 PRODUCT — healthy, no thrash), open_questions.md
+KNOWN BROKEN + wishlist.md (both huge; grepped rather than read whole).
+`/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark
+false, alpaca ACTIVE, scanner 0 consecutiveFailures — no LIVENESS ALARM.
+Audit register: staleness next due 2026-08-04, constitutional next due
+~2026-08-03 — neither overdue. Noticed in passing (not acted on, logged
+below as its own smaller finding): the latest merged commit on main
+(e43a0ad, PR #411, v1.0.259 "Grid overlay: fuel-typed symbols") has no
+experiments.md entry — the third recurrence of the pattern OPS GOTCHAS
+already tracks; not investigated further this session (process question,
+already filed).
+
+PRIMARY ACTION SELECTION: found `DIAG_TOKEN` present in this session's env
+(a capability KNOWN BROKEN #3/#4 didn't know was available — their
+"ACCESS LIMITATION" notes are now stale, corrected below). This unlocks
+the token-gated `/api/diag/:probe` surface (diag.ts, human-approved
+2026-07-04/07) directly against the LIVE production deploy without the
+owner cookie. Per SESSION BUDGET's primary-action ordering ("fix a bug
+seen in audit logs" ranks above starting new research), used it to check
+exactly what KNOWN BROKEN #3/#4/#12 asked a future session to check:
+"are trades firing at expected frequency? Are fills tracked into
+trade_feedback? Is the ML retrain loop completing?"
+
+WHAT THE LIVE QUERIES FOUND (all via `/api/diag/*?token=...` against
+voltradeai-production.up.railway.app, this session, 2026-07-09 ~20:15-21:00
+UTC):
+
+- `/api/diag/ml`: `feedback_count: 1326`, `feedback_seeded_count: 1326`,
+  **`feedback_live_count: 0`**, `fills_count: 0`. KNOWN BROKEN #12(a)'s
+  gated RESEED CHECK now reads POSITIVE (seeds are no longer 0 — the
+  autoseed path works) — closing that sub-item. But #12(b)/(c)'s gate
+  ("once a WS exit records a real outcome... expect within days") has now
+  had 3+ days since the D1/D2 fix (v1.0.153-155, 2026-07-06) and still
+  reads exactly 0 live feedback records, despite the account actively
+  round-tripping positions (see below). D2's path is underdelivering —
+  the gate gives a clear answer: repair it, not remove the dead-code
+  fallback (12b's other branch).
+- `/api/diag/orders?limit=200` (both open+closed): GLD/QQQ/SMH/VXUS/KWEB
+  round-tripping multiple times per hour on active trading days (e.g.
+  2026-07-09: GLD bought 23sh @377.87 14:18, sold 14:22, bought 14:22,
+  sold 14:25, bought 15:56, sold 16:04, bought 16:04, sold 16:13 — full
+  flips, not partial drift corrections). Also found (logged as a smaller,
+  separate finding below, not fixed this PR): on 2026-07-07 ~11:39-13:24
+  ET, "SMH buy market 6" was submitted and immediately `canceled` roughly
+  every 5 minutes for ~2 hours straight — extended-hours market orders
+  being rejected and blindly retried rather than queued, contradicting
+  the EXECUTION rule text ("Extended hours → queue for morning, no
+  chasing thin liquidity").
+- `/api/diag/audit?type=WS-EXIT&limit=500` (full table, not just the
+  recent window): **zero rows.** Same for POS-KILL, WS-STOP, TIME-EXIT.
+  `type=STREAM&limit=500`: 19 "Real-time WebSocket feed starting..."
+  entries (one per boot — matches `type=STARTUP`'s 19 restarts spanning
+  2026-07-08T22:36Z to 2026-07-09T19:09Z, all graceful SIGTERM redeploys)
+  and **zero** "Real-time feed live —" (the subscription-success log) in
+  the same 22+ hours. `type=STREAM-ERROR`: zero.
+
+ROOT CAUSE TRACED (READ BEFORE WRITE — read the actual current code, not
+assumption): `checkPositionOnTick()` (server/bot.ts, the function
+implementing scale-outs, trailing stops, take-profit, breakeven — the
+code's own comment says position monitoring was "moved to the WebSocket
+handler for real-time, event-driven exits") only runs when a `{"T":"b"}`
+1-minute-bar message arrives over the stream for an owned ticker
+(server/bot.ts's `ws.on("message", ...)`). `tier1Reflex()`'s Python-side
+call to `bot_engine.manage_positions()` deliberately does NOT execute the
+actions it computes — its comment states "We do NOT execute them here.
+The WS handler fires exits in real-time" — it only logs
+`POS-MONITOR-SYNC: bot_engine flagged X (trailing_stop) — WS monitor
+should handle` (65 of these in one 78-minute window sampled this
+session) as a sanity check. So exits for regular (non-floor) positions
+depend ENTIRELY on the WS stream delivering bars. That stream
+(`startStreaming()`) was hardcoded to
+`wss://stream.data.alpaca.markets/v2/sip` — the same paid-entitlement
+tier whose 2026-07-06 rejection (wishlist.md URGENT #9) required
+`alpaca_feed.py`'s `data_feed()` resolver for every REST call site
+(v1.0.150). That REST fix's own regression ratchet
+(`test_alpaca_feed.py::TestNoHardcodedFeeds`) only scans
+`os.listdir(REPO)` for `.py` files — it structurally cannot see
+`server/bot.ts` (wrong language, wrong directory), so this hardcoded
+`/v2/sip` websocket URL was never touched and never caught. Additionally,
+the message handler had NO branch for Alpaca's `{"T":"error"}` rejection
+frame (auth/subscribe failures don't close the socket in every case, they
+just never send a `{"T":"subscription"}` success) and `ws.on("close")`
+logged nothing before its 10s reconnect — so a rejected connection could
+loop silently forever with zero audit trail, which is consistent with
+every piece of evidence above (feed never reaches "live", exits never
+fire via this path, GLD's actual exits come from the unrelated
+`_manage_defensive_floor()` Python path that places orders directly and
+was never expected to explain regular-position stops).
+
+WHY /v2/iex, not replicating the REST probe/downgrade: `alpaca_feed.py`
+deliberately rejects `iex` as a REST fallback because IEX-only prints
+undercount volume ~30-50x, which would poison the dollar-volume discovery
+filters. That reasoning does not transfer here — `checkPositionOnTick`
+consumes only the bar's `close` price for stop/target comparisons on
+tickers we already own; it never reads volume. `/v2/iex` requires no paid
+entitlement and cannot be rejected the way `/v2/sip` was, so switching
+removes this path's dependency on entitlement status entirely rather than
+adding a second probe/downgrade state machine for one consumer.
+
+FIX (server/bot.ts, `startStreaming()`): (1) connect to `/v2/iex` instead
+of `/v2/sip`; (2) handle `item.T === "error"` with
+`audit("STREAM-ERROR", ...)` carrying the code+msg; (3) audit every
+`ws.on("close")` with whether the connection had ever reached subscribed
+state, before scheduling the existing 10s reconnect (behavior unchanged,
+visibility added). RATCHET: `server/wsPositionFeed.test.ts` (4 new
+tests, source-inspection style matching the R18/`tier3ManipVisibility
+.test.ts` precedent) — pins the `/v2/iex` URL and the absence of a
+hardcoded `/v2/sip` `new WebSocket(...)` call, pins both the frame-level
+and socket-level paths route through `audit("STREAM-ERROR"...)`, and pins
+the close handler audits before its (unchanged) reconnect timer.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): fixing bar delivery ->
+`checkPositionOnTick` actually runs on owned tickers -> stop-loss/
+take-profit/trailing-stop/scale-out exits fire in real time as designed
+-> `recordExitFill`/`track_fill` finally gets called from this path ->
+KNOWN BROKEN #12(b)'s live-feedback-recording gate should start moving
+off zero (falsifiable — restated as the NEXT check below) -> the ML
+retrain loop gets real recent outcomes to learn from instead of only the
+1,326 seeded backtest records. Two steps out: `POS-MONITOR-SYNC`'s
+"bot_engine flagged X — WS monitor should handle" log should start being
+followed by a `WS-EXIT` on the SAME ticker within one Tier-1 cycle
+instead of never.
+
+GATES: `npx tsc --noEmit` — 64 errors, confirmed identical via git-stash
+A/B on this exact checkout (this session also ran `npm install`, which
+was required before tsc/tests could run at all in this fresh sandbox —
+same stale-node_modules situation the ANALYST CONSOLE W5 session hit;
+`package-lock.json`'s version field re-synced to package.json as a
+byproduct, unrelated to this feature). `npx tsx --test server/*.test.ts`
+538/538 pass (534 baseline + 4 new). `npx tsx --test client/src/lib/
+*.test.ts client/src/lib/orbital/*.test.ts` 88/88 pass (untouched).
+`npm run build` clean. `python3 -m pytest -q` NOT run — no Python file
+touched, and this sandbox has no pytest installed (unrelated environment
+gap, not evaluated further). No client/ files touched — visual harness
+does not apply.
+
+LIVE VERIFICATION: not yet possible from this session (the fix has not
+deployed). NEXT CHECK (for whichever session reads this first after
+deploy, or this session's own end-of-window check): query
+`/api/diag/audit?type=STREAM&limit=5` for a "Real-time feed live —"
+entry (currently has never once appeared), then `/api/diag/audit?
+type=WS-EXIT&limit=5` for a non-empty result, then `/api/diag/ml` for
+`feedback_live_count` > 0. If `/v2/iex` ALSO never reaches "subscribed"
+(e.g. a different auth problem entirely), the new STREAM-ERROR/
+STREAM-DISCONNECT logging this PR adds will name the actual rejection
+reason directly instead of requiring another live-audit excavation.
+
+SMALLER FINDINGS LOGGED, NOT FIXED THIS PR (one logical change per PR):
+filed in open_questions.md KNOWN BROKEN as new items — (a) extended-hours
+SMH market-order reject/retry loop (~2h of 5-minute-interval canceled
+orders observed 2026-07-07); (b) `TIER3-ML-ERROR: ML retrain failed:
+failed` — a real but content-free error message (the literal string
+"failed" as the detail) seen live this session, worth tracing to its
+source; (c) KNOWN BROKEN #3/#4's "ACCESS LIMITATION" text is stale —
+DIAG_TOKEN is present in the autonomous session env now, so future
+sessions should use `/api/diag/*` directly instead of writing "gated,
+can't verify."
+
+Backtest: N/A (real-time execution-plumbing repair; no strategy/parameter/
+measurement change; no trading-path decision logic touched — only which
+market-data stream feeds the existing exit rules and whether failures of
+that stream are visible).
+
 ## 2026-07-09 — [PRODUCT] ORBITAL O3: satellite click-to-identify + close superseded PR #350 (v1.0.235)
 
 TERRITORY: T-CLIENT (client/src/lib/orbital/pick.ts + pick.test.ts,

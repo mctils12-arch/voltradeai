@@ -5231,7 +5231,20 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   function startStreaming() {
     if (streamWs) { try { streamWs.close(); } catch (_) {} }
 
-    const ws = new WebSocket("wss://stream.data.alpaca.markets/v2/sip");
+    // REPAIR 2026-07-09 (R19): this was hardcoded to /v2/sip — the same
+    // paid-entitlement tier whose 2026-07-06 rejection (wishlist.md #9)
+    // required alpaca_feed.py's data_feed() resolver for every REST call
+    // site. That fix never reached this file (TypeScript, outside the
+    // Python-only ratchet in test_alpaca_feed.py's TestNoHardcodedFeeds),
+    // so this stream kept connecting to /v2/sip regardless of entitlement
+    // status. Unlike REST candidate-discovery (which needs SIP's true
+    // consolidated volume — alpaca_feed.py deliberately rejects iex there),
+    // this stream is consumed ONLY by checkPositionOnTick's `close` price
+    // for real-time stop-loss/take-profit/trailing-stop triggers — volume
+    // undercount doesn't apply. /v2/iex requires no special entitlement and
+    // is never rejected, so it removes this path's dependency on SIP status
+    // entirely rather than replicating the REST probe/downgrade machinery.
+    const ws = new WebSocket("wss://stream.data.alpaca.markets/v2/iex");
     streamWs = ws;
 
     ws.on("open", () => {
@@ -5255,6 +5268,17 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
             audit("STREAM", `Real-time feed live — ${(item.bars || []).length} tickers`);
             // Initialize position monitor — sync positions and auto-subscribe owned tickers
             syncMonitoredPositions().catch(() => {});
+          }
+          // REPAIR 2026-07-09 (R19): Alpaca reports auth/subscribe rejection
+          // as a {"T":"error",...} frame, not a socket close — this was
+          // previously unhandled by any branch here, so a rejection (e.g.
+          // an entitlement problem) left checkPositionOnTick silently
+          // starved of bars with zero audit trail (exactly how the /v2/sip
+          // hardcoding above went undetected for days: zero "Real-time feed
+          // live", zero WS-EXIT, zero error, ever, across 22+ hours of live
+          // trading and 19 restarts, verified via /api/diag/audit).
+          if (item.T === "error") {
+            audit("STREAM-ERROR", `Alpaca stream error code=${item.code ?? "?"} msg=${String(item.msg || "").slice(0, 150)}`);
           }
 
           // 1-minute bar received — position check + signal detection
@@ -5318,7 +5342,17 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     });
 
     ws.on("close", () => {
+      // REPAIR 2026-07-09 (R19): this reconnect loop was completely silent —
+      // no audit trail distinguished "briefly blipped" from "has never once
+      // subscribed successfully." Logging the wasConnected flag makes a
+      // stuck reconnect loop (the /v2/sip failure mode this PR fixes)
+      // visible on the very next occurrence instead of requiring a live
+      // WS trace to notice.
+      const wasConnected = streamConnected;
       streamConnected = false;
+      audit("STREAM-DISCONNECT", wasConnected
+        ? "Feed disconnected — reconnecting in 10s"
+        : "Feed closed before ever reaching subscribed state — reconnecting in 10s");
       // Auto-reconnect after 10 seconds if bot is still active
       setTimeout(() => { if (state.active && !state.killSwitch) startStreaming(); }, 10000);
     });
