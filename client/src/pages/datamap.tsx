@@ -8,6 +8,7 @@ import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint, iconDataURL,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
+  EIA_FUEL_TO_CANON, EIA_FUEL_LABEL,
 } from "@/lib/mapIcons";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
@@ -92,7 +93,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge" | "alert" | "satellite";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite";
   title: string;
   subtitle: string;
   body: string;
@@ -1429,6 +1430,22 @@ export default function DataMapPage() {
     const isLine = ["match", ["get", "power"], ["line", "minor_line", "cable"], true, false] as any;
     const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle"].includes(l.type));
     const add = (def: any) => { if (!map.getLayer(def.id)) map.addLayer(def, firstMarker?.id); };
+    // click/hover handlers to detach on cleanup (mapInteractions contract —
+    // callers MUST detach or handlers stack across toggle cycles).
+    const gridDetach: Array<() => void> = [];
+    // fuel-driven icon + tint for HIFLD plants, built from the EIA-code tables
+    // so plant markers read as their generation type (solar/wind/gas/...) and
+    // tint to the same palette as the legend and the WRI plants layer.
+    const fuelIcon = ["match", ["get", "fuel"],
+      ...Object.entries(EIA_FUEL_TO_CANON).flatMap(([code, canon]) => [code, POWER_FUEL_ICON[canon]]),
+      POWER_FUEL_ICON.other] as any;
+    const fuelColor = ["match", ["get", "fuel"],
+      ...Object.entries(EIA_FUEL_TO_CANON).flatMap(([code, canon]) => [code, POWER_FUEL_COLOR[canon]]),
+      POWER_FUEL_COLOR.other] as any;
+    const STATUS_LABEL: Record<string, string> = {
+      OP: "Operating", SB: "Standby", OS: "Out of service", RE: "Retired",
+      PL: "Planned", CN: "Cancelled", TS: "Under construction",
+    };
 
     // add the 6 voltage/element sublayers for one grid source (national or a state)
     const addGrid = (src: string, file: string) => {
@@ -1513,8 +1530,21 @@ export default function DataMapPage() {
               filter: [">=", V, 230000],
               paint: { "line-color": "rgba(250,204,21,1)",
                        "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1.1, 12, 3.2] } });
+        gridDetach.push(attachLayerInteractions(map,
+          [`${hSrc}-hv`, `${hSrc}-mv`, `${hSrc}-low`, `${hSrc}-unknown`], (e: any) => {
+            const f = e.features?.[0]; if (!f) return;
+            const v = Number(f.properties.voltage);
+            const vl = (isFinite(v) && v > 0) ? `${Math.round(v / 1000).toLocaleString()} kV` : "voltage untagged";
+            setDetail({
+              kind: "transmission",
+              title: "Transmission line",
+              subtitle: vl,
+              body: "Part of the authoritative U.S. transmission tier (69–765 kV).\n\n" +
+                    "HIFLD authoritative (U.S. DHS / Oak Ridge National Laboratory, public domain).",
+            });
+          }));
         setStatus("powergrid_hifld", "active", undefined,
-          "US transmission — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain): 69–765 kV, voltage-classed; dashed = voltage untagged");
+          "US transmission — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain): 69–765 kV, voltage-classed; dashed = voltage untagged — tap a line for its voltage");
       } catch { setStatus("powergrid_hifld", "error"); }
     } else {
       try { hIDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); }); if (map.getSource(hSrc)) map.removeSource(hSrc); } catch {}
@@ -1536,16 +1566,31 @@ export default function DataMapPage() {
         }
         if (!map.getLayer(`${sSrc}-pt`)) {
           map.addLayer({
-            id: `${sSrc}-pt`, type: "circle", source: sSrc, "source-layer": "subs", minzoom: 6,
+            id: `${sSrc}-pt`, type: "symbol", source: sSrc, "source-layer": "subs", minzoom: 6,
+            layout: {
+              "icon-image": "vt-substation",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 6, 0.4, 10, 0.62, 14, 0.85],
+              "icon-allow-overlap": false,       // declutter at low zoom (collision cull)
+            },
             paint: {
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 1.4, 10, 3.5, 14, 6],
-              "circle-color": "rgba(251,191,36,0.85)",
-              "circle-stroke-color": "rgba(146,94,8,0.9)", "circle-stroke-width": 0.5,
+              "icon-color": "#fbbf24",
+              "icon-halo-color": "rgba(5,10,19,0.92)", "icon-halo-width": 1.1,
             },
           } as any, firstMarker?.id);
         }
+        gridDetach.push(attachLayerInteractions(map, `${sSrc}-pt`, (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const kv = (p.maxvolt != null && p.maxvolt !== "") ? `${Number(p.maxvolt).toLocaleString()} kV max` : "voltage n/a";
+          setDetail({
+            kind: "substation",
+            title: p.name || "Substation",
+            subtitle: `${kv}${p.type ? ` · ${p.type}` : ""}`,
+            body: `${p.state ? `State: ${p.state}\n` : ""}` +
+                  `\nHIFLD authoritative (U.S. DHS / Oak Ridge National Laboratory, public domain).`,
+          });
+        }));
         setStatus(sSrc, "active", undefined,
-          "US substations — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain): 75,328 sites, ≥69 kV");
+          "US substations — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain): 75,328 sites, ≥69 kV — tap for details");
       } catch { setStatus(sSrc, "error"); }
     } else {
       try { if (map.getLayer(`${sSrc}-pt`)) map.removeLayer(`${sSrc}-pt`); if (map.getSource(sSrc)) map.removeSource(sSrc); } catch {}
@@ -1553,10 +1598,10 @@ export default function DataMapPage() {
     }
 
     // HIFLD — AUTHORITATIVE national power plants (11,810 generating stations;
-    // DHS/ORNL, sourced from EIA-860, public domain). Rendered as circle markers
-    // COLORED BY PRIMARY FUEL (EIA energy-source codes) — the meaningful dimension:
-    // it shows the generation mix (solar/gas/hydro/wind/coal/nuclear/...) at a glance.
-    // Capacity (MW), operator, and status ride in the feature for the entity graph.
+    // DHS/ORNL, sourced from EIA-860, public domain). Rendered as FUEL-TYPE
+    // SDF icons (solar/wind/gas/coal/hydro/nuclear/oil/biomass/other), tinted to
+    // the shared fuel palette — the generation type readable at a glance. Click
+    // any plant for name, fuel, capacity (MW), operator, and status.
     const pSrc = "powergrid_hifld_plants";
     if (enabled.powergrid_hifld_plants) {
       try {
@@ -1570,33 +1615,41 @@ export default function DataMapPage() {
         }
         if (!map.getLayer(`${pSrc}-pt`)) {
           map.addLayer({
-            id: `${pSrc}-pt`, type: "circle", source: pSrc, "source-layer": "plants", minzoom: 3,
+            id: `${pSrc}-pt`, type: "symbol", source: pSrc, "source-layer": "plants", minzoom: 3,
+            layout: {
+              // fuel-type silhouette (solar/wind/gas/coal/hydro/nuclear/oil/
+              // biomass/other) — the generation type readable at a glance
+              "icon-image": fuelIcon,
+              // grows with zoom; ≥500 MW plants render a touch larger
+              "icon-size": ["interpolate", ["linear"], ["zoom"],
+                3, ["case", [">=", ["coalesce", ["to-number", ["get", "mw"], 0], 0], 500], 0.42, 0.3],
+                8, ["case", [">=", ["coalesce", ["to-number", ["get", "mw"], 0], 0], 500], 0.72, 0.5],
+                13, ["case", [">=", ["coalesce", ["to-number", ["get", "mw"], 0], 0], 500], 1.0, 0.72]],
+              "icon-allow-overlap": false,       // declutter at low zoom (collision cull)
+            },
             paint: {
-              // radius grows with zoom; bigger plants (MW) read slightly larger
-              "circle-radius": ["interpolate", ["linear"], ["zoom"],
-                3, ["case", [">=", ["coalesce", ["get", "mw"], 0], 500], 2.4, 1.4],
-                8, ["case", [">=", ["coalesce", ["get", "mw"], 0], 500], 5, 3],
-                13, ["case", [">=", ["coalesce", ["get", "mw"], 0], 500], 9, 5.5]],
-              // color by primary fuel (EIA energy-source codes), grouped into categories
-              "circle-color": ["match", ["get", "fuel"],
-                "SUN", "#fbbf24",                                       // solar — amber
-                "WND", "#22d3ee",                                       // wind — cyan
-                ["NG", "OG", "BFG", "RG", "SGC"], "#fb923c",            // natural/other gas — orange
-                ["BIT", "SUB", "LIG", "RC", "WC", "PC"], "#475569",     // coal — slate
-                "WAT", "#3b82f6",                                       // hydro — blue
-                "NUC", "#e879f9",                                       // nuclear — magenta
-                ["DFO", "RFO", "KER", "JF", "WO"], "#f87171",           // petroleum — red
-                ["LFG", "WDS", "OBG", "MSW", "BLQ", "AB", "OBS", "OBL", "WDL", "SLW", "TDF"], "#4ade80", // biomass/waste — green
-                "GEO", "#fb7185",                                       // geothermal — rose
-                ["MWH", "WH", "PUR"], "#a78bfa",                        // storage/other — purple
-                "#94a3b8"],                                             // unknown/other — gray
-              "circle-opacity": 0.9,
-              "circle-stroke-color": "rgba(15,23,42,0.7)", "circle-stroke-width": 0.5,
+              "icon-color": fuelColor,
+              "icon-halo-color": "rgba(5,10,19,0.92)", "icon-halo-width": 1.2,
             },
           } as any, firstMarker?.id);
         }
+        gridDetach.push(attachLayerInteractions(map, `${pSrc}-pt`, (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const canon = EIA_FUEL_TO_CANON[p.fuel] || "other";
+          const fuelLabel = EIA_FUEL_LABEL[p.fuel] || POWER_FUEL_LABEL[canon] || p.fuel || "Unknown fuel";
+          const mw = (p.mw != null && p.mw !== "") ? `${Number(p.mw).toLocaleString()} MW` : "capacity n/a";
+          setDetail({
+            kind: "powerplant",
+            title: p.name || "Power plant",
+            subtitle: `${fuelLabel} · ${mw}`,
+            body: `${p.operator ? `Operator: ${p.operator}\n` : ""}` +
+                  `${p.state ? `State: ${p.state}\n` : ""}` +
+                  `${p.status ? `Status: ${STATUS_LABEL[p.status] || p.status}\n` : ""}` +
+                  `\nHIFLD authoritative (U.S. DHS / Oak Ridge National Laboratory, public domain; from EIA-860).`,
+          });
+        }));
         setStatus(pSrc, "active", undefined,
-          "US power plants — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain; EIA-860): 11,810 stations, colored by primary fuel");
+          "US power plants — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain; EIA-860): 11,810 stations, fuel-typed icons — tap for details");
       } catch { setStatus(pSrc, "error"); }
     } else {
       try { if (map.getLayer(`${pSrc}-pt`)) map.removeLayer(`${pSrc}-pt`); if (map.getSource(pSrc)) map.removeSource(pSrc); } catch {}
@@ -1616,6 +1669,9 @@ export default function DataMapPage() {
     });
     // scales to N states: re-run when the master OR any per-state grid flag flips
     // (derived key below), so adding a state needs no new dependency wiring.
+    // Detach every click/hover handler on cleanup so they don't stack across
+    // toggle cycles (mapInteractions contract — BUG 4 discipline).
+    return () => { gridDetach.forEach((d) => d()); };
   }, [powerGridKey, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
@@ -3620,7 +3676,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.sites || enabled.powerplants) && (
+                  {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Facilities</div>
                       <div className="vt-legend-items">
@@ -3631,11 +3687,14 @@ export default function DataMapPage() {
                             <LegendIcon icon={SITE_ICON.steel_mill} color="#ff5a6e" label="Steel Mill" />
                           </>
                         )}
-                        {enabled.powerplants && Object.keys(POWER_FUEL_ICON).map((fuel) => (
+                        {(enabled.powerplants || enabled.powergrid_hifld_plants) && Object.keys(POWER_FUEL_ICON).map((fuel) => (
                           <LegendIcon key={fuel} icon={POWER_FUEL_ICON[fuel]}
                                       color={POWER_FUEL_COLOR[fuel]}
                                       label={`${POWER_FUEL_LABEL[fuel]} Plant`} />
                         ))}
+                        {enabled.powergrid_hifld_sub && (
+                          <LegendIcon icon="vt-substation" color="#fbbf24" label="Substation" />
+                        )}
                       </div>
                     </div>
                   )}
