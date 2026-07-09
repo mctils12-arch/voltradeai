@@ -697,18 +697,24 @@
   equivalent, better client half. No unique delta salvaged. See
   orbital_program.md RESUME STATE.
 
-- **tiles3dBudget.ts missing durability classification** (found 2026-07-09,
-  T-CLIENT orbital-O3 session's gate run — pre-existing, NOT caused by that
-  PR, not fixed in it to keep scope to one logical change): `npm run
-  test:node`'s `server/durability.test.ts` ("every fs-writing server module
-  is classified durable, tmp-by-design, or wishlisted") fails —
-  `tiles3dBudget.ts` (shipped #385, Google Photorealistic 3D Tiles cost
-  guard) writes to disk via `fs.appendFileSync`/`fs.mkdirSync` but was never
-  added to the test's classification list. Cheap fix for whoever picks it
-  up: read `tiles3dBudget.ts`'s write path (append-only cost-ledger JSONL,
-  same shape as `runpod_budget.py`'s ledger) and classify it durable (route
-  through `archiveBaseDir()`) or tmp-by-design with justification, per the
-  test's existing pattern for other modules. Own PR, tagged [REPAIR].
+- **[RESOLVED 2026-07-09, v1.0.236]** ~~tiles3dBudget.ts missing durability
+  classification~~ (found 2026-07-09, T-CLIENT orbital-O3 session's gate
+  run). FIX: routed `LEDGER` through a local `tiles3dStateDir()` resolving
+  `DATA_DIR`/`/data/voltrade` with a `/tmp` fallback — the same pattern
+  `analyst.ts`'s token-budget file already uses — rather than
+  `archiveBaseDir()`. Tried `archiveBaseDir()` first (the obvious durable
+  marker) but it tripped a SECOND, unrelated gate: `manifests.test.ts`'s
+  FORWARD ENFORCEMENT test scrapes every `path.join(archiveBaseDir(), "x")`
+  call as a new datacore STREAM requiring a full envelope manifest
+  (source/license/attribution/geo_fields/entity_key) — correct for actual
+  archived data streams, wrong for this ops cost-ledger (no source, license,
+  or geo fields apply to a request-count guard). `analyst.ts`'s own
+  `DATA_DIR`-direct pattern is precedent for exactly this case: durable
+  across redeploys (the whole point — a non-durable ledger would silently
+  reset the daily/monthly caps on every deploy, defeating the guard) without
+  being swept into the manifest system meant for data streams. Both
+  `durability.test.ts` and `manifests.test.ts` pass; full `npm run test:node`
+  (517/517) and `python3 -m pytest -q` (558 passed, 1 skipped) green.
 
 ## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
 

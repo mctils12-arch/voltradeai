@@ -10545,3 +10545,76 @@ conservative) + the in-flight Duke run (≤ $1.38 worst-case). Ledger remaining
 $47.12.
 
 Backtest: N/A (offline detector training; no trading/measurement/parameter path).
+## 2026-07-09 — [REPAIR] tiles3dBudget.ts durability classification (KNOWN BROKEN, v1.0.236)
+
+TERRITORY: cross-cutting ops/test-infra (`server/tiles3dBudget.ts`,
+`server/durability.test.ts` — neither is inside T-BOT/T-CLIENT/T-DATACORE's
+active file lists; no overlap risk). SESSION-START CHECKS per MEMORY
+PROTOCOL: read CLAUDE.md, open_questions.md KNOWN BROKEN (14 items, all but
+one already RESOLVED), wishlist.md, recent experiments.md history. Loop-
+health: last 10 tagged entries in this file were 4 REPAIR / 6 PRODUCT+
+PIPELINE — under the 7+ thrash threshold, no meta-problem. NOTE: git log
+shows 5 more merged PRs (#392-#397, "worldview-globe" plants×river-gauges/
+NWS cross-ties + orbital O3 + RunPod ledger) postdating this file's last
+entry that never appended their own experiments.md record — a MEMORY
+PROTOCOL miss by those sessions, flagged here rather than fixed (not this
+session's territory or scope).
+
+Environment note: neither `node_modules` nor Python deps (numpy etc.) were
+present at session start in this container — `npm ci` and `pip install -r
+requirements.txt -r requirements-dev.txt` were required before any test
+could run. Worth remembering: a fresh container here does NOT start green;
+CLAUDE.md's "check system health first" step requires this install pass
+before any pytest/test:node read is trustworthy.
+
+- WHAT: open_questions.md's already-filed, already-scoped KNOWN BROKEN item
+  (found 2026-07-09 by a prior T-CLIENT session's gate run): `npm run
+  test:node`'s `server/durability.test.ts` failed because `tiles3dBudget.ts`
+  (the Google 3D Tiles cost-guard ledger, `fs.appendFileSync`/`fs.mkdirSync`
+  via `process.cwd()`) was never classified durable or tmp-by-design.
+  Confirmed failing before any change (`not ok 94`).
+- FIX: first attempt routed the ledger path through `archiveBaseDir()` (the
+  obvious durable marker, matching ~40 other datacore server modules) — this
+  fixed `durability.test.ts` but broke a SECOND test,
+  `manifests.test.ts`'s "FORWARD ENFORCEMENT" check, which scrapes every
+  `path.join(archiveBaseDir(), "name")` call as a new archived DATA STREAM
+  requiring a full envelope manifest (source/license/attribution/
+  geo_fields/entity_key/schema_version/cadence) in `datacore/manifests/`.
+  That envelope is correct for genuine data streams and wrong for an
+  internal cost-ledger with no source/license/geo dimension — writing a
+  manifest to satisfy the scrape would have been dishonest padding, not a
+  real fix. Reverted to a local `tiles3dStateDir()` helper (mirrors
+  `analyst.ts`'s existing `analystStateDir()` — `env.DATA_DIR ||
+  (fs.existsSync("/data") ? "/data/voltrade" : "/tmp")`), which satisfies
+  `durability.test.ts`'s literal `/data`/`DATA_DIR` markers without matching
+  the manifest-scrape regex (`path.join(base(Dir)?, "...")` /
+  `archiveBaseDir()` calls specifically). Durability substance matters here,
+  not just test-green: the ledger MUST survive redeploys, or the daily/
+  monthly root-request caps silently reset every deploy exactly like the
+  pre-fix equityPeak bug (KNOWN BROKEN #7) — the fix is real, not
+  cosmetic.
+- RATCHET: none needed beyond the two pre-existing tests
+  (`durability.test.ts` + `manifests.test.ts`) — this was a missing-
+  classification bug the existing regression suite already caught
+  mechanically; no new gap to cover.
+- GATES: `npm run test:node` 517/517 pass (was 516/517, `not ok 94`);
+  `python3 -m pytest -q` 558 passed / 1 skipped (fresh env, no Python file
+  touched — informational baseline only). Version 1.0.235 -> 1.0.236.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): ledger path change -> existing
+  ledger rows (if any) at the old `process.cwd()/datacore/tiles3d/` path are
+  orphaned, not migrated -> `authorizeRoot()` starts counting from zero at
+  the new path -> one-time reset of the daily/monthly counters, strictly
+  loosening (never tightening) the guard for a single transition; no other
+  code path reads the ledger file directly (`server/routes.ts` only calls
+  the exported `loadLedger`/`recordRoot`/`budgetStatus` functions), so no
+  caller needed updating.
+- SESSION BUDGET: this was the correct single highest-value primary action
+  per the Repair Mandate — one unresolved, already-diagnosed KNOWN BROKEN
+  item outranks starting new EDGE DOCTRINE research. Falls through: no
+  further capacity spent this session on new research given the scope of
+  the environment-setup + fix + verification work; the flagged missing-
+  experiments.md-entries gap above is left for a future session to decide
+  whether it warrants action.
+
+Backtest: N/A (no strategy/measurement/parameter change — pure ops/test-
+infra fix, no trading-path code touched).

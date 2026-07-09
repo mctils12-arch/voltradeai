@@ -22,7 +22,17 @@ export const MONTHLY_ROOT_CAP = FREE_ROOTS_PER_MONTH;
 
 export interface RootRow { day: string; month: string; at: string; note?: string }
 
-const LEDGER = path.join(process.cwd(), "datacore", "tiles3d", "root_ledger.jsonl");
+// This is an ops cost-ledger, not a manifested datacore stream (no source/
+// license/attribution/geo_fields apply) — resolve /data directly, same
+// pattern as analyst.ts's token-budget file, rather than archiveBaseDir()
+// (which the manifest-forward-enforcement test scrapes for stream dirs).
+// Still durable: DATA_DIR/"/data" on the Railway volume, /tmp fallback locally
+// — process.cwd() alone is wiped on every redeploy, which would silently
+// reset this guard's caps.
+function tiles3dStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp");
+}
+const LEDGER = path.join(tiles3dStateDir(), "tiles3d_root_ledger.jsonl");
 
 /** UTC calendar day "YYYY-MM-DD" for a timestamp (ms). Pure. */
 export function utcDay(ms: number): string {
