@@ -228,6 +228,29 @@ def test_upload_weight_with_injected_uploader(tmp_path):
     assert fail["ok"] is False and fail["url"] is None and fail["errors"]
 
 
+# ── (F) on-pod bootstrap pins a torch-2.1-compatible NumPy ──────────────────
+
+def test_pip_bootstrap_pins_numpy_below_2(monkeypatch):
+    """Regression for gv-detector-v0-1 (2026-07-09): the RunPod torch-2.1.0 base
+    image + an unpinned `pip install ultralytics` pulls NumPy 2.x, and the first
+    torch.from_numpy (ultralytics' AMP check) dies with 'Numpy is not available',
+    burning a full GPU-hour before any epoch. The bootstrap must constrain numpy<2
+    in the install command, ahead of ultralytics, so pip never resolves 2.x."""
+    import subprocess
+
+    captured = {}
+
+    def fake_check_call(argv, *a, **k):
+        captured["argv"] = list(argv)
+
+    monkeypatch.setattr(subprocess, "check_call", fake_check_call)
+    train.pip_bootstrap()
+    argv = captured["argv"]
+    assert "numpy<2" in argv, argv
+    # the numpy constraint must precede ultralytics in the resolve set
+    assert argv.index("numpy<2") < argv.index("ultralytics"), argv
+
+
 # ── (E) full dry-run wiring, offline ────────────────────────────────────────
 
 def test_dry_run_wires_end_to_end_offline():

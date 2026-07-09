@@ -74,12 +74,24 @@ IMG_EXTS = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 
 # ── pip bootstrap (on-pod) ──────────────────────────────────────────────────
 
+# The RunPod base image ships torch 2.1.0, which is built against NumPy 1.x.
+# `pip install ultralytics` pulls NumPy 2.x, and torch 2.1.0 cannot consume a
+# 2.x array — the first `torch.from_numpy` (ultralytics' AMP check) dies with
+# "RuntimeError: Numpy is not available", killing the run before a single epoch
+# (observed on gv-detector-v0-1, 2026-07-09). Pinning numpy<2 in the SAME install
+# command keeps the resolver on a torch-2.1-compatible NumPy. Pin lives here (not
+# a requirements file) because this is the on-pod bootstrap and needs no image.
+NUMPY_PIN = "numpy<2"
+
+
 def pip_bootstrap(packages=("ultralytics", "rasterio", "pillow")):
     """Install on-pod deps. On-pod only; skipped by --dry-run. Kept here so the
-    container needs no custom image."""
+    container needs no custom image. numpy<2 is pinned FIRST so pip resolves a
+    NumPy the base image's torch 2.1.0 can actually use (see NUMPY_PIN)."""
     import subprocess
-    print(f"[train] pip installing {packages} ...", flush=True)
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", *packages])
+    pkgs = (NUMPY_PIN, *packages)
+    print(f"[train] pip installing {pkgs} ...", flush=True)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", *pkgs])
 
 
 # ── fetch ETDII US zips (on-pod) ────────────────────────────────────────────
