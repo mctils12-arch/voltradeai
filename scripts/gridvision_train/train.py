@@ -64,8 +64,16 @@ import etdii_to_yolo as e2y      # noqa: E402  pure conversion
 import weight_sink               # noqa: E402  pure parsing + guarded upload
 import gridvision_etdii as etdii  # noqa: E402  reuse the verified parser
 
-# ETDII US zips (figshare 14935434 v2) — file ids VERIFIED 2026-07-07.
-ETDII_US_FILE_IDS = {"USA_AZ_Tucson": 28887792, "USA_KS_Colwich_Maize": 28887795}
+# ETDII zips (figshare 14935434) — file ids VERIFIED via the figshare API
+# 2026-07-07 (US) and 2026-07-09 (NZ). US = the 2 in-scope regions; NZ = 5 more
+# regions in the SAME geojson format (gridvision_etdii.parse_geojson), added as
+# training-DIVERSITY to attack gate-1(a)'s cross-region FAIL. All small (14-120 MB).
+ETDII_REGIONS = {
+    "USA_AZ_Tucson": 28887792, "USA_KS_Colwich_Maize": 28887795,
+    "NZ_Dunedin": 28887777, "NZ_Gisborne": 28887780,
+    "NZ_Palmerston_North": 28887783, "NZ_Rotorua": 28887786, "NZ_Tauranga": 28887789,
+}
+ETDII_US_FILE_IDS = {k: v for k, v in ETDII_REGIONS.items() if k.startswith("USA_")}
 ETDII_NDOWNLOAD = "https://ndownloader.figshare.com/files/{fid}"
 ETDII_NATIVE_GSD = 0.30
 TARGET_GSD = 0.60
@@ -96,19 +104,26 @@ def pip_bootstrap(packages=("ultralytics", "rasterio", "pillow")):
 
 # ── fetch ETDII US zips (on-pod) ────────────────────────────────────────────
 
-def fetch_etdii_us(dest_dir):
-    """Download the two ETDII US zips to dest_dir -> {city: zip_path}. On-pod
-    (network). Uses stdlib urllib; ~220 MB total."""
+def fetch_etdii_us(dest_dir, regions=None):
+    """Download the selected ETDII region zips to dest_dir -> {region: zip_path}.
+    On-pod (network). `regions` = iterable of region names (keys of ETDII_REGIONS);
+    None => the 2 US regions (back-compat). Unknown names are skipped with a warning
+    (never guessed). Uses stdlib urllib."""
     import urllib.request
     os.makedirs(dest_dir, exist_ok=True)
+    names = list(regions) if regions else list(ETDII_US_FILE_IDS.keys())
     paths = {}
-    for city, fid in ETDII_US_FILE_IDS.items():
+    for city in names:
+        fid = ETDII_REGIONS.get(city)
+        if fid is None:
+            print(f"[train] WARNING unknown region {city!r} — skipped", flush=True)
+            continue
         out = os.path.join(dest_dir, f"etdii_{city}_{fid}.zip")
         if not os.path.exists(out):
             url = ETDII_NDOWNLOAD.format(fid=fid)
             print(f"[train] fetching {city} ({url}) ...", flush=True)
             req = urllib.request.Request(url, headers={"User-Agent": weight_sink.UA})
-            with urllib.request.urlopen(req, timeout=300) as r, open(out, "wb") as f:
+            with urllib.request.urlopen(req, timeout=600) as r, open(out, "wb") as f:
                 f.write(r.read())
         paths[city] = out
     return paths
@@ -441,7 +456,14 @@ def run_full(args):
     pip_bootstrap()
     work = args.out
     os.makedirs(work, exist_ok=True)
-    zips = fetch_etdii_us(os.path.join(work, "etdii"))
+    if args.regions == "all":
+        regions = list(ETDII_REGIONS.keys())
+    elif args.regions:
+        regions = [r.strip() for r in args.regions.split(",") if r.strip()]
+    else:
+        regions = None  # default: 2 US regions
+    print(f"[train] training regions: {regions or list(ETDII_US_FILE_IDS.keys())}", flush=True)
+    zips = fetch_etdii_us(os.path.join(work, "etdii"), regions=regions)
     ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac,
                             tile=args.tile, stride=args.stride,
                             holdout_region=args.holdout_region)
@@ -484,6 +506,9 @@ def build_parser():
     p.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starter")
     p.add_argument("--aug", default="default", choices=["default", "strong"],
                    help="augmentation preset — 'strong' is the cross-region generalization lever")
+    p.add_argument("--regions", default=None,
+                   help="'all' (7 ETDII regions: 2 US + 5 NZ, for diversity) or a "
+                        "comma-list of region names; default = 2 US regions")
     p.add_argument("--val-frac", dest="val_frac", type=float, default=0.2)
     p.add_argument("--out", default="/workspace/gv_out", help="pod work/output dir")
     p.add_argument("--chip-index", default=None,

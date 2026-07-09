@@ -176,6 +176,15 @@ def test_aug_kwargs_presets():
     assert train.aug_kwargs("strong")["hsv_v"] >= 0.4
 
 
+def test_etdii_region_config():
+    # 7 regions available (2 US + 5 NZ) for diversity; US subset derives correctly
+    assert len(train.ETDII_REGIONS) == 7
+    assert set(train.ETDII_US_FILE_IDS) == {"USA_AZ_Tucson", "USA_KS_Colwich_Maize"}
+    assert all(k.startswith("NZ_") or k.startswith("USA_") for k in train.ETDII_REGIONS)
+    # NZ stems route to TRAIN when a US region is held out (region_of -> None != holdout)
+    assert e2y.region_of("NZ_Dunedin_3") is None
+
+
 def test_region_of_longest_prefix():
     assert e2y.region_of("USA_AZ_Tucson_12") == "USA_AZ_Tucson"
     assert e2y.region_of("USA_KS_Colwich_Maize_3") == "USA_KS_Colwich_Maize"
