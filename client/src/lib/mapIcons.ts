@@ -273,6 +273,36 @@ const shapes: Record<string, () => ImageData> = {
     ctx.lineTo(m - 4, s - 5); ctx.lineTo(m + 8, m - 2); ctx.lineTo(m + 1, m - 2);
     ctx.closePath(); ctx.fill();
   }),
+  // substation: bordered square (electrical facility) enclosing a small bolt —
+  // reads distinctly from a bare plant bolt, matching the map convention of a
+  // boxed switchyard/transformer station.
+  "vt-substation": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    const r = 4, x0 = 8, y0 = 8, x1 = s - 8, y1 = s - 8;      // rounded square outline
+    ctx.beginPath();
+    ctx.moveTo(x0 + r, y0);
+    ctx.arcTo(x1, y0, x1, y1, r); ctx.arcTo(x1, y1, x0, y1, r);
+    ctx.arcTo(x0, y1, x0, y0, r); ctx.arcTo(x0, y0, x1, y0, r);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath();                                          // enclosed bolt
+    ctx.moveTo(m + 3, m - 7); ctx.lineTo(m - 5, m + 1); ctx.lineTo(m - 1, m + 1);
+    ctx.lineTo(m - 3, m + 7); ctx.lineTo(m + 5, m - 1); ctx.lineTo(m + 1, m - 1);
+    ctx.closePath(); ctx.fill();
+  }),
+  // biomass: leaf — two bezier lobes + midrib
+  "vt-biomass": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 6);
+    ctx.bezierCurveTo(m + 12, m - 6, m + 11, m + 8, m, s - 6);
+    ctx.bezierCurveTo(m - 11, m + 8, m - 12, m - 6, m, 6);
+    ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.globalCompositeOperation = "destination-out";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(m, 10); ctx.lineTo(m, s - 9); ctx.stroke();   // midrib
+    ctx.restore();
+  }),
   // active-fire detection: teardrop flame, upright (never rotated) —
   // per-feature icon-color carries the confidence tint (see FIRE_COLOR)
   "vt-fire": () => draw(S, (ctx, s) => {
@@ -392,15 +422,43 @@ export const SITE_ICON: Record<string, string> = {
 /** Power-plant fuel code (datacore/powerplants) -> silhouette + color. */
 export const POWER_FUEL_ICON: Record<string, string> = {
   nuclear: "vt-nuclear", coal: "vt-coal", gas: "vt-gas", oil: "vt-oil",
-  hydro: "vt-hydro", wind: "vt-wind", solar: "vt-solar", other: "vt-power",
+  hydro: "vt-hydro", wind: "vt-wind", solar: "vt-solar", biomass: "vt-biomass",
+  other: "vt-power",
 };
 export const POWER_FUEL_COLOR: Record<string, string> = {
   nuclear: "#c084fc", coal: "#94a3b8", gas: "#fbb24c", oil: "#ff8a5c",
-  hydro: "#4d9fff", wind: "#7cc4ff", solar: "#fde047", other: "#6680a0",
+  hydro: "#4d9fff", wind: "#7cc4ff", solar: "#fde047", biomass: "#4ade80",
+  other: "#6680a0",
 };
 export const POWER_FUEL_LABEL: Record<string, string> = {
   nuclear: "Nuclear", coal: "Coal", gas: "Gas", oil: "Oil",
-  hydro: "Hydro", wind: "Wind", solar: "Solar", other: "Other",
+  hydro: "Hydro", wind: "Wind", solar: "Solar", biomass: "Biomass",
+  other: "Other",
+};
+
+/** EIA-860 energy-source code (HIFLD PRIM_FUEL) -> canonical fuel key above.
+ *  Anything not listed falls through to "other" (vt-power / gray). */
+export const EIA_FUEL_TO_CANON: Record<string, string> = {
+  SUN: "solar", WND: "wind", WAT: "hydro", NUC: "nuclear",
+  NG: "gas", OG: "gas", BFG: "gas", RG: "gas", SGC: "gas",
+  BIT: "coal", SUB: "coal", LIG: "coal", RC: "coal", WC: "coal", PC: "coal",
+  DFO: "oil", RFO: "oil", KER: "oil", JF: "oil", WO: "oil",
+  LFG: "biomass", WDS: "biomass", OBG: "biomass", MSW: "biomass", BLQ: "biomass",
+  AB: "biomass", OBS: "biomass", OBL: "biomass", WDL: "biomass", SLW: "biomass", TDF: "biomass",
+};
+/** EIA-860 energy-source code -> precise human label (popup text). Covers the
+ *  codes above plus the ones that fold to "other" for the icon but deserve an
+ *  exact name in the detail card. */
+export const EIA_FUEL_LABEL: Record<string, string> = {
+  SUN: "Solar", WND: "Wind", WAT: "Hydro", NUC: "Nuclear",
+  NG: "Natural gas", OG: "Other gas", BFG: "Blast-furnace gas", RG: "Refinery gas", SGC: "Coal-gas",
+  BIT: "Bituminous coal", SUB: "Subbituminous coal", LIG: "Lignite coal", RC: "Refined coal",
+  WC: "Waste coal", PC: "Petroleum coke",
+  DFO: "Distillate fuel oil", RFO: "Residual fuel oil", KER: "Kerosene", JF: "Jet fuel", WO: "Waste oil",
+  LFG: "Landfill gas", WDS: "Wood/wood waste", OBG: "Other biomass gas", MSW: "Municipal solid waste",
+  BLQ: "Black liquor", AB: "Agricultural byproduct", OBS: "Other biomass solid", OBL: "Other biomass liquid",
+  WDL: "Wood-waste liquid", SLW: "Sludge waste", TDF: "Tire-derived fuel",
+  GEO: "Geothermal", MWH: "Battery storage", WH: "Waste heat", PUR: "Purchased steam",
 };
 
 /** FIRMS confidence (low/nominal/high) -> marker tint. */
