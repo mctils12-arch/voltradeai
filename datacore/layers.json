@@ -148,6 +148,17 @@
       "field": false
     },
     {
+      "id": "powergrid_hifld_plants",
+      "name": "US Power Plants — HIFLD (authoritative)",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "HIFLD Power Plants — U.S. DHS / Oak Ridge National Laboratory (public domain), sourced from EIA-860, via ArcGIS",
+      "description": "Authoritative national electric generating stations, 11,810 plants, rendered as points colored by primary fuel (EIA energy-source codes: solar, natural gas, hydro, wind, coal, nuclear, petroleum, biomass, geothermal, storage). Surveyed government vector data (not ML). Completes the generation→transmission→substation grid trio with the HIFLD line and substation layers. Capacity (MW), operator, and status carried per feature. Vintage ~2022.",
+      "field": false
+    },
+    {
       "id": "powergrid_al",
       "name": "Grid — Alabama",
       "kind": "raw",

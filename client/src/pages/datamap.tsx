@@ -178,7 +178,7 @@ const LAYER_GROUP: Record<string, string> = {
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
-  powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities",
+  powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
   powergrid_al: "grid", powergrid_ak: "grid", powergrid_az: "grid", powergrid_ar: "grid", powergrid_ca: "grid", powergrid_co: "grid",
   powergrid_ct: "grid", powergrid_de: "grid", powergrid_dc: "grid", powergrid_fl: "grid", powergrid_ga: "grid", powergrid_hi: "grid",
   powergrid_id: "grid", powergrid_il: "grid", powergrid_in: "grid", powergrid_ia: "grid", powergrid_ks: "grid", powergrid_ky: "grid",
@@ -1378,7 +1378,7 @@ export default function DataMapPage() {
   // stable key over the master + every per-state grid flag, so the effect below
   // re-runs on any grid toggle without hardcoding one dependency per state.
   const powerGridKey = (enabled.powergrid ? "M" : "") + (enabled.powergrid_hifld ? "H" : "") +
-    (enabled.powergrid_hifld_sub ? "S" : "") +
+    (enabled.powergrid_hifld_sub ? "S" : "") + (enabled.powergrid_hifld_plants ? "P" : "") +
     POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
@@ -1509,6 +1509,57 @@ export default function DataMapPage() {
     } else {
       try { if (map.getLayer(`${sSrc}-pt`)) map.removeLayer(`${sSrc}-pt`); if (map.getSource(sSrc)) map.removeSource(sSrc); } catch {}
       setStatus(sSrc, "off");
+    }
+
+    // HIFLD — AUTHORITATIVE national power plants (11,810 generating stations;
+    // DHS/ORNL, sourced from EIA-860, public domain). Rendered as circle markers
+    // COLORED BY PRIMARY FUEL (EIA energy-source codes) — the meaningful dimension:
+    // it shows the generation mix (solar/gas/hydro/wind/coal/nuclear/...) at a glance.
+    // Capacity (MW), operator, and status ride in the feature for the entity graph.
+    const pSrc = "powergrid_hifld_plants";
+    if (enabled.powergrid_hifld_plants) {
+      try {
+        setStatus(pSrc, "loading");
+        if (!map.getSource(pSrc)) {
+          map.addSource(pSrc, {
+            type: "vector",
+            url: `pmtiles://${window.location.origin}/tiles/power_hifld_plants.pmtiles`,
+            attribution: "HIFLD — U.S. DHS / Oak Ridge National Laboratory (public domain), from EIA-860",
+          } as any);
+        }
+        if (!map.getLayer(`${pSrc}-pt`)) {
+          map.addLayer({
+            id: `${pSrc}-pt`, type: "circle", source: pSrc, "source-layer": "plants", minzoom: 3,
+            paint: {
+              // radius grows with zoom; bigger plants (MW) read slightly larger
+              "circle-radius": ["interpolate", ["linear"], ["zoom"],
+                3, ["case", [">=", ["coalesce", ["get", "mw"], 0], 500], 2.4, 1.4],
+                8, ["case", [">=", ["coalesce", ["get", "mw"], 0], 500], 5, 3],
+                13, ["case", [">=", ["coalesce", ["get", "mw"], 0], 500], 9, 5.5]],
+              // color by primary fuel (EIA energy-source codes), grouped into categories
+              "circle-color": ["match", ["get", "fuel"],
+                "SUN", "#fbbf24",                                       // solar — amber
+                "WND", "#22d3ee",                                       // wind — cyan
+                ["NG", "OG", "BFG", "RG", "SGC"], "#fb923c",            // natural/other gas — orange
+                ["BIT", "SUB", "LIG", "RC", "WC", "PC"], "#475569",     // coal — slate
+                "WAT", "#3b82f6",                                       // hydro — blue
+                "NUC", "#e879f9",                                       // nuclear — magenta
+                ["DFO", "RFO", "KER", "JF", "WO"], "#f87171",           // petroleum — red
+                ["LFG", "WDS", "OBG", "MSW", "BLQ", "AB", "OBS", "OBL", "WDL", "SLW", "TDF"], "#4ade80", // biomass/waste — green
+                "GEO", "#fb7185",                                       // geothermal — rose
+                ["MWH", "WH", "PUR"], "#a78bfa",                        // storage/other — purple
+                "#94a3b8"],                                             // unknown/other — gray
+              "circle-opacity": 0.9,
+              "circle-stroke-color": "rgba(15,23,42,0.7)", "circle-stroke-width": 0.5,
+            },
+          } as any, firstMarker?.id);
+        }
+        setStatus(pSrc, "active", undefined,
+          "US power plants — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain; EIA-860): 11,810 stations, colored by primary fuel");
+      } catch { setStatus(pSrc, "error"); }
+    } else {
+      try { if (map.getLayer(`${pSrc}-pt`)) map.removeLayer(`${pSrc}-pt`); if (map.getSource(pSrc)) map.removeSource(pSrc); } catch {}
+      setStatus(pSrc, "off");
     }
 
     // individual per-state layers (each its own toggle, independent of the master)
