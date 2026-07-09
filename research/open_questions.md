@@ -2963,3 +2963,33 @@ two infra fixes from the v0 session into the next run: push best.pt over the
 git channel (0x0.st/transfer.sh are unreachable from RunPod egress) and use the
 result-branch-SHA completion signal (the runpod/pytorch container never reports
 EXITED, so the status watchdog idle-bills to the cap).
+
+---
+
+## [PRODUCT-DEBT · filed 2026-07-09] Two overlapping "US power plants" /data layers — consolidate
+
+STATE: after #408, the /data facilities group has TWO power-plant toggles:
+- `powerplants` — "US power plants": WRI Global Power Plant Database
+  v1.3.0 (CC-BY 4.0), ~9,800 US plants, 2021 vintage, served via the
+  `/api/data/powerplants` GeoJSON API.
+- `powergrid_hifld_plants` — "US Power Plants — HIFLD (authoritative)":
+  HIFLD/EIA-860 (public domain), 11,810 plants, PMTiles, fuel-colored.
+
+WHY BOTH SHIPPED: the HIFLD one completes the authoritative HIFLD grid
+trio (transmission #405 + substations + plants) from one public-domain
+gov source, has ~2,000 more plants, and uses PMTiles delivery consistent
+with the other grid layers. Genuinely additive — but a user sees two
+near-identical toggles, which is exactly the redundant-layer debt the
+STALENESS AUDIT targets.
+
+DECISION NEEDED (not acted on this session — removing a live layer is its
+own change, never bundled): keep both (distinct tiers, some users want
+WRI's global coverage for future non-US expansion) OR deprecate the WRI
+GeoJSON layer in favor of the authoritative HIFLD PMTiles one (cleaner
+licensing — public domain vs CC-BY attribution burden; better delivery;
+more complete). LEANING: deprecate WRI for the US surface once a
+side-by-side confirms HIFLD is a superset on coverage AND carries the
+same click-through fields (capacity/operator) the WRI layer exposes.
+LADDER: N/A (raw overlay). NEXT: a session doing a STALENESS-AUDIT
+fall-through runs the coverage/field comparison and files the
+keep-or-remove call; if remove, it ships as one docs+code removal PR.
