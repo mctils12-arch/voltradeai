@@ -27,6 +27,7 @@ import path from "path";
 import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir, RAW_RETENTION_DAYS } from "./datacoreArchive";
+import { parseBbox, filterByViewport } from "./viewport";
 
 // ── layers ───────────────────────────────────────────────────────────────────
 // Exactly the archives that exist on disk today (datacoreArchive position
@@ -293,3 +294,121 @@ export async function queryWindowCached(req: QueryRequest, base = archiveBaseDir
 }
 
 export function _resetQueryCache() { cache.clear(); }
+
+// ── W3 TIME SCRUBBER: one archived hour/day bucket, replayed ────────────────
+// A snapshot is a single point-in-time read of ONE layer's archive — the
+// building block for "scrub a slider, watch the world move" (console_charter
+// W3). Position layers (aircraft/vessels/trains) bucket by HOUR (their write
+// grain, readJsonlDay reused with an hour stamp); event layers (fires/alerts/
+// gauges) bucket by DAY (their write grain) — an `at` timestamp is floored to
+// whichever grain the layer uses. Bounded to the same RAW_RETENTION_DAYS raw
+// window queryWindow uses (older raw is rolled up to lossy per-entity
+// summaries and not point-replayable here) — outside the window is a stated
+// error, never a silent empty result.
+export const SNAPSHOT_POINTS_CAP = 3000;
+
+export interface SnapshotPoint {
+  id: string | null;
+  lat: number;
+  lon: number;
+  label?: string;
+  severity?: string | null;
+  value?: number | null;
+}
+
+export interface SnapshotResult {
+  layer: LayerName;
+  mode: "position" | "event";
+  requested_at: string;   // the `at` the caller passed, verbatim
+  bucket_at: string;      // the resolved hour/day bucket start, ISO
+  data: SnapshotPoint[];
+  count: number;
+  count_before_viewport: number;
+  count_dropped_offscreen: number;
+  viewport_filtered: boolean;
+  capped: boolean;
+  freshness: string | null;
+  provenance: string;
+  window: { min_iso: string; max_iso: string; days: number };
+  note: string;
+}
+
+const SNAPSHOT_NOTE =
+  "one archived hour (position layers) or day (event layers) bucket, replayed exactly as recorded — " +
+  "not live; freshness = newest archived timestamp among matched points; bbox optional (SCALE S1 viewport " +
+  "pattern), point cap stated when hit, never silent; bounded to the raw retention window (older raw is " +
+  "rolled up to lossy per-entity summaries and not point-replayable here)";
+
+export function snapshotWindow(nowMs = Date.now()): { minMs: number; maxMs: number } {
+  return { minMs: nowMs - RAW_RETENTION_DAYS * 86400_000, maxMs: nowMs };
+}
+
+export function querySnapshot(layerName: string, atIso: string, bboxStr: unknown,
+                              base = archiveBaseDir(), nowMs = Date.now()): SnapshotResult {
+  if (!(SUPPORTED_LAYERS as readonly string[]).includes(layerName)) {
+    throw new Error(`unknown layer "${layerName}" — supported: ${SUPPORTED_LAYERS.join(", ")}`);
+  }
+  const layer = layerName as LayerName;
+  const atMs = Date.parse(atIso);
+  if (!Number.isFinite(atMs)) throw new Error(`invalid "at" timestamp: "${atIso}"`);
+  const { minMs, maxMs } = snapshotWindow(nowMs);
+  if (atMs < minMs || atMs > maxMs) {
+    throw new Error(`"at" outside the retained raw window (${new Date(minMs).toISOString()} .. ${new Date(maxMs).toISOString()})`);
+  }
+  const src = LAYER_SOURCES[layer];
+  const dir = path.join(base, src.dir);
+  const bbox = parseBbox(bboxStr);
+  const d = new Date(atMs);
+  let bucketAt: string;
+  let raw: any[];
+  if (src.mode === "position") {
+    bucketAt = d.toISOString().slice(0, 13) + ":00:00.000Z";
+    const stamp = d.toISOString().slice(0, 13).replace("T", "-"); // YYYY-MM-DD-HH
+    raw = readJsonlDay(dir, stamp);
+  } else {
+    const day = d.toISOString().slice(0, 10);
+    bucketAt = day + "T00:00:00.000Z";
+    raw = readJsonlDay(dir, day);
+  }
+
+  let points: SnapshotPoint[] = [];
+  let maxT = -Infinity;
+  if (src.mode === "position") {
+    for (const r of raw) {
+      if (r?.la == null || r?.lo == null || typeof r.t !== "number") continue;
+      points.push({ id: r.i != null ? String(r.i) : null, lat: r.la, lon: r.lo });
+      maxT = Math.max(maxT, r.t * 1000);
+    }
+  } else {
+    const day = bucketAt.slice(0, 10);
+    for (const r of raw) {
+      const ev = eventFromRecord(layer, r, day);
+      if (!ev) continue; // no geometry (e.g. zone-only alerts) — excluded, same as queryWindow
+      points.push({ id: null, lat: r.lat, lon: r.lon, label: ev.label, severity: ev.severity ?? null, value: ev.value ?? null });
+      const ms = Date.parse(ev.t);
+      if (Number.isFinite(ms)) maxT = Math.max(maxT, ms);
+    }
+  }
+
+  const countBefore = points.length;
+  let viewportFiltered = false, droppedOffscreen = 0;
+  if (bbox) {
+    const inView = filterByViewport(points, bbox, (p) => [p.lon, p.lat]);
+    droppedOffscreen = countBefore - inView.length;
+    points = inView;
+    viewportFiltered = true;
+  }
+  const capped = points.length > SNAPSHOT_POINTS_CAP;
+  if (capped) points = points.slice(0, SNAPSHOT_POINTS_CAP);
+
+  return {
+    layer, mode: src.mode, requested_at: atIso, bucket_at: bucketAt,
+    data: points, count: points.length,
+    count_before_viewport: countBefore, count_dropped_offscreen: droppedOffscreen,
+    viewport_filtered: viewportFiltered, capped,
+    freshness: Number.isFinite(maxT) ? new Date(maxT).toISOString() : null,
+    provenance: src.provenance,
+    window: { min_iso: new Date(minMs).toISOString(), max_iso: new Date(maxMs).toISOString(), days: RAW_RETENTION_DAYS },
+    note: SNAPSHOT_NOTE,
+  };
+}

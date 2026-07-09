@@ -10618,3 +10618,161 @@ before any pytest/test:node read is trustworthy.
 
 Backtest: N/A (no strategy/measurement/parameter change — pure ops/test-
 infra fix, no trading-path code touched).
+
+## 2026-07-09 — [PRODUCT] ANALYST CONSOLE W3: TIME SCRUBBER — "scrub a slider, watch the world move" over our own archives (v1.0.250)
+
+TERRITORY: T-CLIENT primary (client/src/components/TimeScrubber.tsx,
+client/src/pages/datamap.tsx, client/src/index.css, scripts/visual_check.mjs)
+with a small SHARED-file touch (server/queryEngine.ts + server/routes.ts —
+minimized per the workstream partition, own commit-adjacent change, no
+other shared-file edits this session).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md, research/
+experiments.md tail, open_questions.md KNOWN BROKEN. `/api/health` clean
+(status ok, bot active, drawdownPct 0.0, liveness.dark false, alpaca
+ACTIVE, scanner 0 consecutiveFailures) — no LIVENESS ALARM. KNOWN BROKEN
+items #3 (CSP execution cascade) and #4 (bot "doesn't work right",
+equityPeak) remain open per the file but are owner-audit-log-gated
+(unreachable from this session) and already superseded in substance by
+R16's persisted kill-switch/equityPeak fix (v1.0.194) — noted, not
+re-investigated; #10 (dead SCORE_BAND_MAX config) and #12(b/c) (feedback
+dead-code decision gates) are explicitly NOT-YET-DUE per their own filed
+next-steps. None block or preempt product work per this session's charter
+(PRODUCT sessions note KNOWN BROKEN but don't preempt DAILY repair duty).
+Loop-health: last 10 tagged entries before this one were REPAIR:2 /
+RESEARCH:1 / PIPELINE:5 / PRODUCT:2 — under the 7+ REPAIR thrash
+threshold, no meta-problem. Also noted (not actioned, flagged only): PR
+#400 (GRID VISION 9-state expansion, HEAD of main at session start)
+never appended its final commit's own experiments.md entry — a MEMORY
+PROTOCOL miss on top of the one already flagged in the prior REPAIR
+entry; pattern is recurring across sessions and may warrant a
+process fix (e.g. a CI check that a merged PR touched experiments.md)
+— filed as a fresh open_questions.md thought below rather than expanded
+here.
+
+PRIMARY ACTION CHOICE: per this session's PRODUCT charter, surveyed
+console_charter.md (ANALYST CONSOLE program) for the next unbuilt
+W-item. RESUME STATE (last touched 2026-07-07) named "W2 client
+satellite layer, W3 time scrubber, W5 dossier v2" as NEXT. Verified via
+grep that W2's client satellite layer was ALREADY SHIPPED — under the
+separate ORBITAL program (O1-O3, PRs #359/#361/#363/#396), whose own
+charter never got a cross-reference written back into console_charter.md
+(logged as a cross-program note in that file this session). Verified via
+grep that NO time-scrubber (only per-layer GIBS imagery DATE pickers,
+which pick one imagery date, not a position/event archive replay) and NO
+dossier component exist in client/src. Chose **W3 TIME SCRUBBER**: it is
+explicitly named next, needs ZERO new data pipeline (pure archive
+readout — "impossible to fake, uniquely ours" per the charter), and its
+server-side aggregation muscle (LAYER_SOURCES, the position/event archive
+read patterns, the SCALE S1 viewport helper) already exists from W4 —
+this is UI/UX work over already-validated RAW overlay data, no ladder
+gate needed, matching the PRODUCT session's option (b).
+
+WHAT SHIPPED.
+
+Server (server/queryEngine.ts): new `querySnapshot(layer, at, bbox?)` —
+reads exactly ONE archived bucket: an HOUR file for position layers
+(aircraft/vessels/trains — their native write grain) or a DAY file for
+event layers (fires/alerts/gauges — their native write grain), floors
+`at` to that bucket, and returns the points verbatim (position: id/lat/
+lon; events: lat/lon + label/severity/value via the existing
+`eventFromRecord` helper, reused not duplicated). Reuses W4's
+`SUPPORTED_LAYERS`/`LAYER_SOURCES` and `readJsonlDay` (already generic
+over any filename stamp, day or hour — no duplicate file-reading code)
+and SCALE S1's `parseBbox`/`filterByViewport` (server/viewport.ts) for
+optional viewport-bounded serving. Bounded to the same
+`RAW_RETENTION_DAYS` (7d) raw window W4 uses — a request for `at`
+outside that window is a STATED 400 error, never a silent empty result
+(older raw is rolled up to lossy per-entity summaries by
+`rollupOldDays()` and is genuinely not point-replayable). Hard point cap
+(3000) stated in the envelope (`capped: true`) when hit, never silent.
+New route `GET /api/data/snapshot?layer=&at=&bbox=` (server/routes.ts),
+`kind: "raw"` — RAW overlay composition (archive readout only, no
+inference), no ladder gate, same honesty-note convention as `/api/data/
+query`.
+
+Client (client/src/components/TimeScrubber.tsx): fourth top-left map
+control ([data-vt-timescrub], Clock icon, same 44px family stacked
+below fullscreen/globe/analyst at 12/62/112/162px) — lazy chunk like
+AnalystPane, zero-cost-when-off (closed = zero code loaded, zero
+requests). Open panel: layer picker (6 options matching
+SUPPORTED_LAYERS), a slider spanning the server-stated retention window
+(hour resolution, reconciled from the first response rather than
+hardcoding 7*24), a Play/Pause button that steps toward "now" one hour
+per tick (never overlapping an in-flight fetch), and a status line
+(point count, capped/off-screen-dropped flags, provenance) plus an
+explicit "historical replay — not live" note (console charter honesty
+rule: every console pane labels RAW vs replay vs live). Historical
+points paint as their OWN geojson source+layer (`time-scrubber-*`,
+distinct amber circle style) using the exact add/setData/remove pattern
+the existing single-entity trail-line already uses — never touches any
+live layer's source/state, and the historical layer is removed on panel
+close (cleanup effect). Viewport bbox is read from `map.getBounds()` at
+each fetch (current SCALE S1 viewport-bounded pattern) so panning
+naturally re-scopes the replay.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new route is a pure GET
+over existing archive files — no writer changed, no existing endpoint's
+behavior changed, no trading-path code touched; the only new load is
+the panel's own fetches (opt-in, one per open + one per slider commit +
+one per play tick), capped and viewport-bounded, so it cannot outgrow
+`/api/data/query`'s existing traffic profile. `LAYER_SOURCES`/
+`readJsonlDay`/`eventFromRecord` were REUSED, not forked — a future
+change to event-record shape (e.g. a new `alerts` field) now flows to
+both W4 and W3 from one place instead of two copies drifting apart.
+
+TESTS: 18 new `querySnapshot` cases in server/queryEngine.test.ts —
+exact-hour/exact-day bucket isolation (adjacent hours/days must not
+leak in), event records keep lat/lon (W4's own `events[]` shape drops
+it, so this was a real gap to cover, not a copy-paste), bbox
+before/after/dropped counts, absent-bbox unfiltered passthrough, point
+cap enforcement, unknown-layer/invalid-timestamp/out-of-window error
+messages, missing-archive-dir zero-result degrade (never throws), and
+`snapshotWindow()`'s bounds arithmetic. Visual harness
+(scripts/visual_check.mjs): new TIME SCRUBBER battery mirroring the
+existing ANALYST PANE battery's structure (open via its own control,
+wait past the Suspense fallback, SELF-SEE geometry checks, per-control
+hit-test reachability, side-panel-width occlusion check against every
+other map control, screenshot, close-and-reassert-gone) — but with the
+INVERTED honesty assertion: the analyst battery asserts ZERO
+`/api/analyst` POSTs ever fire (a chat pane must never phone home
+unasked); this battery asserts AT LEAST ONE `/api/data/snapshot` GET
+fires (a scrubber that never fetches on open is silently broken, and a
+static-DOM-only battery would never have caught that). New
+`/api/data/snapshot` fixture added to the harness's deterministic
+fixture set. `[data-vt-timescrub]` added to all 4 existing map-control
+occlusion selector lists in the harness (the pre-existing 3 plus the
+new battery's own) — every other panel's occlusion check now also
+verifies the time-scrubber button stays reachable while THAT panel is
+open, matching the existing analyst-button convention.
+
+GATES: `npx tsc --noEmit` 64 errors — identical to the pre-existing
+baseline (confirmed line-for-line via grep; zero new errors in any
+touched file). `npm run test:node` 542/542 pass (524 baseline + 18 new;
+one authoring bug caught by the suite itself — a fixture timestamp sat
+outside the mocked NOW's retention window and correctly 400'd, fixed
+in the test, not the code). `python3 -m pytest -q` 583 passed / 1
+skipped (fresh env — `pip install -r requirements.txt -r
+requirements-dev.txt` needed first; no Python file touched, informational
+baseline only). `npm run build` succeeds; TimeScrubber code-splits into
+its own 4.06kB (gzip 1.87kB) lazy chunk, confirming zero-cost-when-off
+at the bundle level, not just the runtime level. `npm run visual --
+--page data` run at 390/768/1440 (VISUAL VERIFICATION, human-approved
+2026-07-03) — results reviewed before PR open; see PR description for
+the pass/fail summary and any screenshots.
+
+Version 1.0.249 -> 1.0.250 (read-and-incremented at commit time).
+
+SESSION BUDGET: primary action was this single logical W3 feature (own
+PR, own log entry). Falls through: console_charter.md RESUME STATE
+updated with the cross-program W2 note + this W3 entry; a fresh
+open_questions.md entry files the recurring "PR merges without its
+final commit's experiments.md entry" pattern as a process thought
+(no code — a genuine research/process question, not an engineering
+task this session's scope covers) rather than silently absorbing more
+scope. W5 (entity dossier v2) is next in the console charter queue for
+a future PRODUCT session.
+
+Backtest: N/A (no strategy/measurement/parameter change — pure client/
+server product feature over already-archived RAW data, no trading-path
+code touched).
