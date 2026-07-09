@@ -10433,3 +10433,65 @@ no idle-to-cap billing.
 
 Backtest: N/A (offline detector training; no trading path, measurement code, or
 parameter touched).
+
+## 2026-07-09 — [PIPELINE] GRID VISION gate-1 partial verdict: (a) held-out-region FAILS, (d) headroom PASSES (yolov8s champion 0.642) (v1.0.24x, PR #397)
+
+TERRITORY: T-DATACORE. Criteria PRE-STATED in research/grid_vision_gate1.md
+BEFORE these runs (honesty mandate). Three parallel runs, all fell back to
+COMMUNITY spot (RunPod SECURE 500'd on create all night — capacity).
+
+### (a) HELD-OUT-REGION — **FAIL** (the night's pivotal finding)
+Two folds, yolov8n, tiling, `--holdout-region`:
+- train KS → eval unseen AZ desert: **AP50 0.056, recall 0.143, precision 0.097**
+- train AZ → eval unseen KS plains: **AP50 0.059, recall 0.092, precision 0.177**
+Bar was AP50 ≥ 0.30 AND recall ≥ 0.30 on BOTH folds. Both fail hard — ~= v0's
+broken 0.036, far below v1/v2's in-domain 0.55–0.64. **A single-region-trained
+tower detector does NOT transfer to an unseen region.** (Confound: each fold
+trains on ONE region of only 26–48 images, so "too little diversity" and "biome
+gap" are entangled — but the operational conclusion is the same either way.)
+CONSEQUENCE, stated plainly: the in-domain 0.642 is NOT a national number.
+Running the current detector on 48 unseen states would yield ~0.06-class
+detections outside AZ/KS. **The national-rollout bottleneck is TRAINING-DATA
+DIVERSITY (regions/biomes), not model capacity or inference compute.**
+
+### (d) RECALL HEADROOM — **PASS**
+yolov8s, 80 epochs, image-split (same val as v1): **AP50 0.642, recall 0.588,
+precision 0.730** vs v1 (yolov8n) 0.566/0.499. Bar was AP50 ≥ 0.59 AND recall ≥
+0.55 — cleared. Capacity IS a real in-domain lever (+0.076 AP50, +0.089 recall).
+**v2 (yolov8s) is the new image_split champion** (leaderboard regression gate:
+improved +0.076, promoted). yolov8m not run — avoid a variant fish; s cleared the
+bar, and the binding constraint is data diversity, not capacity.
+
+### (b) scene-level, (c) NAIP domain — PENDING
+Pure scene-level eval core built + tested (scripts/gridvision_scene_eval.py:
+stitch + cross-seam NMS + IoU-match + AP). Both (b) and (c) need the on-pod
+inference DRIVER (load .pt, run tiled inference) — next build. Not yet run, not
+claimed.
+
+### Leaderboard / ratchet (Phase 2) — LIVE
+datacore/gridvision/leaderboard.json + scripts/gridvision_leaderboard.py: per
+eval-key champions, regression gate (drop >0.02 fails; jump >0.30 flagged
+"investigate circular eval"). Champions: image_split=v2(0.642),
+holdout:AZ=0.056, holdout:KS=0.059.
+
+### REVISED STRATEGY (logged decision, per the mandate's "decide + log + proceed")
+The (a) FAIL + (d) PASS together say: spend the remaining budget on DATA
+DIVERSITY, not on mass inference with a non-generalizing model. Priority order
+for remaining ~$48 (ledger, conservative): (1) add training REGIONS — Duke-US
+zips (Hartford CT / Clyde NC / Wilmington NC @0.15 m, phase-B-flagged, on-pod
+downloadable) → retrain yolov8s multi-region → re-run held-out to see if
+diversity fixes transfer; (2) NAIP self-bootstrap (OSM-corroborated high-conf
+detections become NAIP-domain labels); (3) Nevada rollout (human directive) —
+proceeds HONESTLY as a bootstrap seed with LOW expected accuracy (desert, closest
+to AZ but desert→desert untested), measured vs OSM, tagged low-confidence, never
+promoted above its measured bar. This reorders — does not abandon — the rollout:
+mapping 48 states with a 0.06-AP model first would be exactly the "faked
+completeness" the mandate forbids.
+
+### COST
+gate-1 runs: g1a-az $0.094, g1a-ks $0.097, g1d-s $0.179 (ledgered at secure
+$0.69/hr but ran COMMUNITY ~$0.34/hr → ledger OVER-states spend ~2× on these;
+conservative, never over-spends). Ledger remaining $49.05; true RunPod balance
+~$0.2 higher. Session GPU total (ledger) ~$0.95 / $50.
+
+Backtest: N/A (offline detector training; no trading/measurement/parameter path).

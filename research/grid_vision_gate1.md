@@ -106,3 +106,16 @@ toggles, freshness chips, perf-harness-gated vector tiles, mobile-flawless 390px
 Stop cleanly when remaining hits the $5 gate floor. Leave: this file's status
 updated, leaderboard.json current, a resume-state block in experiments.md naming
 the exact next run, and a top-up PO in wishlist.md stating what the next $N buys.
+
+---
+
+## STATUS 2026-07-09 (results in, bars unchanged above)
+
+- (a) held-out-region: **FAIL** — fold-AZ 0.056/0.143, fold-KS 0.059/0.092, both
+  < the 0.30/0.30 bar. Single-region training does not transfer. → data-diversity
+  is the rollout bottleneck.
+- (d) recall headroom: **PASS** — yolov8s/80ep 0.642/0.588 ≥ 0.59/0.55. v2 champion.
+- (b) scene-level: PENDING — pure core built+tested; needs on-pod inference driver.
+- (c) NAIP domain: PENDING — needs the same driver + OSM/Overpass tower fetch.
+- Revised spend order (logged in experiments.md): + training regions (Duke-US) →
+  retrain multi-region → NAIP self-bootstrap → Nevada seed (honest low-accuracy).
