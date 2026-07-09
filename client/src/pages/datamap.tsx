@@ -29,6 +29,9 @@ import { mmsiFlag } from "@/lib/mmsiFlag";
 import { SatLayer } from "@/lib/orbital/satLayer";
 import { fetchGp, type GpRecord } from "@/lib/orbital/tle";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
+import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
+import { lonLatToMercator } from "@/lib/orbital/satBuffer";
+import { epochAgeDays } from "@/lib/orbital/propagate";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -86,7 +89,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge" | "alert";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "train" | "fire" | "gauge" | "alert" | "satellite";
   title: string;
   subtitle: string;
   body: string;
@@ -241,6 +244,11 @@ export default function DataMapPage() {
   // enable/disable effect can tear both down cleanly (zero-cost-when-off).
   const satWorkerRef = useRef<Worker | null>(null);
   const satLayerRef = useRef<SatLayer | null>(null);
+  // ORBITAL O3 (click-to-identify): the GP array the worker was initialized
+  // with, kept index-aligned to the layer's position buffer per satWorker.ts's
+  // INDEX ALIGNMENT contract — the picking effect resolves a click to an
+  // index into this same array.
+  const orbitalGpRef = useRef<GpRecord[] | null>(null);
   // Pillar-6 cross-tie cache: generating capacity near each river gauge, keyed
   // by USGS site, populated when the rivergauges layer loads so the gauge-click
   // detail can surface the exposed plants without a network round-trip on click.
@@ -1116,6 +1124,7 @@ export default function DataMapPage() {
         if (layer && map.getLayer(layer.id)) map.removeLayer(layer.id);
       } catch {}
       satLayerRef.current = null;
+      orbitalGpRef.current = null;
     };
 
     if (!enabled["orbital_sats"]) {
@@ -1143,6 +1152,7 @@ export default function DataMapPage() {
         }
         if (signal.aborted) return;
         if (!gp.length) throw new Error("no orbital elements returned");
+        orbitalGpRef.current = gp; // index-aligned to the worker's buffer — picking reads this
         if (satWorkerRef.current) return; // already initialized — don't double-add
 
         const layer = new SatLayer({ id: "orbital_sats" });
@@ -1179,6 +1189,63 @@ export default function DataMapPage() {
 
     return () => { stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
+
+  // ── satellite click-to-identify (ORBITAL O3; research/orbital_program.md's
+  // "O3 picking" recipe). SatLayer is a raw custom WebGL layer with no
+  // MapLibre queryRenderedFeatures hit-testing (see satLayer.ts's PICKING
+  // note), so this is a plain map-wide click listener + CPU nearest-point
+  // search over the layer's own position buffer via pick.ts, gated to a tight
+  // screen-pixel tolerance so it only fires on near-exact clicks and doesn't
+  // steal clicks meant for other (properly feature-scoped) layers. Only
+  // registered while orbital_sats is enabled; a miss (nothing within
+  // tolerance) does nothing — it never clears an unrelated detail card. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !enabled["orbital_sats"]) return;
+
+    const PICK_TOLERANCE_PX = 8;
+    const ORBIT_CLASS_NAME = ["LEO", "MEO", "GEO"];
+
+    const onClick = (e: any) => {
+      const layer = satLayerRef.current;
+      const gp = orbitalGpRef.current;
+      if (!layer || !gp || !gp.length) return;
+      const positions = layer.getPositions();
+      if (!positions) return;
+
+      const clickLL = map.unproject(e.point);
+      const clickMerc = lonLatToMercator(clickLL.lng, clickLL.lat);
+      const tol = pixelToleranceToMercUnits(PICK_TOLERANCE_PX, map.getZoom());
+      const hit = pickNearestSatellite(
+        positions, layer.getStride(), gp, clickMerc.x, clickMerc.y, tol,
+      );
+      if (!hit) return; // honest miss — leave other layers' click handlers alone
+
+      const g = hit.gp;
+      const cls = ORBIT_CLASS_NAME[hit.classCode] ?? "unknown";
+      const altKm = hit.altMeters / 1000;
+      const ageDays = epochAgeDays(g.epoch, Date.now());
+      setDetail({
+        kind: "satellite",
+        title: g.name || `NORAD ${g.noradId}`,
+        subtitle: `${cls} · ${altKm.toFixed(0)} km altitude`,
+        body: [
+          `NORAD catalog ID: ${g.noradId}`,
+          g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
+          g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
+          ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
+          "RAW orbital element, SGP4-propagated from CelesTrak GP data — real position, no predictive claim.",
+        ].filter(Boolean).join("\n"),
+        links: [{
+          label: "CelesTrak catalog entry",
+          href: `https://celestrak.org/satcat/table-satcat.php?NORAD_CAT_ID=${g.noradId}`,
+        }],
+      });
+    };
+
+    map.on("click", onClick);
+    return () => { map.off("click", onClick); };
+  }, [enabled["orbital_sats"], mapReady, setDetail]);
 
   // ── country borders (RAW; Natural Earth 1:110m admin-0, PUBLIC DOMAIN —
   // atlas-parity layer 3. Self-hosted datacore compile served by our own
@@ -3334,7 +3401,7 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a point to identify it</span>
                       </div>
                     </div>
                   )}
