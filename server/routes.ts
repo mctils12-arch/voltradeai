@@ -67,7 +67,7 @@ import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
-import { queryWindowCached } from "./queryEngine";
+import { queryWindowCached, querySnapshot } from "./queryEngine";
 import { analystResponse } from "./analyst";
 import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse } from "./nasaFirms";
 import { firesNearFacilities } from "./firesFacilities";
@@ -1802,6 +1802,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ kind: "raw", ...(await queryWindowCached({ lat, lon, radiusKm, days, layers })) });
     } catch (e: any) {
       res.status(String(e?.message).startsWith("invalid") ? 400 : 500).json({ error: e?.message });
+    }
+  });
+
+  // ANALYST CONSOLE W3: TIME SCRUBBER — one archived hour (position layers) or
+  // day (event layers) bucket, replayed exactly as recorded. Pure archive read
+  // (same LAYER_SOURCES as W4's /api/data/query, zero new data cost) — lets the
+  // client scrub a slider over the raw retention window instead of only ever
+  // seeing live state. RAW overlay composition (archive readout, no inference),
+  // no ladder gate. bbox optional (SCALE S1 viewport pattern); point cap stated
+  // in the envelope, never silent.
+  app.get("/api/data/snapshot", (req, res) => {
+    try {
+      const layer = String(req.query.layer || "");
+      const at = String(req.query.at || "");
+      res.set("Cache-Control", "public, max-age=300");
+      res.json({ kind: "raw", ...querySnapshot(layer, at, req.query.bbox) });
+    } catch (e: any) {
+      const msg = String(e?.message || "snapshot query failed");
+      res.status(msg.startsWith("unknown layer") || msg.startsWith("invalid") || msg.includes("outside the retained") ? 400 : 500)
+        .json({ error: msg });
     }
   });
 

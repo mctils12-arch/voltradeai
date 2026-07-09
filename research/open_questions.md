@@ -716,6 +716,32 @@
   `durability.test.ts` and `manifests.test.ts` pass; full `npm run test:node`
   (517/517) and `python3 -m pytest -q` (558 passed, 1 skipped) green.
 
+- **RECURRING (noticed 2026-07-09, third instance): merged PRs land without
+  their final commit's own experiments.md entry.** The 2026-07-09 REPAIR
+  session flagged 5 merged PRs (#392-#397) that never logged; the same
+  session's own tiles3dBudget entry then also went unlogged by the PR that
+  shipped it (only caught because the NEXT session diffed `git log` against
+  `## ` headings); this session found a THIRD instance — PR #400's final
+  commit ("grid overlay: expand to 9 states") shipped the state-expansion
+  feature but the PR's earlier commits' experiments.md entries (tower-
+  detector v0/v1/gate-1/diversity) were the only ones written — the last,
+  separately-meaningful commit in the same PR added nothing. Pattern: a
+  multi-commit PR's EARLIER commits log correctly (built commit-by-commit
+  with their own reasoning), but the FINAL wrap-up commit — often added
+  late, sometimes by a different subagent — skips the ratchet. Not
+  investigated or fixed this session (process/tooling question, not a code
+  defect in the traditional sense — no test can assert "the next PR must
+  touch this file"). Two directions worth a future session's evaluation:
+  (a) a CI check on `.github/workflows/` that a merged PR touching
+  `datacore/**`, `server/**`, `bot_engine.py`, or `client/src/**` also
+  touched `research/experiments.md` (would need care not to punish trivial
+  PRs — version-bump-only, docs-only); (b) a pre-merge session checklist
+  item ("does my LAST commit's change have its own paragraph, not just my
+  first"). Filing here rather than building (a) or (b) blind — a CI-workflow
+  change is itself constitutionally sensitive territory (`.github/
+  workflows/` is a FROZEN PATH) and deserves its own wishlist proposal with
+  the exact before/after, not a same-session drive-by.
+
 ## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
 
 All EDGE-DOCTRINE data pipelines live in datacore/ with no imports from or
