@@ -1380,57 +1380,69 @@ export default function DataMapPage() {
     const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle"].includes(l.type));
     const add = (def: any) => { if (!map.getLayer(def.id)) map.addLayer(def, firstMarker?.id); };
 
+    // add the 6 voltage/element sublayers for one grid source (national or a state)
+    const addGrid = (src: string, file: string) => {
+      if (!map.getSource(src)) {
+        map.addSource(src, {
+          type: "vector",
+          url: `pmtiles://${window.location.origin}/tiles/${file}`,
+          attribution: "© OpenStreetMap contributors, ODbL",
+        } as any);
+      }
+      add({ id: `${src}-substation`, type: "fill", source: src, "source-layer": "power",
+            minzoom: 9, filter: ["==", ["get", "power"], "substation"],
+            paint: { "fill-color": "rgba(250,204,21,0.14)", "fill-outline-color": "rgba(250,204,21,0.6)" } });
+      add({ id: `${src}-plant`, type: "fill", source: src, "source-layer": "power",
+            minzoom: 9, filter: ["==", ["get", "power"], "plant"],
+            paint: { "fill-color": "rgba(74,222,128,0.10)", "fill-outline-color": "rgba(74,222,128,0.5)" } });
+      add({ id: `${src}-unknown`, type: "line", source: src, "source-layer": "power",
+            minzoom: 8, filter: ["all", isLine, ["<", V, 0]],
+            paint: { "line-color": "rgba(216,180,254,0.55)", "line-width": 0.9, "line-dasharray": [2, 2] } });
+      add({ id: `${src}-low`, type: "line", source: src, "source-layer": "power",
+            minzoom: 11, filter: ["all", isLine, [">=", V, 0], ["<", V, 100000]],
+            paint: { "line-color": "rgba(148,163,184,0.55)", "line-width": 0.8 } });
+      add({ id: `${src}-mv`, type: "line", source: src, "source-layer": "power",
+            minzoom: 6, filter: ["all", isLine, [">=", V, 100000], ["<", V, 230000]],
+            paint: { "line-color": "rgba(56,189,248,0.75)",
+                     "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 12, 2] } });
+      add({ id: `${src}-hv`, type: "line", source: src, "source-layer": "power",
+            filter: ["all", isLine, [">=", V, 230000]],
+            paint: { "line-color": "rgba(250,204,21,0.9)",
+                     "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 12, 3] } });
+    };
+    const removeGrid = (src: string) => {
+      try {
+        [`${src}-hv`, `${src}-mv`, `${src}-low`, `${src}-unknown`, `${src}-substation`, `${src}-plant`]
+          .forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+        if (map.getSource(src)) map.removeSource(src);
+      } catch {}
+    };
+
+    // "US Power Grid (all states)" master -> ONE efficient national tile (not 51
+    // simultaneous state sources). Whole US grid in a single range-served file.
+    if (enabled.powergrid) {
+      try {
+        setStatus("powergrid", "loading");
+        addGrid("powergrid_us", "power_us.pmtiles");
+        setStatus("powergrid", "active", undefined,
+          "Entire US grid — all 50 states + DC (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); overview fidelity");
+      } catch { setStatus("powergrid", "error"); }
+    } else {
+      removeGrid("powergrid_us");
+      setStatus("powergrid", "off");
+    }
+
+    // individual per-state layers (each its own toggle, independent of the master)
     POWER_STATES.forEach((st) => {
       const src = `powergrid_${st.code}`;
-      const IDS = [`${src}-hv`, `${src}-mv`, `${src}-low`, `${src}-unknown`, `${src}-substation`, `${src}-plant`];
-      // a state renders if its own toggle is on OR the master "all states" toggle is on
-      const on = !!enabled.powergrid || !!enabled[src];
-      if (!on) {
-        try {
-          IDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-          if (map.getSource(src)) map.removeSource(src);
-        } catch {}
-        setStatus(src, "off");
-        return;
-      }
+      if (!enabled[src]) { removeGrid(src); setStatus(src, "off"); return; }
       try {
         setStatus(src, "loading");
-        if (!map.getSource(src)) {
-          map.addSource(src, {
-            type: "vector",
-            url: `pmtiles://${window.location.origin}/tiles/${st.file}`,
-            attribution: "© OpenStreetMap contributors, ODbL",
-          } as any);
-        }
-        add({ id: `${src}-substation`, type: "fill", source: src, "source-layer": "power",
-              minzoom: 9, filter: ["==", ["get", "power"], "substation"],
-              paint: { "fill-color": "rgba(250,204,21,0.14)", "fill-outline-color": "rgba(250,204,21,0.6)" } });
-        add({ id: `${src}-plant`, type: "fill", source: src, "source-layer": "power",
-              minzoom: 9, filter: ["==", ["get", "power"], "plant"],
-              paint: { "fill-color": "rgba(74,222,128,0.10)", "fill-outline-color": "rgba(74,222,128,0.5)" } });
-        add({ id: `${src}-unknown`, type: "line", source: src, "source-layer": "power",
-              minzoom: 8, filter: ["all", isLine, ["<", V, 0]],
-              paint: { "line-color": "rgba(216,180,254,0.55)", "line-width": 0.9, "line-dasharray": [2, 2] } });
-        add({ id: `${src}-low`, type: "line", source: src, "source-layer": "power",
-              minzoom: 11, filter: ["all", isLine, [">=", V, 0], ["<", V, 100000]],
-              paint: { "line-color": "rgba(148,163,184,0.55)", "line-width": 0.8 } });
-        add({ id: `${src}-mv`, type: "line", source: src, "source-layer": "power",
-              minzoom: 6, filter: ["all", isLine, [">=", V, 100000], ["<", V, 230000]],
-              paint: { "line-color": "rgba(56,189,248,0.75)",
-                       "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 12, 2] } });
-        add({ id: `${src}-hv`, type: "line", source: src, "source-layer": "power",
-              filter: ["all", isLine, [">=", V, 230000]],
-              paint: { "line-color": "rgba(250,204,21,0.9)",
-                       "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 12, 3] } });
+        addGrid(src, st.file);
         setStatus(src, "active", undefined,
           `${st.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); no CEII/underground detail`);
-      } catch {
-        setStatus(src, "error");
-      }
+      } catch { setStatus(src, "error"); }
     });
-    // master reflects the aggregate (on when any state is shown via the master)
-    setStatus("powergrid", enabled.powergrid ? "active" : "off", undefined,
-      enabled.powergrid ? `All mapped states (${POWER_STATES.length}) — OSM grid, ODbL` : undefined);
     // scales to N states: re-run when the master OR any per-state grid flag flips
     // (derived key below), so adding a state needs no new dependency wiring.
   }, [powerGridKey, mapReady, setStatus]);
