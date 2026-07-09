@@ -251,6 +251,17 @@
    "field": true
   },
   {
+   "id": "floods",
+   "name": "Flood / water extent (MODIS, GIBS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NASA GIBS/ESDIS — MODIS Terra+Aqua 3-day combined flood composite, public domain",
+   "description": "Rolling 3-day surface-water/flood extent composite from MODIS Terra+Aqua, dated (default: yesterday; step back via the on-panel scrubber). Shows all standing water — normal rivers, lakes, and reservoirs as well as flood anomalies — this is the honest reading of a water-extent composite, not a defect. As-is display, no predictive claim: flooding over industrial parks/ports/farmland as an exposure signal for insurers, auto/semiconductor plants, and acreage loss is an open gate-2 hypothesis (research/open_questions.md), not yet a signal. Cloud cover can leave gaps.",
+   "field": true
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",

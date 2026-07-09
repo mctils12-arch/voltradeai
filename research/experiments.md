@@ -10358,3 +10358,102 @@ before any pytest/test:node read is trustworthy.
 
 Backtest: N/A (no strategy/measurement/parameter change — pure ops/test-
 infra fix, no trading-path code touched).
+
+## 2026-07-09 — [PRODUCT] G2f: MODIS flood/water-extent GIBS layer (v1.0.237)
+
+TERRITORY: T-CLIENT (`client/src/pages/datamap.tsx`, `datacore/layers.json`,
+`scripts/visual_check.mjs` — SHARED, minimal edits per merge-order protocol).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md, open_questions.md
+KNOWN BROKEN (items 1/2/5/6/7/8/9/11/13/14 RESOLVED; #3/#4 need owner-gated
+audit-log access this session doesn't have; #10 gated on >=90d shadow
+history; #12 gated follow-ups (b)/(c) — nothing newly actionable). `/api/health`
+clean: status ok, drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner
+0 consecutiveFailures — no LIVENESS ALARM. Loop-health: last 10 tagged entries
+were 4 [REPAIR] / 6 [PRODUCT]+[PIPELINE] — under the 7+ thrash threshold, no
+meta-problem. Checked open PRs first (2026-07-08's lesson): only #77, a
+long-stale (2026-04-20) human-authored draft PR unrelated to any active
+territory — left alone, not this session's work to close.
+
+PRIMARY ACTION: worldview_globe.md's roadmap named G2b (fires,
+`GOES-East_ABI_FireTemp`) as NEXT. Verified live against GIBS
+GetCapabilities before building (not trusted from the roadmap text) and
+found two problems that changed the plan: (1) this layer's Time dimension
+carries IRREGULAR per-scan ISO8601 timestamps, not plain daily — the
+existing `gibs.ts` factory only handles `YYYY-MM-DD` cadence, so it needs
+the same "sub-daily scan-time picker" work already flagged as STILL OPEN for
+TEMPO NO2/SO2, not a drop-in; (2) the layer id `fires` is already taken by
+the shipped NASA FIRMS/LANCE point-detection layer — a different data
+source that would need to coexist, not be replaced. Logged both findings in
+worldview_globe.md's G2b entry and deferred it. Fell through to G2f
+(floods) instead — the next roadmap item, and a clean drop-in fit for the
+existing daily-raster factory.
+
+- VERIFIED LIVE (2026-07-09, GetCapabilities + real tile fetches, not
+  trusted from the roadmap's brief mention): `MODIS_Combined_Flood_3-Day`
+  is PNG, `GoogleMapsCompatible_Level9`, daily P1D. Its own GIBS `Default`
+  is actually TODAY (rolling 3-day composite, unlike the other daily
+  layers which default T-1/T-2) — but the shared `gibs.ts` factory floors
+  `latencyDays` at 1, so I separately fetched "yesterday" tiles across 6
+  sample points on 3 continents (installed Pillow to pixel-check): 61-82%
+  non-transparent, real data, confirming the standard "yesterday" default
+  is safe here too, not a guaranteed-blank tile. `OPERA_L3_Dynamic_Surface_
+  Water_Extent-HLS` (Level12, ~3-day lag, higher-res) checked and left as a
+  still-open future variant.
+- WHAT: `client/src/pages/datamap.tsx` — new `floods` layer mirroring the
+  G2c/d/e/g pattern exactly (own `floodsDate` scrubber state via
+  `gibsDefaultDate`/`gibsStepDate`/`gibsIsLatestAvailable`, `FIELD_MAP_LAYER`
+  opacity-slider wiring, `LAYER_GROUP` entry — required by the R15
+  layersWiring ratchet or the layer ships permanently un-enableable — icon
+  (`Waves`, new lucide import), scrubber UI block, legend chip/note). No
+  changes to `gibs.ts` needed — the generic factory already covers this
+  cadence. `datacore/layers.json` + `scripts/visual_check.mjs` FIXTURES both
+  updated (the R15 FIXTURES-sync requirement).
+- HONESTY: layer description + status note state plainly that the field
+  shows ALL standing water (normal rivers/lakes/reservoirs), not only flood
+  anomalies — the correct reading of a "water extent" composite, not a
+  defect; any future gate-2 signal must diff against a normal-water
+  baseline, never read raw coverage as "flooding."
+- HYPOTHESIS FILED (Pillar 6, open_questions.md): flood extent over a named
+  industrial/port/farmland cluster as an exposure signal. PRIOR discounted
+  going in (REASONING STANDARD #4/#5) — flood risk is already one of the
+  most heavily modeled perils in P&C/cat-bond pricing, so this is the
+  WEAKEST-prior G2 hypothesis shipped so far; the plausible residual is
+  nowcasting an active event against a specific small-cap facility ahead of
+  a disclosure, not predicting flood risk itself. Gate-2 shares the
+  raster-sampling infrastructure the NO2/AOD hypotheses also need (same
+  facility-coordinate join) — worth building once, not three times.
+- GATES: `npm run check` (tsc) 64 errors, unchanged baseline (one
+  pre-existing unrelated error touches a line near this PR's legend code,
+  confirmed pre-existing via git blame context, not introduced). `npm run
+  test:node` 517/517 pass (includes the R15 layersWiring ratchet and the
+  toggle-consistency battery exercising the new `floods` switch — 0
+  desyncs). `npx tsx --test client/src/lib/*.test.ts client/src/lib/orbital/
+  *.test.ts` 88/88 pass (gibs.ts factory tests already generic, no new test
+  needed for a standard-cadence layer). `npm run build` clean. `npm run
+  visual -- --page data` at 390/768/1440 — 0 hard failures; pre-existing
+  touch-target warnings unchanged; `legendParity` reported ok at all three
+  widths. `python3 -m pytest -q` 558 passed / 1 skipped (fresh env required
+  `pip install` first — no Python file touched, informational baseline
+  only). Version 1.0.236 -> 1.0.237 (read-and-increment at commit time,
+  re-fetched origin/main immediately before — no advance since session
+  start).
+- VERIFICATION NOTE (honest scope statement): confirmation that the
+  `floods` switch/scrubber/legend render and toggle correctly comes from
+  the harness's automated FIXTURES + toggle-consistency battery (0
+  failures) plus the live GIBS access/pixel verification above — I did not
+  additionally drive a manual toggle-on screenshot of the live map tile
+  (the harness's internal mock server doesn't proxy real GIBS tiles, and
+  standing up a separate live-backed preview was out of scope for this
+  session); this matches the verification depth G2c/d/e/g shipped at.
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): new client-only raster layer,
+  off by default -> zero cost when off (no fetch, no source) -> when
+  toggled on, one additional raster tile source shares the existing
+  opacity-slider/scrubber/legend machinery -> no server code, no archive,
+  no trading-path code touched at all.
+- SESSION BUDGET: primary action complete; falls through with capacity
+  spent on session-start checks + live-verification + gates rather than a
+  second logical change (one PR per logical change).
+
+Backtest: N/A (no strategy/measurement/parameter change — client-only
+display layer, no trading-path code touched).

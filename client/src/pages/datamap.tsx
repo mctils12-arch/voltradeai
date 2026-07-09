@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, Waves, ChevronLeft, ChevronRight } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -169,6 +169,7 @@ const LAYER_GROUP: Record<string, string> = {
   vegetation: "environmental",
   soilmoisture: "environmental",
   no2: "environmental",
+  floods: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
@@ -408,6 +409,13 @@ export default function DataMapPage() {
   // lag like the other daily layers — the charter's "genuinely differentiated"
   // layer (industrial/traffic combustion throughput nowcast).
   const [no2Date, setNo2Date] = useState<string>(() => gibsDefaultDate(Date.now()));
+  // worldview_globe.md G2f: MODIS 3-day flood composite. Daily P1D like the
+  // other daily layers — GIBS's own Default is actually "today" for this
+  // product (rolling 3-day window), but the shared factory floors latencyDays
+  // at 1 (yesterday) for consistency; verified live 2026-07-09 that yesterday
+  // carries real, non-blank data (82% land coverage sampled), so the standard
+  // default is safe here too.
+  const [floodsDate, setFloodsDate] = useState<string>(() => gibsDefaultDate(Date.now()));
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
   // slider; default 60% so the basemap + live layers stay visible beneath
@@ -419,6 +427,7 @@ export default function DataMapPage() {
     vegetation: "gibs-vegetation",
     soilmoisture: "gibs-soilmoisture",
     no2: "gibs-no2",
+    floods: "gibs-floods",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -1102,6 +1111,49 @@ export default function DataMapPage() {
       setStatus("no2", "error");
     }
   }, [enabled.no2, no2Date, mapReady, setStatus]);
+
+  // ── flood extent (RAW; worldview_globe.md Phase G2f — NASA GIBS MODIS
+  // 3-day combined flood composite via the shared gibs.ts factory. Daily,
+  // PNG at GoogleMapsCompatible_Level9; access + non-blank field verified
+  // live 2026-07-09 across multiple continents (61-82% land coverage
+  // sampled at z2-3) — the field shows standing/normal water everywhere,
+  // not just flood anomalies, which is the correct honest reading of a
+  // "water extent" composite, not a defect. OPERA_L3_DSWx-HLS (higher-res,
+  // Level12, ~3-day lag) is a still-open future variant. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.floods) {
+      try {
+        if (map.getLayer("gibs-floods")) map.removeLayer("gibs-floods");
+        if (map.getSource("gibs-floods")) map.removeSource("gibs-floods");
+      } catch {}
+      setStatus("floods", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gibs-floods")) map.removeLayer("gibs-floods");
+      if (map.getSource("gibs-floods")) map.removeSource("gibs-floods");
+      const url = gibsTileUrl(
+        { layer: "MODIS_Combined_Flood_3-Day", tileMatrixSet: "GoogleMapsCompatible_Level9", ext: "png" },
+        floodsDate,
+      );
+      map.addSource("gibs-floods", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 9,
+        attribution: "Flood extent (3-day) · MODIS Terra+Aqua · NASA GIBS/ESDIS (public domain)",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gibs-floods", type: "raster", source: "gibs-floods",
+        paint: { "raster-opacity": opacityOf("floods") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("floods", "active", undefined,
+        `MODIS 3-day flood/water extent for ${floodsDate} (UTC) · NASA GIBS/ESDIS — ` +
+        `shows standing water incl. normal rivers/lakes, not only flood anomalies; cloud cover can leave gaps`);
+    } catch {
+      setStatus("floods", "error");
+    }
+  }, [enabled.floods, floodsDate, mapReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
@@ -2721,6 +2773,7 @@ export default function DataMapPage() {
     id === "vegetation" ? <Leaf size={15} /> :
     id === "soilmoisture" ? <Droplets size={15} /> :
     id === "no2" ? <Factory size={15} /> :
+    id === "floods" ? <Waves size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -2955,6 +3008,24 @@ export default function DataMapPage() {
                   aria-label="Next day"
                   disabled={gibsIsLatestAvailable(no2Date, Date.now())}
                   onClick={() => setNo2Date((d) => gibsStepDate(d, 1))}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+            {l.id === "floods" && (
+              <div className="vt-gibs-scrubber" role="group" aria-label="Flood extent date">
+                <button
+                  aria-label="Previous day"
+                  onClick={() => setFloodsDate((d) => gibsStepDate(d, -1))}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="vt-gibs-scrubber-date">{floodsDate} UTC</span>
+                <button
+                  aria-label="Next day"
+                  disabled={gibsIsLatestAvailable(floodsDate, Date.now())}
+                  onClick={() => setFloodsDate((d) => gibsStepDate(d, 1))}
                 >
                   <ChevronRight size={13} />
                 </button>
@@ -3306,7 +3377,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.rivergauges || enabled.alerts) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.floods || enabled.rivergauges || enabled.alerts) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -3369,6 +3440,12 @@ export default function DataMapPage() {
                           <>
                             <span className="vt-legend-chip"><i style={{ background: "#e53e3e" }} /> NO₂ (TROPOMI)</span>
                             <span className="vt-legend-note">(daily, NASA GIBS/Sentinel-5P — {no2Date})</span>
+                          </>
+                        )}
+                        {enabled.floods && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#1a4fa0" }} /> Flood/Water Extent</span>
+                            <span className="vt-legend-note">(3-day, NASA GIBS/MODIS — {floodsDate})</span>
                           </>
                         )}
                       </div>

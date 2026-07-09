@@ -114,6 +114,19 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
   `*_Thermal_Anomalies_*_All` layers are MVT VECTOR (use a vector source or the
   GOES raster). Hypothesis: fires within N km of insured/industrial/utility
   assets → P&C insurers, wildfire-liability utilities, timber REITs.
+  **SCOPE FINDING (verified live 2026-07-09, GetCapabilities): this layer's
+  Time dimension carries IRREGULAR per-scan ISO8601 timestamps (~10-min
+  cadence but non-uniform gaps, same shape as the TEMPO NO2 layer flagged
+  above as "STILL OPEN — needs a scan-time picker, not a day scrubber") — the
+  existing `gibs.ts` factory (`gibsDefaultDate`/`gibsStepDate`) only handles
+  plain daily `YYYY-MM-DD` cadence, so this is NOT a drop-in use of the
+  factory like G2c-g were. It is also a DIFFERENT data source than the
+  already-shipped point-based `fires` layer (NASA FIRMS/LANCE VIIRS hotspot
+  detections, live since before this charter) — the two would coexist, not
+  replace each other, and the `fires` id is already taken by FIRMS. Deferred
+  in favor of G2f (below), which is a clean drop-in fit for the existing
+  factory; G2b remains queued for whenever the sub-daily/scan-time factory
+  work (also needed by TEMPO NO2 and SO₂) gets built.
 - [SHIPPED v1.0.228] G2c Aerosol optical depth `MODIS_Combined_Value_Added_AOD`
   (PNG, `GoogleMapsCompatible_Level6`, daily — access + TileMatrixSet re-verified
   LIVE against GetCapabilities 2026-07-08, a real yesterday tile pixel-checked
@@ -152,9 +165,23 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
   planting-calendar baseline). Still-open: `MODIS_Terra_L3_NDVI_16Day` variant
   and disturbance `OPERA_L3_DIST-ALERT-HLS_Color_Index` (palm/pulp/miner
   concessions) as future adds.
-- G2f Floods `OPERA_L3_Dynamic_Surface_Water_Extent-HLS`, `MODIS_Combined_Flood_3-Day`.
-  Hypothesis: flood over industrial parks/ports/farmland → insurers, auto/semi
-  plants, acreage loss.
+- [SHIPPED v1.0.237] G2f Floods `MODIS_Combined_Flood_3-Day` (PNG,
+  `GoogleMapsCompatible_Level9`, daily P1D — access re-verified LIVE
+  2026-07-09 against GetCapabilities; GIBS's own `Default` for this layer is
+  actually TODAY, not T-1 like the other daily layers, since it's a rolling
+  3-day composite, but the shared `gibs.ts` factory floors `latencyDays` at 1
+  for consistency — verified separately that yesterday also carries real
+  non-blank data, 61-82% land coverage sampled across 6 tiles on 3
+  continents, so the standard "yesterday" default is safe here too).
+  Registry `floods` (RAW, field:true, environmental); same dated-scrubber
+  mirror as G2c/d/e/g (Waves icon). HONESTY NOTE stated in-layer: the field
+  shows ALL standing water (normal rivers/lakes/reservoirs), not only flood
+  anomalies — the correct honest reading of a "water extent" composite, not
+  a defect; any future signal must diff against a normal-water baseline, not
+  read raw coverage. Hypothesis (Pillar 6, weak prior — flood risk is already
+  heavily modeled by P&C/cat-bond pricing) filed in open_questions.md.
+  `OPERA_L3_Dynamic_Surface_Water_Extent-HLS` (Level12, ~3-day lag, higher
+  spatial resolution) remains a still-open future variant.
 - [SHIPPED v1.0.231] G2g NO2 throughput `TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column`
   (PNG, `GoogleMapsCompatible_Level6`, DAILY — access + continuous non-blank field
   verified live 2026-07-08: yesterday tile 100% over N.America; ocean legitimately
@@ -240,3 +267,13 @@ version = read-and-increment at commit time; rebase on collision.
 - 2026-07-08: G2a (GIBS factory + time-scrubber + night-lights layer) SHIPPED
   v1.0.224. NEXT: G2b fires (GOES-East_ABI_FireTemp), or G0c deep-zoom policy —
   either fits; pick per the next session's own judgment.
+- 2026-07-09: G2c/d/e/g (aerosol/soil-moisture/vegetation/NO2) SHIPPED
+  v1.0.228-231 by prior sessions (see experiments.md). This session picked
+  up G2b next per the roadmap but found (live GetCapabilities check) it
+  needs a sub-daily scan-time picker the factory doesn't have yet, and
+  overlaps the id of the already-shipped FIRMS `fires` layer — deferred,
+  finding logged above. Shipped G2f (MODIS 3-day flood/water extent) instead
+  — clean drop-in fit for the existing factory, v1.0.237. NEXT: G2b (once the
+  sub-daily factory work is built — also unblocks TEMPO NO2/SO2), G2h static
+  layers (sea ice/snow/chlorophyll/biomass, no scrubber needed), or O-series
+  orbital work (orbital_program.md).
