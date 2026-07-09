@@ -175,6 +175,8 @@ const LAYER_GROUP: Record<string, string> = {
   graph: "graph",
   powergrid: "facilities",
   powergrid_tx: "facilities", powergrid_az: "facilities", powergrid_nv: "facilities",
+  powergrid_ca: "facilities", powergrid_co: "facilities", powergrid_nm: "facilities",
+  powergrid_ut: "facilities", powergrid_or: "facilities", powergrid_wa: "facilities",
   orbital_sats: "live",
 };
 
@@ -188,6 +190,12 @@ const POWER_STATES = [
   { code: "tx", name: "Texas", file: "power_tx.pmtiles" },
   { code: "az", name: "Arizona", file: "power_az.pmtiles" },
   { code: "nv", name: "Nevada", file: "power_nv.pmtiles" },
+  { code: "ca", name: "California", file: "power_ca.pmtiles" },
+  { code: "co", name: "Colorado", file: "power_co.pmtiles" },
+  { code: "nm", name: "New Mexico", file: "power_nm.pmtiles" },
+  { code: "ut", name: "Utah", file: "power_ut.pmtiles" },
+  { code: "or", name: "Oregon", file: "power_or.pmtiles" },
+  { code: "wa", name: "Washington", file: "power_wa.pmtiles" },
 ] as const;
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
@@ -1310,6 +1318,10 @@ export default function DataMapPage() {
   // missing or unparseable (multi-value "138000;69000") render as a
   // distinct dashed class — never hidden. Zoom gates per the grid build
   // order keep low-zoom vertex counts phone-safe.) ──
+  // stable key over the master + every per-state grid flag, so the effect below
+  // re-runs on any grid toggle without hardcoding one dependency per state.
+  const powerGridKey = (enabled.powergrid ? "M" : "") +
+    POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1369,8 +1381,10 @@ export default function DataMapPage() {
     });
     // master reflects the aggregate (on when any state is shown via the master)
     setStatus("powergrid", enabled.powergrid ? "active" : "off", undefined,
-      enabled.powergrid ? `All mapped states (${POWER_STATES.map((s) => s.name).join(", ")}) — OSM grid, ODbL` : undefined);
-  }, [enabled.powergrid, enabled.powergrid_tx, enabled.powergrid_az, enabled.powergrid_nv, mapReady, setStatus]);
+      enabled.powergrid ? `All mapped states (${POWER_STATES.length}) — OSM grid, ODbL` : undefined);
+    // scales to N states: re-run when the master OR any per-state grid flag flips
+    // (derived key below), so adding a state needs no new dependency wiring.
+  }, [powerGridKey, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in

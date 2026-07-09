@@ -159,6 +159,72 @@
       "field": false
     },
     {
+      "id": "powergrid_ca",
+      "name": "Grid — California",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — compiled to vector tiles by scripts/build_power_tiles.sh",
+      "description": "California power grid from OSM: transmission/minor lines, substations and plant footprints, voltage-classed (untagged = dashed 'unknown', never hidden). One state of the national GRID VISION rollout. osm-verified provenance.",
+      "field": false
+    },
+    {
+      "id": "powergrid_co",
+      "name": "Grid — Colorado",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — compiled to vector tiles by scripts/build_power_tiles.sh",
+      "description": "Colorado power grid from OSM: transmission/minor lines, substations and plant footprints, voltage-classed (untagged = dashed 'unknown', never hidden). One state of the national GRID VISION rollout. osm-verified provenance.",
+      "field": false
+    },
+    {
+      "id": "powergrid_nm",
+      "name": "Grid — New Mexico",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — compiled to vector tiles by scripts/build_power_tiles.sh",
+      "description": "New Mexico power grid from OSM: transmission/minor lines, substations and plant footprints, voltage-classed (untagged = dashed 'unknown', never hidden). One state of the national GRID VISION rollout. osm-verified provenance.",
+      "field": false
+    },
+    {
+      "id": "powergrid_ut",
+      "name": "Grid — Utah",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — compiled to vector tiles by scripts/build_power_tiles.sh",
+      "description": "Utah power grid from OSM: transmission/minor lines, substations and plant footprints, voltage-classed (untagged = dashed 'unknown', never hidden). One state of the national GRID VISION rollout. osm-verified provenance.",
+      "field": false
+    },
+    {
+      "id": "powergrid_or",
+      "name": "Grid — Oregon",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — compiled to vector tiles by scripts/build_power_tiles.sh",
+      "description": "Oregon power grid from OSM: transmission/minor lines, substations and plant footprints, voltage-classed (untagged = dashed 'unknown', never hidden). One state of the national GRID VISION rollout. osm-verified provenance.",
+      "field": false
+    },
+    {
+      "id": "powergrid_wa",
+      "name": "Grid — Washington",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — compiled to vector tiles by scripts/build_power_tiles.sh",
+      "description": "Washington power grid from OSM: transmission/minor lines, substations and plant footprints, voltage-classed (untagged = dashed 'unknown', never hidden). One state of the national GRID VISION rollout. osm-verified provenance.",
+      "field": false
+    },
+    {
       "id": "insider",
       "name": "Insider transactions (Form 4)",
       "kind": "raw",
