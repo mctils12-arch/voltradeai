@@ -199,5 +199,14 @@
     "metrics": {},
     "timestamp_utc": "2026-07-09T06:40:00Z",
     "notes": "train AZ+5NZ+3 Duke US -> eval KS. FAILED (train_rc=1): Duke 6GB zip download truncated -> BadZipFile. NOT a parser issue (schema verified compatible). Fixed: streaming download + skip-corrupt-member hardening. Retry pending. Cost $0.33."
+  },
+  {
+    "version": "div3-ks-FAILED",
+    "job": "gv-div3-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {},
+    "timestamp_utc": "2026-07-09T13:31:00Z",
+    "notes": "train AZ+5NZ+3 Duke US -> eval KS. FAILED: hit 2h cap without pushing. Duke full-res zips (11GB, huge orthos) too heavy to download+tile+train in one pod. Streaming-download fix worked (no crash) but time ran out. Cost $1.38. Diversity finding (0.20 @6 regions) stands; 'cross 0.30 with real US regions' still UNPROVEN — operational, not approach. Next: pre-downsample Duke orthos OFFLINE to 0.6m compact chips, then train."
   }
 ]
