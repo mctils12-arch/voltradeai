@@ -29,7 +29,8 @@ import { complianceAuditTick, setComplianceAuditWriter } from "./providerComplia
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
-import { buildGraph, neighborhood, resolveEntityId } from "./entityGraph";
+import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
+import { buildDossier } from "./dossier";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
   amplifyWeatherTile, TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
@@ -2658,30 +2659,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Everything Graph v1 (datacore/EVERYTHING_GRAPH.md, build step 2) — joins
   // Form 4 insiders, the entity_map operator->ticker table, and our own
   // port-dwell/AIS archive into one node/edge graph. RAW (asserts filed
-  // relationships with provenance; no predictive claim). Same eager-poller
-  // shape as portdwell/shadowstats above — the graph rebuild reads a 168h
-  // AIS fold, so it must never run synchronously per-request (the exact
-  // event-loop/OOM class those two routes were fixed for).
-  let graphCache: { at: number; data: any } | null = null;
-  let graphRunning = false;
-  const refreshGraph = async () => {
-    if (graphRunning) return;
-    graphRunning = true;
-    try {
-      graphCache = { at: Date.now(), data: await buildGraph() };
-    } catch (e: any) {
-      console.error("[datacore] entityGraph refresh:", e?.message || e);
-    } finally {
-      graphRunning = false;
-    }
-  };
-  refreshGraph();
-  setInterval(() => { refreshGraph(); }, 15 * 60_000).unref?.();
+  // relationships with provenance; no predictive claim). Eager-poller shape
+  // (same as portdwell/shadowstats) lives in entityGraph.ts's
+  // bootGraphPoll/cachedGraphSync now — the graph rebuild reads a 168h AIS
+  // fold, so it must never run synchronously per-request (the exact
+  // event-loop/OOM class those two routes were fixed for), and W5's
+  // /api/data/dossier below shares this SAME cache rather than triggering
+  // its own independent rebuild.
+  bootGraphPoll();
   app.get("/api/data/graph", (req, res) => {
-    if (!graphCache) {
+    const graph = cachedGraphSync();
+    if (!graph) {
       return res.json({ kind: "raw", warming_up: true, note: "first graph build in progress — retry shortly" });
     }
-    const graph = graphCache.data;
     res.set("Cache-Control", "public, max-age=300");
     const entity = typeof req.query.entity === "string" ? req.query.entity : null;
     if (!entity) {
@@ -2694,6 +2684,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!id) return res.status(404).json({ kind: "raw", error: `entity not found: ${entity}` });
     const hops = Math.max(0, Math.min(3, parseInt(String(req.query.hops ?? "1"), 10) || 1));
     res.json({ kind: "raw", built_at: graph.built_at, entity: id, hops, caveat: graph.caveat, ...neighborhood(graph, id, hops) });
+  });
+
+  // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
+  // — "click anything -> one panel": identity + cross-layer graph
+  // neighborhood + related USAspending contracts (ticker-matched, the one
+  // NEW join this route adds — see server/dossier.ts) + nearest strategic
+  // sites, in one call. Pass ?entity=<ticker|MMSI|CIK|facility id> for a
+  // graph-resolvable entity, and/or ?lat=&lon= for point-anchored
+  // "nearest sites" (the only signal available for entity kinds the graph
+  // doesn't model yet — aircraft, fires, gauges, alerts, trains). Neither
+  // is required alone but at least one should be passed for a non-empty
+  // result; an unresolvable entity or missing coordinates degrades
+  // honestly (empty sections), never a 500. Same warming_up honesty as
+  // /api/data/graph while the first graph build is still in flight.
+  app.get("/api/data/dossier", (req, res) => {
+    const entity = typeof req.query.entity === "string" ? req.query.entity : null;
+    const lat = req.query.lat != null ? Number(req.query.lat) : null;
+    const lon = req.query.lon != null ? Number(req.query.lon) : null;
+    const hopsRaw = req.query.hops != null ? parseInt(String(req.query.hops), 10) : undefined;
+    const graph = cachedGraphSync();
+    res.set("Cache-Control", "public, max-age=300");
+    const result = buildDossier(graph, {
+      entity,
+      lat: lat != null && Number.isFinite(lat) ? lat : null,
+      lon: lon != null && Number.isFinite(lon) ? lon : null,
+      hops: hopsRaw,
+    }, { contracts: latestContracts()?.txns ?? null });
+    res.json(graph ? result : { ...result, warming_up: true, note: "first graph build in progress — nearest_sites still available, graph/contracts pending" });
   });
 
   // ── OpenWeatherMap global weather fields (Tier-1(b) global half) ─────────
