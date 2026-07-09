@@ -11018,3 +11018,197 @@ verification happens on Railway redeploy.
 
 BACKTEST: N/A — pure /data product surface (raw overlays), zero trading,
 sizing, or execution code touched. No strategy attribution affected.
+
+---
+
+## 2026-07-09 — [PRODUCT] ANALYST CONSOLE W5 — ENTITY DOSSIER v2: click any entity, see its cross-layer neighborhood (v1.0.258)
+
+TERRITORY: T-CLIENT primary (client/src/pages/datamap.tsx — the click-to-
+detail card), with a SHARED-file server addition (server/dossier.ts, new
+file; server/entityGraph.ts and server/routes.ts, both edited) kept as its
+own final, minimal diff per the WORKSTREAM PARTITION merge-order protocol.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then
+research/experiments.md tail, open_questions.md KNOWN BROKEN (nothing newly
+actionable without owner-gated audit-log access — items #3/#4 still gated,
+#10 still not ripe), wishlist.md (DATACORE MAXIMUS in progress, no blocking
+decision), and console_charter.md — whose RESUME STATE named **W5 ENTITY
+DOSSIER v2 as the one remaining charter item** after W1-W4/W6 shipped
+2026-07-07 and W3 shipped earlier today (#402). No liveness alarm; this is
+PRODUCT work, not repair, so KNOWN BROKEN's open items (none critical/
+blocking) were noted and not preempted per the standing session instruction.
+
+PRIMARY ACTION CHOICE: W5 was the explicit, unclaimed next item in a
+mature, well-scoped charter — no alternative needed weighing.
+
+RESEARCH BEFORE BUILDING (READ BEFORE WRITE): a dedicated Explore pass
+mapped every existing primitive before writing any code, to avoid
+rebuilding what already exists (this repo is large — see the agent's full
+report for file:line detail, summarized here). Findings that shaped the
+design:
+- **server/entityGraph.ts's "Everything Graph"** (built 2026-07-05/06)
+  already IS the cross-entity identity/relationship join the charter's W5
+  spec describes: `resolveEntityId()` + `neighborhood()` resolve a bare
+  ticker/MMSI/CIK/facility-id to its graph node and BFS neighborhood, with
+  `operates` (company->facility, ticker-linkage), `insider_of`
+  (person->company, aggregated Form 4 filings — ALREADY the "related
+  filings" facet, no separate fetch needed), and `calls_at`
+  (vessel->port). No new join logic was needed for identity/graph/filings.
+- **server/usaSpending.ts's ticker-resolved USAspending contracts** were
+  NOT joined into the graph — this was the one genuinely missing piece
+  ("related contracts").
+- **"Nearest strategic sites"** had no ready helper; `server/
+  firesFacilities.ts`'s `haversineKm()` is the codebase's one already-
+  shared distance helper (reused by `riverPlants.ts`) — reused here rather
+  than adding a 4th local `kmBetween` copy (siteTimeline.ts and
+  queryEngine.ts each already have their own; not worth refactoring those
+  in this PR — noted as a small future cleanup, not done here).
+- **The click-to-detail-card pattern already exists** for all 9 map entity
+  kinds (`Detail` interface + `vt-site-card`, datamap.tsx) with an
+  established async-enrichment convention (site-timeline, aircraft entity
+  spine) — W5 extends this pattern rather than inventing a new panel/
+  button, matching the charter's literal "click anything -> one panel."
+
+WHAT SHIPPED.
+
+**server/entityGraph.ts**: lifted the graph's eager-poll cache out of a
+private closure inside server/routes.ts's `/api/data/graph` route handler
+into two exported functions, `cachedGraphSync()` (non-blocking peek) and
+`bootGraphPoll()` (unchanged 15-min refresh cadence) — behavior-identical
+for the existing route, but now a SECOND consumer (dossier.ts) reads the
+same cache instead of triggering its own independent 168h-AIS-fold
+rebuild, avoiding the exact "R4/R5 hazard" `server/analyst.ts` already
+names for why port-dwell/shadow-fleet stay out of the analyst's tool set.
+Also exported `SiteRow` (was file-private) so dossier.ts can reuse the
+identical type instead of redefining it.
+
+**server/dossier.ts** (new): `buildDossier(graph, params, opts)` — a PURE
+function (every IO source injected, mirroring `buildGraph`'s own
+every-source-overridable test convention) that composes: identity +
+2-hop graph neighborhood (via `resolveEntityId`/`neighborhood`, reused
+verbatim) + USAspending contracts filtered to tickers found in the
+identity/neighborhood company nodes (the one new join) + up to 5 nearest
+strategic sites by `haversineKm` from either the resolved entity's own
+coordinates (facility nodes carry `lat`/`lon` as intrinsic attrs) or
+caller-supplied lat/lon (for entity kinds the graph doesn't model —
+aircraft, trains, fires, gauges, alerts). Every cap is stated in the
+response (`contracts_capped`), never silent (NO SILENT CAPS rule). Degrades
+honestly at every stage: unresolvable entity -> `identity: null` but
+`nearest_sites` still computed from lat/lon; graph not yet built (cold
+start) -> same degrade, `built_at: null`; no crash path found in 9 unit
+tests covering all of these.
+
+**server/routes.ts**: new route `GET /api/data/dossier?entity=&lat=&lon=&
+hops=` wiring `buildDossier` to the shared graph cache + `latestContracts()`
+(already imported, unchanged) + the real `strategic_sites.json`. Refactored
+the existing `/api/data/graph` route to use the lifted cache functions —
+same response shape, same `warming_up` cold-start honesty, verified via a
+git-stash A/B tsc diff that this is a pure lift (see GATES).
+
+**client/src/pages/datamap.tsx**: extended the `Detail` interface with
+`dossierKey` (a fresh-per-click match token — deliberately NOT the
+existing `trailId`/`title` match keys other enrichments use, so a rapid
+re-click can never let a stale dossier response land on the wrong card)
+and `dossier` (typed display payload). Added one shared `fetchDossier()`
+helper (same fire-and-forget-with-match-check shape as the existing
+site-timeline/aircraft-entity-spine enrichments) and wired it into 7 of
+the 9 click handlers: **site** (entity = its own id — a direct
+`facility:site:<id>` suffix match), **powerplant** (entity =
+`facility:plant:<idx>` — required adding a stable `plantId` to the
+client-side feature properties at load time, verified index-aligned with
+entityGraph.ts's own `plantFacilityId(idx)` since both read the identical
+unfiltered `datacore/powerplants/us_power_plants.json` array), **vessel**
+(entity = `vessel:<mmsi>`, resolves only if that vessel has an archived
+port call — otherwise honestly degrades), and **aircraft/train/fire/
+gauge/alert** (entity = null, lat/lon-only — these aren't Everything Graph
+node types yet, so they get `nearest_sites` only, which is still real
+value and an honest reflection of current coverage). **Satellite clicks
+were deliberately NOT wired** — orbital altitude makes ground-proximity
+"nearest site" meaningless for LEO/MEO/GEO objects, a poor fit rather than
+an oversight, noted here so a future session doesn't treat it as a gap.
+New render section in the `vt-site-card` (reusing the existing
+`vt-site-card-trail` class throughout — zero new CSS, zero new visual-
+harness surface beyond the fixture below) shows, only when non-empty:
+linked ticker (Everything Graph, RAW/no-predictive-claim label inline),
+insider filing count, archived port-call count, up to 5 related contracts
+(USAspending, capped-honestly), and up to 5 nearest strategic sites with
+distance. All array accesses defensively default to `?? []` in case a
+malformed/unfixtured response ever arrives.
+
+**scripts/visual_check.mjs**: added a non-empty `/api/data/dossier`
+fixture (exact-pathname match, existing convention) so any harness
+interaction that happens to trigger a dossier fetch exercises the real
+populated-content render path, not a silent `{}` fallback.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new route is a pure
+composition over three already-cached/already-tested sources (graph
+cache, contracts cache, static sites JSON) — no new archive scan, no new
+poll loop, no writer touched, no trading-path code touched. The
+`/api/data/graph` refactor is behavior-preserving (verified byte-for-byte
+identical tsc error set before/after via git-stash A/B, see GATES) so its
+one existing consumer (`client/src/pages/graph.tsx`) is unaffected. The
+9 new click-handler wirings each add exactly one additional GET per card
+open (same "async-arrives-after-open, fails silently" shape as every
+existing enrichment) — no polling loop, no cost when the card is closed.
+
+LIVE VERIFICATION (beyond the visual harness's fixture-backed run): built
++ ran the real server locally against the real `datacore/*.json` registries
+and confirmed end-to-end against production data (not just fixtures):
+`?entity=cushing_enbridge` correctly resolves the `company:ENB` node via
+the real `entity_map.json` operates edge; `?entity=facility:plant:0`
+(Grand Coulee) correctly anchors `nearest_sites` on the PLANT's own real
+coordinates (Washington state) even though a decoy lat/lon (Georgia) was
+also passed, proving the "resolved node's own coords win" precedence;
+`?lat=&lon=`-only mode (no entity) correctly returns Port of LA as the
+nearest site at 1.6 km for LA-area coordinates; `cushing_hub`'s real
+multi-operator string ("Multiple (Enbridge, Plains, ONEOK, Energy
+Transfer)") correctly produces NO company edge (entity_map.json's own
+documented honest gap — forcing one of four tickers would misattribute),
+confirming the "never guess" discipline holds through the full stack, not
+just in fixtures.
+
+GATES: `npx tsc --noEmit` — 66 errors, confirmed line-for-line IDENTICAL to
+a fresh `origin/main` checkout in this same environment via git-stash A/B
+diff (zero new errors; this session also discovered and fixed a stale
+`node_modules`/`package-lock.json` version-field drift in this sandbox
+while establishing that baseline — `npm install` was required before tsc
+could even run, unrelated to this feature). `npx tsx --test server/*.test.ts`
+533/533 pass (524 baseline + 9 new server/dossier.test.ts cases: entity-
+via-facility resolution, ticker-reachable-through-an-operates-edge,
+CIK-fallback-never-matches-a-contract, contracts capped+sorted+honest-flag,
+unresolvable-entity still returns nearest_sites, lat/lon-only mode,
+cold-start graph=null degrade, nearest_sites cap+sort, hops clamping).
+`npx tsx --test client/src/lib/*.test.ts client/src/lib/orbital/*.test.ts`
+88/88 pass (untouched by this PR, run as the existing convention states).
+`npm run build` clean. `npm run visual -- --page data` at 390/768/1440: 0
+hard failures; touch-target warnings are the same pre-existing set PR #399
+already documented as unchanged (nav bar / preset-switch controls, nothing
+this PR touches); reviewed all three canonical screenshots plus the
+existing analyst/timescrub/globe/flat/legend/fields/scale batteries — no
+occlusion or layout regression from the new card section or the
+`plantId` property addition. `python3 -m pytest -q` not re-run (no Python
+file touched).
+
+Version 1.0.257 -> 1.0.258 (read-and-incremented at commit time; re-fetched
+origin/main immediately before — 3 new commits landed mid-session, #407/
+#408/#409, none touching files this PR also touches beyond datamap.tsx's
+grid-layer section, which this PR's diff does not overlap; rebased cleanly).
+
+MARKET-HOURS NOTE: session ran during market hours (~2026-07-09 ~2:40 PM
+ET). No strategy/sizing/execution/trading-path code touched (client/server
+product surface only), so there is no live-trading risk — but per the
+standing session instruction, the PR states merge should wait until after
+4:00 PM ET rather than claim an exemption it doesn't need.
+
+NEXT (console_charter.md updated): the ANALYST CONSOLE charter's W1-W6
+build order is now fully shipped. Two honest gaps logged for a future
+session, not blocking: (1) aircraft are not yet Everything Graph nodes, so
+aircraft dossier clicks get nearest_sites only, not ticker/filing linkage
+even when an FAA registrant is a public company; (2) `queryEngine.ts` and
+`siteTimeline.ts` still carry their own local `kmBetween` duplicates of
+`firesFacilities.ts`'s `haversineKm` — small, safe, not done in this PR to
+keep the diff to one logical change.
+
+Backtest: N/A (no strategy/measurement/parameter change — pure client/
+server product feature over already-cached RAW/graph data, no trading-path
+code touched).

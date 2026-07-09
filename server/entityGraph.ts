@@ -70,7 +70,7 @@ export interface EverythingGraph {
   caveat: string;
 }
 
-interface SiteRow {
+export interface SiteRow {
   id: string; name: string; category: string; lat: number; lon: number;
   operator?: string; relevance?: string;
 }
@@ -367,3 +367,37 @@ export function neighborhood(graph: EverythingGraph, entityId: string, hops = 1)
     edges: Array.from(visitedEdges),
   };
 }
+
+// ── shared eager-poll cache ─────────────────────────────────────────────────
+// Lifted out of server/routes.ts (was a private per-route closure) so a
+// second consumer (server/dossier.ts, W5) can read the SAME 15-min-fresh
+// graph instead of triggering its own independent 168h-AIS-fold rebuild —
+// the exact "R4/R5 hazard" (per analyst.ts's tool-exclusion note) this
+// module was already careful to avoid for its one existing caller.
+// Behavior preserved exactly: non-blocking, warming_up until the first
+// build completes (never blocks a request on the expensive rebuild).
+let graphCache: { at: number; graph: EverythingGraph } | null = null;
+let graphRefreshing = false;
+
+/** Synchronous peek — null until the first background build completes. */
+export function cachedGraphSync(): EverythingGraph | null {
+  return graphCache?.graph ?? null;
+}
+
+export function bootGraphPoll(intervalMs = 15 * 60_000): void {
+  const refresh = async () => {
+    if (graphRefreshing) return;
+    graphRefreshing = true;
+    try {
+      graphCache = { at: Date.now(), graph: await buildGraph() };
+    } catch (e: any) {
+      console.error("[datacore] entityGraph refresh:", e?.message || e);
+    } finally {
+      graphRefreshing = false;
+    }
+  };
+  refresh();
+  setInterval(refresh, intervalMs).unref?.();
+}
+
+export function _resetGraphCache() { graphCache = null; graphRefreshing = false; }

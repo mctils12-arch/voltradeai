@@ -116,6 +116,25 @@ interface Detail {
   /** External profile/photo pages — LINK OUT only, never embedded
    *  (third-party photo copyright). */
   links?: { label: string; href: string }[];
+  /** ENTITY DOSSIER v2 (ANALYST CONSOLE W5) match key — NOT trailId/title
+   *  (those are reused by other async enrichments above); a fresh key per
+   *  click means a rapid re-click can never let a stale dossier response
+   *  land on the wrong card. */
+  dossierKey?: string;
+  dossier?: DossierPayload;
+}
+
+/** Mirrors server/dossier.ts's DossierResult (loosely typed — this is a
+ *  display payload, not a contract either side needs to enforce). */
+interface DossierPayload {
+  identity: { id: string; type: string; label: string; attrs: Record<string, any> } | null;
+  graph: {
+    nodes: Array<{ id: string; type: string; label: string; attrs: Record<string, any> }>;
+    edges: Array<{ type: string; from: string; to: string; confidence: string; attrs: Record<string, any> }>;
+  } | null;
+  contracts: Array<{ r: string | null; tkr: string | null; amt: number; ag: string | null; rt: string }>;
+  contracts_capped: boolean;
+  nearest_sites: Array<{ id: string; name: string; category: string; km: number }>;
 }
 
 const IMAGERY_TILES =
@@ -730,6 +749,28 @@ export default function DataMapPage() {
         lastT,
       };
     } catch { return { note: "trail unavailable" }; }
+  };
+
+  /** ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5) — fetch identity +
+   *  cross-layer Everything-Graph neighborhood + ticker-matched USAspending
+   *  contracts + nearest strategic sites for the just-clicked entity, and
+   *  patch it onto the open card. `entityId` is a graph-resolvable id
+   *  (facility/company/vessel) when the clicked kind has one; null for kinds
+   *  the graph doesn't model yet (aircraft, trains, fires, gauges, alerts) —
+   *  those still get `nearest_sites` from lat/lon alone, which is why lat/lon
+   *  is always sent even when entityId is present. Matched back via
+   *  `dossierKey`, not trailId/title (see the Detail interface note). Fails
+   *  silently like every other async card enrichment (owner/timeline above) —
+   *  a dossier that never arrives just leaves that section absent. */
+  const fetchDossier = async (dossierKey: string, entityId: string | null, lat: number, lon: number) => {
+    try {
+      const qs = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+      if (entityId) qs.set("entity", entityId);
+      const r = await fetch(`/api/data/dossier?${qs.toString()}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setDetail((prev) => (prev && prev.dossierKey === dossierKey ? { ...prev, dossier: d } : prev));
+    } catch {}
   };
 
   // Live trail refresh — while a track-bearing card is open, re-pull the
@@ -2118,9 +2159,10 @@ export default function DataMapPage() {
         "icon-ignore-placement": true,
       },
       iconPaint: { "icon-color": ALT_COLOR, "icon-opacity": 0.95 },
-      onClick: async (p) => {
+      onClick: async (p, lngLat) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
         const alt = p.ground === true || p.ground === "true" ? "on ground" : (p.alt != null ? `${p.alt} m` : "alt unknown");
+        const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
         setDetail({
           kind: "aircraft",
           title: `✈ ${p.callsign}`,
@@ -2128,7 +2170,7 @@ export default function DataMapPage() {
           body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
                 `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
                 `trail below is our own archived feed history.`,
-          trailId: p.icao24, trailKind: "aircraft",
+          trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
             { label: "Live track (adsb.lol)", href: `https://adsb.lol/?icao=${p.icao24}` },
@@ -2147,6 +2189,10 @@ export default function DataMapPage() {
               ? { ...prev, owner: `${bits.join(" · ")} — ${e.n_number}, FAA registry` } : prev);
           })
           .catch(() => {});
+        // Aircraft aren't Everything Graph nodes yet (see research/
+        // open_questions.md) — entity=null, but lat/lon alone still surfaces
+        // nearest strategic sites.
+        fetchDossier(dossierKey, null, lngLat?.lat, lngLat?.lng);
         const { note, lastT } = await showTrail("aircraft", p.icao24);
         setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
       },
@@ -2204,21 +2250,26 @@ export default function DataMapPage() {
         "icon-ignore-placement": true,
       },
       iconPaint: { "icon-color": ["get", "color"], "icon-opacity": 0.95 },
-      onClick: async (p) => {
+      onClick: async (p, lngLat) => {
         const cls = VESSEL_CLASS_LABEL[(p.cls || "other") as keyof typeof VESSEL_CLASS_LABEL] || "Vessel";
         const flag = mmsiFlag(p.mmsi);
+        const dossierKey = `vessel:${p.mmsi}:${Date.now()}`;
         setDetail({
           kind: "vessel",
           title: `⚓ ${p.name}`,
           subtitle: `${cls} · MMSI ${p.mmsi}${flag ? ` · ${flag}` : ""}`,
           body: `${p.kts != null ? `${p.kts} kts · ` : ""}hdg ${Math.round(p.heading || 0)}°` +
                 `${p.destination ? `\nDestination (AIS-broadcast): ${p.destination}` : "\nDestination: not broadcast"}`,
-          trailId: p.mmsi, trailKind: "vessels",
+          trailId: p.mmsi, trailKind: "vessels", dossierKey,
           links: [
             { label: "MarineTraffic", href: `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${p.mmsi}` },
             { label: "VesselFinder", href: `https://www.vesselfinder.com/vessels/details/${p.mmsi}` },
           ],
         });
+        // vessel:<mmsi> resolves to a real Everything Graph node only if this
+        // vessel has an archived port call (calls_at edge) — otherwise the
+        // dossier degrades to nearest_sites-only, honestly, not an error.
+        fetchDossier(dossierKey, `vessel:${p.mmsi}`, lngLat?.lat, lngLat?.lng);
         const { note, lastT } = await showTrail("vessels", p.mmsi);
         setDetail(prev => prev && prev.trailId === p.mmsi ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
       },
@@ -2284,11 +2335,13 @@ export default function DataMapPage() {
         detach = attachLayerInteractions(map, "sites-icons", (e: any) => {
           const f = e.features?.[0];
           if (!f) return;
+          const dossierKey = `site:${f.properties.id}:${Date.now()}`;
           setDetail({
             kind: "site",
             title: f.properties.name,
             subtitle: `${f.properties.category} · ${f.properties.operator}`,
             body: f.properties.relevance,
+            dossierKey,
           });
           // Everything Graph R1: async 7-day cross-stream timeline; any
           // failure just leaves the section absent — the card never degrades
@@ -2301,6 +2354,9 @@ export default function DataMapPage() {
                   ? { ...prev, timeline: { events: d.events || [], density: d.density || {} } } : prev);
               })
               .catch(() => {});
+            // ENTITY DOSSIER v2 (W5): sites are facility:site:<id> nodes —
+            // resolveEntityId's bare-id suffix match finds them directly.
+            fetchDossier(dossierKey, f.properties.id, e.lngLat?.lat, e.lngLat?.lng);
           }
         });
         setStatus("sites", "active", d.sites.length);
@@ -2343,11 +2399,17 @@ export default function DataMapPage() {
           cluster: true, clusterMaxZoom: 7, clusterRadius: 50,
           data: {
             type: "FeatureCollection",
-            features: d.plants.map(([name, mw, fuel, owner, lat, lon, verified]: [string, number, string, string, number, number, number]) => ({
+            features: d.plants.map(([name, mw, fuel, owner, lat, lon, verified]: [string, number, string, string, number, number, number], idx: number) => ({
               type: "Feature",
               geometry: { type: "Point", coordinates: [lon, lat] },
               properties: {
                 name, mw, fuel, owner, verified: verified === 1,
+                // W5 entity dossier: entityGraph.ts builds plantFacilityId(idx)
+                // from this SAME datacore/powerplants/us_power_plants.json
+                // array, unfiltered/unsorted — the index is stable as long as
+                // both this route and entityGraph.ts read the file verbatim
+                // (verified true of both today).
+                plantId: idx,
                 icon: POWER_FUEL_ICON[fuel] || "vt-power",
                 color: POWER_FUEL_COLOR[fuel] || "#6680a0",
               },
@@ -2402,6 +2464,7 @@ export default function DataMapPage() {
           const f = e.features?.[0];
           if (!f) return;
           const p = f.properties;
+          const dossierKey = `powerplant:${p.plantId}:${Date.now()}`;
           setDetail({
             kind: "powerplant",
             title: p.name,
@@ -2411,7 +2474,9 @@ export default function DataMapPage() {
                      ? "Position imagery-verified.\n"
                      : "Position approximate (registry-reported — GPPD/EIA-860).\n"}` +
                   `Static reference data — WRI GPPD v1.3.0 (CC BY 4.0) + EIA-860.`,
+            dossierKey,
           });
+          fetchDossier(dossierKey, `facility:plant:${p.plantId}`, e.lngLat?.lat, e.lngLat?.lng);
         });
         detach = () => { detachClusters(); detachPoints(); };
         setStatus("powerplants", "active", d.count ?? d.plants.length,
@@ -2483,13 +2548,16 @@ export default function DataMapPage() {
             const f = e.features?.[0];
             if (!f) return;
             const p = f.properties;
+            const dossierKey = `train:${p.id}:${Date.now()}`;
             setDetail({
               kind: "train",
               title: `${p.label}`,
               subtitle: `${p.country === "FI" ? "Finland · Digitraffic (CC BY 4.0)" : "Norway · Entur (NLOD)"}`,
               body: `${p.speed != null && p.speed !== "null" ? `Speed: ${p.speed} km/h\n` : ""}Live passenger-rail position, shown as received.`,
-              trailId: p.id, trailKind: "trains",
+              trailId: p.id, trailKind: "trains", dossierKey,
             });
+            // Trains aren't Everything Graph nodes — lat/lon-only dossier.
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
             const { note, lastT } = await showTrail("trains", p.id);
             setDetail(prev => prev && prev.trailId === p.id ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
           });
@@ -2575,6 +2643,7 @@ export default function DataMapPage() {
             const f = e.features?.[0];
             if (!f) return;
             const p = f.properties;
+            const dossierKey = `fire:${e.lngLat?.lat},${e.lngLat?.lng}:${Date.now()}`;
             setDetail({
               kind: "fire",
               title: "Active fire detection",
@@ -2584,7 +2653,11 @@ export default function DataMapPage() {
                     `${p.frp != null ? `\nFire radiative power: ${p.frp} MW` : ""}\n\n` +
                     `NASA FIRMS/LANCE — for informational purposes only, NOT for safety-of-life use.`,
               links: [{ label: "NASA FIRMS map", href: "https://firms.modaps.eosdis.nasa.gov/map/" }],
+              dossierKey,
             });
+            // Fires aren't Everything Graph nodes — lat/lon-only dossier
+            // (nearest strategic sites is the useful part here).
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
           });
         }
         const baseNote = "NASA FIRMS/LANCE · VIIRS 375m · ~3h latency · not for safety-of-life use";
@@ -2691,6 +2764,7 @@ export default function DataMapPage() {
                 `\nRAW proximity join (plants near this reach), NOT confirmed water-intake ` +
                 `dependence — low-water → operator-risk is validation-gated.`;
             }
+            const dossierKey = `gauge:${p.site}:${Date.now()}`;
             setDetail({
               kind: "gauge",
               title: `≈ ${p.name || p.site}`,
@@ -2700,7 +2774,12 @@ export default function DataMapPage() {
                     `Data courtesy U.S. Geological Survey. Raw readings only — ` +
                     `low-water interpretation is validation-gated.` + exposure,
               links: [{ label: "USGS monitoring page", href: `https://waterdata.usgs.gov/monitoring-location/${p.site}/` }],
+              dossierKey,
             });
+            // Gauges aren't Everything Graph nodes — lat/lon-only dossier
+            // (the plants-near-rivergauges exposure above already covers the
+            // power-plant cross-tie; nearest_sites here is a broader net).
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
           });
         }
         setStatus("rivergauges", "active", fc.features.length, "USGS NWIS · provisional readings revise");
@@ -2765,6 +2844,7 @@ export default function DataMapPage() {
             const f = e.features?.[0];
             if (!f) return;
             const p = f.properties;
+            const dossierKey = `alert:${p.id}:${Date.now()}`;
             setDetail({
               kind: "alert",
               title: `⚠ ${p.event}`,
@@ -2773,7 +2853,13 @@ export default function DataMapPage() {
                     `Official National Weather Service alert, displayed as published. ` +
                     `Not for safety-of-life use — see weather.gov for authoritative guidance.`,
               links: [{ label: "weather.gov alerts", href: "https://www.weather.gov/alerts" }],
+              dossierKey,
             });
+            // Alerts aren't Everything Graph nodes — lat/lon-only dossier,
+            // anchored on the clicked point (alert polygons can span states;
+            // "nearest sites" is honest for the click point, not the whole
+            // polygon's centroid).
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
           });
         }
         const note = d.zone_only ? `NWS · ${d.zone_only} zone-coded alerts not drawn` : "NWS api.weather.gov";
@@ -3761,6 +3847,67 @@ export default function DataMapPage() {
               })()}
             </div>
           )}
+          {detail.dossier && (() => {
+            const dos = detail.dossier!;
+            const companyNode = dos.graph?.nodes.find((n) => n.type === "company")
+              ?? (dos.identity?.type === "company" ? dos.identity : null);
+            const edges = dos.graph?.edges || [];
+            const insiderEdges = edges.filter((e) => e.type === "insider_of");
+            const callsAtEdges = edges.filter((e) => e.type === "calls_at");
+            // Defensive `?? []` (not just `dos.graph?.edges`): a malformed or
+            // not-yet-shaped response (e.g. a test harness's generic {}
+            // fallback for an unfixtured route) must never crash the card.
+            const contracts = dos.contracts ?? [];
+            const nearestSites = dos.nearest_sites ?? [];
+            const hasContent = Boolean(companyNode) || insiderEdges.length > 0 || callsAtEdges.length > 0
+              || contracts.length > 0 || nearestSites.length > 0;
+            if (!hasContent) return null;
+            return (
+              <div>
+                {companyNode && (
+                  <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>
+                    Linked ticker: {companyNode.label} (Everything Graph — RAW, no predictive claim)
+                  </p>
+                )}
+                {insiderEdges.length > 0 && (
+                  <p className="vt-site-card-trail">
+                    {insiderEdges.length} insider{insiderEdges.length > 1 ? "s" : ""} on file
+                    (SEC Form 4, our own 30-day archive)
+                  </p>
+                )}
+                {callsAtEdges.length > 0 && (
+                  <p className="vt-site-card-trail">
+                    {callsAtEdges.reduce((s, e) => s + (e.attrs?.visit_count || 0), 0)} archived port call(s) —
+                    our own AIS archive
+                  </p>
+                )}
+                {contracts.length > 0 && (
+                  <div>
+                    <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>
+                      Related federal contracts (USAspending):
+                    </p>
+                    {contracts.slice(0, 5).map((c, i) => (
+                      <p key={i} className="vt-site-card-trail">
+                        {c.r || c.tkr || "recipient n/a"} · ${Math.round(c.amt).toLocaleString()}
+                        {c.ag ? ` · ${c.ag}` : ""} · {c.rt}
+                      </p>
+                    ))}
+                    {dos.contracts_capped && (
+                      <p className="vt-site-card-trail">…more not shown (capped)</p>
+                    )}
+                  </div>
+                )}
+                {nearestSites.length > 0 && (
+                  <div>
+                    <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>Nearest strategic sites:</p>
+                    {nearestSites.map((s) => (
+                      <p key={s.id} className="vt-site-card-trail">{s.name} · {s.km.toFixed(0)} km</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {detail.links && detail.links.length > 0 && (
             <div className="vt-site-card-links">
               {detail.links.map((l) => (
