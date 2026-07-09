@@ -2847,7 +2847,29 @@ multiple-asset multiple-comparison. NOT a signal until gate 2. Second-order: fir
 proximity is public/fast (NASA NRT ~3h), so any edge is in the ASSET→TICKER join
 and the materiality filter we build, not the fire data itself.
 
-## GRID VISION tower-detector v1: tile, don't downscale (next ladder step after v0's gate-1 failure)
+## GRID VISION tower-detector: tiling CONFIRMED in-domain (2026-07-09) — remaining gate-1 work is held-out region + NAIP + scene-level
+
+RESOLVED (the tiling hypothesis below): gv-detector-v1-2 tiled the ortho into
+640 px windows and scored **val AP50 0.566 / recall 0.499 / precision 0.732**
+(v0 was 0.036), yolov8n held constant — a ~16× jump and INSIDE the 0.55–0.75
+prior band. The sub-pixel diagnosis was correct; tiling clears gate-1's SIGNAL
+bar IN-DOMAIN. Weights archived on branch `gridvision-pod-result` (gv_best.pt).
+STILL OPEN before the detector is trusted for the national rollout (ranked):
+1. HELD-OUT REGION — retrain/eval on a US region that is NOT AZ/KS; current
+   result is out-of-sample by image only. This is the real generalization test.
+2. NAIP DOMAIN — ETDII is USGS ortho, not NAIP radiometry; run inference on
+   actual NAIP tiles (the streaming path in gridvision_naip_stac is built) with
+   a human-sampled precision pass (OSM gives recall only).
+3. SCENE-LEVEL metric — stitch overlapping tiles back with cross-seam NMS and
+   measure per-scene P/R (the 0.566 is tile-level, and overlap double-counts
+   towers in the val instance tally: 514 tiled vs ~283 unique).
+4. HEADROOM — yolov8s/m backbone, more epochs (curve noisy/near-plateau 30–61),
+   more regions. Discount any sweep winner by variants tried.
+SUBSTATION track is still separate (6 labels; needs Duke-US zips + OSM-seeded
+self-bootstrapping per the charter). — Original hypothesis, now confirmed, kept
+below for the record.
+
+## GRID VISION tower-detector v1: tile, don't downscale (next ladder step after v0's gate-1 failure) [CONFIRMED 2026-07-09 — see resolution above]
 
 Opened 2026-07-09 after gv-detector-v0-2 (experiments.md 2026-07-09) trained
 cleanly but scored **AP50 0.036 / recall 0.035** vs a 0.55–0.75 prior — a

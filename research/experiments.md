@@ -10366,3 +10366,70 @@ branch deletion, so a human/CI can prune them; they don't affect PR #397.
 
 Backtest: N/A (offline detector training; no trading path, measurement code, or
 parameter touched).
+
+## 2026-07-09 — [PIPELINE] GRID VISION tower-detector v1: tiling CLEARS gate-1's signal bar in-domain — AP50 0.036 → 0.566 (v1.0.238, PR #397)
+
+TERRITORY: T-DATACORE. Tests the hypothesis pre-registered in open_questions.md
+(2026-07-09, "tile, don't downscale") after v0's gate-1 SIGNAL failure.
+
+PRIOR (pre-stated): tiling lifts AP50 well off v0's 0.036 — moderate-high
+confidence, because v0's flat ~3% recall is the textbook signature of sub-pixel
+targets and the 0.73-scoring groups all detect on native-GSD tiles.
+
+THE ONE CHANGE (attribution kept clean). `build_yolo_dataset` now slides a 640 px
+window (stride 512, ~20% overlap) over the 0.60 m ortho and writes one POSITIVE
+tile (≥1 tower) per window, trained at imgsz 640 (== tile, so NO second
+downscale). Everything else held identical to v0: same 1408 CC-BY ETDII US tower
+labels, same yolov8n COCO start, same 2 regions, same image-level train/val split
+(tiles inherit the parent scene's side — no leakage). Model deliberately NOT
+upgraded, so the delta is attributable to image preparation alone. Dataset built:
+**630 train / 161 val positive tiles** (1956 / 514 boxes), 1345 background-only
+tiles dropped.
+
+RESULT (val, 161 tiles / 514 towers): **mAP50 0.566, mAP50-95 0.225, precision
+0.732, recall 0.499** — vs v0's 0.036 / 0.009 / 0.250 / 0.035. A ~16× AP50 jump.
+The per-epoch val curve CLIMBS cleanly (0.001 → 0.09@ep3 → 0.21@ep10 →
+0.475@ep20 → 0.537@ep30 → 0.566@ep61) — real learning, not a lucky point;
+contrast v0's flat ~0.03 across all 60 epochs.
+
+VERDICT: **CLEARS the ladder gate-1 (SIGNAL) bar IN-DOMAIN.** AP50 0.566 lands
+INSIDE the pre-stated 0.55–0.75 prior band (low end). The hypothesis is
+CONFIRMED: v0's failure was sub-pixel targets from whole-image downscale, not a
+data or label problem — identical labels/model/regions, only the tiling changed,
+and signal went from none to genuine.
+
+HONEST LIMITS — what is NOT yet cleared (do not overclaim a full gate-1 pass):
+1. SAME 2 US REGIONS (AZ desert + KS irrigated plains), out-of-sample by IMAGE
+   only, NOT by region. grid_vision_phaseb.md's full gate-1 protocol wants a
+   HELD-OUT region + OSM-corridor recall on current NAIP + a human-sampled
+   precision pass. This run is the in-domain signal check, not that.
+2. TILE-LEVEL AP, not scene-level. Tiles overlap (stride < tile), so the 514 val
+   instances exceed the ~283 unique towers in those 15 scenes — a tower in an
+   overlap band is counted in 2 tiles. Production performance after stitching
+   tiles back with cross-seam NMS is a separate, unmeasured (and slightly harder)
+   number.
+3. DOMAIN SHIFT UNTESTED. ETDII imagery is USGS ortho @0.30 m, not true NAIP
+   radiometry (phase-B flag). Real-NAIP inference is an untested shift.
+4. HEADROOM. recall 0.50 = half the towers missed; precision 0.73 = 27% false
+   positives. Levers not yet pulled: yolov8s/m backbone, more epochs (curve is
+   noisy/near-plateau 30–61), more regions. Discount any future sweep winner by
+   variants tried.
+
+WEIGHTS. gv_best.pt (6.25 MB) is archived on branch `gridvision-pod-result` via
+the GIT channel — the noted fix worked (0x0.st 503'd again, transfer.sh
+unreachable from RunPod egress, as in v0). First keepable detector weights.
+
+INFRA. gv-detector-v1-1 (community SPOT) was PREEMPTED at 262 s before it could
+push anything ($0.025, no output) — the whole container died, the signature of a
+spot reclaim, not a code fault (a crash would still hit the no-`set -e` push).
+Re-ran v1-2 on a non-interruptible SECURE pod; completed in 461 s and pushed
+cleanly. LESSON: for a job whose partial output is unrecoverable, use
+non-interruptible OR checkpoint-and-push mid-run.
+
+COST: v1-1 $0.025 (preempted) + v1-2 $0.088 (secure, $0.69/hr × 461 s) = **$0.113
+this run-pair**. Session GPU total **$0.58 / $50**, balance **$49.42**. All under
+the cost-cap gate; the result-branch-SHA signal terminated v1-2 at completion so
+no idle-to-cap billing.
+
+Backtest: N/A (offline detector training; no trading path, measurement code, or
+parameter touched).
