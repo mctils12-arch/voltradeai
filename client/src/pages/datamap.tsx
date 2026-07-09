@@ -174,8 +174,21 @@ const LAYER_GROUP: Record<string, string> = {
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
+  powergrid_tx: "facilities", powergrid_az: "facilities", powergrid_nv: "facilities",
   orbital_sats: "live",
 };
+
+// GRID VISION national rollout — one OSM-derived PMTiles per state (built by
+// scripts/build_power_tiles.sh, committed under client/public/tiles/). The
+// `powergrid` master toggle shows ALL available states; each `powergrid_<code>`
+// toggles one. Add a row here + a layers.json entry + drop the .pmtiles in to
+// light up a new state. Provenance = osm-verified (raw OSM); ML-detected towers
+// layer on top later as a separate provenance tier.
+const POWER_STATES = [
+  { code: "tx", name: "Texas", file: "power_tx.pmtiles" },
+  { code: "az", name: "Arizona", file: "power_az.pmtiles" },
+  { code: "nv", name: "Nevada", file: "power_nv.pmtiles" },
+] as const;
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
 // "reload to enable" (the honest mid-deploy state) — so an id that IS
@@ -1300,55 +1313,64 @@ export default function DataMapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const IDS = ["powergrid-hv", "powergrid-mv", "powergrid-low", "powergrid-unknown", "powergrid-substation", "powergrid-plant"];
-    if (!enabled.powergrid) {
-      try {
-        IDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
-        if (map.getSource("powergrid")) map.removeSource("powergrid");
-      } catch {}
-      setStatus("powergrid", "off");
-      return;
-    }
-    try {
-      setStatus("powergrid", "loading");
-      if (!map.getSource("powergrid")) {
-        map.addSource("powergrid", {
-          type: "vector",
-          url: `pmtiles://${window.location.origin}/tiles/power_tx.pmtiles`,
-          attribution: "© OpenStreetMap contributors, ODbL",
-        } as any);
+    // voltage as a number; -1 = missing/unparseable (to-number fallback)
+    const V = ["to-number", ["get", "voltage"], -1] as any;
+    const isLine = ["match", ["get", "power"], ["line", "minor_line", "cable"], true, false] as any;
+    const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle"].includes(l.type));
+    const add = (def: any) => { if (!map.getLayer(def.id)) map.addLayer(def, firstMarker?.id); };
+
+    POWER_STATES.forEach((st) => {
+      const src = `powergrid_${st.code}`;
+      const IDS = [`${src}-hv`, `${src}-mv`, `${src}-low`, `${src}-unknown`, `${src}-substation`, `${src}-plant`];
+      // a state renders if its own toggle is on OR the master "all states" toggle is on
+      const on = !!enabled.powergrid || !!enabled[src];
+      if (!on) {
+        try {
+          IDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+          if (map.getSource(src)) map.removeSource(src);
+        } catch {}
+        setStatus(src, "off");
+        return;
       }
-      // voltage as a number; -1 = missing/unparseable (to-number fallback)
-      const V = ["to-number", ["get", "voltage"], -1] as any;
-      const isLine = ["match", ["get", "power"], ["line", "minor_line", "cable"], true, false] as any;
-      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle"].includes(l.type));
-      const add = (def: any) => { if (!map.getLayer(def.id)) map.addLayer(def, firstMarker?.id); };
-      add({ id: "powergrid-substation", type: "fill", source: "powergrid", "source-layer": "power",
-            minzoom: 9, filter: ["==", ["get", "power"], "substation"],
-            paint: { "fill-color": "rgba(250,204,21,0.14)", "fill-outline-color": "rgba(250,204,21,0.6)" } });
-      add({ id: "powergrid-plant", type: "fill", source: "powergrid", "source-layer": "power",
-            minzoom: 9, filter: ["==", ["get", "power"], "plant"],
-            paint: { "fill-color": "rgba(74,222,128,0.10)", "fill-outline-color": "rgba(74,222,128,0.5)" } });
-      add({ id: "powergrid-unknown", type: "line", source: "powergrid", "source-layer": "power",
-            minzoom: 8, filter: ["all", isLine, ["<", V, 0]],
-            paint: { "line-color": "rgba(216,180,254,0.55)", "line-width": 0.9, "line-dasharray": [2, 2] } });
-      add({ id: "powergrid-low", type: "line", source: "powergrid", "source-layer": "power",
-            minzoom: 11, filter: ["all", isLine, [">=", V, 0], ["<", V, 100000]],
-            paint: { "line-color": "rgba(148,163,184,0.55)", "line-width": 0.8 } });
-      add({ id: "powergrid-mv", type: "line", source: "powergrid", "source-layer": "power",
-            minzoom: 6, filter: ["all", isLine, [">=", V, 100000], ["<", V, 230000]],
-            paint: { "line-color": "rgba(56,189,248,0.75)",
-                     "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 12, 2] } });
-      add({ id: "powergrid-hv", type: "line", source: "powergrid", "source-layer": "power",
-            filter: ["all", isLine, [">=", V, 230000]],
-            paint: { "line-color": "rgba(250,204,21,0.9)",
-                     "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 12, 3] } });
-      setStatus("powergrid", "active", undefined,
-        "TEXAS PILOT — OSM community data (ODbL): voltage-classed; dashed = voltage untagged (never hidden); no CEII/underground detail");
-    } catch {
-      setStatus("powergrid", "error");
-    }
-  }, [enabled.powergrid, mapReady, setStatus]);
+      try {
+        setStatus(src, "loading");
+        if (!map.getSource(src)) {
+          map.addSource(src, {
+            type: "vector",
+            url: `pmtiles://${window.location.origin}/tiles/${st.file}`,
+            attribution: "© OpenStreetMap contributors, ODbL",
+          } as any);
+        }
+        add({ id: `${src}-substation`, type: "fill", source: src, "source-layer": "power",
+              minzoom: 9, filter: ["==", ["get", "power"], "substation"],
+              paint: { "fill-color": "rgba(250,204,21,0.14)", "fill-outline-color": "rgba(250,204,21,0.6)" } });
+        add({ id: `${src}-plant`, type: "fill", source: src, "source-layer": "power",
+              minzoom: 9, filter: ["==", ["get", "power"], "plant"],
+              paint: { "fill-color": "rgba(74,222,128,0.10)", "fill-outline-color": "rgba(74,222,128,0.5)" } });
+        add({ id: `${src}-unknown`, type: "line", source: src, "source-layer": "power",
+              minzoom: 8, filter: ["all", isLine, ["<", V, 0]],
+              paint: { "line-color": "rgba(216,180,254,0.55)", "line-width": 0.9, "line-dasharray": [2, 2] } });
+        add({ id: `${src}-low`, type: "line", source: src, "source-layer": "power",
+              minzoom: 11, filter: ["all", isLine, [">=", V, 0], ["<", V, 100000]],
+              paint: { "line-color": "rgba(148,163,184,0.55)", "line-width": 0.8 } });
+        add({ id: `${src}-mv`, type: "line", source: src, "source-layer": "power",
+              minzoom: 6, filter: ["all", isLine, [">=", V, 100000], ["<", V, 230000]],
+              paint: { "line-color": "rgba(56,189,248,0.75)",
+                       "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 12, 2] } });
+        add({ id: `${src}-hv`, type: "line", source: src, "source-layer": "power",
+              filter: ["all", isLine, [">=", V, 230000]],
+              paint: { "line-color": "rgba(250,204,21,0.9)",
+                       "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 12, 3] } });
+        setStatus(src, "active", undefined,
+          `${st.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); no CEII/underground detail`);
+      } catch {
+        setStatus(src, "error");
+      }
+    });
+    // master reflects the aggregate (on when any state is shown via the master)
+    setStatus("powergrid", enabled.powergrid ? "active" : "off", undefined,
+      enabled.powergrid ? `All mapped states (${POWER_STATES.map((s) => s.name).join(", ")}) — OSM grid, ODbL` : undefined);
+  }, [enabled.powergrid, enabled.powergrid_tx, enabled.powergrid_az, enabled.powergrid_nv, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in
