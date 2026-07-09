@@ -164,6 +164,19 @@ def test_tile_windows_cover_edges_and_clamp():
         e2y.tile_windows(100, 100, tile=0, stride=512)
 
 
+def test_region_of_longest_prefix():
+    assert e2y.region_of("USA_AZ_Tucson_12") == "USA_AZ_Tucson"
+    assert e2y.region_of("USA_KS_Colwich_Maize_3") == "USA_KS_Colwich_Maize"
+    assert e2y.region_of("NZ_Dunedin_1") is None       # unknown region -> never bucketed
+    # a held-out split is a clean partition: every AZ stem is val, every KS stem train
+    stems = ["USA_AZ_Tucson_1", "USA_AZ_Tucson_2", "USA_KS_Colwich_Maize_1"]
+    val = [s for s in stems if e2y.region_of(s) == "USA_AZ_Tucson"]
+    train = [s for s in stems if e2y.region_of(s) != "USA_AZ_Tucson"]
+    assert val == ["USA_AZ_Tucson_1", "USA_AZ_Tucson_2"]
+    assert train == ["USA_KS_Colwich_Maize_1"]
+    assert set(val) & set(train) == set()              # no leakage across the fold
+
+
 def test_scale_bbox_halves_for_downsample():
     assert e2y.scale_bbox([1400, 600, 1440, 640], 2.0) == [700.0, 300.0, 720.0, 320.0]
     with pytest.raises(ValueError):

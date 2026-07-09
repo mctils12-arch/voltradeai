@@ -38,6 +38,23 @@ import gridvision_etdii as etdii  # noqa: E402
 CLASS_INDEX = {"tower": 0}
 CLASS_NAMES = ["tower"]
 
+# ETDII US region prefixes — the image stems begin with these. Used for the
+# held-out-REGION generalization split (gate-1 item a): train on some regions,
+# evaluate on a region never seen. Longest-prefix match so a more specific region
+# name wins. Extend as more regions (Duke-US zips, new states) are added.
+REGION_PREFIXES = ["USA_AZ_Tucson", "USA_KS_Colwich_Maize"]
+
+
+def region_of(stem, prefixes=REGION_PREFIXES):
+    """Region a training image belongs to, by longest matching prefix of its stem
+    (e.g. 'USA_AZ_Tucson_12' -> 'USA_AZ_Tucson'). Returns None if no known region
+    matches — such an image is never silently bucketed. Pure."""
+    best = None
+    for p in prefixes:
+        if stem.startswith(p) and (best is None or len(p) > len(best)):
+            best = p
+    return best
+
 
 # ── pure box conversion ─────────────────────────────────────────────────────
 

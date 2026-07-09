@@ -128,7 +128,7 @@ def _index_zip_images(names):
 
 
 def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",),
-                       tile=640, stride=512):
+                       tile=640, stride=512, holdout_region=None):
     """Unzip ETDII US, downsample each image 0.30->0.60 m, then TILE it into
     `tile`-px windows at `stride` and write one image+label file per POSITIVE tile
     (>=1 tower). v1 fix for grid-detector-v0's gate-1 failure (experiments.md
@@ -176,8 +176,16 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
                 recs = etdii.parse_geojson(gj, "ETDII", "CC BY 4.0")
                 per_image[stem] = {"records": recs, "img_name": img_name, "zip": zpath}
 
-    # split by PARENT image (not tile) so tiles from one scene never straddle
-    train_ids, val_ids = e2y.train_val_split(list(per_image.keys()), val_frac)
+    # split by PARENT image (not tile) so tiles from one scene never straddle.
+    # holdout_region (gate-1 item a): ALL images of that region go to val, the rest
+    # to train — a true cross-region generalization test (train regions never
+    # include the eval region). Otherwise the deterministic hash split.
+    stems = list(per_image.keys())
+    if holdout_region:
+        val_ids = [s for s in stems if e2y.region_of(s) == holdout_region]
+        train_ids = [s for s in stems if e2y.region_of(s) != holdout_region]
+    else:
+        train_ids, val_ids = e2y.train_val_split(stems, val_frac)
     split_of = {i: "train" for i in train_ids}
     split_of.update({i: "val" for i in val_ids})
 
@@ -222,7 +230,10 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     return {"data_yaml": yaml_path, "images": written, "boxes": boxes,
             "n_images": len(per_image), "skipped_no_image": skipped_no_image,
             "tiles_empty_skipped": tiles_empty_skipped, "tile": tile, "stride": stride,
-            "downsample_factor": factor, "classes": e2y.CLASS_NAMES}
+            "downsample_factor": factor, "classes": e2y.CLASS_NAMES,
+            "holdout_region": holdout_region,
+            "split_mode": "holdout_region" if holdout_region else "image_hash",
+            "n_train_images": len(train_ids), "n_val_images": len(val_ids)}
 
 
 # ── optional: materialize NAIP chips for the OSM-weak-label augmentation (A) ─
@@ -411,7 +422,8 @@ def run_full(args):
     os.makedirs(work, exist_ok=True)
     zips = fetch_etdii_us(os.path.join(work, "etdii"))
     ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac,
-                            tile=args.tile, stride=args.stride)
+                            tile=args.tile, stride=args.stride,
+                            holdout_region=args.holdout_region)
     print("[train] dataset:", json.dumps(ds), flush=True)
     if args.imgsz < args.tile:
         # a smaller imgsz would re-downscale the tiles and re-create the v0 bug;
@@ -445,6 +457,9 @@ def build_parser():
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--tile", type=int, default=640, help="tile window px (v1: detect on native-GSD tiles)")
     p.add_argument("--stride", type=int, default=512, help="tile stride px (< tile => overlap)")
+    p.add_argument("--holdout-region", dest="holdout_region", default=None,
+                   help="ETDII region name to hold out as val (gate-1 cross-region test); "
+                        "e.g. USA_AZ_Tucson or USA_KS_Colwich_Maize")
     p.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starter")
     p.add_argument("--val-frac", dest="val_frac", type=float, default=0.2)
     p.add_argument("--out", default="/workspace/gv_out", help="pod work/output dir")
