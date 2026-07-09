@@ -102,5 +102,49 @@
       "status": "improved",
       "detail": "map50 +0.0760 over prior best 0.566"
     }
+  },
+  {
+    "version": "eaug-ks",
+    "job": "gv-eaug-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.107,
+      "precision": 0.224,
+      "recall": 0.188
+    },
+    "timestamp_utc": "2026-07-09T06:00:00Z",
+    "notes": "train AZ + STRONG AUG -> eval unseen KS. ~2x baseline (0.059) but still <0.15 partial bar. Aug helps modestly.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_KS_Colwich_Maize",
+      "metric": "map50",
+      "value": 0.107,
+      "prior_best": 0.059,
+      "delta": 0.048,
+      "status": "improved",
+      "detail": "map50 +0.0480 over prior best 0.059"
+    }
+  },
+  {
+    "version": "eaug-az",
+    "job": "gv-eaug-az",
+    "eval_key": "holdout:USA_AZ_Tucson",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.147,
+      "precision": 0.269,
+      "recall": 0.187
+    },
+    "timestamp_utc": "2026-07-09T06:05:00Z",
+    "notes": "train KS + STRONG AUG -> eval unseen AZ. ~2.6x baseline (0.056), at partial bar. Aug helps, doesn't solve.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_AZ_Tucson",
+      "metric": "map50",
+      "value": 0.147,
+      "prior_best": 0.056,
+      "delta": 0.091,
+      "status": "improved",
+      "detail": "map50 +0.0910 over prior best 0.056"
+    }
   }
 ]
