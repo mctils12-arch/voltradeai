@@ -7,6 +7,7 @@ import {
   gpUrl,
   satcatUrl,
   parseGp,
+  parseGpCsv,
   parseSatcat,
   joinGpSatcat,
   classifyOrbit,
@@ -61,6 +62,16 @@ const GP_FIXTURE = [
   },
 ];
 
+// GP CSV, shaped exactly like gp.php?FORMAT=csv — same OMM fields as the JSON
+// form, CSV-encoded (CRLF, as CelesTrak serves it). Mirrors GP_FIXTURE: ISS
+// with real elements, one row with a blank BSTAR, one row missing its NORAD id.
+const GP_CSV_FIXTURE = [
+  'OBJECT_NAME,OBJECT_ID,EPOCH,MEAN_MOTION,ECCENTRICITY,INCLINATION,RA_OF_ASC_NODE,ARG_OF_PERICENTER,MEAN_ANOMALY,EPHEMERIS_TYPE,CLASSIFICATION_TYPE,NORAD_CAT_ID,ELEMENT_SET_NO,REV_AT_EPOCH,BSTAR,MEAN_MOTION_DOT,MEAN_MOTION_DDOT',
+  'ISS (ZARYA),1998-067A,2026-07-07T12:12:01.987776,15.48933372,.00066874,51.6304,199.5144,267.6545,92.3678,0,U,25544,999,57490,.11369272E-3,.5806E-4,0',
+  'GPONLY-SAT,2024-100A,2026-07-06T00:00:00.000000,15.2,.001,53.0,100.0,90.0,270.0,0,U,99001,,,,,',
+  'NO-CATALOG-ID,,2026-07-06T00:00:00.000000,15.0,,,,,,,,,,,,,',
+].join('\r\n');
+
 // SATCAT CSV. Header + rows are REAL-shaped (first two are actual catalog
 // rows). ISS row + one SATCAT-only object (60000) exercise the join.
 const SATCAT_FIXTURE = [
@@ -107,6 +118,38 @@ test('parseGp: garbage input yields empty array, never throws', () => {
   assert.deepEqual(parseGp(null), []);
   assert.deepEqual(parseGp(42), []);
   assert.deepEqual(parseGp({}), []);
+});
+
+// --- parseGpCsv -----------------------------------------------------------
+
+test('parseGpCsv: ISS row normalized to the same GpRecord shape as parseGp', () => {
+  const recs = parseGpCsv(GP_CSV_FIXTURE);
+  const iss = recs.find((r) => r.noradId === 25544);
+  assert.ok(iss, 'ISS present');
+  assert.equal(iss!.name, 'ISS (ZARYA)');
+  assert.equal(iss!.epoch, '2026-07-07T12:12:01.987776');
+  assert.equal(iss!.meanMotion, 15.48933372);
+  assert.equal(iss!.inclination, 51.6304);
+  assert.equal(iss!.raan, 199.5144);
+  assert.equal(iss!.ecc, 0.00066874);
+  assert.equal(iss!.argp, 267.6545);
+  assert.equal(iss!.meanAnomaly, 92.3678);
+  assert.equal(iss!.bstar, 0.00011369272); // CelesTrak's .11369272E-3 form
+});
+
+test('parseGpCsv: blank field -> null, missing NORAD id -> dropped', () => {
+  const recs = parseGpCsv(GP_CSV_FIXTURE);
+  assert.equal(recs.length, 2); // NO-CATALOG-ID dropped
+  const gponly = recs.find((r) => r.noradId === 99001);
+  assert.ok(gponly);
+  assert.equal(gponly!.bstar, null); // blank -> null
+});
+
+test('parseGpCsv: garbage / non-GP CSV yields empty array, never throws', () => {
+  assert.deepEqual(parseGpCsv(''), []);
+  assert.deepEqual(parseGpCsv('   '), []);
+  // a body without a NORAD_CAT_ID column is not GP CSV (e.g. an error page)
+  assert.deepEqual(parseGpCsv('foo,bar\n1,2'), []);
 });
 
 // --- parseSatcat ----------------------------------------------------------
@@ -212,22 +255,41 @@ test('gpUrl / satcatUrl build the expected CelesTrak endpoints', () => {
     gpUrl('active'),
     'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json',
   );
-  assert.equal(gpUrl(), gpUrl('active')); // default group
+  assert.equal(gpUrl(), gpUrl('active')); // default group + format
   assert.equal(
     gpUrl('gps-ops'),
     'https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=json',
   );
+  // csv format — what fetchGp requests (smaller transfer)
+  assert.equal(
+    gpUrl('active', 'csv'),
+    'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv',
+  );
   assert.equal(satcatUrl(), 'https://celestrak.org/pub/satcat.csv');
 });
 
-test('fetchGp: calls injected fetch with the right URL and parses', async () => {
+test('fetchGp: fetches the CSV endpoint and parses it', async () => {
   let calledUrl = '';
   const fakeFetch = async (url: string) => {
     calledUrl = url;
-    return { json: async () => GP_FIXTURE, text: async () => '' };
+    return { ok: true, status: 200, json: async () => GP_FIXTURE, text: async () => GP_CSV_FIXTURE };
   };
   const recs = await fetchGp('active', fakeFetch);
-  assert.equal(calledUrl, gpUrl('active'));
-  assert.equal(recs.length, 2);
+  assert.equal(calledUrl, gpUrl('active', 'csv')); // CSV, not JSON
+  assert.equal(recs.length, 2); // NO-CATALOG-ID row dropped
   assert.equal(recs[0].noradId, 25544);
+  assert.equal(recs[0].name, 'ISS (ZARYA)');
+});
+
+test('fetchGp: a non-2xx response (e.g. 403 rate-limit) throws, never returns []', async () => {
+  // Regression: CelesTrak's courtesy rate-limit returns HTTP 403 with a non-GP
+  // body. It must throw (→ resilient-load backoff), not silently parse to [] —
+  // the empty parse used to masquerade as "no elements" and loop forever.
+  const rateLimited = async () => ({
+    ok: false,
+    status: 403,
+    json: async () => ({}),
+    text: async () => 'Rate limit exceeded',
+  });
+  await assert.rejects(fetchGp('active', rateLimited), /403/);
 });

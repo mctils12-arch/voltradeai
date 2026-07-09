@@ -13,6 +13,54 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-09 — [REPAIR] ORBITAL: fix satellite layer "still retrying automatically…" (v1.0.252)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/tle.ts + tle.test.ts,
+client/src/pages/datamap.tsx comments) + SHARED minimal last
+(package.json). Solo [REPAIR] session, human-reported bug (mobile
+screenshot: "Satellites (live) — still retrying automatically…", user:
+"takes forever or doesn't load or [fails] right off the bat").
+
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md, orbital_program.md
+  (DATA-PATH SPLIT: client-fetch UNBLOCKED, server relay-gated),
+  resilientLoad.ts, the orbital fetch effect in datamap.tsx.
+- ROOT CAUSE (two, both confirmed live against celestrak.org this
+  session — ladder gate 1 DATA, verified vs the external truth source):
+  1. PAYLOAD: the client fetched `gp.php?FORMAT=json` = **6.73 MB
+     uncompressed** (~16k objects; CelesTrak serves NO gzip even when
+     asked). On a slow mobile link that download can exceed the 45s
+     abort timeout mid-flight → abort → retry → never completes = "takes
+     forever / doesn't load". Same GROUP as **FORMAT=csv is 2.42 MB**
+     (64% smaller, byte-for-byte the same OMM fields) — measured 6732945
+     vs 2417314 bytes.
+  2. RATE-LIMIT LOOP: CelesTrak courtesy-rate-limits repeated pulls with
+     **HTTP 403** (reproduced: 3rd JSON hit in <60s returned 403, 141-byte
+     body). `fetchGp` never checked `res.ok`, so the 403 body flowed into
+     `parseGp` → `[]` → the effect threw "no orbital elements returned" →
+     resilient-load retried → hit the 403 again → "still retrying
+     automatically…" forever = "fails right off the bat".
+- FIX (client-fetch path only — UNBLOCKED per orbital_program.md; no
+  server relay, no FROZEN path, no R17 dependency):
+  * `gpUrl(group, format)` gains a format arg; `fetchGp` now requests
+    `FORMAT=csv` and parses via new `parseGpCsv()` (header-indexed, same
+    GpRecord output, same honesty rules — blank→null, no-NORAD dropped).
+  * `fetchGp` now throws on `res.ok === false` with the status, so a 403/
+    5xx surfaces as a real error to the backoff ladder instead of
+    masquerading as an empty catalog. The 2h module cache + backoff are
+    unchanged; the smaller CSV also finishes well inside the 45s timeout
+    and puts less pressure on the rate limit.
+- REGRESSION TESTS (REPAIRS MUST RATCHET): +5 in tle.test.ts —
+  parseGpCsv normalization/blank-null/garbage-safety, fetchGp hits the
+  CSV endpoint, and the exact 403 case now `assert.rejects` (would have
+  caught this break). Orbital lib suite 78/78 green; tsc clean on touched
+  files; `npm run visual --page data` 0 hard failures at 390/768/1440.
+- HYPOTHESIS: CSV + res.ok makes the layer load first-try on mobile and
+  self-heal on a rate-limit blip instead of dying. NO trading/measurement
+  code touched → no backtest applies (RAW overlay, no predictive claim).
+- FOLLOW-UP filed for fall-through/next session: persistent cross-reload
+  cache (IndexedDB, 2h TTL) so a full page reload doesn't re-download even
+  the 2.4 MB — own PR, own log entry.
+
 ## 2026-07-09 — [PRODUCT] ORBITAL O3: satellite click-to-identify + close superseded PR #350 (v1.0.235)
 
 TERRITORY: T-CLIENT (client/src/lib/orbital/pick.ts + pick.test.ts,
