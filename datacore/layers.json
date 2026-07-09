@@ -126,6 +126,28 @@
       "field": false
     },
     {
+      "id": "powergrid_hifld",
+      "name": "US Transmission — HIFLD (authoritative)",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "HIFLD Electric Power Transmission Lines — U.S. DHS / Oak Ridge National Laboratory (public domain), via NETL/DOE ArcGIS",
+      "description": "Authoritative national transmission lines, 69–765 kV (94,216 segments), voltage-classed. Surveyed government vector data — EIA defers to HIFLD as the source of truth. NOT ML, no cross-region generalization problem. Complements the OSM community layer (which adds distribution + substations OSM has mapped). Vintage ~2022; transmission tier only.",
+      "field": false
+    },
+    {
+      "id": "powergrid_hifld_sub",
+      "name": "US Substations — HIFLD (authoritative)",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "low",
+      "source": "HIFLD Electric Substations — U.S. DHS / Oak Ridge National Laboratory (public domain), via ArcGIS",
+      "description": "Authoritative national electric substations, 75,328 sites at ≥69 kV, rendered as points. Surveyed government vector data (not ML). Pairs with the HIFLD transmission layer to give the authoritative transmission grid; OSM adds distribution + any substations OSM mapped. Vintage ~2022.",
+      "field": false
+    },
+    {
       "id": "powergrid_al",
       "name": "Grid — Alabama",
       "kind": "raw",
