@@ -11,7 +11,7 @@
       "recall": 0.0353
     },
     "timestamp_utc": "2026-07-09T02:39:52Z",
-    "notes": "v0 whole-image downscale to imgsz 512 \u2014 gate-1 SIGNAL FAIL (sub-pixel towers)",
+    "notes": "v0 whole-image downscale to imgsz 512 — gate-1 SIGNAL FAIL (sub-pixel towers)",
     "regression_verdict": {
       "eval_key": "image_split",
       "status": "baseline"
@@ -29,7 +29,7 @@
       "recall": 0.499
     },
     "timestamp_utc": "2026-07-09T04:11:04Z",
-    "notes": "v1 tiling 640/512, both regions in train \u2014 clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
+    "notes": "v1 tiling 640/512, both regions in train — clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
     "regression_verdict": {
       "eval_key": "image_split",
       "status": "improved_investigated",
@@ -56,7 +56,7 @@
       "value": 0.056,
       "prior_best": null,
       "status": "baseline",
-      "detail": "first measurement for this key \u2014 recorded as baseline"
+      "detail": "first measurement for this key — recorded as baseline"
     }
   },
   {
@@ -77,7 +77,7 @@
       "value": 0.059,
       "prior_best": null,
       "status": "baseline",
-      "detail": "first measurement for this key \u2014 recorded as baseline"
+      "detail": "first measurement for this key — recorded as baseline"
     }
   },
   {
@@ -190,5 +190,14 @@
       "status": "improved",
       "detail": "map50 +0.0490 over prior best 0.147"
     }
+  },
+  {
+    "version": "div2-ks-FAILED",
+    "job": "gv-div2-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {},
+    "timestamp_utc": "2026-07-09T06:40:00Z",
+    "notes": "train AZ+5NZ+3 Duke US -> eval KS. FAILED (train_rc=1): Duke 6GB zip download truncated -> BadZipFile. NOT a parser issue (schema verified compatible). Fixed: streaming download + skip-corrupt-member hardening. Retry pending. Cost $0.33."
   }
 ]

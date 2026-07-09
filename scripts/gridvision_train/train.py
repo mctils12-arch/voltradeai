@@ -131,8 +131,25 @@ def fetch_etdii_us(dest_dir, regions=None):
             url = ETDII_NDOWNLOAD.format(fid=fid)
             print(f"[train] fetching {city} ({url}) ...", flush=True)
             req = urllib.request.Request(url, headers={"User-Agent": weight_sink.UA})
-            with urllib.request.urlopen(req, timeout=600) as r, open(out, "wb") as f:
-                f.write(r.read())
+            # STREAM to disk in chunks (the big Duke zips are multi-GB; r.read()
+            # loaded the whole file into RAM and the 600s timeout TRUNCATED it,
+            # corrupting the zip — gv-div2-ks 2026-07-09). copyfileobj + a long
+            # timeout streams safely.
+            import shutil
+            with urllib.request.urlopen(req, timeout=1800) as r, open(out, "wb") as f:
+                shutil.copyfileobj(r, f, length=4 * 1024 * 1024)
+        # verify the archive opens (truncation/corruption -> skip the region, never
+        # crash the whole run on one bad download)
+        try:
+            with zipfile.ZipFile(out) as _z:
+                _z.namelist()
+        except Exception as e:
+            print(f"[train] WARNING {city} zip unreadable ({e}); removing + skipping region", flush=True)
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+            continue
         paths[city] = out
     return paths
 
@@ -180,8 +197,14 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     # first pass: collect per-image geojson + sibling image across all zips
     per_image = {}  # stem -> {"records": ..., "img_name": ..., "zip": path}
     skipped_no_image = 0  # geojsons with no sibling raster — counted, never guessed
+    bad_zip_members = 0  # corrupt members in an otherwise-open zip (Duke macOS zips)
     for zpath in zip_paths.values():
-        with zipfile.ZipFile(zpath) as z:
+        try:
+            zf = zipfile.ZipFile(zpath)
+        except Exception as e:
+            print(f"[train] skip unopenable zip {zpath}: {e}", flush=True)
+            continue
+        with zf as z:
             names = z.namelist()
             img_idx = _index_zip_images(names)
             for name in names:
@@ -193,8 +216,9 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
                     skipped_no_image += 1  # no raster for this geojson -> cannot train on it
                     continue
                 try:
-                    gj = json.loads(z.read(name))
-                except (ValueError, KeyError):
+                    gj = json.loads(z.read(name))          # BadZipFile on a corrupt member header
+                except Exception:
+                    bad_zip_members += 1
                     continue
                 recs = etdii.parse_geojson(gj, "ETDII", "CC BY 4.0")
                 per_image[stem] = {"records": recs, "img_name": img_name, "zip": zpath}
@@ -260,7 +284,8 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     return {"data_yaml": yaml_path, "images": written, "boxes": boxes,
             "n_images": len(per_image), "skipped_no_image": skipped_no_image,
             "tiles_empty_skipped": tiles_empty_skipped,
-            "images_unreadable": images_unreadable, "tile": tile, "stride": stride,
+            "images_unreadable": images_unreadable, "bad_zip_members": bad_zip_members,
+            "tile": tile, "stride": stride,
             "downsample_factor": factor, "classes": e2y.CLASS_NAMES,
             "holdout_region": holdout_region,
             "split_mode": "holdout_region" if holdout_region else "image_hash",
