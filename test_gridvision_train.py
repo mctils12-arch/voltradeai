@@ -177,11 +177,15 @@ def test_aug_kwargs_presets():
 
 
 def test_etdii_region_config():
-    # 7 regions available (2 US + 5 NZ) for diversity; US subset derives correctly
+    # 7 ETDII regions (2 US + 5 NZ) + 3 Duke US = 10 in the deposit-agnostic lookup
     assert len(train.ETDII_REGIONS) == 7
+    assert len(train.DUKE_US_REGIONS) == 3
+    assert len(train.REGION_FILE_IDS) == 10
+    # DEFAULT stays the 2 light ETDII US regions (Duke never auto-downloads)
     assert set(train.ETDII_US_FILE_IDS) == {"USA_AZ_Tucson", "USA_KS_Colwich_Maize"}
-    assert all(k.startswith("NZ_") or k.startswith("USA_") for k in train.ETDII_REGIONS)
-    # NZ stems route to TRAIN when a US region is held out (region_of -> None != holdout)
+    assert "USA_CT_Hartford" not in train.ETDII_US_FILE_IDS
+    # Duke US regions are recognised for the held-out split; NZ routes to train
+    assert e2y.region_of("USA_NC_Clyde_4") == "USA_NC_Clyde"
     assert e2y.region_of("NZ_Dunedin_3") is None
 
 

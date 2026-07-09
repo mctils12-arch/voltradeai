@@ -73,6 +73,14 @@ ETDII_REGIONS = {
     "NZ_Dunedin": 28887777, "NZ_Gisborne": 28887780,
     "NZ_Palmerston_North": 28887783, "NZ_Rotorua": 28887786, "NZ_Tauranga": 28887789,
 }
+# Duke E&TD deposit (figshare 6931088) — SAME geojson schema (label/pixel_coordinates/
+# filename, VERIFIED 2026-07-09 on the sample), 3 MORE real US regions (Northeast +
+# Southeast/Appalachian) for the diversity push past the 0.30 held-out bar. BIG zips
+# (1.8-6 GB, large orthos) — opt-in only via explicit --regions, never a default.
+DUKE_US_REGIONS = {
+    "USA_CT_Hartford": 12708365, "USA_NC_Clyde": 12705920, "USA_NC_Wilmington": 12707420,
+}
+REGION_FILE_IDS = {**ETDII_REGIONS, **DUKE_US_REGIONS}   # deposit-agnostic (ndownloader is by file id)
 ETDII_US_FILE_IDS = {k: v for k, v in ETDII_REGIONS.items() if k.startswith("USA_")}
 ETDII_NDOWNLOAD = "https://ndownloader.figshare.com/files/{fid}"
 ETDII_NATIVE_GSD = 0.30
@@ -114,7 +122,7 @@ def fetch_etdii_us(dest_dir, regions=None):
     names = list(regions) if regions else list(ETDII_US_FILE_IDS.keys())
     paths = {}
     for city in names:
-        fid = ETDII_REGIONS.get(city)
+        fid = REGION_FILE_IDS.get(city)
         if fid is None:
             print(f"[train] WARNING unknown region {city!r} — skipped", flush=True)
             continue
@@ -207,11 +215,18 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     written = {"train": 0, "val": 0}   # POSITIVE tiles written per split
     boxes = {"train": 0, "val": 0}
     tiles_empty_skipped = 0            # background-only tiles dropped (positive-only v1)
+    images_unreadable = 0             # a bad/huge raster is skipped+counted, never crashes the run
+    Image.MAX_IMAGE_PIXELS = None     # Duke orthos are huge; disable PIL's decompression-bomb cap
     for stem, info in per_image.items():
         split = split_of[stem]
-        with zipfile.ZipFile(info["zip"]) as z:
-            raw = z.read(info["img_name"])
-        im = Image.open(io.BytesIO(raw)).convert("RGB")
+        try:
+            with zipfile.ZipFile(info["zip"]) as z:
+                raw = z.read(info["img_name"])
+            im = Image.open(io.BytesIO(raw)).convert("RGB")
+        except Exception as e:
+            images_unreadable += 1
+            print(f"[train] skip unreadable image {info['img_name']}: {e}", flush=True)
+            continue
         w0, h0 = im.size
         ow, oh = e2y.downsample_image_dims(w0, h0, factor)
         im = im.resize((ow, oh), Image.BILINEAR)                 # the 0.60 m image
@@ -244,7 +259,8 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
 
     return {"data_yaml": yaml_path, "images": written, "boxes": boxes,
             "n_images": len(per_image), "skipped_no_image": skipped_no_image,
-            "tiles_empty_skipped": tiles_empty_skipped, "tile": tile, "stride": stride,
+            "tiles_empty_skipped": tiles_empty_skipped,
+            "images_unreadable": images_unreadable, "tile": tile, "stride": stride,
             "downsample_factor": factor, "classes": e2y.CLASS_NAMES,
             "holdout_region": holdout_region,
             "split_mode": "holdout_region" if holdout_region else "image_hash",

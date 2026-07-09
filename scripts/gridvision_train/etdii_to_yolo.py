@@ -42,7 +42,8 @@ CLASS_NAMES = ["tower"]
 # held-out-REGION generalization split (gate-1 item a): train on some regions,
 # evaluate on a region never seen. Longest-prefix match so a more specific region
 # name wins. Extend as more regions (Duke-US zips, new states) are added.
-REGION_PREFIXES = ["USA_AZ_Tucson", "USA_KS_Colwich_Maize"]
+REGION_PREFIXES = ["USA_AZ_Tucson", "USA_KS_Colwich_Maize",
+                   "USA_CT_Hartford", "USA_NC_Clyde", "USA_NC_Wilmington"]
 
 
 def region_of(stem, prefixes=REGION_PREFIXES):
