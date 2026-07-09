@@ -1,0 +1,32 @@
+[
+  {
+    "version": "v0",
+    "job": "gv-detector-v0-2",
+    "eval_key": "image_split",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.0358,
+      "map50_95": 0.0091,
+      "precision": 0.25,
+      "recall": 0.0353
+    },
+    "timestamp_utc": "2026-07-09T02:39:52Z",
+    "notes": "v0 whole-image downscale to imgsz 512 — gate-1 SIGNAL FAIL (sub-pixel towers)",
+    "regression_verdict": {"eval_key": "image_split", "status": "baseline"}
+  },
+  {
+    "version": "v1",
+    "job": "gv-detector-v1-2",
+    "eval_key": "image_split",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.566,
+      "map50_95": 0.225,
+      "precision": 0.732,
+      "recall": 0.499
+    },
+    "timestamp_utc": "2026-07-09T04:11:04Z",
+    "notes": "v1 tiling 640/512, both regions in train — clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
+    "regression_verdict": {"eval_key": "image_split", "status": "improved_investigated", "prior_best": 0.0358, "delta": 0.5302, "detail": "large jump verified real via the per-epoch curve"}
+  }
+]
