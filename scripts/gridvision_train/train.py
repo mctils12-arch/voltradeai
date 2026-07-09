@@ -279,15 +279,36 @@ def materialize_naip_chips(chip_index_path, out_dir, limit=None, target_gsd=TARG
 
 # ── training (on-pod: ultralytics) ──────────────────────────────────────────
 
-def run_training(data_yaml, out_root, epochs=60, imgsz=512, model="yolov8n.pt", device=0):
+# STRONG augmentation preset — the cheap cross-region/-domain generalization lever
+# the v1/v2 runs never pulled (they used Ultralytics defaults). Rationale for
+# gate-1(a)'s held-out FAIL: a model that only saw AZ+KS appearance overfits that
+# look. Heavy HSV jitter simulates other regions'/imagery's radiometry (the ortho->
+# NAIP and desert->plains gaps); flipud=0.5 is valid for NADIR aerial (no canonical
+# "up") and doubles orientation coverage free; scale/rotate/mosaic/mixup/copy_paste
+# broaden object context. All are label-preserving for axis-aligned tower boxes.
+STRONG_AUG = {
+    "hsv_h": 0.02, "hsv_s": 0.8, "hsv_v": 0.5, "degrees": 10.0, "translate": 0.15,
+    "scale": 0.6, "shear": 2.0, "perspective": 0.0005, "flipud": 0.5, "fliplr": 0.5,
+    "mosaic": 1.0, "mixup": 0.15, "copy_paste": 0.2, "erasing": 0.4,
+}
+
+
+def aug_kwargs(preset):
+    """Augmentation kwargs for Ultralytics train() by preset name. 'default' -> {}
+    (Ultralytics defaults); 'strong' -> STRONG_AUG. Pure."""
+    return dict(STRONG_AUG) if preset == "strong" else {}
+
+
+def run_training(data_yaml, out_root, epochs=60, imgsz=512, model="yolov8n.pt",
+                 device=0, aug="default"):
     """Fine-tune Ultralytics YOLO from COCO weights. On-pod. Returns
-    (best_weights_path, metrics dict). Small epoch budget so a 2-region tower set
-    finishes well inside the 4 h cap on a 4090."""
+    (best_weights_path, metrics dict). `aug` selects the augmentation preset
+    (default | strong) — strong is the cross-region generalization lever."""
     from ultralytics import YOLO
     yolo = YOLO(model)  # COCO-pretrained
     results = yolo.train(data=data_yaml, epochs=epochs, imgsz=imgsz, device=device,
                          project=out_root, name="tower_v0", exist_ok=True,
-                         verbose=True)
+                         verbose=True, **aug_kwargs(aug))
     # locate best.pt
     save_dir = getattr(results, "save_dir", os.path.join(out_root, "tower_v0"))
     best = os.path.join(str(save_dir), "weights", "best.pt")
@@ -435,7 +456,7 @@ def run_full(args):
             args.chip_index, os.path.join(work, "naip_chips"), limit=args.chip_limit)
         print("[train] naip chips:", json.dumps(chip_report), flush=True)
     best, metrics = run_training(ds["data_yaml"], work, epochs=args.epochs,
-                                 imgsz=args.imgsz, model=args.model)
+                                 imgsz=args.imgsz, model=args.model, aug=args.aug)
     # write-back (D): push weights out + ALWAYS print metrics to stdout
     sink = {"ok": False, "url": None, "note": "no best.pt found"}
     if best and os.path.exists(best):
@@ -461,6 +482,8 @@ def build_parser():
                    help="ETDII region name to hold out as val (gate-1 cross-region test); "
                         "e.g. USA_AZ_Tucson or USA_KS_Colwich_Maize")
     p.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starter")
+    p.add_argument("--aug", default="default", choices=["default", "strong"],
+                   help="augmentation preset — 'strong' is the cross-region generalization lever")
     p.add_argument("--val-frac", dest="val_frac", type=float, default=0.2)
     p.add_argument("--out", default="/workspace/gv_out", help="pod work/output dir")
     p.add_argument("--chip-index", default=None,

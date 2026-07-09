@@ -164,6 +164,18 @@ def test_tile_windows_cover_edges_and_clamp():
         e2y.tile_windows(100, 100, tile=0, stride=512)
 
 
+def test_aug_kwargs_presets():
+    assert train.aug_kwargs("default") == {}
+    strong = train.aug_kwargs("strong")
+    # the cross-domain-critical knobs are actually cranked
+    assert strong["hsv_v"] >= 0.4 and strong["hsv_s"] >= 0.6
+    assert strong["flipud"] == 0.5          # nadir aerial: vertical flip is label-safe
+    assert strong["mixup"] > 0 and strong["copy_paste"] > 0
+    # returns a COPY, not the shared module dict (caller must not mutate global)
+    strong["hsv_v"] = 0.0
+    assert train.aug_kwargs("strong")["hsv_v"] >= 0.4
+
+
 def test_region_of_longest_prefix():
     assert e2y.region_of("USA_AZ_Tucson_12") == "USA_AZ_Tucson"
     assert e2y.region_of("USA_KS_Colwich_Maize_3") == "USA_KS_Colwich_Maize"

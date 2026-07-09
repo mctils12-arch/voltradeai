@@ -119,3 +119,17 @@ the exact next run, and a top-up PO in wishlist.md stating what the next $N buys
 - (c) NAIP domain: PENDING — needs the same driver + OSM/Overpass tower fetch.
 - Revised spend order (logged in experiments.md): + training regions (Duke-US) →
   retrain multi-region → NAIP self-bootstrap → Nevada seed (honest low-accuracy).
+
+## EXPERIMENT E-aug (pre-stated 2026-07-09, BEFORE running) — fix gate-1(a) via augmentation
+
+HYPOTHESIS: gate-1(a)'s cross-region FAIL (held-out ~0.056) is partly appearance
+brittleness the default-augmentation v1/v2 runs never fought. Strong augmentation
+(heavy HSV to simulate other regions'/NAIP radiometry, flipud for nadir aerial,
+scale/rotate/mosaic/mixup/copy_paste) should improve cross-region transfer.
+DESIGN: both held-out folds, yolov8s, 80 epochs, --aug strong. Compare to the
+yolov8n/default-aug held-out baselines (AZ 0.056, KS 0.059).
+PRIOR (moderate): aug lifts held-out AP50 into 0.10-0.25; single-region training
+is still fundamentally thin, so clearing 0.30 is optimistic.
+BARS: SOLVES gate-1(a) if held-out AP50 >= 0.30 on BOTH folds. PARTIAL if >= 0.15
+(~3x baseline) on both. NO-HELP if < 0.15. Attribution: yolov8s adds ~0.08
+in-domain, so a held-out jump well beyond that implicates augmentation, not model.
