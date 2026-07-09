@@ -64,8 +64,24 @@ import etdii_to_yolo as e2y      # noqa: E402  pure conversion
 import weight_sink               # noqa: E402  pure parsing + guarded upload
 import gridvision_etdii as etdii  # noqa: E402  reuse the verified parser
 
-# ETDII US zips (figshare 14935434 v2) — file ids VERIFIED 2026-07-07.
-ETDII_US_FILE_IDS = {"USA_AZ_Tucson": 28887792, "USA_KS_Colwich_Maize": 28887795}
+# ETDII zips (figshare 14935434) — file ids VERIFIED via the figshare API
+# 2026-07-07 (US) and 2026-07-09 (NZ). US = the 2 in-scope regions; NZ = 5 more
+# regions in the SAME geojson format (gridvision_etdii.parse_geojson), added as
+# training-DIVERSITY to attack gate-1(a)'s cross-region FAIL. All small (14-120 MB).
+ETDII_REGIONS = {
+    "USA_AZ_Tucson": 28887792, "USA_KS_Colwich_Maize": 28887795,
+    "NZ_Dunedin": 28887777, "NZ_Gisborne": 28887780,
+    "NZ_Palmerston_North": 28887783, "NZ_Rotorua": 28887786, "NZ_Tauranga": 28887789,
+}
+# Duke E&TD deposit (figshare 6931088) — SAME geojson schema (label/pixel_coordinates/
+# filename, VERIFIED 2026-07-09 on the sample), 3 MORE real US regions (Northeast +
+# Southeast/Appalachian) for the diversity push past the 0.30 held-out bar. BIG zips
+# (1.8-6 GB, large orthos) — opt-in only via explicit --regions, never a default.
+DUKE_US_REGIONS = {
+    "USA_CT_Hartford": 12708365, "USA_NC_Clyde": 12705920, "USA_NC_Wilmington": 12707420,
+}
+REGION_FILE_IDS = {**ETDII_REGIONS, **DUKE_US_REGIONS}   # deposit-agnostic (ndownloader is by file id)
+ETDII_US_FILE_IDS = {k: v for k, v in ETDII_REGIONS.items() if k.startswith("USA_")}
 ETDII_NDOWNLOAD = "https://ndownloader.figshare.com/files/{fid}"
 ETDII_NATIVE_GSD = 0.30
 TARGET_GSD = 0.60
@@ -74,30 +90,66 @@ IMG_EXTS = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 
 # ── pip bootstrap (on-pod) ──────────────────────────────────────────────────
 
+# The RunPod base image ships torch 2.1.0, which is built against NumPy 1.x.
+# `pip install ultralytics` pulls NumPy 2.x, and torch 2.1.0 cannot consume a
+# 2.x array — the first `torch.from_numpy` (ultralytics' AMP check) dies with
+# "RuntimeError: Numpy is not available", killing the run before a single epoch
+# (observed on gv-detector-v0-1, 2026-07-09). Pinning numpy<2 in the SAME install
+# command keeps the resolver on a torch-2.1-compatible NumPy. Pin lives here (not
+# a requirements file) because this is the on-pod bootstrap and needs no image.
+NUMPY_PIN = "numpy<2"
+
+
 def pip_bootstrap(packages=("ultralytics", "rasterio", "pillow")):
     """Install on-pod deps. On-pod only; skipped by --dry-run. Kept here so the
-    container needs no custom image."""
+    container needs no custom image. numpy<2 is pinned FIRST so pip resolves a
+    NumPy the base image's torch 2.1.0 can actually use (see NUMPY_PIN)."""
     import subprocess
-    print(f"[train] pip installing {packages} ...", flush=True)
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", *packages])
+    pkgs = (NUMPY_PIN, *packages)
+    print(f"[train] pip installing {pkgs} ...", flush=True)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", *pkgs])
 
 
 # ── fetch ETDII US zips (on-pod) ────────────────────────────────────────────
 
-def fetch_etdii_us(dest_dir):
-    """Download the two ETDII US zips to dest_dir -> {city: zip_path}. On-pod
-    (network). Uses stdlib urllib; ~220 MB total."""
+def fetch_etdii_us(dest_dir, regions=None):
+    """Download the selected ETDII region zips to dest_dir -> {region: zip_path}.
+    On-pod (network). `regions` = iterable of region names (keys of ETDII_REGIONS);
+    None => the 2 US regions (back-compat). Unknown names are skipped with a warning
+    (never guessed). Uses stdlib urllib."""
     import urllib.request
     os.makedirs(dest_dir, exist_ok=True)
+    names = list(regions) if regions else list(ETDII_US_FILE_IDS.keys())
     paths = {}
-    for city, fid in ETDII_US_FILE_IDS.items():
+    for city in names:
+        fid = REGION_FILE_IDS.get(city)
+        if fid is None:
+            print(f"[train] WARNING unknown region {city!r} — skipped", flush=True)
+            continue
         out = os.path.join(dest_dir, f"etdii_{city}_{fid}.zip")
         if not os.path.exists(out):
             url = ETDII_NDOWNLOAD.format(fid=fid)
             print(f"[train] fetching {city} ({url}) ...", flush=True)
             req = urllib.request.Request(url, headers={"User-Agent": weight_sink.UA})
-            with urllib.request.urlopen(req, timeout=300) as r, open(out, "wb") as f:
-                f.write(r.read())
+            # STREAM to disk in chunks (the big Duke zips are multi-GB; r.read()
+            # loaded the whole file into RAM and the 600s timeout TRUNCATED it,
+            # corrupting the zip — gv-div2-ks 2026-07-09). copyfileobj + a long
+            # timeout streams safely.
+            import shutil
+            with urllib.request.urlopen(req, timeout=1800) as r, open(out, "wb") as f:
+                shutil.copyfileobj(r, f, length=4 * 1024 * 1024)
+        # verify the archive opens (truncation/corruption -> skip the region, never
+        # crash the whole run on one bad download)
+        try:
+            with zipfile.ZipFile(out) as _z:
+                _z.namelist()
+        except Exception as e:
+            print(f"[train] WARNING {city} zip unreadable ({e}); removing + skipping region", flush=True)
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+            continue
         paths[city] = out
     return paths
 
@@ -115,10 +167,15 @@ def _index_zip_images(names):
     return idx
 
 
-def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",)):
-    """Unzip ETDII US, convert each image's geojson -> YOLO labels (downsampled to
-    0.60 m), split train/val deterministically, write images/ + labels/ +
-    data.yaml. On-pod (needs PIL to read+resize imagery). Returns a summary dict.
+def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",),
+                       tile=640, stride=512, holdout_region=None):
+    """Unzip ETDII US, downsample each image 0.30->0.60 m, then TILE it into
+    `tile`-px windows at `stride` and write one image+label file per POSITIVE tile
+    (>=1 tower). v1 fix for grid-detector-v0's gate-1 failure (experiments.md
+    2026-07-09): v0 resized the WHOLE ortho to imgsz 512, collapsing few-px towers
+    to ~1 px (recall 0.035). Tiling keeps each tower at its true 0.60 m size because
+    the detector trains at imgsz == tile (no second downscale). Tiles inherit their
+    PARENT image's train/val side so no scene straddles the split. On-pod (PIL).
 
     Honest unknown surfaced at runtime: the exact IMAGE filename convention inside
     the ETDII zips is verified ON-POD (the session could not download the 100 MB+
@@ -126,6 +183,7 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     common extensions; images with no sibling raster are counted + skipped, never
     guessed."""
     from PIL import Image  # on-pod pip dep
+    import io
 
     img_train = os.path.join(out_root, "images", "train")
     img_val = os.path.join(out_root, "images", "val")
@@ -137,10 +195,16 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     factor = cog_reader.downsample_factor(ETDII_NATIVE_GSD, TARGET_GSD)  # 2.0
 
     # first pass: collect per-image geojson + sibling image across all zips
-    per_image = {}  # stem -> {"gj": records, "img_name": ..., "zip": path}
+    per_image = {}  # stem -> {"records": ..., "img_name": ..., "zip": path}
     skipped_no_image = 0  # geojsons with no sibling raster — counted, never guessed
+    bad_zip_members = 0  # corrupt members in an otherwise-open zip (Duke macOS zips)
     for zpath in zip_paths.values():
-        with zipfile.ZipFile(zpath) as z:
+        try:
+            zf = zipfile.ZipFile(zpath)
+        except Exception as e:
+            print(f"[train] skip unopenable zip {zpath}: {e}", flush=True)
+            continue
+        with zf as z:
             names = z.namelist()
             img_idx = _index_zip_images(names)
             for name in names:
@@ -152,36 +216,65 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
                     skipped_no_image += 1  # no raster for this geojson -> cannot train on it
                     continue
                 try:
-                    gj = json.loads(z.read(name))
-                except (ValueError, KeyError):
+                    gj = json.loads(z.read(name))          # BadZipFile on a corrupt member header
+                except Exception:
+                    bad_zip_members += 1
                     continue
                 recs = etdii.parse_geojson(gj, "ETDII", "CC BY 4.0")
                 per_image[stem] = {"records": recs, "img_name": img_name, "zip": zpath}
 
-    train_ids, val_ids = e2y.train_val_split(list(per_image.keys()), val_frac)
+    # split by PARENT image (not tile) so tiles from one scene never straddle.
+    # holdout_region (gate-1 item a): ALL images of that region go to val, the rest
+    # to train — a true cross-region generalization test (train regions never
+    # include the eval region). Otherwise the deterministic hash split.
+    stems = list(per_image.keys())
+    if holdout_region:
+        val_ids = [s for s in stems if e2y.region_of(s) == holdout_region]
+        train_ids = [s for s in stems if e2y.region_of(s) != holdout_region]
+    else:
+        train_ids, val_ids = e2y.train_val_split(stems, val_frac)
     split_of = {i: "train" for i in train_ids}
     split_of.update({i: "val" for i in val_ids})
 
-    written = {"train": 0, "val": 0}
+    written = {"train": 0, "val": 0}   # POSITIVE tiles written per split
     boxes = {"train": 0, "val": 0}
+    tiles_empty_skipped = 0            # background-only tiles dropped (positive-only v1)
+    images_unreadable = 0             # a bad/huge raster is skipped+counted, never crashes the run
+    Image.MAX_IMAGE_PIXELS = None     # Duke orthos are huge; disable PIL's decompression-bomb cap
     for stem, info in per_image.items():
         split = split_of[stem]
-        with zipfile.ZipFile(info["zip"]) as z:
-            raw = z.read(info["img_name"])
-        import io
-        im = Image.open(io.BytesIO(raw)).convert("RGB")
+        try:
+            with zipfile.ZipFile(info["zip"]) as z:
+                raw = z.read(info["img_name"])
+            im = Image.open(io.BytesIO(raw)).convert("RGB")
+        except Exception as e:
+            images_unreadable += 1
+            print(f"[train] skip unreadable image {info['img_name']}: {e}", flush=True)
+            continue
         w0, h0 = im.size
         ow, oh = e2y.downsample_image_dims(w0, h0, factor)
-        im = im.resize((ow, oh), Image.BILINEAR)
-        # labels are normalized => computed against ORIGINAL dims == resized dims
-        lines = e2y.records_to_yolo_lines(info["records"], w0, h0, keep_classes)
+        im = im.resize((ow, oh), Image.BILINEAR)                 # the 0.60 m image
+        # tower boxes moved into the 0.60 m pixel space (labels are pixel, so scale)
+        boxes06 = [(cid, e2y.scale_bbox(pb, factor))
+                   for cid, pb in e2y.image_to_label_records(info["records"], keep_classes)]
         img_dir = img_train if split == "train" else img_val
         lbl_dir = lbl_train if split == "train" else lbl_val
-        im.save(os.path.join(img_dir, stem + ".png"))
-        with open(os.path.join(lbl_dir, stem + ".txt"), "w") as f:
-            f.write("\n".join(lines) + ("\n" if lines else ""))
-        written[split] += 1
-        boxes[split] += len(lines)
+        for (x0, y0, tw, th) in e2y.tile_windows(ow, oh, tile, stride):
+            lines = []
+            for cid, pb in boxes06:
+                ln = e2y.box_in_tile_yolo_line(pb, x0, y0, tw, th, cid)
+                if ln is not None:
+                    lines.append(ln)
+            if not lines:
+                tiles_empty_skipped += 1
+                continue                                          # positive tiles only
+            crop = im.crop((x0, y0, x0 + tw, y0 + th))
+            tname = f"{stem}_x{x0}_y{y0}"
+            crop.save(os.path.join(img_dir, tname + ".png"))
+            with open(os.path.join(lbl_dir, tname + ".txt"), "w") as f:
+                f.write("\n".join(lines) + "\n")
+            written[split] += 1
+            boxes[split] += len(lines)
 
     ymap = e2y.data_yaml_dict(out_root, e2y.CLASS_NAMES)
     yaml_path = os.path.join(out_root, "data.yaml")
@@ -190,7 +283,13 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
 
     return {"data_yaml": yaml_path, "images": written, "boxes": boxes,
             "n_images": len(per_image), "skipped_no_image": skipped_no_image,
-            "downsample_factor": factor, "classes": e2y.CLASS_NAMES}
+            "tiles_empty_skipped": tiles_empty_skipped,
+            "images_unreadable": images_unreadable, "bad_zip_members": bad_zip_members,
+            "tile": tile, "stride": stride,
+            "downsample_factor": factor, "classes": e2y.CLASS_NAMES,
+            "holdout_region": holdout_region,
+            "split_mode": "holdout_region" if holdout_region else "image_hash",
+            "n_train_images": len(train_ids), "n_val_images": len(val_ids)}
 
 
 # ── optional: materialize NAIP chips for the OSM-weak-label augmentation (A) ─
@@ -236,15 +335,36 @@ def materialize_naip_chips(chip_index_path, out_dir, limit=None, target_gsd=TARG
 
 # ── training (on-pod: ultralytics) ──────────────────────────────────────────
 
-def run_training(data_yaml, out_root, epochs=60, imgsz=512, model="yolov8n.pt", device=0):
+# STRONG augmentation preset — the cheap cross-region/-domain generalization lever
+# the v1/v2 runs never pulled (they used Ultralytics defaults). Rationale for
+# gate-1(a)'s held-out FAIL: a model that only saw AZ+KS appearance overfits that
+# look. Heavy HSV jitter simulates other regions'/imagery's radiometry (the ortho->
+# NAIP and desert->plains gaps); flipud=0.5 is valid for NADIR aerial (no canonical
+# "up") and doubles orientation coverage free; scale/rotate/mosaic/mixup/copy_paste
+# broaden object context. All are label-preserving for axis-aligned tower boxes.
+STRONG_AUG = {
+    "hsv_h": 0.02, "hsv_s": 0.8, "hsv_v": 0.5, "degrees": 10.0, "translate": 0.15,
+    "scale": 0.6, "shear": 2.0, "perspective": 0.0005, "flipud": 0.5, "fliplr": 0.5,
+    "mosaic": 1.0, "mixup": 0.15, "copy_paste": 0.2, "erasing": 0.4,
+}
+
+
+def aug_kwargs(preset):
+    """Augmentation kwargs for Ultralytics train() by preset name. 'default' -> {}
+    (Ultralytics defaults); 'strong' -> STRONG_AUG. Pure."""
+    return dict(STRONG_AUG) if preset == "strong" else {}
+
+
+def run_training(data_yaml, out_root, epochs=60, imgsz=512, model="yolov8n.pt",
+                 device=0, aug="default"):
     """Fine-tune Ultralytics YOLO from COCO weights. On-pod. Returns
-    (best_weights_path, metrics dict). Small epoch budget so a 2-region tower set
-    finishes well inside the 4 h cap on a 4090."""
+    (best_weights_path, metrics dict). `aug` selects the augmentation preset
+    (default | strong) — strong is the cross-region generalization lever."""
     from ultralytics import YOLO
     yolo = YOLO(model)  # COCO-pretrained
     results = yolo.train(data=data_yaml, epochs=epochs, imgsz=imgsz, device=device,
                          project=out_root, name="tower_v0", exist_ok=True,
-                         verbose=True)
+                         verbose=True, **aug_kwargs(aug))
     # locate best.pt
     save_dir = getattr(results, "save_dir", os.path.join(out_root, "tower_v0"))
     best = os.path.join(str(save_dir), "weights", "best.pt")
@@ -345,7 +465,21 @@ def dry_run():
     ytxt = e2y.dump_simple_yaml(e2y.data_yaml_dict("/tmp/ds"))
     check("data_yaml", "names: ['tower']" in ytxt and "nc: 1" in ytxt, ytxt.strip())
 
-    # 7) weight-sink URL parsing (no network)
+    # 7) v1 tiling: a large frame yields edge-flush windows, and a box maps into
+    #    its tile in tile-local normalized coords (the fix for v0's downscale bug)
+    wins = e2y.tile_windows(1500, 1000, tile=640, stride=512)
+    covers_right = any(x0 + tw == 1500 for (x0, y0, tw, th) in wins)
+    covers_bottom = any(y0 + th == 1000 for (x0, y0, tw, th) in wins)
+    # a 20px tower at (700,300) in 0.6m space -> lands in the tile starting x=512
+    box06 = e2y.scale_bbox([1400, 600, 1440, 640], 2.0)  # -> [700,300,720,320]
+    ln = e2y.box_in_tile_yolo_line(box06, 512, 0, 640, 640, 0)
+    outside = e2y.box_in_tile_yolo_line(box06, 0, 0, 640, 640, 0)  # box is east of this tile
+    check("tiling", bool(wins) and covers_right and covers_bottom
+          and box06 == [700.0, 300.0, 720.0, 320.0]
+          and ln is not None and ln.startswith("0 ") and outside is None,
+          f"n_windows={len(wins)} sample_line={ln!r} outside={outside!r}")
+
+    # 8) weight-sink URL parsing (no network)
     url = weight_sink.parse_upload_url("https://0x0.st/abcd.pt\n")
     check("weight_sink_parse", url == "https://0x0.st/abcd.pt", f"url={url}")
 
@@ -363,15 +497,29 @@ def run_full(args):
     pip_bootstrap()
     work = args.out
     os.makedirs(work, exist_ok=True)
-    zips = fetch_etdii_us(os.path.join(work, "etdii"))
-    ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac)
+    if args.regions == "all":
+        regions = list(ETDII_REGIONS.keys())
+    elif args.regions:
+        regions = [r.strip() for r in args.regions.split(",") if r.strip()]
+    else:
+        regions = None  # default: 2 US regions
+    print(f"[train] training regions: {regions or list(ETDII_US_FILE_IDS.keys())}", flush=True)
+    zips = fetch_etdii_us(os.path.join(work, "etdii"), regions=regions)
+    ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac,
+                            tile=args.tile, stride=args.stride,
+                            holdout_region=args.holdout_region)
     print("[train] dataset:", json.dumps(ds), flush=True)
+    if args.imgsz < args.tile:
+        # a smaller imgsz would re-downscale the tiles and re-create the v0 bug;
+        # train at the tile resolution so towers keep their true 0.60 m size.
+        print(f"[train] raising imgsz {args.imgsz}->{args.tile} to match tile (no re-downscale)", flush=True)
+        args.imgsz = args.tile
     if args.chip_index:
         chip_report = materialize_naip_chips(
             args.chip_index, os.path.join(work, "naip_chips"), limit=args.chip_limit)
         print("[train] naip chips:", json.dumps(chip_report), flush=True)
     best, metrics = run_training(ds["data_yaml"], work, epochs=args.epochs,
-                                 imgsz=args.imgsz, model=args.model)
+                                 imgsz=args.imgsz, model=args.model, aug=args.aug)
     # write-back (D): push weights out + ALWAYS print metrics to stdout
     sink = {"ok": False, "url": None, "note": "no best.pt found"}
     if best and os.path.exists(best):
@@ -390,8 +538,18 @@ def build_parser():
     p.add_argument("--dry-run", action="store_true",
                    help="CPU-only wiring proof: no GPU/rasterio/ultralytics, no training")
     p.add_argument("--epochs", type=int, default=60)
-    p.add_argument("--imgsz", type=int, default=512)
+    p.add_argument("--imgsz", type=int, default=640)
+    p.add_argument("--tile", type=int, default=640, help="tile window px (v1: detect on native-GSD tiles)")
+    p.add_argument("--stride", type=int, default=512, help="tile stride px (< tile => overlap)")
+    p.add_argument("--holdout-region", dest="holdout_region", default=None,
+                   help="ETDII region name to hold out as val (gate-1 cross-region test); "
+                        "e.g. USA_AZ_Tucson or USA_KS_Colwich_Maize")
     p.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starter")
+    p.add_argument("--aug", default="default", choices=["default", "strong"],
+                   help="augmentation preset — 'strong' is the cross-region generalization lever")
+    p.add_argument("--regions", default=None,
+                   help="'all' (7 ETDII regions: 2 US + 5 NZ, for diversity) or a "
+                        "comma-list of region names; default = 2 US regions")
     p.add_argument("--val-frac", dest="val_frac", type=float, default=0.2)
     p.add_argument("--out", default="/workspace/gv_out", help="pod work/output dir")
     p.add_argument("--chip-index", default=None,

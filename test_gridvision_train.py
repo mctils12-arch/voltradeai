@@ -146,6 +146,84 @@ def test_records_filter_tower_only():
     assert [c for c, _ in kept] == [0]
 
 
+# ── (B2) v1 tiling: detect on native-GSD windows, not a downscaled full frame ─
+
+def test_tile_windows_cover_edges_and_clamp():
+    wins = e2y.tile_windows(1500, 1000, tile=640, stride=512)
+    # every window is within the image and no bigger than the tile
+    for x0, y0, tw, th in wins:
+        assert 0 <= x0 and 0 <= y0 and 0 < tw <= 640 and 0 < th <= 640
+        assert x0 + tw <= 1500 and y0 + th <= 1000
+    # far edges are covered (a flush window on each axis)
+    assert any(x0 + tw == 1500 for x0, y0, tw, th in wins)
+    assert any(y0 + th == 1000 for x0, y0, tw, th in wins)
+    # an image smaller than the tile -> a single full-extent window
+    small = e2y.tile_windows(400, 300, tile=640, stride=512)
+    assert small == [(0, 0, 400, 300)]
+    with pytest.raises(ValueError):
+        e2y.tile_windows(100, 100, tile=0, stride=512)
+
+
+def test_aug_kwargs_presets():
+    assert train.aug_kwargs("default") == {}
+    strong = train.aug_kwargs("strong")
+    # the cross-domain-critical knobs are actually cranked
+    assert strong["hsv_v"] >= 0.4 and strong["hsv_s"] >= 0.6
+    assert strong["flipud"] == 0.5          # nadir aerial: vertical flip is label-safe
+    assert strong["mixup"] > 0 and strong["copy_paste"] > 0
+    # returns a COPY, not the shared module dict (caller must not mutate global)
+    strong["hsv_v"] = 0.0
+    assert train.aug_kwargs("strong")["hsv_v"] >= 0.4
+
+
+def test_etdii_region_config():
+    # 7 ETDII regions (2 US + 5 NZ) + 3 Duke US = 10 in the deposit-agnostic lookup
+    assert len(train.ETDII_REGIONS) == 7
+    assert len(train.DUKE_US_REGIONS) == 3
+    assert len(train.REGION_FILE_IDS) == 10
+    # DEFAULT stays the 2 light ETDII US regions (Duke never auto-downloads)
+    assert set(train.ETDII_US_FILE_IDS) == {"USA_AZ_Tucson", "USA_KS_Colwich_Maize"}
+    assert "USA_CT_Hartford" not in train.ETDII_US_FILE_IDS
+    # Duke US regions are recognised for the held-out split; NZ routes to train
+    assert e2y.region_of("USA_NC_Clyde_4") == "USA_NC_Clyde"
+    assert e2y.region_of("NZ_Dunedin_3") is None
+
+
+def test_region_of_longest_prefix():
+    assert e2y.region_of("USA_AZ_Tucson_12") == "USA_AZ_Tucson"
+    assert e2y.region_of("USA_KS_Colwich_Maize_3") == "USA_KS_Colwich_Maize"
+    assert e2y.region_of("NZ_Dunedin_1") is None       # unknown region -> never bucketed
+    # a held-out split is a clean partition: every AZ stem is val, every KS stem train
+    stems = ["USA_AZ_Tucson_1", "USA_AZ_Tucson_2", "USA_KS_Colwich_Maize_1"]
+    val = [s for s in stems if e2y.region_of(s) == "USA_AZ_Tucson"]
+    train = [s for s in stems if e2y.region_of(s) != "USA_AZ_Tucson"]
+    assert val == ["USA_AZ_Tucson_1", "USA_AZ_Tucson_2"]
+    assert train == ["USA_KS_Colwich_Maize_1"]
+    assert set(val) & set(train) == set()              # no leakage across the fold
+
+
+def test_scale_bbox_halves_for_downsample():
+    assert e2y.scale_bbox([1400, 600, 1440, 640], 2.0) == [700.0, 300.0, 720.0, 320.0]
+    with pytest.raises(ValueError):
+        e2y.scale_bbox([1, 2, 3, 4], 0)
+
+
+def test_box_in_tile_clips_translates_and_drops():
+    # fully-inside box -> tile-local normalized line (center of a 20px box at (710,310))
+    ln = e2y.box_in_tile_yolo_line([700, 300, 720, 320], 512, 0, 640, 640, 0)
+    parts = ln.split()
+    assert parts[0] == "0"
+    assert float(parts[1]) == pytest.approx((710 - 512) / 640, abs=1e-5)  # local cx
+    assert float(parts[2]) == pytest.approx(310 / 640, abs=1e-5)          # local cy
+    # box east of the tile -> no overlap -> None
+    assert e2y.box_in_tile_yolo_line([700, 300, 720, 320], 0, 0, 640, 640, 0) is None
+    # barely-clipped box (only ~1% inside the tile edge) is dropped by min_visible
+    assert e2y.box_in_tile_yolo_line([636, 100, 736, 200], 0, 0, 640, 640, 0) is None
+    # a box straddling the edge but mostly inside is KEPT and clipped in-bounds
+    kept = e2y.box_in_tile_yolo_line([600, 100, 660, 160], 0, 0, 640, 640, 0)
+    assert kept is not None and all(0.0 <= float(v) <= 1.0 for v in kept.split()[1:])
+
+
 # ── (B) deterministic split ─────────────────────────────────────────────────
 
 def test_train_val_split_deterministic_and_order_independent():
@@ -228,6 +306,29 @@ def test_upload_weight_with_injected_uploader(tmp_path):
     assert fail["ok"] is False and fail["url"] is None and fail["errors"]
 
 
+# ── (F) on-pod bootstrap pins a torch-2.1-compatible NumPy ──────────────────
+
+def test_pip_bootstrap_pins_numpy_below_2(monkeypatch):
+    """Regression for gv-detector-v0-1 (2026-07-09): the RunPod torch-2.1.0 base
+    image + an unpinned `pip install ultralytics` pulls NumPy 2.x, and the first
+    torch.from_numpy (ultralytics' AMP check) dies with 'Numpy is not available',
+    burning a full GPU-hour before any epoch. The bootstrap must constrain numpy<2
+    in the install command, ahead of ultralytics, so pip never resolves 2.x."""
+    import subprocess
+
+    captured = {}
+
+    def fake_check_call(argv, *a, **k):
+        captured["argv"] = list(argv)
+
+    monkeypatch.setattr(subprocess, "check_call", fake_check_call)
+    train.pip_bootstrap()
+    argv = captured["argv"]
+    assert "numpy<2" in argv, argv
+    # the numpy constraint must precede ultralytics in the resolve set
+    assert argv.index("numpy<2") < argv.index("ultralytics"), argv
+
+
 # ── (E) full dry-run wiring, offline ────────────────────────────────────────
 
 def test_dry_run_wires_end_to_end_offline():
@@ -238,5 +339,6 @@ def test_dry_run_wires_end_to_end_offline():
     assert names["labels_manifest"] and names["yolo_conversion"]
     assert names["downsample_invariance"] and names["split_determinism"]
     assert names["cog_window_geometry"] and names["weight_sink_parse"]
+    assert names["tiling"]  # v1 tiling path wired
     assert report["summary"]["manifest_tower"] == 1408
     assert report["summary"]["manifest_substation"] == 6

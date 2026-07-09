@@ -1,0 +1,203 @@
+[
+  {
+    "version": "v0",
+    "job": "gv-detector-v0-2",
+    "eval_key": "image_split",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.0358,
+      "map50_95": 0.0091,
+      "precision": 0.25,
+      "recall": 0.0353
+    },
+    "timestamp_utc": "2026-07-09T02:39:52Z",
+    "notes": "v0 whole-image downscale to imgsz 512 — gate-1 SIGNAL FAIL (sub-pixel towers)",
+    "regression_verdict": {
+      "eval_key": "image_split",
+      "status": "baseline"
+    }
+  },
+  {
+    "version": "v1",
+    "job": "gv-detector-v1-2",
+    "eval_key": "image_split",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.566,
+      "map50_95": 0.225,
+      "precision": 0.732,
+      "recall": 0.499
+    },
+    "timestamp_utc": "2026-07-09T04:11:04Z",
+    "notes": "v1 tiling 640/512, both regions in train — clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
+    "regression_verdict": {
+      "eval_key": "image_split",
+      "status": "improved_investigated",
+      "prior_best": 0.0358,
+      "delta": 0.5302,
+      "detail": "large jump verified real via the per-epoch curve"
+    }
+  },
+  {
+    "version": "g1a-az",
+    "job": "gv-g1a-az-r2",
+    "eval_key": "holdout:USA_AZ_Tucson",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.056,
+      "precision": 0.097,
+      "recall": 0.143
+    },
+    "timestamp_utc": "2026-07-09T05:00:00Z",
+    "notes": "train KS only -> eval unseen AZ desert. FAILS gate-1(a) bar (>=0.30). Cross-biome transfer weak.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_AZ_Tucson",
+      "metric": "map50",
+      "value": 0.056,
+      "prior_best": null,
+      "status": "baseline",
+      "detail": "first measurement for this key — recorded as baseline"
+    }
+  },
+  {
+    "version": "g1a-ks",
+    "job": "gv-g1a-ks-r2",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.059,
+      "precision": 0.177,
+      "recall": 0.092
+    },
+    "timestamp_utc": "2026-07-09T05:05:00Z",
+    "notes": "train AZ only -> eval unseen KS plains. FAILS gate-1(a) bar. Both folds fail: single-region training does not transfer.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_KS_Colwich_Maize",
+      "metric": "map50",
+      "value": 0.059,
+      "prior_best": null,
+      "status": "baseline",
+      "detail": "first measurement for this key — recorded as baseline"
+    }
+  },
+  {
+    "version": "v2",
+    "job": "gv-g1d-s",
+    "eval_key": "image_split",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.642,
+      "map50_95": 0.26,
+      "precision": 0.73,
+      "recall": 0.588
+    },
+    "timestamp_utc": "2026-07-09T05:20:00Z",
+    "notes": "yolov8s + 80 epochs, tiling 640/512, both regions. PASSES gate-1(d) (>=0.59/0.55). New in-domain champion.",
+    "regression_verdict": {
+      "eval_key": "image_split",
+      "metric": "map50",
+      "value": 0.642,
+      "prior_best": 0.566,
+      "delta": 0.076,
+      "status": "improved",
+      "detail": "map50 +0.0760 over prior best 0.566"
+    }
+  },
+  {
+    "version": "eaug-ks",
+    "job": "gv-eaug-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.107,
+      "precision": 0.224,
+      "recall": 0.188
+    },
+    "timestamp_utc": "2026-07-09T06:00:00Z",
+    "notes": "train AZ + STRONG AUG -> eval unseen KS. ~2x baseline (0.059) but still <0.15 partial bar. Aug helps modestly.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_KS_Colwich_Maize",
+      "metric": "map50",
+      "value": 0.107,
+      "prior_best": 0.059,
+      "delta": 0.048,
+      "status": "improved",
+      "detail": "map50 +0.0480 over prior best 0.059"
+    }
+  },
+  {
+    "version": "eaug-az",
+    "job": "gv-eaug-az",
+    "eval_key": "holdout:USA_AZ_Tucson",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.147,
+      "precision": 0.269,
+      "recall": 0.187
+    },
+    "timestamp_utc": "2026-07-09T06:05:00Z",
+    "notes": "train KS + STRONG AUG -> eval unseen AZ. ~2.6x baseline (0.056), at partial bar. Aug helps, doesn't solve.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_AZ_Tucson",
+      "metric": "map50",
+      "value": 0.147,
+      "prior_best": 0.056,
+      "delta": 0.091,
+      "status": "improved",
+      "detail": "map50 +0.0910 over prior best 0.056"
+    }
+  },
+  {
+    "version": "div-ks",
+    "job": "gv-div-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.2,
+      "precision": 0.328,
+      "recall": 0.251
+    },
+    "timestamp_utc": "2026-07-09T06:20:00Z",
+    "notes": "train AZ+5NZ (6 regions) + strong aug -> eval unseen KS. 0.059->0.107->0.200: aug+diversity compound ~3.4x. Diversity is the lever, not saturated.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_KS_Colwich_Maize",
+      "metric": "map50",
+      "value": 0.2,
+      "prior_best": 0.107,
+      "delta": 0.093,
+      "status": "improved",
+      "detail": "map50 +0.0930 over prior best 0.107"
+    }
+  },
+  {
+    "version": "div-az",
+    "job": "gv-div-az",
+    "eval_key": "holdout:USA_AZ_Tucson",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.196,
+      "precision": 0.336,
+      "recall": 0.2
+    },
+    "timestamp_utc": "2026-07-09T06:25:00Z",
+    "notes": "train KS+5NZ (6 regions) + strong aug -> eval unseen AZ. 0.056->0.147->0.196. Diversity is the fix, compounds, not saturated.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_AZ_Tucson",
+      "metric": "map50",
+      "value": 0.196,
+      "prior_best": 0.147,
+      "delta": 0.049,
+      "status": "improved",
+      "detail": "map50 +0.0490 over prior best 0.147"
+    }
+  },
+  {
+    "version": "div2-ks-FAILED",
+    "job": "gv-div2-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {},
+    "timestamp_utc": "2026-07-09T06:40:00Z",
+    "notes": "train AZ+5NZ+3 Duke US -> eval KS. FAILED (train_rc=1): Duke 6GB zip download truncated -> BadZipFile. NOT a parser issue (schema verified compatible). Fixed: streaming download + skip-corrupt-member hardening. Retry pending. Cost $0.33."
+  }
+]
