@@ -127,10 +127,15 @@ def _index_zip_images(names):
     return idx
 
 
-def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",)):
-    """Unzip ETDII US, convert each image's geojson -> YOLO labels (downsampled to
-    0.60 m), split train/val deterministically, write images/ + labels/ +
-    data.yaml. On-pod (needs PIL to read+resize imagery). Returns a summary dict.
+def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",),
+                       tile=640, stride=512):
+    """Unzip ETDII US, downsample each image 0.30->0.60 m, then TILE it into
+    `tile`-px windows at `stride` and write one image+label file per POSITIVE tile
+    (>=1 tower). v1 fix for grid-detector-v0's gate-1 failure (experiments.md
+    2026-07-09): v0 resized the WHOLE ortho to imgsz 512, collapsing few-px towers
+    to ~1 px (recall 0.035). Tiling keeps each tower at its true 0.60 m size because
+    the detector trains at imgsz == tile (no second downscale). Tiles inherit their
+    PARENT image's train/val side so no scene straddles the split. On-pod (PIL).
 
     Honest unknown surfaced at runtime: the exact IMAGE filename convention inside
     the ETDII zips is verified ON-POD (the session could not download the 100 MB+
@@ -138,6 +143,7 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     common extensions; images with no sibling raster are counted + skipped, never
     guessed."""
     from PIL import Image  # on-pod pip dep
+    import io
 
     img_train = os.path.join(out_root, "images", "train")
     img_val = os.path.join(out_root, "images", "val")
@@ -149,7 +155,7 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     factor = cog_reader.downsample_factor(ETDII_NATIVE_GSD, TARGET_GSD)  # 2.0
 
     # first pass: collect per-image geojson + sibling image across all zips
-    per_image = {}  # stem -> {"gj": records, "img_name": ..., "zip": path}
+    per_image = {}  # stem -> {"records": ..., "img_name": ..., "zip": path}
     skipped_no_image = 0  # geojsons with no sibling raster — counted, never guessed
     for zpath in zip_paths.values():
         with zipfile.ZipFile(zpath) as z:
@@ -170,30 +176,43 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
                 recs = etdii.parse_geojson(gj, "ETDII", "CC BY 4.0")
                 per_image[stem] = {"records": recs, "img_name": img_name, "zip": zpath}
 
+    # split by PARENT image (not tile) so tiles from one scene never straddle
     train_ids, val_ids = e2y.train_val_split(list(per_image.keys()), val_frac)
     split_of = {i: "train" for i in train_ids}
     split_of.update({i: "val" for i in val_ids})
 
-    written = {"train": 0, "val": 0}
+    written = {"train": 0, "val": 0}   # POSITIVE tiles written per split
     boxes = {"train": 0, "val": 0}
+    tiles_empty_skipped = 0            # background-only tiles dropped (positive-only v1)
     for stem, info in per_image.items():
         split = split_of[stem]
         with zipfile.ZipFile(info["zip"]) as z:
             raw = z.read(info["img_name"])
-        import io
         im = Image.open(io.BytesIO(raw)).convert("RGB")
         w0, h0 = im.size
         ow, oh = e2y.downsample_image_dims(w0, h0, factor)
-        im = im.resize((ow, oh), Image.BILINEAR)
-        # labels are normalized => computed against ORIGINAL dims == resized dims
-        lines = e2y.records_to_yolo_lines(info["records"], w0, h0, keep_classes)
+        im = im.resize((ow, oh), Image.BILINEAR)                 # the 0.60 m image
+        # tower boxes moved into the 0.60 m pixel space (labels are pixel, so scale)
+        boxes06 = [(cid, e2y.scale_bbox(pb, factor))
+                   for cid, pb in e2y.image_to_label_records(info["records"], keep_classes)]
         img_dir = img_train if split == "train" else img_val
         lbl_dir = lbl_train if split == "train" else lbl_val
-        im.save(os.path.join(img_dir, stem + ".png"))
-        with open(os.path.join(lbl_dir, stem + ".txt"), "w") as f:
-            f.write("\n".join(lines) + ("\n" if lines else ""))
-        written[split] += 1
-        boxes[split] += len(lines)
+        for (x0, y0, tw, th) in e2y.tile_windows(ow, oh, tile, stride):
+            lines = []
+            for cid, pb in boxes06:
+                ln = e2y.box_in_tile_yolo_line(pb, x0, y0, tw, th, cid)
+                if ln is not None:
+                    lines.append(ln)
+            if not lines:
+                tiles_empty_skipped += 1
+                continue                                          # positive tiles only
+            crop = im.crop((x0, y0, x0 + tw, y0 + th))
+            tname = f"{stem}_x{x0}_y{y0}"
+            crop.save(os.path.join(img_dir, tname + ".png"))
+            with open(os.path.join(lbl_dir, tname + ".txt"), "w") as f:
+                f.write("\n".join(lines) + "\n")
+            written[split] += 1
+            boxes[split] += len(lines)
 
     ymap = e2y.data_yaml_dict(out_root, e2y.CLASS_NAMES)
     yaml_path = os.path.join(out_root, "data.yaml")
@@ -202,6 +221,7 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
 
     return {"data_yaml": yaml_path, "images": written, "boxes": boxes,
             "n_images": len(per_image), "skipped_no_image": skipped_no_image,
+            "tiles_empty_skipped": tiles_empty_skipped, "tile": tile, "stride": stride,
             "downsample_factor": factor, "classes": e2y.CLASS_NAMES}
 
 
@@ -357,7 +377,21 @@ def dry_run():
     ytxt = e2y.dump_simple_yaml(e2y.data_yaml_dict("/tmp/ds"))
     check("data_yaml", "names: ['tower']" in ytxt and "nc: 1" in ytxt, ytxt.strip())
 
-    # 7) weight-sink URL parsing (no network)
+    # 7) v1 tiling: a large frame yields edge-flush windows, and a box maps into
+    #    its tile in tile-local normalized coords (the fix for v0's downscale bug)
+    wins = e2y.tile_windows(1500, 1000, tile=640, stride=512)
+    covers_right = any(x0 + tw == 1500 for (x0, y0, tw, th) in wins)
+    covers_bottom = any(y0 + th == 1000 for (x0, y0, tw, th) in wins)
+    # a 20px tower at (700,300) in 0.6m space -> lands in the tile starting x=512
+    box06 = e2y.scale_bbox([1400, 600, 1440, 640], 2.0)  # -> [700,300,720,320]
+    ln = e2y.box_in_tile_yolo_line(box06, 512, 0, 640, 640, 0)
+    outside = e2y.box_in_tile_yolo_line(box06, 0, 0, 640, 640, 0)  # box is east of this tile
+    check("tiling", bool(wins) and covers_right and covers_bottom
+          and box06 == [700.0, 300.0, 720.0, 320.0]
+          and ln is not None and ln.startswith("0 ") and outside is None,
+          f"n_windows={len(wins)} sample_line={ln!r} outside={outside!r}")
+
+    # 8) weight-sink URL parsing (no network)
     url = weight_sink.parse_upload_url("https://0x0.st/abcd.pt\n")
     check("weight_sink_parse", url == "https://0x0.st/abcd.pt", f"url={url}")
 
@@ -376,8 +410,14 @@ def run_full(args):
     work = args.out
     os.makedirs(work, exist_ok=True)
     zips = fetch_etdii_us(os.path.join(work, "etdii"))
-    ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac)
+    ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac,
+                            tile=args.tile, stride=args.stride)
     print("[train] dataset:", json.dumps(ds), flush=True)
+    if args.imgsz < args.tile:
+        # a smaller imgsz would re-downscale the tiles and re-create the v0 bug;
+        # train at the tile resolution so towers keep their true 0.60 m size.
+        print(f"[train] raising imgsz {args.imgsz}->{args.tile} to match tile (no re-downscale)", flush=True)
+        args.imgsz = args.tile
     if args.chip_index:
         chip_report = materialize_naip_chips(
             args.chip_index, os.path.join(work, "naip_chips"), limit=args.chip_limit)
@@ -402,7 +442,9 @@ def build_parser():
     p.add_argument("--dry-run", action="store_true",
                    help="CPU-only wiring proof: no GPU/rasterio/ultralytics, no training")
     p.add_argument("--epochs", type=int, default=60)
-    p.add_argument("--imgsz", type=int, default=512)
+    p.add_argument("--imgsz", type=int, default=640)
+    p.add_argument("--tile", type=int, default=640, help="tile window px (v1: detect on native-GSD tiles)")
+    p.add_argument("--stride", type=int, default=512, help="tile stride px (< tile => overlap)")
     p.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starter")
     p.add_argument("--val-frac", dest="val_frac", type=float, default=0.2)
     p.add_argument("--out", default="/workspace/gv_out", help="pod work/output dir")

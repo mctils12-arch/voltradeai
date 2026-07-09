@@ -146,6 +146,46 @@ def test_records_filter_tower_only():
     assert [c for c, _ in kept] == [0]
 
 
+# ── (B2) v1 tiling: detect on native-GSD windows, not a downscaled full frame ─
+
+def test_tile_windows_cover_edges_and_clamp():
+    wins = e2y.tile_windows(1500, 1000, tile=640, stride=512)
+    # every window is within the image and no bigger than the tile
+    for x0, y0, tw, th in wins:
+        assert 0 <= x0 and 0 <= y0 and 0 < tw <= 640 and 0 < th <= 640
+        assert x0 + tw <= 1500 and y0 + th <= 1000
+    # far edges are covered (a flush window on each axis)
+    assert any(x0 + tw == 1500 for x0, y0, tw, th in wins)
+    assert any(y0 + th == 1000 for x0, y0, tw, th in wins)
+    # an image smaller than the tile -> a single full-extent window
+    small = e2y.tile_windows(400, 300, tile=640, stride=512)
+    assert small == [(0, 0, 400, 300)]
+    with pytest.raises(ValueError):
+        e2y.tile_windows(100, 100, tile=0, stride=512)
+
+
+def test_scale_bbox_halves_for_downsample():
+    assert e2y.scale_bbox([1400, 600, 1440, 640], 2.0) == [700.0, 300.0, 720.0, 320.0]
+    with pytest.raises(ValueError):
+        e2y.scale_bbox([1, 2, 3, 4], 0)
+
+
+def test_box_in_tile_clips_translates_and_drops():
+    # fully-inside box -> tile-local normalized line (center of a 20px box at (710,310))
+    ln = e2y.box_in_tile_yolo_line([700, 300, 720, 320], 512, 0, 640, 640, 0)
+    parts = ln.split()
+    assert parts[0] == "0"
+    assert float(parts[1]) == pytest.approx((710 - 512) / 640, abs=1e-5)  # local cx
+    assert float(parts[2]) == pytest.approx(310 / 640, abs=1e-5)          # local cy
+    # box east of the tile -> no overlap -> None
+    assert e2y.box_in_tile_yolo_line([700, 300, 720, 320], 0, 0, 640, 640, 0) is None
+    # barely-clipped box (only ~1% inside the tile edge) is dropped by min_visible
+    assert e2y.box_in_tile_yolo_line([636, 100, 736, 200], 0, 0, 640, 640, 0) is None
+    # a box straddling the edge but mostly inside is KEPT and clipped in-bounds
+    kept = e2y.box_in_tile_yolo_line([600, 100, 660, 160], 0, 0, 640, 640, 0)
+    assert kept is not None and all(0.0 <= float(v) <= 1.0 for v in kept.split()[1:])
+
+
 # ── (B) deterministic split ─────────────────────────────────────────────────
 
 def test_train_val_split_deterministic_and_order_independent():
@@ -261,5 +301,6 @@ def test_dry_run_wires_end_to_end_offline():
     assert names["labels_manifest"] and names["yolo_conversion"]
     assert names["downsample_invariance"] and names["split_determinism"]
     assert names["cog_window_geometry"] and names["weight_sink_parse"]
+    assert names["tiling"]  # v1 tiling path wired
     assert report["summary"]["manifest_tower"] == 1408
     assert report["summary"]["manifest_substation"] == 6

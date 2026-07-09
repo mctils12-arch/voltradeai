@@ -78,6 +78,73 @@ def downsample_image_dims(img_w, img_h, factor):
     return (max(1, int(round(img_w / factor))), max(1, int(round(img_h / factor))))
 
 
+# ── tiling (v1: detect on native-GSD windows, never a downscaled full frame) ──
+#
+# v0 (grid-detector-v0-2, experiments.md 2026-07-09) resized each WHOLE ortho to
+# imgsz 512 and scored AP50 0.036 / recall 0.035 — dense few-px towers collapsed
+# to ~1 px. v1 slides a fixed-pixel window over the 0.60 m image and trains on the
+# windows at their own resolution (imgsz == tile), so a tower keeps its true 0.60 m
+# size. Both helpers below are pure and offline-tested; train.py does the crop/IO.
+
+def tile_windows(img_w, img_h, tile=640, stride=512):
+    """Top-left origins tiling an (img_w,img_h) image with `tile` windows at
+    `stride`. Always appends an edge-flush window on each axis so no right/bottom
+    strip is dropped, and clamps the last window's size at the border. Returns a
+    list of (x0, y0, tw, th) with tw,th <= tile. An image smaller than `tile` on an
+    axis yields a single full-extent window on that axis. Pure."""
+    if tile <= 0 or stride <= 0:
+        raise ValueError("tile and stride must be > 0")
+    if img_w <= 0 or img_h <= 0:
+        return []
+
+    def starts(extent):
+        if extent <= tile:
+            return [0]
+        s = list(range(0, extent - tile + 1, stride))
+        if s[-1] != extent - tile:
+            s.append(extent - tile)  # flush the final window to the far edge
+        return s
+
+    out = []
+    for y0 in starts(img_h):
+        for x0 in starts(img_w):
+            out.append((x0, y0, min(tile, img_w - x0), min(tile, img_h - y0)))
+    return out
+
+
+def box_in_tile_yolo_line(pixel_bbox, tile_x0, tile_y0, tile_w, tile_h, cls_id=0,
+                          min_visible=0.3):
+    """Clip a [xmin,ymin,xmax,ymax] box (image-pixel coords) to a tile window and,
+    if at least `min_visible` of the box AREA lands inside the tile, return a YOLO
+    line normalized to the tile (via pixel_bbox_to_yolo_line), else None. Dropping
+    barely-clipped boxes keeps edge fragments from becoming mislabelled tiny boxes.
+    Pure."""
+    if not pixel_bbox or len(pixel_bbox) != 4:
+        return None
+    xmin, ymin, xmax, ymax = (float(v) for v in pixel_bbox)
+    ix0 = max(xmin, tile_x0)
+    iy0 = max(ymin, tile_y0)
+    ix1 = min(xmax, tile_x0 + tile_w)
+    iy1 = min(ymax, tile_y0 + tile_h)
+    if ix1 <= ix0 or iy1 <= iy0:
+        return None  # no overlap with this tile
+    box_area = (xmax - xmin) * (ymax - ymin)
+    if box_area <= 0 or ((ix1 - ix0) * (iy1 - iy0)) / box_area < min_visible:
+        return None  # too little of the box is visible here
+    # translate the clipped box into tile-local coords, then normalize to the tile
+    return pixel_bbox_to_yolo_line(
+        [ix0 - tile_x0, iy0 - tile_y0, ix1 - tile_x0, iy1 - tile_y0],
+        tile_w, tile_h, cls_id)
+
+
+def scale_bbox(pixel_bbox, factor):
+    """Scale an original-resolution pixel box into the downsampled (0.60 m) space
+    by dividing every coord by `factor` (2.0 for 0.30->0.60 m). Pure."""
+    if factor <= 0:
+        raise ValueError("factor must be > 0")
+    return [float(v) / float(factor) for v in pixel_bbox]
+
+
 def image_to_label_records(records, keep_classes=("tower",)):
     """From gridvision_etdii.parse_geojson() records for ONE image, keep only the
     in-scope, kept-class boxes that actually carry a pixel_bbox. Returns a list of
