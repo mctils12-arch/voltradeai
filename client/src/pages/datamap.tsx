@@ -175,6 +175,7 @@ const LAYER_GROUP: Record<string, string> = {
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
+  powergrid_hifld: "facilities",
   powergrid_al: "grid", powergrid_ak: "grid", powergrid_az: "grid", powergrid_ar: "grid", powergrid_ca: "grid", powergrid_co: "grid",
   powergrid_ct: "grid", powergrid_de: "grid", powergrid_dc: "grid", powergrid_fl: "grid", powergrid_ga: "grid", powergrid_hi: "grid",
   powergrid_id: "grid", powergrid_il: "grid", powergrid_in: "grid", powergrid_ia: "grid", powergrid_ks: "grid", powergrid_ky: "grid",
@@ -1369,7 +1370,7 @@ export default function DataMapPage() {
   // order keep low-zoom vertex counts phone-safe.) ──
   // stable key over the master + every per-state grid flag, so the effect below
   // re-runs on any grid toggle without hardcoding one dependency per state.
-  const powerGridKey = (enabled.powergrid ? "M" : "") +
+  const powerGridKey = (enabled.powergrid ? "M" : "") + (enabled.powergrid_hifld ? "H" : "") +
     POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
@@ -1430,6 +1431,45 @@ export default function DataMapPage() {
     } else {
       removeGrid("powergrid_us");
       setStatus("powergrid", "off");
+    }
+
+    // HIFLD — AUTHORITATIVE national transmission lines (DHS / Oak Ridge National
+    // Lab; EIA defers to it). Public-domain surveyed vector data, 69–765 kV — not
+    // ML, no generalization problem. Lines carry no `power` tag (all transmission),
+    // so classify by voltage only; no substation/plant here. Voltage normalized
+    // kV->V at ingest so the same class thresholds apply.
+    const hSrc = "powergrid_hifld";
+    const hIDS = [`${hSrc}-hv`, `${hSrc}-mv`, `${hSrc}-low`, `${hSrc}-unknown`];
+    if (enabled.powergrid_hifld) {
+      try {
+        setStatus("powergrid_hifld", "loading");
+        if (!map.getSource(hSrc)) {
+          map.addSource(hSrc, {
+            type: "vector",
+            url: `pmtiles://${window.location.origin}/tiles/power_hifld.pmtiles`,
+            attribution: "HIFLD — U.S. DHS / Oak Ridge National Laboratory (public domain)",
+          } as any);
+        }
+        add({ id: `${hSrc}-unknown`, type: "line", source: hSrc, "source-layer": "power",
+              minzoom: 4, filter: ["<", V, 0],
+              paint: { "line-color": "rgba(216,180,254,0.7)", "line-width": 0.9, "line-dasharray": [2, 2] } });
+        add({ id: `${hSrc}-low`, type: "line", source: hSrc, "source-layer": "power",
+              minzoom: 6, filter: ["all", [">=", V, 0], ["<", V, 100000]],
+              paint: { "line-color": "rgba(148,163,184,0.7)", "line-width": 0.8 } });
+        add({ id: `${hSrc}-mv`, type: "line", source: hSrc, "source-layer": "power",
+              minzoom: 4, filter: ["all", [">=", V, 100000], ["<", V, 230000]],
+              paint: { "line-color": "rgba(56,189,248,0.85)",
+                       "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.7, 12, 2.2] } });
+        add({ id: `${hSrc}-hv`, type: "line", source: hSrc, "source-layer": "power",
+              filter: [">=", V, 230000],
+              paint: { "line-color": "rgba(250,204,21,1)",
+                       "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1.1, 12, 3.2] } });
+        setStatus("powergrid_hifld", "active", undefined,
+          "US transmission — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain): 69–765 kV, voltage-classed; dashed = voltage untagged");
+      } catch { setStatus("powergrid_hifld", "error"); }
+    } else {
+      try { hIDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); }); if (map.getSource(hSrc)) map.removeSource(hSrc); } catch {}
+      setStatus("powergrid_hifld", "off");
     }
 
     // individual per-state layers (each its own toggle, independent of the master)
