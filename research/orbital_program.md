@@ -176,29 +176,45 @@ KNOWN STATE; woven into every future build's assessment.)
   CustomLayerInterface, instanced GPU points, projectTileFor3D globe
   path, no silent decimation, getCounts() honesty), satBuffer.ts (pure
   layout, keeps SGP4 kernel off the main bundle). 68 tests, tsc 64.
-  NEXT = O2 WIRING (datamap.tsx, its own PR + REAL BUILD + visual harness
-  at 390/768/1440 — the ONE unverified path is Vite worker bundling).
-  EXACT RECIPE (from the render-lib builder): (1) worker =
-  `new Worker(new URL('../lib/orbital/satWorker.ts', import.meta.url),
-  {type:'module'})` — the literal URL is required so Vite emits a
-  separate worker bundle; type-only imports of satWorker on the main
-  thread are fine, never import it for runtime. (2) client-fetch
-  `fetchGp('active')`+`fetchSatcat` from CelesTrak (browser reaches it;
-  Railway does not — R17), keep the GpRecord[] in a ref (that order IS
-  the picking index), `postMessage({type:'init',gp})` then
-  `{type:'start',hz:1}`. (3) `new SatLayer({id:'orbital-sats'})` +
-  `map.addLayer(layer)`. (4) `w.onmessage`: on `positions` →
-  `layer.updatePositions(new Float32Array(m.buf), {shown,
-  deepSpaceSkipped, invalidSkipped})`. (5) unmount:
-  `w.postMessage({type:'stop'}); w.terminate(); map.removeLayer(id)`.
-  (6) O3 picking: CPU nearest over `layer.getPositions()` stride
-  `layer.getStride()` → gp[i] metadata + `epochAgeDays(gp[i].epoch,now)`.
-  Register as a normal /data layer toggle (zero-cost-when-off); surface
-  the deep-space skip count in the panel ("N not rendered, needs SDP4").
-  WATCH: WebGL2 (#version 300 es) — may not render under the harness's
-  SwiftShader; verify visual on a real GPU / accept a documented harness
-  caveat. THEN O3 detail panel, O7 coverage tools (geometry.ts is ready),
-  O4 relay-gated.
+  O2 SHIPPED (#369, reliability follow-ups #372/#375, v1.0.199-ish):
+  `orbital_sats` layer live on /data, client-fetching CelesTrak directly
+  (sidesteps R17 entirely — no relay needed for the visual layer), worker
+  + GPU points layer, off by default, zero-cost-when-off. A stale open PR
+  (#350, an earlier server-polled design predating this shipped approach)
+  was closed as superseded — no unique delta survived (2026-07-09).
+- 2026-07-09 — O3 PICKING SHIPPED (v1.0.235, own PR): satellite
+  click-to-identify. `client/src/lib/orbital/pick.ts` (new, 6 tests) —
+  pure `pickNearestSatellite()` (CPU nearest-point search over the
+  layer's position buffer within a tight tolerance, honest miss if
+  nothing is close — never snaps to the globally-nearest point) +
+  `pixelToleranceToMercUnits()` (screen-px tolerance → normalized
+  mercator units at the current zoom). `datamap.tsx`: a map-wide click
+  listener (custom WebGL layers have no queryRenderedFeatures — the
+  existing precedent for every OTHER layer is a layer-scoped
+  `map.on('click', layerId, ...)`, which this can't use) gated to an
+  8px pixel tolerance so it only fires on near-exact hits and doesn't
+  steal clicks from properly feature-scoped layers; resolves to
+  `gp[i]` via the worker's documented INDEX ALIGNMENT contract, opens
+  the standard Detail card (name, NORAD id, orbit class + altitude,
+  period, inclination, element-set age via `propagate.ts`'s
+  `epochAgeDays`, CelesTrak catalog link-out) — RAW/no-predictive-claim
+  language matching every other card. `orbitalGpRef` added alongside
+  the existing `satLayerRef`/`satWorkerRef` so the GP array survives
+  across renders and clears on teardown (same lifecycle as the layer).
+  Legend note updated ("click a point to identify it"). GATES: tsc 64
+  (unchanged baseline — the one datamap.tsx hit at line 3245 is
+  pre-existing, unrelated to this PR's lines); `npm run test:node`
+  516/517 (1 pre-existing unrelated failure — `tiles3dBudget.ts` missing
+  a durability classification from #385, filed in open_questions.md,
+  not this PR's scope); client-lib suite 88/88 (75 baseline + 6 new
+  pick.test.ts + net wiring); `npm run build` clean, `satWorker` still
+  its own chunk; `npm run visual -- --page data` 390/768/1440 = 0 hard
+  failures (pre-existing touch-target warnings unchanged).
+  NEXT: O3 remainder (a real GPU/browser visual check of the click
+  interaction — the harness can't drive live map clicks), O5 design-class
+  glTF models (LOD on zoom), O7 coverage/footprint tools (geometry.ts is
+  ready — Starlink coverage/blackout, GPS DOP, EO next-pass), O4
+  orbit-history archive (relay-gated).
 
 ## MASTER-BUILD EXTENSION (human directive 2026-07-07 — fidelity tiers + coverage geometry)
 

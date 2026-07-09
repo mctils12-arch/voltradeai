@@ -691,6 +691,24 @@
   rescuing (avoid the double-build gotcha above). Its live effect stays
   muted regardless (CelesTrak firewalled from Railway per R17) so it is
   not urgent, just queued.
+  **RESOLVED 2026-07-09**: closed as superseded, not rescued — by the
+  time this was picked up, the ORBITAL program's O2 wiring (#369, client-
+  fetch design that sidesteps R17 entirely) had already shipped an
+  equivalent, better client half. No unique delta salvaged. See
+  orbital_program.md RESUME STATE.
+
+- **tiles3dBudget.ts missing durability classification** (found 2026-07-09,
+  T-CLIENT orbital-O3 session's gate run — pre-existing, NOT caused by that
+  PR, not fixed in it to keep scope to one logical change): `npm run
+  test:node`'s `server/durability.test.ts` ("every fs-writing server module
+  is classified durable, tmp-by-design, or wishlisted") fails —
+  `tiles3dBudget.ts` (shipped #385, Google Photorealistic 3D Tiles cost
+  guard) writes to disk via `fs.appendFileSync`/`fs.mkdirSync` but was never
+  added to the test's classification list. Cheap fix for whoever picks it
+  up: read `tiles3dBudget.ts`'s write path (append-only cost-ledger JSONL,
+  same shape as `runpod_budget.py`'s ledger) and classify it durable (route
+  through `archiveBaseDir()`) or tmp-by-design with justification, per the
+  test's existing pattern for other modules. Own PR, tagged [REPAIR].
 
 ## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
 

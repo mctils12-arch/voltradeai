@@ -1,0 +1,78 @@
+// CPU nearest-point picking for the orbital satellite layer (ORBITAL program
+// O3: research/orbital_program.md, "O3 picking" recipe).
+//
+// SatLayer is a custom MapLibre CustomLayerInterface (raw WebGL points) with
+// no queryRenderedFeatures hit-testing (see satLayer.ts's PICKING note). A
+// click resolves to a satellite by nearest-distance search over the layer's
+// own position buffer, which is index-aligned to the GP array the worker was
+// initialized with (satWorker.ts's INDEX ALIGNMENT contract: buffer slot i
+// always corresponds to gp[i], including skipped/sentinel slots).
+//
+// Pure + hermetic: no DOM/WebGL/map dependency, so it is directly unit
+// testable (`npx tsx --test`).
+
+import { SENTINEL_SKIP } from './satBuffer.js';
+import type { GpRecord } from './tle.js';
+
+export interface PickResult {
+  index: number;
+  gp: GpRecord;
+  /** altitude in meters, as packed by the worker (see satBuffer.ts stride layout). */
+  altMeters: number;
+  /** 0=LEO, 1=MEO, 2=GEO (packed classCode; sentinel slots are never returned). */
+  classCode: number;
+}
+
+/**
+ * Find the nearest RENDERED satellite (classCode !== SENTINEL_SKIP) to
+ * (clickX, clickY) in normalized web-mercator [0..1] space, within
+ * `toleranceUnits`. Returns null for an honest "no hit" — a click far from
+ * every point never snaps to the globally nearest object, which would make
+ * every click somewhere on the globe register a hit regardless of distance.
+ *
+ * `gp` must be the SAME array (same order/length) that was sent to the
+ * worker's `init` message — the index alignment is the caller's contract to
+ * keep, not something this function can verify.
+ */
+export function pickNearestSatellite(
+  positions: ArrayLike<number>,
+  stride: number,
+  gp: GpRecord[],
+  clickX: number,
+  clickY: number,
+  toleranceUnits: number,
+): PickResult | null {
+  const total = Math.min(gp.length, Math.floor(positions.length / stride));
+  const tol2 = toleranceUnits * toleranceUnits;
+  let bestI = -1;
+  let bestD2 = tol2;
+  for (let i = 0; i < total; i++) {
+    const base = i * stride;
+    const classCode = positions[base + 3];
+    if (classCode === SENTINEL_SKIP) continue; // not rendered — never pickable
+    const dx = positions[base] - clickX;
+    const dy = positions[base + 1] - clickY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD2) {
+      bestD2 = d2;
+      bestI = i;
+    }
+  }
+  if (bestI < 0) return null;
+  const base = bestI * stride;
+  return {
+    index: bestI,
+    gp: gp[bestI],
+    altMeters: positions[base + 2],
+    classCode: positions[base + 3],
+  };
+}
+
+/**
+ * Convert a screen-pixel click tolerance to normalized web-mercator units at
+ * a given map zoom (web-mercator tile world is 256px at zoom 0, doubling per
+ * zoom level — the standard slippy-map relation).
+ */
+export function pixelToleranceToMercUnits(pixels: number, zoom: number): number {
+  return pixels / (256 * Math.pow(2, zoom));
+}

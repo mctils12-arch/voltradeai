@@ -13,6 +13,106 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-09 — [PRODUCT] ORBITAL O3: satellite click-to-identify + close superseded PR #350 (v1.0.235)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/pick.ts + pick.test.ts,
+client/src/pages/datamap.tsx) + SHARED minimal last (package.json,
+research/*). Solo, [PRODUCT] session per task brief.
+
+- SESSION START per MEMORY PROTOCOL: read CLAUDE.md, all of research/.
+  `/api/health` clean (status ok, bot active, drawdownPct 0.0,
+  liveness.dark false, alpaca ACTIVE, scanner 0 consecutiveFailures) — no
+  LIVENESS ALARM, nothing top-of-report. KNOWN BROKEN triage: everything
+  RESOLVED or gated on owner-only audit-log access this session doesn't
+  have — no critical trading-loop item blocked this PRODUCT session (and
+  per the task brief, product sessions don't preempt DAILY repair duty
+  regardless).
+- PRIMARY ACTION SELECTION: checked open PRs first (SESSION BUDGET step 0
+  — the R-recurring lesson that stalled PRs rot silently). Found #350
+  (satellite orbits layer, opened 2026-07-07, `mergeable_state: "dirty"`,
+  zero CI checks ever ran) still open and flagged in open_questions.md's
+  OPS GOTCHAS as needing rescue. Before rescuing it blind, read the
+  current `datamap.tsx` orbital state (per that same note's own warning
+  to check for a concurrent double-build first) — found the ORBITAL
+  program's O2 wiring had ALREADY SHIPPED (#369, plus reliability
+  follow-ups #372/#375) with a materially BETTER design than #350's:
+  client-fetch CelesTrak directly from the browser (sidesteps the R17
+  Railway/CelesTrak firewall entirely — #350's server-polled design would
+  have sat at `warming_up` forever), inline zero-dependency SGP4, a real
+  GPU CustomLayerInterface. So this was a SUPERSESSION close, not a
+  rescue: closed #350 with a pointer comment tracing exactly which PRs
+  replaced which pieces of its diff, confirmed no unique delta survived
+  (its `ommToTle` helper is moot — the new stack consumes GP/OMM JSON
+  natively). Then picked orbital_program.md's explicit, fully-specified
+  NEXT item: O3 picking (click-to-identify on the satellite layer) —
+  named as the next step across three prior sessions' entries, blocks O5
+  (design-class model LOD, which needs a working focus/click target) and
+  O7 (coverage tools).
+- WHAT: `client/src/lib/orbital/pick.ts` (new) — pure `pickNearestSatellite()`
+  (CPU nearest-point search over the layer's own position buffer, honest
+  miss if nothing is within tolerance — deliberately never snaps to the
+  globally-nearest object regardless of distance) + `pixelToleranceToMercUnits()`
+  (screen-px → normalized web-mercator units at the current zoom, the
+  standard slippy-map relation). 6 tests (nearest-within-tolerance,
+  honest-miss, SENTINEL_SKIP slots never picked even when raw-nearest,
+  empty/all-sentinel population, gp/buffer length-mismatch safety,
+  zoom-scaling of the tolerance).
+  `datamap.tsx`: a map-wide `map.on("click", ...)` listener (custom WebGL
+  layers have no `queryRenderedFeatures` — see satLayer.ts's own PICKING
+  note — so this can't use the layer-scoped `map.on("click", layerId,
+  ...)` pattern every OTHER layer in this file uses), gated to an 8px
+  pixel tolerance so it only registers near-exact clicks and doesn't
+  steal clicks meant for properly feature-scoped layers underneath it.
+  Resolves a hit to `gp[i]` via the worker's documented INDEX ALIGNMENT
+  contract (buffer slot i always == gp[i], sentinels included) — added
+  `orbitalGpRef` alongside the existing `satLayerRef`/`satWorkerRef` so
+  the GP array survives across renders and clears on teardown, same
+  lifecycle as the layer itself. Opens the standard Detail card: name,
+  NORAD catalog ID, orbit class + altitude, period (from mean motion),
+  inclination, element-set age (`propagate.ts`'s existing `epochAgeDays`
+  — "orbit uncertainty grows with age" framing), CelesTrak catalog
+  link-out. Same RAW/no-predictive-claim honesty language as every other
+  card on this map. Added "satellite" to the `Detail.kind` union (no
+  other code switches exhaustively on it — verified by grep before
+  adding, zero blast radius). Legend note updated: "click a point to
+  identify it".
+- DOWNSTREAM CHAIN (REASONING STANDARD #1): the click listener only reads
+  the layer's existing position buffer and a ref holding the same `gp`
+  array already fetched for rendering — zero new network calls, zero
+  change to the render path or any other layer's click handling. The one
+  real interaction risk (a satellite point visually overlapping another
+  layer's clickable icon, both handlers firing) is accepted as a rare,
+  honest edge case rather than engineered around with a click-arbitration
+  layer that would add real complexity for a corner case with no reported
+  user impact.
+- GATES: `npx tsc --noEmit` 64 errors, unchanged baseline (the one hit in
+  datamap.tsx, line 3245, predates this PR — a `Set<string>` vs union-type
+  mismatch in the "orphan layer group" fallback, nowhere near the lines
+  this PR touches). `npm run test:node` 516/517 — the 1 failure
+  (`server/durability.test.ts`, `tiles3dBudget.ts` missing a
+  durability classification) is PRE-EXISTING from #385 (2026-07-07/08),
+  confirmed unrelated (no server/ files touched this PR) and filed as its
+  own follow-up in open_questions.md rather than bundled in here.
+  `npx tsx --test client/src/lib/*.test.ts client/src/lib/orbital/*.test.ts`
+  88/88 pass (82 prior + 6 new). `npm run build` clean — `satWorker`
+  still lazy-chunks to its own bundle (confirmed in the build log, not
+  assumed). `npm run visual -- --page data` at 390/768/1440: 0 hard
+  failures (pre-existing touch-target warnings unchanged, unrelated to
+  this PR — same baseline every recent datamap.tsx PR has logged).
+  `python3 -m pytest`: not runnable in this sandbox (pytest not
+  installed) — no Python touched. Version 1.0.234 -> 1.0.235
+  (read-and-increment; re-fetched origin/main immediately before bumping,
+  confirmed unchanged at c09d594 since session start).
+- HONEST GAP: the click interaction itself is UNVERIFIED on a real
+  browser/GPU — the offline harness can drive page loads and perf
+  batteries but not live map click events, the same limitation every
+  prior orbital PR has logged. Behavior is exercised at the pure-function
+  level (pick.test.ts) and by code review against the existing,
+  already-proven click-handler pattern in this file, not by an actual
+  click-and-see.
+- Backtest: N/A (no strategy/measurement/parameter code touched — pure
+  client render/interaction change).
+
 ## 2026-07-08 — [PRODUCT] Plants × NWS severe-weather warnings cross-tie — storm generation-disruption inference (v1.0.234)
 
 TERRITORY: T-DATACORE-adjacent server module (server/plantsUnderAlerts.ts) +
