@@ -209,3 +209,30 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
   touched), build OK (TimeScrubber chunk 4.06kB gzip 1.87kB), visual
   --page data 3 widths. NEXT: W5 entity dossier v2 is the one remaining
   charter item.
+- 2026-07-09 — [PRODUCT] W5 SHIPPED (v1.0.258): ENTITY DOSSIER v2 — click
+  any entity, get identity + cross-layer Everything Graph neighborhood +
+  ticker-matched USAspending contracts + nearest strategic sites, all in
+  one card. Extends the EXISTING click-to-detail `Detail`/`vt-site-card`
+  pattern (no new panel/button) rather than inventing new UX. Server:
+  server/dossier.ts (new, pure function, every IO source injected) composes
+  entityGraph.ts's already-built identity/neighborhood/filings join (no new
+  join logic needed there — insider_of edges already ARE "related
+  filings") with ONE new join (USAspending contracts by resolved ticker)
+  and haversineKm-based nearest-sites (reused from firesFacilities.ts, not
+  a 4th local copy). entityGraph.ts's graph cache lifted from a private
+  routes.ts closure to shared `cachedGraphSync()`/`bootGraphPoll()` exports
+  so the new /api/data/dossier route reads the SAME 15-min cache as
+  /api/data/graph instead of triggering a second independent 168h-AIS-fold
+  rebuild (avoids the R4/R5 hazard). Client: 7 of 9 entity kinds wired
+  (site/powerplant/vessel get real graph entity ids; aircraft/train/fire/
+  gauge/alert get lat/lon-only nearest-sites, honestly — they aren't graph
+  nodes yet; satellite deliberately skipped, ground-proximity is
+  meaningless at orbital altitude). Live-verified against real
+  datacore/*.json (not just fixtures) post-build. Gates: tsc 66 baseline
+  confirmed identical via git-stash A/B diff, test:node 533/533 (9 new),
+  client libs 88/88, build clean, visual --page data 3 widths 0 hard
+  failures. THE ANALYST CONSOLE CHARTER'S W1-W6 BUILD ORDER IS NOW FULLY
+  SHIPPED. Two small honest gaps logged, not blocking: aircraft aren't
+  graph nodes yet (no ticker linkage even for a publicly-traded FAA
+  registrant); queryEngine.ts/siteTimeline.ts still carry their own local
+  kmBetween duplicates of haversineKm (small future cleanup).

@@ -236,6 +236,26 @@ const FIXTURES = {
     caveat: "RAW graph — every edge asserts a relationship with provenance (fixture).",
     note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query",
   },
+  // W5 ENTITY DOSSIER — click-a-feature card enrichment. Non-empty so any
+  // page load that happens to click an entity exercises the real render
+  // path (companyNode/insider/contracts/nearest_sites all populated), not
+  // just an empty-state early-return.
+  "/api/data/dossier": {
+    kind: "raw", built_at: 1,
+    query: { entity: "cushing_hub", lat: 35.94, lon: -96.75, hops: 2 },
+    identity: { id: "facility:site:cushing_hub", type: "facility", label: "Cushing Oil Hub", attrs: { lat: 35.94, lon: -96.75 } },
+    graph: {
+      nodes: [{ id: "company:ENB", type: "company", label: "ENB", attrs: {} }],
+      edges: [
+        { type: "operates", from: "company:ENB", to: "facility:site:cushing_hub", confidence: "high", attrs: {} },
+        { type: "insider_of", from: "person:0000123", to: "company:ENB", confidence: "high", attrs: { visit_count: 0 } },
+      ],
+    },
+    contracts: [{ r: "Enbridge Inc", tkr: "ENB", amt: 1250000, ag: "Department of Energy", rt: "2026-07-01" }],
+    contracts_capped: false,
+    nearest_sites: [{ id: "la_port", name: "Port of LA", category: "port", km: 1500 }],
+    caveat: "RAW composition — fixture.",
+  },
   // Grid-stress descriptive reading (GRID VISION A1 gate-2 FAIL path,
   // 2026-07-07) — descriptive-only, predictive:false always present.
   "/api/data/grid-stress": {
