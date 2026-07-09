@@ -175,7 +175,7 @@ const LAYER_GROUP: Record<string, string> = {
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
-  powergrid_hifld: "facilities",
+  powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities",
   powergrid_al: "grid", powergrid_ak: "grid", powergrid_az: "grid", powergrid_ar: "grid", powergrid_ca: "grid", powergrid_co: "grid",
   powergrid_ct: "grid", powergrid_de: "grid", powergrid_dc: "grid", powergrid_fl: "grid", powergrid_ga: "grid", powergrid_hi: "grid",
   powergrid_id: "grid", powergrid_il: "grid", powergrid_in: "grid", powergrid_ia: "grid", powergrid_ks: "grid", powergrid_ky: "grid",
@@ -1371,6 +1371,7 @@ export default function DataMapPage() {
   // stable key over the master + every per-state grid flag, so the effect below
   // re-runs on any grid toggle without hardcoding one dependency per state.
   const powerGridKey = (enabled.powergrid ? "M" : "") + (enabled.powergrid_hifld ? "H" : "") +
+    (enabled.powergrid_hifld_sub ? "S" : "") +
     POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
@@ -1470,6 +1471,37 @@ export default function DataMapPage() {
     } else {
       try { hIDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); }); if (map.getSource(hSrc)) map.removeSource(hSrc); } catch {}
       setStatus("powergrid_hifld", "off");
+    }
+
+    // HIFLD — AUTHORITATIVE national substations (75,328 points, ≥69 kV; DHS/ORNL,
+    // public domain). Rendered as circle markers, sized by zoom.
+    const sSrc = "powergrid_hifld_sub";
+    if (enabled.powergrid_hifld_sub) {
+      try {
+        setStatus(sSrc, "loading");
+        if (!map.getSource(sSrc)) {
+          map.addSource(sSrc, {
+            type: "vector",
+            url: `pmtiles://${window.location.origin}/tiles/power_hifld_sub.pmtiles`,
+            attribution: "HIFLD — U.S. DHS / Oak Ridge National Laboratory (public domain)",
+          } as any);
+        }
+        if (!map.getLayer(`${sSrc}-pt`)) {
+          map.addLayer({
+            id: `${sSrc}-pt`, type: "circle", source: sSrc, "source-layer": "subs", minzoom: 6,
+            paint: {
+              "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 1.4, 10, 3.5, 14, 6],
+              "circle-color": "rgba(251,191,36,0.85)",
+              "circle-stroke-color": "rgba(146,94,8,0.9)", "circle-stroke-width": 0.5,
+            },
+          } as any, firstMarker?.id);
+        }
+        setStatus(sSrc, "active", undefined,
+          "US substations — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain): 75,328 sites, ≥69 kV");
+      } catch { setStatus(sSrc, "error"); }
+    } else {
+      try { if (map.getLayer(`${sSrc}-pt`)) map.removeLayer(`${sSrc}-pt`); if (map.getSource(sSrc)) map.removeSource(sSrc); } catch {}
+      setStatus(sSrc, "off");
     }
 
     // individual per-state layers (each its own toggle, independent of the master)
