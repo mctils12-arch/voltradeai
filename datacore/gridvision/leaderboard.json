@@ -146,5 +146,49 @@
       "status": "improved",
       "detail": "map50 +0.0910 over prior best 0.056"
     }
+  },
+  {
+    "version": "div-ks",
+    "job": "gv-div-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.2,
+      "precision": 0.328,
+      "recall": 0.251
+    },
+    "timestamp_utc": "2026-07-09T06:20:00Z",
+    "notes": "train AZ+5NZ (6 regions) + strong aug -> eval unseen KS. 0.059->0.107->0.200: aug+diversity compound ~3.4x. Diversity is the lever, not saturated.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_KS_Colwich_Maize",
+      "metric": "map50",
+      "value": 0.2,
+      "prior_best": 0.107,
+      "delta": 0.093,
+      "status": "improved",
+      "detail": "map50 +0.0930 over prior best 0.107"
+    }
+  },
+  {
+    "version": "div-az",
+    "job": "gv-div-az",
+    "eval_key": "holdout:USA_AZ_Tucson",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.196,
+      "precision": 0.336,
+      "recall": 0.2
+    },
+    "timestamp_utc": "2026-07-09T06:25:00Z",
+    "notes": "train KS+5NZ (6 regions) + strong aug -> eval unseen AZ. 0.056->0.147->0.196. Diversity is the fix, compounds, not saturated.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_AZ_Tucson",
+      "metric": "map50",
+      "value": 0.196,
+      "prior_best": 0.147,
+      "delta": 0.049,
+      "status": "improved",
+      "detail": "map50 +0.0490 over prior best 0.147"
+    }
   }
 ]
