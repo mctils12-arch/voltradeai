@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -19,6 +19,9 @@ import GridStressView from "./gridstress";
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
 import type { AnalystMapCommand } from "@/components/AnalystPane";
+// W3 TIME SCRUBBER (console charter): lazy chunk, same zero-cost-when-off
+// spirit — a closed panel loads no code and issues no requests.
+const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 // ORBITAL program O2 (research/orbital_program.md): live satellites on the
 // globe. GP elements are client-fetched from CelesTrak (the browser is NOT
@@ -374,6 +377,9 @@ export default function DataMapPage() {
   // deliberate act, never a permanent overlay); no persistence: the pane's
   // session history lives inside the lazy chunk instead.
   const [analystOpen, setAnalystOpen] = useState(false);
+  // W3 TIME SCRUBBER panel — same "deliberate act, never a permanent overlay"
+  // rule as the analyst pane; closed by default, no persistence.
+  const [timescrubOpen, setTimescrubOpen] = useState(false);
   // v2.3 fullscreen map mode — nav hidden via a body class; remembered per
   // session; the map needs a resize after the container jumps.
   const [fullscreen, setFullscreen] = useState<boolean>(() => {
@@ -669,6 +675,7 @@ export default function DataMapPage() {
       clearTrail();
       setShowRawInfo(false);
       setAnalystOpen(false); // DESIGN.md: Escape closes panels/popovers
+      setTimescrubOpen(false);
       if (window.innerWidth < 768) setPanelOpen(false);
     };
     window.addEventListener("keydown", onKey);
@@ -3304,6 +3311,26 @@ export default function DataMapPage() {
           </div>
         }>
           <AnalystPane onClose={() => setAnalystOpen(false)} onMapCommand={runAnalystMapCommand} />
+        </Suspense>
+      )}
+      {/* W3 TIME SCRUBBER toggle — fourth button in the top-left control
+          column. Lazy chunk: closed = zero time-scrubber code loaded, ever. */}
+      <button className="vt-map-timescrub-btn" data-vt-timescrub
+              aria-label={timescrubOpen ? "Close time machine" : "Open time machine"}
+              aria-pressed={timescrubOpen}
+              title="Time Machine — scrub our own recorded archives across the past week"
+              onClick={() => setTimescrubOpen((v) => !v)}>
+        <Clock size={18} />
+      </button>
+      {timescrubOpen && (
+        <Suspense fallback={
+          <div className="vt-timescrub-panel vt-timescrub-panel-boot" data-vt-timescrub-panel
+               role="dialog" aria-label="Time machine loading">
+            <div className="vt-map-skeleton-shimmer" />
+            <span>Loading time machine…</span>
+          </div>
+        }>
+          <TimeScrubber map={mapRef.current} onClose={() => setTimescrubOpen(false)} />
         </Suspense>
       )}
       {/* Style presets (worldview-globe G1) — real-first geographic looks,

@@ -96,6 +96,24 @@ const FIXTURES = {
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", group: "signals", costTier: "light", source: "Copernicus", description: "Gate-2 locked." },
     ],
   },
+  // W3 TIME SCRUBBER (server/queryEngine.ts querySnapshot) — a small,
+  // deterministic replay payload so the panel's status line + rendered
+  // points are real content, not the generic "{}" fallback.
+  "/api/data/snapshot": {
+    kind: "raw", layer: "aircraft", mode: "position",
+    requested_at: "2026-07-08T14:00:00.000Z", bucket_at: "2026-07-08T14:00:00.000Z",
+    data: [
+      { id: "fx1", lat: 36.1, lon: -97.0 },
+      { id: "fx2", lat: 35.8, lon: -96.6 },
+      { id: "fx3", lat: 36.4, lon: -97.3 },
+    ],
+    count: 3, count_before_viewport: 3, count_dropped_offscreen: 0,
+    viewport_filtered: true, capped: false,
+    freshness: "2026-07-08T14:52:00.000Z",
+    provenance: "own position archive (fixture)",
+    window: { min_iso: "2026-07-01T14:00:00.000Z", max_iso: "2026-07-08T14:00:00.000Z", days: 7 },
+    note: "fixture snapshot for the visual harness",
+  },
   // 10,000 synthetic aircraft — the DESIGN.md performance budget says map
   // interactions stay smooth at 10k+ features; the fixture proves the
   // rendering path at that scale (deterministic pseudo-random spread).
@@ -752,7 +770,7 @@ async function main() {
             // (phone is a bottom sheet — transient, closable, same accepted
             // behavior as the detail-card sheet over the zoom cluster)
             if (innerWidth >= 640) {
-              for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]"]) {
+              for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
                 const el = document.querySelector(sel);
                 if (!el) { fails.push(`analyst: map control ${sel} missing with pane open`); continue; }
                 const b = el.getBoundingClientRect();
@@ -792,6 +810,82 @@ async function main() {
         if (!e?.skip) checks.failures.push("analyst: driver error — " + (e?.message || e));
       } finally {
         page.off("request", onAnalystReq);
+      }
+      // ── W3 TIME SCRUBBER (console charter): [data-vt-timescrub] opens the
+      // replay panel. Unlike the analyst pane, opening this panel is EXPECTED
+      // to fire a read-only GET /api/data/snapshot (it fetches an initial
+      // hour on open) — the battery asserts at least one fires, catching a
+      // silent-fetch regression, the mirror image of the analyst's
+      // never-fires assertion.
+      let snapshotGets = 0;
+      const onSnapshotReq = (r) => {
+        try { if (new URL(r.url()).pathname === "/api/data/snapshot") snapshotGets++; } catch {}
+      };
+      try {
+        if (!cfg.map) throw { skip: true };
+        page.on("request", onSnapshotReq);
+        const tsBtn = page.locator("[data-vt-timescrub]");
+        if (!(await tsBtn.count())) {
+          checks.failures.push("timescrub: [data-vt-timescrub] control missing");
+          throw { skip: true };
+        }
+        await tsBtn.click();
+        const tsPanel = await page.waitForSelector("[data-vt-timescrub-panel]", { timeout: 8000 }).catch(() => null);
+        const tsSlider = await page.waitForSelector("[data-vt-timescrub-slider]", { timeout: 8000 }).catch(() => null);
+        if (!tsPanel) {
+          checks.failures.push("timescrub: panel did not open from its own control");
+        } else {
+          if (!tsSlider) checks.failures.push("timescrub: slider never appeared (lazy chunk failed to load?)");
+          await page.waitForTimeout(600); // entry animation + the initial snapshot fetch to land
+          const tsChecks = await page.evaluate(() => {
+            const fails = [];
+            const p = document.querySelector("[data-vt-timescrub-panel]");
+            if (!p) return ["timescrub: panel vanished mid-check"];
+            const r = p.getBoundingClientRect();
+            if (r.bottom > innerHeight + 1) fails.push(`timescrub: panel bottom ${Math.round(r.bottom)} past viewport ${innerHeight} — SELF-SEE`);
+            if (r.top < -1 || r.left < -1 || r.right > innerWidth + 1) {
+              fails.push(`timescrub: panel outside viewport (l=${Math.round(r.left)} t=${Math.round(r.top)} r=${Math.round(r.right)})`);
+            }
+            for (const [label, sel] of [["layer select", "[data-vt-timescrub-layer]"], ["slider", "[data-vt-timescrub-slider]"], ["play", "[data-vt-timescrub-play]"]]) {
+              const el = document.querySelector(sel);
+              if (!el) { fails.push(`timescrub: ${label} control missing`); continue; }
+              const b = el.getBoundingClientRect();
+              if (b.width < 4 || b.height < 4) { fails.push(`timescrub: ${label} has no size`); continue; }
+              if (b.bottom > innerHeight + 1 || b.top < -1) { fails.push(`timescrub: ${label} not inside the viewport`); continue; }
+              const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+              if (hit && !el.contains(hit) && hit !== el && !hit.contains(el)) {
+                fails.push(`timescrub: ${label} covered by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'>`);
+              }
+            }
+            if (innerWidth >= 640) {
+              for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
+                const el = document.querySelector(sel);
+                if (!el) { fails.push(`timescrub: map control ${sel} missing with panel open`); continue; }
+                const b = el.getBoundingClientRect();
+                const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+                if (hit && !el.contains(hit) && hit !== el && !hit.contains(el)) {
+                  fails.push(`timescrub: map control ${sel} OCCLUDED by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'> with panel open`);
+                }
+              }
+            }
+            return fails;
+          });
+          checks.failures.push(...tsChecks);
+          await page.screenshot({ path: path.join(OUT, `${name}-timescrub-${vp.w}.png`), animations: "disabled" });
+          await page.click('[data-vt-timescrub-panel] [aria-label="Close time machine"]', { timeout: 2000 })
+            .catch(() => checks.failures.push("timescrub: close control unclickable"));
+          await page.waitForTimeout(250);
+          if (await page.locator("[data-vt-timescrub-panel]").count()) {
+            checks.failures.push("timescrub: panel still open after its close control");
+          }
+        }
+        if (snapshotGets < 1) {
+          checks.failures.push("timescrub: opening the panel fired zero GET /api/data/snapshot — initial fetch regressed");
+        }
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("timescrub: driver error — " + (e?.message || e));
+      } finally {
+        page.off("request", onSnapshotReq);
       }
       // ── SELF-SEE (DESIGN.md, human-approved 2026-07-04): after any panel/
       // overlay change, ALL registered content must be reachable — visible or
@@ -839,7 +933,7 @@ async function main() {
           // sit under it (the production defect: zoom buttons covered).
           // [data-vt-globe] added W1, [data-vt-analyst] added W6 (console
           // charter): both are registered map controls like the others.
-          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]"]) {
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`self-see: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();
@@ -1122,7 +1216,7 @@ async function main() {
           // v2.4 occlusion rule re-checked WITH fields on: enabling a layer
           // grows the attribution strip — it may not spread under controls
           // (the 390px defect this caught: 2-line attribution over zoom-out).
-          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]"]) {
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`fields-on: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();

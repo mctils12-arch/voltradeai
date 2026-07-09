@@ -2728,6 +2728,92 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 /* v2.3: filings columns must wrap, never clip mid-word */
 .vt-filings-table td { word-break: break-word; overflow-wrap: anywhere; }
 
+/* ── W3 TIME SCRUBBER panel (console charter) ─────────────────────────────
+   Toggle: fourth 44px control in the top-left column (fullscreen 12px,
+   globe 62px, analyst 112px, time machine 162px) — same family, same
+   anchor rule as the analyst button above it. Panel: compact side panel
+   anchored right of the control column at desktop/tablet, bottom sheet at
+   phone widths — identical layout family to the analyst panel, just a
+   fixed short height (no scrolling message list to size around). */
+.vt-map-timescrub-btn {
+  position: absolute; top: 162px; left: 12px; z-index: 10;
+  width: 44px; height: 44px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(8, 16, 30, 0.94); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.2); cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.vt-map-timescrub-btn:hover { color: var(--accent-bright); }
+.vt-map-timescrub-btn[aria-pressed="true"] { color: var(--accent); border-color: rgba(77, 159, 255, 0.45); }
+.vt-map-timescrub-btn:active { transform: scale(0.96); }
+
+.vt-timescrub-panel {
+  position: absolute; z-index: 12;
+  left: 64px; top: 162px;
+  width: min(300px, calc(100vw - 452px));
+  display: flex; flex-direction: column; gap: 10px;
+  background: rgba(8, 16, 30, 0.96);
+  border: 1px solid rgba(77, 159, 255, 0.25); border-radius: 12px;
+  backdrop-filter: blur(10px);
+  color: var(--text-primary); font-family: var(--font-body);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  padding: 12px 14px 14px;
+  animation: vt-card-in 0.18s ease-out;
+}
+@media (max-width: 767px) {
+  .vt-timescrub-panel { width: min(300px, calc(100vw - 140px)); }
+}
+@media (max-width: 639px) {
+  .vt-timescrub-panel {
+    left: 8px; right: 8px; top: auto; bottom: 10px; width: auto;
+    animation-name: vt-sheet-in;
+  }
+}
+.vt-timescrub-panel-boot {
+  min-height: 100px; align-items: center; justify-content: center; gap: 10px;
+  color: var(--text-tertiary); font-family: var(--font-mono); font-size: 11.5px;
+}
+.vt-timescrub-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.vt-timescrub-header button {
+  color: var(--text-tertiary); cursor: pointer; padding: 4px;
+}
+.vt-timescrub-header button:hover { color: var(--accent-bright); }
+.vt-timescrub-title {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.vt-timescrub-layer {
+  min-height: 40px; padding: 8px 10px; border-radius: 8px;
+  background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid rgba(77, 159, 255, 0.2);
+  font-family: var(--font-body); font-size: 12.5px;
+}
+.vt-timescrub-date {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+  color: var(--accent-bright); text-align: center;
+}
+.vt-timescrub-controls { display: flex; align-items: center; gap: 10px; }
+.vt-timescrub-play {
+  width: 40px; height: 40px; min-width: 40px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(77, 159, 255, 0.16); color: var(--accent-bright);
+  border: 1px solid rgba(77, 159, 255, 0.35); cursor: pointer;
+}
+.vt-timescrub-play:hover:not(:disabled) { background: rgba(77, 159, 255, 0.28); }
+.vt-timescrub-play:disabled { opacity: 0.4; cursor: not-allowed; }
+.vt-timescrub-controls input[type="range"] { flex: 1; min-height: 24px; }
+.vt-timescrub-status {
+  font-size: 11.5px; color: var(--text-tertiary); font-family: var(--font-mono);
+  min-height: 14px;
+}
+.vt-timescrub-error { color: var(--accent-red); }
+.vt-timescrub-note {
+  font-size: 10px; color: var(--text-tertiary); line-height: 1.4;
+}
+
 /* ── 8-K earnings-language full view (#/data/earnings) ─────────────────── */
 .vt-earnings-search {
   min-height: 44px; padding: 0 12px; border-radius: 8px; min-width: 200px;

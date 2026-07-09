@@ -183,3 +183,29 @@ the EXPERIENCE layer: 3D, time, cross-layer query, and the analyst.
   chat pane (T-CLIENT, renders the envelope: answer + chips + map
   command execution; harness at 3 widths), then W2 client satellite
   layer, then W3 time scrubber.
+- 2026-07-09: CROSS-PROGRAM NOTE — W2 (client satellite layer) is DONE,
+  shipped under the separate ORBITAL program (research/orbital_program.md
+  O1-O3, #359/#361/#363/#396) rather than logged here; that program's own
+  RESUME STATE has the detail. Recorded here only because this file's own
+  "NEXT" line never got updated — a MEMORY PROTOCOL miss worth naming so a
+  future session doesn't re-plan already-shipped work.
+- 2026-07-09 — [PRODUCT] W3 SHIPPED (v1.0.250): TIME SCRUBBER —
+  server/queryEngine.ts's querySnapshot() (GET /api/data/snapshot) reads
+  ONE archived hour (aircraft/vessels/trains) or day (fires/alerts/gauges)
+  bucket exactly as recorded — reuses W4's LAYER_SOURCES and the SCALE S1
+  viewport helper (bbox optional), zero new data cost, bounded to the same
+  RAW_RETENTION_DAYS window, point-capped and stated never silent.
+  client/src/components/TimeScrubber.tsx is the fourth top-left control
+  (lazy chunk, zero-cost-when-off like the analyst pane): pick a layer,
+  drag a slider across the past week (hour resolution), Play steps
+  forward toward now, points paint as a distinct amber circle layer on
+  the map with a "historical replay — not live" note, honesty status line
+  (count/capped/off-screen-dropped/provenance). Visual harness battery
+  added (open/geometry/SELF-SEE/occlusion/close, asserts >=1 GET fires —
+  the deliberate mirror of the analyst battery's zero-POST assertion,
+  since this panel SHOULD fetch on open); occlusion selector lists
+  updated in all 4 places. Gates: tsc 64 baseline unchanged, test:node
+  542/542 (18 new querySnapshot tests), pytest 583/1skip (no Python
+  touched), build OK (TimeScrubber chunk 4.06kB gzip 1.87kB), visual
+  --page data 3 widths. NEXT: W5 entity dossier v2 is the one remaining
+  charter item.

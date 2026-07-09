@@ -10618,3 +10618,339 @@ before any pytest/test:node read is trustworthy.
 
 Backtest: N/A (no strategy/measurement/parameter change — pure ops/test-
 infra fix, no trading-path code touched).
+
+## 2026-07-09 — [PRODUCT] ANALYST CONSOLE W3: TIME SCRUBBER — "scrub a slider, watch the world move" over our own archives (v1.0.250)
+
+TERRITORY: T-CLIENT primary (client/src/components/TimeScrubber.tsx,
+client/src/pages/datamap.tsx, client/src/index.css, scripts/visual_check.mjs)
+with a small SHARED-file touch (server/queryEngine.ts + server/routes.ts —
+minimized per the workstream partition, own commit-adjacent change, no
+other shared-file edits this session).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md, research/
+experiments.md tail, open_questions.md KNOWN BROKEN. `/api/health` clean
+(status ok, bot active, drawdownPct 0.0, liveness.dark false, alpaca
+ACTIVE, scanner 0 consecutiveFailures) — no LIVENESS ALARM. KNOWN BROKEN
+items #3 (CSP execution cascade) and #4 (bot "doesn't work right",
+equityPeak) remain open per the file but are owner-audit-log-gated
+(unreachable from this session) and already superseded in substance by
+R16's persisted kill-switch/equityPeak fix (v1.0.194) — noted, not
+re-investigated; #10 (dead SCORE_BAND_MAX config) and #12(b/c) (feedback
+dead-code decision gates) are explicitly NOT-YET-DUE per their own filed
+next-steps. None block or preempt product work per this session's charter
+(PRODUCT sessions note KNOWN BROKEN but don't preempt DAILY repair duty).
+Loop-health: last 10 tagged entries before this one were REPAIR:2 /
+RESEARCH:1 / PIPELINE:5 / PRODUCT:2 — under the 7+ REPAIR thrash
+threshold, no meta-problem. Also noted (not actioned, flagged only): PR
+#400 (GRID VISION 9-state expansion, HEAD of main at session start)
+never appended its final commit's own experiments.md entry — a MEMORY
+PROTOCOL miss on top of the one already flagged in the prior REPAIR
+entry; pattern is recurring across sessions and may warrant a
+process fix (e.g. a CI check that a merged PR touched experiments.md)
+— filed as a fresh open_questions.md thought below rather than expanded
+here.
+
+PRIMARY ACTION CHOICE: per this session's PRODUCT charter, surveyed
+console_charter.md (ANALYST CONSOLE program) for the next unbuilt
+W-item. RESUME STATE (last touched 2026-07-07) named "W2 client
+satellite layer, W3 time scrubber, W5 dossier v2" as NEXT. Verified via
+grep that W2's client satellite layer was ALREADY SHIPPED — under the
+separate ORBITAL program (O1-O3, PRs #359/#361/#363/#396), whose own
+charter never got a cross-reference written back into console_charter.md
+(logged as a cross-program note in that file this session). Verified via
+grep that NO time-scrubber (only per-layer GIBS imagery DATE pickers,
+which pick one imagery date, not a position/event archive replay) and NO
+dossier component exist in client/src. Chose **W3 TIME SCRUBBER**: it is
+explicitly named next, needs ZERO new data pipeline (pure archive
+readout — "impossible to fake, uniquely ours" per the charter), and its
+server-side aggregation muscle (LAYER_SOURCES, the position/event archive
+read patterns, the SCALE S1 viewport helper) already exists from W4 —
+this is UI/UX work over already-validated RAW overlay data, no ladder
+gate needed, matching the PRODUCT session's option (b).
+
+WHAT SHIPPED.
+
+Server (server/queryEngine.ts): new `querySnapshot(layer, at, bbox?)` —
+reads exactly ONE archived bucket: an HOUR file for position layers
+(aircraft/vessels/trains — their native write grain) or a DAY file for
+event layers (fires/alerts/gauges — their native write grain), floors
+`at` to that bucket, and returns the points verbatim (position: id/lat/
+lon; events: lat/lon + label/severity/value via the existing
+`eventFromRecord` helper, reused not duplicated). Reuses W4's
+`SUPPORTED_LAYERS`/`LAYER_SOURCES` and `readJsonlDay` (already generic
+over any filename stamp, day or hour — no duplicate file-reading code)
+and SCALE S1's `parseBbox`/`filterByViewport` (server/viewport.ts) for
+optional viewport-bounded serving. Bounded to the same
+`RAW_RETENTION_DAYS` (7d) raw window W4 uses — a request for `at`
+outside that window is a STATED 400 error, never a silent empty result
+(older raw is rolled up to lossy per-entity summaries by
+`rollupOldDays()` and is genuinely not point-replayable). Hard point cap
+(3000) stated in the envelope (`capped: true`) when hit, never silent.
+New route `GET /api/data/snapshot?layer=&at=&bbox=` (server/routes.ts),
+`kind: "raw"` — RAW overlay composition (archive readout only, no
+inference), no ladder gate, same honesty-note convention as `/api/data/
+query`.
+
+Client (client/src/components/TimeScrubber.tsx): fourth top-left map
+control ([data-vt-timescrub], Clock icon, same 44px family stacked
+below fullscreen/globe/analyst at 12/62/112/162px) — lazy chunk like
+AnalystPane, zero-cost-when-off (closed = zero code loaded, zero
+requests). Open panel: layer picker (6 options matching
+SUPPORTED_LAYERS), a slider spanning the server-stated retention window
+(hour resolution, reconciled from the first response rather than
+hardcoding 7*24), a Play/Pause button that steps toward "now" one hour
+per tick (never overlapping an in-flight fetch), and a status line
+(point count, capped/off-screen-dropped flags, provenance) plus an
+explicit "historical replay — not live" note (console charter honesty
+rule: every console pane labels RAW vs replay vs live). Historical
+points paint as their OWN geojson source+layer (`time-scrubber-*`,
+distinct amber circle style) using the exact add/setData/remove pattern
+the existing single-entity trail-line already uses — never touches any
+live layer's source/state, and the historical layer is removed on panel
+close (cleanup effect). Viewport bbox is read from `map.getBounds()` at
+each fetch (current SCALE S1 viewport-bounded pattern) so panning
+naturally re-scopes the replay.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new route is a pure GET
+over existing archive files — no writer changed, no existing endpoint's
+behavior changed, no trading-path code touched; the only new load is
+the panel's own fetches (opt-in, one per open + one per slider commit +
+one per play tick), capped and viewport-bounded, so it cannot outgrow
+`/api/data/query`'s existing traffic profile. `LAYER_SOURCES`/
+`readJsonlDay`/`eventFromRecord` were REUSED, not forked — a future
+change to event-record shape (e.g. a new `alerts` field) now flows to
+both W4 and W3 from one place instead of two copies drifting apart.
+
+TESTS: 18 new `querySnapshot` cases in server/queryEngine.test.ts —
+exact-hour/exact-day bucket isolation (adjacent hours/days must not
+leak in), event records keep lat/lon (W4's own `events[]` shape drops
+it, so this was a real gap to cover, not a copy-paste), bbox
+before/after/dropped counts, absent-bbox unfiltered passthrough, point
+cap enforcement, unknown-layer/invalid-timestamp/out-of-window error
+messages, missing-archive-dir zero-result degrade (never throws), and
+`snapshotWindow()`'s bounds arithmetic. Visual harness
+(scripts/visual_check.mjs): new TIME SCRUBBER battery mirroring the
+existing ANALYST PANE battery's structure (open via its own control,
+wait past the Suspense fallback, SELF-SEE geometry checks, per-control
+hit-test reachability, side-panel-width occlusion check against every
+other map control, screenshot, close-and-reassert-gone) — but with the
+INVERTED honesty assertion: the analyst battery asserts ZERO
+`/api/analyst` POSTs ever fire (a chat pane must never phone home
+unasked); this battery asserts AT LEAST ONE `/api/data/snapshot` GET
+fires (a scrubber that never fetches on open is silently broken, and a
+static-DOM-only battery would never have caught that). New
+`/api/data/snapshot` fixture added to the harness's deterministic
+fixture set. `[data-vt-timescrub]` added to all 4 existing map-control
+occlusion selector lists in the harness (the pre-existing 3 plus the
+new battery's own) — every other panel's occlusion check now also
+verifies the time-scrubber button stays reachable while THAT panel is
+open, matching the existing analyst-button convention.
+
+GATES: `npx tsc --noEmit` 64 errors — identical to the pre-existing
+baseline (confirmed line-for-line via grep; zero new errors in any
+touched file). `npm run test:node` 542/542 pass (524 baseline + 18 new;
+one authoring bug caught by the suite itself — a fixture timestamp sat
+outside the mocked NOW's retention window and correctly 400'd, fixed
+in the test, not the code). `python3 -m pytest -q` 583 passed / 1
+skipped (fresh env — `pip install -r requirements.txt -r
+requirements-dev.txt` needed first; no Python file touched, informational
+baseline only). `npm run build` succeeds; TimeScrubber code-splits into
+its own 4.06kB (gzip 1.87kB) lazy chunk, confirming zero-cost-when-off
+at the bundle level, not just the runtime level. `npm run visual --
+--page data` run at 390/768/1440 (VISUAL VERIFICATION, human-approved
+2026-07-03) — results reviewed before PR open; see PR description for
+the pass/fail summary and any screenshots.
+
+Version 1.0.249 -> 1.0.250 (read-and-incremented at commit time).
+
+SESSION BUDGET: primary action was this single logical W3 feature (own
+PR, own log entry). Falls through: console_charter.md RESUME STATE
+updated with the cross-program W2 note + this W3 entry; a fresh
+open_questions.md entry files the recurring "PR merges without its
+final commit's experiments.md entry" pattern as a process thought
+(no code — a genuine research/process question, not an engineering
+task this session's scope covers) rather than silently absorbing more
+scope. W5 (entity dossier v2) is next in the console charter queue for
+a future PRODUCT session.
+
+Backtest: N/A (no strategy/measurement/parameter change — pure client/
+server product feature over already-archived RAW data, no trading-path
+code touched).
+
+## 2026-07-09 — [RESEARCH] Markov vs. VXX-ratio regime detector: which one actually predicts forward volatility? (v1.0.252)
+
+TERRITORY: T-BOT-adjacent / measurement (root-level `regime_detector_compare.py`
++ `test_regime_detector_compare.py`, `research/open_questions.md` only —
+zero production code touched: `markov_regime.py` and `system_config.py`
+were read-only imports, never edited). Deliberately chosen OUTSIDE today's
+hot territories: 8 PRs merged today already (#392-#404) concentrated in
+T-DATACORE (GRID VISION, worldview-globe cross-ties) and T-CLIENT
+(ORBITAL, ANALYST CONSOLE W3) — T-BOT had zero touches today.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): `/api/health` clean (status ok,
+bot active, drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner
+0 consecutiveFailures) — re-checked again at commit time, still clean
+(rss grew 313MB->502MB over the session from other sessions' concurrent
+deploys, still well under the 1GB self-kill threshold, not itself an
+alarm). NO LIVENESS ALARM either check. `git fetch origin main` at both
+session start and immediately before this commit: no new merges (HEAD
+still f738758/#404), no new open PRs beyond the already-known #399
+(open, different work) and #77 (stale draft) — no collision risk.
+open_questions.md KNOWN BROKEN: all resolved except #3/#4 (owner-audit-
+log-gated, not actionable from this session type) and #10 (dead
+SCORE_BAND_MAX config, gated on shadow_portfolio >=90d history) — CHECKED
+THIS SESSION: shadow_portfolio's counterfactual logging (change_pct
+recording) shipped v1.0.130 on 2026-07-05, only 4 days before this
+session — nowhere near the 90-day gate, correctly still not actionable.
+Loop-health: last 10 tagged entries were REPAIR:2/RESEARCH:1/PIPELINE:5/
+PRODUCT:2 (now includes this RESEARCH entry) — well under the 7+ thrash
+threshold.
+
+PRIMARY ACTION CHOICE, ruled-out alternatives: (a) options fill realism
+(open_questions.md OPEN RESEARCH QUESTIONS) — ruled out, too large for
+one session (would need to build quote-based-fill simulation across the
+whole options entry/exit lifecycle, and validating existing stock
+slippage tiers needs live production trade_feedback data this session
+can't reach); (b) kill-switch drawdown counterfactual logging (RULE COST
+AUDIT's last "STILL NOT counterfactual-logged" item) — ruled out, its own
+note flags it as "a materially bigger, still-open follow-up" and any
+change risks brushing risk_kill_switch.py's FROZEN mechanism boundary;
+(c) new ATLAS PARITY geospatial layer (USDA CDL crops, license-verified,
+"build next") — investigated, then ruled out: live-tested the CropScape
+WMS GetCapabilities (nassgeodata.gmu.edu) and confirmed it only serves
+EPSG:5070/102004/4326, NOT EPSG:3857 (`InvalidSRS` on a live GetMap probe)
+— unlike every other GIBS/JRC layer shipped so far, this one can't drop
+into MapLibre's `{bbox-epsg-3857}` raster-source pattern without a real
+reprojection proxy, which is a bigger build than "one layer per PR"
+implies; filed as a correction below rather than silently building
+something broken. (d) shadow_portfolio 90-day query — confirmed not yet
+ripe (see above). Chose (e): the standing, unclaimed, well-scoped
+OPEN RESEARCH QUESTION "which regime detector actually predicts forward
+volatility better" — no live production data needed (public FRED series
+substitute), pure measurement (no strategy/parameter change), matches
+GOAL priority 2 (protect the integrity of learning) and MEASUREMENT
+INTEGRITY's spirit even though it's not touching the backtest/slippage
+ruler specifically — it's pointing a ruler at two EXISTING, coexisting
+production signals.
+
+PRIOR STATED BEFORE RUNNING (REASONING STANDARD #10): VIX (spot) is
+itself a market-implied forward-volatility estimate, so a VIX-ratio
+signal correlating with SUBSEQUENT realized volatility is close to
+definitional. `markov_regime.py`'s MarkovRegime class only ever looks at
+the sign/magnitude of recent SPY daily returns (a DIRECTION classifier,
+per its own docstring) — it never sees volatility level at all. PRIOR:
+VIX-ratio should show materially higher correlation with forward realized
+vol than the Markov chain's bear-probability; if Markov matched or beat
+it, that would be the surprising finding.
+
+METHOD: `regime_detector_compare.py` — imports the REAL
+`markov_regime.MarkovRegime` class (not a reimplementation, so "Markov"
+here is exactly what bot_engine.py calls live) and computes, per trading
+day over a 10-year window: vix_ratio (VIX / 30d trailing avg — the exact
+formula `system_config.py` uses for vxx_ratio), spy_vs_ma50 (identical
+formula to the live input), and markov_p_bear (the Markov chain's
+P(bear tomorrow) from `get_current_state()`), then Spearman rank-
+correlates each against forward 5-day and 20-day realized volatility
+(strictly forward windows, no lookahead). Rank correlation was chosen
+deliberately (not the live classifier's absolute thresholds) — see next
+paragraph for why.
+
+HONEST DATA SUBSTITUTION (stated up front in the script's docstring, not
+buried): this sandbox could not reach live SPY/VXX history — yfinance
+429'd, Stooq required a JS proof-of-work challenge, Alpha Vantage needs a
+paid key beyond its crippled demo key. FRED's free, keyless
+`fredgraph.csv` served SP500 (S&P 500 index close) as a safe SPY stand-in
+(near-identical daily % moves) and VIXCLS (spot VIX) as a CONCEPT-LEVEL
+stand-in for VXX — explicitly NOT safe for reproducing
+`get_market_regime()`'s exact VXX-calibrated absolute thresholds (VXX is
+a contango-decaying short-term-futures ETN with a different range than
+spot VIX), which is why the comparison uses threshold-free Spearman rank
+correlation on the continuous ratio instead of bucketing through the live
+classifier's PANIC/BEAR/CAUTION/BULL thresholds.
+
+OPS NOTE (time cost, filed so a future session doesn't re-hit this):
+`requests.get()` called FROM INSIDE a Python function in this sandbox
+reproducibly hung until ReadTimeout on this exact URL, even though the
+identical call succeeded instantly as a one-off in the same interpreter,
+and even a `subprocess.run(["curl", ...])` wrapper inside the function hit
+a different flake (HTTP/2 stream error). Root cause not isolated (proxy
+behavior specific to this dev sandbox, not something that will run in
+prod — this script never touches the trading path or Railway). Practical
+fix: `fetch_fred_series()` is now a best-effort single-attempt
+convenience wrapper; the actual run used CSVs fetched with plain
+`curl <url> -o file.csv` (100% reliable across ~10 manual attempts this
+session) via new `--sp500-csv`/`--vix-csv` file args.
+
+RESULT (n=2,442 trading days, 2016-09-20 to 2026-06-08):
+| signal | fwd_vol_5 rho (p) | fwd_vol_20 rho (p) |
+|---|---|---|
+| vix_ratio | 0.3031 (~0) | 0.2390 (~0) |
+| spy_vs_ma50 | -0.3574 (~0) | -0.2541 (~0) |
+| markov_p_bear | -0.0711 (0.0004) | -0.1168 (~0) |
+
+Base rate: fwd_vol_5 mean 0.889 (std 0.765), fwd_vol_20 mean 0.948 (std
+0.661) — unconditional daily-return stdev, for scale.
+
+CONFIRMS THE PRIOR: vix_ratio and spy_vs_ma50 both show ~2-3x the
+correlation magnitude of markov_p_bear at both horizons, and
+markov_p_bear's effect is SIGN-FLIPPED from the naive "higher bear
+probability = more danger = more forward vol" story (higher predicted
+bear-probability correlated with LOWER forward vol — plausibly a bear-
+exhaustion/relief-bounce artifact baked into the 10-year training window,
+not a genuine forward-vol signal). The VXX-ratio+trend heuristic is doing
+essentially all of `get_market_regime()`'s volatility-forecasting work;
+the Markov component isn't adding meaningful volatility-predictive power.
+Discount note (REASONING STANDARD #4): only 2 signals x 2 horizons = 4
+comparisons, low multiplicity concern, and this is a single clean
+prediction test, not a fished-for pattern.
+
+SCOPE LIMIT stated honestly: this only tests VOLATILITY forecasting.
+Markov's stated live purpose in `get_market_regime()` is a tie-break
+`elif` (`spy_vs_ma50 > 1.0 and markov_state >= 1`), and separately feeds
+`get_regime_multiplier()` for position sizing and STRONG_BUY/SELL
+direction signals — none of that was tested here. NOT ACTED ON: this is
+evidence, not a shipped RULE REVIEW change — demoting Markov's role would
+need its own ablation on the DIRECTION/sizing question specifically,
+which this screen didn't run. Finding written up in
+`research/open_questions.md` (OPEN RESEARCH QUESTIONS section) in full,
+with the same honesty caveats.
+
+TESTS: 15 new tests in `test_regime_detector_compare.py` — CSV parsing
+(valid rows, FRED's "." missing marker skipped not coerced to 0,
+malformed-row tolerance), date-alignment inner-join correctness (drops
+non-overlapping dates on either side, sorts ascending), feature
+computation on synthetic deterministic series (warmup/tail row dropping,
+forward-vol correctly elevated ahead of an injected synthetic spike,
+markov output is a valid probability + one of the 5 documented signal
+labels, vix_ratio/spy_vs_ma50 formulas exactly 1.0 on a constant series),
+NaN/None-pair cleaning, and Spearman correlation sign/magnitude sanity
+(perfect monotonic relationship -> rho≈±1, below-minimum-n reports
+`rho: null` rather than crashing). No network calls in any test (mirrors
+the existing `cot_gate2_test.py`/`test_cot_gate2.py` convention).
+
+GATES: `python3 -m pytest -q` 598 passed / 1 skipped (583 baseline + 15
+new, identical baseline otherwise). No client/ files touched — visual
+harness not applicable. Version 1.0.251 -> 1.0.252 (read-and-incremented
+at commit time, re-fetched origin/main immediately before — no advance
+since session start, still HEAD=f738758/#404).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero production code paths
+changed (markov_regime.py, system_config.py, bot_engine.py all untouched)
+-> zero live trading behavior change -> the only artifact is a filed
+finding + a reusable, tested comparison script for any future revisit
+(e.g. once real VXX history is reachable). If a future session DOES act
+on this (e.g. removing markov_state's tie-break role in
+get_market_regime), that would need its own RULE REVIEW pass (evidence
+already exists here for the volatility angle, but sizing/direction still
+needs its own ablation) — not implied or pre-approved by this entry.
+
+MARKET-HOURS NOTE: session ran during market hours (~2026-07-09 12:00 PM
+ET). This is a pure research/measurement finding with no runtime
+behavior change (no strategy, sizing, or execution code touched), so
+there is no live-trading risk either way — but per the standing session
+instruction, the PR still states merge should wait until after 4:00 PM
+ET rather than claim an exemption it doesn't need.
+
+Backtest: N/A (pure measurement/research finding — no strategy, sizing,
+or execution parameter changed; the two production modules referenced
+were read-only imports, never edited).

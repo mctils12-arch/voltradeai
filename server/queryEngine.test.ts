@@ -12,6 +12,7 @@ import zlib from "node:zlib";
 import {
   queryWindow, queryWindowCached, _resetQueryCache,
   SUPPORTED_LAYERS, RADIUS_KM_CAP, DAYS_CAP, TOP_ENTITIES_CAP, EVENTS_CAP,
+  querySnapshot, snapshotWindow, SNAPSHOT_POINTS_CAP,
 } from "./queryEngine";
 import { RAW_RETENTION_DAYS } from "./datacoreArchive";
 
@@ -207,4 +208,89 @@ test("gauge events carry name and value; zone-only (geo-less) records are exclud
   assert.equal(r.layers.gauges.events![0].value, 4.2);
   assert.equal(r.layers.alerts.points, 0, "zone-only alerts have no geometry — excluded, stated at the stream");
   assert.equal(r.layers.alerts.freshness, null);
+});
+
+// ── W3 TIME SCRUBBER: querySnapshot ──────────────────────────────────────────
+
+test("snapshot: position layer reads exactly the requested hour bucket", () => {
+  const base = tmpBase();
+  writeHour(base, "aircraft", "2026-07-05-11", [
+    { t: T0, i: "aaa", la: 35.95, lo: -96.75 },
+    { t: T0 + 60, i: "bbb", la: 36.0, lo: -97.0 },
+  ]);
+  // a different hour must not leak in
+  writeHour(base, "aircraft", "2026-07-05-10", [
+    { t: T0 - 3600, i: "ccc", la: 40.0, lo: -100.0 },
+  ]);
+  const r = querySnapshot("aircraft", "2026-07-05T11:30:00Z", undefined, base, NOW);
+  assert.equal(r.mode, "position");
+  assert.equal(r.bucket_at, "2026-07-05T11:00:00.000Z");
+  assert.equal(r.count, 2);
+  assert.deepEqual(r.data.map((p) => p.id).sort(), ["aaa", "bbb"]);
+  assert.equal(r.freshness, new Date((T0 + 60) * 1000).toISOString());
+  assert.equal(r.viewport_filtered, false);
+  assert.equal(r.capped, false);
+});
+
+test("snapshot: event layer reads exactly the requested day bucket and keeps lat/lon", () => {
+  const base = tmpBase();
+  writeDay(base, "fires", DAY, [
+    { id: "f1", lat: 35.9, lon: -96.7, confidence: "high", frp: 12.5, acq_date: DAY, acq_time: "0930" },
+  ]);
+  const r = querySnapshot("fires", "2026-07-05T11:00:00Z", undefined, base, NOW);
+  assert.equal(r.mode, "event");
+  assert.equal(r.bucket_at, "2026-07-05T00:00:00.000Z");
+  assert.equal(r.count, 1);
+  assert.equal(r.data[0].lat, 35.9);
+  assert.equal(r.data[0].lon, -96.7);
+  assert.equal(r.data[0].label, "Fire detection (high confidence)");
+  assert.equal(r.data[0].value, 12.5);
+});
+
+test("snapshot: bbox filters and states before/after counts; absent bbox leaves data unfiltered", () => {
+  const base = tmpBase();
+  writeHour(base, "vessels", "2026-07-05-11", [
+    { t: T0, i: "in-box", la: 35.95, lo: -96.75 },
+    { t: T0, i: "out-box", la: 10.0, lo: 10.0 },
+  ]);
+  const r = querySnapshot("vessels", "2026-07-05T11:15:00Z", "-100,30,-90,40", base, NOW);
+  assert.equal(r.viewport_filtered, true);
+  assert.equal(r.count_before_viewport, 2);
+  assert.equal(r.count, 1);
+  assert.equal(r.count_dropped_offscreen, 1);
+  assert.equal(r.data[0].id, "in-box");
+
+  const unfiltered = querySnapshot("vessels", "2026-07-05T11:15:00Z", undefined, base, NOW);
+  assert.equal(unfiltered.viewport_filtered, false);
+  assert.equal(unfiltered.count, 2);
+});
+
+test("snapshot: point cap is enforced and stated, never silent", () => {
+  const base = tmpBase();
+  const many = Array.from({ length: SNAPSHOT_POINTS_CAP + 50 }, (_, i) => ({ t: T0 + i, i: `p${i}`, la: 35.9, lo: -96.7 }));
+  writeHour(base, "aircraft", "2026-07-05-11", many);
+  const r = querySnapshot("aircraft", "2026-07-05T11:00:00Z", undefined, base, NOW);
+  assert.equal(r.capped, true);
+  assert.equal(r.count, SNAPSHOT_POINTS_CAP);
+});
+
+test("snapshot: unknown layer, invalid timestamp, and out-of-window all throw stated errors", () => {
+  assert.throws(() => querySnapshot("submarines", "2026-07-05T11:00:00Z", undefined, "/nonexistent", NOW), /unknown layer/);
+  assert.throws(() => querySnapshot("aircraft", "not-a-date", undefined, "/nonexistent", NOW), /invalid "at"/);
+  const { minMs } = snapshotWindow(NOW);
+  const tooOld = new Date(minMs - 3600_000).toISOString();
+  assert.throws(() => querySnapshot("aircraft", tooOld, undefined, "/nonexistent", NOW), /outside the retained raw window/);
+});
+
+test("snapshot: missing archive dir degrades to zero points, never throws", () => {
+  const r = querySnapshot("aircraft", "2026-07-05T11:00:00Z", undefined, "/nonexistent/base", NOW);
+  assert.equal(r.count, 0);
+  assert.equal(r.freshness, null);
+  assert.deepEqual(r.data, []);
+});
+
+test("snapshotWindow bounds span exactly RAW_RETENTION_DAYS ending at now", () => {
+  const { minMs, maxMs } = snapshotWindow(NOW);
+  assert.equal(maxMs, NOW);
+  assert.equal(maxMs - minMs, RAW_RETENTION_DAYS * 86400_000);
 });

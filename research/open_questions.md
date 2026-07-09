@@ -598,8 +598,46 @@
   engine (#1) first.
 - Live-vs-backtest divergence: unmeasurable until #1 done. Then it is
   the standing honesty metric.
-- Which regime detector (markov_regime vs. VXX-ratio heuristics) actually
-  predicts forward volatility better? They currently coexist.
+- **[SCREENED 2026-07-09 — see experiments.md, T-BOT/measurement] Which
+  regime detector (markov_regime vs. VXX-ratio heuristics) actually
+  predicts forward volatility better?** They still coexist in
+  `system_config.get_market_regime()` (VXX-ratio + SPY-vs-50MA are the
+  primary absolute-threshold classifier; `markov_state` only breaks ties
+  in one `elif` branch) — this did not change anything, it is a
+  measurement-only finding. PRIOR (stated before running, matches):
+  VIX-ratio is close to a direct forward-vol estimate by construction, so
+  it should correlate with realized forward vol far more than a Markov
+  chain trained purely on SPY return DIRECTION. RESULT (10y FRED SP500 +
+  VIXCLS, n=2,442 trading days, `regime_detector_compare.py` +
+  `test_regime_detector_compare.py`, Spearman rank correlation vs. 5d/20d
+  forward realized vol): VIX-ratio rho=0.30/0.24 (p≈0), SPY-vs-50MA
+  rho=-0.36/-0.25 (p≈0, sign-correct — below-MA correlates with higher
+  forward vol) — both ~3x/~2x the Markov chain's bear-probability
+  rho=-0.07/-0.12 (statistically significant at this n but a small,
+  SIGN-FLIPPED effect: higher predicted bear-probability correlated with
+  LOWER forward vol, plausibly a bear-exhaustion/relief-bounce artifact
+  of the 10y training window, not a vol signal). CONFIRMS THE PRIOR: the
+  VXX-ratio+trend heuristic is doing essentially all of the volatility-
+  forecasting work; the Markov component is not adding meaningful
+  volatility-predictive power (though this says nothing about its
+  DIRECTIONAL signal quality, e.g. STRONG_BUY/SELL — untested here, a
+  separate question). HONEST DATA SUBSTITUTION (this sandbox could not
+  reach live SPY/VXX history — yfinance 429s, Stooq JS-walled, Alpha
+  Vantage needs a paid key): FRED's free SP500 index stands in for SPY
+  (safe — near-identical daily moves) and VIXCLS (spot VIX) stands in for
+  VXX (NOT safe for reproducing `get_market_regime()`'s exact VXX-
+  calibrated absolute thresholds, which is why this screen used
+  threshold-free rank correlation instead of the live classifier's
+  buckets — see the script's docstring for the full reasoning). NOT
+  ACTED ON: this is evidence, not yet a RULE REVIEW change — the Markov
+  component also feeds `get_regime_multiplier` (position sizing) and the
+  STRONG_BUY/SELL direction signal, neither of which this screen touched;
+  demoting Markov's role in `get_market_regime()` specifically (its only
+  live consumer for the tie-break `elif`) would need its own evidence
+  pass on THAT narrower question before any change ships, per RULE
+  REVIEW's counterfactual/ablation requirement. FOLLOW-UP if ever
+  revisited: real VXX history would let this reproduce the exact
+  production thresholds instead of a rank-correlation proxy.
 - Earnings/FOMC calendar awareness: verify positions are actually
   gated around scheduled events, not just theoretically supported.
 
@@ -715,6 +753,32 @@
   being swept into the manifest system meant for data streams. Both
   `durability.test.ts` and `manifests.test.ts` pass; full `npm run test:node`
   (517/517) and `python3 -m pytest -q` (558 passed, 1 skipped) green.
+
+- **RECURRING (noticed 2026-07-09, third instance): merged PRs land without
+  their final commit's own experiments.md entry.** The 2026-07-09 REPAIR
+  session flagged 5 merged PRs (#392-#397) that never logged; the same
+  session's own tiles3dBudget entry then also went unlogged by the PR that
+  shipped it (only caught because the NEXT session diffed `git log` against
+  `## ` headings); this session found a THIRD instance — PR #400's final
+  commit ("grid overlay: expand to 9 states") shipped the state-expansion
+  feature but the PR's earlier commits' experiments.md entries (tower-
+  detector v0/v1/gate-1/diversity) were the only ones written — the last,
+  separately-meaningful commit in the same PR added nothing. Pattern: a
+  multi-commit PR's EARLIER commits log correctly (built commit-by-commit
+  with their own reasoning), but the FINAL wrap-up commit — often added
+  late, sometimes by a different subagent — skips the ratchet. Not
+  investigated or fixed this session (process/tooling question, not a code
+  defect in the traditional sense — no test can assert "the next PR must
+  touch this file"). Two directions worth a future session's evaluation:
+  (a) a CI check on `.github/workflows/` that a merged PR touching
+  `datacore/**`, `server/**`, `bot_engine.py`, or `client/src/**` also
+  touched `research/experiments.md` (would need care not to punish trivial
+  PRs — version-bump-only, docs-only); (b) a pre-merge session checklist
+  item ("does my LAST commit's change have its own paragraph, not just my
+  first"). Filing here rather than building (a) or (b) blind — a CI-workflow
+  change is itself constitutionally sensitive territory (`.github/
+  workflows/` is a FROZEN PATH) and deserves its own wishlist proposal with
+  the exact before/after, not a same-session drive-by.
 
 ## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
 
