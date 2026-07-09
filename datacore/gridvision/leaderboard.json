@@ -11,8 +11,11 @@
       "recall": 0.0353
     },
     "timestamp_utc": "2026-07-09T02:39:52Z",
-    "notes": "v0 whole-image downscale to imgsz 512 — gate-1 SIGNAL FAIL (sub-pixel towers)",
-    "regression_verdict": {"eval_key": "image_split", "status": "baseline"}
+    "notes": "v0 whole-image downscale to imgsz 512 \u2014 gate-1 SIGNAL FAIL (sub-pixel towers)",
+    "regression_verdict": {
+      "eval_key": "image_split",
+      "status": "baseline"
+    }
   },
   {
     "version": "v1",
@@ -26,7 +29,55 @@
       "recall": 0.499
     },
     "timestamp_utc": "2026-07-09T04:11:04Z",
-    "notes": "v1 tiling 640/512, both regions in train — clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
-    "regression_verdict": {"eval_key": "image_split", "status": "improved_investigated", "prior_best": 0.0358, "delta": 0.5302, "detail": "large jump verified real via the per-epoch curve"}
+    "notes": "v1 tiling 640/512, both regions in train \u2014 clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
+    "regression_verdict": {
+      "eval_key": "image_split",
+      "status": "improved_investigated",
+      "prior_best": 0.0358,
+      "delta": 0.5302,
+      "detail": "large jump verified real via the per-epoch curve"
+    }
+  },
+  {
+    "version": "g1a-az",
+    "job": "gv-g1a-az-r2",
+    "eval_key": "holdout:USA_AZ_Tucson",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.056,
+      "precision": 0.097,
+      "recall": 0.143
+    },
+    "timestamp_utc": "2026-07-09T05:00:00Z",
+    "notes": "train KS only -> eval unseen AZ desert. FAILS gate-1(a) bar (>=0.30). Cross-biome transfer weak.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_AZ_Tucson",
+      "metric": "map50",
+      "value": 0.056,
+      "prior_best": null,
+      "status": "baseline",
+      "detail": "first measurement for this key \u2014 recorded as baseline"
+    }
+  },
+  {
+    "version": "g1a-ks",
+    "job": "gv-g1a-ks-r2",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8n",
+    "metrics": {
+      "map50": 0.059,
+      "precision": 0.177,
+      "recall": 0.092
+    },
+    "timestamp_utc": "2026-07-09T05:05:00Z",
+    "notes": "train AZ only -> eval unseen KS plains. FAILS gate-1(a) bar. Both folds fail: single-region training does not transfer.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_KS_Colwich_Maize",
+      "metric": "map50",
+      "value": 0.059,
+      "prior_best": null,
+      "status": "baseline",
+      "detail": "first measurement for this key \u2014 recorded as baseline"
+    }
   }
 ]
