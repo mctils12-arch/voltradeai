@@ -10954,3 +10954,67 @@ ET rather than claim an exemption it doesn't need.
 Backtest: N/A (pure measurement/research finding — no strategy, sizing,
 or execution parameter changed; the two production modules referenced
 were read-only imports, never edited).
+
+---
+
+## 2026-07-09 [PRODUCT] — grid overlay: fix blank national tile + add HIFLD power-plants layer (T-DATACORE)
+
+TERRITORY: T-DATACORE (client/src/pages/datamap.tsx grid wiring,
+datacore/layers.json, client/public/tiles/*, server/gridTiles.test.ts).
+Two logical changes, two PRs.
+
+CHANGE 1 — #407 (v1.0.255), REPAIR of a live rendering bug. The "US Power
+Grid (all states)" master toggle rendered NOTHING on the deployed site.
+Root cause: client/public/tiles/power_us.pmtiles had been written by
+tippecanoe as a SQLite/MBTiles container, not PMTiles. maplibre's
+pmtiles:// protocol reads only the PMTiles single-file format, so the
+source loaded empty. DIAGNOSIS was deterministic: read the 7-byte header
+of every tile — only power_us failed the "PMTiles" magic (file(1)
+reported "SQLite 3.x database"); every per-state + HIFLD tile was valid,
+which is why only the master toggle was blank. FIX: rebuilt power_us from
+the surviving national.geojsonseq into a valid PMTiles container (26.3 MB).
+RATCHET (per HEALTH-OF-THE-LOOP rule 3): added server/gridTiles.test.ts,
+which asserts every client/public/tiles/*.pmtiles starts with the PMTiles
+magic — a mis-built tile now fails CI instead of shipping silently blank.
+The visual harness missed it because grid layers default OFF; the magic
+guard is the durable catch.
+
+CHANGE 2 — #408 (v1.0.256), the third authoritative-tier grid layer. New
+"US Power Plants — HIFLD (authoritative)" toggle: 11,810 national
+generating stations from HIFLD (DHS / Oak Ridge National Lab, public
+domain, sourced from EIA-860), delivered as a 6.3 MB PMTiles tile, points
+COLORED BY PRIMARY FUEL (EIA energy-source codes grouped into
+solar/gas/hydro/wind/coal/nuclear/petroleum/biomass/geothermal/storage).
+Capacity (MW), operator, and status ride per feature as real entity-graph
+hooks. This completes the generation->transmission->substation
+authoritative trio from ONE public-domain government source, matching the
+provenance family of the existing HIFLD transmission (#405) and
+substation layers. Government surveyed vector data — not ML, no
+cross-region generalization problem. Raw overlay (no predictive claim) →
+no ladder gating required per RAW-OVERLAYS-vs-SIGNALS.
+
+HONEST OVERLAP (flagged, not hidden): a pre-existing "US power plants"
+layer already exists — WRI Global Power Plant Database v1.3.0 (CC-BY,
+~9,800 US plants, 2021 vintage, served via the /api/data/powerplants
+GeoJSON API). The new HIFLD layer overlaps it. It is additive rather than
+a duplicate — different provenance tier (authoritative US-gov public
+domain vs third-party CC-BY compilation), 2,000 more plants, and PMTiles
+delivery consistent with the other HIFLD grid layers — but the redundancy
+is real and belongs to a future consolidation decision, filed in
+open_questions.md (do not silently ship two near-identical toggles
+forever).
+
+VERIFICATION LIMIT (stated honestly): live visual confirmation was NOT
+possible from the session sandbox — the production site is firewalled
+(HTTP 000/timeout) and a LOCAL built-server render test also failed
+because the map basemap/D3 assets load from an external CDN the sandbox
+blocks (net::ERR_CONNECTION_RESET), so the map never initializes here.
+Confidence rests on the deterministic checks that DO run in-sandbox:
+layersWiring 1/1 (enforces the registry↔toggle contract, so the toggle
+WILL appear), gridTiles magic guard 2/2, npm run build OK (dist tiles
+carry the PMTiles magic), and change 2's render block being a faithful
+mirror of the already-live substations block. Real end-to-end
+verification happens on Railway redeploy.
+
+BACKTEST: N/A — pure /data product surface (raw overlays), zero trading,
+sizing, or execution code touched. No strategy attribution affected.
