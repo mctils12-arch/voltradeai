@@ -10776,3 +10776,181 @@ a future PRODUCT session.
 Backtest: N/A (no strategy/measurement/parameter change — pure client/
 server product feature over already-archived RAW data, no trading-path
 code touched).
+
+## 2026-07-09 — [RESEARCH] Markov vs. VXX-ratio regime detector: which one actually predicts forward volatility? (v1.0.252)
+
+TERRITORY: T-BOT-adjacent / measurement (root-level `regime_detector_compare.py`
++ `test_regime_detector_compare.py`, `research/open_questions.md` only —
+zero production code touched: `markov_regime.py` and `system_config.py`
+were read-only imports, never edited). Deliberately chosen OUTSIDE today's
+hot territories: 8 PRs merged today already (#392-#404) concentrated in
+T-DATACORE (GRID VISION, worldview-globe cross-ties) and T-CLIENT
+(ORBITAL, ANALYST CONSOLE W3) — T-BOT had zero touches today.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): `/api/health` clean (status ok,
+bot active, drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner
+0 consecutiveFailures) — re-checked again at commit time, still clean
+(rss grew 313MB->502MB over the session from other sessions' concurrent
+deploys, still well under the 1GB self-kill threshold, not itself an
+alarm). NO LIVENESS ALARM either check. `git fetch origin main` at both
+session start and immediately before this commit: no new merges (HEAD
+still f738758/#404), no new open PRs beyond the already-known #399
+(open, different work) and #77 (stale draft) — no collision risk.
+open_questions.md KNOWN BROKEN: all resolved except #3/#4 (owner-audit-
+log-gated, not actionable from this session type) and #10 (dead
+SCORE_BAND_MAX config, gated on shadow_portfolio >=90d history) — CHECKED
+THIS SESSION: shadow_portfolio's counterfactual logging (change_pct
+recording) shipped v1.0.130 on 2026-07-05, only 4 days before this
+session — nowhere near the 90-day gate, correctly still not actionable.
+Loop-health: last 10 tagged entries were REPAIR:2/RESEARCH:1/PIPELINE:5/
+PRODUCT:2 (now includes this RESEARCH entry) — well under the 7+ thrash
+threshold.
+
+PRIMARY ACTION CHOICE, ruled-out alternatives: (a) options fill realism
+(open_questions.md OPEN RESEARCH QUESTIONS) — ruled out, too large for
+one session (would need to build quote-based-fill simulation across the
+whole options entry/exit lifecycle, and validating existing stock
+slippage tiers needs live production trade_feedback data this session
+can't reach); (b) kill-switch drawdown counterfactual logging (RULE COST
+AUDIT's last "STILL NOT counterfactual-logged" item) — ruled out, its own
+note flags it as "a materially bigger, still-open follow-up" and any
+change risks brushing risk_kill_switch.py's FROZEN mechanism boundary;
+(c) new ATLAS PARITY geospatial layer (USDA CDL crops, license-verified,
+"build next") — investigated, then ruled out: live-tested the CropScape
+WMS GetCapabilities (nassgeodata.gmu.edu) and confirmed it only serves
+EPSG:5070/102004/4326, NOT EPSG:3857 (`InvalidSRS` on a live GetMap probe)
+— unlike every other GIBS/JRC layer shipped so far, this one can't drop
+into MapLibre's `{bbox-epsg-3857}` raster-source pattern without a real
+reprojection proxy, which is a bigger build than "one layer per PR"
+implies; filed as a correction below rather than silently building
+something broken. (d) shadow_portfolio 90-day query — confirmed not yet
+ripe (see above). Chose (e): the standing, unclaimed, well-scoped
+OPEN RESEARCH QUESTION "which regime detector actually predicts forward
+volatility better" — no live production data needed (public FRED series
+substitute), pure measurement (no strategy/parameter change), matches
+GOAL priority 2 (protect the integrity of learning) and MEASUREMENT
+INTEGRITY's spirit even though it's not touching the backtest/slippage
+ruler specifically — it's pointing a ruler at two EXISTING, coexisting
+production signals.
+
+PRIOR STATED BEFORE RUNNING (REASONING STANDARD #10): VIX (spot) is
+itself a market-implied forward-volatility estimate, so a VIX-ratio
+signal correlating with SUBSEQUENT realized volatility is close to
+definitional. `markov_regime.py`'s MarkovRegime class only ever looks at
+the sign/magnitude of recent SPY daily returns (a DIRECTION classifier,
+per its own docstring) — it never sees volatility level at all. PRIOR:
+VIX-ratio should show materially higher correlation with forward realized
+vol than the Markov chain's bear-probability; if Markov matched or beat
+it, that would be the surprising finding.
+
+METHOD: `regime_detector_compare.py` — imports the REAL
+`markov_regime.MarkovRegime` class (not a reimplementation, so "Markov"
+here is exactly what bot_engine.py calls live) and computes, per trading
+day over a 10-year window: vix_ratio (VIX / 30d trailing avg — the exact
+formula `system_config.py` uses for vxx_ratio), spy_vs_ma50 (identical
+formula to the live input), and markov_p_bear (the Markov chain's
+P(bear tomorrow) from `get_current_state()`), then Spearman rank-
+correlates each against forward 5-day and 20-day realized volatility
+(strictly forward windows, no lookahead). Rank correlation was chosen
+deliberately (not the live classifier's absolute thresholds) — see next
+paragraph for why.
+
+HONEST DATA SUBSTITUTION (stated up front in the script's docstring, not
+buried): this sandbox could not reach live SPY/VXX history — yfinance
+429'd, Stooq required a JS proof-of-work challenge, Alpha Vantage needs a
+paid key beyond its crippled demo key. FRED's free, keyless
+`fredgraph.csv` served SP500 (S&P 500 index close) as a safe SPY stand-in
+(near-identical daily % moves) and VIXCLS (spot VIX) as a CONCEPT-LEVEL
+stand-in for VXX — explicitly NOT safe for reproducing
+`get_market_regime()`'s exact VXX-calibrated absolute thresholds (VXX is
+a contango-decaying short-term-futures ETN with a different range than
+spot VIX), which is why the comparison uses threshold-free Spearman rank
+correlation on the continuous ratio instead of bucketing through the live
+classifier's PANIC/BEAR/CAUTION/BULL thresholds.
+
+OPS NOTE (time cost, filed so a future session doesn't re-hit this):
+`requests.get()` called FROM INSIDE a Python function in this sandbox
+reproducibly hung until ReadTimeout on this exact URL, even though the
+identical call succeeded instantly as a one-off in the same interpreter,
+and even a `subprocess.run(["curl", ...])` wrapper inside the function hit
+a different flake (HTTP/2 stream error). Root cause not isolated (proxy
+behavior specific to this dev sandbox, not something that will run in
+prod — this script never touches the trading path or Railway). Practical
+fix: `fetch_fred_series()` is now a best-effort single-attempt
+convenience wrapper; the actual run used CSVs fetched with plain
+`curl <url> -o file.csv` (100% reliable across ~10 manual attempts this
+session) via new `--sp500-csv`/`--vix-csv` file args.
+
+RESULT (n=2,442 trading days, 2016-09-20 to 2026-06-08):
+| signal | fwd_vol_5 rho (p) | fwd_vol_20 rho (p) |
+|---|---|---|
+| vix_ratio | 0.3031 (~0) | 0.2390 (~0) |
+| spy_vs_ma50 | -0.3574 (~0) | -0.2541 (~0) |
+| markov_p_bear | -0.0711 (0.0004) | -0.1168 (~0) |
+
+Base rate: fwd_vol_5 mean 0.889 (std 0.765), fwd_vol_20 mean 0.948 (std
+0.661) — unconditional daily-return stdev, for scale.
+
+CONFIRMS THE PRIOR: vix_ratio and spy_vs_ma50 both show ~2-3x the
+correlation magnitude of markov_p_bear at both horizons, and
+markov_p_bear's effect is SIGN-FLIPPED from the naive "higher bear
+probability = more danger = more forward vol" story (higher predicted
+bear-probability correlated with LOWER forward vol — plausibly a bear-
+exhaustion/relief-bounce artifact baked into the 10-year training window,
+not a genuine forward-vol signal). The VXX-ratio+trend heuristic is doing
+essentially all of `get_market_regime()`'s volatility-forecasting work;
+the Markov component isn't adding meaningful volatility-predictive power.
+Discount note (REASONING STANDARD #4): only 2 signals x 2 horizons = 4
+comparisons, low multiplicity concern, and this is a single clean
+prediction test, not a fished-for pattern.
+
+SCOPE LIMIT stated honestly: this only tests VOLATILITY forecasting.
+Markov's stated live purpose in `get_market_regime()` is a tie-break
+`elif` (`spy_vs_ma50 > 1.0 and markov_state >= 1`), and separately feeds
+`get_regime_multiplier()` for position sizing and STRONG_BUY/SELL
+direction signals — none of that was tested here. NOT ACTED ON: this is
+evidence, not a shipped RULE REVIEW change — demoting Markov's role would
+need its own ablation on the DIRECTION/sizing question specifically,
+which this screen didn't run. Finding written up in
+`research/open_questions.md` (OPEN RESEARCH QUESTIONS section) in full,
+with the same honesty caveats.
+
+TESTS: 15 new tests in `test_regime_detector_compare.py` — CSV parsing
+(valid rows, FRED's "." missing marker skipped not coerced to 0,
+malformed-row tolerance), date-alignment inner-join correctness (drops
+non-overlapping dates on either side, sorts ascending), feature
+computation on synthetic deterministic series (warmup/tail row dropping,
+forward-vol correctly elevated ahead of an injected synthetic spike,
+markov output is a valid probability + one of the 5 documented signal
+labels, vix_ratio/spy_vs_ma50 formulas exactly 1.0 on a constant series),
+NaN/None-pair cleaning, and Spearman correlation sign/magnitude sanity
+(perfect monotonic relationship -> rho≈±1, below-minimum-n reports
+`rho: null` rather than crashing). No network calls in any test (mirrors
+the existing `cot_gate2_test.py`/`test_cot_gate2.py` convention).
+
+GATES: `python3 -m pytest -q` 598 passed / 1 skipped (583 baseline + 15
+new, identical baseline otherwise). No client/ files touched — visual
+harness not applicable. Version 1.0.251 -> 1.0.252 (read-and-incremented
+at commit time, re-fetched origin/main immediately before — no advance
+since session start, still HEAD=f738758/#404).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero production code paths
+changed (markov_regime.py, system_config.py, bot_engine.py all untouched)
+-> zero live trading behavior change -> the only artifact is a filed
+finding + a reusable, tested comparison script for any future revisit
+(e.g. once real VXX history is reachable). If a future session DOES act
+on this (e.g. removing markov_state's tie-break role in
+get_market_regime), that would need its own RULE REVIEW pass (evidence
+already exists here for the volatility angle, but sizing/direction still
+needs its own ablation) — not implied or pre-approved by this entry.
+
+MARKET-HOURS NOTE: session ran during market hours (~2026-07-09 12:00 PM
+ET). This is a pure research/measurement finding with no runtime
+behavior change (no strategy, sizing, or execution code touched), so
+there is no live-trading risk either way — but per the standing session
+instruction, the PR still states merge should wait until after 4:00 PM
+ET rather than claim an exemption it doesn't need.
+
+Backtest: N/A (pure measurement/research finding — no strategy, sizing,
+or execution parameter changed; the two production modules referenced
+were read-only imports, never edited).
