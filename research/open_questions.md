@@ -447,7 +447,93 @@
     reopening of this one (RECURRENCE ESCALATES only applies to the same
     root cause recurring, not a different cause behind the same symptom).
 
-16. **[FOUND 2026-07-09, not yet repaired] Extended-hours market orders
+16. **[RESOLVED 2026-07-10, v1.0.263] Extended-hours market orders were
+    rejected and blindly retried instead of queued — root cause: an
+    entirely different, undiagnosed call site than the KNOWN BROKEN #8
+    fix covers.** Original finding preserved below. DIAGNOSIS this
+    session: the answer to the NEXT-STEP question is "bypasses it
+    entirely, and not via tier1Reflex/morningQueue at all." The
+    resubmit loop is `bot_engine.py`'s `_manage_spy_floor()` — the
+    passive floor-basket rebalancer (QQQ/SMH/KWEB/VXUS/...), called
+    unconditionally every Tier-2 scan cycle (~5 min) with zero
+    market-hours gating anywhere in the function. Its basket-rebalance
+    branch (added 2026-04-22, `FLOOR_BASKET_ENABLED` path) submits raw
+    `"type": "market"` orders directly via Python `requests.post` to
+    Alpaca — a code path that never goes through `server/bot.ts` or
+    `orderParams.ts`/`getOrderParams()` at all, so KNOWN BROKEN #8's
+    fix (which only touched the Node side) could never have covered it.
+    Alpaca rejects/cancels a market order placed outside 9:30am-4:00pm
+    ET, so every ~5-minute cycle's drift check saw the same still-open
+    gap and resubmitted — confirmed live via `/api/diag/orders` this
+    session: 50 canceled + 31 still-pending "new" SMH buy-market orders
+    spanning 2026-07-07 through 2026-07-10, ~5 minutes apart, entirely
+    during extended/pre-market hours (the legacy single-ticker path,
+    used when `FLOOR_BASKET_ENABLED=False`, already used limit orders
+    per an earlier 2026-04-10 fix note but still had no `extended_hours`
+    flag and no market-hours gate — same defect class, lower blast
+    radius since Alpaca just queues a day-limit order rather than
+    rejecting it, but still capable of resubmitting duplicate pending
+    orders every cycle).
+    FIX: added `_is_regular_hours()` to `bot_engine.py` — a direct copy
+    of the already-established, already-tested convention in
+    `options_scanner.py` (DST-aware `datetime.now(ZoneInfo("America/
+    New_York"))`, 9:30-16:00 ET bounds; narrowed to catch only
+    `ZoneInfoNotFoundError`, fail-closed, so it does not trip the
+    `test_silent_except_ratchet.py` broad-except pin) — and gated
+    every direct order-submission call inside `_manage_spy_floor` on
+    it: the basket buy/sell branches, the legacy single-ticker
+    buy/sell branch, and the target_pct<=0 regime-exit branch. When
+    the market is closed, no order is submitted; an honest
+    `*_deferred` action is recorded instead (`buy_deferred`/
+    `sell_deferred` for the basket path, `floor_rebalance_deferred`
+    for the legacy path, `floor_exit_deferred` for the zero-target
+    exit) — this is a deferral, not a silent drop: the basket/legacy
+    paths recompute drift from live positions every cycle regardless
+    of `_floor_state`, so a skipped cycle retries automatically once
+    the market reopens. The regime-exit branch needed one extra piece
+    of care: it only fires `if regime_changed`, and `_floor_state`'s
+    `last_regime` normally gets persisted unconditionally right after
+    — so a deferred exit that still updated `last_regime` would make
+    `regime_changed` false on the next call and the exit would be
+    silently forgotten forever. Fixed by skipping the state-persist
+    step specifically when deferred, so `last_regime` stays stale and
+    the retry condition holds until the exit actually executes.
+    RATCHET: `test_spy_floor_market_hours.py` (new file — this
+    function had ZERO test coverage before this PR, for either the old
+    or new behavior) — 5 tests: basket buy deferred + no POST when
+    closed, basket sell deferred + no POST when closed, basket buy
+    still executes with the correct `type: market` payload when open
+    (regression guard against the fix disabling live trading), legacy
+    path defers + no POST when closed, and the regime-exit-preserves-
+    retry case (asserts the on-disk floor-state file's `last_regime`
+    is untouched after a deferred exit). All mock every Alpaca
+    call — no live network dependency.
+    GATES: `python3 -m pytest -q` 626 passed, 2 skipped (baseline 621
+    + 5 new; zero regressions, including `test_silent_except_ratchet.py`
+    after narrowing the new helper's except clause). No TypeScript/
+    client files touched — `server/bot.ts`'s own extended-hours path
+    (KNOWN BROKEN #8) is untouched and remains correct for the code
+    paths it actually covers (`executeTrades`, the Tier-3 `BUY`/
+    `BUY_PUT` tier-action dispatcher, scale-outs, position kills — all
+    of which DO call `getOrderParams`). No backtest run: this is an
+    execution-layer safety fix (when an order may be submitted, not
+    what/how much to trade) with the same shape as KNOWN BROKEN #8's
+    fix, which also shipped without a backtest per PROMOTION RULES —
+    strategy/sizing/scoring logic is unchanged.
+    LIVE VERIFICATION STILL PENDING: this session could not deploy or
+    observe the fix live (autonomous sessions don't control Railway
+    deploys). NEXT: the first session after this deploys should query
+    `/api/diag/orders?token=$DIAG_TOKEN` and confirm no NEW SMH (or any
+    other floor-basket ticker) market orders appear during extended
+    hours, and that a `buy_deferred`/`sell_deferred`/
+    `floor_rebalance_deferred` trail is visible instead (currently
+    these actions aren't surfaced on any diag probe — `spy_floor_result`
+    is computed in `scan_market()`'s return but not obviously logged
+    to the audit trail the way `TIER3-*` events are; if the deferred
+    actions turn out to be invisible in production, that's a smaller
+    follow-up visibility gap, not a reopening of this fix).
+    Original finding text preserved below for the record.
+    Extended-hours market orders
     are rejected and blindly retried instead of queued.** Observed live
     via `/api/diag/orders` (this session, R19 investigation): on
     2026-07-07 ~11:39-13:24 ET (pre-market), "SMH buy market 6" was

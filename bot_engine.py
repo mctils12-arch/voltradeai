@@ -58,7 +58,7 @@ except ImportError:
     alpaca_throttle = _NoThrottle()
 import numpy as np
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
 
 # OPTIMIZATION 2026-04-20: Auto-throttle all Alpaca requests (180/min).
@@ -4295,6 +4295,25 @@ def _unwind_covered_calls(ticker: str) -> list:
 
 # ── Passive SPY Floor (v1.0.29) ──────────────────────────────────────────────
 
+def _is_regular_hours() -> bool:
+    """True if within 9:30am-4:00pm ET. Mirrors options_scanner._is_regular_hours —
+    same DST-aware construction, kept as a separate module-private copy rather
+    than a cross-module import (options_scanner's version is private too).
+    KNOWN BROKEN #16: _manage_spy_floor's order-submission calls had no
+    market-hours awareness at all, submitting raw "type": "market" orders
+    every ~5-minute scan cycle around the clock. Alpaca rejects/cancels a
+    market order placed outside regular hours, so the next cycle's drift
+    check still saw the same gap and resubmitted — an unbounded cancel/
+    resubmit loop (observed live: 50+ SMH orders canceled over 3 days)."""
+    try:
+        et_time = datetime.now(ZoneInfo("America/New_York"))
+    except ZoneInfoNotFoundError:
+        # tzdata missing on this host — fail closed rather than guess.
+        return False
+    hour = et_time.hour + et_time.minute / 60.0
+    return 9.5 <= hour < 16.0
+
+
 def _manage_spy_floor(macro: dict) -> dict:
     """
     Passive SPY Floor: hold SPY shares proportional to regime allocation.
@@ -4449,20 +4468,26 @@ def _manage_spy_floor(macro: dict) -> dict:
                             if _px > 0:
                                 _shares = int(delta_dollars / _px)
                                 if _shares > 0:
-                                    alpaca_throttle.acquire()
-                                    requests.post(
-                                        f"{ALPACA_BASE_URL}/v2/orders",
-                                        headers={**_alpaca_headers(), "Content-Type": "application/json"},
-                                        json={
-                                            "symbol": b_ticker, "qty": str(_shares),
-                                            "side": "buy", "type": "market",
-                                            "time_in_force": "day",
-                                        }, timeout=10)
-                                    basket_result["actions"].append({
-                                        "ticker": b_ticker, "action": "buy",
-                                        "shares": _shares, "price": _px,
-                                        "delta_dollars": delta_dollars,
-                                    })
+                                    if not _is_regular_hours():
+                                        basket_result["actions"].append({
+                                            "ticker": b_ticker, "action": "buy_deferred",
+                                            "shares": _shares, "reason": "market_closed",
+                                        })
+                                    else:
+                                        alpaca_throttle.acquire()
+                                        requests.post(
+                                            f"{ALPACA_BASE_URL}/v2/orders",
+                                            headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                                            json={
+                                                "symbol": b_ticker, "qty": str(_shares),
+                                                "side": "buy", "type": "market",
+                                                "time_in_force": "day",
+                                            }, timeout=10)
+                                        basket_result["actions"].append({
+                                            "ticker": b_ticker, "action": "buy",
+                                            "shares": _shares, "price": _px,
+                                            "delta_dollars": delta_dollars,
+                                        })
                         except Exception as _be:
                             basket_result["actions"].append({
                                 "ticker": b_ticker, "action": "buy_failed",
@@ -4479,20 +4504,26 @@ def _manage_spy_floor(macro: dict) -> dict:
                             if _px > 0:
                                 _shares = int(delta_dollars / _px)
                                 if _shares > 0:
-                                    alpaca_throttle.acquire()
-                                    requests.post(
-                                        f"{ALPACA_BASE_URL}/v2/orders",
-                                        headers={**_alpaca_headers(), "Content-Type": "application/json"},
-                                        json={
-                                            "symbol": b_ticker, "qty": str(_shares),
-                                            "side": "sell", "type": "market",
-                                            "time_in_force": "day",
-                                        }, timeout=10)
-                                    basket_result["actions"].append({
-                                        "ticker": b_ticker, "action": "sell",
-                                        "shares": _shares, "price": _px,
-                                        "delta_dollars": delta_dollars,
-                                    })
+                                    if not _is_regular_hours():
+                                        basket_result["actions"].append({
+                                            "ticker": b_ticker, "action": "sell_deferred",
+                                            "shares": _shares, "reason": "market_closed",
+                                        })
+                                    else:
+                                        alpaca_throttle.acquire()
+                                        requests.post(
+                                            f"{ALPACA_BASE_URL}/v2/orders",
+                                            headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                                            json={
+                                                "symbol": b_ticker, "qty": str(_shares),
+                                                "side": "sell", "type": "market",
+                                                "time_in_force": "day",
+                                            }, timeout=10)
+                                        basket_result["actions"].append({
+                                            "ticker": b_ticker, "action": "sell",
+                                            "shares": _shares, "price": _px,
+                                            "delta_dollars": delta_dollars,
+                                        })
                         except Exception as _be:
                             basket_result["actions"].append({
                                 "ticker": b_ticker, "action": "sell_failed",
@@ -4514,34 +4545,45 @@ def _manage_spy_floor(macro: dict) -> dict:
 
         if target_pct <= 0:
             # No floor — sell any existing position (only on regime change to 0%)
+            _exit_deferred = False
             if regime_changed or last_regime is None:
-                try:
-                    positions = get_alpaca_positions()
-                    floor_pos = [p for p in positions if p.get("symbol") == floor_ticker]
-                    if floor_pos:
-                        qty = abs(int(float(floor_pos[0].get("qty", 0))))
-                        if qty > 0:
-                            # Unwind any covered calls before selling stock
-                            try:
-                                uw_actions = _unwind_covered_calls(floor_ticker)
-                                result["actions"].extend(uw_actions)
-                            except RuntimeError as _uw_err:
-                                import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {floor_ticker}, blocking sale: {_uw_err}")
-                                result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
-                                return result
-                            alpaca_throttle.acquire()
-                            requests.post(f"{ALPACA_BASE_URL}/v2/orders",
-                                json={"symbol": floor_ticker, "qty": str(qty),
-                                      "side": "sell", "type": "market",
-                                      "time_in_force": "day"},
-                                headers=_alpaca_headers(), timeout=10)
-                            result["actions"].append({"type": "floor_exit",
-                                "shares": qty, "reason": f"{regime} regime (was {last_regime})"})
-                            import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {floor_ticker} (regime changed {last_regime}->{regime})")
-                except Exception:
-                    pass
+                if not _is_regular_hours():
+                    # Deferred, not skipped: deliberately do NOT persist last_regime
+                    # below, so regime_changed stays True and this retries next cycle
+                    # instead of the exit silently never happening (KNOWN BROKEN #16).
+                    _exit_deferred = True
+                    result["actions"].append({"type": "floor_exit_deferred",
+                        "reason": "market_closed"})
+                else:
+                    try:
+                        positions = get_alpaca_positions()
+                        floor_pos = [p for p in positions if p.get("symbol") == floor_ticker]
+                        if floor_pos:
+                            qty = abs(int(float(floor_pos[0].get("qty", 0))))
+                            if qty > 0:
+                                # Unwind any covered calls before selling stock
+                                try:
+                                    uw_actions = _unwind_covered_calls(floor_ticker)
+                                    result["actions"].extend(uw_actions)
+                                except RuntimeError as _uw_err:
+                                    import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {floor_ticker}, blocking sale: {_uw_err}")
+                                    result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
+                                    return result
+                                alpaca_throttle.acquire()
+                                requests.post(f"{ALPACA_BASE_URL}/v2/orders",
+                                    json={"symbol": floor_ticker, "qty": str(qty),
+                                          "side": "sell", "type": "market",
+                                          "time_in_force": "day"},
+                                    headers=_alpaca_headers(), timeout=10)
+                                result["actions"].append({"type": "floor_exit",
+                                    "shares": qty, "reason": f"{regime} regime (was {last_regime})"})
+                                import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {floor_ticker} (regime changed {last_regime}->{regime})")
+                    except Exception:
+                        pass
             else:
                 result["status"] = "no_floor_no_change"
+            if _exit_deferred:
+                return result
             # Save regime state
             _floor_state["last_regime"] = regime
             _floor_state["last_rebalance"] = datetime.now().isoformat()
@@ -4628,7 +4670,14 @@ def _manage_spy_floor(macro: dict) -> dict:
         _order_type = "limit"
         _limit_price = str(round(spy_price, 2))
 
-        if shares_diff > 0:
+        if not _is_regular_hours():
+            # Deferred: drift_pct is recomputed from live positions every
+            # cycle (not a one-shot flag), so skipping here is safe — the
+            # same gap re-triggers next cycle once the market is open.
+            result["actions"].append({"type": "floor_rebalance_deferred",
+                "shares_diff": shares_diff, "ticker": floor_ticker,
+                "reason": "market_closed"})
+        elif shares_diff > 0:
             try:
                 alpaca_throttle.acquire()
                 requests.post(f"{ALPACA_BASE_URL}/v2/orders",
