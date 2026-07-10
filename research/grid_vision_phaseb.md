@@ -206,3 +206,25 @@ is `scripts/runpod_budget.py` (finite `max_hours` required):
 **None.** All three scripts and all three test files are Python stdlib
 only (json, zipfile, urllib, math, argparse) — matching scripts/cdse_chips.py
 and scripts/grid_capacity_tx.py. No pip or npm dependency added.
+
+## UPDATE 2026-07-10 — Duke native-GSD bug found+fixed; div4 retry launched (v1.0.261)
+
+div3's resume note (research/experiments.md 2026-07-09) proposed pre-downsampling
+Duke orthos OFFLINE before the next attempt. This session took a different,
+simpler route instead: (1) found and fixed a real bug — `train.py`'s
+`build_yolo_dataset` applied ETDII's 0.30m native GSD to EVERY region including
+Duke (natively 0.15m), which would have trained Duke images 2x too coarse the
+moment a Duke run finally reached the training step (neither div2 nor div3 had);
+(2) rather than building offline pre-processing infra, just raised `--max-hours`
+to 5 (worst case $3.45, trivial against the $46+ balance) so the SAME on-pod
+download+tile pipeline (already fixed for streaming-corruption by div2/div3) has
+enough wall-clock to actually finish, instead of adding a new git-branch-based
+chip-caching pipeline on spec. If gv-div4-ks's log (once retrieved via the new
+`pod_run.py` result-push mechanism) shows download+tiling itself — not just the
+time cap — is the bottleneck, offline pre-downsampling is still the documented
+fallback plan below and should be built then, not before.
+
+Full detail in research/experiments.md's 2026-07-10 entry + research/
+runpod_ledger.md. Check `datacore/runpod/ledger.jsonl` (job gv-div4-ks) and git
+branch `gridvision-pod-result-gv-div4-ks` for the outcome before starting a new
+attempt.
