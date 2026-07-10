@@ -90,6 +90,7 @@ import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
 import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
+import { bootMidasPoll, latestMidas } from "./secMidas";
 
 const execAsync = promisify(exec);
 
@@ -2019,6 +2020,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             "top list covers the newest settlement date, floors quantity at " +
             `${hit.summary.qty_floor.toLocaleString()} shares (stated); raw FTD spikes alone are a crowded signal — ` +
             "this stream exists for the settlement-stress composite (see manifest)",
+      summary: hit.summary,
+    });
+  });
+
+  // SEC MIDAS individual-security market-structure metrics (census build
+  // #10, public domain). Quarterly files, multi-quarter publish lag;
+  // McapRank/etc. decile scale is Stock-only, ETFs use a quartile scale —
+  // never mixed. Cache-only path; smallcap_watch is sorted purely by the
+  // source's own published cancel-to-trade ratio (RAW, no model applied).
+  bootMidasPoll();
+  app.get("/api/data/microstructure", (_req, res) => {
+    const hit = latestMidas();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "SEC MIDAS individual-security metrics (quarterly)", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "SEC MIDAS individual-security market-structure metrics, quarterly files (public domain)",
+      attribution: "U.S. Securities and Exchange Commission (MIDAS)",
+      time: hit.at,
+      note: "cross-sectional lit/hidden/odd-lot/cancel metrics per (date, ticker); rank scale differs by kind " +
+            "(Stock deciles 1-10, ETF quartiles 1-4, never comparable); smallcap_watch covers the newest date, " +
+            `McapRank<=${hit.summary.smallcap_max_rank} Stock rows only, floors trades-for-hidden at ` +
+            `${hit.summary.min_trades_for_hidden} (stated); this is a candidate HFT-colonization FILTER, not a ` +
+            "trading signal — gate-2 unattempted (see manifest)",
       summary: hit.summary,
     });
   });

@@ -1,0 +1,23 @@
+{
+ "stream": "secmidas",
+ "storage": "one gzipped JSONL per QUARTERLY publication unit under <archive>/secmidas/ (<YYYY>q<1-4>.jsonl.gz, ~533k rows ≈ ~20MB gz per quarter, measured on q4_2025); quarter-level dedup (a published quarter file is final)",
+ "written_by": "server/secMidas.ts refreshMidas (24h poll, probes MIDAS_LOOKBACK_QUARTERS=6 candidate quarters newest-first every call — 404/not-yet-published responses are cheap and all get probed in one call, but at most ONE period is actually parsed+archived per call, a deliberate memory guard given each quarter's CSV is ~9x secFtd's half-month file; eager boot; full 2013-2025 history (~50 quarters, ~1GB gz est.) is a SEPARATE filed volume-budget task, never the boot path)",
+ "source": "SEC MIDAS individual-security market-structure metrics (sec.gov files/opa/data/market-structure/metrics-individual-security/individual_security_{year}_q{quarter}.zip; contract live-verified 2026-07-10 — endpoint found via live web search, not guessed; two prior sessions' static-URL guesses (2026-07-06, 2026-07-08) all 404'd). Quarterly zip containing one CSV member (q{N}_{YYYY}_all.csv) + a README (not archived, folded into this manifest and the module docstring). Publishes on a multi-quarter lag (2026-07-10: latest available is 2025_q4; 2026_q1/q2 both 404). Header 19 fields (Date,Security,Ticker,McapRank,TurnRank,VolatilityRank,PriceRank,LitVol,OrderVol,Hidden,TradesForHidden,HiddenVol,TradeVolForHidden,Cancels,LitTrades,OddLots,TradesForOddLots,OddLotVol,TradeVolForOddLots), one row per (date, ticker) for every trading day in the quarter, both Stock and ETF rows. No official checksum exists for this format (unlike secftd's trailer lines) — integrity enforced by exact header match + a >1% malformed-row-rate refusal guard (a healthy file's every line splits into exactly 19 fields).",
+ "license": "US government work, public domain — resale-safe, same category as secftd",
+ "attribution": "U.S. Securities and Exchange Commission (MIDAS — Market Information Data Analytics System)",
+ "schema_version": 1,
+ "field_map": {
+  "date/kind/ticker": "ISO trading date; Security kind (Stock or ETF — RANK SCALES DIFFER: ETF ranks are quartiles 1-4, Stock ranks are deciles 1-10, verified by full-file tabulation, never documented by the source); ticker symbol",
+  "mcapRank/turnRank/volatilityRank/priceRank": "1=smallest/lowest bucket in both scales; null (not 0) for the small fraction of thin/new Stock listings the source itself leaves unranked",
+  "litVol/orderVol/hiddenVol/tradeVolForHidden/oddLotVol/tradeVolForOddLots": "'000 shares",
+  "hidden/tradesForHidden/cancels/litTrades/oddLots/tradesForOddLots": "trade/order message counts (see module docstring for the source README's exact definitions)",
+  "rt": "our capture date"
+ },
+ "confidence_model": "RAW official per-security-per-day market-structure metrics. HYPOTHESIS (gate-locked, filed in open_questions.md): cross-sectional cancel-to-trade / hidden-rate / odd-lot-rate on LOW-McapRank (small-cap) Stock rows is a candidate HFT-colonization FILTER for EDGE DOCTRINE #2 (fish where whales can't) — which capacity-constrained small caps are already crowded by fast money vs. genuinely under-arbitraged. Nothing claimed until ladder gate 2; the /api/data/microstructure route's smallcap_watch list is sorted purely by the source's own published cancel-to-trade ratio, no model or interpretation applied.",
+ "geo_fields": [],
+ "entity_key": "date + ticker",
+ "sentiment": null,
+ "started": "2026-07-10",
+ "cadence": "quarterly source files, multi-quarter publish lag; 24h poll (appropriate for a slow-moving source, 12x lighter than secftd's 12h)",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS census build #10 (data_census.md item 5 / top-10 list item 10)."
+}

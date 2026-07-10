@@ -871,6 +871,71 @@
   candidates; if granted, reinstate the chain attempt AND re-verify
   Railway egress connectivity before relying on it.
 
+## MIDAS HFT-COLONIZATION FILTER HYPOTHESIS (RAW layer shipped 2026-07-10, v1.0.265 — census build #10)
+
+`server/secMidas.ts` archives SEC MIDAS's quarterly individual-security
+market-structure metrics (public domain; endpoint found via live web
+search this session, after two prior sessions' static-URL guesses both
+404'd — see experiments.md 2026-07-10 entry). RAW only: `/api/data/
+microstructure`'s `smallcap_watch` is sorted purely by the source's own
+published Cancels/LitTrades ratio for Stock rows with McapRank<=2 (bottom
+decile pair, smallest ~20% by SEC's own ranking) — no model, no
+predictive claim.
+
+HYPOTHESIS (EDGE DOCTRINE #2 — fish where whales can't): among small-cap
+stocks, a persistently HIGH cancel-to-trade ratio / hidden-order rate /
+odd-lot rate is a FILTER, not a directional signal — it flags names
+already colonized by HFT market-making/quote-stuffing activity, where a
+capacity-constrained small-fund edge (deep_score's actual target
+universe) is more likely to be competed away at the microstructure level
+even if the fundamental/catalyst thesis is sound. The inverse — small
+caps with LOW colonization metrics relative to peers of similar
+McapRank/TurnRank — are the genuinely under-arbitraged corner EDGE
+DOCTRINE #2 describes. Prior: expect the filter to matter more for
+momentum/breakout entries (execution-sensitive, thin liquidity gets
+front-run) than for longer-hold catalyst plays (Form 4 clusters, 8-K
+events) where a few extra bps of adverse selection matters less. Second-
+order reasoning (REASONING STANDARD #5): the "why hasn't this been
+arbitraged" answer here is structural, not "nobody noticed" — a fund
+running this filter needs BOTH a small-cap candidate stream (already
+built: Form 4, 8-K, insider clusters) AND this microstructure layer
+jointly, which is exactly the kind of two-source join a single retail
+screener doesn't bother building.
+
+LADDER: gate 1 DATA — passed for the raw feed itself (SEC's own published
+metrics, no external ground-truth needed the way tank-shadow imagery
+does; integrity enforced by the malformed-row-rate guard in secMidas.ts,
+not a cross-source check). Gate 2 SIGNAL — BLOCKED, twice over: (a)
+MIDAS's own multi-quarter publish lag means meaningful history takes real
+calendar time to accumulate quarter-by-quarter (this session archived
+2025q4 only; the poller backfills MIDAS_LOOKBACK_QUARTERS=6 quarters over
+subsequent daily polls, not instantly); (b) this is a CROSS-STREAM
+hypothesis by construction — it needs a JOIN against an existing
+small-cap candidate stream (Form 4 clusters is the most natural partner,
+also gate-2-blocked on its own accumulating history) to test "does the
+colonization filter change the Form-4-cluster edge's forward return,"
+not a standalone screen the way COT/FTD were. NEXT STEP once both sides
+have >=2 quarters of MIDAS history and enough Form 4 cluster events to
+overlap: split Form-4-cluster candidates into high vs. low McapRank-
+matched colonization-metric buckets, compare forward 5/20/60d excess
+return over the existing random-entry baseline (REASONING STANDARD #3);
+discount for the number of metric combinations tried (cancel-to-trade,
+hidden-rate, odd-lot-rate — 3 candidate filters, not 1) per REASONING
+STANDARD #4.
+
+WHAT DIDN'T WORK (logged so nobody re-walks it, corrects the record left
+by two prior sessions): the 2026-07-06 census entry flagged MIDAS "probed
+200" without recording the actual URL used, and the 2026-07-08 COT
+Newey-West session tried several remembered/guessed static paths
+(`sec.gov/data/market-structure/metrics-by-security`,
+`sec.gov/marketstructure/midas.html`/`-system`, an `/files/opa/data/
+market-structure/metrics-by-{security,market}/{year}/q{n}/` guess) — all
+404 or redirect loops. The real path was only found by web-searching for
+the current downloads page and following its actual listed hrefs (WebFetch
+against `sec.gov/data-research/sec-markets-data/marketstructure
+data-security`), not by pattern-guessing from memory — the general lesson
+for any future "known endpoint moved" case in this repo.
+
 ## OPS GOTCHAS (avoid re-learning)
 
 - STOP-HOOK FALSE POSITIVE after every post-merge branch reset: the

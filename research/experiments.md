@@ -11870,3 +11870,184 @@ as an exemption, but the blast radius here — an inert client-side toggle,
 not a change to what/when the bot trades — is judged materially lower-risk
 than the order-submission and execution-layer changes that pattern was
 written for.
+
+## 2026-07-10 — [PIPELINE] SEC MIDAS individual-security market-structure metrics — census build #10, endpoint found live (v1.0.265)
+
+TERRITORY: T-DATACORE primary (server/secMidas.ts + test + its manifest)
++ SHARED minimal (server/routes.ts route registration, package.json
+version — last commit per MERGE-ORDER PROTOCOL). Solo session, [PRODUCT]
+directive.
+
+SESSION START per MEMORY PROTOCOL: read CLAUDE.md in full, then this
+file's last 10 tagged entries (RESEARCH, PRODUCT, PRODUCT[worldview-globe
+G2b], and further back a REPAIR/PIPELINE mix — no 7+ REPAIR thrash
+signal), open_questions.md KNOWN BROKEN (items #12(a) reseed-check and
+#17 content-free ML error string remain the only open items, both
+T-BOT/daemon-side, lower priority per their own text, not blocking
+T-DATACORE work), and wishlist.md.
+
+HEALTH CHECK: `/api/health` all green (server/database/alpaca/python/
+scanner/licensing "ok"; bot "active", equityPeak $109,523.04, drawdownPct
+0.0, liveness.dark=false — no Priority-1 liveness alarm). Nothing in
+KNOWN BROKEN was both live-actionable and in this session's territory.
+
+PRIMARY ACTION SELECTION: DATACORE MAXIMUS's own wishlist.md status block
+named "SEC MIDAS" as the next unclaimed census item, but flagged (twice,
+by two different prior sessions — the 2026-07-06 census entry and the
+2026-07-08 COT Newey-West session's fall-through note) that its actual
+download endpoint could not be found by guessing static URL patterns from
+memory, and was parked rather than claimed. This session tried the tool
+those prior sessions didn't have queued up: WebSearch for the current
+downloads page, then WebFetch against the actual live page content
+(`sec.gov/data-research/sec-markets-data/marketstructuredata-security`)
+to read its real hrefs, rather than guessing from memory of the old
+site's URL shape. This found the real pattern on the first search:
+`sec.gov/files/opa/data/market-structure/metrics-individual-security/
+individual_security_{year}_q{quarter}.zip` — confirmed live via curl
+(200, 23.5MB for 2025_q4; 2026_q1 and 2026_q2 both 404, consistent with
+MIDAS's own multi-quarter publish lag, distinct from secFtd's 2.5-4.5wk
+lag). This matches data_census.md's original census entry #5/#10 exactly
+("quarterly per-security per-day lit/hidden/odd-lot/cancel metrics...
+cross-sectional HFT-colonization score") — a genuinely new archive
+stream, ranked above showcase/GIBS-layer work in GOAL priority order
+(deepening irreplaceable archives outranks showcase quality within
+priorities 3-4), so it was picked over the worldview_globe.md backlog
+(G0c/G2f/G2h/G4, all still open per that charter's own NEXT line).
+
+READ BEFORE WRITE: downloaded the live q4_2025 zip, inspected its
+contents directly (`unzip -l`, `unzip -p ... | head`) rather than trusting
+the WebFetch summary — confirmed exact header (19 fields), row count
+(533,077), unique date count (65), and, NOT documented anywhere in the
+source's own README.txt, that ETF rows are ranked in QUARTILES (1-4)
+while Stock rows are ranked in DECILES (1-10) — verified by tabulating
+the full column distribution split by kind (ETF: 4 buckets of ~74.5k
+each; Stock: 10 buckets of ~23.5k each, plus 121 blank-rank rows). Also
+read server/secFtd.ts end-to-end as the template (same shape: periodic
+zip, dependency-free zip reader, period-level gz-JSONL archive,
+poll-time-only summary, cache-only route) and datacore/manifests/
+secftd.json as the manifest schema to match.
+
+WHAT SHIPPED:
+- `server/secMidas.ts` — `unzipSingleCsv` (independent of secFtd.ts's
+  .txt-targeted reader; a ~40-line dependency-free zip reader is not
+  worth a cross-territory shared-module refactor for one caller, stated
+  in the docstring rather than silently duplicated); `parseMidas` (exact
+  header match; NO official checksum exists for this format unlike FTD's
+  trailer lines, so integrity is enforced instead by a >1%
+  malformed-row-rate refusal guard — a corrupted/truncated download is
+  the realistic failure mode, and a healthy file's every line splits
+  into exactly 19 fields); `candidateQuarters` (current-quarter-first,
+  newest-first); `fetchMidasPeriod`/`archiveMidasPeriod`/
+  `readMidasPeriod` (secFtd-shaped); `summarizeMidas` (RAW small-cap
+  watchlist: Stock-only, McapRank<=2, trades-for-hidden activity floor,
+  sorted purely by the source's own published Cancels/LitTrades ratio —
+  no model, no interpretation, matches the RAW OVERLAYS vs SIGNALS rule);
+  `refreshMidas`/`bootMidasPoll`.
+- `server/secMidas.test.ts` — 8 tests: zip reader (multi-member,
+  stored+deflate, finds .csv not .txt); parser (rank-scale-by-kind, blank
+  rank -> null never 0, header refusal, malformed-rate guard refuses
+  corrupted files but tolerates isolated bad lines under the 1%
+  threshold); candidateQuarters (year-wrap); fetchMidasPeriod (200/404/
+  transport-error trichotomy); archive (gz-on-write, dedup, disk-seeded
+  roundtrip); summarizeMidas (Stock-only + rank + activity-floor
+  filtering, sort order); refresh end-to-end (memory-guard behavior —
+  see below).
+- `datacore/manifests/secmidas.json` — universal envelope, same shape as
+  secftd.json.
+- `server/routes.ts` — `bootMidasPoll()` + `GET /api/data/microstructure`
+  (cache-only, RAW, states the rank-scale-differs-by-kind caveat and the
+  gate-2-unattempted status directly in the response `note`).
+- `package.json` — version 1.0.264 -> 1.0.265 (read-and-increment at
+  commit time).
+- `research/open_questions.md` — new "MIDAS HFT-COLONIZATION FILTER
+  HYPOTHESIS" section: the SIGNAL framing (cancel-to-trade/hidden-rate/
+  odd-lot-rate on small-cap Stock rows as a colonization FILTER
+  protecting EDGE DOCTRINE #2, not a standalone directional signal),
+  PRIOR stated before any gate-2 attempt, second-order reasoning
+  (REASONING STANDARD #5 — why a two-source join isn't already
+  arbitraged by retail), explicit ladder path (gate 1 passed for the
+  raw feed; gate 2 blocked on BOTH accumulating MIDAS history AND a join
+  against an existing small-cap candidate stream, most naturally Form 4
+  clusters), and a WHAT-DIDN'T-WORK correction of the record the two
+  prior sessions left incomplete (neither recorded the URLs they'd
+  actually tried).
+- `research/wishlist.md` — DATACORE MAXIMUS status block updated: SEC
+  MIDAS marked SHIPPED with the full trace pointer, NEXT-item pointer
+  updated (only EPA CAMD/ENTSO-E remain, both gated on Mike's keys —
+  nothing else queued in this program as of this session).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this is a new RAW archive
+stream with a read-only API route — zero change to deep_score, sizing,
+scoring, or any live trading decision. The only "downstream" is future
+research sessions (this repo's own gate-2 work) and the /data product
+surface (not yet wired to a map/UI panel — same API-first sequencing as
+sec8kEarnings/finraQuery part 1/usgsQuakes/ndbcBuoys before their UI
+views existed). No trading-path effect to trace.
+
+MEMORY-BOUNDED DESIGN DEVIATION (stated explicitly, not silently copied
+from the secFtd template): secFtd's refreshFtd() walks ALL 5 candidate
+periods in one poll call because a half-month file is small (~58k rows).
+A MIDAS quarter is ~9x bigger (533k rows, ~68MB CSV) — parsing several in
+one event-loop turn risks the daemon's 1GB RSS self-kill ceiling
+(CLAUDE.md's stated constraint). refreshMidas() therefore probes every
+unarchived candidate newest-first (cheap — a 404 downloads nothing) but
+ARCHIVES (parses + gzips) at most once per call, returning immediately
+after the first success; remaining backlog is picked up on the next poll
+interval. Verified by a dedicated test (`refresh end-to-end: archives at
+most ONE new period per call...`) that two consecutive calls are needed
+to archive two available-but-unarchived quarters, and that a third call
+makes zero new data fetches once both are archived.
+
+VOLUME NOTE: only the newest available quarter (2025q4) is archived by
+this session's own test runs / would be archived on first live boot;
+MIDAS_LOOKBACK_QUARTERS=6 means the daily poller backfills up to 6
+trailing quarters automatically over the next several days, not
+instantly. Full 2013-2025 history (~50 quarters, ~1GB gz estimated) is a
+SEPARATE volume-budget decision, filed but not built — same precedent as
+secFtd's 2004-present backfill and FINRA's history backfills, both
+env-gated rather than default-on.
+
+GATES: `npx tsx --test server/*.test.ts` — 547 passed, 0 failed, after
+`npm install` (this sandbox started with node_modules partially absent;
+an initial run before installing showed 3 unrelated file-level crashes —
+compression.test.ts, gdeltEvents.test.ts, owmTiles.test.ts — that
+resolved cleanly after `npm install`, confirmed via a git-stash A/B that
+isolated my new files first: those 3 were pre-existing sandbox artifacts,
+not caused by this PR, and disappeared once the environment was
+complete). Also confirmed via the same stash-based A/B that the new
+manifests.test.ts "FORWARD ENFORCEMENT" ratchet legitimately failed
+before `datacore/manifests/secmidas.json` was added (it scrapes
+`archiveBaseDir()`-relative directory literals from every server/*.ts
+file and requires a matching manifest) — expected, not a bug, and passes
+once the manifest exists. `npx tsc --noEmit` — 3 errors, identical
+before/after via git-stash A/B (pre-existing vite/client type-defs +
+baseUrl-deprecation warnings, unrelated to this change, zero new errors
+introduced). `npm run build` — clean; `dist/datacore/manifests/
+secmidas.json` confirmed staged (R14 packaging lesson — verified
+directly with `ls`, not assumed). No Python files touched, so
+`python3 -m pytest -q` is out of scope for this PR's own gate (same
+convention other T-DATACORE/T-CLIENT-only sessions in this file follow;
+CI's python-tests job still runs it unconditionally).
+
+Version 1.0.264 -> 1.0.265 (read-and-increment at commit time).
+
+MARKET-HOURS NOTE: session ran ~14:00 ET (mid-market, confirmed via
+`/api/health`'s UTC timestamp). Unlike the SPY-floor/WS-exit fixes two
+sessions ago, this PR touches zero trading/execution/scoring code — a new
+read-only RAW data pipeline and API route, same risk category as every
+other census build (secFtd, finraQuery, ndbcBuoys, usgsQuakes) that
+shipped without being held for market close in this file's own precedent.
+Merged following that precedent rather than holding.
+
+Backtest: N/A (pure data-ladder gate-1 pipeline — no strategy, sizing, or
+signal logic touched; nothing here is wired to any trading decision).
+
+STARVED: no — this session's chosen scope (SEC MIDAS gate 1 + its
+open_questions.md hypothesis filing) shipped in full, including test
+coverage, manifest, and API route. High-value work remains queued for a
+future session: EPA CAMD/ENTSO-E (both gated on Mike's keys, no action
+possible from an autonomous session), worldview_globe.md's G0c/G2f/G2h/G4
+backlog, or gate-2 work on any of the several already-gate-1-passed
+streams once enough history accumulates (COT's USO out-of-sample restart
+date, Form 4 cluster gate 2, this session's own MIDAS x Form-4 join) —
+next session's judgment call per SESSION BUDGET's fall-through order.
