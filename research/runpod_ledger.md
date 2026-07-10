@@ -192,3 +192,15 @@ ledger; cleaned + fixed). Relaunched as **gv-div5-ks** with the region list
 corrected and `--result-branch gridvision-pod-result-gv-div5-ks` wired for
 early termination. Result in research/experiments.md's second 2026-07-10
 entry.
+
+UPDATE 2026-07-10 (result): gv-div5-ks trained cleanly (train_rc=0), completed
+in **19 minutes** total, terminated instantly by the new `--result-branch`
+watchdog the moment it pushed — **actual cost $0.22**, not the $3.45 worst-case
+(the early-termination fix paid for itself many times over on its first real
+use). Held-out KS: AP50 0.197 — flat vs. the prior 6-region result of 0.200
+(leaderboard gate classifies this `within_noise`, not a regression). Real Duke
+US regions did not improve cross-region generalization; the 0.30 held-out bar
+remains uncrossed. Full honest writeup + next hypotheses in
+research/experiments.md's RESULT entry + `datacore/gridvision/leaderboard.json`
+(version `div5-ks`). Session total GPU spend: $3.67 (div4 $3.45 wasted-to-cap +
+div5 $0.22). Ledger balance **$43.12 / $50.00**.
