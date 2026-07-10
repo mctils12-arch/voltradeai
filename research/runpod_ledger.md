@@ -149,3 +149,27 @@ committed **$0.02**, remaining **$49.98**, **0 open jobs**.
 
 Next entry will be the grid-vision detector fine-tune once Phase B data-prep
 lands (ETDII US download + OSM-seeded NAIP chips + on-pod training script).
+
+STALENESS NOTE (2026-07-10): this table stopped being updated after the smoke
+row — the actual detector-training runs (v0/v1/v2, gate-1 a/d, diversity+aug,
+div1-3) all happened 2026-07-09 and are recorded only in `datacore/runpod/
+ledger.jsonl` (source of truth) and research/experiments.md, never backfilled
+here. Not reconciled in this session (scope: fixing the Duke GSD bug + shipping
+the result-push wrapper + launching gv-div4-ks) — flagging so a future
+staleness-audit pass fixes this table rather than rediscovering the gap.
+
+UPDATE 2026-07-10 (session: gridvision Duke native-GSD fix, v1.0.261): found +
+fixed a real bug (build_yolo_dataset applied ETDII's 0.30m GSD to Duke images
+too, which are natively 0.15m — Duke would have trained 2x too coarse). Neither
+prior Duke attempt (div2 BadZipFile, div3 2h-cap) had reached training, so
+nothing completed was corrupted, but the next one would have been. Also shipped
+`scripts/gridvision_train/pod_run.py` (on-pod subprocess wrapper + per-job-id
+git-branch result push — closes the "no durable pod log" gap div2/div3 each
+solved ad hoc and uncommitted) and `runpod_launch.py --cloud-type SECURE
+--non-interruptible` (div1's COMMUNITY-spot preemption lesson, now reusable via
+CLI instead of a direct `run_launch()` call). Launched **gv-div4-ks**: corrected
+div3 retry (yolov8s, strong aug, 9 regions incl. all 3 Duke US, held out KS, 80
+epochs), SECURE non-interruptible, max-hours 5, worst-case $3.45 (ledger
+reserved; $43.34 would remain). Full detail + result (once known) in
+research/experiments.md's 2026-07-10 entry — check there and
+`datacore/runpod/ledger.jsonl` before launching anything further.

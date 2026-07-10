@@ -262,7 +262,7 @@ def parse_env_pairs(pairs):
 def _cmd_launch(a):
     env = parse_env_pairs(getattr(a, "env", None))
     res = run_launch(a.job, a.workload, a.gpu, a.hourly, a.max_hours, a.image, a.cmd,
-                     env=env or None)
+                     env=env or None, cloud_type=a.cloud_type, interruptible=not a.non_interruptible)
     print(json.dumps(res, indent=2))
     sys.exit(0 if res.get("ok") else 2)
 
@@ -291,6 +291,13 @@ def _build_parser():
                     help="pod env var (repeatable) — the clean channel for a secret "
                          "the on-pod --cmd needs (e.g. --env GH_TOKEN=... to clone a "
                          "private repo). NEVER the RunPod API key.")
+    lp.add_argument("--cloud-type", dest="cloud_type", default="COMMUNITY", choices=["COMMUNITY", "SECURE"],
+                    help="COMMUNITY (default, cheaper, spot-like — can be PREEMPTED mid-run, "
+                         "research/experiments.md 2026-07-09 gv-div1-1) or SECURE (non-"
+                         "interruptible, costs more) for a long run whose output isn't "
+                         "checkpointed and would be lost on preemption")
+    lp.add_argument("--non-interruptible", dest="non_interruptible", action="store_true",
+                    help="pass with --cloud-type SECURE for a true non-interruptible pod")
     common(lp)
     return p
 

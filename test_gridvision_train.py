@@ -189,6 +189,46 @@ def test_etdii_region_config():
     assert e2y.region_of("NZ_Dunedin_3") is None
 
 
+def test_region_native_gsd_table_covers_every_region():
+    # every ETDII region (US+NZ) is 0.30 m; every Duke US region is 0.15 m —
+    # BUG FIX 2026-07-10: build_yolo_dataset used to apply ETDII's 0.30 m to
+    # every image regardless of source, silently under-downsampling Duke by 2x.
+    for name in train.ETDII_REGIONS:
+        assert train.REGION_NATIVE_GSD[name] == pytest.approx(0.30)
+    for name in train.DUKE_US_REGIONS:
+        assert train.REGION_NATIVE_GSD[name] == pytest.approx(0.15)
+
+
+def test_region_of_any_covers_nz_where_region_of_does_not():
+    # e2y.region_of is US-only-scoped (held-out-region test never targets NZ);
+    # region_of_any must still resolve NZ/Duke/US so native_gsd_for_stem is
+    # correct for every region, not just the US ones.
+    assert train.region_of_any("NZ_Dunedin_3") == "NZ_Dunedin"
+    assert e2y.region_of("NZ_Dunedin_3") is None
+    assert train.region_of_any("USA_NC_Clyde_9") == "USA_NC_Clyde"
+    assert train.region_of_any("USA_AZ_Tucson_1") == "USA_AZ_Tucson"
+    assert train.region_of_any("totally_unknown_stem") is None
+
+
+def test_native_gsd_for_stem_duke_vs_etdii_vs_unknown():
+    assert train.native_gsd_for_stem("USA_AZ_Tucson_12") == pytest.approx(0.30)
+    assert train.native_gsd_for_stem("USA_KS_Colwich_Maize_3") == pytest.approx(0.30)
+    assert train.native_gsd_for_stem("NZ_Rotorua_2") == pytest.approx(0.30)
+    assert train.native_gsd_for_stem("USA_CT_Hartford_7") == pytest.approx(0.15)
+    assert train.native_gsd_for_stem("USA_NC_Wilmington_1") == pytest.approx(0.15)
+    # an unrecognized region falls back to the ETDII default, never crashes
+    assert train.native_gsd_for_stem("XX_Nowhere_1") == pytest.approx(train.ETDII_NATIVE_GSD)
+
+
+def test_duke_factor_is_4x_not_2x():
+    # the actual bug: Duke's factor must be 4.0 (0.15->0.60), not the 2.0 every
+    # region got under the old single-global-factor code (0.30->0.60).
+    duke_gsd = train.native_gsd_for_stem("USA_CT_Hartford_1")
+    az_gsd = train.native_gsd_for_stem("USA_AZ_Tucson_1")
+    assert cog.downsample_factor(duke_gsd, train.TARGET_GSD) == pytest.approx(4.0)
+    assert cog.downsample_factor(az_gsd, train.TARGET_GSD) == pytest.approx(2.0)
+
+
 def test_region_of_longest_prefix():
     assert e2y.region_of("USA_AZ_Tucson_12") == "USA_AZ_Tucson"
     assert e2y.region_of("USA_KS_Colwich_Maize_3") == "USA_KS_Colwich_Maize"
