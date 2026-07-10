@@ -108,6 +108,28 @@ during a run; the in-pod `timeout` still bounds the training process if it dies.
 Option B (server-side watchdog, key stays in Railway) removes the caveat and is
 the better long-term home if GPU jobs become recurring/automated — not built.
 
+**CAVEAT CONFIRMED LIVE, 2026-07-10 (gv-div4-ks):** the launching session ended
+before its watchdog reached the terminate step. Result: the pod stayed
+`RUNNING`/billing for 2h13m with the training process already crashed and
+NOTHING watching it — found and manually terminated (DELETE) by a later
+session; actual cost $1.54 (well under the $3.45 reserved cap, but pure luck
+of a short training crash, not a guarantee). **Precision correction to the
+CAVEAT text above:** the in-pod `timeout` wrapper does NOT bound pod billing —
+it only bounds the wrapped PROCESS. Confirmed live: the process exited (crash)
+at minute ~9; the pod itself was still `RUNNING` per `GET /pods/{id}` two
+hours later. A pod bills until `DELETE`d, full stop, regardless of what its
+start command is doing internally.
+
+**Stopgap for the caveat:** `scripts/runpod_reap.py` — finds ledger job_ids
+that are still open (no close row) and matches them against `GET /pods` (pod
+`name` == `job_id`, since `build_create_body` always names the pod after the
+job). Dry-run by default; `--apply` terminates any still-live match and closes
+the ledger (capped at the job's own reserved cost if the pod is already gone).
+**Any session about to launch OR check on a GRID VISION RunPod job should run
+`python3 scripts/runpod_reap.py` FIRST** — it's the cheapest possible guard
+against exactly this failure mode recurring. Still just a stopgap: Option B
+(above) is the real fix and remains unbuilt.
+
 STILL NEEDED before the REAL fine-tune (independent of the launch path): the
 training container/script that runs ON the pod (pulls ETDII US + builds NAIP
 chips, runs the tower-detector fine-tune, writes weights back), plus the two

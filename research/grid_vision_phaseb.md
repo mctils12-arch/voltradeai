@@ -228,3 +228,55 @@ Full detail in research/experiments.md's 2026-07-10 entry + research/
 runpod_ledger.md. Check `datacore/runpod/ledger.jsonl` (job gv-div4-ks) and git
 branch `gridvision-pod-result-gv-div4-ks` for the outcome before starting a new
 attempt.
+
+## UPDATE 2026-07-10 (follow-up session) — gv-div4-ks outcome: real bug, not
+infra; fixed + tested; NOT relaunched this session
+
+gv-div4-ks's pushed log (`gridvision-pod-result-gv-div4-ks` branch) showed
+`train_rc=1`, crashed ~9 minutes in: `FileNotFoundError: No images found in
+.../images/val`. Root cause: the div4 launch command's `--regions` list
+(AZ + 5 NZ + 3 Duke) never included `--holdout-region USA_KS_Colwich_Maize` —
+KS was therefore never fetched, so `build_yolo_dataset`'s holdout split
+(`val_ids = [s for s in stems if e2y.region_of(s) == holdout_region]`) was
+guaranteed empty. **Not a data/infra problem** — the GSD fix from the prior
+entry was never exercised (training never started). Fixed in `train.py`:
+`validate_holdout_in_regions()` now fails fast BEFORE any network fetch if
+`--holdout-region` isn't in an explicit `--regions` list, and
+`compute_holdout_split()` (the split logic, now a standalone pure function)
+raises a clear `ValueError` if it ever produces 0 val images regardless of
+caller. 9 new tests in test_gridvision_train.py.
+
+SEPARATE finding, same session: gv-div4-ks's **pod** (`h7sxegyzvjqwqm`) was
+still `RUNNING`/billing on RunPod **2h13m after the crash** when this session
+checked — the prior session's watchdog died with its (ephemeral) container at
+session end, per the OPTION A CAVEAT already documented in
+research/runpod_ledger.md, and the in-pod `timeout` wrapper does NOT bound
+pod billing (only the wrapped process) — confirmed live. Manually terminated
+(actual cost $1.54 vs $3.45 reserved) and built `scripts/runpod_reap.py` — a
+stopgap that finds+closes orphaned pods by matching open ledger job_ids
+against `GET /pods` (name == job_id). 10 tests. Full detail + the "run this
+first" convention in research/runpod_ledger.md.
+
+NEXT (corrected launch command, not run this session — deliberately: a fresh
+GPU launch needs a session that can stay attached to the watchdog for the
+run's duration, and this session's remaining budget went to the two fixes +
+their tests instead):
+
+```
+python3 scripts/runpod_reap.py                       # ALWAYS first: check for orphans
+python3 scripts/runpod_launch.py launch --job gv-div5-ks \
+  --gpu "NVIDIA GeForce RTX 4090" --hourly 0.69 --max-hours 3 \
+  --cloud-type SECURE --non-interruptible \
+  --workload grid-div5-ks \
+  --env GRIDVISION_GH_PAT=$GRIDVISION_GH_PAT \
+  --image runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04 \
+  --cmd "cd /workspace && git clone --depth 1 --branch main https://\${GRIDVISION_GH_PAT}@github.com/mctils12-arch/voltradeai.git repo && cd repo && python3 scripts/gridvision_train/pod_run.py --job-id gv-div5-ks --remote-url https://\${GRIDVISION_GH_PAT}@github.com/mctils12-arch/voltradeai.git -- --model yolov8s.pt --aug strong --regions USA_AZ_Tucson,NZ_Dunedin,NZ_Gisborne,NZ_Palmerston_North,NZ_Rotorua,NZ_Tauranga,USA_CT_Hartford,USA_NC_Clyde,USA_NC_Wilmington,USA_KS_Colwich_Maize --holdout-region USA_KS_Colwich_Maize --epochs 80"
+```
+
+(only change from div4: `USA_KS_Colwich_Maize` added to `--regions`;
+`--max-hours` lowered 5->3 since div2's comparable-scale run finished in 29
+min — 3h is still generous headroom, not a tight cap. `validate_holdout_in_regions`
+will now hard-refuse in <1s if this is ever wrong again.) Stay attached until
+the watchdog's own terminate+ledger-close log line appears; if the session
+must end first, run `runpod_reap.py --apply` before doing anything else next
+time.

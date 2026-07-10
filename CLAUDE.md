@@ -590,8 +590,17 @@ read-before-write review.
   append-only ledger, authorize_job refuses unbounded/bad-rate/over-floor
   and returns the hard max_runtime_seconds. PLAN: grid-vision detector is
   the ONLY GPU workload ($50); satellite splatting CANCELLED $0 (0 splat
-  candidates, glTF covers it). RUNPOD_API_KEY is in Railway not the
-  session → launch is a server-routine step (BLOCKED-FOR-MIKE).
+  candidates, glTF covers it). STALE-DOC CORRECTION (2026-07-10):
+  RUNPOD_API_KEY has been present in the agent session since 2026-07-08
+  (Option A, human-chosen) — launch is NOT a blocked server-routine step;
+  5 GPU jobs launched from sessions since (div1-div5). OPTION A CAVEAT
+  CONFIRMED LIVE 2026-07-10: the watchdog lives in the launching
+  session's ephemeral container, so a session ending before its
+  terminate step leaves the pod orphaned and still billing (gv-div4-ks,
+  2h13m, $1.54 — found+closed). Stopgap `scripts/runpod_reap.py` (run
+  first, any session touching GRID VISION RunPod work) finds+closes
+  orphans; the real fix (Option B, server-side watchdog) is proposed in
+  wishlist.md, not built.
 - GRID VISION Phase B data-prep shipped 2026-07-07 (#362, v1.0.206 —
   scripts/gridvision_* + research/grid_vision_phaseb.md): CC-BY labels
   (ETDII/Duke verified), OSM-seeded NAIP chip index, MPC STAC client;
