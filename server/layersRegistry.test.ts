@@ -88,6 +88,16 @@ test("boundaries layer: Natural Earth public domain + generalized-resolution hon
   assert.ok(/generalized|110m/i.test(b.description), "description must state the generalized resolution");
 });
 
+test("firetemp layer: GOES-East attribution + irregular-cadence honesty + FIRMS-complement note (G2b)", () => {
+  const f = registry.layers.find((x: any) => x.id === "firetemp");
+  assert.ok(f, "firetemp layer missing");
+  assert.equal(f.kind, "raw");
+  assert.ok(f.source.includes("GOES-East"), "attribution must name GOES-East");
+  assert.ok(/10-min/i.test(f.description), "description must state the ~10-min sub-daily cadence");
+  assert.ok(/FIRMS/.test(f.description), "description must state how this differs from the existing FIRMS layer");
+  assert.equal(f.field, true, "raster inherits the registry opacity slider");
+});
+
 test("weather layer states US-only coverage honestly (Tier-1(b), licensing register 2026-07-04)", () => {
   const w = registry.layers.find((x: any) => x.id === "weather");
   assert.ok(w, "weather layer missing");

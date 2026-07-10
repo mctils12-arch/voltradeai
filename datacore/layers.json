@@ -845,6 +845,17 @@
       "field": true
     },
     {
+      "id": "firetemp",
+      "name": "Fire/hotspot temperature (GOES-East, GIBS)",
+      "kind": "raw",
+      "status": "live",
+      "group": "environmental",
+      "costTier": "moderate",
+      "source": "NASA GIBS/ESDIS — GOES-East ABI fire/hotspot brightness temperature (v0 NRT), public domain",
+      "description": "Continuous full-disk brightness-temperature field from the GOES-East weather satellite, ~10-minute cadence with irregular scan gaps (not a fixed daily schedule like the other GIBS layers on this map — always shows the most recent available scan, no date scrubber). Brighter/hotter pixels indicate fire and other thermal anomalies. Coverage is GOES-East's fixed Americas + Atlantic scan domain, not global — blank tiles outside that domain are the honest edge, not an error. This complements, and does not replace, the NASA FIRMS active-fire point-detection layer above: FIRMS gives discrete confirmed detections at ~3h latency; this gives a continuous heat-intensity field at ~10-min cadence. Not for safety-of-life use. As-is display, no predictive claim — the fires × facility-exposure hypothesis (research/open_questions.md) is already filed against the FIRMS layer and is unchanged by this addition.",
+      "field": true
+    },
+    {
       "id": "rivergauges",
       "name": "River gauges (barge corridor)",
       "kind": "raw",
