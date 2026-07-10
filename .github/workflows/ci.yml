@@ -1,7 +1,27 @@
 # .github/workflows/ci.yml
-# CI gate for VolTradeAI. Runs on every push and PR.
+# CI gate for VolTradeAI. Runs on every push to main and every PR.
 # Railway should deploy only after this passes (enable "Wait for CI"
 # in Railway service settings → GitHub → Check Suites).
+#
+# MINUTE BUDGET (human-directed 2026-07-10, explicit override of the
+# FROZEN-PATH rule for .github/workflows/): we hit the 2,000-minute cap, so
+# this workflow is tuned to spend the fewest minutes that still fully gates
+# a merge. Three levers, none of which weakens a test:
+#   1. concurrency — cancel superseded PR runs (repeated pushes) so only the
+#      latest commit is built. main pushes are never cancelled (they gate the
+#      Railway deploy).
+#   2. docker layer cache (buildx + actions/cache) — a cold ~3-min image build
+#      restores unchanged layers instead of rebuilding from scratch.
+#   3. a fast `changes` job path-filters the heavy jobs: docs-only,
+#      research-only, and tile-only PRs skip python/node/docker entirely.
+# The auto-merge gate treats a SKIPPED heavy job as "nothing to check" (OK to
+# merge) but a FAILED or CANCELLED one as blocking — so skipping never merges
+# past a real failure.
+#
+# DEPENDENCY NOTE: uses ONLY GitHub-owned actions (actions/*). Change
+# detection is plain `git diff` and docker caching is `docker buildx` +
+# actions/cache, so no third-party-action allow-list policy can break CI
+# (an earlier revision using dorny/paths-filter failed at action resolution).
 
 name: CI
 
@@ -10,8 +30,67 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  # One active run per ref. Cancel superseded PR runs to reclaim minutes;
+  # never cancel a main-branch run (it gates a deploy already in flight).
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    # Cheap (~15s) path detection that decides which heavy jobs must run.
+    # Pure git — no third-party actions.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      node: ${{ steps.filter.outputs.node }}
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            base=$(git merge-base "origin/$BASE_REF" HEAD)
+            files=$(git diff --name-only "$base" HEAD)
+          else
+            if [ -z "${BEFORE:-}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              files=$(git ls-files)
+            else
+              files=$(git diff --name-only "$BEFORE" HEAD)
+            fi
+          fi
+          echo "changed files:"; echo "$files"
+          set_out() {
+            if printf '%s\n' "$files" | grep -Eq "$2"; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          # A change to THIS workflow re-runs everything (safe default).
+          # client/public/** (static tiles/assets) is deliberately excluded
+          # from node/docker: it is copied verbatim into the bundle/image and
+          # can neither break a build nor a test.
+          if printf '%s\n' "$files" | grep -Eq '^\.github/workflows/ci\.yml$'; then
+            { echo "python=true"; echo "node=true"; echo "docker=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set_out python '(\.py$)|(^requirements\.txt$)'
+          set_out node   '(\.tsx?$)|(\.jsx?$)|(\.css$)|(^package(-lock)?\.json$)|(^client/src/)|(^client/index\.html$)|(^server/)|(^script/)'
+          set_out docker '(^Dockerfile$)|(^\.dockerignore$)|(^package(-lock)?\.json$)|(^requirements\.txt$)|(^run_with_daemon\.sh$)|(\.py$)|(^client/src/)|(^client/index\.html$)|(^server/)|(^script/)'
+
   python-tests:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -43,6 +122,8 @@ jobs:
             test_patches_verification.py
 
   node-build:
+    needs: changes
+    if: needs.changes.outputs.node == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -63,25 +144,54 @@ jobs:
         run: npm run build
 
   docker-build:
-    # Proves the exact image Railway will build actually builds.
+    # Proves the exact image Railway will build actually builds. Layer-cached
+    # via actions/cache + buildx local cache so unchanged layers are restored,
+    # not rebuilt. Uses only GitHub-owned actions + the runner's own buildx.
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Build Docker image
-        run: docker build -t voltradeai-ci .
+
+      - name: Restore Docker layer cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ github.sha }}
+          restore-keys: |
+            buildx-
+
+      - name: Build Docker image (layer-cached)
+        run: |
+          set -eu
+          docker buildx create --use --name ci-builder 2>/dev/null || docker buildx use ci-builder
+          docker buildx build \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --tag voltradeai-ci:latest \
+            --load \
+            .
+          # atomically swap the cache so it never grows unbounded
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   automerge:
-    # Closes the autonomy loop safely: the `needs` gate means this job cannot
-    # run until ALL CI jobs above have passed, so a claude/* PR can never merge
-    # ahead of (or despite) failing checks — no branch-protection rules needed.
-    # Replaces the old standalone automerge.yml, which enabled auto-merge at
-    # PR-open time and merged ungated when main had no required checks.
+    # Closes the autonomy loop safely: `needs` blocks this until every heavy
+    # job has settled. A SKIPPED heavy job (path-filtered out) is "nothing to
+    # check" → still mergeable; a FAILED or CANCELLED one blocks the merge, so
+    # skipping can never merge past a real failure. No branch-protection rules
+    # needed.
     name: Auto-merge Claude PRs
-    needs: [python-tests, node-build, docker-build]
+    needs: [changes, python-tests, node-build, docker-build]
     if: >
+      always() &&
       github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'claude/')
+      startsWith(github.head_ref, 'claude/') &&
+      needs.changes.result == 'success' &&
+      needs.python-tests.result != 'failure' && needs.python-tests.result != 'cancelled' &&
+      needs.node-build.result != 'failure' && needs.node-build.result != 'cancelled' &&
+      needs.docker-build.result != 'failure' && needs.docker-build.result != 'cancelled'
     runs-on: ubuntu-latest
     permissions:
       contents: write
