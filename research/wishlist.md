@@ -212,9 +212,47 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   sequencing as earthquakes/sec8kEarnings/finraQuery part 1. Sea-state
   (WVHT/DPD) and pressure-tendency fields are a filed ANGLE-HUNTING
   candidate (marine-forecasting technique import) in open_questions.md
-  — gate 1/2 unattempted. NEXT unclaimed DATACORE MAXIMUS item: SEC
-  MIDAS (EPA CAMD/ENTSO-E already gated on Mike's keys, see 9a/9c
-  above).
+  — gate 1/2 unattempted.
+- **SEC MIDAS: SHIPPED 2026-07-10 (v1.0.265)** — server/secMidas.ts +
+  /api/data/microstructure (RAW, census build #10, public domain).
+  Endpoint FOUND this session via live web search (WebSearch +
+  WebFetch against the current downloads page) — two prior sessions
+  (2026-07-06 census entry, 2026-07-08 COT-session fall-through note)
+  both guessed static URL patterns from memory and 404'd; the real
+  path (`sec.gov/files/opa/data/market-structure/
+  metrics-individual-security/individual_security_{year}_q{n}.zip`)
+  is only discoverable from the live page, not guessable — see
+  experiments.md and open_questions.md's new MIDAS HFT-COLONIZATION
+  FILTER HYPOTHESIS section for the full trace. Live-verified: q4_2025
+  zip (23.5MB) parses to 533,077 rows across 65 dates, 235,165 Stock +
+  297,911 ETF rows; discovered live (not documented anywhere) that
+  ETF ranks are QUARTILES (1-4) while Stock ranks are DECILES (1-10) —
+  never comparable, kept distinct in the schema and the smallcap_watch
+  filter (Stock-only). No official checksum exists for this format
+  (unlike secftd's trailer lines); integrity enforced by a >1%
+  malformed-row-rate refusal guard instead. MEMORY-BOUNDED poller
+  (deviation from the secFtd template, stated in the module docstring):
+  probes all unarchived candidate quarters cheaply (404s cost nothing)
+  but archives (parses + gzips a ~68MB CSV) at most once per poll call,
+  given each quarter is ~9x secFtd's half-month file size. 8 new tests
+  (server/secMidas.test.ts); full node suite green (547/547 with
+  node_modules freshly installed — 3 pre-existing "failures" from the
+  prior session's report turned out to be missing-devDependency
+  artifacts of a partial sandbox, not real regressions, resolved by
+  `npm install`); tsc error count unchanged (3, pre-existing
+  vite/client + baseUrl config warnings, confirmed via git-stash
+  A/B); `npm run build` clean, dist/datacore/manifests/secmidas.json
+  confirmed staged (R14 packaging lesson respected). Only the newest
+  quarter (2025q4) is archived so far — MIDAS_LOOKBACK_QUARTERS=6
+  backfills the rest over the next several daily polls automatically;
+  full 2013-2025 history (~50 quarters, ~1GB gz est.) is a SEPARATE
+  volume-budget decision, not built. Gate 2 SIGNAL is blocked on BOTH
+  MIDAS history accumulating AND a join against an existing small-cap
+  candidate stream (Form 4 clusters is the natural partner) — this is
+  a cross-stream filter hypothesis, not a standalone screen; full
+  ladder path in open_questions.md. NEXT unclaimed DATACORE MAXIMUS
+  item: EPA CAMD/ENTSO-E, both gated on Mike's keys (see 9a/9c above)
+  — nothing else queued in this program as of this session.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
