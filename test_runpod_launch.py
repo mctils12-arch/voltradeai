@@ -108,6 +108,51 @@ def test_watchdog_none_status_below_cap_keeps_running():
     assert rl.watchdog_should_terminate(100, 3600, None)[0] is False
 
 
+def test_watchdog_terminates_on_result_ready():
+    # BUG FOUND 2026-07-10 (gv-div4-ks): a fast finish/crash still reports RUNNING
+    # (base image keeps jupyter/ssh alive) -- result_ready must end the watch early
+    # instead of idle-billing to the cap.
+    should, reason = rl.watchdog_should_terminate(100, 3600, "RUNNING", result_ready=True)
+    assert should is True and reason == "result-pushed"
+
+
+def test_watchdog_exited_status_wins_over_result_ready():
+    # a pod that is BOTH naturally exited AND has a result ready reports "exited",
+    # not "result-pushed" -- pod_status is checked first.
+    should, reason = rl.watchdog_should_terminate(100, 3600, "EXITED", result_ready=True)
+    assert should is True and reason == "exited"
+
+
+def test_watchdog_result_ready_false_by_default():
+    assert rl.watchdog_should_terminate(100, 3600, "RUNNING") == (False, "")
+
+
+# --- remote_branch_exists -----------------------------------------------------
+
+def test_remote_branch_exists_true_when_ls_remote_has_output():
+    class FakeResult:
+        stdout = "abc123\trefs/heads/gridvision-pod-result-x\n"
+
+    calls = []
+    assert rl.remote_branch_exists("gridvision-pod-result-x",
+                                   runner=lambda cmd: (calls.append(cmd), FakeResult())[-1]) is True
+    assert calls == [["git", "ls-remote", "origin", "refs/heads/gridvision-pod-result-x"]]
+
+
+def test_remote_branch_exists_false_when_ls_remote_empty():
+    class FakeResult:
+        stdout = ""
+
+    assert rl.remote_branch_exists("nope", runner=lambda cmd: FakeResult()) is False
+
+
+def test_remote_branch_exists_false_on_error_never_raises():
+    def boom(cmd):
+        raise RuntimeError("network down")
+
+    assert rl.remote_branch_exists("x", runner=boom) is False
+
+
 # --- actual_cost -------------------------------------------------------------
 
 def test_actual_cost():
@@ -130,6 +175,28 @@ def test_run_launch_refuses_unbounded_even_with_key(monkeypatch, tmp_path):
     monkeypatch.setattr(rl.rb, "LEDGER", str(tmp_path / "l.jsonl"))
     res = rl.run_launch("j", "w", "NVIDIA GeForce RTX 4090", 0.34, 0, "img", "cmd")
     assert res["ok"] is False and res["state"] == "refused" and res["reason"] == "unbounded"
+
+
+def test_run_launch_terminates_early_when_result_branch_appears(monkeypatch, tmp_path):
+    # the actual bug this closes: a pod whose training already finished (fast
+    # crash or fast success) must not idle-bill all the way to max_hours just
+    # because RunPod's status field never reports it as exited.
+    monkeypatch.setenv("RUNPOD_API_KEY", "x" * 40)
+    monkeypatch.setattr(rl.rb, "LEDGER", str(tmp_path / "l.jsonl"))
+    monkeypatch.setattr(rl, "create_pod", lambda body, key: "pod123")
+    monkeypatch.setattr(rl, "get_pod", lambda pod_id, key: {"status": "RUNNING"})
+    terminated = []
+    monkeypatch.setattr(rl, "terminate_pod", lambda pod_id, key: terminated.append(pod_id))
+    monkeypatch.setattr(rl.time, "sleep", lambda s: None)  # no real waiting in the test
+    monkeypatch.setattr(rl, "remote_branch_exists", lambda branch, **k: branch == "gv-result-x")
+
+    res = rl.run_launch("j", "w", "NVIDIA GeForce RTX 4090", 0.34, 4, "img", "cmd",
+                        result_branch="gv-result-x")
+    assert res["ok"] is True
+    assert terminated == ["pod123"]
+    # elapsed stayed near-zero (time.sleep faked to a no-op) -- proves it did NOT
+    # spin through the full 4-hour cap before terminating
+    assert res["elapsed_s"] < 5
 
 
 def test_api_key_absent_by_default(monkeypatch):
@@ -163,16 +230,20 @@ def test_cmd_launch_forwards_cloud_type_and_interruptible(monkeypatch):
     captured = {}
 
     def fake_run_launch(job, workload, gpu, hourly, max_hours, image, cmd, env=None,
-                        cloud_type="COMMUNITY", interruptible=True):
-        captured.update(cloud_type=cloud_type, interruptible=interruptible)
+                        cloud_type="COMMUNITY", interruptible=True,
+                        result_branch=None, result_repo_dir=None):
+        captured.update(cloud_type=cloud_type, interruptible=interruptible,
+                        result_branch=result_branch, result_repo_dir=result_repo_dir)
         return {"ok": True}
 
     monkeypatch.setattr(rl, "run_launch", fake_run_launch)
     a = rl._build_parser().parse_args(
         ["launch", "--job", "j3", "--gpu", "g", "--hourly", "0.69", "--cmd", "x",
-         "--cloud-type", "SECURE", "--non-interruptible"])
+         "--cloud-type", "SECURE", "--non-interruptible",
+         "--result-branch", "gv-result-x", "--result-repo-dir", "/repo"])
     try:
         rl._cmd_launch(a)
     except SystemExit:
         pass
-    assert captured == {"cloud_type": "SECURE", "interruptible": False}
+    assert captured == {"cloud_type": "SECURE", "interruptible": False,
+                        "result_branch": "gv-result-x", "result_repo_dir": "/repo"}
