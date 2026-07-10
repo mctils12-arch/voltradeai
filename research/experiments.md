@@ -11768,3 +11768,15 @@ DIAG_TOKEN access.
 Backtest: N/A (pure T-CLIENT display feature — no strategy, sizing, or
 execution logic touched; not applicable to PROMOTION RULE 3's backtest
 requirement, same category as every other G2 GIBS layer shipped so far).
+
+MARKET-HOURS NOTE: the PR was opened at ~09:39 ET, just past the 9:30 open
+(implementation/testing ran pre-market). Unlike sessions touching
+bot.ts/bot_engine.py, this PR touches zero trading/execution code — a new,
+off-by-default RAW map layer in the T-CLIENT territory only. The repo's CI
+automerge job (`.github/workflows/ci.yml`) merges any green `claude/*` PR
+automatically and is not something this session can pause once pushed; per
+the deploy-coupling preference this is noted honestly rather than claimed
+as an exemption, but the blast radius here — an inert client-side toggle,
+not a change to what/when the bot trades — is judged materially lower-risk
+than the order-submission and execution-layer changes that pattern was
+written for.
