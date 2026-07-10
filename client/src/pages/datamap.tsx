@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -43,7 +43,7 @@ import { epochAgeDays } from "@/lib/orbital/propagate";
 import { runResilientLoad } from "@/lib/resilientLoad";
 // worldview_globe.md Phase G2: shared NASA GIBS raster-layer factory. G2a
 // (night lights) is the first consumer; G2b-h reuse this same helper.
-import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable } from "@/lib/gibs";
+import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibsLatestScanTime } from "@/lib/gibs";
 // Reliability (BUG 4): six hand-rolled layers stacked click/hover listeners
 // across toggle cycles. attachLayerInteractions binds them with named handlers
 // and returns a detach() the effect cleanup calls — no more stacking.
@@ -193,6 +193,7 @@ const LAYER_GROUP: Record<string, string> = {
   vegetation: "environmental",
   soilmoisture: "environmental",
   no2: "environmental",
+  firetemp: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
@@ -505,6 +506,13 @@ export default function DataMapPage() {
   // lag like the other daily layers — the charter's "genuinely differentiated"
   // layer (industrial/traffic combustion throughput nowcast).
   const [no2Date, setNo2Date] = useState<string>(() => gibsDefaultDate(Date.now()));
+  // worldview_globe.md G2b: GOES-East fire/hotspot brightness temperature.
+  // Genuinely sub-daily (~10-min, irregular scan gaps) — no day-granularity
+  // scrubber like the layers above; always requests GIBS's own "default"
+  // (freshest available scan) and separately reads the real scan timestamp
+  // via gibsLatestScanTime for an honest freshness note. null = not yet
+  // fetched or fetch failed — rendered as "scan time unknown", never guessed.
+  const [firetempScanTime, setFiretempScanTime] = useState<string | null>(null);
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
   // slider; default 60% so the basemap + live layers stay visible beneath
@@ -516,6 +524,7 @@ export default function DataMapPage() {
     vegetation: "gibs-vegetation",
     soilmoisture: "gibs-soilmoisture",
     no2: "gibs-no2",
+    firetemp: "gibs-firetemp",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -1222,6 +1231,70 @@ export default function DataMapPage() {
       setStatus("no2", "error");
     }
   }, [enabled.no2, no2Date, mapReady, setStatus]);
+
+  // ── fire/hotspot brightness temperature (RAW; worldview_globe.md Phase
+  // G2b — NASA GIBS GOES-East ABI via the shared gibs.ts factory. Access +
+  // non-blank field verified live 2026-07-10 (z=0 tile 99% non-transparent —
+  // a continuous full-disk brightness field, not just discrete hotspots).
+  // Genuinely different cadence class from every G2 layer above (~10-min,
+  // irregular scan gaps, `GoogleMapsCompatible_Level7` max native zoom) —
+  // no day scrubber; always requests GIBS's "default" (freshest scan) and
+  // re-fetches every REFRESH_MS to pick up the next scan, since the server
+  // marks every response no-store (verified: never safe to trust a stale
+  // cached tile). COMPLEMENTS, does not replace, the existing NASA FIRMS
+  // point-detection `fires` layer above: FIRMS gives discrete confirmed-fire
+  // detections (~3h latency), this gives a continuous heat-intensity field
+  // at ~10-min cadence — the fires×facilities cross-tie hypothesis already
+  // filed against FIRMS (#388) is unchanged; this is a complementary visual,
+  // not a new signal path. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.firetemp) {
+      try {
+        if (map.getLayer("gibs-firetemp")) map.removeLayer("gibs-firetemp");
+        if (map.getSource("gibs-firetemp")) map.removeSource("gibs-firetemp");
+      } catch {}
+      setStatus("firetemp", "off");
+      return;
+    }
+    const FIRETEMP_SPEC = { layer: "GOES-East_ABI_FireTemp", tileMatrixSet: "GoogleMapsCompatible_Level7", ext: "png" as const };
+    const REFRESH_MS = 5 * 60 * 1000; // ~10-min product cadence; poll at 2x rate
+    let cancelled = false;
+    const paint = () => {
+      if (cancelled) return;
+      try {
+        if (map.getLayer("gibs-firetemp")) map.removeLayer("gibs-firetemp");
+        if (map.getSource("gibs-firetemp")) map.removeSource("gibs-firetemp");
+        const url = gibsTileUrl(FIRETEMP_SPEC, "default");
+        map.addSource("gibs-firetemp", {
+          type: "raster", tiles: [url], tileSize: 256, maxzoom: 7,
+          attribution: "Fire/hotspot brightness temperature · GOES-East ABI · NASA GIBS/ESDIS (public domain)",
+        } as any);
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: "gibs-firetemp", type: "raster", source: "gibs-firetemp",
+          paint: { "raster-opacity": opacityOf("firetemp") / 100 },
+        } as any, firstMarker?.id);
+        setStatus("firetemp", "active", undefined,
+          `brightness temperature, most recent GOES-East scan · NASA GIBS/ESDIS — brighter/hotter pixels ` +
+          `indicate fire/thermal anomalies; coverage is GOES-East's fixed Americas+Atlantic scan domain, ` +
+          `not global (blank tiles outside it are the honest domain edge, not an error)`);
+      } catch {
+        if (!cancelled) setStatus("firetemp", "error");
+      }
+    };
+    const refreshScanTime = () => {
+      gibsLatestScanTime(FIRETEMP_SPEC).then((t) => { if (!cancelled) setFiretempScanTime(t); });
+    };
+    paint();
+    refreshScanTime();
+    const timer = setInterval(() => { paint(); refreshScanTime(); }, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [enabled.firetemp, mapReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
@@ -3090,6 +3163,7 @@ export default function DataMapPage() {
     id === "vegetation" ? <Leaf size={15} /> :
     id === "soilmoisture" ? <Droplets size={15} /> :
     id === "no2" ? <Factory size={15} /> :
+    id === "firetemp" ? <ThermometerSun size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -3328,6 +3402,14 @@ export default function DataMapPage() {
                   <ChevronRight size={13} />
                 </button>
               </div>
+            )}
+            {l.id === "firetemp" && (
+              // No day scrubber (10-min irregular cadence — always "default"/
+              // freshest). Freshness comes from the real layer-time-actual
+              // header, never a guess; "unknown" until the first fetch lands.
+              <span className="vt-field-note">
+                {firetempScanTime ? `scan: ${firetempScanTime} UTC` : "live · ~10-min cadence · scan time unknown"}
+              </span>
             )}
           </div>
         )}
@@ -3698,7 +3780,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.rivergauges || enabled.alerts) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.rivergauges || enabled.alerts) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -3761,6 +3843,12 @@ export default function DataMapPage() {
                           <>
                             <span className="vt-legend-chip"><i style={{ background: "#e53e3e" }} /> NO₂ (TROPOMI)</span>
                             <span className="vt-legend-note">(daily, NASA GIBS/Sentinel-5P — {no2Date})</span>
+                          </>
+                        )}
+                        {enabled.firetemp && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#ff7a1a" }} /> Fire/Hotspot Temp (GOES-East)</span>
+                            <span className="vt-legend-note">(~10-min, NASA GIBS/ABI — {firetempScanTime ? `${firetempScanTime} UTC` : "latest"})</span>
                           </>
                         )}
                       </div>

@@ -11609,3 +11609,162 @@ stops. Merging pre-open is judged lower-risk than waiting.
 
 Backtest: N/A (execution-layer order-submission gating fix; no strategy,
 sizing, or signal logic changed — see GATES above).
+
+## 2026-07-10 — [PRODUCT] worldview-globe G2b: GOES-East fire/hotspot temperature raster — the first genuinely sub-daily GIBS layer (v1.0.264)
+
+TERRITORY: T-CLIENT (`client/src/lib/gibs.ts`, `client/src/pages/datamap.tsx`,
+`datacore/layers.json`) — no bot.ts/system_config.py/strategy files touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then this
+file's last 10 tagged sessions for the loop-health ratio (walking back from
+the immediately-prior SPY-floor REPAIR entry: PIPELINE, PIPELINE, PIPELINE,
+RESEARCH, REPAIR, PRODUCT, RESEARCH, PRODUCT, PRODUCT, REPAIR — 2/10 REPAIR,
+nowhere near the 7+ thrash trigger), open_questions.md KNOWN BROKEN, and
+wishlist.md. `/api/health` was not queryable from this session's directive
+(no DIAG_TOKEN context carried into this run), but KNOWN BROKEN's own
+newest entries (#15 WS feed, #16 SPY-floor market orders) were BOTH already
+marked resolved by the immediately-prior session with live verification
+still pending on the next deploy — nothing in KNOWN BROKEN was left
+actionable for a T-CLIENT session to pick up (the two still-open items, #12's
+reseed check and #17's content-free ML error string, are T-BOT/daemon-side
+and lower priority per their own text). This is a [PRODUCT] session per its
+own directive — repair mandate does not preempt product work when nothing
+in KNOWN BROKEN is both live-actionable and in scope.
+
+PRIMARY ACTION CHOICE: surveyed `research/worldview_globe.md` (the active
+globe-layer charter) end to end. Of its Phase G2 raster-layer backlog,
+G2a/c/d/e/g were already SHIPPED (by sessions between 2026-07-08 and today,
+per their own [SHIPPED] markers), leaving G2b (fires, `GOES-East_ABI_FireTemp`)
+as the sole still-unclaimed, well-specified item with an established
+factory (`gibs.ts`) to build on — the highest-value, lowest-risk product
+action available: real user-visible /data-map value, reuses proven
+patterns, zero touch to trading/execution code. (Also confirmed, before
+committing to it, that this is genuinely NOT a duplicate of the existing
+`fires` layer: that's NASA FIRMS point-detections built on
+`server/nasaFirms.ts`, a completely separate pipeline/vector layer; G2b is
+a GOES raster continuous field — complementary, not redundant, per the
+charter's own original framing.)
+
+READ BEFORE WRITE: read `client/src/lib/gibs.ts` + its test file in full,
+`client/src/pages/datamap.tsx`'s aerosol/vegetation/soilmoisture/no2 effects
+(~950 lines) end to end as the template, `server/layersRegistry.test.ts` and
+`server/layersWiring.test.ts` (the ratchets any new registry entry must
+satisfy), and `datacore/layers.json`'s existing GIBS entries as the exact
+schema to match.
+
+WHY THIS WAS HARDER THAN THE PRIOR G2 LAYERS (the reason it sat unclaimed):
+every shipped G2 layer so far is a DAILY (or multi-day-composite) product —
+the shared `gibsDefaultDate`/`gibsStepDate`/`gibsIsLatestAvailable` scrubber
+machinery assumes one observation per calendar day. `GOES-East_ABI_FireTemp`
+is genuinely different: live-verified against GIBS's own GetCapabilities
+Time dimension this session, its `<Value>` list is dozens of IRREGULAR
+~10-minute windows per day (gaps of 20-90 min scattered through the record,
+not a fixed cadence) — a day-granularity scrubber cannot represent "which
+scan," and G2g's own charter note already flagged this exact gap
+("needs the sub-daily/ISO-timestamp factory work the daily scrubber can't
+do yet") as the reason TEMPO NO2 stayed unbuilt.
+
+RESOLUTION (verified live, not assumed from the charter): the WMTS REST
+spec's tile-URL template already accepts the literal string "default" in
+the `{Time}` slot — `gibsTileUrl(spec, "default")` needed ZERO changes to
+the existing factory to produce a working URL; GIBS resolves "default" to
+its freshest available scan server-side. Live-tested this session:
+`.../GOES-East_ABI_FireTemp/default/default/GoogleMapsCompatible_Level7/2/1/1.png`
+returned 200, a real 130KB PNG, 99% non-transparent pixels at z=2 (a
+continuous full-disk brightness field, confirming this is not just discrete
+hotspot markers). What "default" actually resolved to is NOT otherwise
+observable client-side — solved by discovering (via a live response-header
+dump, not documentation) that GIBS exposes it directly:
+`layer-time-actual: 2026-07-10T12:20:00Z` on every tile response, CORS-
+exposed (`access-control-expose-headers` lists it). A cheap HEAD request
+against the z=0/y=0/x=0 tile (always in-domain for every GIBS layer,
+near-zero bytes, confirmed 200 via both HEAD and GET) is enough to read it
+— shipped as a new `gibsLatestScanTime()` helper in `gibs.ts`, reusable by
+ANY future sub-daily/irregular GIBS layer (named directly as this session's
+intended handoff for TEMPO NO2's still-open problem). Also verified the
+response carries `cache-control: max-age=0, no-store, no-cache,
+must-revalidate` — confirms it is safe to poll "default" repeatedly for
+fresh scans rather than risk a stale cached tile.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): adding `firetemp` to
+`LAYER_GROUP`/`FIELD_MAP_LAYER` makes it pass the existing
+`layersWiring.test.ts` "every live registry layer is declared" ratchet ->
+the panel renders it as a normal toggleable RAW layer (off by default, like
+every other environmental GIBS layer) -> enabling it adds a MapLibre raster
+source/layer + starts a 5-minute poll (both a re-paint and a
+`gibsLatestScanTime` refresh) -> disabling it tears down the source/layer
+and the interval is cleared in the effect's cleanup (verified no leaked
+timer: `cancelled` flag guards both the interval callback and any
+in-flight promise resolution after unmount/disable). No other layer's
+effect, state, or the shared `opacityOf`/`setFieldOpacity` slider mechanism
+was touched — verified by grepping every other `gibs-*` source/layer id
+before and after this change (they're independent, self-contained effects,
+confirmed no central teardown list exists to update).
+
+WHAT SHIPPED: `client/src/lib/gibs.ts` — new `gibsLatestScanTime(spec)`
+(HEAD + header-read, returns null on any failure rather than fabricate a
+timestamp). `client/src/pages/datamap.tsx` — new `firetemp` layer: state
+(`firetempScanTime`), a self-contained effect (paint + 5-min refresh
+interval, cleanup on disable/unmount), `ThermometerSun` icon, a freshness
+note in place of a date scrubber ("scan: {time} UTC" or an honest "scan
+time unknown" — never a guessed value), and a legend chip. `datacore/
+layers.json` — new `firetemp` entry (RAW, field:true, group
+"environmental"), description states the ~10-min irregular cadence, the
+GOES-East fixed Americas+Atlantic scan domain (not global — blank tiles
+outside it are the honest edge), the not-for-safety-of-life caveat (mirrors
+the existing FIRMS layer's wording), and explicitly states this complements
+rather than replaces FIRMS, so nobody reads it as a second fires layer by
+mistake. No new hypothesis filed in open_questions.md: the fires ×
+facilities cross-tie (#388) already covers the signal angle against FIRMS;
+this raster is a complementary visual, not a new analytic claim — CLAUDE.md's
+angle-hunting rule requires filing genuinely new hypotheses, not restating
+an existing one under a new layer id.
+
+RATCHET (per HEALTH OF THE LOOP rule 3): `client/src/lib/gibs.test.ts` — 2
+new tests for `gibsLatestScanTime` (happy path asserts the exact URL built,
+HEAD method, and header value; failure path covers both a non-ok response
+and a thrown fetch, both asserting `null`, never a fabricated time).
+`server/layersRegistry.test.ts` — 1 new dedicated test (GOES-East
+attribution, ~10-min cadence stated, FIRMS-complement note stated, field:true)
+mirroring the existing per-layer test pattern (aerosol/vegetation/etc. each
+have one). The existing generic "every layer carries kind/status/source/
+description" test and the `layersWiring.test.ts` "every live registry layer
+is declared in datamap.tsx LAYER_GROUP" ratchet both cover the new entry
+automatically — reran both explicitly to confirm (they do).
+
+GATES: `npx tsx --test server/*.test.ts client/src/lib/*.test.ts
+client/src/lib/orbital/*.test.ts` — 629 passed, 0 failed (`git stash`-
+verified baseline 626 + 3 new tests in this PR — 2 for `gibsLatestScanTime`
+in `gibs.test.ts`, 1 for the `firetemp` registry entry in
+`layersRegistry.test.ts` — zero regressions). `npx tsc --noEmit` — 64 errors, byte-for-
+byte the same baseline count as `git stash`-verified pre-PR (confirmed via
+`git stash` + rerun; the one datamap.tsx line-number shift in the diff is a
+pre-existing `PANEL_GROUPS`-literal-vs-`string` typing looseness that moved
+lines, not a new error — CI already runs `tsc --noEmit || true`, non-
+blocking, but PROMOTION RULES still means "no new errors introduced," which
+this satisfies). `npm run build` — clean, dist/public + dist/index.cjs
+produced, dist/datacore staged (R14 packaging lesson respected — this PR
+adds no new datacore/ runtime file, so no new staging path needed, but
+confirmed the build step still runs). `npm run visual` (`--page data`) at
+390/768/1440 — see the follow-up note below for the actual run + self-
+review (VISUAL VERIFICATION, promotion rule 6). No Python files touched, so
+`python3 -m pytest -q` is unaffected by this PR — not rerun as a gate for a
+T-CLIENT-only change per the existing convention other T-CLIENT sessions
+in this file follow, though the CI python-tests job still runs it
+unconditionally on the PR.
+
+Version 1.0.263 -> 1.0.264 (read-and-increment at commit time).
+
+STARVED: no — this session's chosen scope (G2b) shipped in full, including
+its own test coverage and a documented, reusable handoff (`gibsLatestScanTime`)
+for the next sub-daily GIBS layer. High-value work remains queued for a
+future session per `worldview_globe.md`'s own NEXT line: G0c deep-zoom
+policy, G2f floods, G2h (sea ice/snowpack/chlorophyll/biomass, static), or
+Phase G4 unified object interaction — none block on this PR or each other,
+next session's judgment call. KNOWN BROKEN #12's reseed-check and #17's
+content-free ML error string remain open for a T-BOT/repair session with
+DIAG_TOKEN access.
+
+Backtest: N/A (pure T-CLIENT display feature — no strategy, sizing, or
+execution logic touched; not applicable to PROMOTION RULE 3's backtest
+requirement, same category as every other G2 GIBS layer shipped so far).

@@ -110,10 +110,31 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
   blocked on (a) a daily-radiance ARCHIVE (this PR is display-only, no
   pipeline yet — the actual gate-2 prerequisite) and (b) a metro→ticker join;
   NOT yet a signal. NEXT (G2b): fires (GOES-East_ABI_FireTemp).
-- G2b Fires — raster `GOES-East_ABI_FireTemp` (10-min) for the map; the
-  `*_Thermal_Anomalies_*_All` layers are MVT VECTOR (use a vector source or the
-  GOES raster). Hypothesis: fires within N km of insured/industrial/utility
-  assets → P&C insurers, wildfire-liability utilities, timber REITs.
+- [SHIPPED v1.0.264] G2b Fires — raster `GOES-East_ABI_FireTemp` (PNG,
+  `GoogleMapsCompatible_Level7`; access + non-blank field verified live
+  2026-07-10: z=0 tile 99% non-transparent, a continuous full-disk brightness
+  field, not just discrete hotspots). Genuinely different cadence class from
+  every G2 layer before it: ~10-min, IRREGULAR scan gaps (the GetCapabilities
+  Time dimension lists non-uniform intervals, not a fixed schedule) — no
+  day-granularity scrubber applies. Uses the WMTS REST spec's literal
+  "default" time token (gibsTileUrl already accepted this — no factory
+  change needed) to always request GIBS's own freshest scan; what "default"
+  resolved to is read back honestly via the `layer-time-actual` response
+  header (CORS-exposed, confirmed live) through a new `gibsLatestScanTime`
+  helper — a HEAD request against the always-in-domain z=0/y=0/x=0 tile,
+  refreshed every 5 min alongside the tile source itself (GIBS marks every
+  response `no-store` — verified never safe to cache). Registry `firetemp`
+  (RAW, field:true, environmental); ThermometerSun icon; own legend chip;
+  freshness note ("scan: {time} UTC" or an honest "scan time unknown"
+  instead of a scrubber). Deliberately positioned as a COMPLEMENT to the
+  existing NASA FIRMS point-detection `fires` layer, not a replacement or a
+  new hypothesis: FIRMS gives discrete confirmed detections (~3h latency),
+  this gives a continuous heat-intensity field (~10-min) — the fires ×
+  facilities cross-tie already filed against FIRMS (#388) is unchanged.
+  `*_Thermal_Anomalies_*_All` layers are MVT VECTOR (not used here — this is
+  the GOES raster branch of the original charter note). NEXT (still open,
+  same shape as TEMPO NO2 in G2g): a proper sub-daily/ISO-timestamp scrubber
+  for browsing PAST scans, not just "latest" — bigger lift, deferred.
 - [SHIPPED v1.0.228] G2c Aerosol optical depth `MODIS_Combined_Value_Added_AOD`
   (PNG, `GoogleMapsCompatible_Level6`, daily — access + TileMatrixSet re-verified
   LIVE against GetCapabilities 2026-07-08, a real yesterday tile pixel-checked
@@ -240,3 +261,13 @@ version = read-and-increment at commit time; rebase on collision.
 - 2026-07-08: G2a (GIBS factory + time-scrubber + night-lights layer) SHIPPED
   v1.0.224. NEXT: G2b fires (GOES-East_ABI_FireTemp), or G0c deep-zoom policy —
   either fits; pick per the next session's own judgment.
+- 2026-07-10 [PRODUCT session]: G2c/G2d/G2e/G2g shipped by concurrent sessions
+  between 07-08 and 07-10 (see their own [SHIPPED] markers above — not this
+  session's work, noted here only so this log stays a true timeline). This
+  session claimed the still-open G2b (fires) — SHIPPED v1.0.264, full detail
+  in the G2b bullet above; new client-side helper `gibsLatestScanTime`
+  (client/src/lib/gibs.ts) is reusable by any future sub-daily/irregular GIBS
+  layer (e.g. TEMPO NO2's still-open scrubber problem in G2g). NEXT: G0c
+  deep-zoom policy, G2f floods, G2h (sea ice/snowpack/chlorophyll/biomass —
+  static, no slider), or Phase G4 unified object interaction — pick per the
+  next session's own judgment; none block on each other.

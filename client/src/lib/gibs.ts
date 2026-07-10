@@ -59,3 +59,26 @@ export function gibsStepDate(dateISO: string, deltaDays: number): string {
 export function gibsIsLatestAvailable(dateISO: string, nowMs: number, latencyDays = 1): boolean {
   return dateISO >= gibsDefaultDate(nowMs, latencyDays);
 }
+
+/** G2b (fires, `GOES-East_ABI_FireTemp`): a genuinely sub-daily, IRREGULAR
+ *  cadence (~10-min scans with real gaps) — none of the day-granularity
+ *  scrubber machinery above applies. `gibsTileUrl` already accepts the WMTS
+ *  REST spec's literal "default" token in place of a dateISO, which the
+ *  server resolves to its freshest available scan (live-verified
+ *  2026-07-10). What "default" resolved to isn't otherwise observable from
+ *  the client — GIBS exposes it as a `layer-time-actual` response header
+ *  (CORS-exposed; confirmed live), so a lightweight HEAD request against the
+ *  z=0/y=0/x=0 tile (always in-domain for every GIBS layer, near-zero bytes)
+ *  reads the real scan time without downloading a full tile. Returns null on
+ *  any failure — freshness is honestly "unknown" rather than fabricated;
+ *  callers should render that as such, never as "just now". */
+export async function gibsLatestScanTime(spec: GibsLayerSpec): Promise<string | null> {
+  try {
+    const url = gibsTileUrl(spec, "default").replace("{z}/{y}/{x}", "0/0/0");
+    const res = await fetch(url, { method: "HEAD" });
+    if (!res.ok) return null;
+    return res.headers.get("layer-time-actual");
+  } catch {
+    return null;
+  }
+}
