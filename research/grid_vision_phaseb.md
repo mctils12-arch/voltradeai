@@ -228,3 +228,25 @@ Full detail in research/experiments.md's 2026-07-10 entry + research/
 runpod_ledger.md. Check `datacore/runpod/ledger.jsonl` (job gv-div4-ks) and git
 branch `gridvision-pod-result-gv-div4-ks` for the outcome before starting a new
 attempt.
+
+## RESULT 2026-07-10 (gv-div5-ks, the corrected retry): diversity PLATEAUED, not
+## the download/tiling bottleneck the note above worried about
+
+gv-div4-ks's own launch command had a mistake (held-out region left out of
+`--regions`, so it never got the chance to test whether download/tiling was the
+bottleneck at all — see research/experiments.md). The corrected retry,
+**gv-div5-ks**, completed cleanly in 19 minutes total (download + tile + 80
+epochs) — confirming download/tiling was NEVER actually the bottleneck once the
+region list was right; raising `--max-hours` alone (this session's simpler fix)
+was sufficient, and the offline-pre-downsampling fallback plan below is **not
+needed** for a run of this size.
+
+The REAL finding is about the SIGNAL, not the infra: held-out KS AP50 came back
+at **0.197 — flat versus the 6-region (AZ+5NZ, no Duke) result of 0.200**. Adding
+3 real Duke US regions did not move the needle. The 0.30 held-out generalization
+bar (research/grid_vision_gate1.md) is still NOT crossed. Full honest writeup +
+two competing untested hypotheses (Duke's radiometric/sensor domain gap vs.
+simple training-example-count) in research/experiments.md's 2026-07-10 RESULT
+entry. Region diversity has plateaued at this scale as currently understood —
+the next lever to test is example COUNT within existing regions (cheaper,
+should be tried first) before assuming diversity itself has a hard ceiling.

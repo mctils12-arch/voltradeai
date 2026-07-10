@@ -11,7 +11,7 @@
       "recall": 0.0353
     },
     "timestamp_utc": "2026-07-09T02:39:52Z",
-    "notes": "v0 whole-image downscale to imgsz 512 — gate-1 SIGNAL FAIL (sub-pixel towers)",
+    "notes": "v0 whole-image downscale to imgsz 512 \u2014 gate-1 SIGNAL FAIL (sub-pixel towers)",
     "regression_verdict": {
       "eval_key": "image_split",
       "status": "baseline"
@@ -29,7 +29,7 @@
       "recall": 0.499
     },
     "timestamp_utc": "2026-07-09T04:11:04Z",
-    "notes": "v1 tiling 640/512, both regions in train — clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
+    "notes": "v1 tiling 640/512, both regions in train \u2014 clears gate-1 signal IN-DOMAIN. +0.53 over v0 exceeds the suspicious-jump band; INVESTIGATED: clean monotonic per-epoch learning curve, real (not circular). Champion for image_split.",
     "regression_verdict": {
       "eval_key": "image_split",
       "status": "improved_investigated",
@@ -56,7 +56,7 @@
       "value": 0.056,
       "prior_best": null,
       "status": "baseline",
-      "detail": "first measurement for this key — recorded as baseline"
+      "detail": "first measurement for this key \u2014 recorded as baseline"
     }
   },
   {
@@ -77,7 +77,7 @@
       "value": 0.059,
       "prior_best": null,
       "status": "baseline",
-      "detail": "first measurement for this key — recorded as baseline"
+      "detail": "first measurement for this key \u2014 recorded as baseline"
     }
   },
   {
@@ -207,6 +207,29 @@
     "model": "yolov8s",
     "metrics": {},
     "timestamp_utc": "2026-07-09T13:31:00Z",
-    "notes": "train AZ+5NZ+3 Duke US -> eval KS. FAILED: hit 2h cap without pushing. Duke full-res zips (11GB, huge orthos) too heavy to download+tile+train in one pod. Streaming-download fix worked (no crash) but time ran out. Cost $1.38. Diversity finding (0.20 @6 regions) stands; 'cross 0.30 with real US regions' still UNPROVEN — operational, not approach. Next: pre-downsample Duke orthos OFFLINE to 0.6m compact chips, then train."
+    "notes": "train AZ+5NZ+3 Duke US -> eval KS. FAILED: hit 2h cap without pushing. Duke full-res zips (11GB, huge orthos) too heavy to download+tile+train in one pod. Streaming-download fix worked (no crash) but time ran out. Cost $1.38. Diversity finding (0.20 @6 regions) stands; 'cross 0.30 with real US regions' still UNPROVEN \u2014 operational, not approach. Next: pre-downsample Duke orthos OFFLINE to 0.6m compact chips, then train."
+  },
+  {
+    "version": "div5-ks",
+    "job": "gv-div5-ks",
+    "eval_key": "holdout:USA_KS_Colwich_Maize",
+    "model": "yolov8s",
+    "metrics": {
+      "map50": 0.19732648336237743,
+      "map50_95": 0.05381073597496239,
+      "precision": 0.3300841214836012,
+      "recall": 0.25017667844522967
+    },
+    "timestamp_utc": "2026-07-10T06:40:07Z",
+    "notes": "train AZ+5NZ+3 Duke US (10 regions incl. holdout KS itself, GSD-corrected: Duke 0.15m/ETDII+NZ 0.30m) -> eval unseen KS, strong aug, 80ep. Corrected retry of the div2/div3 attempts that both failed before reaching training. FLAT vs the div-ks 6-region (AZ+5NZ, no Duke) result of 0.200 -- adding 3 real Duke US regions did NOT improve held-out generalization. 0.30 held-out bar still not crossed. Diversity-by-region-count appears to have plateaued around 6 regions at this scale; Duke's radiometric/sensor domain may differ from ETDII/NZ in ways GSD correction alone does not close.",
+    "regression_verdict": {
+      "eval_key": "holdout:USA_KS_Colwich_Maize",
+      "metric": "map50",
+      "value": 0.19732648336237743,
+      "prior_best": 0.2,
+      "delta": -0.002674,
+      "status": "within_noise",
+      "detail": "map50 0.19732648336237743 within 0.02 of prior best 0.2"
+    }
   }
 ]
