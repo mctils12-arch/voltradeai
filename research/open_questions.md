@@ -594,6 +594,55 @@
     this one call site's error detail collapsed to a bare "failed" instead
     of a real message.
 
+18. **[FOUND + PARTIALLY REPAIRED 2026-07-10, v1.0.266] TIER2-ERROR "daemon
+    run_full_scan failed: Daemon timeout" recurred 7x in ~95 minutes
+    (18:22-19:57 UTC) with zero diagnostic detail — visibility fixed,
+    ROOT CAUSE STILL OPEN.** Full trace in experiments.md's 2026-07-10
+    entry. `run_full_scan` is `HEAVY_DAEMON_ONLY` (never falls back to
+    subprocess); a daemon-path failure reached the tier2 catch block as a
+    bare Error with none of the stderr/stdout/code/signal fields that
+    catch block's classification logic needs, producing the useless
+    "code=? signal=none" line plus a `process.memoryUsage()` snapshot that
+    describes bot.ts's own Node process, not the daemon that actually
+    failed. FIXED (visibility only): daemon-path failures are now tagged
+    and route to a distinct branch that probes the daemon's real health
+    (rss/uptime/`active_dispatches`) instead. NEW SIGNAL added:
+    `active_dispatches` on `voltrade_daemon.py`'s `_health()` — a
+    thread-safe counter of dispatch worker threads actually executing
+    right now, INCLUDING ones the handler already gave up waiting on
+    (`RPCHandler.handle()`'s `t.join(REQUEST_TIMEOUT_SEC)` returns and
+    releases `_inflight_sem` after 300s regardless of whether the thread
+    finished — Python threads can't be forcibly killed, so a hung
+    `dispatch()` call keeps running invisibly in the background after the
+    client has already been told "Daemon timeout"). HYPOTHESIS, NOT YET
+    CONFIRMED: this zombie-thread pileup is what's driving the clustering
+    in the 7 timeouts (not evenly spread across the 95 minutes) — each
+    stall that outlives its own 300s timeout could make the next call more
+    likely to also stall, since `MAX_INFLIGHT_REQUESTS=8` no longer bounds
+    real concurrent load once a slot is released before its thread
+    actually stops. LADDER PATH: this is a system-health/reliability
+    finding, not a trading signal — no ladder gates apply, but the same
+    "state the prior, then check the evidence" discipline does. NEXT STEP
+    for whichever session catches the next occurrence: query
+    `/api/diag/daemon` (or the richer `TIER2-ERROR` audit line this PR
+    adds) at the moment of a future timeout and read `active_dispatches`.
+    ELEVATED (well above 8, non-decreasing across a few checks) confirms
+    the zombie-pileup theory → next move is tightening
+    `REQUEST_TIMEOUT_SEC`/`MAX_INFLIGHT_REQUESTS` or splitting
+    `run_full_scan`'s internal work into cancellable chunks (all threshold
+    changes needing evidence + one-at-a-time per RULE REVIEW, now
+    possible because this PR gives the evidence a place to come from).
+    LOW/NORMAL points elsewhere — the next suspect would be upstream
+    market-data-provider latency (`/api/diag/scanner`'s
+    `dataSourceErrors` was empty when checked this session, but that's a
+    snapshot, not a history across the 7 prior failures — don't rule it
+    out from one clean read). Do not guess between these without the new
+    signal's evidence; do not re-patch this without checking whether the
+    NEXT occurrence's `active_dispatches` reading actually supports the
+    zombie theory first (RECURRENCE ESCALATES only applies once, but
+    "patch blind before checking the diagnostic you just built" defeats
+    the entire point of building it).
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

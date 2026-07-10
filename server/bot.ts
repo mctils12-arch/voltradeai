@@ -3190,7 +3190,18 @@ print(json.dumps(get_auto_fix_params()))
         // when scans went straight to execPythonSerialized. Otherwise surface
         // whatever error string we have.
         if (callResult.error) throw callResult.error;
-        throw new Error(callResult.result?.error || "scan call failed (no daemon, no subprocess)");
+        // DAEMON-TIMEOUT-VISIBILITY 2026-07-10: this branch covers
+        // via==="daemon-failed"/"daemon-error" — a Unix-socket RPC outcome,
+        // not a spawned subprocess. err.stderr/stdout/code/signal (what the
+        // catch block below classifies on) are all meaningless here, which
+        // is exactly why prior TIER2-ERROR audit lines for daemon timeouts
+        // read as content-free "code=? signal=none" with a Node-process
+        // memory snapshot that has nothing to do with the daemon. Tag the
+        // error so the catch block can branch to a daemon health probe
+        // instead.
+        const e = new Error(callResult.result?.error || "scan call failed (no daemon, no subprocess)");
+        (e as any).daemonFailure = true;
+        throw e;
       }
 
       // Daemon path returns the parsed dict directly; subprocess path also
@@ -3501,50 +3512,80 @@ else:
       tier2LastScanFailed = true;
       console.error("[tier2-scan]", err?.message || err);
 
-      // Gather everything useful: stderr, stdout tail (in case Python wrote
-      // the error there), exit code, kill signal, and current memory. Without
-      // these, OOM kills and buffer overruns both show as "Command failed"
-      // with no context.
-      const stderr = String(err?.stderr || "");
-      const stdout = String(err?.stdout || "");
-      // Node's child_process.exec overloads err.code: numeric exit status for
-      // non-zero exits, string error name for spawn/buffer failures (e.g.
-      // ERR_CHILD_PROCESS_STDIO_MAXBUFFER), and null when the child was killed
-      // by a signal. Normalize so the activity log never prints "code=null"
-      // or "code=undefined", which look like bugs to operators.
-      const rawCode = err?.code;
-      const code: string | number =
-        rawCode === undefined || rawCode === null || rawCode === "" ? "?" : rawCode;
-      const signal = err?.signal || "none";
-      const msg = String(err?.message || err);
+      if (err?.daemonFailure) {
+        // DAEMON-TIMEOUT-VISIBILITY 2026-07-10: this failure came from the
+        // Unix-socket RPC path (run_full_scan is HEAVY_DAEMON_ONLY, never
+        // falls back to subprocess), so err.stderr/stdout/code/signal below
+        // are all undefined and the classification logic they feed produces
+        // the content-free "code=? signal=none" line seen recurring in the
+        // audit log 2026-07-10 (18:22-19:57, 7x in ~90min) — plus a Node
+        // process memory snapshot that describes the wrong process (bot.ts,
+        // not the daemon). Probe the daemon's own health instead so the
+        // audit trail can actually distinguish "daemon genuinely hung on a
+        // slow scan" from "daemon piling up abandoned dispatch threads"
+        // (voltrade_daemon.py's REQUEST_TIMEOUT_SEC join() abandons the
+        // worker thread rather than killing it — active_dispatches surfaces
+        // that pileup if it's happening). Short 5s timeout: if the daemon
+        // is saturated enough to not even answer a trivial health call,
+        // that itself is the finding.
+        let daemonState = "";
+        try {
+          const h = await pythonRpc("health", {}, 5000);
+          daemonState = h && h.alive
+            ? `daemon rss=${h.rss_mb}MB active_dispatches=${h.active_dispatches ?? "?"} uptime=${h.uptime_seconds}s`
+            : `daemon health returned non-alive: ${JSON.stringify(h).slice(0, 150)}`;
+        } catch (healthErr: any) {
+          daemonState = `daemon health probe itself failed: ${String(healthErr?.message || healthErr).slice(0, 120)}`;
+        }
+        const msg = String(err?.message || err);
+        tier2LastFailureDetail = `${msg} — ${daemonState}`.slice(0, 300);
+        audit("TIER2-ERROR", `Scan failed via daemon: ${msg} — ${daemonState}`);
+      } else {
+        // Gather everything useful: stderr, stdout tail (in case Python wrote
+        // the error there), exit code, kill signal, and current memory. Without
+        // these, OOM kills and buffer overruns both show as "Command failed"
+        // with no context.
+        const stderr = String(err?.stderr || "");
+        const stdout = String(err?.stdout || "");
+        // Node's child_process.exec overloads err.code: numeric exit status for
+        // non-zero exits, string error name for spawn/buffer failures (e.g.
+        // ERR_CHILD_PROCESS_STDIO_MAXBUFFER), and null when the child was killed
+        // by a signal. Normalize so the activity log never prints "code=null"
+        // or "code=undefined", which look like bugs to operators.
+        const rawCode = err?.code;
+        const code: string | number =
+          rawCode === undefined || rawCode === null || rawCode === "" ? "?" : rawCode;
+        const signal = err?.signal || "none";
+        const msg = String(err?.message || err);
 
-      // Prefer stderr (where Python tracebacks live), fall back to stdout tail
-      const primary = stderr.trim() ? stderr : stdout;
-      const tail = primary.length > 800 ? '…' + primary.slice(-800) : primary;
+        // Prefer stderr (where Python tracebacks live), fall back to stdout tail
+        const primary = stderr.trim() ? stderr : stdout;
+        const tail = primary.length > 800 ? '…' + primary.slice(-800) : primary;
 
-      // Memory snapshot — helps correlate OOM kills
-      const mem = process.memoryUsage();
-      const memStr = `rss=${Math.round(mem.rss/1024/1024)}MB heap=${Math.round(mem.heapUsed/1024/1024)}/${Math.round(mem.heapTotal/1024/1024)}MB`;
+        // Memory snapshot — helps correlate OOM kills
+        const mem = process.memoryUsage();
+        const memStr = `rss=${Math.round(mem.rss/1024/1024)}MB heap=${Math.round(mem.heapUsed/1024/1024)}/${Math.round(mem.heapTotal/1024/1024)}MB`;
 
-      // Classify: SIGKILL+empty-stderr is almost always OOM or buffer overflow.
-      // Compare against rawCode (not the "?" placeholder) so classification
-      // still fires when the exec error arrives as a string code.
-      let classification = "";
-      if (signal === "SIGKILL" && !stderr.trim()) {
-        classification = " [likely OOM kill or maxBuffer exceeded]";
-      } else if (rawCode === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-        classification = " [stdout buffer exceeded — raise DEFAULT_MAX_BUFFER]";
-      } else if (signal === "SIGTERM") {
-        classification = " [timed out or killed externally]";
-      } else if (rawCode === "ETIMEDOUT") {
-        classification = " [exec timeout exceeded]";
-      } else if (rawCode === "ENOENT") {
-        classification = " [python3 not found on PATH]";
+        // Classify: SIGKILL+empty-stderr is almost always OOM or buffer overflow.
+        // Compare against rawCode (not the "?" placeholder) so classification
+        // still fires when the exec error arrives as a string code.
+        let classification = "";
+        if (signal === "SIGKILL" && !stderr.trim()) {
+          classification = " [likely OOM kill or maxBuffer exceeded]";
+        } else if (rawCode === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+          classification = " [stdout buffer exceeded — raise DEFAULT_MAX_BUFFER]";
+        } else if (signal === "SIGTERM") {
+          classification = " [timed out or killed externally]";
+        } else if (rawCode === "ETIMEDOUT") {
+          classification = " [exec timeout exceeded]";
+        } else if (rawCode === "ENOENT") {
+          classification = " [python3 not found on PATH]";
+        }
+
+        const detail = tail.trim() || msg;
+        tier2LastFailureDetail = `code=${code} signal=${signal}${classification}: ${detail}`.slice(0, 300);
+        audit("TIER2-ERROR", `Scan failed (code=${code} signal=${signal} ${memStr})${classification}: ${detail}`);
       }
-
-      const detail = tail.trim() || msg;
-      tier2LastFailureDetail = `code=${code} signal=${signal}${classification}: ${detail}`.slice(0, 300);
-      audit("TIER2-ERROR", `Scan failed (code=${code} signal=${signal} ${memStr})${classification}: ${detail}`);
     }
 
     // Overnight/pre-market research: runs during 8pm-4am ET window
