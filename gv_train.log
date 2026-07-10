@@ -1,0 +1,112 @@
+[train] pip installing ('numpy<2', 'ultralytics', 'rasterio', 'pillow') ...
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+
+[notice] A new release of pip is available: 23.3.1 -> 26.1.2
+[notice] To update, run: python3 -m pip install --upgrade pip
+[train] training regions: ['USA_AZ_Tucson', 'NZ_Dunedin', 'NZ_Gisborne', 'NZ_Palmerston_North', 'NZ_Rotorua', 'NZ_Tauranga', 'USA_CT_Hartford', 'USA_NC_Clyde', 'USA_NC_Wilmington']
+[train] fetching USA_AZ_Tucson (https://ndownloader.figshare.com/files/28887792) ...
+[train] fetching NZ_Dunedin (https://ndownloader.figshare.com/files/28887777) ...
+[train] fetching NZ_Gisborne (https://ndownloader.figshare.com/files/28887780) ...
+[train] fetching NZ_Palmerston_North (https://ndownloader.figshare.com/files/28887783) ...
+[train] fetching NZ_Rotorua (https://ndownloader.figshare.com/files/28887786) ...
+[train] fetching NZ_Tauranga (https://ndownloader.figshare.com/files/28887789) ...
+[train] fetching USA_CT_Hartford (https://ndownloader.figshare.com/files/12708365) ...
+[train] fetching USA_NC_Clyde (https://ndownloader.figshare.com/files/12705920) ...
+[train] fetching USA_NC_Wilmington (https://ndownloader.figshare.com/files/12707420) ...
+/workspace/repo/scripts/gridvision_train/train.py:304: DeprecationWarning: BILINEAR is deprecated and will be removed in Pillow 10 (2023-07-01). Use Resampling.BILINEAR instead.
+  im = im.resize((ow, oh), Image.BILINEAR)                 # the 0.60 m image
+[train] skip unreadable image USA_CT_Hartford/USA_CT_Hartford_22.tif: Bad magic number for file header
+[train] skip unreadable image USA_CT_Hartford/USA_CT_Hartford_7.tif: Bad magic number for file header
+[train] skip unreadable image USA_CT_Hartford/USA_CT_Hartford_8.tif: Bad magic number for file header
+[train] skip unreadable image USA_CT_Hartford/USA_CT_Hartford_24.tif: Truncated file header
+[train] skip unreadable image USA_CT_Hartford/USA_CT_Hartford_23.tif: Truncated file header
+[train] skip unreadable image USA_CT_Hartford/USA_CT_Hartford_20.tif: Truncated file header
+[train] skip unreadable image USA_CT_Hartford/USA_CT_Hartford_16.tif: Truncated file header
+[train] dataset: {"data_yaml": "/workspace/gv_out/dataset/data.yaml", "images": {"train": 995, "val": 0}, "boxes": {"train": 4754, "val": 0}, "n_images": 95, "skipped_no_image": 0, "tiles_empty_skipped": 1311, "images_unreadable": 7, "bad_zip_members": 15, "tile": 640, "stride": 512, "native_gsd_by_region": {"USA_AZ_Tucson": 0.3, "NZ_Dunedin": 0.3, "NZ_Gisborne": 0.3, "NZ_Palmerston_North": 0.3, "NZ_Rotorua": 0.3, "NZ_Tauranga": 0.3, "USA_CT_Hartford": 0.15, "USA_NC_Clyde": 0.15, "USA_NC_Wilmington": 0.15}, "unmapped_region_stems": 0, "classes": ["tower"], "holdout_region": "USA_KS_Colwich_Maize", "split_mode": "holdout_region", "n_train_images": 95, "n_val_images": 0}
+WARNING ⚠️ user config directory '/root/.config/Ultralytics' is not writable, using '/tmp/Ultralytics'. Set YOLO_CONFIG_DIR to override.
+Creating new Ultralytics Settings v0.0.6 file ✅ 
+View Ultralytics Settings with 'yolo settings' or at '/tmp/Ultralytics/settings.json'
+Update Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. For help see https://docs.ultralytics.com/quickstart/#ultralytics-settings.
+Downloading https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8s.pt to 'yolov8s.pt': 100% ━━━━━━━━━━━━ 21.5MB 40.1MB/s 0.5s
+Ultralytics 8.4.91 🚀 Python-3.10.12 torch-2.1.0+cu118 CUDA:0 (NVIDIA GeForce RTX 4090, 24110MiB)
+[34m[1mengine/trainer: [0magnostic_nms=False, amp=True, angle=1.0, augment=False, auto_augment=randaugment, batch=16, bgr=0.0, box=7.5, cache=False, cfg=None, classes=None, close_mosaic=10, cls=0.5, cls_pw=0.0, cls_remap=True, compile=False, conf=None, copy_paste=0.2, copy_paste_mode=flip, cos_lr=False, cutmix=0.0, data=/workspace/gv_out/dataset/data.yaml, degrees=10.0, deterministic=True, device=0, dfl=1.5, dis=6.0, distill_model=None, dnn=False, dropout=0.0, dynamic=False, embed=None, end2end=None, epochs=80, erasing=0.4, exist_ok=True, fliplr=0.5, flipud=0.5, format=torchscript, fraction=1.0, freeze=None, hsv_h=0.02, hsv_s=0.8, hsv_v=0.5, imgsz=640, iou=0.7, keras=False, kobj=1.0, line_width=None, lr0=0.01, lrf=0.01, mask_ratio=4, max_det=300, mixup=0.15, mode=train, model=yolov8s.pt, momentum=0.937, mosaic=1.0, multi_scale=0.0, name=tower_v0, nbs=64, nms=False, opset=None, optimize=False, optimizer=auto, overlap_mask=True, patience=100, perspective=0.0005, plots=True, pose=12.0, pretrained=True, profile=False, project=/workspace/gv_out, quantize=None, rect=False, resume=False, retina_masks=False, rle=1.0, save=True, save_conf=False, save_crop=False, save_dir=/workspace/gv_out/tower_v0, save_frames=False, save_json=False, save_period=-1, save_txt=False, scale=0.6, seed=0, shear=2.0, show=False, show_boxes=True, show_conf=True, show_labels=True, simplify=True, single_cls=False, source=None, split=val, stream_buffer=False, task=detect, time=None, tracker=tracktrack.yaml, translate=0.15, val=True, verbose=True, vid_stride=1, visualize=False, warmup_bias_lr=0.1, warmup_epochs=3.0, warmup_momentum=0.8, weight_decay=0.0005, workers=8, workspace=None
+Downloading https://ultralytics.com/assets/Arial.ttf to '/tmp/Ultralytics/Arial.ttf': 100% ━━━━━━━━━━━━ 755.1KB 25.8MB/s 0.0s
+Overriding model.yaml nc=80 with nc=1
+
+                   from  n    params  module                                       arguments                     
+  0                  -1  1       928  ultralytics.nn.modules.conv.Conv             [3, 32, 3, 2]                 
+  1                  -1  1     18560  ultralytics.nn.modules.conv.Conv             [32, 64, 3, 2]                
+  2                  -1  1     29056  ultralytics.nn.modules.block.C2f             [64, 64, 1, True]             
+  3                  -1  1     73984  ultralytics.nn.modules.conv.Conv             [64, 128, 3, 2]               
+  4                  -1  2    197632  ultralytics.nn.modules.block.C2f             [128, 128, 2, True]           
+  5                  -1  1    295424  ultralytics.nn.modules.conv.Conv             [128, 256, 3, 2]              
+  6                  -1  2    788480  ultralytics.nn.modules.block.C2f             [256, 256, 2, True]           
+  7                  -1  1   1180672  ultralytics.nn.modules.conv.Conv             [256, 512, 3, 2]              
+  8                  -1  1   1838080  ultralytics.nn.modules.block.C2f             [512, 512, 1, True]           
+  9                  -1  1    656896  ultralytics.nn.modules.block.SPPF            [512, 512, 5]                 
+ 10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 12                  -1  1    591360  ultralytics.nn.modules.block.C2f             [768, 256, 1]                 
+ 13                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 14             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 15                  -1  1    148224  ultralytics.nn.modules.block.C2f             [384, 128, 1]                 
+ 16                  -1  1    147712  ultralytics.nn.modules.conv.Conv             [128, 128, 3, 2]              
+ 17            [-1, 12]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 18                  -1  1    493056  ultralytics.nn.modules.block.C2f             [384, 256, 1]                 
+ 19                  -1  1    590336  ultralytics.nn.modules.conv.Conv             [256, 256, 3, 2]              
+ 20             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 21                  -1  1   1969152  ultralytics.nn.modules.block.C2f             [768, 512, 1]                 
+ 22        [15, 18, 21]  1   2116435  ultralytics.nn.modules.head.Detect           [1, 16, None, [128, 256, 512]]
+Model summary: 130 layers, 11,135,987 parameters, 11,135,971 gradients, 28.6 GFLOPs
+
+Transferred 349/355 items from pretrained weights
+Freezing layer 'model.22.dfl.conv.weight'
+[34m[1mAMP: [0mrunning Automatic Mixed Precision (AMP) checks...
+Downloading https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt to 'yolo26n.pt': 100% ━━━━━━━━━━━━ 5.3MB 38.0MB/s 0.1s
+[34m[1mAMP: [0mchecks passed ✅
+[34m[1mtrain: [0mFast image access ✅ (ping: 0.2±0.2 ms, read: 197.0±18.1 MB/s, size: 631.0 KB)
+[34m[1mtrain: [0mScanning /workspace/gv_out/dataset/labels/train... 995 images, 0 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 995/995 925.8it/s 1.1s
+[34m[1mtrain: [0m/workspace/gv_out/dataset/images/train/NZ_Dunedin_2_x0_y512.png: 1 duplicate labels removed
+[34m[1mtrain: [0mNew cache created: /workspace/gv_out/dataset/labels/train.cache
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/data/base.py", line 179, in get_img_files
+    assert im_files, f"{self.prefix}No images found in {img_path}. {FORMATS_HELP_MSG}"
+AssertionError: [34m[1mval: [0mNo images found in /workspace/gv_out/dataset/images/val. Supported formats are:
+images: {'webp', 'png', 'heic', 'jpg', 'tiff', 'jp2', 'dng', 'avif', 'jpeg', 'bmp', 'heif', 'mpo', 'tif'}
+videos: {'wmv', 'avi', 'mov', 'mpg', 'mpeg', 'mp4', 'gif', 'mkv', 'webm', 'asf', 'ts', 'm4v'}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspace/repo/scripts/gridvision_train/train.py", line 639, in <module>
+    main()
+  File "/workspace/repo/scripts/gridvision_train/train.py", line 635, in main
+    sys.exit(run_full(args))
+  File "/workspace/repo/scripts/gridvision_train/train.py", line 589, in run_full
+    best, metrics = run_training(ds["data_yaml"], work, epochs=args.epochs,
+  File "/workspace/repo/scripts/gridvision_train/train.py", line 415, in run_training
+    results = yolo.train(data=data_yaml, epochs=epochs, imgsz=imgsz, device=device,
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/engine/model.py", line 814, in train
+    self.trainer.train()
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/engine/trainer.py", line 241, in train
+    self._do_train()
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/engine/trainer.py", line 390, in _do_train
+    self._setup_train()
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/engine/trainer.py", line 369, in _setup_train
+    self._build_train_pipeline()
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/engine/trainer.py", line 271, in _build_train_pipeline
+    self.test_loader = self.get_dataloader(
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/models/yolo/detect/train.py", line 93, in get_dataloader
+    dataset = self.build_dataset(dataset_path, mode, batch_size)
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/models/yolo/detect/train.py", line 77, in build_dataset
+    return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/data/build.py", line 264, in build_yolo_dataset
+    return dataset(
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/data/dataset.py", line 91, in __init__
+    super().__init__(*args, channels=self.data.get("channels", 3), **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/data/base.py", line 117, in __init__
+    self.im_files = self.get_img_files(self.img_path)
+  File "/usr/local/lib/python3.10/dist-packages/ultralytics/data/base.py", line 181, in get_img_files
+    raise FileNotFoundError(f"{self.prefix}Error loading data from {img_path}\n{HELP_URL}") from e
+FileNotFoundError: [34m[1mval: [0mError loading data from /workspace/gv_out/dataset/images/val
+See https://docs.ultralytics.com/datasets for dataset formatting guidance.
