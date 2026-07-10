@@ -103,20 +103,50 @@ def build_create_body(
     return body
 
 
-def watchdog_should_terminate(elapsed_s, max_seconds, pod_status):
+def watchdog_should_terminate(elapsed_s, max_seconds, pod_status, result_ready=False):
     """Pure decision. Returns (should_terminate, reason). Wall-clock cap is the
     primary enforcer (does not depend on parsing RunPod's status field); a
-    terminal status ends the watch early on natural completion."""
+    terminal status ends the watch early on natural completion.
+
+    `result_ready` (BUG FOUND 2026-07-10, gv-div4-ks): the runpod/pytorch base
+    image keeps jupyter/ssh alive regardless of the launched command, so a pod
+    whose training PROCESS already exited (success OR crash — pod_run.py
+    pushes a result either way) still reports RUNNING indefinitely — the
+    watchdog idle-bills all the way to the wall-clock cap on every fast
+    finish/failure. Prior sessions (div2, research/experiments.md 2026-07-09)
+    solved this ad hoc each time by watching for the result branch to appear
+    ("reason=result-pushed" in the ledger) and were never committed; this
+    finally is. Checked LAST (after pod_status) so a pod that is ALSO
+    naturally EXITED still reports "exited", not "result-pushed"."""
     if elapsed_s >= max_seconds:
         return True, "cap"
     if pod_status and str(pod_status).upper() in TERMINAL_STATES:
         return True, "exited"
+    if result_ready:
+        return True, "result-pushed"
     return False, ""
 
 
 def actual_cost(elapsed_s, hourly):
     """Pure: real dollars for the elapsed wall-clock at `hourly`."""
     return round(float(hourly) * float(elapsed_s) / 3600.0, 6)
+
+
+def remote_branch_exists(branch, remote="origin", runner=None, cwd=None):
+    """True if `branch` exists on `remote` RIGHT NOW (git ls-remote — works over
+    this session's own git proxy, no GitHub token needed). Never raises: a
+    network/git hiccup returns False, so the wall-clock cap stays the
+    authoritative bound regardless (this is only ever an EARLY-exit signal,
+    never a substitute for it). `runner` is injectable for tests."""
+    import subprocess
+    run = runner or (lambda cmd: subprocess.run(cmd, cwd=cwd, capture_output=True,
+                                                 text=True, timeout=30))
+    try:
+        res = run(["git", "ls-remote", remote, f"refs/heads/{branch}"])
+        out = getattr(res, "stdout", "") or ""
+        return bool(out.strip())
+    except Exception:
+        return False
 
 
 # ---- HTTP (gated behind key presence; network) -----------------------------
@@ -155,7 +185,7 @@ def _pod_status(pod_obj):
 
 def run_launch(job_id, workload, gpu, hourly, max_hours, image, train_cmd,
                cloud_type="COMMUNITY", interruptible=True, poll_s=POLL_SECONDS,
-               env=None):
+               env=None, result_branch=None, result_repo_dir=None):
     """Full lifecycle: gate -> create -> watchdog -> terminate -> ledger. Returns
     a result dict. Refuses (and never touches RunPod) if the gate says no or the
     key is absent.
@@ -164,7 +194,16 @@ def run_launch(job_id, workload, gpu, hourly, max_hours, image, train_cmd,
     for a secret the on-pod command needs (e.g. a GH token to clone a private
     repo), so the secret rides the pod env instead of being baked into the
     logged command string. It is NOT the RunPod API key (that stays in the
-    Authorization header, never the pod)."""
+    Authorization header, never the pod).
+
+    `result_branch` (optional): if the on-pod command pushes its result to a
+    git branch (e.g. via pod_run.py), pass that branch name here so the
+    watchdog terminates the INSTANT it appears instead of idle-billing to the
+    cap. BUG FOUND 2026-07-10 (gv-div4-ks): the base image keeps jupyter/ssh
+    alive regardless of the launched command, so a pod whose training exited
+    in the first few minutes (success OR crash) still reports RUNNING for the
+    full cap — this cost $3.45 for ~8 minutes of real work. Omit to keep the
+    old wall-clock-only behavior (e.g. a job with no result-push step)."""
     key = api_key()
     if not key:
         return {"ok": False, "state": "awaiting_key",
@@ -200,8 +239,10 @@ def run_launch(job_id, workload, gpu, hourly, max_hours, image, train_cmd,
                 status = _pod_status(get_pod(pod_id, key))
             except Exception as e:  # transient poll error: keep the wall-clock cap authoritative
                 print(f"[launch] poll error (continuing on wall-clock): {e}")
-            should, reason = watchdog_should_terminate(elapsed, max_seconds, status)
-            print(f"[launch] t={int(elapsed)}s status={status} -> {'TERMINATE:'+reason if should else 'running'}")
+            result_ready = bool(result_branch) and remote_branch_exists(result_branch, cwd=result_repo_dir)
+            should, reason = watchdog_should_terminate(elapsed, max_seconds, status, result_ready=result_ready)
+            print(f"[launch] t={int(elapsed)}s status={status} result_ready={result_ready} -> "
+                 f"{'TERMINATE:'+reason if should else 'running'}")
             if should:
                 break
     finally:
@@ -262,7 +303,8 @@ def parse_env_pairs(pairs):
 def _cmd_launch(a):
     env = parse_env_pairs(getattr(a, "env", None))
     res = run_launch(a.job, a.workload, a.gpu, a.hourly, a.max_hours, a.image, a.cmd,
-                     env=env or None, cloud_type=a.cloud_type, interruptible=not a.non_interruptible)
+                     env=env or None, cloud_type=a.cloud_type, interruptible=not a.non_interruptible,
+                     result_branch=a.result_branch, result_repo_dir=a.result_repo_dir)
     print(json.dumps(res, indent=2))
     sys.exit(0 if res.get("ok") else 2)
 
@@ -298,6 +340,14 @@ def _build_parser():
                          "checkpointed and would be lost on preemption")
     lp.add_argument("--non-interruptible", dest="non_interruptible", action="store_true",
                     help="pass with --cloud-type SECURE for a true non-interruptible pod")
+    lp.add_argument("--result-branch", dest="result_branch", default=None,
+                    help="if the on-pod command pushes a result branch (e.g. pod_run.py's "
+                         "gridvision-pod-result-<job>), the watchdog terminates the instant "
+                         "it appears instead of idle-billing to the cap (fast finish/crash "
+                         "still reports RUNNING on the base image regardless — 2026-07-10 finding)")
+    lp.add_argument("--result-repo-dir", dest="result_repo_dir", default=None,
+                    help="local repo dir to run 'git ls-remote' from when checking --result-branch "
+                         "(defaults to the current working directory)")
     common(lp)
     return p
 

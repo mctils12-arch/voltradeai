@@ -197,3 +197,19 @@ def test_load_ledger_skips_blank_and_garbage(tmp_path):
     rows = rb.load_ledger(str(p))
     assert len(rows) == 2
     assert rb.spent(rows) == 3.5
+
+
+def test_monkeypatched_module_ledger_redirects_default_path_calls(tmp_path, monkeypatch):
+    # BUG FIX 2026-07-10 (found via gv-div4-ks): load_ledger/_append_row used to
+    # default `path=LEDGER`, a value bound ONCE at module-def time. A test that
+    # did `monkeypatch.setattr(rb, "LEDGER", tmp)` and then called
+    # `load_ledger()`/`_append_row(row)` with NO explicit path silently kept
+    # writing to the REAL production `datacore/runpod/ledger.jsonl` — caught
+    # when a test for run_launch() did exactly that and polluted it with fake
+    # rows. Both now resolve the CURRENT module-level LEDGER at call time.
+    fake = tmp_path / "fake_ledger.jsonl"
+    monkeypatch.setattr(rb, "LEDGER", str(fake))
+    assert rb.load_ledger() == []  # no explicit path -- must read the FAKE path
+    rb._append_row({"job_id": "z", "actual_cost": 1.0})  # no explicit path either
+    assert fake.exists()  # proves it wrote to the fake path, not the real ledger
+    assert rb.load_ledger() == [{"job_id": "z", "actual_cost": 1.0}]

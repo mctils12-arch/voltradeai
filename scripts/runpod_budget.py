@@ -236,9 +236,21 @@ def low_balance(rows, threshold=LOW_THRESHOLD, start=START_BALANCE):
 # ----------------------------------------------------------------------------
 # Thin file I/O + CLI (the pure functions above are what the tests exercise).
 # ----------------------------------------------------------------------------
-def load_ledger(path=LEDGER):
+def load_ledger(path=None):
     """Read the append-only JSONL ledger. Missing file -> empty. Blank/garbage
-    lines are skipped (never crash the balance read on one bad row)."""
+    lines are skipped (never crash the balance read on one bad row).
+
+    BUG FIX 2026-07-10: `path` used to default to `LEDGER` bound at DEF TIME —
+    a mutable-default-argument gotcha that meant `monkeypatch.setattr(rb,
+    "LEDGER", tmp)` in a test silently did NOT redirect this function (Python
+    evaluates default arguments once, at definition, not at each call). A test
+    that called through `run_launch()` -> `_append_row()` with no explicit path
+    therefore wrote real rows into the PRODUCTION `datacore/runpod/ledger.jsonl`
+    despite overriding `rb.LEDGER` — caught when it did exactly that. `path`
+    now defaults to None and resolves the CURRENT module-level LEDGER at call
+    time, so overriding the module attribute actually works."""
+    if path is None:
+        path = LEDGER
     rows = []
     if not os.path.exists(path):
         return rows
@@ -254,7 +266,9 @@ def load_ledger(path=LEDGER):
     return rows
 
 
-def _append_row(row, path=LEDGER):
+def _append_row(row, path=None):
+    if path is None:
+        path = LEDGER
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a") as f:
         f.write(json.dumps(row) + "\n")

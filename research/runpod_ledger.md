@@ -173,3 +173,22 @@ epochs), SECURE non-interruptible, max-hours 5, worst-case $3.45 (ledger
 reserved; $43.34 would remain). Full detail + result (once known) in
 research/experiments.md's 2026-07-10 entry — check there and
 `datacore/runpod/ledger.jsonl` before launching anything further.
+
+UPDATE 2026-07-10 (later same session, v1.0.262, PR #416): gv-div4-ks FAILED
+fast (~8min, train_rc=1) — my own launch-command mistake, not a code bug: I
+left `USA_KS_Colwich_Maize` (the `--holdout-region`) OUT of `--regions`, so its
+zip was never fetched and the dataset built with 0 val images. `pod_run.py`
+worked as designed and pushed the crash log so this was diagnosable. BUT the
+pod then idle-billed the FULL 5h cap ($3.45 for ~8 min of real work) — the
+base image keeps jupyter/ssh alive regardless of the launched command, so
+RunPod never reported it as exited. This is the exact waste div2 hit and
+solved ad hoc each time; finally fixed properly: `runpod_launch.py
+--result-branch <branch>` now terminates the watchdog the instant that branch
+appears (via `git ls-remote`, no new token). Also caught + fixed a real
+test-isolation bug while testing this (runpod_budget.py's `load_ledger`/
+`_append_row` resolved `LEDGER` at def-time not call-time, so a monkeypatched
+override silently didn't redirect — a test wrote 4 fake $0 rows into the REAL
+ledger; cleaned + fixed). Relaunched as **gv-div5-ks** with the region list
+corrected and `--result-branch gridvision-pod-result-gv-div5-ks` wired for
+early termination. Result in research/experiments.md's second 2026-07-10
+entry.
