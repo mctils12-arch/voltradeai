@@ -13,6 +13,96 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-10 — [REPAIR] Live verification closeout: R19 (WS stream exits) and the SPY-floor extended-hours fix are both CONFIRMED WORKING in production — closing KNOWN BROKEN #15 and #16's pending live-verification gaps
+
+TERRITORY: SHARED (research/* only — no code touched this session).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md (last
+10 tagged entries: 1 RESEARCH / 2 PIPELINE / 1 REPAIR / 6 PRODUCT —
+healthy, no thrash; REPAIR ratio well under the 7/10 trigger).
+`/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark
+false, alpaca ACTIVE, scanner 0 consecutiveFailures — no LIVENESS ALARM.
+Audit register: staleness next due 2026-08-04, constitutional next due
+~2026-08-03 — neither overdue. Checked open PRs (SESSION BUDGET step 0):
+#420 (satellite CSV retry fix), #415 (gridvision pod-reap), #414 (CI
+minutes), #399 (flood layer) all open and not obviously stale/rotting
+(#420 opened same day; others have plausible reasons to still be open —
+not investigated further, out of this session's chosen scope); #77 is
+the long-known stale human draft, left alone per precedent.
+
+PRIMARY ACTION SELECTION: two KNOWN BROKEN items (#15, R19's WS-stream
+fix; #16, the SPY-floor extended-hours fix) were both shipped by prior
+sessions but explicitly logged as "live verification still pending" —
+neither prior session could observe its own fix live (no Railway deploy
+control from an autonomous session). SESSION BUDGET ranks "judge a
+matured experiment" above starting new research, and both fixes have
+now had a full trading day to mature. `DIAG_TOKEN` is present in this
+session's env, so this was directly checkable — chosen over restarting
+the GRID VISION arc (queued but not urgent; a research/GPU-spend
+decision, not a live-system verification gap) or new PRODUCT work.
+
+FINDING 1 — R19 (KNOWN BROKEN #15) CONFIRMED FIXED: `/api/diag/audit?
+type=STREAM&limit=10` shows "Real-time feed live — 43 tickers" recurring
+every ~10 minutes across the queried window (was zero occurrences across
+19 restarts / 22+ hours pre-fix). `?type=WS-EXIT&limit=10` shows one real
+row: "WS TRAILING STOP Phase 2: P&L 0.2% dropped 9.0% from peak 9.2%
+(final 12/18 shares, 1 prior scale-outs) | MARKET sell 12 SMH @ $601.04"
+at 13:46:18Z (was zero rows ever on this query). `/api/diag/ml` reports
+`feedback_live_count: 1` (was stuck at exactly 0 for 3+ days pre-fix per
+KNOWN BROKEN #12(b)'s gate). All three of R19's own pre-stated NEXT-check
+conditions passed — the downstream chain R19 predicted (WS bars deliver
+-> checkPositionOnTick fires -> exits execute -> feedback records) is now
+observably true end-to-end, not just theorized. Updated open_questions.md
+#15 from PARTIALLY FIXED to RESOLVED with this evidence.
+
+FINDING 2 — SPY-floor extended-hours fix (KNOWN BROKEN #16) CONFIRMED
+FIXED: `/api/diag/orders?limit=200&token=$DIAG_TOKEN` — the 200-row
+window spans 2026-06-03 through 2026-07-10T13:47:54Z and contains 94
+canceled orders, but every single one was submitted BEFORE
+2026-07-10T11:22:31Z (a batch of pre-fix pending SMH market orders that
+got canceled at that exact instant, consistent with the fix's deploy/
+restart clearing stale extended-hours orders). Zero canceled orders
+after that timestamp; every order submitted after it was during regular
+market hours (earliest fill 13:38:23Z / 9:38am ET) and filled normally —
+no resubmit-loop recurrence in the ~2.5 hours of regular-hours trading
+observed since. Updated open_questions.md #16's "LIVE VERIFICATION STILL
+PENDING" note to CONFIRMED, and separately logged the one remaining
+smaller gap (the `*_deferred` action trail still isn't surfaced on any
+diag probe — not checked this session, no deferred cycle happened to
+query during market hours) so a future session doesn't have to
+rediscover it.
+
+WHY THIS MATTERS (REPAIR MANDATE / avoid re-litigating fixed things): both
+items were the two most recent unresolved entries in KNOWN BROKEN. Left
+unclosed, a future session reading open_questions.md cold would either
+re-investigate work already done (wasted cycles) or worse, not trust a
+fix that's actually solid. Closing both with hard evidence is exactly the
+"REPAIRS MUST RATCHET" spirit — these particular repairs already shipped
+their regression tests in their own PRs; this entry is the missing last
+step (proving the ratchet held in production, not just in CI).
+
+NOT DONE THIS SESSION (deliberate, in scope of one-logical-change):
+did not restart the GRID VISION diversity-plateau arc (queued, GPU-spend
+decision, lower urgency than closing live-verification gaps); did not
+investigate the four other open PRs beyond confirming none looked
+obviously stale; did not build the `*_deferred` audit-visibility gap
+noted above (smaller, separate follow-up, logged not fixed).
+
+GATES: docs-only change (research/open_questions.md, research/
+experiments.md) — no code touched, no test suite applies. No version
+bump (no package.json/code change). No backtest (no strategy/measurement/
+parameter path touched).
+
+MARKET-HOURS NOTE: this session ran during market hours. The PR contains
+no code change (documentation only, reflecting already-live, already-
+verified production state) so it carries zero deploy risk — but per this
+session's standing instruction, flagging explicitly: safe to merge
+immediately if reviewed, otherwise fine to hold for the routine after-
+4pm-ET window along with any code-bearing PRs from today.
+
+Backtest: N/A (documentation-only verification entry; no strategy/
+measurement/parameter/execution code touched).
+
 ## 2026-07-10 — [RESEARCH] GRID VISION gv-div5-ks RESULT: real Duke US regions do NOT improve held-out generalization — FLAT at 0.197 vs the NZ-only 6-region result of 0.200; 0.30 held-out bar still not crossed (v1.0.262)
 
 TERRITORY: T-DATACORE. Closes the arc started in the two entries below (same session).
