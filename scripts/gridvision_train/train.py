@@ -84,8 +84,46 @@ REGION_FILE_IDS = {**ETDII_REGIONS, **DUKE_US_REGIONS}   # deposit-agnostic (ndo
 ETDII_US_FILE_IDS = {k: v for k, v in ETDII_REGIONS.items() if k.startswith("USA_")}
 ETDII_NDOWNLOAD = "https://ndownloader.figshare.com/files/{fid}"
 ETDII_NATIVE_GSD = 0.30
+DUKE_NATIVE_GSD = 0.15   # gridvision_etdii.py's DUKE_ADD comment: "0.15 m -> 0.30/0.60 m to match NAIP GSD"
 TARGET_GSD = 0.60
 IMG_EXTS = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
+
+# Native GSD per region, keyed the same as REGION_FILE_IDS. BUG FOUND 2026-07-10:
+# build_yolo_dataset previously derived ONE global downsample factor from
+# ETDII_NATIVE_GSD alone and applied it to every image regardless of source.
+# Duke US orthos are natively 0.15 m (half ETDII's 0.30 m), so they need factor
+# 4.0 (0.15->0.60), not 2.0 — the old single-factor code silently left Duke
+# images at an effective 0.30 m instead of the intended 0.60 m, a real cross-
+# region scale mismatch (Duke towers ~2x the true 0.60m pixel footprint of
+# every AZ/KS/NZ tower in the same dataset). This had NOT yet corrupted a
+# completed run — both prior Duke attempts (gv-div2-ks BadZipFile, gv-div3-ks
+# 2h-cap timeout) failed before reaching the training step — but would have on
+# the next one. Fixed by computing the factor PER IMAGE from its own region.
+REGION_NATIVE_GSD = {**{k: ETDII_NATIVE_GSD for k in ETDII_REGIONS},
+                     **{k: DUKE_NATIVE_GSD for k in DUKE_US_REGIONS}}
+
+
+def region_of_any(stem, table=REGION_NATIVE_GSD):
+    """Longest matching region prefix for `stem` over ALL known regions (US
+    ETDII + NZ + Duke) — unlike e2y.region_of, which only recognizes US
+    regions (it exists for the held-out-region test, where NZ is never a
+    valid holdout target). None if no known region matches. Pure."""
+    best = None
+    for p in table:
+        if stem.startswith(p) and (best is None or len(p) > len(best)):
+            best = p
+    return best
+
+
+def native_gsd_for_stem(stem, table=REGION_NATIVE_GSD, default=ETDII_NATIVE_GSD):
+    """Native GSD (metres) for a training image stem, via region_of_any.
+    Falls back to `default` (ETDII's 0.30 m) for a stem matching no known
+    region — never crashes, but an unrecognized region silently assumed
+    ETDII-native is only actually correct for ETDII regions; the caller counts
+    fallback hits so a new unmapped region doesn't quietly inherit the wrong
+    GSD the way this bug did. Pure."""
+    region = region_of_any(stem, table)
+    return table[region] if region is not None else default
 
 
 # ── pip bootstrap (on-pod) ──────────────────────────────────────────────────
@@ -192,8 +230,6 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     for d in (img_train, img_val, lbl_train, lbl_val):
         os.makedirs(d, exist_ok=True)
 
-    factor = cog_reader.downsample_factor(ETDII_NATIVE_GSD, TARGET_GSD)  # 2.0
-
     # first pass: collect per-image geojson + sibling image across all zips
     per_image = {}  # stem -> {"records": ..., "img_name": ..., "zip": path}
     skipped_no_image = 0  # geojsons with no sibling raster — counted, never guessed
@@ -240,6 +276,8 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     boxes = {"train": 0, "val": 0}
     tiles_empty_skipped = 0            # background-only tiles dropped (positive-only v1)
     images_unreadable = 0             # a bad/huge raster is skipped+counted, never crashes the run
+    unmapped_region_stems = 0         # stems matching no known region -> ETDII default GSD assumed
+    native_gsd_used = {}              # region -> native GSD actually applied (honest per-run report)
     Image.MAX_IMAGE_PIXELS = None     # Duke orthos are huge; disable PIL's decompression-bomb cap
     for stem, info in per_image.items():
         split = split_of[stem]
@@ -251,6 +289,16 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
             images_unreadable += 1
             print(f"[train] skip unreadable image {info['img_name']}: {e}", flush=True)
             continue
+        # PER-IMAGE factor (BUG FIX, see REGION_NATIVE_GSD above): Duke US regions
+        # are natively 0.15 m, not ETDII's 0.30 m — a single global factor silently
+        # under-downsampled Duke images 2x. region_of_any covers ETDII US + NZ +
+        # Duke (e2y.region_of is US-only-scoped, for the held-out-region test).
+        region = region_of_any(stem)
+        if region is None:
+            unmapped_region_stems += 1
+        native_gsd = native_gsd_for_stem(stem)
+        native_gsd_used[region or "unmapped"] = native_gsd
+        factor = cog_reader.downsample_factor(native_gsd, TARGET_GSD)
         w0, h0 = im.size
         ow, oh = e2y.downsample_image_dims(w0, h0, factor)
         im = im.resize((ow, oh), Image.BILINEAR)                 # the 0.60 m image
@@ -286,7 +334,9 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
             "tiles_empty_skipped": tiles_empty_skipped,
             "images_unreadable": images_unreadable, "bad_zip_members": bad_zip_members,
             "tile": tile, "stride": stride,
-            "downsample_factor": factor, "classes": e2y.CLASS_NAMES,
+            "native_gsd_by_region": native_gsd_used,     # per-region GSD actually applied (bug-fix honesty)
+            "unmapped_region_stems": unmapped_region_stems,  # count that fell back to the ETDII default
+            "classes": e2y.CLASS_NAMES,
             "holdout_region": holdout_region,
             "split_mode": "holdout_region" if holdout_region else "image_hash",
             "n_train_images": len(train_ids), "n_val_images": len(val_ids)}
@@ -482,6 +532,24 @@ def dry_run():
     # 8) weight-sink URL parsing (no network)
     url = weight_sink.parse_upload_url("https://0x0.st/abcd.pt\n")
     check("weight_sink_parse", url == "https://0x0.st/abcd.pt", f"url={url}")
+
+    # 9) per-region native GSD (BUG FIX 2026-07-10): Duke US regions are natively
+    #    0.15 m, half ETDII's 0.30 m — they must get factor 4.0, not the 2.0 every
+    #    region got under the old single-global-factor code. NZ (foreign diversity,
+    #    not US-holdout-eligible) must still resolve via region_of_any even though
+    #    e2y.region_of (US-only) returns None for it.
+    az_gsd = native_gsd_for_stem("USA_AZ_Tucson_12")
+    duke_gsd = native_gsd_for_stem("USA_CT_Hartford_7")
+    nz_gsd = native_gsd_for_stem("NZ_Dunedin_3")
+    unknown_gsd = native_gsd_for_stem("XX_Nowhere_1")
+    duke_factor = cog_reader.downsample_factor(duke_gsd, TARGET_GSD)
+    check("duke_native_gsd_fix",
+          abs(az_gsd - 0.30) < 1e-9 and abs(duke_gsd - 0.15) < 1e-9
+          and abs(nz_gsd - 0.30) < 1e-9 and abs(unknown_gsd - ETDII_NATIVE_GSD) < 1e-9
+          and abs(duke_factor - 4.0) < 1e-9
+          and region_of_any("USA_NC_Clyde_9") == "USA_NC_Clyde"
+          and e2y.region_of("NZ_Dunedin_3") is None,  # confirms e2y.region_of is still US-only-scoped
+          f"az={az_gsd} duke={duke_gsd} nz={nz_gsd} unknown={unknown_gsd} duke_factor={duke_factor}")
 
     report["ok"] = all(c["ok"] for c in report["checks"])
     report["summary"] = {"manifest_tower": towers, "manifest_substation": subs,

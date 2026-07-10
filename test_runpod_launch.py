@@ -137,3 +137,42 @@ def test_api_key_absent_by_default(monkeypatch):
     assert rl.api_key() is None
     monkeypatch.setenv("RUNPOD_API_KEY", "abc")
     assert rl.api_key() == "abc"
+
+
+# --- --cloud-type / --non-interruptible CLI wiring ---------------------------
+# (added so a long, non-checkpointed run can request a non-interruptible pod —
+# a COMMUNITY/spot pod was PREEMPTED mid-run before with no output recoverable,
+# research/experiments.md 2026-07-09 gv-div1-1)
+
+def test_cli_launch_defaults_to_community_interruptible():
+    a = rl._build_parser().parse_args(
+        ["launch", "--job", "j1", "--gpu", "g", "--hourly", "0.34", "--cmd", "x"])
+    assert a.cloud_type == "COMMUNITY"
+    assert a.non_interruptible is False
+
+
+def test_cli_launch_can_request_secure_non_interruptible():
+    a = rl._build_parser().parse_args(
+        ["launch", "--job", "j2", "--gpu", "g", "--hourly", "0.69", "--cmd", "x",
+         "--cloud-type", "SECURE", "--non-interruptible"])
+    assert a.cloud_type == "SECURE"
+    assert a.non_interruptible is True
+
+
+def test_cmd_launch_forwards_cloud_type_and_interruptible(monkeypatch):
+    captured = {}
+
+    def fake_run_launch(job, workload, gpu, hourly, max_hours, image, cmd, env=None,
+                        cloud_type="COMMUNITY", interruptible=True):
+        captured.update(cloud_type=cloud_type, interruptible=interruptible)
+        return {"ok": True}
+
+    monkeypatch.setattr(rl, "run_launch", fake_run_launch)
+    a = rl._build_parser().parse_args(
+        ["launch", "--job", "j3", "--gpu", "g", "--hourly", "0.69", "--cmd", "x",
+         "--cloud-type", "SECURE", "--non-interruptible"])
+    try:
+        rl._cmd_launch(a)
+    except SystemExit:
+        pass
+    assert captured == {"cloud_type": "SECURE", "interruptible": False}
