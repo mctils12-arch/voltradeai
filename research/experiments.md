@@ -13,6 +13,154 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-10 — [REPAIR] TIER2-ERROR daemon-timeout visibility: "daemon run_full_scan failed: Daemon timeout" recurred 7x in ~90 minutes with zero diagnostic detail — added a real daemon health probe + a new active-dispatch-thread counter that exposes the actual root-cause candidate (v1.0.266)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths) + voltrade_daemon.py
+(shared infra, not in any WORKSTREAM PARTITION territory list, not frozen).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md (last 10
+tagged entries: 2 REPAIR / 1 RESEARCH / 2 PIPELINE / 5 PRODUCT — no thrash,
+well under the 7/10 trigger). `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. Open PRs checked: #420 (satellite
+retry fix), #415 (gridvision pod-reap), #414 (CI minutes), #399 (flood
+layer) all still open, none obviously stale beyond the long-known #77 human
+draft — left alone per precedent, not this session's scope.
+
+PRIMARY ACTION SELECTION: `/api/diag/audit` (DIAG_TOKEN present in session
+env) surfaced a live, recurring, previously-unlogged break: TIER2-ERROR
+"Scan failed (code=? signal=none ...): daemon run_full_scan failed: Daemon
+timeout" at 18:22, 18:50, 19:05, 19:12, 19:35, 19:50, 19:57 UTC today — 7
+occurrences in ~95 minutes, none previously mentioned anywhere in
+experiments.md (grepped, zero hits). SESSION BUDGET ranks "fix a bug seen
+in audit logs" above judging matured experiments or starting new research —
+this was the clearest, most recent, most measurable candidate.
+
+DIAGNOSIS (READ BEFORE WRITE — read bot.ts's pythonRpc/pythonCall and
+voltrade_daemon.py's RPCHandler.handle() this session before touching
+either): `run_full_scan` is in `HEAVY_DAEMON_ONLY` (bot.ts) — it never
+falls back to subprocess, so a daemon-path failure always reaches
+tier2Intelligence's catch block as a bare `new Error("daemon run_full_scan
+failed: Daemon timeout")` with no `.stderr`/`.stdout`/`.code`/`.signal`.
+The catch block's classification logic (SIGKILL/OOM/maxBuffer/SIGTERM) was
+built entirely for subprocess `exec()` failures and has nothing to key off
+for this shape — producing the observed "code=? signal=none" plus a
+`process.memoryUsage()` snapshot that describes bot.ts's own Node process,
+not the daemon that actually failed. Confirmed via source read, not
+assumption: `pythonCall`'s daemon branch (bot.ts ~line 109-127) returns
+`{success:false, result:{error:...}, via:"daemon-failed"}` for any non-"ok"
+daemon status, and the caller's `if (callResult.error) throw
+callResult.error;` never fires for this path (`.error` is only set on the
+subprocess-exec branch) — it falls through to `throw new
+Error(callResult.result?.error || ...)`, a plain Error with none of the
+fields the catch block reads.
+
+SEPARATE FINDING (read voltrade_daemon.py's RPCHandler.handle(), not
+assumed): when a dispatched call itself hangs past `REQUEST_TIMEOUT_SEC`
+(300s), `t.join(REQUEST_TIMEOUT_SEC)` returns regardless of whether the
+worker thread finished — Python threads cannot be forcibly killed — and
+`finally: _inflight_sem.release()` runs immediately after, i.e. the
+in-flight semaphore that's supposed to cap concurrent heavy work is
+released the moment the HANDLER gives up waiting, not when the underlying
+thread actually stops running. A dispatch() call that genuinely hangs (slow
+market-data fetch, GIL contention from a concurrent call, etc.) therefore
+keeps consuming CPU/memory invisibly after the client has already been told
+"Daemon timeout" — and `MAX_INFLIGHT_REQUESTS=8` no longer bounds real
+concurrent load once this happens, since released slots can be re-acquired
+by new requests while old zombie threads are still running underneath. This
+is a plausible (not yet proven) driver of the CLUSTERING seen in the 7
+timeouts (18:22→19:57, not evenly spread) — each stall that outlives its
+own timeout could make the next call more likely to also stall. NOT proven
+this session (would need to correlate with the daemon's actual thread count
+at each failure, which didn't exist as a queryable signal before this PR —
+that's exactly the gap this PR closes).
+
+FIX (visibility, not a behavior change — same shape as KNOWN BROKEN #5's
+extended_checks and #14's TIER3-MANIP-ERROR audit wiring):
+1. `voltrade_daemon.py`: new thread-safe `_active_dispatch_count` (guarded
+   by `_active_dispatch_lock`), incremented in `_run()` before
+   `dispatch()` executes and decremented in its `finally`, regardless of
+   whether the handler already stopped waiting on it. Surfaced on
+   `_health()` as `active_dispatches`. This is the ROOT-CAUSE SIGNAL
+   `/api/diag` did not previously carry: if it's ever seen elevated well
+   above `MAX_INFLIGHT_REQUESTS=8` and non-decreasing, that's direct
+   evidence of the zombie-thread-pileup theory above; if it stays low,
+   the theory is wrong and the real cause is elsewhere (slow upstream
+   data fetch, GIL contention from something else entirely, etc.) —
+   either way, the NEXT daemon-timeout investigation now has a number to
+   look at instead of nothing.
+2. `server/bot.ts`: the daemon-failure throw site now tags the Error
+   `.daemonFailure = true`. The tier2Intelligence catch block branches on
+   it BEFORE running the subprocess-only classification: on a daemon
+   failure it calls `pythonRpc("health", {}, 5000)` (short timeout — if
+   the daemon can't even answer that, the failure itself is the finding)
+   and logs `TIER2-ERROR` with the daemon's real rss/uptime/
+   active_dispatches instead of Node's own memory. The subprocess branch
+   (SIGKILL/OOM/maxBuffer/SIGTERM classification) is untouched, just moved
+   into an explicit `else` — same audit action type (`TIER2-ERROR`) either
+   way, so nothing downstream that filters on it breaks.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): daemon-failure Errors now carry
+one extra boolean property read only by this one catch block → no other
+call site inspects `.daemonFailure` → zero behavior change to scan
+scheduling, candidate selection, or order execution (this PR touches
+neither `scan_market`/`deep_score` nor any order-submission path).
+`_active_dispatch_count` is read-only telemetry surfaced on an existing
+diagnostic RPC method (`health`) already called by `/api/diag/daemon` — no
+new route, no new poll cadence, no change to what triggers a daemon
+respawn (`_memory_watchdog` and its RSS threshold are untouched).
+
+CAUGHT DURING IMPLEMENTATION (worth recording — matches the READ BEFORE
+WRITE mandate's whole point): the first draft of the bot.ts fix used
+`return;` inside the new daemon-failure branch, which would have silently
+skipped the unrelated overnight-research call that runs after the tier2
+scan try/catch on every invocation — caught by writing the regression test
+first (`tier2DaemonTimeoutVisibility.test.ts`'s last case explicitly pins
+"does not early-return"), not by manual review. Fixed to an `if/else`
+before this ever reached a commit.
+
+GATES: `python3 -m pytest -q` 635 passed / 1 skipped (baseline before this
+session's `pip install -r requirements.txt -r requirements-dev.txt` was
+unrunnable in this sandbox — numpy/pandas/openpyxl weren't preinstalled;
+not a regression, a fresh-sandbox gap, resolved by installing both
+requirement files as documented in requirements-dev.txt's own header). +10
+new tests (`test_daemon_active_dispatches.py`: 4 pure unit tests on the
+counter, 2 live-Unix-socket integration tests proving `active_dispatches`
+goes 0→1+→0 around a real in-flight dispatch and that `health` reports it
+over the real RPC wire). `npx tsx --test` on the new
+`server/tier2DaemonTimeoutVisibility.test.ts`: 6/6 pass (static
+source-inspection style, matching the `tier3ManipVisibility.test.ts`
+precedent — bot.ts's tier2 scan closure isn't extracted/exported, so this
+is the established pattern for pinning inline-closure wiring in this repo).
+`npm run test:node`: 553/553 (547 baseline + 6 new). `npm run check`: 64
+errors, unchanged pre-existing baseline (vite/client + baseUrl config
+warnings, confirmed identical count before/after). `npm run build`: clean.
+No client/ files touched — VISUAL VERIFICATION requirement does not apply.
+Version 1.0.265 → 1.0.266 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, no advance since session start).
+
+Backtest: N/A — this is diagnostic-visibility-only infra (daemon health
+telemetry + error-message classification), not a strategy/parameter/
+sizing/scoring change. No PROMOTION RULES backtest requirement applies,
+same class of change as R18/R19/KNOWN BROKEN #14.
+
+NOT DONE THIS SESSION, deliberately: did not attempt to actually FIX the
+underlying stall (e.g. reducing `REQUEST_TIMEOUT_SEC`, capping
+`MAX_INFLIGHT_REQUESTS` lower, or making `run_full_scan` itself faster) —
+that would be a real behavior change on the live trading-candidate-scan
+path with no evidence yet of which lever is correct, exactly what RULE
+REVIEW requires evidence before touching. NEXT STEP for a future session:
+once `active_dispatches` has been observed live across a few more
+TIER2-ERROR daemon-timeout occurrences (should recur given the pattern was
+active for ~2 hours today, not a one-off), check whether it's actually
+elevated at failure time — CONFIRMS the zombie-pileup theory and points at
+tightening `REQUEST_TIMEOUT_SEC`/`MAX_INFLIGHT_REQUESTS` or splitting
+`run_full_scan`'s internal work into cancellable chunks; STAYS LOW and
+points elsewhere (upstream data-provider latency is the next suspect —
+`/api/diag/scanner`'s `dataSourceErrors` was empty at the time of this
+session's check, but that's a snapshot, not a history across the 7 prior
+failures) — do not guess between these without the new signal's evidence.
+
 ## 2026-07-10 — [REPAIR] Live verification closeout: R19 (WS stream exits) and the SPY-floor extended-hours fix are both CONFIRMED WORKING in production — closing KNOWN BROKEN #15 and #16's pending live-verification gaps
 
 TERRITORY: SHARED (research/* only — no code touched this session).

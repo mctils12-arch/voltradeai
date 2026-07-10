@@ -85,6 +85,33 @@ REQUEST_TIMEOUT_SEC = 300  # DAEMON-TIMEOUT 2026-04-23: was 60s, too tight for f
 MAX_INFLIGHT_REQUESTS = int(os.environ.get("VOLTRADE_DAEMON_MAX_INFLIGHT", "8"))
 _inflight_sem = threading.BoundedSemaphore(MAX_INFLIGHT_REQUESTS)
 
+# DAEMON-TIMEOUT-VISIBILITY 2026-07-10: counts dispatch worker threads that
+# are actually executing right now, including ones the handler already gave
+# up waiting on (t.join(REQUEST_TIMEOUT_SEC) returns after 300s regardless of
+# whether the target thread finished — Python threads cannot be forcibly
+# killed, so a dispatch() call that itself hangs past the timeout keeps
+# running in the background after the client has already been told "Request
+# timed out"/"Daemon timeout"). _inflight_sem is released as soon as the
+# handler stops waiting, NOT when the thread actually exits, so it does not
+# reflect this. This counter does, and is surfaced on _health() so a client
+# that just hit a daemon timeout can immediately check whether the daemon is
+# actually piling up abandoned work (the root-cause question KNOWN BROKEN's
+# prior TIER2-ERROR entries had no way to answer).
+_active_dispatch_lock = threading.Lock()
+_active_dispatch_count = 0
+
+
+def _inc_active_dispatch():
+    global _active_dispatch_count
+    with _active_dispatch_lock:
+        _active_dispatch_count += 1
+
+
+def _dec_active_dispatch():
+    global _active_dispatch_count
+    with _active_dispatch_lock:
+        _active_dispatch_count -= 1
+
 
 # ── Heavy imports happen ONCE at daemon startup ──────────────────────────────
 # This is the entire reason the daemon exists. Re-importing numpy/pandas/
@@ -273,6 +300,7 @@ class RPCDispatcher:
             "rss_mb": round(rss_mb, 1),
             "max_rss_mb": MAX_RSS_MB,
             "modules_loaded": list(_modules_loaded.keys()),
+            "active_dispatches": _active_dispatch_count,
             "pid": os.getpid(),
         }
 
@@ -399,6 +427,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
                 result_holder = {"done": False, "response": None}
 
                 def _run():
+                    _inc_active_dispatch()
                     try:
                         result_holder["response"] = _dispatcher.dispatch(method, args)
                     except Exception as e:
@@ -408,6 +437,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
                         }
                     finally:
                         result_holder["done"] = True
+                        _dec_active_dispatch()
 
                 try:
                     t = threading.Thread(target=_run, daemon=True)
