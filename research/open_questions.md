@@ -414,9 +414,28 @@
     tier3Strategic manipulation-scan catch block through `audit()`
     (mirroring the ML-retrain catch block's existing pattern), own PR.
 
-15. **[PARTIALLY FIXED 2026-07-09, R19, v1.0.260 — root cause; live
-    verification still pending] Real-time position-exit monitor (WS
-    stream) was silently non-functional for at least 22+ hours.** Full
+15. **[RESOLVED 2026-07-10 — R19, v1.0.260, CONFIRMED LIVE this session]
+    Real-time position-exit monitor (WS stream) was silently
+    non-functional for at least 22+ hours.** LIVE VERIFICATION (this
+    session, `/api/diag/*?token=$DIAG_TOKEN` against production,
+    2026-07-10 ~16:00 UTC): `?type=STREAM&limit=10` shows "Real-time
+    feed live — 43 tickers" recurring every ~10 minutes across the last
+    100+ minutes (was zero occurrences in 22+ hours pre-fix);
+    `?type=WS-EXIT&limit=10` shows a real fill — "WS TRAILING STOP Phase
+    2: P&L 0.2% dropped 9.0% from peak 9.2% ... MARKET sell 12 SMH @
+    $601.04" at 13:46:18Z (was zero rows ever, same query); `/api/diag/ml`
+    now reports `feedback_live_count: 1` (was stuck at exactly 0 for 3+
+    days pre-fix, per KNOWN BROKEN #12(b)'s gate — the falsifiable
+    prediction R19's entry made ("should start moving off zero") is
+    confirmed true). All three of R19's own pre-stated NEXT-check
+    conditions passed. Closing this item — no further live-verification
+    action needed. Full trace in experiments.md's R19 entry. Summary: `checkPositionOnTick`
+    (the sole executor of stop-loss/take-profit/trailing-stop/scale-out
+    exits per bot.ts's own design comment) only runs on bars delivered by
+    a WebSocket hardcoded to `wss://stream.data.alpaca.markets/v2/sip` —
+    the same paid-entitlement tier whose 2026-07-06 rejection required
+    `alpaca_feed.py`'s resolver for every REST call site, but that fix's
+    ratchet (`test_alpaca_feed.py`, Python-file-only) could not see this
     trace in experiments.md's R19 entry. Summary: `checkPositionOnTick`
     (the sole executor of stop-loss/take-profit/trailing-stop/scale-out
     exits per bot.ts's own design comment) only runs on bars delivered by
@@ -434,18 +453,21 @@
     volume, so the volume-undercount reason `alpaca_feed.py` rejects iex
     for REST discovery doesn't apply) + added audit visibility for the
     stream-error frame and every disconnect (both were previously
-    silent). STILL OPEN: this session could not deploy or observe the
-    fix live. NEXT: the first session after this deploys should query
-    `/api/diag/audit?type=STREAM&limit=5` for a "Real-time feed live —"
-    entry (must appear now) and `?type=WS-EXIT&limit=5` (should go
-    non-empty once any tracked position's stop/target is hit), then
-    `/api/diag/ml` for `feedback_live_count` > 0 (was stuck at exactly 0
-    for 3+ days despite the D1/D2 fix in KNOWN BROKEN #12). If STREAM
-    still never reaches "live" on /v2/iex, the new STREAM-ERROR/
-    STREAM-DISCONNECT logging this PR added will name the actual
-    rejection reason directly — treat that as a NEW finding, not a
-    reopening of this one (RECURRENCE ESCALATES only applies to the same
-    root cause recurring, not a different cause behind the same symptom).
+    silent). CLOSED 2026-07-10: all three of the NEXT-check conditions
+    below were confirmed positive live (see the CONFIRMED LIVE line at
+    the top of this item) — deploy succeeded, `/v2/iex` reaches
+    "subscribed", exits fire, feedback records. Original NEXT-check text
+    preserved for the record: query `/api/diag/audit?type=STREAM&limit=5`
+    for a "Real-time feed live —" entry (must appear now) and
+    `?type=WS-EXIT&limit=5` (should go non-empty once any tracked
+    position's stop/target is hit), then `/api/diag/ml` for
+    `feedback_live_count` > 0 (was stuck at exactly 0 for 3+ days despite
+    the D1/D2 fix in KNOWN BROKEN #12). If STREAM still never reaches
+    "live" on /v2/iex, the new STREAM-ERROR/STREAM-DISCONNECT logging
+    this PR added will name the actual rejection reason directly — treat
+    that as a NEW finding, not a reopening of this one (RECURRENCE
+    ESCALATES only applies to the same root cause recurring, not a
+    different cause behind the same symptom).
 
 16. **[RESOLVED 2026-07-10, v1.0.263] Extended-hours market orders were
     rejected and blindly retried instead of queued — root cause: an
@@ -520,18 +542,23 @@
     what/how much to trade) with the same shape as KNOWN BROKEN #8's
     fix, which also shipped without a backtest per PROMOTION RULES —
     strategy/sizing/scoring logic is unchanged.
-    LIVE VERIFICATION STILL PENDING: this session could not deploy or
-    observe the fix live (autonomous sessions don't control Railway
-    deploys). NEXT: the first session after this deploys should query
-    `/api/diag/orders?token=$DIAG_TOKEN` and confirm no NEW SMH (or any
-    other floor-basket ticker) market orders appear during extended
-    hours, and that a `buy_deferred`/`sell_deferred`/
-    `floor_rebalance_deferred` trail is visible instead (currently
-    these actions aren't surfaced on any diag probe — `spy_floor_result`
-    is computed in `scan_market()`'s return but not obviously logged
-    to the audit trail the way `TIER3-*` events are; if the deferred
-    actions turn out to be invisible in production, that's a smaller
-    follow-up visibility gap, not a reopening of this fix).
+    LIVE VERIFICATION CONFIRMED 2026-07-10 (this session, `/api/diag/
+    orders?limit=200&token=$DIAG_TOKEN`): the fix deployed and took
+    effect around 2026-07-10T11:22:31Z (a batch of pre-fix pending SMH
+    market orders was canceled at that instant, consistent with a
+    restart picking up the new gate). Zero orders in the 200-row window
+    were canceled after that timestamp (94 total canceled in the window,
+    all pre-fix); every order submitted after 11:22:31Z was during
+    regular hours (earliest fill 13:38:23Z / 9:38am ET) and filled
+    normally — no resubmit-loop recurrence. STILL OPEN, smaller
+    follow-up (not a reopening of this fix, logged separately): the
+    `buy_deferred`/`sell_deferred`/`floor_rebalance_deferred` trail
+    itself was not checked this session (no deferred cycle happened to
+    query during market hours) and is still not surfaced on any diag
+    probe — `spy_floor_result` is computed in `scan_market()`'s return
+    but not obviously logged to the audit trail the way `TIER3-*` events
+    are; a future session should confirm deferred actions are visible,
+    not just absent-of-bad-orders.
     Original finding text preserved below for the record.
     Extended-hours market orders
     are rejected and blindly retried instead of queued.** Observed live
