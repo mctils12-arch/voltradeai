@@ -3,19 +3,20 @@ import { Link } from "wouter";
 
 /**
  * /developers — the API-product developer page (throughput/API directive
- * 2026-07-04, part 2). Honest docs over the live /api/v1 surface: endpoint
- * reference rendered from /api/v1/meta (the API documents itself — the page
- * can't drift from reality), a live sample from real data, license marks
- * shown as they travel with responses, waitlist capture (email only), and
- * the API pricing draft clearly marked NOT FOR SALE YET.
+ * 2026-07-04; PLATFORM INTEGRATION P2 premium pass 2026-07-11). Honest docs
+ * over the live /api/v1 surface: the endpoint reference and every "try it"
+ * sample render straight off /api/v1/meta and the live cache each endpoint
+ * actually serves — the page can't drift from reality because it never
+ * hardcodes a response. Waitlist capture (email only) and the API pricing
+ * draft stay clearly marked NOT FOR SALE YET.
  *
  * MONETIZATION TRIPWIRE: nothing here bills, prices, or gates payment —
- * tiers render as a preview for human review; keys are invite-only.
- * DESIGN.md applies: theme tokens, three widths, designed empty/error
- * states, no bare spinners.
+ * tiers render as a live preview of /api/v1/meta's own limits for human
+ * review; keys are invite-only. DESIGN.md applies: theme tokens, three
+ * widths, designed empty/error states, no bare spinners.
  */
 
-interface MetaEndpoint { path: string; params: string; desc: string }
+interface MetaEndpoint { path: string; params: string; desc: string; preview?: string }
 interface ApiMetaDoc {
   version: string;
   auth: string;
@@ -26,18 +27,68 @@ interface ApiMetaDoc {
   disclaimer: string;
 }
 
+type RunState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "done"; data: any }
+  | { status: "error"; err: string };
+
+const TIER_LABEL: Record<string, string> = { dev: "Developer", pro: "Pro", enterprise: "Enterprise" };
+const TIER_PRICE: Record<string, string> = { dev: "Free", pro: "TBA", enterprise: "Contact" };
+
+function freshnessLabel(iso: unknown): string {
+  const t = typeof iso === "string" ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return "freshness unknown";
+  const ms = Date.now() - t;
+  if (ms < 0) return "just now";
+  const s = Math.floor(ms / 1000);
+  if (s < 5) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function curlFor(e: MetaEndpoint): string {
+  let examplePath = e.path;
+  if (e.path.includes(":kind")) examplePath = examplePath.replace(":kind", "aircraft").replace(":id", "a1b2c3") + "?hours=24";
+  if (e.path === "/api/v1/meta") return `curl https://voltradeai.com${examplePath}`;
+  return `curl -H "x-api-key: YOUR_KEY" \\\n  https://voltradeai.com${examplePath}`;
+}
+
 export default function DevelopersPage() {
   const [meta, setMeta] = useState<ApiMetaDoc | null>(null);
   const [metaErr, setMetaErr] = useState<string | null>(null);
-  const [sample, setSample] = useState<any>(null);
+  const [runs, setRuns] = useState<Record<string, RunState>>({});
+  const [copied, setCopied] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [wlState, setWlState] = useState<"idle" | "sending" | "done" | "dup" | "error">("idle");
 
   useEffect(() => {
     fetch("/api/v1/meta").then((r) => r.json()).then(setMeta)
       .catch(() => setMetaErr("API reference unavailable — retrying on next visit"));
-    fetch("/api/data/archive/stats").then((r) => r.json()).then(setSample).catch(() => {});
   }, []);
+
+  const runEndpoint = async (e: MetaEndpoint) => {
+    if (!e.preview) return;
+    setRuns((r) => ({ ...r, [e.path]: { status: "loading" } }));
+    try {
+      const res = await fetch(e.preview);
+      const data = await res.json();
+      setRuns((r) => ({ ...r, [e.path]: { status: "done", data } }));
+    } catch {
+      setRuns((r) => ({ ...r, [e.path]: { status: "error", err: "request failed — the preview route may be warming up" } }));
+    }
+  };
+
+  const copy = (text: string, id: string) => {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(id);
+      setTimeout(() => setCopied((c) => (c === id ? null : c)), 1600);
+    }).catch(() => {});
+  };
 
   const joinWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,50 +129,62 @@ export default function DevelopersPage() {
       </header>
 
       <section className="vt-dev-section">
-        <h2>Live right now</h2>
-        {sample ? (
-          <div className="vt-dev-live">
-            {(sample.kinds || sample.streams || []).length > 0 || sample.aircraft || sample.vessels ? (
-              <pre className="vt-dev-code">{JSON.stringify(sample, null, 2).slice(0, 1200)}</pre>
-            ) : (
-              <pre className="vt-dev-code">{JSON.stringify(sample, null, 2).slice(0, 1200)}</pre>
-            )}
-            <p className="vt-dev-caption">
-              Real response from <code>/api/data/archive/stats</code> — the recording metadata of the position archive, fetched by this page just now.
-            </p>
-          </div>
-        ) : (
-          <p className="vt-dev-caption">archive stats loading — the feed keeps recording either way</p>
-        )}
-      </section>
-
-      <section className="vt-dev-section">
-        <h2>Endpoint reference <span className="vt-dev-badge">v1 · preview</span></h2>
+        <h2>Endpoint explorer <span className="vt-dev-badge">v1 · preview</span></h2>
         {metaErr && <p className="vt-dev-caption">{metaErr}</p>}
+        {!meta && !metaErr && <p className="vt-dev-caption">loading the live reference from /api/v1/meta…</p>}
         {meta && (
           <>
             <p className="vt-dev-caption">{meta.auth}</p>
-            <div className="vt-dev-table-wrap">
-              <table className="vt-dev-table">
-                <thead><tr><th>Endpoint</th><th>Params</th><th>What it returns</th></tr></thead>
-                <tbody>
-                  {meta.endpoints.map((e) => (
-                    <tr key={e.path}>
-                      <td><code>{e.path}</code></td>
-                      <td>{e.params}</td>
-                      <td>{e.desc}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="vt-dev-endpoints">
+              {meta.endpoints.map((e) => {
+                const run = runs[e.path] || { status: "idle" as const };
+                const curl = curlFor(e);
+                return (
+                  <div className="vt-dev-endpoint" key={e.path}>
+                    <div className="vt-dev-endpoint-head">
+                      <span className="vt-dev-method">GET</span>
+                      <code>{e.path}</code>
+                    </div>
+                    <p className="vt-dev-caption">{e.desc}</p>
+                    {e.params !== "-" && <p className="vt-dev-caption">params: <code>{e.params}</code></p>}
+                    <div className="vt-dev-code-row">
+                      <pre className="vt-dev-code vt-dev-code-inline">{curl}</pre>
+                      <button type="button" className="vt-dev-copy-btn" onClick={() => copy(curl, e.path)}>
+                        {copied === e.path ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                    {e.preview ? (
+                      <div className="vt-dev-try">
+                        <button
+                          type="button"
+                          className="vt-dev-try-btn"
+                          disabled={run.status === "loading"}
+                          onClick={() => runEndpoint(e)}
+                        >
+                          {run.status === "loading" ? "Running…" : run.status === "idle" ? "Run live example" : "Run again"}
+                        </button>
+                        {run.status === "done" && (
+                          <>
+                            <span className="vt-dev-freshness">{freshnessLabel(run.data?.generated_at)}</span>
+                            <pre className="vt-dev-code vt-dev-sample">{JSON.stringify(run.data, null, 2).slice(0, 900)}</pre>
+                          </>
+                        )}
+                        {run.status === "error" && <p className="vt-dev-wl-err">{run.err}</p>}
+                      </div>
+                    ) : (
+                      <p className="vt-dev-caption">
+                        No static preview — this endpoint needs a real id from a live feed (e.g. an ICAO24 hex from
+                        the Live Map&apos;s aircraft layer). The curl above shows the exact shape to call.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <h3>Coming (honestly gated)</h3>
             <ul className="vt-dev-list">
               {meta.coming_gated.map((g) => <li key={g}>{g}</li>)}
             </ul>
-            <h3>Example</h3>
-            <pre className="vt-dev-code">{`curl -H "x-api-key: YOUR_KEY" \\
-  https://voltradeai.com/api/v1/stats/portdwell`}</pre>
             <h3>License marks travel with every response</h3>
             <div className="vt-dev-table-wrap">
               <table className="vt-dev-table">
@@ -146,24 +209,27 @@ export default function DevelopersPage() {
         <h2>Pricing <span className="vt-dev-badge vt-dev-badge-soon">preview — not for sale yet</span></h2>
         <p className="vt-dev-caption">
           Drafted for review. Nothing is purchasable today; no billing exists on
-          this site for API access. Numbers are placeholders until launch.
+          this site for API access. Limits below are read live from the API's
+          own configuration — not hardcoded copy — so this table can&apos;t drift
+          from what the API actually enforces.
         </p>
         <div className="vt-dev-tiers">
-          <div className="vt-dev-tier">
-            <h3>Developer</h3>
-            <p className="vt-dev-price">Free</p>
-            <ul><li>60 requests/min</li><li>10k requests/day</li><li>Position tracks + archive stats</li><li>Attribution required</li></ul>
-          </div>
-          <div className="vt-dev-tier vt-dev-tier-hi">
-            <h3>Pro</h3>
-            <p className="vt-dev-price">TBA</p>
-            <ul><li>600 requests/min</li><li>100k requests/day</li><li>All stats endpoints</li><li>Email support</li></ul>
-          </div>
-          <div className="vt-dev-tier">
-            <h3>Enterprise</h3>
-            <p className="vt-dev-price">Contact</p>
-            <ul><li>Custom limits</li><li>Bulk archive access</li><li>Custom analytics</li></ul>
-          </div>
+          {(["dev", "pro", "enterprise"] as const).map((tier) => (
+            <div className={`vt-dev-tier${tier === "pro" ? " vt-dev-tier-hi" : ""}`} key={tier}>
+              <h3>{TIER_LABEL[tier]}</h3>
+              <p className="vt-dev-price">{TIER_PRICE[tier]}</p>
+              {meta ? (
+                <ul>
+                  <li>{meta.limits[tier].perMinute.toLocaleString()} requests/min</li>
+                  <li>{meta.limits[tier].perDay.toLocaleString()} requests/day</li>
+                  <li>{tier === "enterprise" ? "Bulk archive access + custom analytics" : tier === "pro" ? "All stats endpoints + email support" : "Position tracks + archive stats"}</li>
+                  {tier === "dev" && <li>Attribution required</li>}
+                </ul>
+              ) : (
+                <p className="vt-dev-caption">loading live limits…</p>
+              )}
+            </div>
+          ))}
         </div>
       </section>
 

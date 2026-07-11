@@ -73,3 +73,25 @@ test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the
   assert.ok(guarded >= 4, `expected >=4 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
+
+test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {
+  const meta = apiMeta();
+  for (const e of meta.endpoints as any[]) {
+    if (e.path === "/api/v1/tracks/:kind/:id") continue; // needs a real id, no static preview possible
+    assert.ok(typeof e.preview === "string" && e.preview.length > 0, `${e.path} missing a preview route for the docs explorer`);
+  }
+});
+
+test("honesty: every v1 response and its public preview mirror carry generated_at, so freshness is never silently omitted", () => {
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(/const v1Envelope = .*generated_at: new Date\(generatedAt/s.test(routes), "v1Envelope must stamp generated_at");
+  for (const call of ['v1Envelope("stats/portdwell", dwellCache.data, dwellCache.at)',
+                       'v1Envelope("stats/shadow", shadowCache.data, shadowCache.at)']) {
+    assert.ok(routes.includes(call), `expected cache-timestamped envelope call: ${call}`);
+  }
+  for (const previewSnippet of ['res.json({ ...shadowCache.data, generated_at:',
+                                 'res.json({ ...dwellCache.data, generated_at:',
+                                 'res.json({ ...archiveStats(), generated_at:']) {
+    assert.ok(routes.includes(previewSnippet), `public preview route missing generated_at: ${previewSnippet}`);
+  }
+});

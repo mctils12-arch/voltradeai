@@ -222,13 +222,17 @@ const FIXTURES = {
     auth: "x-api-key header (or ?api_key=). Keys are invite-only during the preview — join the waitlist on /developers.",
     endpoints: [
       { path: "/api/v1/tracks/:kind/:id", params: "kind; id; ?hours<=168", desc: "Recent position track from our archive." },
-      { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics." },
-      { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics." },
-      { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata." },
-      { path: "/api/v1/meta", params: "-", desc: "This document." },
+      { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics.", preview: "/api/data/portdwell" },
+      { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics.", preview: "/api/data/shadowstats" },
+      { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata.", preview: "/api/data/archive/stats" },
+      { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: ["entity timelines (Graph v1)", "tank-fill readings (gate 2)"],
-    limits: { dev: { perMinute: 60, perDay: 10000 } },
+    limits: {
+      dev: { perMinute: 60, perDay: 10000 },
+      pro: { perMinute: 600, perDay: 100000 },
+      enterprise: { perMinute: 3000, perDay: 1000000 },
+    },
     license_marks: {
       "tracks/aircraft": { license: "ODbL 1.0 share-alike (fixture)", attribution: "adsb.lol", resell: "share-alike" },
       "stats/archive": { license: "VolTradeAI operational metadata", attribution: "VolTradeAI", resell: "ok" },
