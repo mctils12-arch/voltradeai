@@ -171,7 +171,8 @@ const PANEL_GROUPS = [
   { id: "base", label: "Base" },
   { id: "live", label: "Live tracking" },
   { id: "facilities", label: "Facilities" },
-  { id: "grid", label: "Power grid — by state" },
+  { id: "grid", label: "Power grid — US (by state)" },
+  { id: "grid_ca", label: "Power grid — Canada (by province)" },
   { id: "environmental", label: "Environmental" },
   { id: "filings", label: "Filings & flows" },
   { id: "graph", label: "Everything Graph" },
@@ -211,6 +212,12 @@ const LAYER_GROUP: Record<string, string> = {
   powergrid_ok: "grid", powergrid_or: "grid", powergrid_pa: "grid", powergrid_ri: "grid", powergrid_sc: "grid", powergrid_sd: "grid",
   powergrid_tn: "grid", powergrid_tx: "grid", powergrid_ut: "grid", powergrid_vt: "grid", powergrid_va: "grid", powergrid_wa: "grid",
   powergrid_wv: "grid", powergrid_wi: "grid", powergrid_wy: "grid",
+  powergrid_canada: "facilities",
+  powergrid_ca_ab: "grid_ca", powergrid_ca_bc: "grid_ca", powergrid_ca_mb: "grid_ca",
+  powergrid_ca_nb: "grid_ca", powergrid_ca_nl: "grid_ca", powergrid_ca_nt: "grid_ca",
+  powergrid_ca_ns: "grid_ca", powergrid_ca_nu: "grid_ca", powergrid_ca_on: "grid_ca",
+  powergrid_ca_pe: "grid_ca", powergrid_ca_qc: "grid_ca", powergrid_ca_sk: "grid_ca",
+  powergrid_ca_yt: "grid_ca",
   orbital_sats: "live",
 };
 
@@ -272,6 +279,25 @@ const POWER_STATES = [
   { code: "wv", name: "West Virginia", file: "power_wv.pmtiles" },
   { code: "wi", name: "Wisconsin", file: "power_wi.pmtiles" },
   { code: "wy", name: "Wyoming", file: "power_wy.pmtiles" },
+] as const;
+// Canada — OSM community power grid per province/territory (ODbL). Codes are
+// prefixed "ca_" so they never collide with US state codes (US California is
+// already "ca" / power_ca.pmtiles). Same voltage-classed rendering as the
+// US states; national roll-up served from power_canada.pmtiles.
+const CANADA_PROVINCES = [
+  { code: "ca_ab", name: "Alberta", file: "power_ca_ab.pmtiles" },
+  { code: "ca_bc", name: "British Columbia", file: "power_ca_bc.pmtiles" },
+  { code: "ca_mb", name: "Manitoba", file: "power_ca_mb.pmtiles" },
+  { code: "ca_nb", name: "New Brunswick", file: "power_ca_nb.pmtiles" },
+  { code: "ca_nl", name: "Newfoundland and Labrador", file: "power_ca_nl.pmtiles" },
+  { code: "ca_nt", name: "Northwest Territories", file: "power_ca_nt.pmtiles" },
+  { code: "ca_ns", name: "Nova Scotia", file: "power_ca_ns.pmtiles" },
+  { code: "ca_nu", name: "Nunavut", file: "power_ca_nu.pmtiles" },
+  { code: "ca_on", name: "Ontario", file: "power_ca_on.pmtiles" },
+  { code: "ca_pe", name: "Prince Edward Island", file: "power_ca_pe.pmtiles" },
+  { code: "ca_qc", name: "Quebec", file: "power_ca_qc.pmtiles" },
+  { code: "ca_sk", name: "Saskatchewan", file: "power_ca_sk.pmtiles" },
+  { code: "ca_yt", name: "Yukon", file: "power_ca_yt.pmtiles" },
 ] as const;
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
@@ -1497,7 +1523,9 @@ export default function DataMapPage() {
   // re-runs on any grid toggle without hardcoding one dependency per state.
   const powerGridKey = (enabled.powergrid ? "M" : "") + (enabled.powergrid_hifld ? "H" : "") +
     (enabled.powergrid_hifld_sub ? "S" : "") + (enabled.powergrid_hifld_plants ? "P" : "") +
-    POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("");
+    (enabled.powergrid_canada ? "C" : "") +
+    POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("") +
+    CANADA_PROVINCES.map((p) => (enabled[`powergrid_${p.code}`] ? p.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1573,6 +1601,21 @@ export default function DataMapPage() {
     } else {
       removeGrid("powergrid_us");
       setStatus("powergrid", "off");
+    }
+
+    // "Canada Power Grid (all provinces)" master -> ONE national tile merged
+    // from all 13 provinces/territories (OSM, ODbL). Same voltage-classed
+    // rendering as the US master.
+    if (enabled.powergrid_canada) {
+      try {
+        setStatus("powergrid_canada", "loading");
+        addGrid("powergrid_canada_src", "power_canada.pmtiles");
+        setStatus("powergrid_canada", "active", undefined,
+          "Entire Canada grid — all 13 provinces & territories (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); overview fidelity");
+      } catch { setStatus("powergrid_canada", "error"); }
+    } else {
+      removeGrid("powergrid_canada_src");
+      setStatus("powergrid_canada", "off");
     }
 
     // HIFLD — AUTHORITATIVE national transmission lines (DHS / Oak Ridge National
@@ -1741,6 +1784,17 @@ export default function DataMapPage() {
         addGrid(src, st.file);
         setStatus(src, "active", undefined,
           `${st.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); no CEII/underground detail`);
+      } catch { setStatus(src, "error"); }
+    });
+    // Canada per-province/territory layers (each its own toggle, like the US states)
+    CANADA_PROVINCES.forEach((pr) => {
+      const src = `powergrid_${pr.code}`;
+      if (!enabled[src]) { removeGrid(src); setStatus(src, "off"); return; }
+      try {
+        setStatus(src, "loading");
+        addGrid(src, pr.file);
+        setStatus(src, "active", undefined,
+          `${pr.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden)`);
       } catch { setStatus(src, "error"); }
     });
     // scales to N states: re-run when the master OR any per-state grid flag flips
