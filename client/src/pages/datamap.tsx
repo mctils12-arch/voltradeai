@@ -185,7 +185,7 @@ const PANEL_GROUPS = [
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", weather: "base",
-  weather_temp: "base", weather_wind: "base", boundaries: "base",
+  weather_temp: "base", weather_wind: "base", boundaries: "base", placenames: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -1850,6 +1850,41 @@ export default function DataMapPage() {
     }, 300_000);
     return () => { window.clearInterval(iv); };
   }, [enabled.weather, mapReady, setStatus]);
+
+  // ── place names & labels (RAW reference overlay; Esri World Boundaries and
+  // Places — transparent city/state/country labels + boundaries streamed over
+  // the satellite imagery so the world map reads at a glance. Free with Esri
+  // attribution; raster, no storage. NOT Google: their labels can't be stored
+  // or mixed under ToS, and a free labels overlay needs no key. Photorealistic
+  // 3D imagery of a place is the separate Google 3D Tiles path at deep zoom.) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.placenames) {
+      try {
+        if (map.getLayer("placenames")) map.removeLayer("placenames");
+        if (map.getSource("placenames")) map.removeSource("placenames");
+      } catch {}
+      setStatus("placenames", "off");
+      return;
+    }
+    try {
+      if (!map.getSource("placenames")) {
+        map.addSource("placenames", {
+          type: "raster",
+          tiles: ["https://services.arcgisonline.com/arcgis/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"],
+          tileSize: 256, maxzoom: 18,
+          attribution: "Place labels © Esri",
+        } as any);
+        // above imagery + raster fields, below vector data markers
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({ id: "placenames", type: "raster", source: "placenames",
+                       paint: { "raster-opacity": 1 } } as any, firstMarker?.id);
+      }
+      setStatus("placenames", "active", undefined,
+        "Place names & boundaries (© Esri) over the imagery — city/state/country labels; deep-zoom photorealistic 3D is the Google 3D Tiles layer");
+    } catch { setStatus("placenames", "error"); }
+  }, [enabled.placenames, mapReady, setStatus]);
 
   // ── sampled weather grid: fetch when arrows or labels are wanted;
   // refetch on pan (debounced) + 10-min interval; stale beats spinner ──
