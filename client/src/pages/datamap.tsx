@@ -93,7 +93,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place" | "superfund";
   title: string;
   subtitle: string;
   body: string;
@@ -171,6 +171,7 @@ const PANEL_GROUPS = [
   { id: "base", label: "Base" },
   { id: "live", label: "Live tracking" },
   { id: "facilities", label: "Facilities" },
+  { id: "hazards", label: "Hazards & environment" },
   { id: "grid", label: "Power grid — US (by state)" },
   { id: "grid_ca", label: "Power grid — Canada (by province)" },
   { id: "environmental", label: "Environmental" },
@@ -188,6 +189,7 @@ const LAYER_GROUP: Record<string, string> = {
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
+  superfund: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -2711,6 +2713,82 @@ export default function DataMapPage() {
     );
     return () => { stopLoad(); detach(); };
   }, [enabled.powerplants, mapReady, mapSettled, setStatus]);
+
+  // ── EPA Superfund NPL sites (RAW/FACTUAL hazard layer; U.S. EPA SEMS, public
+  // domain — first Location Context Engine hazard layer. Points colored by NPL
+  // status; every site passed the server-side data-quality gate. Facts only —
+  // location/status/HRS score — never a risk claim about a specific property. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.superfund) {
+      try {
+        if (map.getLayer("superfund-pts")) map.removeLayer("superfund-pts");
+        if (map.getSource("superfund")) map.removeSource("superfund");
+      } catch {}
+      setStatus("superfund", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("superfund", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("superfund", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/superfund", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!Array.isArray(d.sites)) throw new Error("no sites in response");
+        if (d.warming_up) { setStatus("superfund", "loading", undefined, "warming up — EPA fetch in progress"); return; }
+        if (map.getSource("superfund")) return;
+        map.addSource("superfund", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.sites.map((s: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+              properties: s,
+            })),
+          } as any,
+          attribution: "U.S. EPA Superfund (SEMS/NPL), public domain",
+        } as any);
+        map.addLayer({
+          id: "superfund-pts", type: "circle", source: "superfund", minzoom: 3,
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 2.2, 8, 5, 13, 8],
+            // color by NPL status: active red, proposed orange, deleted gray
+            "circle-color": ["match", ["get", "status"],
+              "NPL Site", "#ef4444",
+              "Proposed NPL Site", "#fb923c",
+              "Deleted NPL Site", "#94a3b8",
+              "Partial NPL Deletion", "#fbbf24",
+              "#a78bfa"],
+            "circle-opacity": 0.85,
+            "circle-stroke-color": "rgba(8,12,20,0.9)", "circle-stroke-width": 0.6,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "superfund-pts", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          setDetail({
+            kind: "superfund",
+            title: p.name || "Superfund site",
+            subtitle: `${p.status}${p.hrs_score != null && p.hrs_score !== "" ? ` · HRS ${Number(p.hrs_score).toFixed(1)}` : ""}`,
+            body: `${[p.city, p.county && `${p.county} County`, p.state].filter(Boolean).join(", ")}\n` +
+                  `${p.listed ? `Listed: ${p.listed}\n` : ""}` +
+                  `${p.epa_id ? `EPA ID: ${p.epa_id}\n` : ""}` +
+                  `\nEPA Superfund NPL (SEMS, public domain). Factual site record — location + status + Hazard Ranking System score as published; not a risk claim about any specific property.`,
+          });
+        });
+        const h = d.health;
+        setStatus("superfund", "active", d.sites.length,
+          `U.S. EPA Superfund NPL — ${d.sites.length.toLocaleString()} sites${h?.suspect ? ` (${h.suspect} quarantined by the data-quality gate)` : ""} · ${h?.freshness || "public domain"}`);
+      },
+      (failures) => setStatus("superfund", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.superfund, mapReady, mapSettled, setStatus]);
 
   // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
   // per-source status from the server keeps coverage labeling honest) ──

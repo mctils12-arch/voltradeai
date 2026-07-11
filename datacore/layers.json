@@ -115,6 +115,17 @@
       "description": "All ~9,800 US plants by fuel type; capacity + operator on click. Static reference data (2021 vintage)."
     },
     {
+      "id": "superfund",
+      "name": "Superfund sites (EPA NPL)",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "light",
+      "source": "U.S. EPA Superfund National Priorities List (NPL), SEMS — public domain",
+      "description": "EPA National Priorities List Superfund sites (~1,840): the nation's most contaminated cleanup sites, colored by NPL status (active / proposed / deleted). Click a site for its status, Hazard Ranking System (HRS) score, location, and listing date. FACTUAL records — location/status/score as EPA publishes them, NOT a risk claim about any specific property (that would be a ladder-gated signal). Every site passes the data-quality gate at ingest (valid coordinates, name, known status, HRS 0–100); failures are quarantined. Refreshed server-side weekly. First layer of the location context engine.",
+      "field": false
+    },
+    {
       "id": "powergrid",
       "name": "US Power Grid (all states)",
       "kind": "raw",
