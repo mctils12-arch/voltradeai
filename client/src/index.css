@@ -440,6 +440,49 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   line-height: 1.3;
 }
 
+/* ── Two-world nav drop-downs (Trade / Data) ──────────────────────────────
+   Reuses .analyze-dropdown-menu/-item for identical styling; adds grouped
+   sub-headings and a disabled "soon" state. (PLATFORM INTEGRATION P1.) */
+.nav-dropdown-menu {
+  min-width: 264px;
+}
+.nav-dropdown-group + .nav-dropdown-group {
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(77, 159, 255, 0.10);
+}
+.nav-dropdown-heading {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  opacity: 0.72;
+  padding: 3px 10px 4px;
+}
+.analyze-dropdown-item.soon,
+.analyze-dropdown-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.analyze-dropdown-item.soon:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.nav-soon-tag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--item-accent, #4d9fff);
+  border: 1px solid color-mix(in srgb, var(--item-accent, #4d9fff) 35%, transparent);
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
 /* ── In-page section switcher (Options · Smart Money · Structure · ETF Builder)
    Always visible above the search bar. On desktop it's a compact pill row;
    on narrow phones it horizontally scrolls so all 4 buttons stay on one row

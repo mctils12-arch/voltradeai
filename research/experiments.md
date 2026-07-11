@@ -13,6 +13,62 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-11 — [PRODUCT] PLATFORM INTEGRATION P1: two-world nav (Trade / Data) + bring the API page into the app (v1.0.273)
+
+TERRITORY: T-CLIENT (client/src/pages/home.tsx, client/src/index.css) +
+SHARED minimal (package.json, research/*). Solo [PRODUCT] session, human
+directive 2026-07-11 ("integrate the site — stock side vs data-world side —
+under drop-downs; streamline; build the data/API product"). Own branch
+claude/platform-integration-nav, own PR (NOT bundled onto the satellite
+fix PR #420, which stays a clean isolated change).
+
+- PROGRAM INSTALLED: research/platform_program.md — the multi-session
+  charter (like ORBITAL/GRID). Ground-truth inventory found MOST of the
+  API product already exists pre-revenue: /api/v1/* (apiProduct.ts —
+  x-api-key auth, dev/pro/enterprise tiers, sliding-window rate limit,
+  usage metering, LICENSE_MARKS), the /developers docs page + waitlist,
+  drafted API_TERMS/LICENSING_AUDIT, and full Stripe billing (FROZEN
+  billing.ts/auth.ts, Free/Pro). The gaps: nav integration, self-serve
+  API accounts, and the human-gated billing flip. Phases P1–P5 filed;
+  P5 (billing activation) is HUMAN-GATED (monetization checklist +
+  provider-compliance tripwire) and touches FROZEN files.
+- HUMAN DECISIONS (AskUserQuestion): nav = two-world dropdowns; billing =
+  BUILD-NOW-FLIP-LATER (pre-revenue, no Stripe flip without item-by-item
+  approval); first slice = nav + bring API into the app.
+- P1 SHIPPED (this entry): home.tsx's nine flat tabs collapse into two
+  grouped drop-downs — "Trade" (Analyze's 4 sections + Scanner/Watchlist/
+  Research/News/Planner/Taxes) and "Data" (Live Map, Streams, Everything
+  Graph, Developers & API, Signals-soon) — plus the owner-only AI Engine
+  as a direct button. NAV MODEL: each leaf carries a typed NavAction —
+  tab(+analyze section) | hash (datamap overlay; datamap's existing
+  hashchange listener reacts, and the hash-sync effect ignores #/data/*
+  subpaths so it doesn't stomp them) | route (wouter → /developers, which
+  is how the API surface finally becomes reachable from inside the app).
+  TABS stays the source of truth for page content, hash sync, and the flat
+  mobile bottom bar (unchanged — flat access is correct on mobile, zero
+  regression). CSS reuses the proven .analyze-dropdown-* classes + small
+  additions (grouped headings, disabled "soon" state, soon tag).
+- REASONING-STANDARD downstream trace: nav is presentation only over the
+  existing TABS/hash/route machinery — no data, sizing, or measurement
+  path touched. The 4 Analyze sections remain reachable both via the new
+  Trade menu AND the always-visible in-page .analyze-section-switcher
+  (analyze.tsx:2146), so grouping them cannot strand a section.
+- VERIFICATION: tsc clean on home.tsx; visual harness — nav renders at
+  390/768/1440 (Trade/Data buttons; Data active-highlighted on the map);
+  scripted Playwright drove the wiring end-to-end: Trade>Smart Money →
+  #/analyze/smart-money, Data>Streams → #/data/streams overlay,
+  Data>Developers → /developers route (page renders full API docs). Full
+  harness: 14/15 page-widths PASS; the lone data@1440 FAIL is the flaky
+  weather-tile/wind-arrow CDN check (reproduced as flaky on clean rebuilds,
+  independent of this nav change — streams/gridstress/developers/landing
+  all green, proving no CSS regression).
+- HYPOTHESIS: grouping into two worlds makes the site read as one
+  integrated product (stock side + data side) and surfaces the API
+  product in-app for the first time. RAW UX change, no predictive claim,
+  no backtest applies. NEXT (P2): elevate /developers to the PREMIUM
+  EXPERIENCE STANDARD (live endpoint explorer, per-endpoint examples,
+  freshness/coverage/confidence), still pre-revenue.
+
 ## 2026-07-11 — [REPAIR] track_fill's code_version was hardcoded to "1.0.34" forever — PROMOTION RULES #4 attribution has never worked for a live fill since that version (v1.0.270)
 
 TERRITORY: T-BOT (server/bot.ts, server/exitFill.ts, ml_model_v2.py,
