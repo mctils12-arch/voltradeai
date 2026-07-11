@@ -31,6 +31,8 @@ export interface ExitFillArgs {
   entryDate?: string;
   /** Injected clock for tests. */
   nowMs?: number;
+  /** Running app version (package.json) — see code_version note below. */
+  codeVersion: string;
 }
 
 export function buildExitFillPayload(a: ExitFillArgs) {
@@ -59,5 +61,14 @@ export function buildExitFillPayload(a: ExitFillArgs) {
       exit_reason: a.exitReason,
       days_held: daysHeld,
     },
+    // REPAIR 2026-07-11 (MEASUREMENT INTEGRITY): track_fill previously
+    // hardcoded every record's code_version to the literal "1.0.34"
+    // (the version at the time Bug #13's exit machinery was built) —
+    // frozen forever regardless of the app's actual running version, so
+    // the PROMOTION RULES #4 attribution mechanism ("bump the version so
+    // code_version separates this change's live results from prior
+    // code") has never worked for any live-recorded fill. Pass the real
+    // running version through explicitly.
+    code_version: a.codeVersion,
   };
 }

@@ -161,7 +161,8 @@ class TestTrackFillValidation(unittest.TestCase):
         self.assertEqual(records[0]["ticker"], "AAPL")
 
     def test_adds_code_version(self):
-        """Every new record should include code_version field."""
+        """Every new record should include code_version field; callers that
+        omit it (legacy/test callers) fall back to the pre-fix literal."""
         self._call_track_fill({
             "ticker": "MSFT", "side": "sell", "qty": 5,
             "expected_price": 400, "fill_price": 399,
@@ -169,6 +170,54 @@ class TestTrackFillValidation(unittest.TestCase):
         records = self._read_feedback()
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["code_version"], "1.0.34")
+
+    def test_uses_caller_supplied_code_version_on_entry(self):
+        """REPAIR 2026-07-11: track_fill used to hardcode every entry
+        record's code_version to the literal "1.0.34" forever, regardless
+        of order_data — breaking PROMOTION RULES #4 attribution for every
+        live fill since that version. It must now use the version the
+        caller (bot.ts, via package.json) actually passes."""
+        self._call_track_fill({
+            "ticker": "NVDA", "side": "buy", "qty": 5,
+            "expected_price": 100, "fill_price": 100.1,
+            "code_version": "1.0.269",
+        })
+        records = self._read_feedback()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["code_version"], "1.0.269")
+
+    def test_uses_caller_supplied_code_version_on_orphan_exit(self):
+        """Same REPAIR as above, for the orphan_exit fallback path (an
+        exit fill with no matching open entry) — this is the exact record
+        shape found live-tagged "1.0.34" while the app ran 1.0.269."""
+        self._call_track_fill({
+            "ticker": "SMH", "side": "sell", "qty": 12,
+            "fill_price": 611.7, "exit_context": {"pnl_pct": -1.2},
+            "code_version": "1.0.269",
+        })
+        records = self._read_feedback()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["outcome"], "orphan_exit")
+        self.assertEqual(records[0]["code_version"], "1.0.269")
+
+    def test_uses_caller_supplied_code_version_on_matched_exit(self):
+        """Same REPAIR, for a normal exit that DOES close a matching entry
+        (entry keeps its own stamped version — never overwritten by the
+        closing exit's version, since the entry is the row of record)."""
+        self._call_track_fill({
+            "ticker": "KWEB", "side": "buy", "qty": 8,
+            "expected_price": 30, "fill_price": 30.05,
+            "code_version": "1.0.200",
+        })
+        self._call_track_fill({
+            "ticker": "KWEB", "side": "sell", "qty": 8,
+            "fill_price": 31.0, "exit_context": {"pnl_pct": 3.1},
+            "code_version": "1.0.269",
+        })
+        records = self._read_feedback()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["outcome"], "win")
+        self.assertEqual(records[0]["code_version"], "1.0.200")
 
     def test_valid_record_has_all_fields(self):
         """Valid record should contain all expected fields."""
