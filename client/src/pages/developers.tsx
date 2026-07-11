@@ -234,10 +234,12 @@ export default function DevelopersPage() {
       </section>
 
       <section className="vt-dev-section" id="waitlist">
-        <h2>Join the waitlist</h2>
+        <h2>Join the waitlist — or get a preview key now</h2>
         <p className="vt-dev-caption">
-          The archive will open. API access to our live and historical data is
-          coming — leave an email and you're first in line. Nothing else is
+          Already have an account? Skip the wait —{" "}
+          <Link href="/apikeys">generate a free preview key instantly</Link>{" "}
+          at the same limits shown above. No account yet? Leave an email below
+          and we'll write when broader access opens. Nothing else is
           collected; no payment details exist here.
         </p>
         {wlState === "done" ? (

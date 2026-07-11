@@ -3189,3 +3189,41 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-gibs-scrubber button:hover:not(:disabled) { background: rgba(77, 159, 255, 0.15); color: var(--accent-bright); }
 .vt-gibs-scrubber button:disabled { opacity: 0.35; cursor: not-allowed; }
 .vt-gibs-scrubber-date { font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap; min-width: 92px; text-align: center; }
+
+/* ── /account/api-keys — self-serve preview key management (PLATFORM
+   INTEGRATION P3, 2026-07-11). Reuses the .vt-dev-* page/section/table/code
+   primitives from /developers so the two pages read as one system. ───── */
+.vt-keys-login-link {
+  color: var(--accent); font-size: 15px; text-decoration: none;
+  min-height: 44px; display: inline-flex; align-items: center;
+}
+.vt-keys-login-link:hover { color: var(--accent-bright); }
+.vt-keys-create { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.vt-keys-create input {
+  flex: 1 1 240px; min-width: 200px; background: var(--bg-card);
+  border: 1px solid rgba(102, 128, 160, 0.35); border-radius: 8px;
+  padding: 10px 12px; color: var(--text-primary); font-size: 13.5px;
+}
+.vt-keys-create button {
+  background: var(--accent); color: #051019; border: none; border-radius: 8px;
+  padding: 10px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; min-height: 44px;
+}
+.vt-keys-create button:hover:not(:disabled) { background: var(--accent-bright); }
+.vt-keys-create button:disabled { opacity: 0.6; cursor: default; }
+.vt-keys-reveal {
+  margin-top: 16px; padding: 14px; border-radius: 10px;
+  background: rgba(74, 222, 128, 0.06); border: 1px solid rgba(74, 222, 128, 0.35);
+}
+.vt-keys-reveal-warn { color: var(--accent-green); font-size: 13px; font-weight: 600; margin: 0 0 10px; }
+.vt-keys-revoke-btn {
+  background: transparent; color: var(--accent-red); border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; min-height: 36px;
+}
+.vt-keys-revoke-btn:hover:not(:disabled) { background: rgba(248, 113, 113, 0.1); }
+.vt-keys-revoke-btn:disabled { opacity: 0.6; cursor: default; }
+/* 6 data columns wrap illegibly at 390px without a floor — force the
+   shared .vt-dev-table into its wrapper's horizontal scroll instead
+   (scoped to this page only; /developers' 3-column license table is fine
+   without it and shouldn't gain an unnecessary scrollbar). */
+.vt-keys-page .vt-dev-table { min-width: 640px; }
+.vt-keys-page .vt-dev-table td, .vt-keys-page .vt-dev-table th { white-space: nowrap; }

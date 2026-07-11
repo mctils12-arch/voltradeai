@@ -12,6 +12,7 @@ import NewsletterIssuePage from "@/pages/newsletter-issue";
 import CareersPage from "@/pages/careers";
 import ContactPage from "@/pages/contact";
 import DevelopersPage from "@/pages/developers";
+import ApiKeysPage from "@/pages/apikeys";
 import { Component, ReactNode, useState, useEffect } from "react";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
@@ -148,6 +149,14 @@ function AppShell() {
       <Route path="/careers" component={CareersPage} />
       <Route path="/contact" component={ContactPage} />
       <Route path="/developers" component={DevelopersPage} />
+      {/* Single-segment path deliberately: vite.config.ts's base:"./" bakes
+          relative asset URLs into index.html, so any route with 2+ path
+          segments (e.g. "/account/api-keys") resolves "./assets/x.js"
+          against the wrong directory and 404s in production — confirmed
+          against the built dist/public output, filed in open_questions.md.
+          Every other top-level marketing/account route here is flat for
+          the same reason; keep new ones flat too. */}
+      <Route path="/apikeys" component={ApiKeysPage} />
       <Route path="/app" component={AppDashboard} />
       <Route path="/app/:rest*" component={AppDashboard} />
       {/* Fallback — anything else returns to landing */}

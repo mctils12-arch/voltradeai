@@ -35,6 +35,7 @@ import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
   amplifyWeatherTile, TILE_TTL_MS, NEGATIVE_TTL_MS, WxLayer,
 } from "./owmTiles";
+import { createApiKeyStore, SELF_SERVE_MAX_KEYS, SELF_SERVE_TIER } from "./apiKeyAccounts";
 import {
   parseApiKeys, makeRateLimiter, meterUsage, apiMeta, LICENSE_MARKS, ApiTier,
 } from "./apiProduct";
@@ -2566,15 +2567,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── /api/v1 — the DATA PRODUCT surface (throughput/API directive
-  // 2026-07-04). Pre-revenue scaffolding: env-seeded keys only, per-tier
-  // rate limits, metering from day one, license marks on every response.
-  // No billing, no pricing, no public issuance — the monetization
-  // readiness checklist (wishlist.md) gates the last mile.
+  // 2026-07-04). Pre-revenue scaffolding: per-tier rate limits, metering
+  // from day one, license marks on every response. No billing, no pricing
+  // — the monetization readiness checklist (wishlist.md) gates the last
+  // mile. Two key sources, both pre-revenue: env-seeded operator keys
+  // (API_PRODUCT_KEYS, any tier) and self-serve preview keys issued to a
+  // logged-in account (PLATFORM P3, always "dev" tier — see
+  // apiKeyAccounts.ts). The self-serve store reuses auth.ts's own `db` so
+  // preview keys live in the same users/sessions database, not a second file.
   const apiKeys = parseApiKeys();
+  const apiKeyStore = createApiKeyStore(db);
   const apiLimiter = makeRateLimiter();
   const requireApiKey = (req: any, res: any): { key: string; tier: ApiTier } | null => {
     const key = String(req.headers["x-api-key"] || req.query.api_key || "");
-    const info = apiKeys.get(key);
+    let info = apiKeys.get(key);
+    if (!info) {
+      const selfServe = apiKeyStore.resolveApiKeyForAuth(key);
+      if (selfServe) info = { label: selfServe.label, tier: selfServe.tier };
+    }
     if (!info) {
       res.status(401).json({ error: "invalid or missing API key", docs: "/developers", waitlist: true });
       return null;
@@ -2605,6 +2615,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (result === "invalid") return res.status(400).json({ ok: false, error: "valid email required" });
     res.json({ ok: true, status: result });
   });
+
+  // ── Self-serve preview API key accounts (PLATFORM P3,
+  // research/platform_program.md). Pre-revenue: every issued key is the
+  // fixed "dev" tier — issuance is free during the preview regardless of
+  // the account's trading-side plan. This replaces the waitlist-only path
+  // above with instant self-serve access at the SAME preview limits;
+  // nothing here bills or gates payment.
+  app.get("/api/account/api-keys", requireAuth((req, res) => {
+    try {
+      res.json({
+        keys: apiKeyStore.listApiKeys(req.user.id),
+        max_keys: SELF_SERVE_MAX_KEYS,
+        tier: SELF_SERVE_TIER,
+        limits: apiMeta().limits[SELF_SERVE_TIER],
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to load API keys" });
+    }
+  }));
+
+  app.post("/api/account/api-keys", requireAuth((req, res) => {
+    try {
+      const issued = apiKeyStore.createApiKey(req.user.id, String(req.body?.label || ""));
+      res.json({
+        ok: true, id: issued.id, label: issued.label, key: issued.rawKey,
+        warning: "Save this key now — it will not be shown again.",
+      });
+    } catch (e: any) {
+      res.status(400).json({ ok: false, error: e?.message || "failed to create API key" });
+    }
+  }));
+
+  app.delete("/api/account/api-keys/:id", requireAuth((req, res) => {
+    try {
+      const ok = apiKeyStore.revokeApiKey(req.user.id, Number(req.params.id));
+      if (!ok) return res.status(404).json({ ok: false, error: "key not found" });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || "failed to revoke API key" });
+    }
+  }));
 
   app.get("/api/v1/tracks/:kind/:id", (req, res) => {
     const auth = requireApiKey(req, res);
