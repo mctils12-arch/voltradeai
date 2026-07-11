@@ -95,8 +95,15 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
 ## RESUME STATE (authoritative; update at each session end)
 
 - 2026-07-11: program installed. P1 (nav two-world dropdowns + Developers
-  in-app) BUILDING this session on branch claude/platform-integration-nav.
-  NEXT after P1 merges: P2 (developers/API premium pass). P3–P5 sequenced
-  above; P5 is HUMAN-GATED.
+  in-app) SHIPPED + merged (v1.0.273, commit a6fc63a).
+- 2026-07-11: P2 (developers/API premium pass) SHIPPED (v1.0.276) — live
+  endpoint explorer (per-endpoint copyable curl, "Run live example" against
+  each stats endpoint's public preview mirror, relative freshness from a
+  new `generated_at` stamp on every v1 response + its preview route),
+  data-driven tier table (reads `meta.limits`, no more hand-typed numbers
+  that could drift from the real rate limiter). Full trace in
+  experiments.md. NEXT: P3 (self-serve API accounts, pre-revenue —
+  `api_keys` table bound to a logged-in account, in-app keys+usage panel).
+  P4/P5 sequenced above; P5 is HUMAN-GATED.
 - TERRITORY: P1/P2 are T-CLIENT; P3/P4 add T-DATACORE (apiProduct.ts,
   a new api_keys store) + SHARED (routes.ts, package.json) last-and-minimal.

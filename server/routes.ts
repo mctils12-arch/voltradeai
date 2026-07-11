@@ -1105,7 +1105,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Archive growth observability (volume watch — see wishlist).
   app.get("/api/data/archive/stats", (_req, res) => {
-    try { res.json(archiveStats()); } catch (e: any) { res.status(500).json({ error: e?.message }); }
+    try { res.json({ ...archiveStats(), generated_at: new Date().toISOString() }); } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
   // Fires × facilities cross-tie (worldview-globe Pillar 6, backend inference).
@@ -2562,7 +2562,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.json({ kind: "raw", warming_up: true, note: "first archive scan in progress — retry shortly" });
     }
     res.set("Cache-Control", "public, max-age=300");
-    res.json(shadowCache.data);
+    res.json({ ...shadowCache.data, generated_at: new Date(shadowCache.at).toISOString() });
   });
 
   // ── /api/v1 — the DATA PRODUCT surface (throughput/API directive
@@ -2588,9 +2588,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     return { key, tier: info.tier };
   };
-  const v1Envelope = (mark: keyof typeof LICENSE_MARKS, data: any) => ({
+  const v1Envelope = (mark: keyof typeof LICENSE_MARKS, data: any, generatedAt?: number) => ({
     api_version: "v1",
     ...LICENSE_MARKS[mark],
+    generated_at: new Date(generatedAt ?? Date.now()).toISOString(),
     disclaimer: "data as-is; not for safety-of-life use",
     data,
   });
@@ -2634,7 +2635,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         meterUsage({ key: auth.key, endpoint: "/api/v1/stats/portdwell", status: 503, tier: auth.tier });
         return;
       }
-      res.json(v1Envelope("stats/portdwell", dwellCache.data));
+      res.json(v1Envelope("stats/portdwell", dwellCache.data, dwellCache.at));
       meterUsage({ key: auth.key, endpoint: "/api/v1/stats/portdwell", status: 200, tier: auth.tier });
     } catch (e: any) {
       res.status(500).json({ error: e?.message });
@@ -2654,7 +2655,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         meterUsage({ key: auth.key, endpoint: "/api/v1/stats/shadow", status: 503, tier: auth.tier });
         return;
       }
-      res.json(v1Envelope("stats/shadow", shadowCache.data));
+      res.json(v1Envelope("stats/shadow", shadowCache.data, shadowCache.at));
       meterUsage({ key: auth.key, endpoint: "/api/v1/stats/shadow", status: 200, tier: auth.tier });
     } catch (e: any) {
       res.status(500).json({ error: e?.message });
@@ -2708,7 +2709,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.json({ kind: "raw", warming_up: true, note: "first archive scan in progress — retry shortly" });
     }
     res.set("Cache-Control", "public, max-age=300");
-    res.json(dwellCache.data);
+    res.json({ ...dwellCache.data, generated_at: new Date(dwellCache.at).toISOString() });
   });
 
   // Everything Graph v1 (datacore/EVERYTHING_GRAPH.md, build step 2) — joins

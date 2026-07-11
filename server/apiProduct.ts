@@ -129,10 +129,10 @@ export function apiMeta() {
     auth: "x-api-key header (or ?api_key=). Keys are invite-only during the preview — join the waitlist on /developers.",
     endpoints: [
       { path: "/api/v1/tracks/:kind/:id", params: "kind=aircraft|vessels|trains; id=icao24|MMSI|train id; ?hours<=168", desc: "Recent position track from our own archive (recording since 2026-07-03)." },
-      { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics (completed calls, in-port-now, medians, 3x-median anomaly flags) over the 9 imagery-verified port geofences." },
-      { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics: AIS gap events, identity candidates, STS-zone loitering — counts with honest coverage caveats." },
-      { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata (streams, samples, days recorded)." },
-      { path: "/api/v1/meta", params: "-", desc: "This document." },
+      { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics (completed calls, in-port-now, medians, 3x-median anomaly flags) over the 9 imagery-verified port geofences.", preview: "/api/data/portdwell" },
+      { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics: AIS gap events, identity candidates, STS-zone loitering — counts with honest coverage caveats.", preview: "/api/data/shadowstats" },
+      { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata (streams, samples, days recorded).", preview: "/api/data/archive/stats" },
+      { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
       "entity timelines (Everything Graph v1 — aircraft continuity spine in build)",

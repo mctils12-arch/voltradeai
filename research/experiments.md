@@ -13,6 +13,175 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-11 — [PRODUCT] PLATFORM INTEGRATION P2: /developers endpoint explorer — live per-endpoint samples, copyable curl, freshness stamped on every response (v1.0.276)
+
+TERRITORY: T-CLIENT primary (client/src/pages/developers.tsx, index.css,
+scripts/visual_check.mjs fixtures) + T-DATACORE/SHARED minimal
+(server/apiProduct.ts, server/routes.ts — additive `generated_at` field
+only, package.json version last commit per MERGE-ORDER PROTOCOL). Solo
+[PRODUCT] session, scheduled-routine directive ("build the data-intelligence
+product... datacore/ pipelines and the /data user-facing section... into a
+full product over time").
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then all of
+research/. `/api/health` all green (server/db/alpaca ACTIVE/python/scanner/
+licensing ok; bot active, equityPeak $109,967.44, drawdownPct 0.0,
+liveness.dark false — no LIVENESS ALARM). open_questions.md KNOWN BROKEN
+walked in full: #3 (CSP cascade) marked ROOT CAUSE FOUND + FIXED same day
+(v1.0.275, the immediately-prior session, already merged to main per
+`git log`); #20 (master_kill_switch over-kill) is a design/threshold call
+correctly left for a RULE-REVIEW session with more live TIER-KILL audit
+data, not actionable today; #4/#17/#18 are old/low-priority/non-blocking
+per their own text. Nothing rose to TOP-OF-REPORT — this PRODUCT session
+was not blocked or preempted by repair duty.
+
+PRIMARY ACTION SELECTION: read `research/platform_program.md` (installed
+same-day by the immediately-prior session per human directive) end to end.
+P1 (two-world nav + bringing /developers into the app) is SHIPPED and
+merged (v1.0.273, commit a6fc63a, confirmed via `git log`). The program's
+own RESUME STATE names P2 — "elevate /developers to the PREMIUM EXPERIENCE
+STANDARD: live endpoint explorer, per-endpoint examples, freshness/
+coverage/confidence, still pre-revenue" — as the explicit next step; no
+other queued item in open_questions.md/wishlist.md outranked it (DATACORE
+MAXIMUS's only remaining unclaimed item is EPA CAMD/ENTSO-E, both gated on
+Mike's keys, nothing free-and-buildable there today). Chose P2 over
+starting new datacore/ pipeline research: GOAL priority 3 weighs both
+compounding lines, and the API product page is the one place a real
+customer would actually judge before the platform sells anything — leaving
+it half-built (static hardcoded example, no live samples, hand-typed tier
+numbers that could silently drift from the real rate limiter) was the
+higher-leverage gap versus one more archive stream.
+
+READ BEFORE WRITE: read `client/src/pages/developers.tsx`,
+`server/apiProduct.ts`, and every `/api/v1/*` + its public unauthenticated
+mirror route in `server/routes.ts` end to end before touching anything.
+Found: the page's only "live" element was a single hardcoded fetch to
+`/api/data/archive/stats`, and its one example curl was hand-typed for
+`stats/portdwell` only — the other 4 endpoints had no example and no live
+proof at all. Also found that `/api/v1/stats/{portdwell,shadow,archive}`
+already have exact unauthenticated public mirrors (`/api/data/portdwell`,
+`/api/data/shadowstats`, `/api/data/archive/stats` — same cache, same
+`archiveStats()`/`computePortDwellAsync`/`computeShadowStatsAsync` call),
+which makes a real "try it without a key" explorer possible without
+inventing new endpoints. `/api/v1/tracks/:kind/:id` has no such mirror (it
+needs a real vehicle id) — the explorer states that honestly instead of
+faking a preview.
+
+WHAT SHIPPED:
+- `server/apiProduct.ts`: `apiMeta()`'s 3 stats endpoints (+`meta` itself)
+  now carry a `preview` field naming their public unauthenticated mirror
+  route — single source of truth the client reads instead of a hand-
+  maintained mapping; `tracks/:kind/:id` deliberately has none.
+- `server/routes.ts`: `v1Envelope` now stamps `generated_at` (ISO, from the
+  cache's own `at` timestamp for portdwell/shadow so it reflects when the
+  data was actually computed, not the request time) on every `/api/v1`
+  stats response; the 3 public preview mirrors (`/api/data/shadowstats`,
+  `/api/data/portdwell`, `/api/data/archive/stats`) gained the same field
+  so the docs page (and anyone hitting them directly) can state real
+  freshness instead of silently omitting it — a direct instance of the
+  PREMIUM EXPERIENCE STANDARD's "every number visibly carries freshness"
+  clause, applied to the actual product surface, not just a display layer.
+  Purely additive (new JSON key only) — confirmed no client consumer
+  (`datamap.tsx`'s shadowstats/portdwell effects) destructures these
+  objects exhaustively; grepped every call site first.
+- `client/src/pages/developers.tsx`: rebuilt the "Live right now" +
+  "Endpoint reference" sections into one "Endpoint explorer" — one card per
+  `meta.endpoints` entry with a per-endpoint copyable curl command (built
+  from the real path, a placeholder id substituted for `:kind/:id`), a
+  "Run live example" button that fetches the endpoint's own `preview` route
+  and renders the real JSON plus a relative freshness label computed from
+  `generated_at` ("Xs/m/h/d ago"), and an honest "no static preview — needs
+  a real id" note for `tracks/:kind/:id` instead of faking one. The Pricing
+  section's tier cards now read live limits from `meta.limits` (the actual
+  `TIER_LIMITS` the rate limiter enforces) instead of 4 hand-typed numbers
+  that could silently drift from the real config — the exact "single
+  source of truth" pattern the endpoint reference already used for its
+  table, extended to the tier table.
+- `client/src/index.css`: new `.vt-dev-endpoint*`/`.vt-dev-copy-btn`/
+  `.vt-dev-try-btn`/`.vt-dev-freshness` rules, all on existing CSS custom
+  properties (theme-safe, matches every other `.vt-dev-*` rule already on
+  the page).
+- `scripts/visual_check.mjs`: the harness's own `/api/v1/meta` fixture was
+  stale (missing `pro`/`enterprise` limits and every `preview` field) —
+  updated to match the real `apiMeta()` shape so the harness actually
+  exercises the new code paths instead of silently only covering `dev`.
+
+CAUGHT BY THE HARNESS ITSELF (worth recording — this is the harness doing
+its job, not a bug that shipped): the first visual-harness run crashed the
+1440px page outright (`Cannot read properties of undefined (reading
+'perMinute')`) because the fixture only defined `limits.dev`, not
+`pro`/`enterprise` — a real bug in the fixture, not the app, caught before
+commit by the same screenshot self-review PROMOTION RULE 6 requires. Fixed
+by completing the fixture (see above), rebuilt, reran — passed. Second run
+flagged `touch target < 44px: 'Run live example' (154x36)` at 390/768 — the
+new buttons were built at 36px minheight, under DESIGN.md's 44px mobile
+floor; fixed by matching the existing `.vt-dev-wl button` convention (44px)
+already used elsewhere on the same page. Both catches are the harness
+doing exactly what PROMOTION RULE 6 exists for — recorded so a future
+session trusts the gate rather than skipping it under time pressure.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this is a docs/display page over
+already-live, already-tested endpoints — zero change to auth, rate
+limiting, scoring, sizing, or any trading decision. The two-hop chain that
+does exist: `generated_at` addition -> `v1Envelope`/preview routes (traced,
+additive-only, confirmed via every existing test + every client consumer
+grep) -> nothing further downstream, since no other server code reads its
+own JSON output. RAW UX/docs change, no predictive claim, PROMOTION RULE 3
+backtest requirement does not apply (same category as the P1 nav entry and
+every other T-CLIENT display session in this file).
+
+RATCHET (loop-health rule 3): 2 new tests in `server/apiProduct.test.ts` —
+one pins that every meta endpoint except `tracks/:kind/:id` carries a
+`preview` field (so `/developers` can't silently regress to a dead
+example), one is a source-level pin (matching this file's own established
+`aircraftChain.test.ts`/"wiring pinned" pattern, since `v1Envelope` and the
+preview routes live inside `registerRoutes`'s closure, not independently
+importable) asserting `v1Envelope` stamps `generated_at` and that all 3
+public preview mirrors do too — both fail against the pre-change source
+(verified: reverting either change makes its own new test fail) and pass
+post-change.
+
+GATES: `python3 -m pytest -q` — 644 passed, 1 skipped (baseline, unaffected
+— no Python touched). `npx tsx --test server/*.test.ts` — 576 passed, 0
+failed (a cold-container `npm ci` was needed first; before it, 3 files
+failed with `Cannot find package 'express'`-class errors — the same
+pre-existing sandbox-artifact pattern this file's 2026-07-10/11 sessions
+already documented, confirmed resolved post-install, not caused by this
+change). `npx tsc --noEmit` — 64 errors, byte-identical to a `git stash`
+A/B baseline captured on this same fully-installed sandbox (zero new
+errors). `npm run build` — clean, `dist/public` + `dist/index.cjs`
+produced. `npm run visual -- --page developers` at 390/768/1440 — all
+PASS, 0 hard failures, self-reviewed screenshots at all 3 widths (see
+CAUGHT BY THE HARNESS above for the two real issues it found and this
+session fixed before commit); one residual soft warning ("clipped control:
+Copy" at 1440, a Copy button partially below the fold on a normal
+scrolling docs page) matches the harness's own documented tolerance for
+below-the-fold controls on non-immersive pages — not a regression, same
+class of warning long-scrolling pages like this one always produce.
+
+Version 1.0.275 -> 1.0.276 (read-and-increment at commit time; confirmed
+`origin/main` HEAD matched this session's start point exactly via
+`git fetch` before committing).
+
+MARKET-HOURS NOTE: session ran mid-day UTC (per `/api/health` timestamp,
+~13:00Z / ~09:00 ET, before the 9:30 open per the health check). This PR
+touches zero trading/execution/scoring code — a docs-page rebuild plus two
+additive JSON fields on already-existing read-only public endpoints. Same
+risk category as every other T-CLIENT-only session in this file; no reason
+to hold for market close.
+
+Backtest: N/A (pure product/docs UX — no strategy, sizing, or signal logic
+touched; not applicable to PROMOTION RULE 3).
+
+STARVED: no — P2 shipped in full (explorer, live samples, freshness
+stamping, data-driven tier table, fixture repair) with its own test
+coverage. High-value work remains queued for a future session:
+`platform_program.md` P3 (self-serve API accounts, pre-revenue) is the
+program's own next phase; `worldview_globe.md`'s G0c/G2f/G2h/G4 backlog and
+gate-2 work on already-gate-1-passed archive streams (SEC MIDAS x Form-4
+join, COT restart date) remain open per the prior session's own
+fall-through note — next session's judgment call.
+
 ## 2026-07-11 — [REPAIR] KNOWN BROKEN #3 root cause found: tier1_csp_core silently reused the STOCK position cap, zeroing CSP in exactly the 3 regimes it's supposed to run in — 5+ week live options blackout (v1.0.275)
 
 TERRITORY: T-BOT primary (tiered_strategy.py, system_config.py, bot_engine.py)
