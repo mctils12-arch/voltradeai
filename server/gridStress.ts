@@ -39,11 +39,19 @@ import path from "path";
 import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
-import { gridDemandEnabled } from "./gridDemand";
+import { gridDemandEnabled, RESPONDENTS } from "./gridDemand";
 import degreeDaysJson from "../datacore/cpc/degree_days.json";
 
-const RESPONDENT = "ERCO"; // GRID VISION scope: TX/ERCOT only, per the locked design
+const RESPONDENT = "ERCO"; // the one region with a per-region weather join (TX CPC degree days)
 const MIN_SAMPLE_DAYS = 5; // below this, a same-month percentile is honestly withheld, not guessed
+
+/** Human labels for the EIA-930 respondent codes we surface. */
+export const REGION_LABEL: Record<string, string> = {
+  US48: "United States (48)", ERCO: "Texas (ERCOT)", CISO: "California (CAISO)",
+  MISO: "Midcontinent (MISO)", PJM: "Mid-Atlantic (PJM)", SWPP: "Central (SPP)",
+  NYIS: "New York (NYISO)", ISNE: "New England (ISO-NE)", FPL: "Florida (FPL)",
+  SE: "Southeast", NW: "Northwest", SW: "Southwest",
+};
 
 export interface DailyDemandAgg {
   peak: number | null;
@@ -51,21 +59,28 @@ export interface DailyDemandAgg {
   strainCount: number;
 }
 
-/** Streaming fold over the griddemand archive, ERCO rows only. One file =
- *  one UTC observation day (archiveDemand groups by o.period day), so
- *  per-period pairing never crosses a file boundary. */
-export async function foldErcoDailyAsync(baseDir?: string): Promise<Map<string, DailyDemandAgg>> {
+/** Streaming fold over the griddemand archive for a SET of respondents, in a
+ *  single pass. Returns respondent -> (day -> agg). One file = one UTC
+ *  observation day (archiveDemand groups by o.period day), so per-period
+ *  pairing never crosses a file boundary. Memory stays bounded to one small
+ *  agg record per (respondent, day) — never per-row (the shadowFleet OOM
+ *  lesson). Passing no set folds every configured RESPONDENT. */
+export async function foldRegionsDailyAsync(
+  respondents: readonly string[] = RESPONDENTS, baseDir?: string,
+): Promise<Map<string, Map<string, DailyDemandAgg>>> {
+  const want = new Set(respondents);
   const dir = path.join(baseDir || archiveBaseDir(), "griddemand");
+  const result = new Map<string, Map<string, DailyDemandAgg>>();
   let files: string[] = [];
   try {
     files = fs.readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)).sort();
   } catch {
-    return new Map();
+    return result;
   }
-  const result = new Map<string, DailyDemandAgg>();
   const readOne = (f: string) => new Promise<void>((resolve) => {
     const day = f.slice(0, 10);
-    const perPeriod = new Map<string, { d?: number; df?: number }>();
+    // per respondent for THIS day: period -> {d, df}
+    const perResp = new Map<string, Map<string, { d?: number; df?: number }>>();
     try {
       let stream: NodeJS.ReadableStream = fs.createReadStream(path.join(dir, f));
       if (f.endsWith(".gz")) stream = stream.pipe(zlib.createGunzip());
@@ -74,24 +89,32 @@ export async function foldErcoDailyAsync(baseDir?: string): Promise<Map<string, 
         if (!line) return;
         try {
           const o = JSON.parse(line);
-          if (o.respondent !== RESPONDENT || o.mwh == null) return;
+          if (!want.has(o.respondent) || o.mwh == null) return;
           const type = o.type || "D";
           if (type !== "D" && type !== "DF") return;
-          let e = perPeriod.get(o.period);
-          if (!e) { e = {}; perPeriod.set(o.period, e); }
+          let pp = perResp.get(o.respondent);
+          if (!pp) { pp = new Map(); perResp.set(o.respondent, pp); }
+          let e = pp.get(o.period);
+          if (!e) { e = {}; pp.set(o.period, e); }
           if (type === "D") e.d = o.mwh; else e.df = o.mwh;
         } catch { /* skip malformed line */ }
       });
       rl.on("close", () => {
-        let peak: number | null = null;
-        let strainSum = 0, strainCount = 0;
-        perPeriod.forEach((e) => {
-          if (e.d != null) {
-            if (peak === null || e.d > peak) peak = e.d;
-            if (e.df) { strainSum += (e.d - e.df) / e.df; strainCount++; }
+        perResp.forEach((pp, resp) => {
+          let peak: number | null = null;
+          let strainSum = 0, strainCount = 0;
+          pp.forEach((e) => {
+            if (e.d != null) {
+              if (peak === null || e.d > peak) peak = e.d;
+              if (e.df) { strainSum += (e.d - e.df) / e.df; strainCount++; }
+            }
+          });
+          if (peak !== null) {
+            let m = result.get(resp);
+            if (!m) { m = new Map(); result.set(resp, m); }
+            m.set(day, { peak, strainSum, strainCount });
           }
         });
-        if (peak !== null) result.set(day, { peak, strainSum, strainCount });
         resolve();
       });
       stream.on("error", () => resolve());
@@ -101,6 +124,11 @@ export async function foldErcoDailyAsync(baseDir?: string): Promise<Map<string, 
   });
   await files.reduce((p, f) => p.then(() => readOne(f)), Promise.resolve());
   return result;
+}
+
+/** ERCO-only daily fold (backward-compatible wrapper over the general fold). */
+export async function foldErcoDailyAsync(baseDir?: string): Promise<Map<string, DailyDemandAgg>> {
+  return (await foldRegionsDailyAsync([RESPONDENT], baseDir)).get(RESPONDENT) ?? new Map();
 }
 
 /** TX HDD+CDD per date from the committed CPC archive (2016-01-01+). */
@@ -176,13 +204,16 @@ function pickTargetDay(daily: Map<string, DailyDemandAgg>, nowMs: number, lookba
   return null;
 }
 
-export async function computeGridStressReading(baseDir?: string, nowMs?: number):
-    Promise<{ reading: GridStressReading | null; history_depth_days: number }> {
-  const now = nowMs ?? Date.now();
-  const daily = await foldErcoDailyAsync(baseDir);
-  const targetIso = pickTargetDay(daily, now);
-  if (!targetIso) return { reading: null, history_depth_days: daily.size };
-
+/** Build one region's descriptive reading from its daily agg map. `dd` is the
+ *  per-region weather (TX degree days) or null where we have no weather join —
+ *  in that case weather + composite are honestly null (never guessed), and the
+ *  region still shows demand percentile + forecast strain. */
+export function readingFromDaily(
+  respondent: string, daily: Map<string, DailyDemandAgg>,
+  dd: Map<string, number> | null, nowMs: number,
+): GridStressReading | null {
+  const targetIso = pickTargetDay(daily, nowMs);
+  if (!targetIso) return null;
   const target = daily.get(targetIso)!;
   const peakByDay = new Map<string, number>();
   const strainByDay = new Map<string, number>();
@@ -190,39 +221,66 @@ export async function computeGridStressReading(baseDir?: string, nowMs?: number)
     if (v.peak != null) peakByDay.set(iso, v.peak);
     if (v.strainCount > 0) strainByDay.set(iso, v.strainSum / v.strainCount);
   });
-
-  const dd = loadTxDegreeDays();
   const targetStrain = target.strainCount > 0 ? target.strainSum / target.strainCount : null;
-  const targetDd = dd.get(targetIso) ?? null;
+  const targetDd = dd ? (dd.get(targetIso) ?? null) : null;
 
   const demandPct = monthPercentile(peakByDay, targetIso);
   const strainPct = targetStrain == null
     ? { percentile: null, sampleDays: 0 }
     : monthPercentile(strainByDay, targetIso);
-  const weatherPct = targetDd == null ? { percentile: null, sampleDays: 0 } : monthPercentile(dd, targetIso);
+  const weatherPct = (dd && targetDd != null) ? monthPercentile(dd, targetIso) : { percentile: null, sampleDays: 0 };
 
+  // Composite = equal-weighted mean of the AVAILABLE descriptive percentiles
+  // (deliberately NOT the voided gate-2 fitted weights). ERCO has all three;
+  // regions without a weather join composite over demand+strain only.
   const parts = [demandPct.percentile, strainPct.percentile, weatherPct.percentile].filter(
     (p): p is number => p != null,
   );
-  const composite = parts.length === 3 ? Math.round(parts.reduce((a, b) => a + b, 0) / 3) : null;
+  const composite = parts.length >= 2 ? Math.round(parts.reduce((a, b) => a + b, 0) / parts.length) : null;
 
   return {
-    reading: {
-      date: targetIso,
-      respondent: RESPONDENT,
-      demand_peak_mw: target.peak,
-      demand_percentile: demandPct.percentile,
-      demand_sample_days: demandPct.sampleDays,
-      forecast_strain_pct: targetStrain == null ? null : Math.round(targetStrain * 1000) / 10,
-      strain_percentile: strainPct.percentile,
-      strain_sample_days: strainPct.sampleDays,
-      weather_degree_days: targetDd,
-      weather_percentile: weatherPct.percentile,
-      weather_sample_days: weatherPct.sampleDays,
-      composite_percentile: composite,
-    },
-    history_depth_days: daily.size,
+    date: targetIso,
+    respondent,
+    demand_peak_mw: target.peak,
+    demand_percentile: demandPct.percentile,
+    demand_sample_days: demandPct.sampleDays,
+    forecast_strain_pct: targetStrain == null ? null : Math.round(targetStrain * 1000) / 10,
+    strain_percentile: strainPct.percentile,
+    strain_sample_days: strainPct.sampleDays,
+    weather_degree_days: targetDd,
+    weather_percentile: weatherPct.percentile,
+    weather_sample_days: weatherPct.sampleDays,
+    composite_percentile: composite,
   };
+}
+
+export async function computeGridStressReading(baseDir?: string, nowMs?: number):
+    Promise<{ reading: GridStressReading | null; history_depth_days: number }> {
+  const now = nowMs ?? Date.now();
+  const daily = await foldErcoDailyAsync(baseDir);
+  const reading = readingFromDaily(RESPONDENT, daily, loadTxDegreeDays(), now);
+  return { reading, history_depth_days: daily.size };
+}
+
+/** All-regions descriptive readings in a single archive pass. ERCO carries the
+ *  TX weather join; every other region reports demand percentile + forecast
+ *  strain only (weather/composite honestly null). Descriptive, non-predictive
+ *  for every region — same banner ERCOT already shows. */
+export async function computeAllRegionsStress(baseDir?: string, nowMs?: number):
+    Promise<{ regions: GridStressReading[]; history_depth_days: number }> {
+  const now = nowMs ?? Date.now();
+  const byResp = await foldRegionsDailyAsync(RESPONDENTS, baseDir);
+  const txDd = loadTxDegreeDays();
+  const regions: GridStressReading[] = [];
+  let depth = 0;
+  for (const resp of RESPONDENTS) {
+    const daily = byResp.get(resp);
+    if (!daily || daily.size === 0) continue;
+    depth = Math.max(depth, daily.size);
+    const r = readingFromDaily(resp, daily, resp === RESPONDENT ? txDd : null, now);
+    if (r) regions.push(r);
+  }
+  return { regions, history_depth_days: depth };
 }
 
 // ── Cache + poll (mirrors gridDemand.ts's pattern; a full archive fold is
@@ -234,7 +292,8 @@ export function gridStressEnabled(env: NodeJS.ProcessEnv = process.env): boolean
 
 interface GridStressCache {
   at: number;
-  reading: GridStressReading | null;
+  reading: GridStressReading | null;     // ERCO (backward compat for the existing view)
+  regions: GridStressReading[];          // all regions incl. ERCO (national overview)
   history_depth_days: number;
 }
 
@@ -248,8 +307,9 @@ export function latestGridStress(): GridStressCache | null {
 export async function refreshGridStress(baseDir?: string, nowMs?: number): Promise<void> {
   try {
     if (!gridStressEnabled()) return;
-    const { reading, history_depth_days } = await computeGridStressReading(baseDir, nowMs);
-    cache = { at: Date.now(), reading, history_depth_days };
+    const { regions, history_depth_days } = await computeAllRegionsStress(baseDir, nowMs);
+    const reading = regions.find((r) => r.respondent === RESPONDENT) ?? null;
+    cache = { at: Date.now(), reading, regions, history_depth_days };
   } catch (e: any) {
     console.error("[datacore] gridstress refresh:", e?.message || e);
   }
