@@ -35,6 +35,13 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { validateRecord } from "./dataQuality";
+
+// DATA QUALITY GATE (research/location_context_engine.md): hourly demand /
+// forecast MWh is physically non-negative and far below 5,000,000 MWh/h (US
+// total peak ~ 720k MW). A negative or absurd value is a corrupt reading —
+// quarantine it at the archive boundary so it can never skew a stress metric.
+const DEMAND_BOUNDS = { mwh: { min: 0, max: 5_000_000 } };
 
 export function gridDemandEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.EIA_API_KEY);
@@ -176,7 +183,12 @@ export function archiveDemand(obs: DemandObs[], baseDir?: string): number {
   if (!obs.length) return 0;
   const dir = demandDir(baseDir);
   if (!seeded) { seedSeen(dir); seeded = true; }
-  const fresh = obs.filter((o) => !seenObs.has(obsKey(o)));
+  // data-quality gate: quarantine implausible readings before they enter the
+  // archive that gridStress reads (quarantine-don't-propagate).
+  const valid = obs.filter((o) => validateRecord(o as any, DEMAND_BOUNDS).length === 0);
+  const quarantined = obs.length - valid.length;
+  if (quarantined > 0) console.warn(`[datacore] griddemand: quarantined ${quarantined} implausible row(s) (data-quality gate)`);
+  const fresh = valid.filter((o) => !seenObs.has(obsKey(o)));
   if (!fresh.length) return 0;
   try {
     fs.mkdirSync(dir, { recursive: true });

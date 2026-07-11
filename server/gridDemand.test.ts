@@ -164,3 +164,13 @@ test("backfill: opt-in gate, oldest-first years, pagination, done-marker single 
   assert.ok(!seedFileInWindow("2019-03-01.jsonl.gz", Date.parse("2026-07-07")),
     `files older than ${SEED_WINDOW_DAYS}d never seed the in-memory set`);
 });
+
+test("data-quality gate: implausible demand rows are quarantined, not archived", async () => {
+  const os = await import("node:os"); const p2 = await import("node:path");
+  const base = fs.mkdtempSync(p2.join(os.tmpdir(), "gdq-"));
+  const good = { period: "2026-07-11T00", respondent: "ERCO", type: "D" as const, mwh: 60000, rt: "2026-07-11" };
+  const neg  = { period: "2026-07-11T01", respondent: "ERCO", type: "D" as const, mwh: -5, rt: "2026-07-11" };     // impossible
+  const huge = { period: "2026-07-11T02", respondent: "ERCO", type: "D" as const, mwh: 9_999_999, rt: "2026-07-11" }; // absurd
+  const n = archiveDemand([good, neg, huge], base);
+  assert.equal(n, 1, "only the plausible row is archived; the negative + absurd rows are quarantined");
+});
