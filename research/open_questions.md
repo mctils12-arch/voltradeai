@@ -143,6 +143,30 @@
     line and `tier_kill_status` field — a future session should query
     `/api/diag/audit?type=TIER-KILL` after a few days of live data before
     proposing a specific threshold change.
+    **COUNTERFACTUAL LOGGING BUILT 2026-07-11 (v1.0.279):** the evidence
+    gate this item asked for now exists. `tiered_strategy.log_masterkill_csp_shadow()`
+    fires from `run_tiers()`'s kill branch — computes what `tier1_csp_core()`
+    would have proposed that cycle (pure function of `ctx`, no orders) and
+    logs each priced candidate via `shadow_portfolio.log_candidate(...,
+    decision="rejected_masterkill")`, reusing the existing outcome-backfill/
+    `get_shadow_stats()` pipeline (same one the spread-filter and
+    correlation-block buckets already use) rather than a new one.
+    Visibility only — cannot affect the kill decision or `run_tiers()`'s
+    returned actions; 5 new tests in `test_tiered_strategy.py` pin the
+    wiring and the never-raises contract. Caveat carried in the record
+    itself: the win/loss label is shadow_portfolio's existing stock
+    price-path proxy (+2%/-4% PT/SL), not real CSP premium economics — a
+    directional "would this underlying have been calm" proxy, not exact
+    options P&L, same limitation the other rejected_* buckets already
+    carry. **NEXT**: no TIER-KILL audit lines have fired yet since the
+    item #3 fix shipped (checked this session — `/api/diag/audit?
+    type=TIER-KILL` is empty), so there's no `rejected_masterkill` shadow
+    data yet either. A future session should check
+    `get_shadow_stats()["win_rate_by_decision"]["rejected_masterkill"]`
+    once master_kill_switch has actually fired a few times with >=20
+    trading days of history behind those firings (mirrors the ~90-day
+    readiness bar already used for the other rejected_* buckets) before
+    proposing the (a)/(b) threshold or regime-source change above.
 
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
@@ -867,6 +891,48 @@
     Backtest: N/A — no trading/scoring/sizing logic touched, pure
     attribution-metadata fix.
 
+21. **[SUSPECTED, NOT CONFIRMED — 2026-07-11, Saturday session] `deep_score()`'s
+    alt-data enrichment (wikipedia/fred/gdelt) may not be running at all this
+    weekend — or this may be entirely normal weekend quiet.** Found while
+    checking `/api/diag/audit` for the CSP-fix live-verification task (item #3):
+    every `DIAGNOSTIC` entry in the visible ~2.3h window (Sat 2026-07-11
+    18:00-20:20 UTC) reports `"Multiple API sources down: ['wikipedia',
+    'gdelt', 'fred']"` (`diagnostics.py`'s `api_checks`, existence-only —
+    triggers `reduce_position_size(0.6x)` at >=3) plus `"4 data sources
+    stale: ['insider', 'fred', 'gdelt', 'event_memory']"`. `/api/diag/
+    scanner`'s `dataSourceErrors` (the REAL per-exception capture built in
+    v1.0.150 specifically to disambiguate this) was empty `{}` the whole
+    window — consistent with either (a) these fetchers succeeding cleanly
+    (then their cache files SHOULD exist — every fetcher in `alt_data.py`
+    calls `_cache_set()` unconditionally, even on total failure, so a
+    missing file needs the function to never have been CALLED, not just to
+    have errored), or (b) `deep_score()`'s own early return
+    (`get_stock_details()` — subprocess to `analyze.py` — returning
+    None/error, bot_engine.py:561-562) firing before the enrichment block
+    is ever reached, which would make the exception-capture mechanism
+    blind by construction (it only wraps code the early return never lets
+    run). NOT CHASED FURTHER THIS SESSION: `insider`/`event_memory` live on
+    the persistent volume (not /tmp) with modest staleness thresholds
+    (3h/72h) that a quiet weekend (no SEC filings, no major news) could
+    plausibly breach on its own; the options-chain "no contracts available"
+    T2-FAILs in the same window have an independently-verified benign
+    weekend cause (OPRA snapshot endpoint returns empty with no live
+    quotes, see item #3's neighbor evidence) — same shape of ambiguity, and
+    this repo's own precedent (item #3's PARTIAL EVIDENCE note) says don't
+    conclude from a market-closed window. **CHECK ON THE NEXT TRADING DAY**
+    (Monday 2026-07-13 or later): if
+    `/api/diag/audit?type=DIAGNOSTIC` still shows wikipedia/gdelt/fred
+    "down" DURING market hours with active Tier2 scans, that rules out the
+    weekend explanation and confirms a real gap — most likely `deep_score`'s
+    early return silently skipping the whole enrichment block for candidates
+    whose `analyze.py` subprocess call fails or times out (30s timeout,
+    exceptions swallowed at bot_engine.py:352-353 with zero diag capture,
+    unlike the 5 enrichment fetchers which got that treatment in v1.0.150).
+    If confirmed, the fix is the same shape as v1.0.150's `_run_diag_fetch`:
+    capture `get_stock_details()`'s failure reason into a diag field the
+    existing `/api/diag/scanner` surface already exposes, rather than
+    silently discarding it.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -899,6 +965,16 @@
   candidates this session's fix targeted, and any halt at the
   execution layer lives in `server/bot.ts` — see BUILD ORDER 4 #6 for
   why this is a materially bigger, still-open follow-up.
+- `tiered_strategy.master_kill_switch` killing Tier 1 CSP along with
+  T2-4 on a whole-portfolio exposure breach it doesn't contribute to —
+  see KNOWN BROKEN #20. **UPDATE 2026-07-11 (v1.0.279): NOW
+  COUNTERFACTUAL-LOGGED**, decision bucket `"rejected_masterkill"`,
+  wired at `run_tiers()`'s kill branch via the new
+  `log_masterkill_csp_shadow()`. Answerable via
+  `get_shadow_stats()["win_rate_by_decision"]["rejected_masterkill"]`
+  once master_kill_switch has fired a few times with enough history
+  behind those firings — no firings recorded yet as of this session
+  (`/api/diag/audit?type=TIER-KILL` empty).
 
 ## OPEN RESEARCH QUESTIONS
 

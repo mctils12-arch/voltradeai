@@ -312,6 +312,71 @@ def regime_kill_for_tier(ctx: TierContext, tier_num: int) -> bool:
     return ctx.vxx_ratio >= REGIME_KILL_VXX_RATIO
 
 
+def log_masterkill_csp_shadow(ctx: TierContext, kill_reason: str) -> int:
+    """
+    RULE REVIEW evidence gate for open_questions.md item #20: master_kill_switch
+    blocks ALL 4 tiers on a whole-portfolio exposure breach, including Tier 1
+    CSP, which holds none of the stock/ETF exposure that typically trips it
+    (see tier1_csp_core's own budget being capped independently by
+    MAX_OPTIONS_PCT). Whether that's correct or needlessly starves CSP is a
+    RULE REVIEW threshold/design call that CLAUDE.md requires counterfactual
+    evidence for before changing anything — this function only BUILDS that
+    evidence, never acts on it.
+
+    Computes what tier1_csp_core() would have proposed this cycle (pure
+    function of ctx — no orders, no side effects) and logs each candidate via
+    shadow_portfolio's existing rejected_* bucket machinery under a new
+    "rejected_masterkill" decision, reusing its outcome-backfill/get_shadow_stats
+    pipeline rather than building a parallel one. A future session reads
+    get_shadow_stats()["win_rate_by_decision"]["rejected_masterkill"] once
+    enough history accumulates (same 90-day-ish pattern as the spread-filter
+    and correlation-block buckets already tracked this way).
+
+    Caveat carried into decision_reason: the win/loss label comes from
+    shadow_portfolio's stock price-path proxy (its existing +2%/-4% PT/SL
+    labeler), not real CSP premium economics — a directional proxy for "would
+    this underlying have been calm", not exact options P&L. Best-effort and
+    silent on failure: logging must never affect a live kill-switch decision.
+
+    Returns the number of shadow candidates logged (0 on any failure or if
+    Tier 1 had nothing to propose).
+    """
+    try:
+        shadow_actions = tier1_csp_core(ctx)
+        if not shadow_actions:
+            return 0
+
+        from csp_universe import _load_layer2_cache
+        _layer2 = _load_layer2_cache() or {}
+        price_lookup = {
+            e["ticker"]: float(e["price"])
+            for e in _layer2.get("scores", [])
+            if e.get("ticker") and e.get("price", 0) > 0
+        }
+
+        import shadow_portfolio
+        logged = 0
+        for action in shadow_actions:
+            entry_price = price_lookup.get(action.ticker, 0.0)
+            if entry_price <= 0:
+                continue  # backfill_outcomes can't label a record with no price
+            shadow_portfolio.log_candidate(
+                ticker=action.ticker,
+                features={},
+                score=0.0,
+                decision="rejected_masterkill",
+                decision_reason=kill_reason,
+                entry_price=entry_price,
+                vxx_ratio=ctx.vxx_ratio,
+                regime_label=ctx.regime or "unknown",
+            )
+            logged += 1
+        return logged
+    except Exception as e:
+        logger.debug(f"log_masterkill_csp_shadow failed: {e}")
+        return 0
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  TIER 1 — CSP Core
 # ══════════════════════════════════════════════════════════════════════════════
@@ -715,6 +780,10 @@ class TieredStrategy:
         killed, reason = master_kill_switch(ctx)
         if killed:
             logger.warning(f"Master kill-switch: {reason}")
+            # RULE REVIEW evidence gate (open_questions.md item #20) — log what
+            # Tier 1 CSP would have proposed, never executed. Visibility only;
+            # cannot affect the kill decision above or the actions returned.
+            log_masterkill_csp_shadow(ctx, reason)
             return {
                 "killed": True,
                 "kill_reason": reason,

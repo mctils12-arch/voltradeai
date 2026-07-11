@@ -13,7 +13,159 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
-## 2026-07-11 — [REPAIR] KNOWN BROKEN #18's own visibility fix was broken: daemon-health envelope never unwrapped, active_dispatches evidence never captured since v1.0.266 (v1.0.277)
+## 2026-07-11 — [RULE-REVIEW] Counterfactual logging for master_kill_switch's CSP blackout (open_questions.md item #20) (v1.0.279)
+
+TERRITORY: T-BOT (tiered_strategy.py + its test). Solo scheduled-routine
+session (autonomous check-in per the standing daily/weekly cadence).
+
+LOOP-HEALTH CHECK (mandatory, SESSION BUDGET / HEALTH OF THE LOOP): last 10
+tagged entries in true chronological order (the file's own "newest at top"
+convention was broken by the immediately-prior P3 session, which appended
+at the bottom instead — noted, not re-litigated, this entry restores the
+convention): [PRODUCT](P3 self-serve keys, v1.0.278) [REPAIR](#18
+visibility fix, v1.0.277) [PRODUCT](P2 endpoint explorer, v1.0.276)
+[REPAIR](#3 CSP root cause, v1.0.275) [PRODUCT](P1 nav, v1.0.273)
+[REPAIR](track_fill code_version, v1.0.270) [PRODUCT](earthquakes+buoys
+layers, v1.0.267) [REPAIR](daemon-timeout visibility, v1.0.266)
+[REPAIR](R19/SPY-floor live-verification closeout) [RESEARCH](GRID VISION
+gv-div5-ks). 5/10 REPAIR — below the 7+ thrash trigger, not a HEALTH OF
+THE LOOP escalation, but the highest ratio in recent memory; worth a
+future session's attention if it climbs further, not acted on here.
+
+SYSTEM HEALTH CHECK: `/api/health` green (server/db/alpaca/python/bot/
+scanner/licensing all "ok", drawdownPct 0.0, liveness.dark=false, uptime
+~4h). `/api/diag/orders?limit=200` — 200 orders spanning 2026-06-03
+through 2026-07-10 18:42 UTC, zero orders since (today is Saturday
+2026-07-11 — market closed, consistent with zero new activity, not a
+liveness problem). Confirmed via `git log` that KNOWN BROKEN #3's CSP fix
+(v1.0.275, commit f231122) landed 2026-07-11 11:37 UTC — AFTER Friday's
+market close, so there has been ZERO trading-day exposure to the fix yet;
+its own "check in a few days" resume note is not yet answerable and isn't
+chased further this session (see item #21 below for what WAS checked in
+this weekend window and why it's inconclusive, not a live-verification
+substitute).
+
+PRIMARY ACTION: open_questions.md item #20 (found the same day, by a
+concurrent/prior session, while diagnosing KNOWN BROKEN #3) was fully
+diagnosed but explicitly NOT fixed pending RULE REVIEW evidence:
+`tiered_strategy.py`'s `master_kill_switch` kills ALL 4 tiers — including
+Tier 1 CSP, which holds none of the stock/ETF exposure that typically
+trips the whole-portfolio ceiling — and CLAUDE.md's RULE REVIEW section
+requires counterfactual logging or a backtest ablation before any
+threshold/design change ships. This is SESSION BUDGET tier-1 fall-through:
+a queued, already-scoped, unclaimed item from open_questions.md, directly
+actionable without needing live weekday data (unlike item #21's
+suspicion, or KNOWN BROKEN #3's pending Monday check).
+
+READ BEFORE WRITE: read `master_kill_switch()` (tiered_strategy.py:279-304)
+and `run_tiers()` (tiered_strategy.py:690+) this session — confirmed
+`tier1_csp_core()` is a PURE function of `ctx` (no order submission, no
+network calls beyond a local cache read via `csp_universe._load_layer2_cache`)
+and that `run_tiers()`'s kill branch returns before EVER calling it — Tier
+1's candidates are not merely blocked from execution, they're never even
+computed when the whole-engine kill fires. Read `shadow_portfolio.py` in
+full (`log_candidate`/`update_last_decision`/`backfill_outcomes`/
+`get_shadow_stats`) rather than build a parallel counterfactual mechanism:
+confirmed `get_shadow_stats()` groups purely by the `decision` string with
+no assumption about which subsystem wrote the record, and confirmed
+`backfill_outcomes()` skips any record with `entry_price<=0` (so a
+counterfactual log with no real price is worse than no log — silently
+inert forever, never contributing to `win_rate_by_decision`).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new function only calls
+`tier1_csp_core(ctx)` (already a no-side-effect read of `ctx`) and
+`shadow_portfolio.log_candidate(...)` (file I/O only, the same call every
+other rejected_* bucket already makes every scan cycle) — it does not
+touch `master_kill_switch`'s return value, `run_tiers()`'s `actions`/
+`tier_stats` output, or any code path that reaches order submission.
+Zero change to what gets traded, sized, or scored. The only observable
+effect is new `decision="rejected_masterkill"` records appearing in
+`voltrade_shadow_candidates.json` the next time `master_kill_switch` fires
+with `tier1_csp_core` non-empty — which, per the audit-log check above,
+has not happened yet since KNOWN BROKEN #3 shipped (`/api/diag/audit?
+type=TIER-KILL` is empty).
+
+WHAT SHIPPED:
+- `tiered_strategy.py`: new `log_masterkill_csp_shadow(ctx, kill_reason)` —
+  calls `tier1_csp_core(ctx)` to compute (never execute) what Tier 1 would
+  have proposed, looks up each ticker's price via the SAME
+  `csp_universe._load_layer2_cache()` lookup `tier1_csp_core`'s own
+  affordability gate already uses, and logs each PRICED candidate via
+  `shadow_portfolio.log_candidate(..., decision="rejected_masterkill")`.
+  Unpriced candidates are skipped (never logged with entry_price=0 — see
+  READ BEFORE WRITE above for why that would be worse than not logging).
+  Wrapped in try/except returning 0 on any failure — visibility code must
+  never be able to affect the kill-switch path it observes. Wired into
+  `run_tiers()`'s existing kill branch with a one-line call, no other
+  change to that branch's return shape.
+- `test_tiered_strategy.py`: 5 new tests — logs only priced candidates
+  (mocked layer2 cache + mocked `shadow_portfolio.log_candidate`, asserts
+  exact ticker set and `decision`/`decision_reason`/`entry_price` on each
+  call); skips everything when no prices are available at all; returns 0
+  without even importing the shadow logger when `tier1_csp_core` itself
+  has nothing to propose (options slots already full); never raises when
+  the mocked shadow logger itself raises; and an integration pin on
+  `run_tiers()` confirming the shadow logger is called exactly once on
+  kill with the correct `(ctx, reason)` args while `actions`/`tier_stats`
+  stay exactly `[]`/`{}` as before (byte-identical return shape).
+- `research/open_questions.md`: item #20 updated in place with the new
+  evidence-gate status and the exact readout query for later; the RULE
+  COST AUDIT section gained a matching entry for the new
+  `rejected_masterkill` bucket, following the same "NOW
+  COUNTERFACTUAL-LOGGED" pattern the spread-filter and correlation-block
+  entries already use. Also filed item #21 (see below).
+
+GATES: `python3 -m pytest -q` — baseline 641 passed/2 skipped (verified
+via `git stash -u`/`git stash pop`, not assumed) → 646 passed/2 skipped
+after this PR — exactly this PR's 5 new tests, zero regressions elsewhere.
+No TypeScript/client files touched — `npx tsc --noEmit`/`npm run build`/
+visual harness out of scope for this PR's own gate, same convention as
+every other Python-only PR in this file.
+Backtest: N/A — this adds observability only (a new shadow-log decision
+bucket); it changes no scoring, sizing, threshold, or trade-selection
+logic, so PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/
+paid-feature-gating code touched.
+
+MARKET-HOURS NOTE: session ran on a Saturday (market closed) — zero
+deploy-coupling risk either way, and this change touches no live order
+path.
+
+SECONDARY FINDING (filed, not fixed — see open_questions.md item #21):
+while checking `/api/diag/audit` for KNOWN BROKEN #3's live-verification
+task, this session noticed `wikipedia`/`gdelt`/`fred` reporting "down" via
+`diagnostics.py`'s existence-only `api_checks` (triggering the 0.6x
+`reduce_position_size` auto-fix) across the entire visible ~2.3h window,
+while `/api/diag/scanner`'s real per-exception capture (`dataSourceErrors`,
+built in v1.0.150 specifically to disambiguate exactly this kind of
+signal) stayed empty the whole time. Traced as far as: every fetcher in
+`alt_data.py` writes its cache file unconditionally even on total
+failure, so a missing file means the function was never CALLED, not that
+it errored — consistent with `deep_score()`'s own early return on a
+failed `get_stock_details()` subprocess call (bot_engine.py:561-562, which
+happens BEFORE the enrichment block `dataSourceErrors` instruments) OR
+with entirely benign weekend quiet (fewer quick_scan candidates reaching
+deep_score at all, `insider`/`event_memory` staleness thresholds a quiet
+weekend could breach on their own). NOT resolved either way — this
+repo's own precedent on KNOWN BROKEN #3 (the PARTIAL EVIDENCE note,
+superseded only once a longer weekday-inclusive window was checked) is
+exactly why this isn't being called a bug off a Saturday-only read. Filed
+as item #21 with the exact next-session check (does it still show "down"
+DURING market hours with active scans on the next trading day) and the
+likely fix shape if confirmed (extend v1.0.150's `_run_diag_fetch` pattern
+to `get_stock_details()`'s own currently-silent failure path).
+
+STARVED: no. Primary action (counterfactual-logging evidence gate for
+item #20) shipped completely with its own tests and doc updates. High-
+value work remains queued for future sessions: KNOWN BROKEN #3's
+Monday-or-later live-verification (options orders resuming, per its own
+resume note), item #21's next-trading-day check above, item #20's own
+follow-up once `rejected_masterkill` accumulates enough history,
+platform_program.md's P4/P5, the vite base-path routing bug (P3's
+resume note), and worldview_globe.md's backlog — next session's judgment
+call per SESSION BUDGET's fall-through order.
+
 
 TERRITORY: T-BOT primary (server/bot.ts outside frozen paths) + its test.
 Solo session, scheduled autonomous routine (REPAIR MANDATE — KNOWN BROKEN
