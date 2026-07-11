@@ -58,6 +58,7 @@ import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
+import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
@@ -2234,6 +2235,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // descriptive surface, not a signal: no field here may be read as
   // predictive, tradable, or sellable. `predictive: false` on every
   // response, deliberately never omitted.
+  // EPA Superfund NPL sites (RAW/FACTUAL hazard layer, public domain; first
+  // Location Context Engine hazard layer, data-quality gated). Weekly refresh.
+  bootSuperfundPoll();
+  app.get("/api/data/superfund", (_req, res) => {
+    const hit = latestSuperfund();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "EPA Superfund NPL (SEMS), public domain",
+                         predictive: false, warming_up: true, sites: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "EPA Superfund National Priorities List (NPL) — SEMS, U.S. EPA (public domain)",
+      attribution: "U.S. EPA Superfund (SEMS/NPL)",
+      predictive: false,
+      note: "Locations, status, and Hazard Ranking System (HRS) scores as published by EPA — "
+        + "factual site records, NOT a risk claim about any specific property (that would be a "
+        + "SIGNAL requiring validation). Every site passed the data-quality gate (valid coordinates, "
+        + "name, known NPL status, HRS score 0–100); failures are quarantined, see health.",
+      time: hit.at,
+      health: hit.health,
+      sites: hit.sites,
+    });
+  });
+
   bootGridStressPoll();
   app.get("/api/data/grid-stress", (_req, res) => {
     if (!gridStressEnabled()) {
