@@ -1083,14 +1083,14 @@
       "field": false
     },
     {
-      "id": "placenames",
-      "name": "Place names & labels",
+      "id": "places",
+      "name": "Places & labels",
       "kind": "raw",
       "status": "live",
       "group": "base",
       "costTier": "light",
-      "source": "Esri World Boundaries and Places reference tiles (© Esri; attribution on-map)",
-      "description": "Transparent reference overlay of country/state/city place names + boundaries, drawn over the satellite imagery so the world map is readable at a glance. Raster labels streamed on demand (no storage). For photorealistic 3D imagery of a place, zoom in with Google 3D Tiles enabled (separate layer).",
+      "source": "GeoNames gazetteer (CC BY 4.0) — compiled to vector tiles by our pipeline",
+      "description": "Named places across the whole world — countries, states/provinces, cities & towns, ISLANDS, seas & bays — as our own vector-tile labels layer (built from GeoNames, CC BY, storeable/ownable unlike Google's). Zoom-tiered so the map reads at every scale; tap a label to see what a place is. On by default for discovery. Photorealistic 3D imagery of a place is the separate Google 3D Tiles path at deep zoom.",
       "field": false
     },
     {
