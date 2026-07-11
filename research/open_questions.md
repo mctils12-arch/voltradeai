@@ -15,28 +15,134 @@
    test remains skip-with-reason (legacy file superseded by backtest_v2,
    never ported).
 
-3. **CSP execution cascade** (per CHANGELOG 2026-05-22): CSP trades were
-   failing on three modes — insufficient capital for high-priced
-   underlyings, no suitable puts in chain, liquidity filters rejecting
-   everything. Fixes were applied (dynamic price ceiling etc.) — VERIFY
-   in current audit logs that Tier 2 CSP trades actually fire now. If
-   still zero fills, the fix pack didn't take.
-   PARTIAL EVIDENCE 2026-07-11 (first live check since DIAG_TOKEN access,
-   per #4's correction note below): `/api/diag/orders?token=$DIAG_TOKEN`
-   returned the 100 most recent Alpaca orders, spanning 2026-07-07
-   10:00 UTC through 2026-07-10 18:42 UTC (~3.5 days) — every single one
-   `asset_class: "us_equity"`, zero options/CSP orders in the window.
-   NOT CONCLUSIVE EITHER WAY: this is consistent with "the fix pack
-   didn't take" but equally consistent with regime conditions producing
-   no CSP-eligible candidates in this specific 3.5-day window (low
-   volatility, no names clearing the liquidity/price filters) — the
-   probe returns a fixed order count, not a date-range query, so a
-   longer/older window wasn't checked this session. NEXT STEP: a future
-   session should check `/api/diag/audit?type=CSP` (empty this session —
-   no CSP-tagged audit lines exist at all in the current schema, so audit
-   logs won't distinguish "rejected" from "never attempted") or instrument
-   a CSP-attempt counter, then re-check `/api/diag/orders` over a longer
-   window before concluding the fix pack failed.
+3. **[ROOT CAUSE FOUND + FIXED 2026-07-11, v1.0.275]** ~~CSP execution
+   cascade~~ (per CHANGELOG 2026-05-22): CSP trades were failing on three
+   modes — insufficient capital for high-priced underlyings, no suitable
+   puts in chain, liquidity filters rejecting everything. Fixes were
+   applied (dynamic price ceiling etc.) — VERIFY in current audit logs
+   that Tier 2 CSP trades actually fire now. If still zero fills, the fix
+   pack didn't take.
+   CONCLUSIVE EVIDENCE 2026-07-11 (this session, superseding the PARTIAL
+   EVIDENCE note below): `/api/diag/orders?limit=200&token=$DIAG_TOKEN`
+   spans 2026-06-03 through 2026-07-10 — 183 `us_equity` orders vs. 17
+   `us_option` orders, and every single options order is dated
+   2026-06-04/05 (BB puts). Zero options orders anywhere between
+   2026-06-09 and 2026-07-10, a 5-week window with 185 equity orders
+   filling normally in the same span. The May-22 affordability fix pack
+   IS intact and working (verified by direct execution, see below) — a
+   DIFFERENT, newer bug fully masked it.
+   ROOT CAUSE (found by tracing the actual call graph this session, not
+   assumed from memory): `tiered_strategy.py:328`'s `tier1_csp_core()`
+   computed its options position-slot cap from
+   `caps.get("MAX_POSITIONS", 6)` — but `MAX_POSITIONS` is the STOCK
+   position cap, which `system_config.py`'s regime blocks zero out in
+   PANIC/BEAR/NEUTRAL specifically to block new stock longs (each block's
+   own comment says CSP should keep running: "Options engine takes over"
+   /"Options engine continues running — BEAR is prime time for premium
+   selling" / "CSP/options trades still fire via the tier engine (separate
+   code path)"). `tier1_csp_core` doesn't know that distinction and
+   silently inherited the stock 0, so CSP could only ever produce
+   candidates in BULL/CAUTION — the two regimes where it's LEAST needed
+   (stock longs are already active there) — and went hard-zero in exactly
+   the three regimes it's supposed to be the standing engine for. Verified
+   by direct execution (`tier1_csp_core` with empty positions across all
+   five regimes): 0 actions in NEUTRAL/BEAR/PANIC, 3 in BULL/CAUTION,
+   before the fix; nonzero in all five after.
+   FIX: `system_config.py` BASE_CONFIG gained a dedicated
+   `MAX_OPTIONS_POSITIONS` key (default 6, mirroring the value
+   `tiered_strategy.py`'s own fallback already assumed) that is NOT zeroed
+   by any regime block, so it survives PANIC/BEAR/NEUTRAL independent of
+   the stock cap; `tier1_csp_core` now reads `MAX_OPTIONS_POSITIONS`
+   instead of `MAX_POSITIONS`. This is a mechanical bug fix restoring
+   already-documented intended behavior (the regime comments already
+   asserted "CSP keeps running here"), not a new threshold policy — no
+   RULE REVIEW evidence gate applies. A SEPARATE, related finding (the
+   tier engine's own internal `master_kill_switch` recomputing regime from
+   raw inputs with hardcoded `markov_state=1`, comparing TOTAL portfolio
+   exposure against a regime-adaptive ceiling, and killing all 4 tiers —
+   not just T2-4 — when exceeded) is a genuine design/threshold judgment
+   call, NOT fixed this session, filed separately below as item #20.
+   VISIBILITY GAP ALSO CLOSED (same PR): `run_tiers()`'s own docstring
+   promises `{"killed": bool, "kill_reason": str}` but `bot_engine.py`
+   never read those two keys — a `master_kill_switch` firing left
+   literally zero audit trail (bot.ts only audits `tier_actions` when
+   the list is non-empty). `bot_engine.py` now captures both into a new
+   `tier_kill_status` field on `scan_market`'s return (distinct from the
+   pre-existing top-level `kill_status`, which is `risk_kill_switch.py`'s
+   separate, FROZEN-mechanism check); `server/bot.ts` audits it as
+   `TIER-KILL` whenever `killed` is true, mirroring the existing
+   `KILL-SWITCH` pattern. This means item #20 below is now independently
+   observable in production instead of requiring code archaeology.
+   RATCHET: `test_tiered_strategy.py` (NEW — zero test coverage existed
+   for this file before this PR, despite it being the sole live CSP code
+   path) — 6 tests; A/B-verified via `git stash` that 4 of the 6 fail
+   against the pre-fix code (the 3 stress-regime parametrized cases +
+   the dedicated-cap pin) and all 6 pass post-fix. Full gates:
+   `python3 -m pytest -q` 644 passed, 1 skipped (baseline + 6 new, zero
+   regressions); `npx tsx --test server/*.test.ts` 574 passed, 0 failed;
+   `npx tsc --noEmit` 64 errors, byte-identical to the `git stash`-verified
+   baseline; `npm run build` clean.
+   Backtest: N/A — this restores a documented existing rule to working
+   order (CSP already fires in BULL/CAUTION in the current live system);
+   it does not change any scoring, sizing, or threshold value, so
+   PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply the way it
+   would to a new strategy. The live effect will be directly observable in
+   `/api/diag/orders` (options orders resuming) and `/api/diag/ml`
+   (CSP-sourced `trade_feedback` records appearing) over the coming days —
+   a future session should check both.
+   PARTIAL EVIDENCE 2026-07-11 (earlier same-day check, kept for the
+   record — see CONCLUSIVE EVIDENCE above for the follow-up that resolved
+   the ambiguity): `/api/diag/orders?token=$DIAG_TOKEN` returned the 100
+   most recent Alpaca orders, spanning 2026-07-07 10:00 UTC through
+   2026-07-10 18:42 UTC (~3.5 days) — every single one `asset_class:
+   "us_equity"`, zero options/CSP orders in the window. NOT CONCLUSIVE
+   EITHER WAY at the time: consistent with "the fix pack didn't take" but
+   equally consistent with regime conditions producing no CSP-eligible
+   candidates in this specific 3.5-day window — the probe returns a fixed
+   order count, not a date-range query, so a longer/older window wasn't
+   checked in that pass. Widening the window to 200 orders (this session,
+   later the same day) is what turned this into the CONCLUSIVE EVIDENCE
+   above.
+
+20. **[FOUND 2026-07-11, not fixed — design/threshold judgment call,
+    needs RULE REVIEW evidence] `tiered_strategy.py`'s
+    `master_kill_switch` may be over-killing the CSP tier engine relative
+    to its own documented intent.** Found while diagnosing item #3 above.
+    Two separate issues, neither touched this session:
+    (a) `master_kill_switch` (tiered_strategy.py:278-303) calls
+    `get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity)`, which
+    hardcodes `markov_state=1, spy_below_200_days=0` (tiered_strategy.py:
+    114-123) instead of using `ctx.regime` — the richer, already-computed
+    regime `bot_engine.py` passes into `TierContext` (from its own
+    Markov-based classification, bot_engine.py:1187-1194 per the prior
+    session's regime-detector research). The kill switch is therefore
+    judging exposure against a DIFFERENT, cruder regime classification
+    than the rest of the system uses, via `regime_util.classify_regime_5level`
+    whose `CAUTION_VXX_THRESHOLD = 1.05` trips easily.
+    (b) The kill switch compares ctx.positions' TOTAL market value (stock
+    + options combined) against that regime's `MAX_TOTAL_EXPOSURE` ceiling
+    (95% BULL/NEUTRAL, 60% CAUTION, 50% BEAR, 30% PANIC) and, if exceeded,
+    kills ALL 4 tiers — including Tier 1 CSP, whose own per-position
+    budget is already small and self-limiting (`MAX_OPTIONS_PCT` = 8%
+    of equity per position). Live snapshot this session (`/api/diag/
+    positions-detail`): 4 stock ETF positions (SPY-floor basket) at
+    ~80.6% gross exposure vs. equity, 0 options positions held — at that
+    exposure level, any `vxx_ratio` >= ~1.05 (CAUTION or worse) kills
+    the ENTIRE tier engine, not just the stock-adjacent tiers, even though
+    Tier 1 CSP holds none of that exposure itself.
+    NOT FIXED THIS SESSION, deliberately: whether Tier 1 CSP should be
+    exempted from a whole-portfolio exposure kill it doesn't contribute
+    to, and whether `master_kill_switch` should use `ctx.regime` instead
+    of recomputing its own, are both threshold/design changes under this
+    file's RULE REVIEW protocol — need either counterfactual logging (does
+    this kill correctly prevent overexposure, or does it needlessly starve
+    CSP during the SPY-floor basket's normal 65-95% passive allocation?)
+    or a backtest ablation before shipping, one change at a time, with a
+    logged rollback trigger. The item #3 fix above already makes this
+    independently observable going forward via the new `TIER-KILL` audit
+    line and `tier_kill_status` field — a future session should query
+    `/api/diag/audit?type=TIER-KILL` after a few days of live data before
+    proposing a specific threshold change.
 
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation

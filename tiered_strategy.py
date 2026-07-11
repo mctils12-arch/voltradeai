@@ -129,6 +129,7 @@ def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
             "MAX_POSITION_PCT":    0.08,
             "MAX_TOTAL_EXPOSURE":  1.00,   # USER: fully invested in BULL
             "MAX_POSITIONS":       6,
+            "MAX_OPTIONS_POSITIONS": 6,
             "MAX_OPTIONS_PCT":     0.08,
             "regime":              "NEUTRAL",
         }
@@ -325,7 +326,12 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     # Pull authoritative caps from system_config (single source of truth)
     caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity)
     max_per_position = caps.get("MAX_OPTIONS_PCT", 0.08)  # CSP = options, use options cap
-    max_positions = caps.get("MAX_POSITIONS", 6)
+    # BUG FIX 2026-07-11: was caps.get("MAX_POSITIONS", 6) — that key is the
+    # STOCK position cap and is zeroed in PANIC/BEAR/NEUTRAL to block new
+    # stock longs, which silently zeroed CSP too in exactly the regimes
+    # system_config.py's own comments say CSP should keep running in. Use
+    # the dedicated options cap instead (see system_config.py BASE_CONFIG).
+    max_positions = caps.get("MAX_OPTIONS_POSITIONS", 6)
     regime_label = caps.get("regime", "NEUTRAL")
 
     # Additional tier-level scaling on top of the regime caps
@@ -350,7 +356,7 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     held_tickers = {p.get("symbol", "").upper() for p in ctx.positions
                     if p.get("asset_class") in ("us_option", "option")}
 
-    # Count current options positions to respect MAX_POSITIONS
+    # Count current options positions to respect MAX_OPTIONS_POSITIONS
     current_position_count = len([p for p in ctx.positions
                                    if p.get("asset_class") in ("us_option", "option")])
     slots_available = max(0, max_positions - current_position_count)
@@ -391,7 +397,7 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
         if ticker in held_tickers:
             continue
         if slots_available <= 0:
-            break  # respect MAX_POSITIONS
+            break  # respect MAX_OPTIONS_POSITIONS
 
         # AFFORDABILITY GATE 2026-05-22: skip if underlying too expensive.
         # If we have no price data we let the dispatcher decide (defense in depth

@@ -3524,6 +3524,7 @@ def _scan_market_inner():
     tiered_actions = []
     kill_status = None
     tier_stats = {}
+    tier_kill_status = None
     if _HAS_TIERED:
         try:
             acct = get_alpaca_account()
@@ -3554,6 +3555,18 @@ def _scan_market_inner():
                 tier_result = ts.run_tiers(ctx)
                 tiered_actions = tier_result["actions"]
                 tier_stats = tier_result.get("tier_stats", {})
+                # VISIBILITY FIX 2026-07-11: run_tiers() has its own internal
+                # master_kill_switch (tiered_strategy.py) distinct from the
+                # check_kill_switches() call above — it can zero out
+                # tiered_actions with no trace anywhere: bot.ts only audits
+                # tier_actions when the list is non-empty (KNOWN BROKEN-class
+                # silent failure). Surface it as its own field so a future
+                # internal-kill episode is diagnosable, not indistinguishable
+                # from "no eligible candidates today."
+                tier_kill_status = {
+                    "killed": bool(tier_result.get("killed", False)),
+                    "kill_reason": tier_result.get("kill_reason", ""),
+                }
                 # ALPHA AUDIT 2026-05-04 batch 5: capture per-tier timing
                 # so we can see which tier is the bottleneck. Production
                 # scans timing out at 300s — need to know if it's tier1
@@ -3647,6 +3660,7 @@ def _scan_market_inner():
         ],
         "tier_stats": tier_stats,
         "kill_status": kill_status,
+        "tier_kill_status": tier_kill_status,
         "scan_phase_times": _phase_times,
         # ALPHA AUDIT 2026-05-06 batch 11: surface the size-tier metadata
         # so the UI can show "POSITION RULES" card. Read from _slots_params
