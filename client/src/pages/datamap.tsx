@@ -93,7 +93,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place";
   title: string;
   subtitle: string;
   body: string;
@@ -163,7 +163,7 @@ const readGlobePref = (): boolean => {
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
-  : { imagery: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, powerplants: true, trains: true, shadowstats: true, portdwell: true, graph: true };
+  : { imagery: true, places: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, powerplants: true, trains: true, shadowstats: true, portdwell: true, graph: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -185,7 +185,7 @@ const PANEL_GROUPS = [
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", weather: "base",
-  weather_temp: "base", weather_wind: "base", boundaries: "base", placenames: "base",
+  weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -366,6 +366,7 @@ export default function DataMapPage() {
   // ORBITAL O2: the satellite worker + GPU layer live across renders so the
   // enable/disable effect can tear both down cleanly (zero-cost-when-off).
   const satWorkerRef = useRef<Worker | null>(null);
+  const placesDetach = useRef<(() => void) | null>(null);
   const satLayerRef = useRef<SatLayer | null>(null);
   // ORBITAL O3 (click-to-identify): the GP array the worker was initialized
   // with, kept index-aligned to the layer's position buffer per satWorker.ts's
@@ -1851,40 +1852,98 @@ export default function DataMapPage() {
     return () => { window.clearInterval(iv); };
   }, [enabled.weather, mapReady, setStatus]);
 
-  // ── place names & labels (RAW reference overlay; Esri World Boundaries and
-  // Places — transparent city/state/country labels + boundaries streamed over
-  // the satellite imagery so the world map reads at a glance. Free with Esri
-  // attribution; raster, no storage. NOT Google: their labels can't be stored
-  // or mixed under ToS, and a free labels overlay needs no key. Photorealistic
-  // 3D imagery of a place is the separate Google 3D Tiles path at deep zoom.) ──
+  // ── places & labels (RAW discovery layer; our OWN vector tile built from the
+  // GeoNames gazetteer, CC-BY — countries, states, cities/towns, ISLANDS, seas
+  // & bays as named points. Zoom-tiered via a per-feature rank `r` (label shows
+  // once zoom >= r) so the world reads at every scale without clutter. Click a
+  // label to see what it is. Ownable + storeable (unlike Google labels); this
+  // is "know what you're looking at" for discovery. Photorealistic 3D imagery
+  // of a place stays the separate Google 3D Tiles path at deep zoom.) ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    if (!enabled.placenames) {
+    const IDS = ["places-water", "places-admin", "places-city", "places-dot"];
+    if (!enabled.places) {
       try {
-        if (map.getLayer("placenames")) map.removeLayer("placenames");
-        if (map.getSource("placenames")) map.removeSource("placenames");
+        IDS.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+        if (map.getSource("places")) map.removeSource("places");
       } catch {}
-      setStatus("placenames", "off");
+      setStatus("places", "off");
       return;
     }
     try {
-      if (!map.getSource("placenames")) {
-        map.addSource("placenames", {
-          type: "raster",
-          tiles: ["https://services.arcgisonline.com/arcgis/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"],
-          tileSize: 256, maxzoom: 18,
-          attribution: "Place labels © Esri",
+      if (!map.getSource("places")) {
+        map.addSource("places", {
+          type: "vector",
+          url: `pmtiles://${window.location.origin}/tiles/places.pmtiles`,
+          attribution: "Place data © GeoNames (CC BY 4.0)",
         } as any);
-        // above imagery + raster fields, below vector data markers
-        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
-        map.addLayer({ id: "placenames", type: "raster", source: "placenames",
-                       paint: { "raster-opacity": 1 } } as any, firstMarker?.id);
       }
-      setStatus("placenames", "active", undefined,
-        "Place names & boundaries (© Esri) over the imagery — city/state/country labels; deep-zoom photorealistic 3D is the Google 3D Tiles layer");
-    } catch { setStatus("placenames", "error"); }
-  }, [enabled.placenames, mapReady, setStatus]);
+      const showByZoom = ["<=", ["to-number", ["get", "r"], 9], ["zoom"]] as any;
+      // small dot for populated places (cities/towns), so a place reads even
+      // before its label declutters in
+      if (!map.getLayer("places-dot")) {
+        map.addLayer({
+          id: "places-dot", type: "circle", source: "places", "source-layer": "places",
+          filter: ["all", showByZoom, ["==", ["get", "kind"], "city"]],
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 1.2, 10, 3],
+            "circle-color": "rgba(226,232,240,0.9)",
+            "circle-stroke-color": "rgba(8,12,20,0.9)", "circle-stroke-width": 0.6,
+          },
+        } as any);
+      }
+      const labelBase = {
+        type: "symbol", source: "places", "source-layer": "places",
+        layout: {
+          "text-field": ["get", "name"],
+          "text-font": ["Open Sans Semibold"],
+          "text-size": ["interpolate", ["linear"], ["zoom"],
+            2, ["match", ["get", "kind"], "country", 13, "water", 11, 9],
+            8, ["match", ["get", "kind"], "country", 16, "water", 13, 12]],
+          "text-max-width": 8,
+          "text-offset": [0, 0.6],
+          "text-allow-overlap": false,
+        },
+      };
+      const paintFor = (color: string, halo = "rgba(3,7,13,0.95)") => ({
+        "text-color": color, "text-halo-color": halo, "text-halo-width": 1.3,
+      });
+      // water (italic-ish blue), admin (countries/states), cities — three passes
+      // so styling differs by kind; each gated by the zoom rank.
+      if (!map.getLayer("places-water")) {
+        map.addLayer({ id: "places-water", ...labelBase,
+          filter: ["all", showByZoom, ["==", ["get", "kind"], "water"]],
+          paint: paintFor("rgba(125,211,252,0.95)") } as any);
+      }
+      if (!map.getLayer("places-admin")) {
+        map.addLayer({ id: "places-admin", ...labelBase,
+          filter: ["all", showByZoom, ["match", ["get", "kind"], ["country", "state"], true, false]],
+          paint: paintFor("rgba(248,250,252,1)") } as any);
+      }
+      if (!map.getLayer("places-city")) {
+        map.addLayer({ id: "places-city", ...labelBase,
+          filter: ["all", showByZoom, ["match", ["get", "kind"], ["city", "island"], true, false]],
+          paint: paintFor("rgba(226,232,240,0.98)") } as any);
+      }
+      // click any label -> "what is this place"
+      placesDetach.current?.();
+      placesDetach.current = attachLayerInteractions(map, ["places-city", "places-admin", "places-water"], (e: any) => {
+        const f = e.features?.[0]; if (!f) return; const p = f.properties;
+        const KIND: Record<string, string> = { country: "Country", state: "State / province", city: "City / town", island: "Island", water: "Sea / bay" };
+        setDetail({
+          kind: "place",
+          title: p.name || "Place",
+          subtitle: `${KIND[p.kind] || p.kind}${p.cc ? ` · ${p.cc}` : ""}`,
+          body: `${p.pop && Number(p.pop) > 0 ? `Population: ${Number(p.pop).toLocaleString()}\n` : ""}` +
+                `\nPlace reference — GeoNames (CC BY 4.0). Names/coordinates as gazetteered, not survey-grade.`,
+        });
+      });
+      setStatus("places", "active", undefined,
+        "Places & labels (GeoNames, CC BY) — countries, cities, islands, seas; zoom in for more, tap a name to see what it is");
+    } catch { setStatus("places", "error"); }
+    return () => { placesDetach.current?.(); placesDetach.current = null; };
+  }, [enabled.places, mapReady, setStatus]);
 
   // ── sampled weather grid: fetch when arrows or labels are wanted;
   // refetch on pan (debounced) + 10-min interval; stale beats spinner ──
