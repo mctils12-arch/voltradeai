@@ -40,8 +40,11 @@ export function gridDemandEnabled(env: NodeJS.ProcessEnv = process.env): boolean
   return Boolean(env.EIA_API_KEY);
 }
 
-/** US48 total + the big regional BAs (EIA-930 respondent codes). */
-export const RESPONDENTS = ["US48", "CISO", "ERCO", "MISO", "PJM", "NYIS", "ISNE", "SWPP", "FPL"];
+/** US48 total + the big regional BAs + the Southeast/Northwest/Southwest
+ *  region aggregates (all EIA-930 respondent codes on the region-data route).
+ *  SE/NW/SW are region rollups, not single BAs — the endpoint accepts them the
+ *  same way it accepts the US48 aggregate already in this list. */
+export const RESPONDENTS = ["US48", "CISO", "ERCO", "MISO", "PJM", "NYIS", "ISNE", "SWPP", "FPL", "SE", "NW", "SW"];
 /** Trailing window per fetch — covers lag + restarts without bulk. */
 export const HOURS_PER_FETCH = 48;
 const CALL_SPACING_MS = 300;

@@ -10,7 +10,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import {
   foldErcoDailyAsync, loadTxDegreeDays, pctRank, computeGridStressReading,
-  gridStressEnabled,
+  gridStressEnabled, foldRegionsDailyAsync, computeAllRegionsStress, REGION_LABEL,
 } from "./gridStress";
 
 function mkArchive(): string {
@@ -129,4 +129,53 @@ test("computeGridStressReading: full end-to-end with enough history computes a c
   // what this test controls (demand), not the real committed CPC file's
   // shape (that would make this test brittle to a weekly-refreshed fixture).
   assert.ok(reading!.demand_percentile !== null);
+});
+
+// ── multi-region expansion (all US balancing authorities + region aggregates) ──
+
+test("foldRegionsDailyAsync: folds many respondents in one pass, each isolated", async () => {
+  const base = mkArchive();
+  writeDay(base, "2024-07-01", [
+    row("2024-07-01T00", "ERCO", "D", 100),
+    row("2024-07-01T01", "ERCO", "D", 120),
+    row("2024-07-01T00", "MISO", "D", 500),
+    row("2024-07-01T01", "MISO", "D", 480),
+    row("2024-07-01T00", "PJM", "D", 800),
+  ]);
+  const by = await foldRegionsDailyAsync(["ERCO", "MISO", "PJM"], base);
+  assert.equal(by.get("ERCO")!.get("2024-07-01")!.peak, 120);
+  assert.equal(by.get("MISO")!.get("2024-07-01")!.peak, 500);
+  assert.equal(by.get("PJM")!.get("2024-07-01")!.peak, 800);
+  assert.equal(by.has("CISO"), false, "unrequested respondent not folded");
+});
+
+test("computeAllRegionsStress: per-region readings; non-TX regions have null weather, ERCO has weather", async () => {
+  const base = mkArchive();
+  // 6 same-month (July) days so percentiles clear MIN_SAMPLE_DAYS for the target
+  for (let d = 1; d <= 7; d++) {
+    const day = `2024-07-0${d}`;
+    writeDay(base, day, [
+      row(`${day}T00`, "ERCO", "D", 100 + d),
+      row(`${day}T00`, "ERCO", "DF", 95 + d),
+      row(`${day}T00`, "MISO", "D", 500 + d),
+      row(`${day}T00`, "MISO", "DF", 490 + d),
+    ]);
+  }
+  const { regions } = await computeAllRegionsStress(base, Date.parse("2024-07-08"));
+  const erco = regions.find((r) => r.respondent === "ERCO")!;
+  const miso = regions.find((r) => r.respondent === "MISO")!;
+  assert.ok(erco && miso, "both regions present");
+  // MISO (no per-region degree days) never fabricates weather
+  assert.equal(miso.weather_degree_days, null);
+  assert.equal(miso.weather_percentile, null);
+  // both compute demand percentile + forecast strain from real rows
+  assert.ok(miso.demand_percentile != null, "MISO demand percentile computed");
+  assert.ok(miso.forecast_strain_pct != null, "MISO forecast strain computed");
+  assert.ok(erco.demand_percentile != null, "ERCO demand percentile computed");
+});
+
+test("REGION_LABEL: every configured respondent has a human label", () => {
+  for (const code of ["US48", "ERCO", "MISO", "PJM", "CISO", "SWPP", "NYIS", "ISNE", "SE", "NW", "SW"]) {
+    assert.ok(REGION_LABEL[code], `label for ${code}`);
+  }
 });

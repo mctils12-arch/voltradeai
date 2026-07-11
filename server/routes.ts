@@ -57,7 +57,7 @@ import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
-import { bootGridStressPoll, latestGridStress, gridStressEnabled } from "./gridStress";
+import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
@@ -2246,23 +2246,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                          predictive: false, warming_up: true, reading: null });
     }
     res.set("Cache-Control", "public, max-age=1800");
+    const regions = (hit.regions || []).map((r) => ({ ...r, label: REGION_LABEL[r.respondent] || r.respondent }));
     res.json({
       kind: "descriptive",
-      source: "VoltradeAI derived composite (EIA-930 ERCOT demand/forecast + NOAA CPC TX degree days)",
+      source: "VoltradeAI derived (EIA-930 hourly demand/forecast for all major US balancing "
+        + "authorities + region aggregates; NOAA CPC TX degree days for the ERCOT weather ingredient)",
       attribution: "EIA-930 Hourly Electric Grid Monitor; NOAA Climate Prediction Center",
       predictive: false,
       validation_status: "GATE 2 NOT PASSED (2026-07-07) — two outcome designs (forecast-exceedance, "
         + "pooled-peak) were voided on their own pre-stated spot-validation rules before any PASS/FAIL "
         + "lift comparison was trusted; see research/experiments.md and datacore/gridvision/gate2_result.json",
-      note: "Descriptive-only TX/ERCOT reading: three raw ingredients (same-month demand percentile, "
-        + "day-ahead forecast strain, NOAA weather extremity) plus a plain EQUAL-WEIGHTED composite. "
-        + "This is deliberately NOT the gate-2 script's fitted weights — those were fit against an "
-        + "outcome variable that failed validation, so reusing them here would smuggle a voided claim "
-        + "back in under a new name. Percentiles are withheld (null) rather than guessed when fewer than "
-        + "5 same-calendar-month peer days exist in the archive yet.",
+      note: "Descriptive-only reading for every US region: same-month demand percentile + day-ahead "
+        + "forecast strain per balancing authority/region aggregate (ERCOT additionally carries a NOAA "
+        + "weather-extremity ingredient — the only region with a per-region degree-day join today). The "
+        + "composite is a plain EQUAL-WEIGHTED mean of the available ingredients, deliberately NOT the "
+        + "voided gate-2 fitted weights. Percentiles are withheld (null) — shown as 'n/a — not enough "
+        + "history yet' — rather than guessed when fewer than 5 same-calendar-month peer days exist.",
       time: hit.at,
       history_depth_days: hit.history_depth_days,
-      reading: hit.reading,
+      reading: hit.reading,   // ERCO, backward-compatible
+      regions,                // all regions incl. ERCO (national overview)
     });
   });
 
