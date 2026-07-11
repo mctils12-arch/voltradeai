@@ -13,6 +13,201 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-11 — [REPAIR] KNOWN BROKEN #3 root cause found: tier1_csp_core silently reused the STOCK position cap, zeroing CSP in exactly the 3 regimes it's supposed to run in — 5+ week live options blackout (v1.0.275)
+
+TERRITORY: T-BOT primary (tiered_strategy.py, system_config.py, bot_engine.py)
++ SHARED minimal (server/bot.ts tier-dispatch audit line, package.json
+version — last commit per MERGE-ORDER PROTOCOL). Solo session, autonomous
+routine (REPAIR MANDATE — KNOWN BROKEN #3 consulted first per the
+REPAIR MANDATE's own instruction).
+
+SESSION START per MEMORY PROTOCOL: read CLAUDE.md in full, experiments.md's
+last 10 tagged entries (PRODUCT x4, REPAIR x4, PIPELINE x2 — no 7+ REPAIR
+thrash signal, ratio healthy), open_questions.md KNOWN BROKEN (all items
+reviewed; #3 CSP cascade flagged "PARTIAL EVIDENCE, not conclusive" as the
+most actionable open repair item), wishlist.md (DATACORE MAXIMUS's only
+remaining unclaimed item is EPA CAMD/ENTSO-E, both gated on Mike's keys —
+nothing free-and-buildable queued there this session). HEALTH CHECK:
+`/api/health` all green (server/database/alpaca/python/scanner/licensing
+"ok", bot "active", equityPeak $109,967.44, drawdownPct 0.0, liveness.dark
+false — no Priority-1 liveness alarm).
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET, "fix a bug seen in audit
+logs" outranks starting new research. KNOWN BROKEN #3's prior PARTIAL
+EVIDENCE note (100-order/3.5-day window, zero options orders, explicitly
+called inconclusive) was the most promising lead — widened the live check
+to `/api/diag/orders?limit=200&token=$DIAG_TOKEN` (spans 2026-06-03
+through 2026-07-10): 183 `us_equity` vs. 17 `us_option` orders, and EVERY
+options order is dated 2026-06-04/05 — zero between 2026-06-09 and
+2026-07-10, a 5-week gap with 185 equity orders filling normally in the
+same span. This promoted the item from "inconclusive" to "conclusively
+broken, needs root-cause."
+
+READ BEFORE WRITE: delegated the initial call-graph trace to a subagent
+(server/bot.ts tier dispatcher -> tiered_strategy.py -> options_execution.py,
+plus live diag probes) since the relevant files are large (bot.ts 247KB,
+bot_engine.py 240KB) — then personally re-read and verified every claim
+against the actual current code this session before touching anything,
+per this file's own protocol (subagent output is research input, not a
+patch to apply blind). Confirmed by direct reading:
+- `tiered_strategy.py:328` (pre-fix): `max_positions = caps.get("MAX_POSITIONS", 6)`.
+- `system_config.py` regime blocks (409/423/454): `MAX_POSITIONS = 0` in
+  PANIC/BEAR/NEUTRAL, each with an explicit comment that CSP/options
+  should keep running there ("Options engine takes over" / "BEAR is
+  prime time for premium selling" / "CSP/options trades still fire via
+  the tier engine (separate code path)").
+- No `MAX_OPTIONS_POSITIONS` key existed anywhere in the codebase before
+  this PR — `tier1_csp_core` had no cap of its own to reach for.
+- Confirmed live by direct execution (not assumed): `tier1_csp_core()`
+  with empty positions across BULL/NEUTRAL/CAUTION/BEAR/PANIC produced
+  3/0/3/0/0 actions respectively before the fix — the two regimes it
+  went to zero in are exactly PANIC and BEAR (NEUTRAL also zero), the
+  three regimes system_config's own comments name as CSP's active
+  window.
+- Ruled out other candidates the subagent's initial trace flagged:
+  `voltrade_daemon.py`'s RPC route table for `select_contract`/
+  `submit_options_order`/`evaluate_and_execute` all point at real
+  functions (no shadow_stats-style route mismatch, KNOWN BROKEN #11's
+  precedent); the tier dispatcher calls those via raw subprocess, not
+  the daemon RPC, so daemon health is irrelevant here; `_HAS_TIERED`
+  imports cleanly; the May-22 affordability fix pack (dynamic price
+  ceiling) is intact and produces valid candidates once the cap bug is
+  bypassed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `MAX_OPTIONS_POSITIONS` fixed
+at 6 across every regime -> `tier1_csp_core`'s `slots_available` is
+nonzero in PANIC/BEAR/NEUTRAL again -> CSP candidates flow to
+`tier2_leverage_multiplier` (unaffected, still gated on Portfolio Margin)
+-> `bot.ts`'s tier dispatcher (unchanged, still calls the FROZEN
+`select_contract`/`submit_options_order` path) -> live options orders
+should resume, most likely first in a NEUTRAL/BEAR/PANIC scan given the
+5-week gap coincides with a period this engine could only fire in
+BULL/CAUTION. Per-position sizing (`MAX_OPTIONS_PCT` = 8%/equity) and the
+existing stress-based `size_scalar` reduction inside `tier1_csp_core`
+are UNCHANGED — this fix restores WHETHER Tier 1 runs, not HOW BIG each
+position is, so no sizing/risk parameter changed.
+
+WHAT SHIPPED:
+- `system_config.py` BASE_CONFIG — new `MAX_OPTIONS_POSITIONS: 6` key,
+  dated comment explaining the bug and why it deliberately stays constant
+  across every regime block (not zeroed alongside the stock `MAX_POSITIONS`
+  in PANIC/BEAR/NEUTRAL). Value mirrors the `6` that
+  `tiered_strategy.py`'s own `get_regime_caps()` fallback already assumed
+  as a default when this key didn't exist — not an invented number.
+- `tiered_strategy.py` — `tier1_csp_core` now reads
+  `caps.get("MAX_OPTIONS_POSITIONS", 6)` instead of `caps.get("MAX_POSITIONS", 6)`;
+  matching comment updates at the two `MAX_POSITIONS` mentions in the
+  slot-counting logic; `get_regime_caps`'s except-fallback dict also
+  gained the key for consistency (defensive, not required — `.get()`'s
+  own default already covers the import-failure case).
+- `bot_engine.py` — `scan_market`'s tier-engine block now captures
+  `tier_result.get("killed")` / `kill_reason` (previously read nowhere,
+  despite `run_tiers()`'s own docstring promising them) into a new
+  `tier_kill_status` field on the return dict, distinct from the
+  pre-existing top-level `kill_status` (that one is `risk_kill_switch.py`'s
+  separate FROZEN-mechanism check, called BEFORE `run_tiers` — a
+  different kill switch entirely; naming kept distinct on purpose to
+  avoid conflating the two in future diagnostics).
+- `server/bot.ts` — new audit line: `if (result.tier_kill_status?.killed)
+  audit("TIER-KILL", ...)`, mirroring the existing `KILL-SWITCH` pattern
+  immediately above it. This closes the visibility gap the investigation
+  found along the way: `run_tiers()`'s internal `master_kill_switch` could
+  silently zero `tier_actions` with ZERO audit trail (bot.ts only audits
+  `tier_actions` when the list is non-empty) — indistinguishable from "no
+  eligible candidates today." Confirmed live this session: every
+  tier/options-related `/api/diag/audit?type=X` probe (TIERS, T1,
+  OPTIONS-*, KILL-SWITCH) returned empty across the full available
+  history, while TIER2 (stock scan) fired normally every cycle.
+- `package.json` — version 1.0.274 -> 1.0.275 (read-and-increment at
+  commit time, confirmed against `origin/main` immediately before
+  bumping — no race).
+- `research/open_questions.md` — KNOWN BROKEN #3 marked RESOLVED with
+  the full root-cause trace and the CONCLUSIVE EVIDENCE that supersedes
+  the earlier PARTIAL EVIDENCE note (kept for the record, not deleted,
+  per append-only spirit). NEW item #20 filed: a second, related but
+  NOT fixed finding — `master_kill_switch` recomputes regime from raw
+  inputs with hardcoded `markov_state=1` instead of using `ctx.regime`,
+  and kills ALL 4 tiers (not just the stock-adjacent ones) on a
+  whole-portfolio exposure ceiling that Tier 1 CSP doesn't itself
+  contribute to. This is a genuine RULE REVIEW-gated design/threshold
+  question (evidence + one-at-a-time + logged rollback trigger required),
+  deliberately NOT touched this session — one logical change per PR. The
+  new `TIER-KILL` audit line this PR ships makes it independently
+  observable going forward instead of requiring code archaeology to even
+  detect.
+
+RATCHET (per HEALTH OF THE LOOP rule 3): `test_tiered_strategy.py` — NEW
+FILE. No test coverage existed for `tiered_strategy.py` at all before
+this PR, despite it being the sole live code path for CSP/options trading
+per `system_config.py`'s own comment ("CSP/options trades still fire via
+the tier engine (separate code path)") — exactly the kind of untested
+critical path that let this bug ship invisibly for 5+ weeks. 6 tests:
+3 parametrized stress-regime cases (NEUTRAL/BEAR/PANIC each must produce
+>0 CSP candidates with empty positions), a direct pin on
+`MAX_OPTIONS_POSITIONS` existing and staying nonzero while
+`MAX_POSITIONS` is correctly zero, a cap-still-enforced case (6 held
+option positions -> 0 new slots, proving the fix didn't make the cap
+unlimited), and a `run_tiers()` contract pin (`killed`/`kill_reason` keys
+present and correct on a forced drawdown-kill scenario). A/B-VERIFIED via
+`git stash`: 4 of the 6 tests fail against the pre-fix code (the 3
+stress-regime cases + the dedicated-cap pin) and all 6 pass post-fix —
+confirms this is a real ratchet, not a vacuous test.
+
+GATES: `python3 -m pytest -q` — 644 passed, 1 skipped (baseline 638 + 6
+new; the 1 skip is the pre-existing legacy-file skip, unchanged; zero
+regressions). `npx tsx --test server/*.test.ts` — 574 passed, 0 failed
+(after `npm ci`, cold sandbox). `npx tsc --noEmit` — 64 errors, byte-for-
+byte identical to the `git stash`-verified baseline (confirmed via A/B;
+none reference `tieredStrategy`/`tierKillStatus`/`TIER-KILL`). `npm run
+build` — clean, dist/index.cjs + dist/public produced.
+
+Version 1.0.274 -> 1.0.275 (read-and-increment at commit time).
+
+MARKET-HOURS NOTE: session ran mid-morning UTC (per `/api/health`'s
+timestamp, ~11:00 UTC / ~7am ET, before the 9:30am ET open). This PR
+touches the CSP/options tier-engine's position-slot gating and adds
+audit visibility — it does NOT touch `options_execution.py`'s
+order-submission internals (FROZEN), does not touch any risk/kill-switch
+MECHANISM (only adds a read-and-log of an existing kill switch's already-
+returned reason string), and does not change per-position sizing. Per
+this file's established precedent for execution-adjacent (not
+execution-internals) fixes shipping without holding for market close
+(KNOWN BROKEN #8, #16 both shipped mid-session), merged rather than held
+— the blast radius is "CSP can now fire in 3 more regimes it was always
+supposed to fire in," not a new capability or a loosened risk limit.
+
+Backtest: N/A — this restores existing, already-documented intended
+behavior (CSP already fires live in BULL/CAUTION today; the fix makes it
+also fire in PANIC/BEAR/NEUTRAL as system_config's own regime-block
+comments always said it should) rather than introducing or tuning a
+strategy, sizing rule, or threshold. PROMOTION RULE 3's Sharpe/drawdown
+backtest-comparison gate applies to strategy/parameter changes; this is
+a bug fix restoring a stated existing rule to working order, same
+category as KNOWN BROKEN #8/#16's execution-layer fixes (both also
+shipped without a backtest per this file's own precedent).
+
+STARVED: no — the primary action (KNOWN BROKEN #3 root cause + fix +
+new test coverage + the TIER-KILL visibility follow-on it exposed) shipped
+in full. Fall-through queue for a future session: item #20 above
+(master_kill_switch design question, needs a few days of live
+`TIER-KILL`/`/api/diag/orders` data before a RULE-REVIEW proposal can be
+evidence-backed); confirming this fix's live effect (options orders
+resuming, `/api/diag/ml`'s `live_code_versions`/`live_outcome_breakdown`
+picking up CSP-sourced fills) in a follow-up session once a few days of
+data accumulate; DATACORE MAXIMUS's EPA CAMD/ENTSO-E items (gated on
+Mike's keys); worldview_globe.md's G0c/G2f/G2h/G4 backlog. Also noted,
+not filed as a new item (process observation, not a code bug): several
+PRs between v1.0.267 and v1.0.274 (place-names overlay, click-identify,
+the data-quality ingest gate, Location Context Engine roadmap, EPA
+Superfund) did not append an experiments.md entry despite MEMORY
+PROTOCOL requiring one at session end — `git log -- research/
+experiments.md` shows the last commit touching this file before today
+was v1.0.273's two-world-nav PR. Not chasing this down or
+reconstructing missing entries this session (would mean writing history
+for sessions this one wasn't present for, which risks misattributing
+intent) — flagging it here so a future session notices the gap rather
+than assuming those PRs are undocumented because nothing happened.
+
 ## 2026-07-11 — [PRODUCT] PLATFORM INTEGRATION P1: two-world nav (Trade / Data) + bring the API page into the app (v1.0.273)
 
 TERRITORY: T-CLIENT (client/src/pages/home.tsx, client/src/index.css) +

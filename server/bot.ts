@@ -3515,6 +3515,15 @@ else:
         }
       }
 
+      // Surface the tier engine's OWN internal kill switch (tiered_strategy.py
+      // master_kill_switch — distinct from kill_status above). Without this,
+      // tier_actions silently staying empty is indistinguishable from "no
+      // eligible CSP candidates today" (see the tier_kill_status field added
+      // in bot_engine.py's scan_market return, 2026-07-11).
+      if (result.tier_kill_status?.killed) {
+        audit("TIER-KILL", `Tier engine blocked: ${result.tier_kill_status.kill_reason}`);
+      }
+
     } catch (err: any) {
       tier2LastScanFailed = true;
       console.error("[tier2-scan]", err?.message || err);

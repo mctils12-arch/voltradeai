@@ -82,7 +82,25 @@ BASE_CONFIG = {
     "MAX_TOTAL_EXPOSURE":   0.95,  # 95% deployment ceiling (was 1.00)
     "MAX_TOTAL_CAPITAL_PCT": 0.95,  # Never deploy more than 95% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
-    "MAX_POSITIONS":        6,     # Max total open positions
+    "MAX_POSITIONS":        6,     # Max total open STOCK positions (see below — do not reuse for options)
+    # BUG FIX 2026-07-11: MAX_OPTIONS_POSITIONS is a SEPARATE cap from
+    # MAX_POSITIONS. Regime blocks below zero out MAX_POSITIONS in
+    # PANIC/BEAR/NEUTRAL to stop new STOCK longs (their own comments say so:
+    # "Options engine takes over" / "Options engine continues running" /
+    # "CSP/options trades still fire via the tier engine (separate code
+    # path)"). tiered_strategy.py's tier1_csp_core() was reusing
+    # caps["MAX_POSITIONS"] as its own slot cap, so it silently inherited
+    # the 0 meant only for stock — CSP produced zero candidates in exactly
+    # the three regimes it's supposed to be the active engine for. Live
+    # evidence: zero options/CSP orders filled 2026-06-09 through
+    # 2026-07-10 (~5 weeks) while 185 equity orders filled in the same
+    # window. This key stays constant across ALL regimes (not zeroed in
+    # PANIC/BEAR/NEUTRAL) so tier1_csp_core keeps its own cap independent of
+    # the stock gate; tier1 already reduces per-position size in stress via
+    # its own size_scalar logic. Value mirrors the MAX_POSITIONS default
+    # (6) that tiered_strategy.py's own get_regime_caps() fallback already
+    # assumed when this key didn't exist.
+    "MAX_OPTIONS_POSITIONS": 6,    # Max total open OPTIONS (CSP) positions
     "MAX_OPTIONS_PCT":      0.08,  # Max 8% per options position (v1.0.34: was 10%)
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
     "KELLY_DIVISOR":        3.0,   # Third-Kelly: divide full Kelly by 3 — was 4.0 (quarter-Kelly)
