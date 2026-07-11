@@ -21,6 +21,22 @@
    everything. Fixes were applied (dynamic price ceiling etc.) — VERIFY
    in current audit logs that Tier 2 CSP trades actually fire now. If
    still zero fills, the fix pack didn't take.
+   PARTIAL EVIDENCE 2026-07-11 (first live check since DIAG_TOKEN access,
+   per #4's correction note below): `/api/diag/orders?token=$DIAG_TOKEN`
+   returned the 100 most recent Alpaca orders, spanning 2026-07-07
+   10:00 UTC through 2026-07-10 18:42 UTC (~3.5 days) — every single one
+   `asset_class: "us_equity"`, zero options/CSP orders in the window.
+   NOT CONCLUSIVE EITHER WAY: this is consistent with "the fix pack
+   didn't take" but equally consistent with regime conditions producing
+   no CSP-eligible candidates in this specific 3.5-day window (low
+   volatility, no names clearing the liquidity/price filters) — the
+   probe returns a fixed order count, not a date-range query, so a
+   longer/older window wasn't checked this session. NEXT STEP: a future
+   session should check `/api/diag/audit?type=CSP` (empty this session —
+   no CSP-tagged audit lines exist at all in the current schema, so audit
+   logs won't distinguish "rejected" from "never attempted") or instrument
+   a CSP-attempt counter, then re-check `/api/diag/orders` over a longer
+   window before concluding the fix pack failed.
 
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
@@ -642,6 +658,67 @@
     zombie theory first (RECURRENCE ESCALATES only applies once, but
     "patch blind before checking the diagnostic you just built" defeats
     the entire point of building it).
+
+19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
+    was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
+    EVERY live trade_feedback record, forever — PROMOTION RULES #4's
+    attribution mechanism ("bump the version so code_version separates
+    this change's live results from prior code") has never worked for a
+    single live-recorded fill since v1.0.34.** Found while live-verifying
+    KNOWN BROKEN #3/#4 via `/api/diag/ml` this session: `live_code_versions`
+    showed `{"1.0.34": 3}` for records dated 2026-07-10, while the deployed
+    app was v1.0.269 — 235 version bumps with zero change reflected in the
+    attribution field. READ BEFORE WRITE traced it to three literal
+    `"code_version": "1.0.34"` string constants inside `ml_model_v2.py`'s
+    `track_fill()` (entry-fill record, orphan_exit fallback x2) — none of
+    them read `order_data.get("code_version")`, so nothing any caller
+    passed could ever change the stamped value. `server/bot.ts`'s three
+    `track_fill` call sites (recordExitFill via `buildExitFillPayload`,
+    the morning-queue payload, the regular-hours payload) never sent a
+    `code_version` key either, so there was no counter-pressure from the
+    JS side; a fourth hardcoded site (`trackClosedTrades`'s feedback
+    block, bot.ts:718) is separately known-dead per #12(b) but carried the
+    same stale literal and was fixed for consistency.
+    MEASUREMENT INTEGRITY (own PR, not bundled with any strategy change):
+    BEFORE — every live record, regardless of when/what version produced
+    it, reported `code_version: "1.0.34"`. Since `MIN_TRUSTED_VERSION =
+    (1,0,34)` (`feedback_boot_cleanup.py`) and `MIN_FEEDBACK_VERSION =
+    "1.0.33"` (`ml_model_v2.py`) are both ≤ "1.0.34", every live record
+    already always passed both trusted/non-legacy gates — so the 0.4x
+    legacy-weighting mechanism described in KNOWN STATE could never
+    engage for any live fill, and no session could ever attribute a
+    specific live result to a specific code change via this field. AFTER
+    — `bot.ts` now passes the real running `pkgVersion` (package.json) on
+    every `track_fill` call; Python reads `order_data.get("code_version")`
+    with the old literal kept only as a fallback for callers that don't
+    supply one (e.g. direct test calls), matching pre-fix behavior exactly
+    in that fallback case. BIAS DIRECTION: neutral-to-corrective, not
+    strategy-favorable — no record was ever wrongly downweighted before
+    (the bug hid granularity, it didn't inflate quality), and the fix
+    restores an existing designed mechanism rather than introducing a new
+    one; it does NOT change any live P&L, slippage, or trade decision.
+    ADJACENT FINDING (not fixed, logged for the future): the 3 live
+    records observed this session were ALL `orphan_exit` (an exit fill
+    that found no matching open entry) — relevant to #12(b)'s open
+    decision gate on whether D2's WS-exit path is now producing real
+    matched closes; this session's snapshot alone can't say whether
+    that's the norm or a coincidence of timing, so #12(b) stays open,
+    not resolved, pending more live records under the now-fixed
+    versioning.
+    RATCHET: 3 new Python regression tests (`test_fixes_pr8.py` —
+    entry-fill, orphan-exit, and matched-exit paths each assert the
+    caller-supplied version survives, not the old literal) + 2 new/updated
+    TS tests (`exitFill.test.ts`) asserting `code_version` is present and
+    correct in the built payload. Full local gates: `python3 -m pytest -q`
+    — 638 passed, 1 skipped (pre-existing legacy-file skip, unchanged);
+    `npx tsx --test server/*.test.ts` — 559 passed, 0 failed (after
+    `npm ci`, which this sandbox needed cold). `npx tsc --noEmit` has
+    ~60 pre-existing errors unrelated to this change (Buffer/Map-iteration/
+    downlevelIteration noise across unrelated files, confirmed via grep
+    that none reference `exitFill`/`codeVersion`/`code_version`) — not a
+    regression, and not part of the documented PROMOTION RULES gate.
+    Backtest: N/A — no trading/scoring/sizing logic touched, pure
+    attribution-metadata fix.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

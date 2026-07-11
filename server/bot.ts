@@ -715,7 +715,13 @@ async function trackClosedTrades() {
           entry_features: t.entryFeatures || null,   // 52-feature snapshot at entry
           exit_context: t.exitContext || null,        // Stop phase, R-multiple, ATR at exit
           timestamp: t.timestamp,
-          code_version: "1.0.34",                    // v1.0.34 = post-Bug-25-fix
+          // REPAIR 2026-07-11: was hardcoded "1.0.34" (the version at
+          // Bug-25's fix) forever — same bug as track_fill's stamping,
+          // fixed there too. This block is currently dead code (KNOWN
+          // BROKEN #12b: entryFeatures is hardcoded null upstream), but
+          // fixing the stale literal costs nothing and avoids leaving a
+          // second copy of the same bug pattern in the repo.
+          code_version: pkgVersion,
         }));
         if (feedbackData.length === 0) {
           // Nothing worth training on this cycle
@@ -2977,6 +2983,7 @@ print(json.dumps(result[:20]))
             time_placed: trade.queuedAt || new Date().toISOString(),
             session: "morning_queue", volume: mVol, score: trade.score,
             instrument: trade.instrument || "stock",
+            code_version: pkgVersion,
           };
           const mfTmp = `/tmp/fill_m_${trade.ticker}_${Date.now()}.json`;
           fs.writeFileSync(mfTmp, JSON.stringify(morningFillPayload));
@@ -3995,6 +4002,7 @@ else:
             session: "regular", volume: vol, score: pending.trade.score,
             instrument: pending.trade.instrument || "stock",
             entry_features: pending.trade.entry_features || null,
+            code_version: pkgVersion,
           };
           const rfTmp = `/tmp/fill_r_${pending.trade.ticker}_${Date.now()}.json`;
           fs.writeFileSync(rfTmp, JSON.stringify(fillPayload));
@@ -4637,6 +4645,7 @@ except: print('{}')
             recordExitFill(buildExitFillPayload({
               ticker, exitSide: closeSide, qty: Number(qty) || 0,
               fillPrice: current, pnlPct, exitReason: "position_kill",
+              codeVersion: pkgVersion,
             }));
             continue; // Skip the rest of the loop for this position
           } catch (killErr: any) {
@@ -5184,6 +5193,7 @@ if '${ticker}' in ss:
       recordExitFill(buildExitFillPayload({
         ticker, exitSide, qty: exitQty, fillPrice: currentPrice,
         pnlPct, exitReason: exitType, entryDate: pos.entryDate,
+        codeVersion: pkgVersion,
       }));
 
       // Write stop-loss cooldown

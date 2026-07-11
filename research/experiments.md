@@ -13,6 +13,170 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-11 — [REPAIR] track_fill's code_version was hardcoded to "1.0.34" forever — PROMOTION RULES #4 attribution has never worked for a live fill since that version (v1.0.270)
+
+TERRITORY: T-BOT (server/bot.ts, server/exitFill.ts, ml_model_v2.py,
+test_fixes_pr8.py, server/exitFill.test.ts) + SHARED minimal
+(research/*, package.json version — last commit per MERGE-ORDER
+PROTOCOL). Solo session, scheduled-routine directive (repair-first per
+the Repair Mandate).
+
+SESSION-START CHECKS: read CLAUDE.md in full (EDGE DOCTRINE included),
+then all of research/. Designated branch `claude/dazzling-planck-72d6g4`
+had already been merged and its remote ref deleted (confirmed via
+`git ls-remote origin` — not present among current branches, `origin/main`
+head matched the branch's last commit exactly) — restarted it from
+`origin/main` per this session's own branch-reset protocol before doing
+any work, no unmerged commits lost.
+
+Live health: `/api/health` — status ok, bot active, equityPeak
+$109,967.44, drawdownPct 0.0, liveness.dark false, alpaca ACTIVE,
+scanner 0 consecutiveFailures. No LIVENESS ALARM condition. Checked
+open_questions.md KNOWN BROKEN #1-18: all either RESOLVED or explicitly
+non-critical/gated-on-more-live-data (#3 CSP cascade needed live
+verification — now attempted, see below; #17 low-priority self-healing
+ML error string, recurred again this session per `/api/diag/audit`,
+unchanged; #18 daemon-timeout hypothesis, `active_dispatches: 1` this
+session — not elevated, nothing new to confirm/refute the zombie-thread
+theory). Nothing rose to TOP-OF-REPORT/critical, so this did not
+mechanically force a [REPAIR] session — the finding below was surfaced
+BY the live-verification pass itself and independently qualified as the
+highest-value action once found (Priority 2: PROTECT THE INTEGRITY OF
+LEARNING outranks starting new pipeline/research work).
+
+PRIMARY ACTION: attempted to close KNOWN BROKEN #3/#4's live-verification
+gaps using the DIAG_TOKEN access now available (`/api/diag/{audit,ml,
+daemon,scanner,orders}`). `/api/diag/ml` returned `live_code_versions:
+{"1.0.34": 3}` for 3 live feedback records dated 2026-07-10 — while the
+deployed app is v1.0.269. That gap (235 version bumps, zero reflected)
+was the actual finding, not the CSP question I'd set out to check.
+READ-BEFORE-WRITE traced it fully before touching anything: `ml_model_v2.
+py`'s `track_fill()` hardcodes the literal `"code_version": "1.0.34"` in
+three places (entry-fill record; orphan_exit fallback, two call sites)
+and never reads `order_data.get("code_version")` — so no caller could
+ever have changed the stamped value, at any point since v1.0.34 (visible
+in git blame terms as "the version when Bug #13's exit machinery was
+built," per the surrounding comment). Grepped every `track_fill` call
+site in `server/bot.ts` (recordExitFill → buildExitFillPayload;
+morningFillPayload; fillPayload) — none send a `code_version` key, so
+there was no caller-side pressure either. A fourth hardcoded
+`"code_version": "1.0.34"` literal exists in `trackClosedTrades`'s
+feedback block (bot.ts:718) — that block is separately confirmed dead
+code per KNOWN BROKEN #12(b) (entryFeatures hardcoded null upstream
+means its filter rejects every record) but carries the same stale
+literal; fixed for consistency at zero behavioral cost since the block
+writes nothing today.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): code_version feeds two
+mechanisms — `feedback_boot_cleanup.py`'s `MIN_TRUSTED_VERSION = (1,0,34)`
+gate (decides which records survive boot cleanup) and `ml_model_v2.py`'s
+`MIN_FEEDBACK_VERSION = "1.0.33"` gate (decides `is_legacy` 0.4x
+downweighting in training). Both thresholds are ≤ "1.0.34", so the
+hardcoded literal always passed both — meaning every live fill has
+always been treated as maximally-current/full-weight regardless of which
+actual version produced it, and the legacy-downweighting mechanism has
+never fired on a single live record. Two steps further: this also means
+no past or future session can use code_version to isolate "did version
+X's change actually move live results" — the exact capability PROMOTION
+RULES #4 exists to provide. Nothing in this chain touches sizing,
+scoring, or trade selection — it's pure post-hoc attribution metadata,
+confirmed by tracing every read site (`_version_tuple`/`is_legacy` at
+ml_model_v2.py:1086, `parse_version`/`keep_record` in
+feedback_boot_cleanup.py, and the diagnostic-only reads in bot.ts's
+/api/diag/ml probe and ml_diagnostics.py).
+
+MEASUREMENT INTEGRITY (this qualifies — code_version drives which
+records the ML training loop treats as legacy/current — so it gets its
+own PR, not bundled with anything else, and states before/after +
+bias direction per that section's requirement):
+BEFORE: on identical historical inputs, every track_fill call — no
+matter the order_data passed or the app's actual running version —
+wrote `code_version: "1.0.34"`. AFTER: `server/bot.ts` now passes the
+real running `pkgVersion` (already imported from package.json in that
+file) on all three track_fill call sites; `ml_model_v2.py`'s track_fill
+reads `order_data.get("code_version")`, falling back to the old literal
+`"1.0.34"` only when a caller omits it (preserves exact prior behavior
+for that edge case — direct Python test/script callers, not the
+production path). BIAS DIRECTION: neutral-to-corrective. No record was
+ever wrongly downweighted before (the bug hid granularity rather than
+inflating apparent quality), and the fix restores a designed-but-inert
+mechanism rather than introducing new leniency or strictness — it does
+not touch P&L, slippage, sizing, or any trade decision, so it cannot
+make an existing strategy "look better." Named bug, code-inspected root
+cause, external ground truth (the live diag reading vs. package.json)
+— satisfies the "requires independent justification" bar.
+
+ADJACENT FINDING, logged not fixed (scope discipline — one logical
+change per PR): the 3 live records observed this session were ALL
+`outcome: "orphan_exit"` (an exit fill with no matching open entry).
+This bears on KNOWN BROKEN #12(b)'s open decision — whether D2's WS-exit
+path is now producing real matched closes (in which case the
+`trackClosedTrades` dead-code block should be removed) or still
+underdelivering (in which case it needs repair instead). A 3-record
+snapshot can't settle that; logged in open_questions.md #19 for a
+future session once more live records accumulate under the now-fixed
+versioning (which will also make future code_version reads on those
+records actually meaningful, unlike the ones already in the file).
+
+CSP CASCADE (KNOWN BROKEN #3), attempted but inconclusive: `/api/diag/
+orders` returned 100 orders spanning 2026-07-07 through 2026-07-10
+(~3.5 days), all `asset_class: "us_equity"` — zero CSP/options fills in
+that window. `/api/diag/audit?type=CSP` returned zero entries (no
+CSP-tagged audit lines exist in the current schema at all, so it can't
+distinguish "rejected" from "never attempted"). Logged as PARTIAL
+EVIDENCE in open_questions.md #3, not RESOLVED — a 3.5-day window with
+zero fills is consistent with either "the 2026-05-22 fix pack didn't
+take" or "no CSP-eligible candidates in this specific low-vol window,"
+and the diag probe can't distinguish them without a longer window or an
+attempt-counter. Did not chase this further this session — the
+code_version finding was the higher-value, fully-traceable action
+Priority 2 calls for; CSP needs either more diag budget or new
+instrumentation, not more inference from the same read.
+
+RATCHET (loop-health rule 3 — no repair without a regression test that
+would have caught the break): 3 new Python tests in test_fixes_pr8.py
+(`test_uses_caller_supplied_code_version_on_entry`, `_on_orphan_exit`,
+`_on_matched_exit`) — each calls track_fill with an explicit
+`code_version` and asserts it survives into the written record, for all
+three record-shape paths (entry, orphan_exit, and a matched exit that
+must NOT overwrite the entry's own stamped version). 2 TS changes in
+server/exitFill.test.ts (existing tests updated to pass `codeVersion`
+since the field is now required on `ExitFillArgs`, so any future call
+site that forgets it fails to compile; one new test asserting the field
+lands in the built payload).
+
+GATES: `python3 -m pytest -q` — 638 passed, 1 skipped (pre-existing
+legacy-file skip, unchanged) — after this sandbox needed `pip3 install
+numpy pandas scipy openpyxl` plus `-r requirements.txt -r
+requirements-dev.txt` (cold container, not caused by this change).
+`npx tsx --test server/*.test.ts` — 559 passed, 0 failed — after `npm
+ci` (cold container had zero node_modules; an initial run before
+installing showed 3 unrelated file-level crashes — compression.test.ts,
+gdeltEvents.test.ts, owmTiles.test.ts, all `Cannot find package
+'express'`-class errors — that resolved cleanly post-install, same
+pre-existing-sandbox-artifact pattern this file's 2026-07-11 PRODUCT
+entry above already documented for a different session). `npx tsc
+--noEmit` — ~60 pre-existing errors, none referencing exitFill/
+codeVersion/code_version (grepped to confirm); not part of the
+documented PROMOTION RULES gate, unaffected by this change.
+
+Version 1.0.269 -> 1.0.270 (read-and-increment at commit time,
+re-confirmed origin/main hadn't moved since session start before
+bumping).
+
+Backtest: N/A — zero trading/scoring/sizing logic touched; pure
+attribution-metadata fix to a measurement/training-input field.
+
+STARVED: no — primary action (this repair) shipped in full with tests,
+plus two logged-not-fixed findings (CSP partial evidence, #12(b)
+adjacent finding) that a future session can pick up directly from
+open_questions.md without re-deriving the diagnosis. No time remained
+in this session's chosen scope for a second independent PR; the CSP
+question specifically needs either a longer diag window or new
+instrumentation (an attempt-counter or CSP-tagged audit lines) before
+it can be resolved, which is itself a fall-through candidate for a
+future session rather than something this session could shortcut.
+
 ## 2026-07-11 — [PRODUCT] Earthquakes (USGS) + ocean buoys (NDBC) map layers — closing the "pipeline shipped, no map layer yet" gap for two already-live RAW streams (v1.0.267)
 
 TERRITORY: T-CLIENT primary (client/src/lib/mapIcons.ts, client/src/pages/

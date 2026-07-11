@@ -2420,7 +2420,7 @@ def track_fill(order_data: dict) -> None:
                             "time_filled": str(order_data.get("time_filled", datetime.now().isoformat())),
                             "outcome": "orphan_exit", "pnl_pct": None,
                             "note": "Exit fill with no matching open entry",
-                            "code_version": "1.0.34",
+                            "code_version": str(order_data.get("code_version") or "1.0.34"),
                         })
                 else:
                     # No matching entry — might be manual trade or pre-existing position
@@ -2437,7 +2437,7 @@ def track_fill(order_data: dict) -> None:
                         "time_filled": str(order_data.get("time_filled", datetime.now().isoformat())),
                         "outcome": "orphan_exit", "pnl_pct": None,
                         "note": "Exit fill with no matching open entry",
-                        "code_version": "1.0.34",
+                        "code_version": str(order_data.get("code_version") or "1.0.34"),
                     })
             else:
                 # ── ENTRY FILL: append new record ──
@@ -2456,7 +2456,16 @@ def track_fill(order_data: dict) -> None:
                     "entry_features": order_data.get("entry_features", {}),
                     "outcome":        None,
                     "pnl_pct":        None,
-                    "code_version":   "1.0.34",
+                    # REPAIR 2026-07-11 (MEASUREMENT INTEGRITY): was hardcoded
+                    # "1.0.34" (the version at Bug #13's fix) for every record
+                    # ever written, regardless of the app's actual running
+                    # version — PROMOTION RULES #4's attribution mechanism
+                    # ("code_version separates this change's live results
+                    # from prior code") could never work as a result. bot.ts
+                    # now sends the real package.json version on every call
+                    # site; fall back to the old literal only for legacy/test
+                    # callers that don't pass one, matching prior behavior.
+                    "code_version":   str(order_data.get("code_version") or "1.0.34"),
                 }
                 # VERSION-AWARE-ML 2026-04-22: capture config fingerprint
                 try:
