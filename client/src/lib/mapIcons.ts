@@ -351,6 +351,42 @@ const shapes: Record<string, () => ImageData> = {
     ctx.quadraticCurveTo(m + 7, s - 3, s - 6, s - 9);
     ctx.stroke();
   }),
+  // earthquake epicenter: center dot + 8-point radiating burst (upright,
+  // never rotated — magnitude drives icon-size/icon-color via feature props)
+  "vt-quake": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath(); ctx.arc(m, m, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    const rInner = 7, rOuter = 15;
+    for (let i = 0; i < 8; i++) {
+      const a = (Math.PI / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(m + rInner * Math.cos(a), m + rInner * Math.sin(a));
+      ctx.lineTo(m + rOuter * Math.cos(a), m + rOuter * Math.sin(a));
+      ctx.stroke();
+    }
+  }),
+  // ocean buoy: mast + top ball over a diamond hull, floating on a wave
+  // (reuses vt-gauge's wave motif — both are water-observation glyphs)
+  "vt-buoy": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(m, 4); ctx.lineTo(m, 13); ctx.stroke();
+    ctx.beginPath(); ctx.arc(m, 5, 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(m, 12);
+    ctx.lineTo(m + 7, 19);
+    ctx.lineTo(m, 26);
+    ctx.lineTo(m - 7, 19);
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 3.4;
+    ctx.beginPath();
+    ctx.moveTo(6, s - 9);
+    ctx.quadraticCurveTo(m - 7, s - 15, m, s - 9);
+    ctx.quadraticCurveTo(m + 7, s - 3, s - 6, s - 9);
+    ctx.stroke();
+  }),
   // train: locomotive nose-up — rounded body, cab window notch, nose taper
   // (points "up"/north so icon-rotate can turn it to bearing when known)
   "vt-train": () => draw(S, (ctx, s) => {
@@ -465,6 +501,18 @@ export const EIA_FUEL_LABEL: Record<string, string> = {
 export const FIRE_CONFIDENCE_COLOR: Record<string, string> = {
   low: "#fde047", nominal: "#fb923c", high: "#ff3b30",
 };
+
+/** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).
+ *  Bucket edges match USGS's own ShakeMap intensity palette; a null/missing
+ *  magnitude (rare — automatic events pre-review) tints as the lowest band
+ *  rather than guessing a value. */
+export function quakeMagnitudeColor(mag: number | null | undefined): string {
+  const m = typeof mag === "number" && Number.isFinite(mag) ? mag : 0;
+  if (m >= 6) return "#ff3b3b";
+  if (m >= 5) return "#ff8c42";
+  if (m >= 4) return "#ffd23f";
+  return "#8bc34a";
+}
 
 /** Project a short velocity-vector endpoint from position/heading/speed.
  *  Length scales with speed (capped) — pure math, cheap for 10k features. */

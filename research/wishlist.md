@@ -185,9 +185,11 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   event carries USGS's own stable id (no composite key needed); a
   revised `updated` timestamp re-archives the row (append-only) so
   in-review magnitude/location corrections aren't silently frozen at
-  their first-seen "automatic" values. No map layer yet — same
-  pipeline+API-first sequencing as sec8kEarnings/finraQuery part 1.
-  Hazard-adjacent SIGNAL hypotheses (insurer P&C exposure, utility/
+  their first-seen "automatic" values. MAP LAYER SHIPPED 2026-07-11
+  (v1.0.267, T-CLIENT [PRODUCT] session): datamap.tsx "earthquakes"
+  layer — magnitude-scaled/colored markers (USGS ShakeMap-style
+  green->red bands), click detail card, legend, off by default
+  (perf-budget precedent). Hazard-adjacent SIGNAL hypotheses (insurer P&C exposure, utility/
   infra proximity, supply-chain proximity) filed in open_questions.md
   under EARTHQUAKE HAZARD-ADJACENT HYPOTHESES — gate 1 trivially passes
   (USGS is ground truth), gate 2 blocked on archive depth (started
@@ -208,11 +210,13 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   poll (a snapshot feed, not a discrete-event feed like USGS quakes) —
   a station only re-archives when its own timestamp advances, so
   30-min over-polling against an hourly-reporting station is a cheap
-  no-op, not archive bloat. No map layer yet — same pipeline+API-first
-  sequencing as earthquakes/sec8kEarnings/finraQuery part 1. Sea-state
-  (WVHT/DPD) and pressure-tendency fields are a filed ANGLE-HUNTING
-  candidate (marine-forecasting technique import) in open_questions.md
-  — gate 1/2 unattempted.
+  no-op, not archive bloat. MAP LAYER SHIPPED 2026-07-11 (v1.0.267,
+  same T-CLIENT [PRODUCT] session as earthquakes above): datamap.tsx
+  "buoys" layer — station markers, click detail card (wave/wind/
+  pressure/temp, missing sensors shown as "no data" never zero),
+  legend, off by default. Sea-state (WVHT/DPD) and pressure-tendency
+  fields are a filed ANGLE-HUNTING candidate (marine-forecasting
+  technique import) in open_questions.md — gate 1/2 unattempted.
 - **SEC MIDAS: SHIPPED 2026-07-10 (v1.0.265)** — server/secMidas.ts +
   /api/data/microstructure (RAW, census build #10, public domain).
   Endpoint FOUND this session via live web search (WebSearch +
