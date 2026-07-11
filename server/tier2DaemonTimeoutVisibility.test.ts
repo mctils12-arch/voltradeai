@@ -58,6 +58,36 @@ test("wiring pinned: the daemon branch probes daemon health via pythonRpc, not t
   assert.ok(!daemonBranch.includes("process.memoryUsage()"), "must not report Node's own memory for a daemon-side failure — that was the misleading part of the original bug");
 });
 
+test("BUGFIX 2026-07-11: the daemon branch unwraps pythonRpc's {status,result} envelope before reading .alive/.active_dispatches, not the raw envelope", () => {
+  // pythonRpc's raw return is the RPC envelope voltrade_daemon.py's
+  // dispatch() produces: {"status": "ok", "result": {"alive": true, ...}}.
+  // _health()'s alive/rss_mb/active_dispatches/uptime_seconds fields live
+  // under .result, not on the envelope itself. Checking `h.alive` directly
+  // is always undefined/falsy for every successful health call, so every
+  // TIER2-ERROR daemon-timeout entry misclassifies a healthy daemon as
+  // "non-alive" and never surfaces active_dispatches — the exact evidence
+  // KNOWN BROKEN #18 needs to confirm or refute the zombie-thread-pileup
+  // theory. Live production audit log confirmed this: every occurrence
+  // since v1.0.266 shipped logged "non-alive: {\"status\":\"ok\",\"result\":
+  // {\"alive\":true,...}" instead of "daemon rss=... active_dispatches=...".
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(
+    /h\.status\s*===\s*["']ok["']\s*\?\s*h\.result/.test(daemonBranch),
+    "must unwrap the {status,result} RPC envelope (h.status === 'ok' ? h.result : ...) before reading alive/active_dispatches — reading h.alive directly on the raw envelope is always undefined",
+  );
+  assert.ok(
+    !/\bh\.alive\b/.test(daemonBranch),
+    "must not read .alive directly off the raw pythonRpc envelope — that field lives under .result",
+  );
+  assert.ok(
+    !/\bh\.active_dispatches\b/.test(daemonBranch),
+    "must not read .active_dispatches directly off the raw pythonRpc envelope — that field lives under .result",
+  );
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
