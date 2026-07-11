@@ -876,6 +876,26 @@
       "description": "Active NWS warnings/watches with polygons, colored by severity, ~10-min refresh. Official alerts displayed as-is; zone-coded alerts without polygons are counted, not drawn (follow-up filed). Not for safety-of-life use."
     },
     {
+      "id": "earthquakes",
+      "name": "Earthquakes (USGS)",
+      "kind": "raw",
+      "status": "live",
+      "group": "environmental",
+      "costTier": "light",
+      "source": "USGS Earthquake Hazards Program (public domain)",
+      "description": "Real-time M2.5+ seismic events worldwide, rolling 24h window, sized and colored by magnitude. Official USGS feed displayed as-is; not for safety-of-life use."
+    },
+    {
+      "id": "buoys",
+      "name": "Ocean buoys (NDBC)",
+      "kind": "raw",
+      "status": "live",
+      "group": "environmental",
+      "costTier": "light",
+      "source": "NOAA National Data Buoy Center (public domain)",
+      "description": "Latest wave height, period, and pressure readings from ~889 NDBC/C-MAN stations worldwide. Raw observations as published; missing sensors reported as no-data, never zero."
+    },
+    {
       "id": "surfacewater",
       "name": "Surface water (1984–2021)",
       "kind": "raw",

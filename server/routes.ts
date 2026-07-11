@@ -1507,9 +1507,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // USGS real-time earthquakes (RAW, M2.5+, global, rolling 24h) — free-data
   // pipeline build (EDGE DOCTRINE #1: build data, don't buy it). US
   // government public domain, keyless, no rate limit documented — boots
-  // eagerly, no key gate needed (see server/usgsQuakes.ts). No map layer
-  // yet — pipeline+API-first sequencing, same as sec8kEarnings/finraQuery
-  // part 1 (client picks it up once archive history accumulates).
+  // eagerly, no key gate needed (see server/usgsQuakes.ts). Map layer
+  // (magnitude-scaled markers) shipped 2026-07-11 — see datamap.tsx's
+  // "earthquakes" layer effect + datacore/layers.json.
   bootQuakesPoll();
   app.get("/api/data/earthquakes", (_req, res) => {
     const hit = latestQuakes();
@@ -1530,9 +1530,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // NOAA NDBC buoy/C-MAN latest observations (RAW, ~889 stations worldwide,
   // one row per station) — free-data pipeline build (EDGE DOCTRINE #1). US
   // government public domain, keyless, single global file — boots eagerly,
-  // no key gate needed (see server/ndbcBuoys.ts). No map layer yet —
-  // pipeline+API-first sequencing, same as usgsQuakes/sec8kEarnings (client
-  // picks it up once archive history accumulates).
+  // no key gate needed (see server/ndbcBuoys.ts). Map layer shipped
+  // 2026-07-11 — see datamap.tsx's "buoys" layer effect + datacore/layers.json.
   bootBuoysPoll();
   app.get("/api/data/buoys", (_req, res) => {
     const hit = latestBuoys();

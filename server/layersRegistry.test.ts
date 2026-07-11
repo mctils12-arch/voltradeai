@@ -105,3 +105,23 @@ test("weather layer states US-only coverage honestly (Tier-1(b), licensing regis
   assert.ok(w.source.includes("NOAA"), "attribution must name NOAA");
   assert.ok(/US.+only|only.+US/i.test(w.description), "description must state the US-only coverage limit");
 });
+
+test("earthquakes layer: USGS attribution + magnitude-scale honesty (map-layer wiring for usgsQuakes.ts)", () => {
+  const q = registry.layers.find((x: any) => x.id === "earthquakes");
+  assert.ok(q, "earthquakes layer missing");
+  assert.equal(q.kind, "raw");
+  assert.equal(q.status, "live");
+  assert.ok(q.source.includes("USGS"), "attribution must name USGS");
+  assert.ok(/M2\.5/.test(q.description), "description must state the M2.5+ threshold");
+  assert.ok(/magnitude/i.test(q.description), "description must state magnitude drives the marker visual");
+  assert.ok(/safety-of-life/i.test(q.description), "description must carry the not-for-safety-of-life caveat");
+});
+
+test("buoys layer: NDBC attribution + no-fabricated-zero honesty (map-layer wiring for ndbcBuoys.ts)", () => {
+  const b = registry.layers.find((x: any) => x.id === "buoys");
+  assert.ok(b, "buoys layer missing");
+  assert.equal(b.kind, "raw");
+  assert.equal(b.status, "live");
+  assert.ok(b.source.includes("National Data Buoy Center"), "attribution must name the National Data Buoy Center");
+  assert.ok(/no.?data|missing/i.test(b.description), "description must state missing sensors are never coerced to zero");
+});

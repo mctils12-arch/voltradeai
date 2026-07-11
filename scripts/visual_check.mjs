@@ -90,6 +90,8 @@ const FIXTURES = {
       { id: "no2", name: "Nitrogen dioxide (TROPOMI, GIBS)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "NASA GIBS/ESDIS — Sentinel-5P/TROPOMI NO₂", description: "Tropospheric NO₂ column, dated (defaults to yesterday)." },
       { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
       { id: "alerts", name: "Severe weather alerts (NWS)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "National Weather Service (public domain)", description: "Active NWS warnings/watches, colored by severity." },
+      { id: "earthquakes", name: "Earthquakes (USGS)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS Earthquake Hazards Program (public domain)", description: "Real-time M2.5+ seismic events, sized/colored by magnitude." },
+      { id: "buoys", name: "Ocean buoys (NDBC)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "NOAA National Data Buoy Center (public domain)", description: "Latest wave/wind/pressure readings, ~889 stations worldwide." },
       { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
       { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
       { id: "boundaries", name: "Country borders", kind: "raw", status: "live", group: "base", costTier: "light", source: "Natural Earth 1:110m (public domain)", description: "Reference borders, off by default." },
@@ -151,6 +153,20 @@ const FIXTURES = {
     gauges: [
       { site: "07010000", name: "Mississippi River at St. Louis, MO", param: "00065", d: "2026-07-05T00:15:00.000-05:00", v: 15.13, q: "P", lat: 38.62889, lon: -90.17972 },
       { site: "07032000", name: "Mississippi River at Memphis, TN", param: "00060", d: "2026-07-05T00:15:00.000-06:00", v: 512000, q: "P", lat: 35.12278, lon: -90.0775 },
+    ],
+  },
+  "/api/data/earthquakes": {
+    kind: "raw", source: "USGS Earthquake Hazards Program (fixture)", time: 1, count: 2,
+    quakes: [
+      { id: "fx0001", mag: 4.6, place: "12 km SW of Fixture City, CA", lat: 34.02, lon: -118.5, depth: 8.2, time: 1, updated: 1, tsunami: false, sig: 312, net: "ci", magType: "ml", type: "earthquake", status: "reviewed", url: "https://earthquake.usgs.gov/earthquakes/eventpage/fx0001" },
+      { id: "fx0002", mag: 6.3, place: "Offshore Fixture Trench", lat: 38.3, lon: -123.1, depth: 22.0, time: 1, updated: 1, tsunami: true, sig: 820, net: "us", magType: "mww", type: "earthquake", status: "reviewed", url: "https://earthquake.usgs.gov/earthquakes/eventpage/fx0002" },
+    ],
+  },
+  "/api/data/buoys": {
+    kind: "raw", source: "NOAA National Data Buoy Center (fixture)", time: 1, count: 2,
+    buoys: [
+      { station: "46042", lat: 36.79, lon: -122.4, time: 1, windDir: 300, windSpeed: 7.2, gust: 9.1, waveHeight: 2.1, dominantPeriod: 11, avgPeriod: 8.4, waveDir: 285, pressure: 1015.2, pressureTendency: -0.4, airTemp: 14.3, waterTemp: 13.8, dewpoint: 10.1, visibility: null, tide: null },
+      { station: "44013", lat: 42.35, lon: -70.65, time: 1, windDir: 210, windSpeed: 5.1, gust: 6.8, waveHeight: null, dominantPeriod: null, avgPeriod: null, waveDir: null, pressure: 1009.8, pressureTendency: 0.2, airTemp: 18.6, waterTemp: 17.9, dewpoint: 15.0, visibility: null, tide: null },
     ],
   },
   "/api/data/sites": {

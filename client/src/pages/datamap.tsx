@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -8,7 +8,7 @@ import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint, iconDataURL,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
-  EIA_FUEL_TO_CANON, EIA_FUEL_LABEL,
+  EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
 } from "@/lib/mapIcons";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
@@ -93,7 +93,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy";
   title: string;
   subtitle: string;
   body: string;
@@ -196,6 +196,8 @@ const LAYER_GROUP: Record<string, string> = {
   firetemp: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
+  earthquakes: "environmental",
+  buoys: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
@@ -765,7 +767,8 @@ export default function DataMapPage() {
    *  contracts + nearest strategic sites for the just-clicked entity, and
    *  patch it onto the open card. `entityId` is a graph-resolvable id
    *  (facility/company/vessel) when the clicked kind has one; null for kinds
-   *  the graph doesn't model yet (aircraft, trains, fires, gauges, alerts) —
+   *  the graph doesn't model yet (aircraft, trains, fires, gauges, alerts,
+   *  quakes, buoys) —
    *  those still get `nearest_sites` from lat/lon alone, which is why lat/lon
    *  is always sent even when entityId is present. Matched back via
    *  `dossierKey`, not trailId/title (see the Detail interface note). Fails
@@ -2947,6 +2950,176 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.alerts, mapReady, setStatus]);
 
+  // ── USGS earthquakes (RAW; M2.5+, global, rolling 24h — sized/colored by
+  // magnitude, no predictive claim). Off by default (reference layer;
+  // initial-load budget, same precedent as rivergauges/alerts). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.earthquakes) {
+      try {
+        if (map?.getLayer("earthquakes-sym")) map.removeLayer("earthquakes-sym");
+        if (map?.getSource("earthquakes")) map.removeSource("earthquakes");
+      } catch {}
+      setStatus("earthquakes", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("earthquakes", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/earthquakes");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("earthquakes", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const fc = {
+          type: "FeatureCollection",
+          features: (d.quakes || []).filter((q: any) => q.lat != null && q.lon != null).map((q: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [q.lon, q.lat] },
+            properties: {
+              id: q.id, mag: q.mag, place: q.place, depth: q.depth, time: q.time,
+              tsunami: !!q.tsunami, sig: q.sig, magType: q.magType, status: q.status,
+              type: q.type, url: q.url, color: quakeMagnitudeColor(q.mag),
+            },
+          })),
+        };
+        const src: any = map.getSource("earthquakes");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("earthquakes", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "earthquakes-sym", type: "symbol", source: "earthquakes",
+            layout: {
+              "icon-image": "vt-quake",
+              "icon-size": ["interpolate", ["linear"], ["get", "mag"], 2.5, 0.32, 4, 0.48, 6, 0.7, 8, 0.95],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": ["get", "color"], "icon-opacity": 0.92 },
+          });
+          detach = attachLayerInteractions(map, "earthquakes-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const dossierKey = `quake:${p.id}:${Date.now()}`;
+            setDetail({
+              kind: "quake",
+              title: `M${p.mag != null ? Number(p.mag).toFixed(1) : "?"} — ${p.place || "unknown location"}`,
+              subtitle: `${p.time ? new Date(p.time).toUTCString() : "time unknown"}${p.depth != null ? ` · ${Math.round(p.depth)} km deep` : ""}`,
+              body: `${p.type !== "earthquake" ? `Reported type: ${p.type}\n` : ""}` +
+                    `${p.status ? `Review status: ${p.status}\n` : ""}` +
+                    `${p.magType ? `Magnitude type: ${p.magType}\n` : ""}` +
+                    `${p.tsunami ? "⚠ TSUNAMI ADVISORY ISSUED\n" : ""}` +
+                    `\nUSGS Earthquake Hazards Program — official feed displayed as-is, ` +
+                    `not for safety-of-life use.`,
+              links: p.url ? [{ label: "USGS event page", href: p.url }] : [],
+              dossierKey,
+            });
+            // Quakes aren't Everything Graph nodes — lat/lon-only dossier
+            // (nearest strategic sites is the useful part here).
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+          });
+        }
+        setStatus("earthquakes", "active", fc.features.length, "USGS · M2.5+ · rolling 24h · not for safety-of-life use");
+      } catch {
+        if (!stop) setStatus("earthquakes", "error");
+      }
+    };
+    load();
+    // 2-min refresh, hidden-tab gated (matches server's max-age=120)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 2 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.earthquakes, mapReady, setStatus]);
+
+  // ── NOAA NDBC ocean buoys (RAW; ~889 stations worldwide, latest obs —
+  // wave height/period, wind, pressure, temps, no predictive claim). Off by
+  // default (reference layer; initial-load budget, same precedent as
+  // rivergauges/alerts/earthquakes). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.buoys) {
+      try {
+        if (map?.getLayer("buoys-sym")) map.removeLayer("buoys-sym");
+        if (map?.getSource("buoys")) map.removeSource("buoys");
+      } catch {}
+      setStatus("buoys", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("buoys", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/buoys");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("buoys", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const fc = {
+          type: "FeatureCollection",
+          features: (d.buoys || []).filter((b: any) => b.lat != null && b.lon != null).map((b: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [b.lon, b.lat] },
+            properties: {
+              station: b.station, time: b.time, waveHeight: b.waveHeight,
+              dominantPeriod: b.dominantPeriod, windSpeed: b.windSpeed, windDir: b.windDir,
+              pressure: b.pressure, pressureTendency: b.pressureTendency,
+              airTemp: b.airTemp, waterTemp: b.waterTemp,
+            },
+          })),
+        };
+        const src: any = map.getSource("buoys");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("buoys", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "buoys-sym", type: "symbol", source: "buoys",
+            layout: {
+              "icon-image": "vt-buoy",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.4, 8, 0.7],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": "#22d3ee", "icon-halo-color": "rgba(5,10,19,0.95)", "icon-halo-width": 1.3 },
+          });
+          detach = attachLayerInteractions(map, "buoys-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const fmt = (v: any, unit: string, digits = 1) => v == null ? "no data" : `${Number(v).toFixed(digits)} ${unit}`;
+            const dossierKey = `buoy:${p.station}:${Date.now()}`;
+            setDetail({
+              kind: "buoy",
+              title: `Buoy ${p.station}`,
+              subtitle: p.time ? new Date(p.time).toUTCString() : "time unknown",
+              body: `Wave height: ${fmt(p.waveHeight, "m")}\n` +
+                    `Dominant period: ${fmt(p.dominantPeriod, "s", 0)}\n` +
+                    `Wind speed: ${fmt(p.windSpeed, "m/s")}\n` +
+                    `Pressure: ${fmt(p.pressure, "hPa", 0)}${p.pressureTendency != null ? ` (${p.pressureTendency > 0 ? "+" : ""}${p.pressureTendency.toFixed(1)} hPa/3h)` : ""}\n` +
+                    `Air / water temp: ${fmt(p.airTemp, "°C")} / ${fmt(p.waterTemp, "°C")}\n\n` +
+                    `NOAA National Data Buoy Center — raw station reading, missing sensors shown as no data.`,
+              links: [{ label: "NDBC station page", href: `https://www.ndbc.noaa.gov/station_page.php?station=${p.station}` }],
+              dossierKey,
+            });
+            // Buoys aren't Everything Graph nodes — lat/lon-only dossier.
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+          });
+        }
+        setStatus("buoys", "active", fc.features.length, "NOAA NDBC · latest observations");
+      } catch {
+        if (!stop) setStatus("buoys", "error");
+      }
+    };
+    load();
+    // 5-min refresh, hidden-tab gated (matches server's max-age=300)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.buoys, mapReady, setStatus]);
+
   // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
   // archive — counts only, per-vessel claims stay ladder-gated) ──
   const [shadowStats, setShadowStats] = useState<any>(null);
@@ -3164,6 +3337,8 @@ export default function DataMapPage() {
     id === "soilmoisture" ? <Droplets size={15} /> :
     id === "no2" ? <Factory size={15} /> :
     id === "firetemp" ? <ThermometerSun size={15} /> :
+    id === "earthquakes" ? <Activity size={15} /> :
+    id === "buoys" ? <Waves size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -3182,7 +3357,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "graph" ? "entities" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -3780,7 +3955,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.rivergauges || enabled.alerts) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -3792,6 +3967,15 @@ export default function DataMapPage() {
                           </>
                         )}
                         {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
+                        {enabled.earthquakes && (
+                          <>
+                            <LegendIcon icon="vt-quake" color="#8bc34a" label="Quake M2.5-4" />
+                            <LegendIcon icon="vt-quake" color="#ffd23f" label="Quake M4-5" />
+                            <LegendIcon icon="vt-quake" color="#ff8c42" label="Quake M5-6" />
+                            <LegendIcon icon="vt-quake" color="#ff3b3b" label="Quake M6+" />
+                          </>
+                        )}
+                        {enabled.buoys && <LegendIcon icon="vt-buoy" color="#22d3ee" label="Ocean Buoy (NDBC)" />}
                         {enabled.alerts && (
                           <>
                             {([["Extreme", "#ff3b3b"], ["Severe", "#ff8c42"], ["Moderate", "#ffd23f"], ["Minor", "#4d9fff"]] as const)

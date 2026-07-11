@@ -13,6 +13,194 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-11 — [PRODUCT] Earthquakes (USGS) + ocean buoys (NDBC) map layers — closing the "pipeline shipped, no map layer yet" gap for two already-live RAW streams (v1.0.267)
+
+TERRITORY: T-CLIENT primary (client/src/lib/mapIcons.ts, client/src/pages/
+datamap.tsx, scripts/visual_check.mjs) + SHARED minimal (datacore/
+layers.json, server/routes.ts comment-only accuracy fix, server/
+layersRegistry.test.ts, package.json version — last commit per
+MERGE-ORDER PROTOCOL). Solo session, [PRODUCT] directive.
+
+SESSION-START CHECKS: read CLAUDE.md in full, then this file's last 10
+tagged entries (1 REPAIR / 1 RESEARCH / 1 PIPELINE / 7 PRODUCT — no
+thrash, well under the 7/10 REPAIR trigger). `/api/health`: status ok,
+bot active, equityPeak $109,948.97, drawdownPct 0.0, liveness.dark
+false, alpaca ACTIVE, scanner 0 consecutiveFailures — no LIVENESS
+ALARM. Checked open_questions.md KNOWN BROKEN: only #17 (low-priority
+ML error string) and #18 (daemon-timeout diagnosis, awaiting more
+occurrences — logged as NOT DONE THIS SESSION deliberately by the prior
+session, nothing new to act on) remain open, both T-BOT-territory and
+non-blocking for a T-CLIENT PRODUCT session per this directive's own
+instruction ("product sessions do not preempt the DAILY routines'
+repair duty").
+
+PRIMARY ACTION SELECTION: the DATACORE MAXIMUS program's only unclaimed
+census item (EPA CAMD) is gated on Mike's key (wishlist.md 9a) — no
+autonomous action possible. Rather than starting a brand-new pipeline,
+grepped `server/routes.ts` for "no map layer yet" (the standing marker
+this repo's own sessions use to flag pipeline-before-UI sequencing) and
+found two: USGS earthquakes (shipped 2026-07-08, v1.0.209) and NDBC
+buoys (shipped 2026-07-08, v1.0.220) — both RAW, both ~3 days matured
+in production, both explicitly named as "next" in their own wishlist.md
+entries with nothing blocking the UI step. This is priority-3/4 work
+per GOAL's Amendment 5 ordering (validated signal products and data
+products with clean API surfaces before general SaaS features) — a
+gate-1-passed RAW pipeline sitting API-only past its own stated
+maturation point is exactly the "advance toward the platform's product
+surface" mandate in this session's directive, option (b).
+
+READ BEFORE WRITE: read `server/usgsQuakes.ts` and `server/
+ndbcBuoys.ts` end-to-end for the exact response shapes (QuakeEvent/
+BuoyObs field names — mag/place/depth/tsunami/sig for quakes;
+waveHeight/dominantPeriod/pressure/pressureTendency/airTemp/waterTemp
+for buoys, with "MM" missing-sensor tokens already normalized to
+`null` server-side, never 0). Read the closest existing map-layer
+precedent end-to-end before writing anything new: the "USGS river
+gauges" effect block in datamap.tsx (rivergauges-sym symbol layer,
+attachLayerInteractions wiring, dossier fetch pattern) and the "active
+fires" block (per-feature `color` property computed client-side from a
+lookup table, `["get","color"]` paint expression — the precedent for
+continuous-valued styling, since fires uses a 3-bucket categorical
+lookup and earthquakes needed a magnitude-driven one). Read `client/
+src/lib/mapIcons.ts`'s `draw()`/`shapes`/`registerIcons`/`iconDataURL`
+functions to confirm the SDF-icon registration contract before adding
+two new shapes. Read `server/layersWiring.test.ts` (the R15 "no
+permanent reload-to-enable" ratchet — every live registry id must
+appear in datamap.tsx's LAYER_GROUP) and `scripts/visual_check.mjs`'s
+own R15 comment ("every toggleable registry layer must appear in this
+fixture") before touching either file, since both are ratchets that
+would otherwise silently rot.
+
+WHAT SHIPPED:
+- `client/src/lib/mapIcons.ts` — two new SDF shapes: `vt-quake` (center
+  dot + 8-point radiating burst, epicenter idiom, upright/never
+  rotated) and `vt-buoy` (mast+ball over a diamond hull, floating on
+  the same wave motif `vt-gauge` already uses — visual family
+  consistency for water-observation glyphs). New export
+  `quakeMagnitudeColor(mag)`: USGS ShakeMap-convention bands (green
+  <4, yellow 4-5, orange 5-6, red 6+; a null/pre-review magnitude
+  tints as the lowest band rather than guessing a value).
+- `client/src/pages/datamap.tsx` — two new layer effects mirroring the
+  rivergauges/alerts pattern exactly (fetch, GeoJSON build, symbol
+  layer, attachLayerInteractions click handler, detail card,
+  fetchDossier lat/lon-only since neither is an Everything Graph
+  node): "earthquakes" (icon-size AND icon-color both magnitude-driven
+  via per-feature properties, 2-min refresh matching the server's
+  `max-age=120`, tsunami-advisory line surfaced when true, links to
+  the USGS event page) and "buoys" (fixed-size markers, 5-min refresh
+  matching `max-age=300`, detail card renders every reading with a
+  `fmt()` helper that prints "no data" for null fields rather than
+  coercing to 0 or blank). Both off by default (reference layers;
+  initial-load perf budget — same precedent as rivergauges/alerts).
+  LAYER_GROUP, layerIcon (Activity/Waves from lucide-react), the
+  statusFor unit-label switch, and the Environmental legend section
+  (4 magnitude-band chips for quakes, 1 for buoys) all updated in the
+  same PR per the legend-same-PR rule pinned by layersRegistry.test.ts.
+- `datacore/layers.json` — two new registry entries (kind raw, status
+  live, group environmental, costTier light — small polled REST lists,
+  same tier as rivergauges), descriptions carrying the M2.5+ threshold,
+  the magnitude-drives-the-marker statement, and the not-for-
+  safety-of-life caveat (quakes) / the missing-sensor-never-zero
+  statement (buoys).
+- `server/layersRegistry.test.ts` — 2 new dedicated tests (mirrors the
+  per-layer pattern every other registry entry has: firetemp/forest/
+  weather/etc.) pinning the USGS/NDBC attribution strings and the
+  honesty statements in each description, so a future edit can't
+  quietly drop them.
+- `scripts/visual_check.mjs` — added `earthquakes`/`buoys` to the
+  `/api/data/layers` FIXTURES list (required per the R15 comment
+  already in this file — "every toggleable registry layer must appear
+  in this fixture" — the self-see and toggle-consistency batteries
+  iterate this list) plus dedicated `/api/data/earthquakes`/`/api/
+  data/buoys` response fixtures (2 quakes spanning the color bands, 2
+  buoy stations with one deliberately carrying null wave/period fields
+  to exercise the "no data" rendering path in the harness itself, not
+  just in unit tests).
+- `server/routes.ts` — comment-only accuracy fix: both routes' "No map
+  layer yet" comments (now stale) updated to point at the shipped
+  layer, so a future session grepping for that marker doesn't
+  re-discover a gap that's already closed.
+- `research/wishlist.md` — both SHIPPED entries (USGS earthquakes,
+  NDBC buoys) appended with a MAP LAYER SHIPPED note and pointer.
+- `package.json` — version 1.0.266 -> 1.0.267 (read-and-increment at
+  commit time; re-fetched `origin/main` immediately before, no advance
+  since session start).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): both layers are RAW display
+of already-shipped, already-gate-1-passed API routes — zero change to
+`deep_score`, sizing, scoring, or any live trading decision; zero
+change to the server-side pipelines themselves (usgsQuakes.ts/
+ndbcBuoys.ts untouched except two comment lines). The only "downstream"
+is the client bundle (two new chunks-worth of SDF icon code, ~250
+lines total) and the registry/fixture files two existing ratchets
+require to stay in sync — both ratchets ran green, not just the
+generic per-layer tests.
+
+NOT DONE THIS SESSION, deliberately: did not build the earthquake
+facility-proximity join or the buoy sea-state/pressure-tendency SIGNAL
+angle — both are filed hypotheses in open_questions.md (EARTHQUAKE
+HAZARD-ADJACENT HYPOTHESES; the buoys ANGLE-HUNTING note) with gate-1/
+gate-2 explicitly unattempted; this PR is the RAW-display step only,
+matching the RAW OVERLAYS vs SIGNALS rule (no predictive claim, no
+ladder gating needed for as-published data). Did not add a
+plants-near-rivergauges-style cross-tie for either layer — no evidence
+yet that one is real (CROSS-SYSTEM INTEGRATION PRINCIPLE: never
+fabricate a tie), and building the proximity-join infrastructure is a
+separate scope decision better made once/if the gate-2 hypotheses
+above are actually pursued.
+
+GATES: `npx tsx --test server/*.test.ts client/src/lib/*.test.ts
+client/src/lib/orbital/*.test.ts` — 555 passed, 0 failed (`git stash`-
+verified baseline 553 + 2 new tests in `layersRegistry.test.ts`, zero
+regressions). `npx tsc --noEmit` — 64 errors, byte-for-byte the same
+baseline count as `git stash`-verified pre-PR; the one datamap.tsx
+line-number shift (3716->3891 for the pre-existing PANEL_GROUPS-
+literal-vs-string looseness) is the diff moving lines, not a new
+error — confirmed via git-stash A/B, same pattern this file's own
+G2b entry documented for the identical pre-existing error. `python3 -m
+pytest -q` — 635 passed / 1 skipped, unaffected (no Python file
+touched). `npm run build` — clean; confirmed `dist/index.cjs` bundles
+both new registry entries via the existing static `import
+datacoreLayers from "../datacore/layers.json"` (grepped the built
+bundle directly for `"earthquakes"`/`"buoys"`, 2 hits each — this repo
+serves the registry as a compile-time import, not a runtime file read,
+so there is no dist/datacore/layers.json packaging step to verify,
+unlike the R14 manifest-staging lesson which applies to datacore/
+manifests/*.json specifically). `npm run visual -- --page data` — 0
+hard failures at 390/768/1440 plus the zero-cost and layer-scale
+batteries; the R15 self-see and toggle-consistency checks (which
+iterate every fixture-listed layer, now including both new ones)
+passed clean, meaning both new panel rows render reachably and both
+toggles move cleanly from off -> active without getting stuck (the
+exact defect class those two ratchets exist to catch). Additionally
+rendered both new SDF icon shapes standalone in a throwaway Playwright
+page (not committed) to visually confirm the canvas paths draw
+correctly before trusting the harness's indirect signal — both read
+cleanly (radiating burst / buoy-on-wave).
+
+Version 1.0.266 -> 1.0.267 (read-and-increment at commit time).
+
+Backtest: N/A — pure T-CLIENT display feature, no strategy/sizing/
+execution logic touched; same category as every other RAW map-layer PR
+in this file (rivergauges, alerts, firetemp/G2b).
+
+MARKET-HOURS NOTE: session ran mid-day per `/api/health`'s timestamp.
+This PR touches zero trading/execution code — two new off-by-default
+RAW map layers in the T-CLIENT territory plus a routes.ts comment fix
+— same risk category as G2b (fires raster) and the rivergauges/alerts
+layers, all of which this file's own precedent merged without holding
+for market close given the inert, opt-in blast radius.
+
+STARVED: no — this session's chosen scope (earthquakes + buoys map
+layers) shipped in full, including dedicated registry tests and visual-
+harness fixture coverage. High-value work remains queued for a future
+session: EPA CAMD/ENTSO-E (gated on Mike's key), worldview_globe.md's
+G0c/G2f/G2h/G4 backlog, gate-2 work on MIDAS×Form-4 / earthquake
+facility-proximity / buoy sea-state hypotheses once their prerequisite
+history or joins exist, and KNOWN BROKEN #18's next-occurrence check
+(T-BOT territory, not this session's scope) — next session's judgment
+call per SESSION BUDGET's fall-through order.
+
 ## 2026-07-10 — [REPAIR] TIER2-ERROR daemon-timeout visibility: "daemon run_full_scan failed: Daemon timeout" recurred 7x in ~90 minutes with zero diagnostic detail — added a real daemon health probe + a new active-dispatch-thread counter that exposes the actual root-cause candidate (v1.0.266)
 
 TERRITORY: T-BOT (server/bot.ts outside frozen paths) + voltrade_daemon.py
