@@ -3547,8 +3547,20 @@ else:
         let daemonState = "";
         try {
           const h = await pythonRpc("health", {}, 5000);
-          daemonState = h && h.alive
-            ? `daemon rss=${h.rss_mb}MB active_dispatches=${h.active_dispatches ?? "?"} uptime=${h.uptime_seconds}s`
+          // BUGFIX 2026-07-11: pythonRpc's raw return is the RPC envelope
+          // {status, result} (voltrade_daemon.py's dispatch() at "return
+          // {status: ok, result: result}") — _health()'s own fields (uptime,
+          // rss, the dispatch counter) live one level down, not on the
+          // envelope itself. Reading the "alive" field off the top-level
+          // envelope (the bug this replaces) was always undefined/falsy for
+          // every successful health call, so this branch has logged
+          // "non-alive: {full envelope}" for every single TIER2-ERROR
+          // daemon-timeout entry since v1.0.266 shipped — the dispatch-count
+          // evidence KNOWN BROKEN #18 needs to confirm or refute the
+          // zombie-thread-pileup theory was never actually captured.
+          const hr = h && h.status === "ok" ? h.result : null;
+          daemonState = hr && hr.alive
+            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"} uptime=${hr.uptime_seconds}s`
             : `daemon health returned non-alive: ${JSON.stringify(h).slice(0, 150)}`;
         } catch (healthErr: any) {
           daemonState = `daemon health probe itself failed: ${String(healthErr?.message || healthErr).slice(0, 120)}`;

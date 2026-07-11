@@ -764,6 +764,47 @@
     zombie theory first (RECURRENCE ESCALATES only applies once, but
     "patch blind before checking the diagnostic you just built" defeats
     the entire point of building it).
+    UPDATE 2026-07-11, v1.0.277: THE VISIBILITY FIX ITSELF WAS BROKEN —
+    fixed this session; root cause of the underlying timeout still open.
+    Live production check (`/api/diag/audit?type=TIER2-ERROR&token=
+    $DIAG_TOKEN`) caught 3 fresh occurrences today (14:48/15:18/15:48Z,
+    suspiciously regular ~30min spacing) — every single one logged
+    `daemon health returned non-alive: {"status":"ok","result":{"alive":
+    true,...}` instead of the intended `daemon rss=...MB active_dispatches=
+    N uptime=...s` line. READ BEFORE WRITE traced it to `server/bot.ts`'s
+    daemon-timeout catch branch (the v1.0.266 visibility fix itself):
+    `pythonRpc("health")`'s raw return is the RPC envelope
+    `{"status":"ok","result":{...}}` (`voltrade_daemon.py`'s
+    `RPCDispatcher.dispatch()`: `return {"status": "ok", "result": result}`)
+    — `_health()`'s own `alive`/`rss_mb`/`active_dispatches`/
+    `uptime_seconds` fields live one level down, under `.result`, not on
+    the envelope itself. The branch read the top-level envelope's `alive`
+    field directly — always `undefined`/falsy for every successful health
+    call — so it has misclassified every healthy daemon as "non-alive" and
+    never once surfaced `active_dispatches` since v1.0.266 shipped
+    2026-07-10. The evidence this item's own NEXT STEP asks for has never
+    actually been captured in production. FIXED (mechanical unwrap-the-
+    envelope bug fix, no threshold/rule change — RULE REVIEW's evidence
+    gate does not apply): unwrap `h.result` when `h.status === "ok"`
+    before reading `alive`/`rss_mb`/`active_dispatches`/`uptime_seconds`.
+    RATCHET: new test in `server/tier2DaemonTimeoutVisibility.test.ts`
+    (A/B-verified via `git stash` on `bot.ts` alone that it fails pre-fix,
+    passes post-fix) asserts the branch unwraps the envelope before
+    reading those fields and never reads them off the raw envelope.
+    ROOT CAUSE OF THE TIMEOUT ITSELF STILL OPEN — this fix only repairs
+    the diagnostic; a live `/api/diag/daemon` probe taken moments after
+    this session's 15:48Z occurrence read `active_dispatches: 2` (well
+    under 8, NOT elevated), but that is a post-hoc snapshot minutes later,
+    not a reading taken at the moment of the stall — it does not confirm
+    or refute the zombie-thread-pileup theory either way. NEXT STEP
+    unchanged in spirit, now actually possible: the next occurrence's
+    TIER2-ERROR audit line will finally carry a real `active_dispatches`
+    reading taken at the moment of the timeout — read it before proposing
+    any threshold change. The ~30min regular spacing observed today
+    (14:48/15:18/15:48) is itself a new, unexplained data point worth a
+    future session's attention — regular intervals suggest a scheduled/
+    periodic contention source rather than random load spikes, but this
+    is a hypothesis, not yet investigated.
 
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for

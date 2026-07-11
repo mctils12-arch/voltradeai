@@ -13,6 +13,128 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-11 — [REPAIR] KNOWN BROKEN #18's own visibility fix was broken: daemon-health envelope never unwrapped, active_dispatches evidence never captured since v1.0.266 (v1.0.277)
+
+TERRITORY: T-BOT primary (server/bot.ts outside frozen paths) + its test.
+Solo session, scheduled autonomous routine (REPAIR MANDATE — KNOWN BROKEN
+consulted first).
+
+SESSION START per MEMORY PROTOCOL: read CLAUDE.md in full; experiments.md's
+last 10 tagged entries (PRODUCT, REPAIR, PRODUCT, REPAIR, PRODUCT, REPAIR,
+REPAIR, RESEARCH, PIPELINE, PIPELINE — REPAIR count 4/10, well under the
+7+ thrash threshold, no meta-problem to address); open_questions.md's
+KNOWN BROKEN walked in full. HEALTH CHECK (`/api/health`): all green
+(server/database/alpaca ACTIVE/python/scanner/licensing ok; bot active,
+equityPeak $109,967.44, drawdownPct 0.0, liveness.dark false — no
+LIVENESS ALARM, no TOP-OF-REPORT condition).
+
+PRIMARY ACTION SELECTION: KNOWN BROKEN #18 (TIER2-ERROR daemon-timeout,
+partially repaired 2026-07-10 for visibility only, root cause still open)
+was the most concrete actionable repair item with a stated NEXT STEP
+("query /api/diag/daemon or the richer TIER2-ERROR audit line at the
+moment of a future timeout and read active_dispatches"). Queried
+`/api/diag/audit?type=TIER2-ERROR&limit=5&token=$DIAG_TOKEN` live against
+production and caught 3 fresh occurrences from earlier today
+(14:48:16Z/15:18:19Z/15:48:19Z UTC, ~30min apart) — but every single one
+logged `daemon health returned non-alive: {"status":"ok","result":
+{"alive":true,...}` instead of the intended `daemon rss=...MB
+active_dispatches=N uptime=...s` line the v1.0.266 fix was supposed to
+produce. The diagnostic itself was silently non-functional.
+
+READ BEFORE WRITE: read the full daemon-timeout catch branch in
+`server/bot.ts` (added 2026-07-10) and `voltrade_daemon.py`'s
+`RPCDispatcher.dispatch()` + `_health()` end to end before touching
+anything. Root cause confirmed directly from source, not inferred:
+`dispatch()` returns `{"status": "ok", "result": result}` (voltrade_
+daemon.py:282) — `_health()`'s own payload (`alive`, `rss_mb`,
+`active_dispatches`, `uptime_seconds`) is `result`, one level below the
+envelope `pythonRpc()` hands back raw. The catch branch checked `h.alive`
+directly on that raw envelope (bot.ts:3550, pre-fix) — always `undefined`
+on every successful health call, since the real field lives at
+`h.result.alive`. Confirmed the correct unwrap pattern already exists
+elsewhere in the same file: the `/api/diag/daemon` probe (bot.ts:2140)
+does `r.status === "ok" ? r.result : ...` correctly — the TIER2-ERROR
+branch just never matched that pattern when it shipped.
+
+WHAT SHIPPED: `server/bot.ts` — the daemon-timeout catch branch now
+computes `const hr = h && h.status === "ok" ? h.result : null;` and reads
+`hr.alive`/`hr.rss_mb`/`hr.active_dispatches`/`hr.uptime_seconds` instead
+of the raw envelope's own (nonexistent) top-level fields. Pure bugfix —
+no new behavior, no threshold, no rule change; RULE REVIEW's evidence gate
+does not apply (this restores the ALREADY-INTENDED behavior the v1.0.266
+PR's own text and tests describe, mirroring the "documented intended
+behavior" precedent from KNOWN BROKEN #3's CSP fix two sessions ago).
+
+RATCHET (loop-health rule 3): new test in
+`server/tier2DaemonTimeoutVisibility.test.ts` — asserts the daemon branch
+unwraps the `{status,result}` envelope (`h.status === "ok" ? h.result`)
+before reading `alive`/`active_dispatches`, and never reads either field
+directly off the raw envelope. A/B-verified via `git stash` isolating
+`bot.ts` alone (test file kept unstashed): fails against the pre-fix
+source (`not ok`, confirmed), passes post-fix. Existing 6 "wiring pinned"
+tests in the same file all still pass unchanged — the branch's shape
+(daemonFailure tagging, TIER2-ERROR audit call, no early-return) is
+untouched, only the health-payload unwrap inside it changed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this is a pure diagnostic/audit
+-message code path — zero change to scan scheduling, retry logic, scoring,
+sizing, or any trading decision. The only downstream effect is that the
+persisted `TIER2-ERROR` audit line and `tier2LastFailureDetail` now carry
+the daemon's real `active_dispatches`/`rss`/`uptime` on every future
+occurrence instead of a useless envelope dump — this closes the evidence
+gap KNOWN BROKEN #18 has been blocked on since 2026-07-10. No trading-path
+effect to trace further.
+
+GATES: `python3 -m pytest -q` (sandbox needed `pip3 install -r
+requirements.txt -r requirements-dev.txt` first, module was fully absent)
+— 644 passed, 1 skipped, baseline unaffected (no Python touched).
+`npx tsx --test server/*.test.ts` (sandbox needed `npm ci` first — 3
+files failed on missing `express` pre-install, same documented
+pre-existing-sandbox-artifact pattern the last several sessions in this
+file hit, resolved identically) — 577 passed, 0 failed (baseline 576 + 1
+new). `npx tsc --noEmit` — 64 errors, byte-identical to a `git stash`
+A/B baseline captured on this same sandbox (zero new errors). `npm run
+build` — clean, `dist/public` + `dist/index.cjs` produced. No client
+files touched, so `npm run visual` is out of scope (same convention other
+non-T-CLIENT sessions in this file follow).
+
+Version 1.0.276 -> 1.0.277 (read-and-increment at commit time; confirmed
+`origin/main` HEAD matched this session's start point exactly via
+`git fetch` before committing — a10292e..778517c, HEAD already at
+778517c/v1.0.276).
+
+MARKET-HOURS NOTE (this session ran during regular market hours, ~16:00
+UTC / ~12:00 ET per `/api/health`'s timestamp — the scheduled routine that
+launched this session explicitly flagged this): this PR touches a single
+diagnostic-only code path inside a catch block that only runs when a
+daemon RPC call has already timed out — it changes what gets LOGGED about
+a failure that already happened, never what gets traded, when a scan
+retries, or any order-submission path. Per the routine's own instruction,
+this PR is prepared but flagged NOT TO MERGE until after 4:00 PM ET today
+unless it fixes a critical live break — this does not (the trading loop
+itself is healthy per `/api/health`; this is a stalled-diagnostic repair,
+not a liveness or correctness issue), so it should wait for the after-
+close window like any other same-day PR per this file's own precedent for
+non-critical changes surfaced mid-session.
+
+Backtest: N/A — diagnostic/audit-logging code only; no strategy, sizing,
+or signal logic touched; not applicable to PROMOTION RULE 3.
+
+STARVED: no — this session's chosen scope (KNOWN BROKEN #18's visibility-
+of-the-visibility-fix bug) shipped in full, including a regression test
+proven to fail pre-fix. Root cause of the underlying daemon timeout itself
+remains open and is correctly NOT re-patched blind (RECURRENCE ESCALATES
+guidance from this same item — "patch blind before checking the
+diagnostic you just built defeats the entire point of building it" — this
+session heeded its own predecessor's warning). High-value work remains
+queued for a future session: the next TIER2-ERROR occurrence's now-
+correctly-populated `active_dispatches` reading is the actual evidence
+needed to confirm or refute the zombie-thread-pileup theory; the ~30min
+regular spacing observed in today's 3 occurrences is a new, unexplained
+data point also worth investigating; `platform_program.md` P3 and
+`worldview_globe.md`'s G0c/G2f/G2h/G4 backlog remain open per the prior
+two sessions' own fall-through notes — next session's judgment call.
+
 ## 2026-07-11 — [PRODUCT] PLATFORM INTEGRATION P2: /developers endpoint explorer — live per-endpoint samples, copyable curl, freshness stamped on every response (v1.0.276)
 
 TERRITORY: T-CLIENT primary (client/src/pages/developers.tsx, index.css,
