@@ -13093,3 +13093,217 @@ backlog, or gate-2 work on any of the several already-gate-1-passed
 streams once enough history accumulates (COT's USO out-of-sample restart
 date, Form 4 cluster gate 2, this session's own MIDAS x Form-4 join) —
 next session's judgment call per SESSION BUDGET's fall-through order.
+
+## 2026-07-11 — [PRODUCT] PLATFORM INTEGRATION P3: self-serve preview API key accounts (v1.0.278)
+
+TERRITORY: T-CLIENT (apikeys.tsx, App.tsx, home.tsx, developers.tsx,
+index.css, scripts/visual_check.mjs) + T-DATACORE-adjacent
+(server/apiKeyAccounts.ts) + SHARED (server/routes.ts, package.json —
+last commit, minimal per the merge-order protocol).
+
+HEALTH CHECK FIRST (per this session's [PRODUCT] brief): read KNOWN
+BROKEN in full. Item #3 (CSP tier-cap bug) and item #18's own visibility
+bug were both already resolved by the two most recent merged PRs (#434,
+#436) before this session started. Remaining open items (#17 low-priority
+content-free ML-retrain error message, #18's underlying daemon-timeout
+root cause, #20's master_kill_switch design question) are all logged,
+non-blocking, evidence-gated follow-ups — none halts product work, so
+this session proceeded straight to the primary product action per the
+brief's own instruction.
+
+PRIMARY ACTION: `research/platform_program.md`'s RESUME STATE named the
+next step explicitly — P3, self-serve API key accounts — so this session
+built that rather than re-deriving priority from scratch. GROUND TRUTH
+READ FIRST (READ BEFORE WRITE): `server/apiProduct.ts` (env-seeded keys,
+rate limiter, metering, license marks — its own docstring warns that
+importing `auth.ts`'s `db` singleton hangs the test runner), `server/
+auth.ts` (users/sessions schema, `db` export, `requireAuth`/`requireOwner`
+patterns), `server/billing.ts` (same `requireAuth` import pattern, and a
+noted-but-unrelated pre-existing quirk: it opens a SEPARATE sqlite file
+at `process.cwd()/voltradeai.db` rather than importing auth.ts's `db` —
+not touched, not in scope, flagged only so a future session doesn't copy
+it), `server/routes.ts`'s existing `/api/v1/*` wiring and its already-
+defined-but-never-called `requireAuth(handler)` wrapper (line ~518) —
+this session is its first consumer.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): self-serve key issuance is a
+new account-bound record and a new `/api/v1` auth path; zero change to
+deep_score, sizing, scoring, regime classification, or any trading
+decision. The only "downstream" is the data-product surface itself
+(more API traffic, same rate limits as env keys) — no trading-path
+effect to trace.
+
+WHAT SHIPPED:
+- `server/apiKeyAccounts.ts` — `createApiKeyStore(db, baseDir?)` factory
+  (DB INJECTED, not imported as a module-level singleton — this is the
+  key design choice: apiProduct.ts's docstring says importing auth.ts's
+  `db` hangs the test runner because that module's load has side effects
+  (bcrypt, table creation, an owner-account seed); accepting a `Database`
+  instance lets production wire the real `auth.ts` `db` while tests pass
+  a throwaway `:memory:` database — full coverage, no hang, no auth.ts
+  import in the test file at all). `createApiKey` (self-serve preview,
+  fixed "dev" tier, capped at `SELF_SERVE_MAX_KEYS=3` active keys per
+  user, label truncated to 60 chars, empty label falls back to
+  "unlabeled"), `listApiKeys` (never returns the raw key — only an
+  8-char hash-derived preview — plus per-key `usageToday` read from the
+  SAME `apiusage/YYYY-MM-DD.jsonl` archive `apiProduct.ts`'s `meterUsage`
+  already writes, correlated by the first-12-hex-chars-of-sha256
+  convention that IS apiProduct.ts's own `keyId()` by construction, not a
+  parallel reimplementation), `revokeApiKey` (scoped to the owning
+  user_id — cross-account revoke is refused, tested explicitly),
+  `resolveApiKeyForAuth` (sha256 lookup, stamps `last_used_at`, always
+  returns the fixed preview tier).
+- `server/apiKeyAccounts.test.ts` — 8 tests: issuance + preview never
+  leaks the raw key + the raw key authenticates; unknown/revoked keys
+  never authenticate; label normalization (empty -> "unlabeled", 200
+  chars -> truncated to 60); the 3-key cap throws and revoking frees a
+  slot; cross-account revoke is refused; `last_used_at` stamps on auth;
+  `usageToday` reads real `meterUsage()`-written files and only counts
+  the SAME key's own lines (a decoy key's usage doesn't leak in);
+  `usageToday` is 0 with no archive yet.
+- `server/routes.ts` — `requireApiKey` now checks the env-seeded map
+  first (unchanged behavior for operator keys), then falls back to
+  `apiKeyStore.resolveApiKeyForAuth` for self-serve preview keys — same
+  rate limiter, same metering, same 401/429 responses either way. Three
+  new routes reusing the routes.ts-local `requireAuth(handler)` wrapper
+  that already existed but had zero callers before this PR: `GET /api/
+  account/api-keys` (list + live tier limits), `POST /api/account/
+  api-keys` (issue, returns the raw key ONCE), `DELETE /api/account/
+  api-keys/:id` (revoke).
+- `client/src/pages/apikeys.tsx` (NEW) — self-serve panel: logged-out
+  state (a designed "log in" prompt, not a redirect-and-hope), key
+  generation form with a one-time reveal-and-copy box that explicitly
+  warns the raw key will never be shown again, and a keys table (label,
+  masked key, created, last used, usage today, status, revoke). Reuses
+  the `.vt-dev-*` primitives from `/developers` (same page shell, code
+  blocks, table, badges) so the two pages read as one system per the
+  PREMIUM EXPERIENCE STANDARD's "one coherent design system" clause,
+  rather than inventing a second visual language for the same product.
+- `client/src/index.css` — new `.vt-keys-*` classes (create-form, one-
+  time reveal box, revoke button) plus a page-scoped override forcing
+  the shared `.vt-dev-table` to a `min-width` + `white-space: nowrap` on
+  this page only — see LIVE-RENDER VERIFICATION below for why.
+- `client/src/App.tsx` — new route; `client/src/pages/home.tsx` — new
+  "My API Keys" leaf in the Data > Build nav group; `client/src/pages/
+  developers.tsx` — the waitlist section now also offers the instant
+  self-serve path for users who already have an account.
+- `scripts/visual_check.mjs` — registered `apikeys` in `PAGES` (Phase 5
+  ratchet: every new view goes through the harness at 390/768/1440
+  before it ships).
+
+BUG FOUND AND WORKED AROUND, NOT FIXED (filed in open_questions.md's OPS
+GOTCHAS section): building this page's route as `/account/api-keys` (a
+natural, conventional path) produced a BLANK WHITE SCREEN in the real
+built output — not just the harness. Root cause, traced by building a
+standalone static-file server over the actual `dist/public` output and
+loading it in a real headless browser (not assumed from the harness's
+"0 hard failures" — that check never asserts the page paints anything,
+it only checks for pageerror events and layout metrics on whatever DID
+render): `vite.config.ts` sets `base: "./"`, baking a RELATIVE script src
+into `index.html`. For a single-segment route the browser's relative-URL
+resolution happens to land on the right asset path; for two-or-more
+segments it doesn't, the asset 404s, the SPA fallback serves that 404 as
+`text/html`, and the browser refuses to execute it as a JS module —
+blank page, no pageerror (the failure is a console warning + a network
+failure, neither of which the harness's `pageerror` listener catches).
+Reproduced the identical failure against the EXISTING production route
+`/newsletter/:slug`, confirming this is a live, pre-existing bug this
+session did not introduce, just discovered. Fix: kept this feature's
+route single-segment (`/apikeys`) instead of chasing the vite config
+fix, which is its own logical change with its own blast radius (every
+route on the site) and deserves its own PR, not a drive-by inside an
+unrelated feature. Full writeup + next-step in open_questions.md OPS
+GOTCHAS.
+
+LIVE-RENDER VERIFICATION (not just harness screenshots — actual DOM
+measurement): after fixing the route, the harness's own logged-out-state
+screenshot passed at all 3 widths, but that fixture never exercises the
+authenticated keys-TABLE view (the harness's global `/api/auth/me`
+fixture is `{authenticated:false}` by design, so table layout was
+otherwise unverified pixel-for-pixel). Built a throwaway fixture server
+with a realistic 3-row `/api/account/api-keys` response (mixed active/
+revoked keys, one never-used key) and screenshotted the real authenticated
+table at all 3 widths directly against the real `dist/public` build.
+FOUND AND FIXED (same PR, before shipping — not filed as a follow-up):
+at 390px the 6-column table WRAPPED every cell's text into 2-4 lines
+instead of triggering the wrapper's existing horizontal scroll (the
+`.vt-dev-table-wrap`'s `overflow-x:auto` only activates once the table's
+rendered width exceeds the container — with `width:100%` and no floor, a
+narrow viewport just shrinks columns instead). Added a page-scoped
+`min-width: 640px` + `white-space: nowrap` on `.vt-dev-page .vt-dev-table`
+so this page's table scrolls horizontally instead of wrapping illegibly;
+scoped to `.vt-keys-page` specifically so `/developers`' own 3-column
+license table (which wraps fine as prose, doesn't need this) doesn't
+gain an unnecessary scrollbar. Re-verified: 390/768/1440 all render a
+single-line, horizontally-scrollable table post-fix.
+
+GATES: `npx tsx --test server/apiKeyAccounts.test.ts` — 8/8 pass in
+isolation. `npx tsx --test server/*.test.ts` — 577 baseline -> 585 after
+this PR (verified via `git stash -u`/`git stash pop` A/B, not assumed —
+a plain `git stash` misses untracked new test files and would have
+silently reported a false 585-vs-585 baseline, worth noting for whichever
+future session copies this gate pattern), i.e. exactly this PR's 8 new
+tests, zero regressions elsewhere. `npx tsc --noEmit` — 64 errors before
+AND after this
+diff (verified via `git stash -u`/`git stash pop` A/B — plain `git stash`
+alone leaves untracked new files in place and would have silently
+validated against a contaminated "baseline"; worth restating since this
+session's own first attempt made exactly that mistake before
+re-verifying properly): zero new errors introduced; the 64 are 100%
+pre-existing (bot.ts Buffer/Set iteration-target issues, billing.ts
+implicit-any, shadowFleet/portDwell downlevelIteration, pngjs missing
+types — none touch any file this PR changed). `npm run build` — clean,
+both before and after the route rename fix. `node scripts/
+visual_check.mjs --page apikeys` — 0 hard failures at all 3 widths
+(logged-out state, the harness's own fixture default), rerun twice with
+identical clean results. `node scripts/visual_check.mjs --soft` (full
+battery, every page) — the `apikeys` page itself passed cleanly every
+run; the pre-existing `data` page's heavy map-perf battery (10k
+synthetic aircraft, wx/wind layers, field-check toggles) FAILED, but
+NON-DETERMINISTICALLY and on TWO DIFFERENT dimensions across two runs of
+the identical code (run 1: a `.vt-field-check` "value labels" locator
+timeout; run 2, same commit: wx/wind-layer rendering assertions) — proof
+this is sandbox/environment flakiness in that page's own heavy battery,
+not a regression, since a real regression would fail the SAME assertion
+both times. Nothing in this PR's diff touches `datamap.tsx`, weather/wind
+layers, or the field-check UI (this PR's client changes are App.tsx
+routing, home.tsx's nav array, index.css additions scoped to new
+`.vt-keys-*` classes, developers.tsx's waitlist section copy, and the new
+apikeys.tsx page — none overlap the `/data` map's own code paths). Filed
+as a data point, not chased further — pinning down `/data`'s own harness
+flakiness is a separate, pre-existing investigation outside this PR's
+scope. No Python files touched — `python3 -m pytest -q` out of scope for
+this PR's own gate (pytest isn't even installed in this sandbox; same
+convention as every other T-CLIENT/T-DATACORE-only PR in this file).
+
+MONETIZATION TRIPWIRE: this PR touches API-key issuance, which is
+pricing-adjacent — re-ran the check per CLAUDE.md's standing rule.
+Nothing here bills, charges, or changes the aircraft-provider compliance
+chain; every issued key is the same free "dev" preview tier anyone can
+already reach via the /developers waitlist, just issued instantly instead
+of by hand. The MONETIZATION READINESS CHECKLIST (wishlist.md) and
+`server/providerCompliance.ts` are untouched.
+
+MARKET-HOURS NOTE: session ran mid-day UTC (see `/api/health` timestamp
+at session start). Zero trading/execution/scoring code touched — same
+risk category as every other platform/T-CLIENT PR that has shipped
+without holding for market close in this file's own precedent.
+
+Backtest: N/A — no strategy, sizing, or signal logic touched.
+
+Version 1.0.277 -> 1.0.278 (read-and-increment at commit time).
+
+RESUME STATE update (research/platform_program.md): P3 shipped. NEXT =
+P4 (usage & billing-history UI, still pre-revenue) or P5 (HUMAN-GATED
+billing activation — not for an autonomous session). A future session
+should also pick up the vite `base` config bug filed in open_questions.md
+OPS GOTCHAS — small, well-scoped, but deserves its own PR and its own
+live-render re-verification, not a bundle with unrelated work.
+
+STARVED: no — the chosen scope (P3 in full: server store + tests, route
+wiring, client page, nav integration, visual harness registration, two
+live bugs found and fixed pre-ship) shipped completely. High-value work
+remains queued (P4/P5 per platform_program.md, the vite-base-path bug,
+worldview_globe.md's backlog, gate-2 work on several gate-1-passed
+streams) — next session's judgment call per SESSION BUDGET's fall-
+through order.

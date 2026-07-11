@@ -102,8 +102,19 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   new `generated_at` stamp on every v1 response + its preview route),
   data-driven tier table (reads `meta.limits`, no more hand-typed numbers
   that could drift from the real rate limiter). Full trace in
-  experiments.md. NEXT: P3 (self-serve API accounts, pre-revenue —
-  `api_keys` table bound to a logged-in account, in-app keys+usage panel).
-  P4/P5 sequenced above; P5 is HUMAN-GATED.
-- TERRITORY: P1/P2 are T-CLIENT; P3/P4 add T-DATACORE (apiProduct.ts,
-  a new api_keys store) + SHARED (routes.ts, package.json) last-and-minimal.
+  experiments.md.
+- 2026-07-11: P3 (self-serve API key accounts, pre-revenue) SHIPPED
+  (v1.0.278) — `server/apiKeyAccounts.ts` (`api_keys` table, DB injected
+  via a factory so tests never import auth.ts's live singleton), 3 new
+  `/api/account/api-keys` routes (list/create/revoke, fixed "dev" preview
+  tier), `/apikeys` self-serve panel (generate + one-time reveal + usage-
+  today + revoke), nav leaf + /developers cross-link. Found and worked
+  around (not fixed) a live vite `base:"./"` bug where multi-segment
+  routes 404 their own JS bundle — filed in open_questions.md OPS
+  GOTCHAS, this feature's route kept single-segment to sidestep it. Full
+  trace in experiments.md. NEXT: P4 (usage & billing-history UI, still
+  pre-revenue) or the vite-base-path bug fix (own PR). P5 is HUMAN-GATED.
+- TERRITORY: P1/P2/P3 are T-CLIENT-primary (P3's server/apiKeyAccounts.ts
+  is a small T-DATACORE-adjacent addition, not itself a datacore/ module).
+  P4 adds T-DATACORE proper + SHARED (routes.ts, package.json)
+  last-and-minimal.

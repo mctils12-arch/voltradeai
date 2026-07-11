@@ -50,6 +50,11 @@ const PAGES = {
   // path, 2026-07-07) — same Phase 5 ratchet rule as streams above.
   gridstress: { route: "/app#/data/grid-stress", map: false },
   developers: { route: "/developers", map: false },
+  // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
+  // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
+  // fixture defaults to authenticated:false, so this exercises the
+  // logged-out "log in to manage keys" state — the most common visitor.
+  apikeys: { route: "/apikeys", map: false },
   landing: { route: "/", map: false },
 };
 const only = process.argv.includes("--page")

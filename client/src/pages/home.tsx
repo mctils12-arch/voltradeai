@@ -156,6 +156,7 @@ const NAV_MENUS: NavMenu[] = [
         heading: "Build",
         items: [
           { key: "developers", label: "Developers & API", icon: <Code2 size={14} />,    description: "Endpoints, keys, docs",         accent: "#fbb24c", action: { kind: "route", route: "/developers" } },
+          { key: "api-keys",   label: "My API Keys",      icon: <Code2 size={14} />,    description: "Generate & manage preview keys", accent: "#4ade80", action: { kind: "route", route: "/apikeys" } },
           { key: "signals",    label: "Signals",          icon: <Sparkles size={14} />, description: "Validated signal products",     accent: "#4d9fff", action: { kind: "tab", tab: "data" }, soon: true },
         ],
       },

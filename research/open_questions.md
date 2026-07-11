@@ -1308,6 +1308,37 @@ for any future "known endpoint moved" case in this repo.
   workflows/` is a FROZEN PATH) and deserves its own wishlist proposal with
   the exact before/after, not a same-session drive-by.
 
+- **[FOUND 2026-07-11, PLATFORM P3 session] Multi-segment top-level routes
+  404 their own JS bundle in production — a live bug, not just a test
+  artifact.** `vite.config.ts` sets `base: "./"`, so the built
+  `dist/public/index.html` bakes in a RELATIVE script src
+  (`./assets/index-XXXX.js`). The browser resolves that relative to the
+  CURRENT URL's directory, not the site root. For a single-segment route
+  like `/developers` or `/pricing`, `./assets/x.js` resolves to
+  `/assets/x.js` — correct, by coincidence (one path segment = one
+  "directory" to strip). For ANY route with two or more segments —
+  confirmed against the real built output with a standalone script serving
+  `dist/public` — the browser instead requests `/first-segment/assets/
+  x.js`, which doesn't exist, and the page renders a blank white screen
+  with a strict-MIME-type console error (SPA `index.html` fallback serves
+  text/html for the 404'd asset request, and the browser refuses to
+  execute a `text/html` response as a module script). Reproduced live
+  against `/newsletter/:slug` (an EXISTING production route) with the
+  identical failure — this is not new, it has silently affected that page
+  since it was added. NOT FIXED this session (deliberately out of scope —
+  own logical change, and the fix needs a decision: switch `base` to `/`
+  (safe only if the app is always served from the domain root, true today
+  but a constraint worth stating explicitly) vs. teaching the Express
+  static handler to rewrite asset paths per-route). This session's own new
+  page (`/apikeys`, PLATFORM P3) was deliberately kept single-segment to
+  sidestep the bug rather than trip over it — see the comment at its
+  route registration in `client/src/App.tsx`. NEXT STEP for whichever
+  session fixes this: flip `vite.config.ts`'s `base` to `"/"`, rebuild,
+  and re-verify `/newsletter/:slug` and any other multi-segment route
+  render (not just build) via the visual harness or a direct headless
+  load — a build succeeding is not evidence a route renders, exactly what
+  let this ship unnoticed the first time.
+
 ## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
 
 All EDGE-DOCTRINE data pipelines live in datacore/ with no imports from or
