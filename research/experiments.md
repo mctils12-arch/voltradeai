@@ -14670,3 +14670,180 @@ gap (per the original research ranking), and it is a costed/ML lane —
 wishlist + GPU budget territory, not a free build.
 
 Backtest: N/A (research; no trading code).
+
+---
+
+## 2026-07-12 [REPAIR] — KNOWN BROKEN #18: event-loop-lag stall theory CONFIRMED live; plausible root cause found and made non-blocking (v1.0.291, T-BOT)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths + a new small
+server/tmpCleanup.ts module, same class as eventLoopLag.ts from the
+prior session).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then
+research/experiments.md tail, research/open_questions.md's KNOWN BROKEN
+section in full, research/wishlist.md's header. Loop-health ratio over
+the last 10 tagged entries before this one (worldview-globe G2b
+[PRODUCT], SEC MIDAS [PIPELINE], PLATFORM P3 [PRODUCT], Location Context
+Engine time-machine [PRODUCT], ORBITAL O7 [PRODUCT], Location Context
+Engine click-anywhere [PRODUCT], KNOWN BROKEN #18 event-loop-lag monitor
+[REPAIR], PLATFORM P4 [PRODUCT], 3DEP LiDAR probe [RESEARCH], 3DEP
+classification survey [RESEARCH]) = 1 REPAIR of 10, nowhere near the 7+
+thrash trigger.
+
+SYSTEM HEALTH CHECK: `/api/health` — all subsystems `ok`, Alpaca account
+`ACTIVE`, bot `active`, `drawdownPct: 0.0`, `liveness.dark: false`. No
+LIVENESS ALARM condition. Confirmed via `date -u` that this session runs
+Sunday 2026-07-12 20:16 UTC — KNOWN BROKEN item #21's "check on the next
+trading day" (Monday 2026-07-13+) is not yet actionable.
+
+PRIMARY ACTION CHOICE: item #18's own NEXT STEP, filed the prior session
+(v1.0.288, same day), asked the next session to query
+`/api/diag/audit?type=EVENTLOOP-LAG` at the moment of the next
+TIER2-ERROR/STREAM-DISCONNECT coincidence — a queued, self-directed
+diagnostic step, the clearest fit for SESSION BUDGET's "next queued item
+from open_questions.md" once the DIAG_TOKEN-gated probes were live. Ran
+it immediately rather than waiting: the monitor had been live ~4 hours
+already.
+
+WHAT THE LIVE DATA SHOWED: `/api/diag/audit?type=EVENTLOOP-LAG` returned
+35 entries in a single ~4-hour window (12:38-20:16 UTC), NOT a rare
+event — lag magnitudes 59,000-75,000ms EVERY time (a 60-75 SECOND full
+stall, not the sub-second "GC pause" the item's own hypothesis
+originally imagined), landing on an almost-exact 600-second/10-minute
+rhythm (a few shorter 1-7min gaps are cascading reconnect bursts
+immediately after a big stall, not independent stalls — visible as
+paired short-lag entries, e.g. 19:44:57.959Z at only 752ms, right after
+19:44:14.270Z's 64,985ms). Cross-checked `type=STREAM-DISCONNECT` over
+the identical window: EVERY ~10-minute EVENTLOOP-LAG entry has a
+STREAM-DISCONNECT within 20-40ms of it (20:16:01.292Z lag vs.
+20:16:01.323Z disconnect is representative), and a fresh
+`type=TIER2-ERROR` daemon-timeout landed in the same pattern at
+19:30:09.944Z. This is the direct confirmation the prior session's
+instrument was built to either confirm or refute — it confirms the
+shared-stall theory.
+
+READ BEFORE WRITE: grepped `server/bot.ts` for every `setInterval` and
+every synchronous `fs.*Sync` call before touching anything, specifically
+hunting for a ~600000ms-period timer doing blocking work (the one shape
+that fits both the exact 10-minute cadence AND a stall long enough to
+matter). Found exactly one match: the "Temp File Cleanup (OOM fix)"
+block — `setInterval(() => { fs.readdirSync('/tmp')...
+fs.statSync()... fs.unlinkSync() }, 600000)` — a synchronous directory
+scan + per-file stat/unlink on the Node event loop's own thread, on the
+exact period observed. Checked every other periodic `writeFileSync` in
+the file (equity curve, equity peak, kill-switch state persistence) —
+all write small (<few KB) objects on event-driven or daily cadences, not
+a 10-minute timer, and none does a directory scan, so none is a
+comparably strong match. HONEST CAVEAT (stated before shipping, not
+after): this identifies a real, textbook event-loop-blocking hazard on
+the matching period — it does NOT directly measure that /tmp actually
+held enough `fb_`/`fill_`/`opt_` files at stall time to cost 60-75 real
+seconds; that would need a file-count reading captured at the moment of
+a stall, which no existing instrument captures retroactively. Treating
+this as "plausible root cause, fix ships regardless because it's a pure
+improvement" rather than "proven root cause."
+
+WHAT SHIPPED: `server/tmpCleanup.ts` (NEW) — `cleanupOrphanedTempFiles()`
+using `node:fs/promises` (readdir/stat/unlink) instead of the Sync API;
+async fs work runs off the main thread via libuv's pool, so this removes
+the blocking hazard unconditionally regardless of file count, even
+though the exact contribution of file-count vs. some other cause isn't
+proven. Exports `TMP_CLEANUP_INTERVAL_MS` (600000, unchanged),
+`TMP_FILE_MAX_AGE_MS` (300000, unchanged), `TMP_CLEANUP_AUDIT_THRESHOLD`
+(200, new) — identical cleanup behavior and cadence, only the blocking
+mechanism changed. `server/bot.ts`'s interval now delegates to
+`cleanupOrphanedTempFiles()` and logs a new `TMP-CLEANUP` audit line
+ONLY when a scan is anomalously large (`scanned >= 200`) — this is the
+diagnostic that will tell a future session whether file-count backlog
+was really driving the 60-75s magnitude: if the cadence disappears with
+zero `TMP-CLEANUP` hits ever firing, the fix (not a backlog) mattered
+most; if `TMP-CLEANUP` fires with large counts right before the cadence
+stops, the backlog theory gets direct confirmation; if the ~600s
+EVENTLOOP-LAG/STREAM-DISCONNECT cadence continues unchanged after this
+ships, the theory is refuted and the search moves to the next
+setInterval candidate.
+
+RATCHET: `server/tmpCleanup.test.ts` (NEW, 11 tests) — functional
+coverage (deletes matching-prefix files past the age threshold, leaves
+newer ones and non-matching files alone, never throws on a missing
+directory, via a real `mkdtemp` scratch dir, not mocks), a regression
+guard that greps `tmpCleanup.ts`'s own source for the Sync fs API and
+fails the test if it reappears (the exact anti-pattern this PR removes),
+and wiring-pin tests (mirroring `eventLoopLag.test.ts`'s and
+`tier2DaemonTimeoutVisibility.test.ts`'s established convention of
+reading `bot.ts`'s source text) confirming bot.ts imports from
+`./tmpCleanup` rather than reimplementing the sweep inline, that the
+temp-file-cleanup block in bot.ts contains no direct Sync fs calls, and
+that the `TMP-CLEANUP` audit line is correctly gated on
+`TMP_CLEANUP_AUDIT_THRESHOLD`.
+
+GATES: `npx tsx --test server/tmpCleanup.test.ts` — 11/11 pass.
+`npx tsx --test server/*.test.ts` — 611/611 pass at the pre-existing
+baseline check, then 622/622 pass (611 baseline + 11 new) after `npm
+install` resolved this sandbox's unlinked `tsx` binary for 4 test files
+(`apiKeyAccounts`/`compression`/`gdeltEvents`/`owmTiles`.test.ts) — same
+partial-sandbox artifact class every recent session in this file has
+hit, not a code issue; 0 failures either way for anything this PR
+touches. `npx tsc --noEmit` — A/B'd via `git stash`/`git stash pop`: 66
+errors before and after, byte-identical set (only line numbers shifted
+by the new import line), none reference `tmpCleanup.ts`. `npm run
+build` — clean (same pre-existing large-chunk-size warnings every prior
+session has noted). No Python files touched — `python3 -m pytest -q`
+out of scope, same convention this file's other Node-only PRs follow.
+No client/ files touched — PROMOTION RULE 6's visual-harness requirement
+does not apply.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/
+ad code touched.
+
+MARKET-HOURS NOTE: session ran Sunday 2026-07-12 (confirmed via `date
+-u`; market closed all day). This PR is a pure reliability/performance
+fix (converts a blocking fs sweep to non-blocking, identical cleanup
+behavior and cadence) — it touches no trading/sizing/scoring logic, but
+UNLIKE the pure-observability PRs this file's precedent (v1.0.266/
+v1.0.277/v1.0.288) allowed to ship without holding for market open, this
+one changes RUNTIME BEHAVIOR of a live production interval (even though
+the change is strictly risk-reducing: removing a stall, not adding one).
+Per the task framing's own instruction ("wait until after 4:00 PM ET
+unless the change fixes a critical live break"): a recurring 60-75
+SECOND full-process freeze every ~10 minutes, during which Tier 1
+stop-loss monitoring (45s interval) and the real-time WS position-exit
+stream both go dark, is arguably close to the "critical live break" bar
+given priority-1 LIVENESS concerns — but it is not a confirmed halt (no
+LIVENESS ALARM condition, `/api/health` reports `liveness.dark: false`,
+and the market is closed today regardless) and the fix's own honesty
+caveat above (root cause plausible, not proven) argues for normal review
+timing rather than self-merging on an urgency claim this session can't
+fully substantiate. PR opened, not self-merged, for human/session review
+past market open per the standing instruction; the reliability upside
+argues for expedited review, not for skipping it.
+
+Backtest: N/A — no strategy, sizing, or signal logic touched; this is a
+pure event-loop-blocking fix on a diagnostic-adjacent maintenance timer.
+
+Version 1.0.290 -> 1.0.291 (read-and-increment at commit time;
+re-verified HEAD was at origin/main's tip, 00176cb, before bumping — no
+collision). package-lock.json's embedded version string was also stale
+at 1.0.288 (two versions behind package.json's already-committed
+1.0.290) — synced both to 1.0.291 in the same commit since `npm install`
+touched it anyway resolving this sandbox's tsx-binary gap; no dependency
+version changes, only the two embedded name/version string fields.
+
+RESUME STATE update (open_questions.md item #18): STALL THEORY CONFIRMED
+LIVE, plausible root cause shipped as non-blocking. NEXT = whichever
+session checks in a few hours after this deploys should query
+`/api/diag/audit?type=EVENTLOOP-LAG` and `type=TMP-CLEANUP` — cadence
+gone + zero TMP-CLEANUP hits confirms the fix; cadence continuing
+reopens the search (re-grep bot.ts's setIntervals for the next
+~600000ms-period candidate). Do not assume the fix is proven-sufficient
+before reading that follow-up evidence — this session shipped a
+strong-fit hypothesis fix with an honest magnitude caveat, not a closed
+case.
+
+STARVED: no — the chosen scope (tmpCleanup.ts + 11 tests + bot.ts
+wiring + full gate battery + open_questions.md item #18 update) shipped
+completely. High-value work remains queued (item #21's Monday recheck,
+PLATFORM P5 human-gated, O4/O5 orbital, GRID VISION Phase B,
+location_context_engine.md's PFAS/RadNet/FEMA-flood/CDC-cancer hazard
+layers, street-view ML wishlist decision pending human review) — next
+session's judgment call per SESSION BUDGET's fall-through order.

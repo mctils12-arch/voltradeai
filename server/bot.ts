@@ -15,6 +15,7 @@ import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
+import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -243,20 +244,22 @@ setInterval(() => {
 // ─── Temp File Cleanup (OOM fix) ────────────────────────────────────────────
 // Orphaned temp files from fire-and-forget Python subprocesses that timed out
 // or failed. Clean up every 10 minutes; delete files older than 5 minutes.
+// REPAIR 2026-07-12 (KNOWN BROKEN #18 follow-up): this used to run the scan
+// with fs.readdirSync/statSync/unlinkSync directly on the event loop — a
+// synchronous fs sweep on an exact 600000ms period matching the cadence
+// observed between production EVENTLOOP-LAG stalls (59-75s!) and their
+// coincident STREAM-DISCONNECT entries. Moved to server/tmpCleanup.ts's
+// fs.promises implementation, which cannot block the event loop regardless
+// of how many orphaned files have accumulated. TMP_CLEANUP_AUDIT_THRESHOLD
+// diagnostic: an audit line only fires when the scan is anomalously large,
+// so a future session can see whether a real backlog was driving this.
 setInterval(() => {
-  try {
-    const tmpFiles = fs.readdirSync('/tmp').filter(f =>
-      f.startsWith('fb_') || f.startsWith('fill_') || f.startsWith('opt_')
-    );
-    const now = Date.now();
-    for (const f of tmpFiles) {
-      try {
-        const stat = fs.statSync(`/tmp/${f}`);
-        if (now - stat.mtimeMs > 300000) fs.unlinkSync(`/tmp/${f}`);
-      } catch (_) {}
+  cleanupOrphanedTempFiles().then(({ scanned, deleted }) => {
+    if (scanned >= TMP_CLEANUP_AUDIT_THRESHOLD) {
+      audit("TMP-CLEANUP", `Scanned ${scanned} orphan-candidate temp files in /tmp, deleted ${deleted} — anomalously large (KNOWN BROKEN #18 diagnostic)`);
     }
-  } catch (_) {}
-}, 600000);
+  }).catch(() => {});
+}, TMP_CLEANUP_INTERVAL_MS);
 
 // ─── Alpaca Config ──────────────────────────────────────────────────────────
 const ALPACA_BASE = "https://paper-api.alpaca.markets";
