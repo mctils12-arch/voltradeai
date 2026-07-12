@@ -830,6 +830,82 @@
     periodic contention source rather than random load spikes, but this
     is a hypothesis, not yet investigated.
 
+    UPDATE 2026-07-12, v1.0.288: THE EVIDENCE THIS ITEM ASKED FOR IS NOW
+    IN — ZOMBIE-THREAD THEORY REFUTED; A NEW, TIGHTER CORRELATION FOUND
+    AND MADE CHECKABLE. Live `/api/diag/audit?type=TIER2-ERROR&token=
+    $DIAG_TOKEN` caught 2 fresh occurrences today (14:43:42Z, 15:13:44Z —
+    exactly 30 min apart again, matching 2026-07-11's cadence): both
+    logged a real `active_dispatches` reading taken at the moment of the
+    stall (the thing 2026-07-11's update said was still missing) —
+    `active_dispatches=1` BOTH times, nowhere near the `MAX_INFLIGHT_
+    REQUESTS=8` cap. Two independent readings, both low, is enough to
+    retire the zombie-thread-pileup theory as the explanation for THIS
+    pair of occurrences (it remains theoretically possible the pileup
+    happens on some other occasion, but it is no longer the leading
+    hypothesis — two data points that both contradict it outweigh zero
+    that support it).
+    NEW FINDING (not previously connected): pulling the full audit window
+    around both occurrences shows `STREAM-DISCONNECT` ("Feed disconnected
+    — reconnecting in 10s") landing within 17-35ms of each `TIER2-ERROR`
+    — `14:43:42.554` (error) vs. `14:43:42.537` (disconnect); `15:13:44.239`
+    (error) vs. `15:13:44.274` (disconnect). The 6 `STREAM-DISCONNECT`
+    entries visible in today's window are spaced ~598-606s apart
+    (essentially an exact 600s/10min cycle, independent of TIER2 state —
+    4 of the 6 have no coincident TIER2-ERROR at all). The daemon-timeout
+    `setTimeout` is armed with a scan-dependent start time (300s from
+    whenever that cycle's `run_full_scan` RPC call began — NOT the 90s
+    the surrounding code comment still claims; `pythonCall`'s actual call
+    site passes `300000` for both the daemon and subprocess timeout, a
+    stale "temporarily" bump from 2026-04-23 that was never reverted or
+    corrected in the comment — separate minor STALENESS AUDIT item, not
+    fixed this session, not touched to keep this PR one logical change).
+    Two independently-scheduled timers (a fixed ~600s WS cycle and a
+    scan-dependent ~300s RPC timeout) landing within tens of ms of each
+    other, on both occurrences observed, is closer than their independent
+    periods should coincidentally produce. HYPOTHESIS: a shared cause — a
+    Node.js event-loop stall (synchronous work blocking the loop: GC
+    pause, a large JSON.parse/stringify, etc.) — would explain both
+    symptoms at once: an already-elapsed `setTimeout(300000)` and an
+    already-arrived-but-unprocessed WS `close` event both stay queued
+    until the loop resumes, then fire back-to-back, which is exactly the
+    17-35ms adjacency observed. NOT YET CONFIRMED — inferred from timing
+    adjacency on 2 occurrences, not measured directly; REASONING STANDARD
+    #4 applies (distrust a 2-point pattern) until direct measurement
+    exists.
+    SHIPPED (own PR, visibility-only, same pattern as the two prior fixes
+    on this item — a third pass, but this one adds new diagnostic
+    capability rather than patching the existing one, so it does not
+    trip the "two failed fixes = architecture smell" bar, which is about
+    repairing the SAME mechanism twice, not investigating with a new
+    instrument): `server/eventLoopLag.ts` (NEW) — a standard event-loop-lag
+    monitor. A `setInterval(2000)` tick measures how many ms late it
+    actually fired vs. its nominal 2000ms schedule (`computeLagMs`); any
+    tick landing >=500ms late (`lagExceedsThreshold`, `EVENTLOOP_LAG_
+    ALERT_THRESHOLD_MS`) is audited as a new `EVENTLOOP-LAG` entry. Wired
+    into `server/bot.ts` alongside the other tier interval definitions.
+    Pure measurement — no trading, sizing, scheduling, or scan logic
+    touched; cannot affect any live decision. The NEXT `TIER2-ERROR`/
+    `STREAM-DISCONNECT` coincidence will show whether an `EVENTLOOP-LAG`
+    entry landed in the same window — that is the direct test this
+    hypothesis needs, replacing "guess from the comment" with "read the
+    instrument."
+    RATCHET: `server/eventLoopLag.test.ts` (NEW, 9 tests) — pure-function
+    coverage for `computeLagMs`/`lagExceedsThreshold` (on-schedule, late,
+    early/clamped-to-zero, default and custom thresholds) plus wiring-pin
+    tests (mirroring `tier2DaemonTimeoutVisibility.test.ts`'s convention
+    of reading `bot.ts`'s source text) confirming the monitor is actually
+    armed via `setInterval` at `EVENTLOOP_LAG_CHECK_MS` and gates the
+    audit call on `lagExceedsThreshold`.
+    NEXT STEP for whichever session catches the next occurrence: query
+    `/api/diag/audit?type=EVENTLOOP-LAG` (or `type=TIER2-ERROR` and scan
+    the surrounding window) at the time of the next `TIER2-ERROR`/
+    `STREAM-DISCONNECT` coincidence. An `EVENTLOOP-LAG` entry in that same
+    window confirms the stall theory and turns this into a normal
+    performance-debugging problem (profile what's blocking the loop
+    around scan-result processing). No `EVENTLOOP-LAG` entry despite a
+    fresh coincidence would refute the stall theory in turn and reopen
+    the question — do not assume either answer before reading it.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
