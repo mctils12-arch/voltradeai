@@ -1419,3 +1419,65 @@ the alert is a TRIPWIRE not a budget — set $20/month with alerts at
 50% ($10) and 100% ($20) + the trial-credit-consumption alert. First
 stray dollar = something mis-wired or a guard failed. Set BEFORE
 volume.
+
+## PRODUCT THESIS — the GROUND-TRUTH LAYER FOR AI AGENTS (filed 2026-07-12, human-originated)
+
+CONTEXT: filed at the human's direction after a session comparing us to
+Palantir. The human's framing: AI has made *writing software* nearly free,
+so undifferentiated software is dead — the durable value is (1) proprietary
+data (especially data with time in it, which no model can regenerate at any
+budget), and (2) closing the two gaps AI did NOT close — the SPECIFICATION
+gap (telling the machine what you want and getting it) and the VERIFICATION
+gap (knowing the answer is actually true, not plausible). Palantir's bet is
+"we make generic AI specific to your org via the Ontology"; the honest
+counter is that its moat is lock-in + accreditation, NOT data — because if
+AI makes integration 10x cheaper it makes *replacing* Palantir 10x cheaper
+too. Our structurally stronger position: we OWN an archive nobody else
+recorded, and cheap software-building is the shovel, not the product.
+
+THE THESIS (a new customer segment, not yet in this file): every company
+deploying AI agents hits the verification gap — the agent confabulates
+because it has no access to verified physical reality. Sell our archive +
+validated signals as an API whose consumer is *someone else's AI agent*:
+verified vessel/aircraft/train positions, facility activity, filings-derived
+events — each carrying provenance, freshness, and confidence. We are not
+competing in the flood of AI apps; we are the thing that makes them stop
+lying. This GROWS the addressable buyer pool from "quant funds" to "anyone
+whose agent needs to know what is physically true." It is the same /api/v1
+product already planned — the AI wave just widens who buys it.
+
+WHY IT FITS THE CONSTITUTION: this is priorities-3/4 platform work and it
+leans directly on the two-sided HONESTY METRIC — claimed-vs-ground-truth is
+already our machinery. "Every number carries provenance/freshness/confidence"
+(PREMIUM EXPERIENCE STANDARD, Amendment 5) stops being internal hygiene and
+becomes the selling proposition in a market drowning in AI-generated
+plausible-looking data. Nothing here needs new paid access — build-first
+holds; the raw material is already archived.
+
+FIRST STEP SHIPPED THIS SESSION (v1.0.284): `/api/v1/agent-tools` —
+`agentToolSpec()` in server/apiProduct.ts renders the LIVE API as JSON-Schema
+function-calling tool definitions (drop-in for Anthropic tool use / OpenAI
+functions / an MCP server), derived from the SAME live endpoint set as
+apiMeta() so gated signals can never leak in, each tool naming the
+license_marks key(s) of what it returns so provenance travels into the
+agent's context. Public docs endpoint (like /meta); the calls behind each
+tool still require an x-api-key. apiMeta() now points at it (`agent_tools`).
+This is the honest v0 of the surface — real, small, gated-signal-safe.
+
+NEXT STEPS FOR A FUTURE PRODUCT SESSION (each its own PR, none billing):
+1. A hosted MCP server (or a published `.well-known/` manifest) so an agent
+   can auto-discover and mount the tools — turn agent-tools into an actual
+   connectable server, not just a spec document.
+2. A `/developers` "Use with your AI agent" section (P2 PREMIUM territory):
+   copy-paste the tool spec into Claude/ChatGPT, one live example of an
+   agent answering a physical-world question with our provenance cited.
+3. As each SIGNAL passes ladder gate 2, expose it as a NEW agent tool with
+   its confidence attached — the confidence field IS the product for an
+   agent deciding whether to trust the number.
+
+HUMAN DECISION REQUESTED (weekly review): is "ground-truth layer for AI
+agents" an official positioning line for the platform (affects how
+/developers and /pricing are written, and which signals get prioritized to
+gate 2)? If yes, it should be reconciled into VISION.md/GIP.md as a named
+customer segment. Until then it lives here as a filed thesis with a shipped
+v0, not a silent pivot.

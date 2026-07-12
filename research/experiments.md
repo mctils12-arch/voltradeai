@@ -13878,3 +13878,67 @@ remains queued (P4/P5 per platform_program.md, the vite-base-path bug,
 worldview_globe.md's backlog, gate-2 work on several gate-1-passed
 streams) — next session's judgment call per SESSION BUDGET's fall-
 through order.
+
+---
+
+## 2026-07-12 — [PRODUCT] /api/v1/agent-tools: the API as LLM/agent tool definitions (v1.0.283 -> 1.0.284)
+
+TERRITORY: SHARED (server/apiProduct.ts is NOT frozen; +server/routes.ts one
+public route registration + apiProduct.test.ts + research/*). Single logical
+change: expose the live data API as agent-consumable tool definitions.
+
+ORIGIN: human session comparing us to Palantir, concluding that in an
+AI-cheap-software world the durable moat is proprietary data + closing the
+verification gap, and directing (a) file the "ground-truth layer for AI
+agents" thesis in wishlist.md, (b) continue building the product. Thesis
+filed (wishlist.md PRODUCT THESIS 2026-07-12); this entry is the build.
+
+CHANGE: new pure function `agentToolSpec(baseUrl)` in server/apiProduct.ts
+renders the LIVE /api/v1 endpoint set as JSON-Schema function-calling tool
+definitions (Anthropic tool use / OpenAI functions / MCP-shaped): 4 tools
+(voltrade_get_track, _port_dwell_stats, _shadow_fleet_stats, _archive_stats),
+each with input_schema and a `returns_provenance` list of license_marks keys
+so provenance/license travels into the agent's context, not just the raw
+number. Wired public route `GET /api/v1/agent-tools` (docs, not data — like
+/meta, NOT behind requireApiKey; the calls behind each tool still require an
+x-api-key). apiMeta() now carries `agent_tools: "/api/v1/agent-tools"` so the
+existing reference points agents at the spec.
+
+HONESTY / GATED-SIGNAL SAFETY: the spec is derived from the same live
+endpoint list as apiMeta(), so gated signals (tank-fill, entity timelines)
+can never appear as callable tools — they surface only in `excluded_gated`
+as an honest roadmap. A test pins tool-count == live-data-endpoint-count and
+scans the tools array (not the whole blob) for leaked gated terms; the
+"tank" substring in excluded_gated is intentional and allowed.
+
+VARIABLES-INTERACT / DOWNSTREAM: agent-tools reads apiMeta().coming_gated and
+the shared LICENSE_MARKS map — if a future session adds a live endpoint to
+apiMeta without a matching tool, the count test fails loudly (drift guard).
+No trading/scoring/sizing code touched; no ML; no execution paths.
+
+TESTS: server/apiProduct.test.ts +3 tests (derivation/gated-safety,
+schema+provenance validity, public-wiring) — 11/11 pass. Typecheck (tsc
+--noEmit) clean on apiProduct.ts + routes.ts. apiKeyAccounts.test.ts fails
+in THIS sandbox only on `Cannot find package 'better-sqlite3'` (native dep
+not installed here — same environment gap noted in prior T-DATACORE entries;
+CI installs it); unrelated to this diff (pure module + one route reg).
+
+MONETIZATION TRIPWIRE: re-ran per standing rule. Nothing here bills, charges,
+prices, or changes the aircraft-provider compliance chain. The spec is public
+documentation; the data behind each tool requires the same free preview
+x-api-key already in place. providerCompliance.ts + the READINESS CHECKLIST
+untouched.
+
+BACKTEST: N/A — no strategy, sizing, or signal logic touched.
+
+HYPOTHESIS: exposing the API as ready-to-mount agent tools lowers the
+integration cost for the largest AI-wave buyer segment (anyone whose agent
+needs verified physical-world facts) from "read our docs and hand-write tool
+wrappers" to "paste our spec." Prior stated before any adoption data exists:
+this is a positioning/DX bet, not a validated-signal claim — no signal is
+sold here, only observed RAW/archive data that already ships on /api/v1.
+
+STARVED: no — thesis filed + v0 surface shipped with tests. High-value work
+remains queued (wishlist PRODUCT THESIS next-steps: hosted MCP server,
+/developers "use with your agent" section, per-signal tools as gate 2 passes;
+plus platform_program.md P4, the vite-base-path bug, gate-2 stream work).

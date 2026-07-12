@@ -138,8 +138,71 @@ export function apiMeta() {
       "entity timelines (Everything Graph v1 — aircraft continuity spine in build)",
       "tank-fill readings (Sentinel-2 — ladder gate 2 not yet passed; experimental readings stay internal)",
     ],
+    agent_tools: "/api/v1/agent-tools",
     limits: TIER_LIMITS,
     license_marks: LICENSE_MARKS,
     disclaimer: "Data as-is; not for safety-of-life use; attribution and share-alike marks travel with each response.",
+  };
+}
+
+/** Agent tool spec — the LIVE API rendered as function-calling tool
+ *  definitions so a developer can hand VolTradeAI's verified physical-world
+ *  data straight to an AI agent (Anthropic tool use, OpenAI functions, or an
+ *  MCP server). Derived from the SAME live endpoint set as apiMeta(), so
+ *  gated signals can never leak in; each tool names the license_marks key(s)
+ *  of what it returns, so provenance and freshness travel into the agent's
+ *  context, not just the raw number. Public — it is documentation, not data;
+ *  the calls themselves still require an x-api-key. This is the "ground-truth
+ *  layer for AI agents" surface: an agent grounded here answers from observed,
+ *  archived measurement instead of model-generated plausibility. */
+export function agentToolSpec(baseUrl = "https://voltradeai.com") {
+  const tools = [
+    {
+      name: "voltrade_get_track",
+      description: "Recent position track for one aircraft, vessel, or train from VolTradeAI's own continuously-recorded archive. Returns observed, timestamped positions — ground truth, not a prediction.",
+      input_schema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["aircraft", "vessels", "trains"], description: "Asset class." },
+          id: { type: "string", description: "icao24 (aircraft), MMSI (vessel), or train id." },
+          hours: { type: "integer", minimum: 1, maximum: 168, default: 24, description: "Lookback window in hours (max 168)." },
+        },
+        required: ["kind", "id"],
+      },
+      endpoint: "GET /api/v1/tracks/{kind}/{id}?hours={hours}",
+      returns_provenance: ["tracks/aircraft", "tracks/vessels", "tracks/trains"],
+    },
+    {
+      name: "voltrade_port_dwell_stats",
+      description: "Per-port dwell statistics over 9 imagery-verified port geofences: completed calls, ships in-port now, median dwell, and 3x-median anomaly flags. RAW overlay — descriptive, not a trading signal.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/portdwell",
+      returns_provenance: ["stats/portdwell"],
+    },
+    {
+      name: "voltrade_shadow_fleet_stats",
+      description: "Dark-ship RAW statistics: AIS gap events, identity candidates, and STS-zone loitering counts, with honest coverage caveats. RAW overlay — not a signal.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/shadow",
+      returns_provenance: ["stats/shadow"],
+    },
+    {
+      name: "voltrade_archive_stats",
+      description: "Archive growth metadata: streams recorded, sample counts, and days of history — how much verified physical-economy data the platform holds.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/archive",
+      returns_provenance: ["stats/archive"],
+    },
+  ];
+  return {
+    version: "v1",
+    format: "JSON-Schema tool definitions — drop-in for Anthropic tool use, OpenAI function calling, or an MCP server.",
+    base_url: baseUrl,
+    auth: "Send x-api-key on every call (invite-only during the preview — join the waitlist on /developers). This spec is public; the data behind each tool requires a key.",
+    ground_truth_note: "Every tool returns observed, archived measurements carrying provenance and a generated_at timestamp — built to ground AI agents in what is physically true rather than model-generated plausibility.",
+    tools,
+    license_marks: LICENSE_MARKS,
+    excluded_gated: apiMeta().coming_gated,
+    disclaimer: apiMeta().disclaimer,
   };
 }

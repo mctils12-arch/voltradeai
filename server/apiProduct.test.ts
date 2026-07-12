@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  parseApiKeys, makeRateLimiter, keyId, meterUsage, apiMeta,
+  parseApiKeys, makeRateLimiter, keyId, meterUsage, apiMeta, agentToolSpec,
   LICENSE_MARKS, TIER_LIMITS,
 } from "./apiProduct";
 
@@ -80,6 +80,48 @@ test("every v1 endpoint documents a preview (or states it needs a live id), so /
     if (e.path === "/api/v1/tracks/:kind/:id") continue; // needs a real id, no static preview possible
     assert.ok(typeof e.preview === "string" && e.preview.length > 0, `${e.path} missing a preview route for the docs explorer`);
   }
+});
+
+test("agent tool spec: one tool per LIVE endpoint (meta excluded), gated signals never leak in", () => {
+  const spec = agentToolSpec();
+  // meta is docs-about-docs and is not a tool; every other live endpoint is.
+  const liveDataEndpoints = apiMeta().endpoints.filter((e: any) => e.path !== "/api/v1/meta");
+  assert.equal(spec.tools.length, liveDataEndpoints.length, "tool count must track the live data endpoints");
+  // Gated signals may be NAMED in excluded_gated (honest roadmap) but must
+  // never appear as a callable tool — scan the tools array specifically.
+  const toolBlob = JSON.stringify(spec.tools).toLowerCase();
+  assert.ok(!toolBlob.includes("tank"), "gated tank-fill signal must never appear as a tool");
+  assert.ok(!toolBlob.includes("timeline"), "gated entity timelines must never appear as a tool");
+  assert.ok(!toolBlob.includes("openweathermap"), "OWM is a display product, not on the data API");
+  // The gated roadmap is surfaced honestly as excluded, not silently dropped.
+  assert.deepEqual(spec.excluded_gated, apiMeta().coming_gated);
+});
+
+test("agent tool spec: every tool is valid JSON-Schema and its provenance keys resolve to real license marks", () => {
+  const spec = agentToolSpec();
+  for (const tool of spec.tools as any[]) {
+    assert.ok(/^voltrade_[a-z_]+$/.test(tool.name), `tool name not agent-safe: ${tool.name}`);
+    assert.equal(tool.input_schema.type, "object", `${tool.name} input_schema must be an object`);
+    assert.ok(tool.input_schema.properties && typeof tool.input_schema.properties === "object");
+    assert.ok(Array.isArray(tool.returns_provenance) && tool.returns_provenance.length > 0,
+      `${tool.name} must declare what it returns`);
+    for (const mark of tool.returns_provenance) {
+      assert.ok(LICENSE_MARKS[mark], `${tool.name} references unknown license mark ${mark}`);
+    }
+  }
+  // Provenance travels WITH the spec so an agent can cite it, not just the number.
+  assert.deepEqual(spec.license_marks, LICENSE_MARKS);
+  assert.ok(spec.ground_truth_note.toLowerCase().includes("provenance"));
+  assert.ok(apiMeta().agent_tools === "/api/v1/agent-tools", "meta must point agents at the tool spec");
+});
+
+test("agent tool spec: /api/v1/agent-tools is wired and public (docs, not data — like /meta)", () => {
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes('"/api/v1/agent-tools"'), "agent-tools route missing");
+  assert.ok(routes.includes("agentToolSpec()"), "agent-tools must serve agentToolSpec()");
+  // It sits with the public meta doc, NOT behind requireApiKey (it's a spec, not data).
+  const specLine = routes.split("\n").find((l) => l.includes('"/api/v1/agent-tools"')) || "";
+  assert.ok(!specLine.includes("requireApiKey"), "the spec itself is public documentation");
 });
 
 test("honesty: every v1 response and its public preview mirror carry generated_at, so freshness is never silently omitted", () => {
