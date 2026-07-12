@@ -14,6 +14,8 @@ import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreNuclearTests from "../datacore/nuclear_tests.json";
+import datacoreQuakeHistory from "../datacore/quake_history.json";
+import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import { version as pkgVersion } from "../package.json";
 import {
@@ -2240,6 +2242,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // EPA Superfund NPL sites (RAW/FACTUAL hazard layer, public domain; first
   // Location Context Engine hazard layer, data-quality gated). Weekly refresh.
   bootSuperfundPoll();
+  // Historical earthquakes M6+ since 1900 (RAW; USGS ComCat, public domain —
+  // static compile through the data-quality gate; feeds the time machine.
+  // The LIVE quakes layer covers the present separately).
+  app.get("/api/data/quakehistory", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const d: any = datacoreQuakeHistory;
+    res.json({ kind: "raw", predictive: false, source: d.source,
+               attribution: "USGS ANSS ComCat", count: d.count,
+               min_year: d.min_year, max_year: d.max_year, quakes: d.quakes });
+  });
+
+  // EPA Clean Water Act chronic violators (RAW/FACTUAL; ECHO, public domain —
+  // active NPDES facilities >8 of last 12 quarters in noncompliance. The
+  // "factories' water quality" hazard layer; data-quality gated, weekly refresh).
+  bootWaterViolatorsPoll();
+  app.get("/api/data/waterviolators", (_req, res) => {
+    const hit = latestWaterViolators();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "EPA ECHO Clean Water Act compliance (public domain)",
+                         predictive: false, warming_up: true, violators: [] });
+    }
+    res.set("Cache-Control", "public, max-age=21600");
+    res.json({
+      kind: "raw", predictive: false,
+      source: "EPA ECHO — Clean Water Act compliance records (public domain)",
+      attribution: "U.S. EPA ECHO / NPDES",
+      note: "Active facilities with more than 8 of the last 12 quarters in Clean Water Act "
+        + "noncompliance, as published in EPA's own compliance records. FACTS about permits and "
+        + "violations — NOT a water-safety claim about any location (that would require validation). "
+        + "Every record passed the data-quality gate; failures are quarantined, see health.",
+      time: hit.at,
+      health: hit.health,
+      violators: hit.violators,
+    });
+  });
+
   // Historical nuclear explosions 1945-1998 (RAW/FACTUAL; SIPRI/Johnston
   // archive catalog — static history, the test era ended in 1998). Time-
   // scrubbable on the client (year slider). Compiled through the data-quality
