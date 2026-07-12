@@ -1,0 +1,421 @@
+{
+ "_doc": "Nuclear accidents and radiological incidents with locations, compiled 2026-07-12 from Wikidata (CC0 1.0): union of the nuclear-accident class tree (Q1620824 via P31/P279*) and items carrying an INES level (P2127), coordinates from P625 or the P276 location. QUALITY GATE: English label required (bare-QID rows dropped), an INES level or a date required as evidence, coordinate-validity enforced, same-site/same-date duplicates deduplicated keeping the highest INES (Fukushima kept as the single INES-7 event), plus 3 curated majors (SL-1, Church Rock, Lucens) resolved individually. FACTUAL records as catalogued; INES levels only where Wikidata carries P2127 — never inferred. qid links each marker to its Wikidata provenance.",
+ "source": "Wikidata (CC0 1.0)",
+ "count": 46,
+ "events": [
+  {
+   "qid": "Q5603167",
+   "n": "Green Run",
+   "lon": -119.6444,
+   "lat": 46.5564,
+   "d": "1949-12-02",
+   "ines": null,
+   "loc": null
+  },
+  {
+   "qid": "Q2822735",
+   "n": "Nuclear Accident in Chalk River",
+   "lon": -77.361,
+   "lat": 46.0502,
+   "d": "1952-12-12",
+   "ines": 5,
+   "loc": null
+  },
+  {
+   "qid": "Q1349539",
+   "n": "Kyshtym disaster",
+   "lon": 60.8043,
+   "lat": 55.6936,
+   "d": "1957-09-29",
+   "ines": 6,
+   "loc": "Mayak"
+  },
+  {
+   "qid": "Q649682",
+   "n": "Windscale fire",
+   "lon": -3.5,
+   "lat": 54.4249,
+   "d": "1957-10-10",
+   "ines": 5,
+   "loc": "Windscale Piles"
+  },
+  {
+   "qid": "Q639459",
+   "n": "Cecil Kelley criticality accident",
+   "lon": -106.298,
+   "lat": 35.8817,
+   "d": "1958-12-30",
+   "ines": null,
+   "loc": "Los Alamos National Laboratory"
+  },
+  {
+   "qid": "Q2296817",
+   "n": "SL-1 reactor accident",
+   "lon": -112.824,
+   "lat": 43.5182,
+   "d": "1961-01-03",
+   "ines": null,
+   "loc": "Idaho National Reactor Testing Station"
+  },
+  {
+   "qid": "Q2822707",
+   "n": "accident de Béryl",
+   "lon": 5.0419,
+   "lat": 24.063,
+   "d": "1962-05-01",
+   "ines": null,
+   "loc": null
+  },
+  {
+   "qid": "Q686884",
+   "n": "Lucens reactor accident",
+   "lon": 6.8269,
+   "lat": 46.6928,
+   "d": "1969-01-21",
+   "ines": null,
+   "loc": "Lucens, Switzerland"
+  },
+  {
+   "qid": "Q12019307",
+   "n": "Jaslovské Bohunice A1 power plant accident",
+   "lon": 17.6728,
+   "lat": 48.4918,
+   "d": "1976-01-05",
+   "ines": null,
+   "loc": "Bohunice A1 Nuclear Power Plant"
+  },
+  {
+   "qid": "Q136467974",
+   "n": "The accident of the Jaslovské Bohunice A1 power plant in 1977",
+   "lon": 17.6728,
+   "lat": 48.4918,
+   "d": "1977-02-22",
+   "ines": 4,
+   "loc": "Bohunice A1 Nuclear Power Plant"
+  },
+  {
+   "qid": "Q840847",
+   "n": "Three Mile Island accident",
+   "lon": -76.7253,
+   "lat": 40.1533,
+   "d": "1979-03-28",
+   "ines": 5,
+   "loc": "Three Mile Island Nuclear Generating Station"
+  },
+  {
+   "qid": "Q28718",
+   "n": "Church Rock uranium mill spill",
+   "lon": -108.506,
+   "lat": 35.6508,
+   "d": "1979-07-16",
+   "ines": null,
+   "loc": "Church Rock, New Mexico"
+  },
+  {
+   "qid": "Q2822738",
+   "n": "1980 Saint-Laurent-des-Eaux nuclear accident",
+   "lon": 1.5803,
+   "lat": 47.72,
+   "d": "1980-03-13",
+   "ines": 4,
+   "loc": null
+  },
+  {
+   "qid": "Q5656167",
+   "n": "Nuclear Accident of reactor RA-2",
+   "lon": -58.5132,
+   "lat": -34.5725,
+   "d": "1983-09-23",
+   "ines": null,
+   "loc": "Constituyentes Atomic Center"
+  },
+  {
+   "qid": "Q4581203",
+   "n": "1983 Soviet nuclear false alarm incident",
+   "lon": 37.0414,
+   "lat": 55.0683,
+   "d": "1983-09-26",
+   "ines": null,
+   "loc": "Serpukhov-15"
+  },
+  {
+   "qid": "Q65160775",
+   "n": "Ciudad Juárez cobalt-60 contamination incident",
+   "lon": -106.42,
+   "lat": 31.6685,
+   "d": "1984-01-01",
+   "ines": null,
+   "loc": "Ciudad Juárez"
+  },
+  {
+   "qid": "Q43747691",
+   "n": "1984 Wolseong-1 Nuclear Power Plant heavy water leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "1984-11-25",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q486",
+   "n": "Chernobyl disaster",
+   "lon": 30.0992,
+   "lat": 51.3894,
+   "d": "1986-04-26",
+   "ines": 7,
+   "loc": "Chernobyl Nuclear Power Plant"
+  },
+  {
+   "qid": "Q591045",
+   "n": "Goiânia accident",
+   "lon": -49.2641,
+   "lat": -16.6746,
+   "d": "1987-09-13",
+   "ines": null,
+   "loc": "Goiânia"
+  },
+  {
+   "qid": "Q58626707",
+   "n": "1988 Wolseong Nuclear Power Plant heavy water leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "1988-10-01",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q42295408",
+   "n": "Vandellòs I Nuclear Accident",
+   "lon": 0.8667,
+   "lat": 40.9514,
+   "d": "1989-10-19",
+   "ines": 3,
+   "loc": "Vandellòs Nuclear Power Plant"
+  },
+  {
+   "qid": "Q58626582",
+   "n": "June 1995 Kori Nuclear Power Plant radiation leaks",
+   "lon": 129.2946,
+   "lat": 35.3202,
+   "d": "1995-06-01",
+   "ines": null,
+   "loc": "Kori Nuclear Power Plant"
+  },
+  {
+   "qid": "Q58626952",
+   "n": "1996 Yonggwang Nuclear Power Plant cooleant leak",
+   "lon": 126.4239,
+   "lat": 35.415,
+   "d": "1996-01-01",
+   "ines": null,
+   "loc": "Hanbit Nuclear Power Plant"
+  },
+  {
+   "qid": "Q58626753",
+   "n": "February 1997 Wolseong-2 Nuclear Power Plant heavy water leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "1997-02-27",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q18337477",
+   "n": "PNC Tōkai Works fire and explosion",
+   "lon": 140.6035,
+   "lat": 36.4393,
+   "d": "1997-03-11",
+   "ines": null,
+   "loc": "Tōkai Reprocessing Plant"
+  },
+  {
+   "qid": "Q58626879",
+   "n": "August 1997 Wolseong-2 Nuclear Power Plant heavy water leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "1997-08-20",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q1377385",
+   "n": "Tōkaimura criticality accident",
+   "lon": 140.5536,
+   "lat": 36.4797,
+   "d": "1999-09-30",
+   "ines": null,
+   "loc": null
+  },
+  {
+   "qid": "Q2837737",
+   "n": "1999 Blayais Nuclear Power Plant flood",
+   "lon": -0.6931,
+   "lat": 45.2558,
+   "d": "1999-12-27",
+   "ines": 2,
+   "loc": "Blayais Nuclear Power Plant"
+  },
+  {
+   "qid": "Q43747761",
+   "n": "2000 Wolseong Nuclear Power Plant cooling water leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "2000-05-01",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q55003122",
+   "n": "2002 Uljin No. 4 Nuclear Power coolant water leak",
+   "lon": 129.3895,
+   "lat": 37.0846,
+   "d": "2002-04-05",
+   "ines": null,
+   "loc": "Hanul Nuclear Power Plant"
+  },
+  {
+   "qid": "Q58627007",
+   "n": "2003 Yeonggwang Nuclear Power Plant radioactive water leak",
+   "lon": 126.4239,
+   "lat": 35.415,
+   "d": "2003-12-22",
+   "ines": null,
+   "loc": "Hanbit Nuclear Power Plant"
+  },
+  {
+   "qid": "Q58626837",
+   "n": "2004 Wolseong-2 Nuclear Power Plant heavy water leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "2004-09-14",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q43749294",
+   "n": "2007 Kori Nuclear Power Plant nuclear water leak",
+   "lon": 129.2946,
+   "lat": 35.3202,
+   "d": "2007-03-19",
+   "ines": null,
+   "loc": "Kori Nuclear Power Plant"
+  },
+  {
+   "qid": "Q43749427",
+   "n": "2009 Wolseong Nuclear Power Plant leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "2009-03-13",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q171178",
+   "n": "Fukushima Daiichi nuclear disaster",
+   "lon": 141.0325,
+   "lat": 37.4214,
+   "d": "2011-03-11",
+   "ines": 7,
+   "loc": "Fukushima Daiichi Nuclear Power Plant"
+  },
+  {
+   "qid": "Q43747885",
+   "n": "2013 Wolseong Nuclear Power Plant coolant leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "2013-02-01",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q55003253",
+   "n": "2014 Kori Nuclear Power Plant nitrogen gas leak",
+   "lon": 129.2946,
+   "lat": 35.3202,
+   "d": "2014-12-26",
+   "ines": null,
+   "loc": "Kori Nuclear Power Plant"
+  },
+  {
+   "qid": "Q43749130",
+   "n": "2015 Kori Nuclear Power Plant hydrogen leak",
+   "lon": 129.2946,
+   "lat": 35.3202,
+   "d": "2015-02-03",
+   "ines": null,
+   "loc": "Kori Nuclear Power Plant"
+  },
+  {
+   "qid": "Q58626342",
+   "n": "2016 Hanul Nuclear Power Plant 5 cooling water leak",
+   "lon": 128.5056,
+   "lat": 36.5761,
+   "d": "2016-12-20",
+   "ines": null,
+   "loc": "North Gyeongsang"
+  },
+  {
+   "qid": "Q43746779",
+   "n": "2017 Wolseong Nuclear Power Plant coolant leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "2017-10-05",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q58626439",
+   "n": "2018 Kori Nuclear Power Plant Unit 4 coolant water leak",
+   "lon": 129.2946,
+   "lat": 35.3202,
+   "d": "2018-03-28",
+   "ines": null,
+   "loc": "Kori Nuclear Power Plant"
+  },
+  {
+   "qid": "Q55002916",
+   "n": "2018 Wolseong-3 Nuclear Power Plant coolant leak",
+   "lon": 129.475,
+   "lat": 35.7111,
+   "d": "2018-06-11",
+   "ines": null,
+   "loc": "Wolseong Nuclear Power Plant"
+  },
+  {
+   "qid": "Q66424571",
+   "n": "nuclear accident in Russia in August 2019",
+   "lon": 39.2027,
+   "lat": 64.6459,
+   "d": "2019-08-08",
+   "ines": null,
+   "loc": "Sopka"
+  },
+  {
+   "qid": "Q117194158",
+   "n": "Monticello Nuclear Generating Plant accident",
+   "lon": -93.8492,
+   "lat": 45.3336,
+   "d": "2022-11-01",
+   "ines": null,
+   "loc": "Monticello Nuclear Generating Plant"
+  },
+  {
+   "qid": "Q128483418",
+   "n": "Nuclear incident at Khabarovsk, Russia",
+   "lon": 135.0667,
+   "lat": 48.4833,
+   "d": "2024-01-01",
+   "ines": null,
+   "loc": "Khabarovsk"
+  },
+  {
+   "qid": "Q618556",
+   "n": "Santa Susana Field Laboratory",
+   "lon": -118.696,
+   "lat": 34.2308,
+   "d": null,
+   "ines": 5,
+   "loc": null
+  }
+ ]
+}

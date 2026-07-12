@@ -10,7 +10,7 @@ import {
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
-  radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR,
+  radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import FilingsView from "./filings";
@@ -98,7 +98,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident";
   title: string;
   subtitle: string;
   body: string;
@@ -212,7 +212,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
-  radiation: "hazards",
+  radiation: "hazards", nukeaccidents: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -3073,6 +3073,86 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.radiation, mapReady, mapSettled, setStatus]);
 
+  // ── nuclear accidents & radiological incidents (RAW/FACTUAL; Wikidata CC0,
+  // 46 curated events through a quality gate. Hazard-triangle-trefoil symbols
+  // tinted by official INES level where catalogued (never inferred; unrated =
+  // gray). A MELTDOWN reads differently from a TEST at a glance — the symbol
+  // directive's canonical case. Static history, mounts once. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.nukeaccidents) {
+      try {
+        if (map.getLayer("nukeacc-pt")) map.removeLayer("nukeacc-pt");
+        if (map.getSource("nukeaccidents")) map.removeSource("nukeaccidents");
+      } catch {}
+      setStatus("nukeaccidents", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("nukeaccidents", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("nukeaccidents", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/nukeaccidents", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.events)) throw new Error("no events");
+        if (map.getSource("nukeaccidents")) return;
+        map.addSource("nukeaccidents", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.events.map((ev: any) => ({
+              type: "Feature", geometry: { type: "Point", coordinates: [ev.lon, ev.lat] },
+              properties: { ...ev, tint: inesColor(ev.ines) },
+            })),
+          } as any,
+          attribution: "Wikidata (CC0 1.0)",
+        } as any);
+        map.addLayer({
+          id: "nukeacc-pt", type: "symbol", source: "nukeaccidents",
+          layout: {
+            "icon-image": "vt-meltdown",
+            // severity reads in size too: INES 6-7 render larger
+            "icon-size": ["interpolate", ["linear"], ["zoom"],
+              2, ["case", [">=", ["coalesce", ["get", "ines"], 0], 6], 0.55, 0.4],
+              8, ["case", [">=", ["coalesce", ["get", "ines"], 0], 6], 0.95, 0.7]],
+            "icon-allow-overlap": true,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.2,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "nukeacc-pt", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const ev = f.properties;
+          const ines = Number(ev.ines);
+          const inesLine = Number.isFinite(ines) && ines >= 1
+            ? `INES level ${ines} of 7 — the IAEA's official severity scale (1–3 incidents, 4–7 accidents; 7 = major accident like Chernobyl/Fukushima).`
+            : "No official INES level is catalogued for this event — shown unrated, never guessed.";
+          setDetail({
+            kind: "nukeaccident",
+            title: ev.n || "Nuclear event",
+            subtitle: `${ev.d || "date not catalogued"}${ev.loc ? ` · ${ev.loc}` : ""}`,
+            body: `${inesLine}\n` +
+                  `\nWhat this marker is: the catalogued site of a nuclear or radiological accident/incident — ` +
+                  `reactor accidents, criticality events, contamination releases and lost-source incidents. ` +
+                  `Distinct from the nuclear TESTS layer (deliberate detonations, mushroom-cloud symbols).\n` +
+                  `\nSource: Wikidata (CC0), curated 2026-07-12 through a quality gate (English label + date-or-INES ` +
+                  `evidence required, duplicates merged, 3 majors resolved individually). Provenance: wikidata.org/wiki/${ev.qid}. ` +
+                  `Facts as catalogued — no radiation, damage, or risk modeling.`,
+          });
+        });
+        setStatus("nukeaccidents", "active", d.count,
+          `${d.count} accidents & incidents 1949–2024 (Wikidata CC0, curated) — triangle-trefoil = nuclear event, color = official INES level, gray = unrated`);
+      },
+      (failures) => setStatus("nukeaccidents", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.nukeaccidents, mapReady, mapSettled, setStatus]);
+
   // ── earthquake history (RAW; USGS ComCat M6+ since 1900, public domain —
   // 14,492 events compiled through the data-quality gate. Shares the history
   // time bar: accumulate to the year, the year's quakes pulse. The LIVE quakes
@@ -4748,6 +4828,18 @@ export default function DataMapPage() {
                         ))}
                         <span className="vt-legend-chip"><i style={{ background: RADIATION_CPM_COLOR }} /> CPM-only Station</span>
                         <span className="vt-legend-note">(display buckets of the measured dose rate, not thresholds)</span>
+                      </div>
+                    </div>
+                  )}
+                  {enabled.nukeaccidents && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Nuclear Accidents</div>
+                      <div className="vt-legend-items">
+                        <LegendIcon icon="vt-meltdown" color="#eef3fb" label="Accident / Incident Site" />
+                        <span className="vt-legend-chip"><i style={{ background: inesColor(7) }} /> INES 6–7 Major/Serious</span>
+                        <span className="vt-legend-chip"><i style={{ background: inesColor(4) }} /> INES 4–5 Accident</span>
+                        <span className="vt-legend-chip"><i style={{ background: inesColor(2) }} /> INES 1–3 Incident</span>
+                        <span className="vt-legend-chip"><i style={{ background: inesColor(null) }} /> Unrated (no INES catalogued)</span>
                       </div>
                     </div>
                   )}
