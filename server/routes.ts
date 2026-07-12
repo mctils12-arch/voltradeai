@@ -16,6 +16,7 @@ import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
+import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import { version as pkgVersion } from "../package.json";
 import {
@@ -2296,6 +2297,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + " unlocated tests are quarantined by the data-quality gate rather than plotted at (0,0).",
       count: d.count, quarantined: d._quarantined?.length || 0,
       tests: d.tests,
+    });
+  });
+
+  // Ambient gamma radiation monitors (RAW; four national networks with clean
+  // licenses — BfS Germany, Health Canada, STUK/FMI Finland, EPA RadNet US.
+  // Observed station readings as published: no interpolation, no modeling,
+  // no safety claims. EPA locations are city-approximate (RadNet publishes
+  // city names only) and flagged approx per station; CPM-only stations are
+  // served as CPM, never converted to dose. 3h server-side refresh.
+  bootAmbientRadiationPoll();
+  app.get("/api/data/radiation", (_req, res) => {
+    const hit = latestAmbientRadiation();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "BfS · Health Canada · STUK/FMI · EPA RadNet",
+                         predictive: false, warming_up: true, stations: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw", predictive: false,
+      source: hit.health.source,
+      attribution: "BfS (DL-DE-BY-2.0) · Health Canada (OGL-Canada) · STUK/FMI (CC BY 4.0) · EPA RadNet (public domain)",
+      note: "Observed ambient gamma dose-rate readings from national monitor networks, displayed "
+        + "as published — no interpolation, no modeling, no health claims. Typical natural "
+        + "background is roughly 0.05-0.3 µSv/h and varies with geology and altitude. US (RadNet) "
+        + "markers sit at city centroids (EPA publishes city names only) and say so; monitors that "
+        + "publish only gamma count rates are shown in CPM — count rates are never converted to dose.",
+      time: hit.at, networks: hit.networks,
+      health: hit.health,
+      stations: hit.stations,
     });
   });
 

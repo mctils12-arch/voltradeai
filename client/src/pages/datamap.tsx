@@ -10,6 +10,7 @@ import {
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
+  radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import FilingsView from "./filings";
@@ -97,7 +98,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation";
   title: string;
   subtitle: string;
   body: string;
@@ -211,6 +212,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
+  radiation: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -2986,6 +2988,91 @@ export default function DataMapPage() {
     // the source/layers mount once, the filter moves per tick.
   }, [enabled.nucleartests, mapReady, mapSettled, setStatus]);
 
+  // ── ambient radiation monitors (RAW; observed gamma dose-rate readings
+  // from four national networks — BfS DE, Health Canada, STUK/FMI FI, EPA
+  // RadNet US. Trefoil symbols tinted by dose DISPLAY band (bucket edges are
+  // presentation, stated in the legend — not health thresholds); CPM-only
+  // stations neutral-tinted, never converted to dose. US markers are
+  // city-approximate and say so. No interpolation, no modeling. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.radiation) {
+      try {
+        if (map.getLayer("radiation-pt")) map.removeLayer("radiation-pt");
+        if (map.getSource("radiation")) map.removeSource("radiation");
+      } catch {}
+      setStatus("radiation", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("radiation", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("radiation", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/radiation", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (d.warming_up) throw new Error("radiation feed warming up");
+        if (!Array.isArray(d.stations) || !d.stations.length) throw new Error("no stations");
+        if (map.getSource("radiation")) return;
+        map.addSource("radiation", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.stations.map((s: any) => ({
+              type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+              properties: { ...s, band: radiationBandColor(s.value, s.unit) },
+            })),
+          } as any,
+          attribution: "BfS · Health Canada · STUK/FMI · EPA RadNet",
+        } as any);
+        map.addLayer({
+          id: "radiation-pt", type: "symbol", source: "radiation",
+          layout: {
+            "icon-image": "vt-radiation",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.32, 8, 0.55, 12, 0.75],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "band"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        const NETWORK_LABEL: Record<string, string> = {
+          "bfs-de": "Germany — BfS ODL network (DL-DE-BY-2.0)",
+          "hc-ca": "Canada — Health Canada Fixed Point Surveillance (Open Government Licence – Canada)",
+          "stuk-fi": "Finland — STUK via FMI open data (CC BY 4.0)",
+          "radnet-us": "United States — EPA RadNet (public domain)",
+        };
+        detach = attachLayerInteractions(map, "radiation-pt", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const s = f.properties;
+          const val = s.unit === "uSv/h"
+            ? `${Number(s.value).toFixed(3)} µSv/h gamma dose rate`
+            : `${Number(s.value).toLocaleString()} counts/min gamma (this monitor publishes count rates, not dose — we never convert)`;
+          setDetail({
+            kind: "radiation",
+            title: s.name,
+            subtitle: val,
+            body: `Network: ${NETWORK_LABEL[s.network] || s.network}\n` +
+                  `${s.time ? `Measured: ${s.time}\n` : ""}` +
+                  `${s.approx === true || s.approx === "true" ? "Location: APPROXIMATE city centroid — EPA publishes RadNet locations at city level only.\n" : ""}` +
+                  `\nObserved reading from the network's own published feed — no interpolation, no modeling, no health claim. ` +
+                  `Typical natural background gamma is roughly 0.05–0.3 µSv/h and varies with geology and altitude; ` +
+                  `marker color is a display bucket of the measured value (see legend), not a threshold.`,
+          });
+        });
+        const nets = d.networks || {};
+        setStatus("radiation", "active", d.stations.length,
+          `${d.stations.length.toLocaleString()} monitors — DE ${nets["bfs-de"] ?? 0} · CA ${nets["hc-ca"] ?? 0} · FI ${nets["stuk-fi"] ?? 0} · US ${nets["radnet-us"] ?? 0} (US = city-approximate). Observed readings, no modeling`);
+      },
+      (failures) => setStatus("radiation", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.radiation, mapReady, mapSettled, setStatus]);
+
   // ── earthquake history (RAW; USGS ComCat M6+ since 1900, public domain —
   // 14,492 events compiled through the data-quality gate. Shares the history
   // time bar: accumulate to the year, the year's quakes pulse. The LIVE quakes
@@ -4648,6 +4735,19 @@ export default function DataMapPage() {
                             <span className="vt-legend-note">(~10-min, NASA GIBS/ABI — {firetempScanTime ? `${firetempScanTime} UTC` : "latest"})</span>
                           </>
                         )}
+                      </div>
+                    </div>
+                  )}
+                  {enabled.radiation && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Ambient Radiation</div>
+                      <div className="vt-legend-items">
+                        <LegendIcon icon="vt-radiation" color="#eef3fb" label="Gamma Monitor" />
+                        {RADIATION_BANDS.map((b) => (
+                          <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
+                        ))}
+                        <span className="vt-legend-chip"><i style={{ background: RADIATION_CPM_COLOR }} /> CPM-only Station</span>
+                        <span className="vt-legend-note">(display buckets of the measured dose rate, not thresholds)</span>
                       </div>
                     </div>
                   )}

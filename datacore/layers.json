@@ -159,6 +159,17 @@
       "field": false
     },
     {
+      "id": "radiation",
+      "name": "Ambient radiation (gamma)",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "light",
+      "source": "BfS ODL Germany (DL-DE-BY-2.0) · Health Canada FPSN (OGL-Canada) · STUK/FMI Finland (CC BY 4.0) · EPA RadNet US (public domain)",
+      "description": "Observed ambient gamma dose-rate monitors from four national networks (~2,070 stations: DE 1,681 · CA 66 · FI 248 · US ~76), trefoil symbols tinted by dose display-band. Readings displayed exactly as each network publishes them — no interpolation, no modeling, no health claims. US RadNet markers are city-approximate (EPA publishes city names only; coordinates from the public-domain Census gazetteer) and labeled so; monitors that publish only count rates show CPM, never converted to dose. 3h server refresh. EURDEP deliberately excluded (license requires provider permission).",
+      "field": false
+    },
+    {
       "id": "powergrid",
       "name": "US Power Grid (all states)",
       "kind": "raw",

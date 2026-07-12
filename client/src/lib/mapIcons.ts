@@ -403,6 +403,21 @@ const shapes: Record<string, () => ImageData> = {
     ctx.fillRect(m - 4.5, s - 16, 9, 3);       // body seam
     ctx.restore();
   }),
+  // radiation monitor: trefoil — three 60° wedges + hub (the international
+  // ionizing-radiation symbol; per-feature icon-color carries the dose band)
+  "vt-radiation": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    for (let i = 0; i < 3; i++) {
+      const a0 = -Math.PI / 2 + i * (2 * Math.PI / 3) - Math.PI / 6;
+      ctx.beginPath();
+      ctx.moveTo(m, m);
+      ctx.arc(m, m, 15, a0, a0 + Math.PI / 3);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.save(); ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath(); ctx.arc(m, m, 6.5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.beginPath(); ctx.arc(m, m, 3.2, 0, Math.PI * 2); ctx.fill();
+  }),
   // ── nuclear-test emplacement silhouettes (symbol directive 2026-07-12:
   // symbols not dots, so airburst vs tower/surface vs water vs underground
   // shaft reads at a glance; per-feature icon-color carries the country tint) ──
@@ -593,6 +608,25 @@ export const NUKE_COUNTRY_COLOR: Record<string, string> = {
   USA: "#60a5fa", USSR: "#f87171", FRANCE: "#c084fc", UK: "#4ade80",
   CHINA: "#fbbf24", INDIA: "#fb923c", PAKIST: "#2dd4bf",
 };
+
+// ── ambient-radiation display bands (DISPLAY BUCKETS of the measured gamma
+// dose rate, µSv/h — band edges are presentation choices stated in the
+// legend, not health thresholds; typical natural background is roughly
+// 0.05-0.3 µSv/h varying with geology and altitude). CPM-only stations
+// (some EPA RadNet monitors publish count rates, no dose) get a neutral
+// tint — we never convert CPM to dose. ──
+export const RADIATION_BANDS: Array<{ max: number; color: string; label: string }> = [
+  { max: 0.15, color: "#4ade80", label: "< 0.15 µSv/h" },
+  { max: 0.30, color: "#fde047", label: "0.15–0.30 µSv/h" },
+  { max: 1.00, color: "#fb923c", label: "0.30–1.0 µSv/h" },
+  { max: Infinity, color: "#f87171", label: "> 1.0 µSv/h" },
+];
+export const RADIATION_CPM_COLOR = "#94a3b8";
+export function radiationBandColor(uSvH: number | null | undefined, unit: string): string {
+  if (unit !== "uSv/h" || uSvH == null || !Number.isFinite(uSvH)) return RADIATION_CPM_COLOR;
+  for (const b of RADIATION_BANDS) if (uSvH < b.max) return b.color;
+  return RADIATION_BANDS[RADIATION_BANDS.length - 1].color;
+}
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).
  *  Bucket edges match USGS's own ShakeMap intensity palette; a null/missing
