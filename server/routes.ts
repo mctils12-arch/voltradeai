@@ -13,6 +13,7 @@ import cookieParser from "cookie-parser";
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
+import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import { version as pkgVersion } from "../package.json";
 import {
@@ -2239,6 +2240,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // EPA Superfund NPL sites (RAW/FACTUAL hazard layer, public domain; first
   // Location Context Engine hazard layer, data-quality gated). Weekly refresh.
   bootSuperfundPoll();
+  // Historical nuclear explosions 1945-1998 (RAW/FACTUAL; SIPRI/Johnston
+  // archive catalog — static history, the test era ended in 1998). Time-
+  // scrubbable on the client (year slider). Compiled through the data-quality
+  // gate at build time; 24 unlocated tests (null-island coords) quarantined
+  // and counted in the payload, never plotted at (0,0).
+  app.get("/api/data/nucleartests", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const d: any = datacoreNuclearTests;
+    res.json({
+      kind: "raw", predictive: false,
+      source: d.source,
+      attribution: "SIPRI / Johnston archive nuclear explosions catalog",
+      note: "Factual historical event records (date, country, site, yield, type) as catalogued — "
+        + "locations are test sites, not radiation readings; no fallout/risk modeling is shown "
+        + "(that would be a labeled model, not data). " + String(d._quarantined?.length || 0)
+        + " unlocated tests are quarantined by the data-quality gate rather than plotted at (0,0).",
+      count: d.count, quarantined: d._quarantined?.length || 0,
+      tests: d.tests,
+    });
+  });
+
   app.get("/api/data/superfund", (_req, res) => {
     const hit = latestSuperfund();
     if (!hit) {

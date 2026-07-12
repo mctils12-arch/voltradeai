@@ -2554,6 +2554,25 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-preset-pill { padding: 6px 10px; font-size: 0.72rem; }
 }
 
+/* Nuclear-tests time machine bar — sits above the style presets, same dark
+   family. The range input is the "Lucy" scrub; thumb sized for touch (S24). */
+.vt-nuke-timebar {
+  position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%);
+  z-index: 10; display: inline-flex; align-items: center; gap: 10px;
+  padding: 6px 12px; width: min(440px, calc(100vw - 32px));
+  background: rgba(8, 16, 30, 0.94); border: 1px solid rgba(253, 224, 71, 0.35);
+  border-radius: 12px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.vt-nuke-timebar input[type="range"] { flex: 1; accent-color: #fde047; min-height: 28px; }
+.vt-nuke-year {
+  font-family: var(--font-mono, monospace); font-size: 0.9rem; font-weight: 600;
+  color: #fde047; min-width: 3.2em; text-align: center;
+}
+@media (max-width: 480px) {
+  .vt-nuke-timebar { bottom: 120px; }  /* clear the phone bottom nav + presets */
+}
+
 /* Compass + zoom nav (worldview-globe G0b) — themed into the dark control
    family; the default maplibre icons are dark, so invert them for the dark map. */
 .maplibregl-ctrl-group {

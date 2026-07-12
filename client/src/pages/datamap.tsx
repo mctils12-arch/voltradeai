@@ -93,7 +93,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place" | "superfund";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place" | "superfund" | "nuketest";
   title: string;
   subtitle: string;
   body: string;
@@ -189,7 +189,7 @@ const LAYER_GROUP: Record<string, string> = {
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
-  superfund: "hazards",
+  superfund: "hazards", nucleartests: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -393,6 +393,10 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   // Legend v3: collapsible as one unit so it never fights the panel for
   // space — open on desktop, collapsed on phone by default.
+  // nuclear-tests time machine: scrub 1945-1998; filter runs on the GPU so
+  // dragging is glitch-free (no refetch, no re-parse — one setFilter per tick)
+  const [nukeYear, setNukeYear] = useState(1998);
+  const [nukePlay, setNukePlay] = useState(false);
   const [legendOpen, setLegendOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
@@ -2790,6 +2794,115 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.superfund, mapReady, mapSettled, setStatus]);
 
+  // ── nuclear tests time machine (RAW/FACTUAL; SIPRI/Johnston archive catalog,
+  // 1945-1998 — 2,027 located tests; 24 unlocated quarantined server-side.
+  // The "Lucy" scrub: a year slider drives a GPU filter (["<=",["get","y"],
+  // year]) over one static geojson source — no refetch per tick, so dragging
+  // through five decades is smooth. Tests IN the selected year pulse larger.
+  // Facts only: dates/sites/yields as catalogued; no fallout modeling. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.nucleartests) {
+      try {
+        for (const l of ["nuke-pts", "nuke-year"]) if (map.getLayer(l)) map.removeLayer(l);
+        if (map.getSource("nucleartests")) map.removeSource("nucleartests");
+      } catch {}
+      setStatus("nucleartests", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("nucleartests", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("nucleartests", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/nucleartests", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.tests)) throw new Error("no tests in response");
+        if (map.getSource("nucleartests")) return;
+        map.addSource("nucleartests", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.tests.map((t: any) => ({
+              type: "Feature", geometry: { type: "Point", coordinates: [t.lon, t.lat] },
+              properties: t,
+            })),
+          } as any,
+          attribution: "SIPRI / Johnston archive nuclear test catalog",
+        } as any);
+        // sqrt-ish yield scaling: 1 kt small, Tsar Bomba (50,000 kt) reads big
+        const kt = ["coalesce", ["get", "kt"], 1] as any;
+        const radius = ["interpolate", ["linear"], ["zoom"],
+          2, ["min", 10, ["+", 1.5, ["/", ["sqrt", kt], 18]]],
+          8, ["min", 26, ["+", 3, ["/", ["sqrt", kt], 9]]]] as any;
+        map.addLayer({
+          id: "nuke-pts", type: "circle", source: "nucleartests",
+          filter: ["<=", ["get", "y"], nukeYear],
+          paint: {
+            "circle-radius": radius,
+            "circle-color": ["match", ["get", "c"],
+              "USA", "#60a5fa", "USSR", "#f87171", "FRANCE", "#c084fc",
+              "UK", "#4ade80", "CHINA", "#fbbf24", "INDIA", "#fb923c", "PAKIST", "#2dd4bf",
+              "#94a3b8"],
+            "circle-opacity": 0.55,
+            "circle-stroke-color": "rgba(8,12,20,0.85)", "circle-stroke-width": 0.5,
+          },
+        } as any);
+        // tests detonated IN the selected year: bright pulse ring on top
+        map.addLayer({
+          id: "nuke-year", type: "circle", source: "nucleartests",
+          filter: ["==", ["get", "y"], nukeYear],
+          paint: {
+            "circle-radius": ["+", 4, radius] as any,
+            "circle-color": "rgba(0,0,0,0)",
+            "circle-stroke-color": "#fde047", "circle-stroke-width": 2,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "nuke-pts", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const t = f.properties;
+          const CTRY: Record<string, string> = { USA: "United States", USSR: "Soviet Union", UK: "United Kingdom", FRANCE: "France", CHINA: "China", INDIA: "India", PAKIST: "Pakistan" };
+          setDetail({
+            kind: "nuketest",
+            title: t.n && t.n !== "NA" ? t.n : "Nuclear test",
+            subtitle: `${CTRY[t.c] || t.c} · ${t.d}${t.kt ? ` · ${Number(t.kt).toLocaleString()} kt` : ""}`,
+            body: `${t.r ? `Site: ${t.r}\n` : ""}` +
+                  `${t.t ? `Type: ${t.t}\n` : ""}` +
+                  `${t.p ? `Purpose: ${t.p}\n` : ""}` +
+                  `\nHistorical record — SIPRI/Johnston archive catalog. Test site location as catalogued; no radiation/fallout modeling shown.`,
+          });
+        });
+        setStatus("nucleartests", "active", d.count,
+          `${d.count.toLocaleString()} tests 1945–1998 (${d.quarantined} unlocated, quarantined) — drag the year bar to travel`);
+      },
+      (failures) => setStatus("nucleartests", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+    // note: nukeYear is applied by the cheap setFilter effect below, not here —
+    // the source/layers mount once, the filter moves per tick.
+  }, [enabled.nucleartests, mapReady, mapSettled, setStatus]);
+
+  // year scrub -> GPU filter update (cheap; no source churn)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !enabled.nucleartests) return;
+    try {
+      if (map.getLayer("nuke-pts")) map.setFilter("nuke-pts", ["<=", ["get", "y"], nukeYear]);
+      if (map.getLayer("nuke-year")) map.setFilter("nuke-year", ["==", ["get", "y"], nukeYear]);
+    } catch {}
+  }, [nukeYear, enabled.nucleartests, mapReady]);
+
+  // play: advance one year every 500ms, loop at the end
+  useEffect(() => {
+    if (!nukePlay || !enabled.nucleartests) return;
+    const iv = window.setInterval(() => {
+      setNukeYear((y) => (y >= 1998 ? 1945 : y + 1));
+    }, 500);
+    return () => window.clearInterval(iv);
+  }, [nukePlay, enabled.nucleartests]);
+
   // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
   // per-source status from the server keeps coverage labeling honest) ──
   useEffect(() => {
@@ -4008,6 +4121,22 @@ export default function DataMapPage() {
         }>
           <TimeScrubber map={mapRef.current} onClose={() => setTimescrubOpen(false)} />
         </Suspense>
+      )}
+      {/* Nuclear-tests time machine bar — appears with the layer; the "Lucy"
+          scrub. Range input drives a GPU filter, so dragging is smooth. */}
+      {enabled.nucleartests && (
+        <div className="vt-nuke-timebar" role="group" aria-label="Nuclear test year scrubber">
+          <button className="vt-preset-pill" aria-label={nukePlay ? "Pause" : "Play"}
+                  onClick={() => setNukePlay((v) => !v)}>
+            {nukePlay ? "❚❚" : "▶"}
+          </button>
+          <input
+            type="range" min={1945} max={1998} step={1} value={nukeYear}
+            aria-label="Test year"
+            onChange={(e) => { setNukePlay(false); setNukeYear(Number(e.target.value)); }}
+          />
+          <span className="vt-nuke-year">{nukeYear}</span>
+        </div>
       )}
       {/* Style presets (worldview-globe G1) — real-first geographic looks,
           bottom-center segmented control. No tactical filters. */}

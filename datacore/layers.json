@@ -126,6 +126,17 @@
       "field": false
     },
     {
+      "id": "nucleartests",
+      "name": "Nuclear tests 1945–1998 (time machine)",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "light",
+      "source": "SIPRI / Johnston archive nuclear explosions catalog (public factual data)",
+      "description": "Every catalogued nuclear explosion 1945–1998 (2,027 located tests; 24 unlocated quarantined by the data-quality gate, never plotted at (0,0)). Drag the year bar to travel through the test era — points accumulate by year, tests in the selected year pulse, size scales with yield (Trinity 21 kt → Tsar Bomba 50,000 kt), color by country. Click a test for name, date, site, yield, type. FACTUAL event records only: locations are test sites as catalogued — no radiation/fallout modeling is shown (that would be a labeled model, not data). Static history; the era ended with the 1998 tests.",
+      "field": false
+    },
+    {
       "id": "powergrid",
       "name": "US Power Grid (all states)",
       "kind": "raw",
