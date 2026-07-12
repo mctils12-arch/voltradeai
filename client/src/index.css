@@ -3246,3 +3246,18 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
    without it and shouldn't gain an unnecessary scrollbar). */
 .vt-keys-page .vt-dev-table { min-width: 640px; }
 .vt-keys-page .vt-dev-table td, .vt-keys-page .vt-dev-table th { white-space: nowrap; }
+.vt-keys-actions { display: flex; gap: 8px; white-space: nowrap; }
+.vt-keys-usage-btn {
+  background: transparent; color: var(--text-secondary); border: 1px solid rgba(102, 128, 160, 0.4);
+  border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; min-height: 36px;
+}
+.vt-keys-usage-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+.vt-keys-usage-row td { white-space: normal; }
+.vt-keys-usage-panel { padding: 10px 2px 4px; }
+.vt-keys-usage-bars { display: flex; align-items: flex-end; gap: 4px; height: 80px; margin-top: 8px; }
+.vt-keys-usage-bar-col {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  height: 100%; flex: 1 1 0; min-width: 14px;
+}
+.vt-keys-usage-bar { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
+.vt-keys-usage-day { font-size: 9px; color: var(--text-tertiary); margin-top: 4px; }

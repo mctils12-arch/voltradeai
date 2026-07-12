@@ -127,3 +127,17 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   is a small T-DATACORE-adjacent addition, not itself a datacore/ module).
   P4 adds T-DATACORE proper + SHARED (routes.ts, package.json)
   last-and-minimal.
+- 2026-07-12: P4 (usage & billing-history UI, pre-revenue) SHIPPED
+  (v1.0.289) — `apiKeyAccounts.ts` gained `keyUsageHistory(userId, id,
+  days)` (ownership-checked like `revokeApiKey`, days clamped to
+  `MAX_USAGE_HISTORY_DAYS`=30, reads the same per-day `apiusage/*.jsonl`
+  archive `usageToday` already reads via a shared `countUsageForDay`
+  helper — no new metering path); `GET /api/account/api-keys/:id/usage`
+  route; `/apikeys` gained a per-key expandable "Usage" panel (14-day
+  CSS bar chart, total requests) and a static Billing section stating
+  the honest pre-revenue fact ($0 charged, dev tier only) rather than
+  fabricating invoice rows — no Stripe/billing code touched. Full trace
+  in experiments.md. Program queue is now clear except P5 (HUMAN-GATED).
+  NEXT (whoever picks the program back up): either wait for a human P5
+  go-ahead, or treat "clear queue" as done and look elsewhere per
+  SESSION BUDGET fall-through.

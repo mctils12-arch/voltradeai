@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -26,6 +26,13 @@ interface KeysResponse {
   max_keys: number;
   tier: string;
   limits: { perMinute: number; perDay: number };
+}
+interface UsageHistory {
+  label: string;
+  keyPreview: string;
+  days: number;
+  history: { date: string; count: number }[];
+  total: number;
 }
 
 function fmtDate(ms: number | null): string {
@@ -57,6 +64,8 @@ export default function ApiKeysPage() {
   const [justCreated, setJustCreated] = useState<{ key: string; label: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [revokingId, setRevokingId] = useState<number | null>(null);
+  const [openUsageId, setOpenUsageId] = useState<number | null>(null);
+  const [usage, setUsage] = useState<Record<number, UsageHistory | "loading" | "error">>({});
 
   const loadKeys = () => {
     apiRequest("GET", "/api/account/api-keys")
@@ -99,6 +108,17 @@ export default function ApiKeysPage() {
     } finally {
       setRevokingId(null);
     }
+  };
+
+  const toggleUsage = (id: number) => {
+    if (openUsageId === id) { setOpenUsageId(null); return; }
+    setOpenUsageId(id);
+    if (usage[id] && usage[id] !== "error") return;
+    setUsage((prev) => ({ ...prev, [id]: "loading" }));
+    apiRequest("GET", `/api/account/api-keys/${id}/usage?days=14`)
+      .then((r) => r.json())
+      .then((d: UsageHistory) => setUsage((prev) => ({ ...prev, [id]: d })))
+      .catch(() => setUsage((prev) => ({ ...prev, [id]: "error" })));
   };
 
   const copyKey = (key: string) => {
@@ -189,31 +209,76 @@ export default function ApiKeysPage() {
               </thead>
               <tbody>
                 {data.keys.map((k) => (
-                  <tr key={k.id}>
-                    <td>{k.label}</td>
-                    <td><code>{k.keyPreview}</code></td>
-                    <td>{fmtDate(k.createdAt)}</td>
-                    <td>{fmtDate(k.lastUsedAt)}</td>
-                    <td>{k.usageToday.toLocaleString()} req</td>
-                    <td>{k.revokedAt ? "revoked" : "active"}</td>
-                    <td>
-                      {!k.revokedAt && (
-                        <button
-                          type="button" className="vt-keys-revoke-btn"
-                          disabled={revokingId === k.id}
-                          onClick={() => revoke(k.id)}
-                        >
-                          {revokingId === k.id ? "Revoking…" : "Revoke"}
+                  <Fragment key={k.id}>
+                    <tr>
+                      <td>{k.label}</td>
+                      <td><code>{k.keyPreview}</code></td>
+                      <td>{fmtDate(k.createdAt)}</td>
+                      <td>{fmtDate(k.lastUsedAt)}</td>
+                      <td>{k.usageToday.toLocaleString()} req</td>
+                      <td>{k.revokedAt ? "revoked" : "active"}</td>
+                      <td className="vt-keys-actions">
+                        <button type="button" className="vt-keys-usage-btn" onClick={() => toggleUsage(k.id)}>
+                          {openUsageId === k.id ? "Hide usage" : "Usage"}
                         </button>
-                      )}
-                    </td>
-                  </tr>
+                        {!k.revokedAt && (
+                          <button
+                            type="button" className="vt-keys-revoke-btn"
+                            disabled={revokingId === k.id}
+                            onClick={() => revoke(k.id)}
+                          >
+                            {revokingId === k.id ? "Revoking…" : "Revoke"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {openUsageId === k.id && (
+                      <tr className="vt-keys-usage-row">
+                        <td colSpan={7}>
+                          <UsageHistoryPanel state={usage[k.id]} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
         )}
       </section>
+
+      <section className="vt-dev-section">
+        <h2>Billing</h2>
+        <p className="vt-dev-caption">
+          The /api/v1 data product is in free preview — every key above is the same
+          "dev" tier, and nothing on this account has ever been charged. When
+          self-serve billing activates (pending the human's review of the
+          monetization checklist), invoices and plan history will appear here;
+          until then this section stays honestly empty rather than showing
+          placeholder numbers.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function UsageHistoryPanel({ state }: { state: UsageHistory | "loading" | "error" | undefined }) {
+  if (!state || state === "loading") return <p className="vt-dev-caption">loading usage history…</p>;
+  if (state === "error") return <p className="vt-dev-wl-err">Couldn't load usage history — try again.</p>;
+  const max = Math.max(1, ...state.history.map((d) => d.count));
+  return (
+    <div className="vt-keys-usage-panel">
+      <p className="vt-dev-caption">
+        Last {state.days} days — {state.total.toLocaleString()} requests total.
+      </p>
+      <div className="vt-keys-usage-bars">
+        {state.history.map((d) => (
+          <div key={d.date} className="vt-keys-usage-bar-col" title={`${d.date}: ${d.count.toLocaleString()} req`}>
+            <div className="vt-keys-usage-bar" style={{ height: `${Math.max(2, (d.count / max) * 100)}%` }} />
+            <span className="vt-keys-usage-day">{d.date.slice(5)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
