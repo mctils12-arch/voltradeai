@@ -3734,7 +3734,7 @@ keep-or-remove call; if remove, it ships as one docs+code removal PR.
 
 ---
 
-## [GRID-VISION · filed 2026-07-12] Do ANY 3DEP collects carry wire/tower classes or intact aerial returns?
+## [GRID-VISION · filed 2026-07-12 · ANSWERED SAME DAY — see experiments.md survey entry: 1/24 collects, hit fails geometry checks, lane CLOSED] Do ANY 3DEP collects carry wire/tower classes or intact aerial returns?
 
 FINDING (experiments.md 2026-07-12): the 2 collects probed (incl. a
 dedicated TL corridor survey) have min-spec classification and no

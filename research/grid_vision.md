@@ -349,3 +349,9 @@ As of 2026-07-12 (claude/google-maps-api-railway-9d2wwg):
   survey a one-command loop; the survey question is filed in
   open_questions.md. If the survey stays negative, street-view ML for
   distribution becomes the top remaining-gap modality.
+- LIDAR LANE CLOSED (same day, 2026-07-12): 24-collect stratified survey
+  = 1 hit (CO_UpperColorado_2020, class 14/13, zero class 15), and the
+  hit's class-14 points FAIL linearity (blobs, ratio 1.7 vs >>10 for
+  wires), match neither HIFLD nor OSM lines, and don't follow roads —
+  vendor label unreliable. Street-view ML is the top remaining
+  distribution-gap modality (costed; wishlist + GPU budget territory).
