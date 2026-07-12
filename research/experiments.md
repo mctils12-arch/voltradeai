@@ -14847,3 +14847,77 @@ PLATFORM P5 human-gated, O4/O5 orbital, GRID VISION Phase B,
 location_context_engine.md's PFAS/RadNet/FEMA-flood/CDC-cancer hazard
 layers, street-view ML wishlist decision pending human review) — next
 session's judgment call per SESSION BUDGET's fall-through order.
+
+---
+
+## 2026-07-12 [PRODUCT] — nuclear directive wave: symbols, decoded records, radiation, accidents, facilities (T-CLIENT + T-DATACORE)
+
+HUMAN DIRECTIVE (verbatim intent): more descriptive click-through
+detail on nuclear tests (what the codes/yield mean, who ran it, why);
+natural radiation levels + nuclear production facilities as layers; a
+fallout-style ring; SYMBOLS NOT DOTS as a standing rule (colored,
+legend-registered) so a test reads differently from a meltdown at a
+glance; and higher session throughput.
+
+SHIPPED, four PRs, each its own logical change, all auto-merged green:
+
+1. #455 (v1.0.292) NUCLEAR TESTS REBUILT: four emplacement silhouettes
+   (air/surface-tower/water/underground), country tint, yield-scaled;
+   click card decodes purpose/emplacement codes VERIFIED against the
+   catalog's own key (Bergkvist & Ferm FOA-R--00-01572-180--SE §3.2 +
+   DOE/NV-209 cross-checks, fetched by a research subagent — my three
+   from-memory guesses were WRONG and corrected: PNE:V = US Vela
+   Uniform not Soviet; SHAFT/GR-LG = French Polynesia atoll/lagoon
+   wells not stemming variants; CRATER = detonated IN a crater at the
+   surface, reclassified ground + ring-eligible); agency by
+   country+era; yield in Hiroshima terms (LA-8819 15 kt). RINGS =
+   5-psi blast-radius ESTIMATES (Glasstone & Dolan 0.47 km×cbrt(kt)),
+   cumulative faint + selected-year bright, buried shots contained ->
+   no ring; explicitly NOT fallout (weather/burst height not in the
+   catalog — drawing fallout would be fabrication; stated on card,
+   note, legend). Test ratchet: every catalog code must map explicitly
+   or the suite fails on a data refresh. SYMBOLS NOT DOTS installed in
+   CLAUDE.md STANDING BEHAVIORS (human-directed).
+2. #456 (v1.0.293) AMBIENT RADIATION: 2,070 gamma monitors from four
+   clean-license national networks (BfS DE 1,681 DL-DE-BY-2.0 · Health
+   Canada 66 OGL · STUK/FMI 248 CC-BY · EPA RadNet ~76 public domain),
+   endpoints verified live by a research subagent then re-verified
+   from this repo. EURDEP EXCLUDED on license (provider permission
+   required — monetization tripwire). Honesty: readings as published,
+   no interpolation/modeling/health claims; US markers city-centroid
+   (Census gazetteer join, all 76 joined) labeled APPROXIMATE; CPM-only
+   stations never converted to dose; display bands labeled as buckets.
+   BUNDLE BUG CAUGHT PRE-SHIP: import.meta.dirname undefined in the
+   esbuild CJS bundle (dev passed, prod served 0 US stations) — caught
+   by probing the real dist bundle, fixed via static JSON import.
+   Lesson ratcheted: verify server modules against dist, not just tsx.
+3. #457 (v1.0.294) NUCLEAR ACCIDENTS: 46 events 1949-2024 from
+   Wikidata CC0 through a curation gate (label + date-or-INES evidence,
+   dedup keeping highest INES, 3 majors resolved individually — SL-1,
+   Church Rock, Lucens; NEVER guess QIDs: a name-search first probe
+   returned a Brazilian town for a blind SL-1 guess). Triangle-trefoil
+   symbol, official-INES-only coloring (unrated = gray, stated).
+4. #458 (v1.0.295) NUCLEAR FACILITIES: 67 fuel-cycle/production sites
+   (enrichment/reprocessing/waste/test-site/weapons-complex; power
+   plants excluded — no duplicate toggles), building-trefoil symbol,
+   category-colored; Y-12/Los Alamos/Pantex/Rocky Flats curated in.
+
+THROUGHPUT (the human's "use more of the subscription"): 3 research
+subagents ran in parallel (code verification, radiation sources,
+facilities datasets) while the main session built; PR N+1's code was
+written in the working tree while PR N's CI ran — 4 shipped PRs + docs
+in one continuous wave.
+
+VISUAL-HARNESS MEASUREMENT FINDING (filed, not bundled): the data@1440
+fields-on wx probe failed 4 of 8 runs ACROSS DIFFERENT DIFFS none of
+which touch weather code (weather registry byte-identical each time),
+and passed the final PR D run 0-hard-failures — software-GL placement
+timing (the harness mocks wx tiles itself; its comments record a
+2026-07-05 false-fail of the same shape). Two measurement-code gaps
+filed in open_questions.md for their own [RULE-REVIEW] PR: (a) the
+fields-on probe needs a deterministic wait; (b) the harness's
+hardcoded registry fixture lacks the four new layers, so its toggle
+checks don't exercise them.
+
+Backtest: N/A — /data product surface only; zero trading, sizing, or
+execution code touched.
