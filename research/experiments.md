@@ -13,6 +13,140 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-12 — [REPAIR] sec8kEarnings ticker resolution picked warrants over common stock for multi-class issuers (v1.0.281)
+
+TERRITORY: T-DATACORE (server/sec8kEarnings.ts + test). Solo scheduled-routine
+session.
+
+SESSION START per MEMORY PROTOCOL: read CLAUDE.md in full (this session
+paid particular attention to the EDGE DOCTRINE per the routine brief),
+this file's last 10 tagged entries ([REPAIR] vite base, [RULE-REVIEW]
+masterkill shadow-log, [PRODUCT] P3 self-serve keys, [PIPELINE] SEC
+MIDAS, [PRODUCT] G2b GOES fire layer, [REPAIR] SPY-floor market-hours,
+[PRODUCT] W5 entity dossier, [PRODUCT] grid-overlay blank-tile fix,
+[RESEARCH] Markov-vs-VXX regime, [PRODUCT] W3 time scrubber — 2/10
+REPAIR, well under the 7+ thrash trigger), open_questions.md KNOWN
+BROKEN in full, wishlist.md.
+
+HEALTH CHECK: prod `/api/health` — all green (server/db/alpaca
+ACTIVE/python/scanner/licensing ok, bot active, drawdownPct 0.0,
+liveness.dark false — no LIVENESS ALARM; first probe hit this sandbox's
+20s curl default and returned nothing, a 60s retry succeeded in ~20.3s —
+sandbox/proxy latency, not a prod issue). No KNOWN BROKEN item is both
+critical and unaddressed: #3/#19 resolved, #17/#18/#20/#21 are all
+logged non-blocking evidence-gated follow-ups. This session is NOT a
+[REPAIR] session by the mandate's own trigger — proceeded to the
+routine's doctrine-axis selection.
+
+PRIMARY ACTION SELECTION: dispatched a read-only survey subagent over
+wishlist.md, open_questions.md (DATACORE DEFECT QUEUE, DATA STREAM
+EXPANSION), and the last ~15 experiments.md entries to avoid rediscovering
+already-shipped work — axis (a)'s obvious candidates (Sentinel-2 tank
+shadows, EDGAR Form4/13F, CFTC COT, USAspending, FDA calendar) are ALL
+already built (server/edgarForm4.ts, edgar13f.ts, cftcCot.ts,
+usaSpending.ts, fdaEvents.ts, datacore/sentinel2/); Google Trends/pytrends
+already FAILED its gate-1 stability probe (open_questions.md ~line 3007);
+the DATACORE DEFECT QUEUE (10 items, 2026-07-05) is confirmed fully
+closed. The survey's top pick: SEC 8-K earnings-language gate 2 (RESEARCH
+axis) — gate 1 shipped 2026-07-04, gate 2 explicitly logged UNSTARTED,
+~8 days of real archive now exists, fully speced ladder, zero human/key
+gate. Began building that gate-2 pilot script (see NEXT ACTION below) —
+mid-build, READ BEFORE WRITE turned up a real correctness bug in the
+exact file the pilot depends on, which per the REPAIR MANDATE ("fixing
+known breaks outranks new research") became this session's PRIMARY
+shipped action instead, with the pilot itself queued as this session's
+own fall-through (see STARVED below).
+
+WHAT WAS FOUND: while resolving tickers for the archived filings to
+pull forward-return price data, CIK 797468 (Occidental Petroleum)
+resolved to ticker `OXY-WT` — its WARRANTS, not its common stock `OXY`.
+Traced to `getCikTickerMap()` (server/sec8kEarnings.ts): SEC's
+`company_tickers.json` lists ONE ROW PER LISTED SECURITY CLASS for a
+given CIK (confirmed live: CIK 797468 has both `{ticker:"OXY"}` and
+`{ticker:"OXY-WT"}` entries), and the old loop did `map.set(cik, ticker)`
+unconditionally for every matching row — whichever row the feed listed
+LAST silently won. OXY-WT happened to be listed after OXY in the live
+feed, so every 8-K from Occidental (and any other multi-class issuer
+where the non-primary class sorts later) has been tagged with the wrong
+ticker on `/api/data/earnings-language` — a customer-facing RAW-DATA
+field — since this pipeline shipped 2026-07-04. This is exactly the
+kind of thing the PREMIUM EXPERIENCE STANDARD's "would a paying data
+customer trust this" test exists to catch, and it would have silently
+corrupted the gate-2 pilot's own price-return calculation (pulling a
+thinly-traded warrant's price series instead of the common stock's).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `ticker` on an `Earnings8K`
+record is read only by the `/api/data/earnings-language(/history)`
+routes (display) and by whatever future gate-2/product work joins this
+stream to price data — nothing in `bot_engine.py`/`deep_score`/sizing/
+regime classification reads this field (this module has no import path
+into trading logic, per its own header comment), so the blast radius is
+data-product correctness only, not live trading behavior. No RULE REVIEW
+gate applies (this is a bug fix restoring intended, already-documented
+behavior — "exact CIK match" — not a new threshold or design choice).
+
+FIX: `getCikTickerMap` now refuses to let a suffixed ticker (contains
+"-", e.g. -WT/-WS/-PR/-U/-RT) overwrite an already-resolved unsuffixed
+one for the same CIK, and upgrades a placeholder suffixed entry to the
+primary class if the primary shows up later in the feed — order-
+independent by construction, so feed-ordering changes on SEC's side
+can't reintroduce this. When NO primary class exists for a CIK (e.g. a
+SPAC with only units/warrants pre-merger), the first-seen suffixed
+ticker is kept rather than guessing — never fabricated.
+
+RATCHET: `server/sec8kEarnings.test.ts` gained 3 new tests reproducing
+the exact OXY/OXY-WT scenario in both feed orders (proving the fix is
+order-independent) plus a no-primary-class case. Also added
+`resetCikTickerCacheForTests()` (mirrors `satellites.ts`'s
+`resetSatellitesForTests` precedent) — the module's 24h in-memory ticker
+cache was leaking across tests in the same process before this, which
+this session's own first test run caught (3 new tests failed with
+`undefined` until the reset was added and wired in). A/B-verified via
+`git stash`: the new test file fails to even load against the pre-fix
+module (missing `resetCikTickerCacheForTests` export) — pre-fix red,
+post-fix green, all 14 tests in the file passing.
+
+GATES: `npm install` run first (this sandbox's node_modules was empty —
+enables the full build/tsc/test gates, not just isolated file runs).
+`npx tsx --test server/*.test.ts` — 588/588 pass, 0 failed (the same
+suite showed 4 unrelated failures — apiKeyAccounts/compression/
+gdeltEvents/owmTiles — BEFORE `npm install`, confirmed via git-stash A/B
+to be identical with or without this PR's diff, i.e. pure missing-deps
+sandbox artifacts, not a regression; they disappeared once real
+node_modules was installed). `npx tsc --noEmit` — 66 errors before AND
+after this diff (git-stash A/B), byte-identical except one pre-existing,
+unrelated `datamap.tsx` union-type error whose MEMBER ORDER differs
+between runs (cosmetic TS internal non-determinism, same error, file
+never touched by this PR) — zero new errors. `npm run build` — clean.
+No Python files touched — `python3 -m pytest -q` out of scope for this
+PR's own gate, same convention as every other T-DATACORE-only PR in
+this file.
+
+Backtest: N/A — pure data-quality bug fix in a RAW-DATA pipeline's
+ticker-resolution helper; zero trading/scoring/sizing code touched.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/
+paid-feature-gating code touched.
+
+MARKET-HOURS NOTE: session ran mid-day UTC per `/api/health`'s
+timestamp; zero trading/execution code touched — same risk category as
+every other pure-T-DATACORE PR that has shipped without holding for
+market close in this file's own precedent.
+
+Version 1.0.280 -> 1.0.281 (read-and-increment at commit time).
+
+STARVED: no — primary action (the ticker-mapping repair) shipped
+completely with its own regression tests. High-value work remains
+queued and INTENTIONALLY NOT bundled into this PR (one logical change
+per CLAUDE.md PROMOTION RULE 5): the SEC 8-K earnings-language gate-2
+pilot test this session was mid-building when the bug above was found —
+now unblocked by this fix and queued as this session's own immediate
+fall-through action (SESSION BUDGET step 1), to ship as its own
+[RESEARCH]-tagged PR next. Other queued items untouched: platform_
+program.md P4/P5, worldview_globe.md's G0c/G2f/G2h/G4 backlog, KNOWN
+BROKEN #3's live options-order re-verification, item #21's next-trading-
+day data-source-errors check.
+
 ## 2026-07-11 — [REPAIR] Multi-segment routes rendered blank in production — vite base:"./" fix + harness ratchet (v1.0.280)
 
 TERRITORY: T-CLIENT (vite.config.ts, scripts/visual_check.mjs). Solo
