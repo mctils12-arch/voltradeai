@@ -93,7 +93,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place" | "superfund" | "nuketest";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator";
   title: string;
   subtitle: string;
   body: string;
@@ -160,6 +160,8 @@ const readGlobePref = (): boolean => {
 // Harness kill switch (v2.4 ZERO-COST-WHEN-OFF assertion): with
 // vt-layers-all-off set, only the base imagery mounts — the harness then
 // asserts NO layer-data API calls fire and measures interactive time.
+const HIST_MIN_YEAR = 1900;
+const HIST_MAX_YEAR = 2026;
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
@@ -189,7 +191,7 @@ const LAYER_GROUP: Record<string, string> = {
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities",
-  superfund: "hazards", nucleartests: "hazards",
+  superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -393,10 +395,11 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   // Legend v3: collapsible as one unit so it never fights the panel for
   // space — open on desktop, collapsed on phone by default.
-  // nuclear-tests time machine: scrub 1945-1998; filter runs on the GPU so
-  // dragging is glitch-free (no refetch, no re-parse — one setFilter per tick)
-  const [nukeYear, setNukeYear] = useState(1998);
-  const [nukePlay, setNukePlay] = useState(false);
+  // history time machine (shared): scrub 1900 -> now across every history
+  // layer (nuclear tests 1945-98, earthquakes 1900+). Filters run on the GPU
+  // so dragging is glitch-free (no refetch — one setFilter per tick per layer).
+  const [histYear, setHistYear] = useState(HIST_MAX_YEAR);
+  const [histPlay, setHistPlay] = useState(false);
   const [legendOpen, setLegendOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
@@ -2839,7 +2842,7 @@ export default function DataMapPage() {
           8, ["min", 26, ["+", 3, ["/", ["sqrt", kt], 9]]]] as any;
         map.addLayer({
           id: "nuke-pts", type: "circle", source: "nucleartests",
-          filter: ["<=", ["get", "y"], nukeYear],
+          filter: ["<=", ["get", "y"], histYear],
           paint: {
             "circle-radius": radius,
             "circle-color": ["match", ["get", "c"],
@@ -2853,7 +2856,7 @@ export default function DataMapPage() {
         // tests detonated IN the selected year: bright pulse ring on top
         map.addLayer({
           id: "nuke-year", type: "circle", source: "nucleartests",
-          filter: ["==", ["get", "y"], nukeYear],
+          filter: ["==", ["get", "y"], histYear],
           paint: {
             "circle-radius": ["+", 4, radius] as any,
             "circle-color": "rgba(0,0,0,0)",
@@ -2880,28 +2883,182 @@ export default function DataMapPage() {
         failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
     );
     return () => { stopLoad(); detach(); };
-    // note: nukeYear is applied by the cheap setFilter effect below, not here —
+    // note: histYear is applied by the cheap setFilter effect below, not here —
     // the source/layers mount once, the filter moves per tick.
   }, [enabled.nucleartests, mapReady, mapSettled, setStatus]);
 
-  // year scrub -> GPU filter update (cheap; no source churn)
+  // ── earthquake history (RAW; USGS ComCat M6+ since 1900, public domain —
+  // 14,492 events compiled through the data-quality gate. Shares the history
+  // time bar: accumulate to the year, the year's quakes pulse. The LIVE quakes
+  // layer covers the present separately.) ──
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !enabled.nucleartests) return;
+    if (!map || !mapReady) return;
+    if (!enabled.quakehistory) {
+      try {
+        for (const l of ["qh-pts", "qh-year"]) if (map.getLayer(l)) map.removeLayer(l);
+        if (map.getSource("quakehistory")) map.removeSource("quakehistory");
+      } catch {}
+      setStatus("quakehistory", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("quakehistory", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("quakehistory", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/quakehistory", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.quakes)) throw new Error("no quakes in response");
+        if (map.getSource("quakehistory")) return;
+        map.addSource("quakehistory", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.quakes.map((q: any) => ({
+              type: "Feature", geometry: { type: "Point", coordinates: [q.lon, q.lat] },
+              properties: q,
+            })),
+          } as any,
+          attribution: "USGS ANSS ComCat (public domain)",
+        } as any);
+        const mag = ["coalesce", ["get", "m"], 6] as any;
+        const radius = ["interpolate", ["linear"], ["zoom"],
+          2, ["-", mag, 4.6], 8, ["*", 2.2, ["-", mag, 4]]] as any;
+        map.addLayer({
+          id: "qh-pts", type: "circle", source: "quakehistory",
+          filter: ["<=", ["get", "y"], histYear],
+          paint: {
+            "circle-radius": radius,
+            "circle-color": ["interpolate", ["linear"], mag,
+              6, "#facc15", 7, "#fb923c", 8, "#ef4444", 9, "#b91c1c"],
+            "circle-opacity": 0.4,
+            "circle-stroke-color": "rgba(8,12,20,0.8)", "circle-stroke-width": 0.4,
+          },
+        } as any);
+        map.addLayer({
+          id: "qh-year", type: "circle", source: "quakehistory",
+          filter: ["==", ["get", "y"], histYear],
+          paint: {
+            "circle-radius": ["+", 3, radius] as any,
+            "circle-color": "rgba(0,0,0,0)",
+            "circle-stroke-color": "#f87171", "circle-stroke-width": 1.8,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "qh-pts", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const q = f.properties;
+          setDetail({
+            kind: "quake",
+            title: q.pl || "Earthquake",
+            subtitle: `M${q.m} · ${q.d}`,
+            body: `${q.dep != null ? `Depth: ${q.dep} km\n` : ""}` +
+                  `\nUSGS ANSS ComCat (public domain) — historical catalog M6+ since 1900; the live quakes layer covers the present.`,
+          });
+        });
+        setStatus("quakehistory", "active", d.count,
+          `${d.count.toLocaleString()} quakes M6+ ${d.min_year}–${d.max_year} — drag the year bar to travel`);
+      },
+      (failures) => setStatus("quakehistory", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.quakehistory, mapReady, mapSettled, setStatus]);
+
+  // ── CWA water violators (RAW/FACTUAL; EPA ECHO, public domain — active
+  // facilities >8 of last 12 quarters in Clean Water Act noncompliance. The
+  // "factories' water quality" layer: EPA's own compliance records, colored by
+  // violation kind. Current snapshot (not time-scrubbed). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.waterviolators) {
+      try {
+        if (map.getLayer("wv-pts")) map.removeLayer("wv-pts");
+        if (map.getSource("waterviolators")) map.removeSource("waterviolators");
+      } catch {}
+      setStatus("waterviolators", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("waterviolators", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("waterviolators", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/waterviolators", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.violators)) throw new Error("no violators in response");
+        if (d.warming_up) { setStatus("waterviolators", "loading", undefined, "warming up — EPA ECHO fetch in progress"); return; }
+        if (map.getSource("waterviolators")) return;
+        map.addSource("waterviolators", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.violators.map((v: any) => ({
+              type: "Feature", geometry: { type: "Point", coordinates: [v.lon, v.lat] },
+              properties: v,
+            })),
+          } as any,
+          attribution: "U.S. EPA ECHO / NPDES (public domain)",
+        } as any);
+        map.addLayer({
+          id: "wv-pts", type: "circle", source: "waterviolators", minzoom: 4,
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 1.6, 9, 4.5, 13, 7],
+            // effluent (actual discharge) violations red; reporting failures
+            // amber; schedule/other violet; none-current slate
+            "circle-color": ["case",
+              ["in", "Effluent", ["coalesce", ["get", "snc"], ""]], "#ef4444",
+              ["in", "Report", ["coalesce", ["get", "snc"], ""]], "#f59e0b",
+              ["in", "Schedule", ["coalesce", ["get", "snc"], ""]], "#a78bfa",
+              "#64748b"],
+            "circle-opacity": 0.75,
+            "circle-stroke-color": "rgba(8,12,20,0.85)", "circle-stroke-width": 0.5,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "wv-pts", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const v = f.properties;
+          setDetail({
+            kind: "waterviolator",
+            title: v.name || "Facility",
+            subtitle: `${v.qtrs}/12 quarters in CWA noncompliance${v.snc ? ` · ${v.snc}` : ""}`,
+            body: `${[v.city, v.state].filter(Boolean).join(", ")}\n` +
+                  `${v.permit ? `Permit: ${v.permit} (${v.id})\n` : `NPDES ID: ${v.id}\n`}` +
+                  `${v.actions ? `Formal enforcement actions: ${v.actions}\n` : ""}` +
+                  `\nEPA ECHO Clean Water Act compliance record (public domain) — facts about permits and violations as EPA publishes them; not a water-safety claim about any location.`,
+          });
+        });
+        const h = d.health;
+        setStatus("waterviolators", "active", d.violators.length,
+          `EPA ECHO — ${d.violators.length.toLocaleString()} facilities >8/12 quarters in CWA noncompliance${h?.suspect ? ` (${h.suspect} quarantined)` : ""}`);
+      },
+      (failures) => setStatus("waterviolators", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.waterviolators, mapReady, mapSettled, setStatus]);
+
+  // year scrub -> GPU filter update on every history layer (cheap; no source churn)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
     try {
-      if (map.getLayer("nuke-pts")) map.setFilter("nuke-pts", ["<=", ["get", "y"], nukeYear]);
-      if (map.getLayer("nuke-year")) map.setFilter("nuke-year", ["==", ["get", "y"], nukeYear]);
+      if (map.getLayer("nuke-pts")) map.setFilter("nuke-pts", ["<=", ["get", "y"], histYear]);
+      if (map.getLayer("nuke-year")) map.setFilter("nuke-year", ["==", ["get", "y"], histYear]);
+      if (map.getLayer("qh-pts")) map.setFilter("qh-pts", ["<=", ["get", "y"], histYear]);
+      if (map.getLayer("qh-year")) map.setFilter("qh-year", ["==", ["get", "y"], histYear]);
     } catch {}
-  }, [nukeYear, enabled.nucleartests, mapReady]);
+  }, [histYear, enabled.nucleartests, enabled.quakehistory, mapReady]);
 
   // play: advance one year every 500ms, loop at the end
   useEffect(() => {
-    if (!nukePlay || !enabled.nucleartests) return;
+    if (!histPlay || (!enabled.nucleartests && !enabled.quakehistory)) return;
     const iv = window.setInterval(() => {
-      setNukeYear((y) => (y >= 1998 ? 1945 : y + 1));
+      setHistYear((y) => (y >= HIST_MAX_YEAR ? HIST_MIN_YEAR : y + 1));
     }, 500);
     return () => window.clearInterval(iv);
-  }, [nukePlay, enabled.nucleartests]);
+  }, [histPlay, enabled.nucleartests, enabled.quakehistory]);
 
   // ── live trains (RAW; Finland Digitraffic CC BY 4.0 + Norway Entur NLOD;
   // per-source status from the server keeps coverage labeling honest) ──
@@ -4124,18 +4281,18 @@ export default function DataMapPage() {
       )}
       {/* Nuclear-tests time machine bar — appears with the layer; the "Lucy"
           scrub. Range input drives a GPU filter, so dragging is smooth. */}
-      {enabled.nucleartests && (
+      {(enabled.nucleartests || enabled.quakehistory) && (
         <div className="vt-nuke-timebar" role="group" aria-label="Nuclear test year scrubber">
-          <button className="vt-preset-pill" aria-label={nukePlay ? "Pause" : "Play"}
-                  onClick={() => setNukePlay((v) => !v)}>
-            {nukePlay ? "❚❚" : "▶"}
+          <button className="vt-preset-pill" aria-label={histPlay ? "Pause" : "Play"}
+                  onClick={() => setHistPlay((v) => !v)}>
+            {histPlay ? "❚❚" : "▶"}
           </button>
           <input
-            type="range" min={1945} max={1998} step={1} value={nukeYear}
+            type="range" min={HIST_MIN_YEAR} max={HIST_MAX_YEAR} step={1} value={histYear}
             aria-label="Test year"
-            onChange={(e) => { setNukePlay(false); setNukeYear(Number(e.target.value)); }}
+            onChange={(e) => { setHistPlay(false); setHistYear(Number(e.target.value)); }}
           />
-          <span className="vt-nuke-year">{nukeYear}</span>
+          <span className="vt-nuke-year">{histYear}</span>
         </div>
       )}
       {/* Style presets (worldview-globe G1) — real-first geographic looks,

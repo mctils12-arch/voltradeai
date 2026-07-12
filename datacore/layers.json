@@ -137,6 +137,28 @@
       "field": false
     },
     {
+      "id": "quakehistory",
+      "name": "Earthquakes 1900–now (time machine)",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "moderate",
+      "source": "USGS ANSS Comprehensive Catalog (ComCat), public domain",
+      "description": "Every catalogued M6.0+ earthquake since 1900 (14,492 events, compiled through the data-quality gate — 0 quarantined). Shares the history time bar with the nuclear-tests layer: drag through the decades, quakes accumulate, the selected year's events pulse; size and color scale with magnitude (1960 Valdivia M9.5 is the biggest). Click a quake for magnitude, date, depth, place. Historical snapshot to the compile date — the LIVE earthquakes layer covers the present.",
+      "field": false
+    },
+    {
+      "id": "waterviolators",
+      "name": "Water violators (EPA CWA)",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "moderate",
+      "source": "U.S. EPA ECHO — Clean Water Act compliance records (public domain)",
+      "description": "Active facilities with MORE THAN 8 of the last 12 quarters in Clean Water Act noncompliance (~25k), from EPA's own enforcement records. Colored by violation kind: red = effluent (actual discharge) violations, amber = failure to report, violet = schedule violations. Click a facility for its permit, quarters in violation, and enforcement-action count. FACTS about permits and violations as EPA publishes them — NOT a water-safety claim about any location (that would be a ladder-gated signal). Data-quality gated at ingest; weekly server-side refresh.",
+      "field": false
+    },
+    {
       "id": "powergrid",
       "name": "US Power Grid (all states)",
       "kind": "raw",
