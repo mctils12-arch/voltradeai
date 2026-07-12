@@ -16,16 +16,11 @@ import { Link } from "wouter";
  * widths, designed empty/error states, no bare spinners.
  */
 
-interface MetaEndpoint { path: string; params: string; desc: string; preview?: string }
-interface ApiMetaDoc {
-  version: string;
-  auth: string;
-  endpoints: MetaEndpoint[];
-  coming_gated: string[];
-  limits: Record<string, { perMinute: number; perDay: number }>;
-  license_marks: Record<string, { license: string; attribution: string; resell: string }>;
-  disclaimer: string;
-}
+// Types + shape guard live in lib/apiMetaGuard.ts (pure, unit-tested): the page
+// renders straight off the live meta document, so everything it trusts about
+// that document's shape is enforced in ONE validated gate instead of scattered
+// optional-chaining.
+import { parseApiMetaDoc, tierLimit, type ApiMetaDoc, type MetaEndpoint } from "@/lib/apiMetaGuard";
 
 type RunState =
   | { status: "idle" }
@@ -67,7 +62,16 @@ export default function DevelopersPage() {
   const [wlState, setWlState] = useState<"idle" | "sending" | "done" | "dup" | "error">("idle");
 
   useEffect(() => {
-    fetch("/api/v1/meta").then((r) => r.json()).then(setMeta)
+    // parseApiMetaDoc rejects non-2xx responses and wrong shapes (JSON error
+    // bodies, version-skewed older meta) so they render the designed
+    // "reference unavailable" state instead of crashing the page at the first
+    // meta.limits access (the pre-v1.0.290 failure mode).
+    fetch("/api/v1/meta")
+      .then(async (r) => parseApiMetaDoc(r.ok, await r.json()))
+      .then((doc) => {
+        if (doc) setMeta(doc);
+        else setMetaErr("API reference unavailable — retrying on next visit");
+      })
       .catch(() => setMetaErr("API reference unavailable — retrying on next visit"));
   }, []);
 
@@ -76,6 +80,7 @@ export default function DevelopersPage() {
     setRuns((r) => ({ ...r, [e.path]: { status: "loading" } }));
     try {
       const res = await fetch(e.preview);
+      if (!res.ok) throw new Error(String(res.status)); // an error body is not a sample
       const data = await res.json();
       setRuns((r) => ({ ...r, [e.path]: { status: "done", data } }));
     } catch {
@@ -214,22 +219,28 @@ export default function DevelopersPage() {
           from what the API actually enforces.
         </p>
         <div className="vt-dev-tiers">
-          {(["dev", "pro", "enterprise"] as const).map((tier) => (
-            <div className={`vt-dev-tier${tier === "pro" ? " vt-dev-tier-hi" : ""}`} key={tier}>
-              <h3>{TIER_LABEL[tier]}</h3>
-              <p className="vt-dev-price">{TIER_PRICE[tier]}</p>
-              {meta ? (
-                <ul>
-                  <li>{meta.limits[tier].perMinute.toLocaleString()} requests/min</li>
-                  <li>{meta.limits[tier].perDay.toLocaleString()} requests/day</li>
-                  <li>{tier === "enterprise" ? "Bulk archive access + custom analytics" : tier === "pro" ? "All stats endpoints + email support" : "Position tracks + archive stats"}</li>
-                  {tier === "dev" && <li>Attribution required</li>}
-                </ul>
-              ) : (
-                <p className="vt-dev-caption">loading live limits…</p>
-              )}
-            </div>
-          ))}
+          {(["dev", "pro", "enterprise"] as const).map((tier) => {
+            const lim = meta ? tierLimit(meta, tier) : null;
+            return (
+              <div className={`vt-dev-tier${tier === "pro" ? " vt-dev-tier-hi" : ""}`} key={tier}>
+                <h3>{TIER_LABEL[tier]}</h3>
+                <p className="vt-dev-price">{TIER_PRICE[tier]}</p>
+                {lim ? (
+                  <ul>
+                    <li>{lim.perMinute.toLocaleString()} requests/min</li>
+                    <li>{lim.perDay.toLocaleString()} requests/day</li>
+                    <li>{tier === "enterprise" ? "Bulk archive access + custom analytics" : tier === "pro" ? "All stats endpoints + email support" : "Position tracks + archive stats"}</li>
+                    {tier === "dev" && <li>Attribution required</li>}
+                  </ul>
+                ) : (
+                  // meta absent OR this tier missing from the live document —
+                  // honest gap, never invented numbers (the copy above promises
+                  // these are read live from the API's own configuration).
+                  <p className="vt-dev-caption">{meta ? "limits unavailable for this tier" : "loading live limits…"}</p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 

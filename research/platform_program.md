@@ -141,3 +141,12 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   NEXT (whoever picks the program back up): either wait for a human P5
   go-ahead, or treat "clear queue" as done and look elsewhere per
   SESSION BUDGET fall-through.
+- 2026-07-12 (session 2): P2 surface HARDENED (v1.0.290, [REPAIR]) —
+  /developers crashed whole-page when /api/v1/meta returned a JSON error
+  body or a version-skewed older meta (no `limits` field): the fetch
+  checked neither res.ok nor shape. New unit-tested guard
+  (client/src/lib/apiMetaGuard.ts) gates setMeta; failures now render
+  the designed "reference unavailable" state; per-tier lookup tolerates
+  a missing tier. Same unchecked-non-ok bug class as the satellite
+  layer's CelesTrak 403 (v1.0.252). Program queue remains: P5 only
+  (HUMAN-GATED).

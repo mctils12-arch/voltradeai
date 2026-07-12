@@ -13,6 +13,43 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-12 — [REPAIR] /developers crashed whole-page on a JSON error body or version-skewed /api/v1/meta (v1.0.290)
+
+TERRITORY: T-CLIENT (client/src/pages/developers.tsx + new
+client/src/lib/apiMetaGuard.ts + test) + SHARED minimal last
+(package.json, research/*). Session directed at "P2" by the human —
+P2 had ALREADY SHIPPED (v1.0.276, per platform_program.md RESUME
+STATE; verified in code before building anything, per the
+no-double-build rule). While demonstrating the shipped page, found a
+real robustness hole in it; this [REPAIR] is the session's slice.
+
+- BUG (reproduced in a headless browser against the real bundle): the
+  meta fetch was `fetch("/api/v1/meta").then(r => r.json()).then(setMeta)`
+  — no `r.ok` check, no shape check. Any JSON-shaped error body (our
+  routes return `{error}` JSON on 4xx/5xx) or a version-skewed older
+  meta (pre-P2 servers have no `limits` field) became `meta`, and
+  `meta.limits[tier].perMinute.toLocaleString()` threw → the error
+  boundary swallowed the ENTIRE public docs page ("SOMETHING WENT
+  WRONG"). Same bug class as the satellite layer's unchecked CelesTrak
+  403 (fixed v1.0.252 this same day): a non-ok response parsed as data.
+- FIX: new pure lib client/src/lib/apiMetaGuard.ts — `parseApiMetaDoc(ok,
+  body)` validates non-2xx + endpoints array + at least one numeric tier
+  limit + license_marks before anything reaches setMeta; failures render
+  the page's EXISTING designed "API reference unavailable" state.
+  `tierLimit(meta, tier)` tolerates a missing/renamed tier ("limits
+  unavailable for this tier" — honest gap, never invented numbers, per
+  the page's own live-limits promise). `runEndpoint` also gained
+  `res.ok` (an error body is not a sample response).
+- TESTS (ratchet): 6 hermetic tests in apiMetaGuard.test.ts incl. the
+  exact regression (JSON error body → null, never crash; skewed meta
+  without limits → null). End-to-end verified headless: error-body mode
+  → designed fallback, no crash; good mode → full page with live
+  limits. Visual harness 0 hard failures, all pages, 390/768/1440.
+- JUDGED NOT FIXED HERE: apikeys.tsx trusts its own /api/account
+  shapes, but its apiRequest() throws on non-ok, so the JSON-error-body
+  path can't reach render; left as-is rather than masking with `?? 0`.
+- NO trading/measurement code touched — no backtest applies.
+
 ## 2026-07-12 — [RESEARCH] SEC 8-K earnings-language GATE 2 first pilot run — preliminary 1-day signal, N far too thin to trust (v1.0.282)
 
 TERRITORY: T-DATACORE (scripts/earnings_language_gate2.py, root-level
