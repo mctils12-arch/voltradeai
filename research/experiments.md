@@ -13,6 +13,142 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-12 — [RESEARCH] SEC 8-K earnings-language GATE 2 first pilot run — preliminary 1-day signal, N far too thin to trust (v1.0.282)
+
+TERRITORY: T-DATACORE (scripts/earnings_language_gate2.py, root-level
+test_earnings_language_gate2.py — new files only, matches
+scripts/grid_stress_gate2.py's precedent of a root `test_<name>.py`
+sibling rather than a `tests/` subpackage). Fall-through continuation of
+this session's earlier [REPAIR] entry (v1.0.281, PR #440, now merged) —
+this is the gate-2 pilot that repair unblocked, shipping as its own PR
+per PROMOTION RULE 5 (one logical change per PR).
+
+Per the branch-reuse protocol: PR #440 merged before this second action
+started, so the session branch was reset to latest `main`
+(`git fetch origin main && git checkout -B claude/dazzling-planck-798b7f
+origin/main`) before starting this PR — untracked new files (this
+script + its test) survived the reset intact.
+
+PRIOR (stated in the script's own header BEFORE any return was
+computed, REASONING STANDARD #10): expected a positive-but-small/noisy
+tone-vs-forward-alpha association, with INSUFFICIENT SAMPLE as the most
+likely honest verdict given the archive is only ~8 days deep, and the
+QoQ language-DELTA feature (the stronger half of the original
+hypothesis, Lazy-Prices-style) explicitly NOT testable yet — it needs
+>=1 prior-quarter filing per company, which doesn't exist (Q2 2026
+filings just started arriving; Q3 doesn't land until ~Oct-Nov 2026).
+
+WHAT SHIPPED: `scripts/earnings_language_gate2.py` — loads archived
+Item 2.02 filings (local `<archive>/earnings8k/*.jsonl[.gz]` first, live
+`/api/data/earnings-language/history` fallback, or `--input-json` for
+offline runs — the local-dir path is what the nightly Railway routine
+would use at zero token cost, per the EDGE DOCTRINE "compile knowledge
+into code" clause: this is a script the bot can re-run on its own,
+not a one-off analysis), scores each filing with a compact ~80-term-per-
+category finance-tone lexicon (labeled honestly as a session-curated
+approximation of the Loughran-McDonald Positive/Negative categories, NOT
+a reproduction of the licensed academic dictionary this sandbox cannot
+fetch), computes a LOOKAHEAD-FREE forward return per filing at 1/3/5
+trading-day horizons (reference price is always the close STRICTLY
+BEFORE the filing could have moved the stock — same-day close only for
+after-4pm-ET filings, prior close otherwise, per REASONING STANDARD #7),
+and compares it against SPY's return over the identical trading-day
+window (excess-return "alpha", per REASONING STANDARD #3 — a raw number
+without a market base rate is not evidence of anything).
+
+VERDICT RULE, PRE-STATED: N < 30 at a horizon => INSUFFICIENT SAMPLE
+(correlation logged, never a PASS/FAIL claim); N >= 30 => PASS requires
+the top-tone-half-minus-bottom-tone-half mean-alpha spread >= 50bps,
+same-signed as the Pearson r, else FAIL.
+
+RUN (against the live archive via `/api/data/earnings-language/history?
+days=30` — 55 filings, 2026-07-02 through 2026-07-10, 100% ticker-
+resolved post the v1.0.281 fix, 3 fetch errors logged not hidden: AYR/
+FGRS 404 on Yahoo, SOARW empty chart):
+  - h=1: n=47, r=0.313, mean spread=+5.84% (PASS by the pre-stated rule).
+  - h=3: n=21, r=0.399 — INSUFFICIENT SAMPLE, logged not claimed.
+  - h=5: n=2 — INSUFFICIENT SAMPLE.
+
+OUTLIER-ROBUSTNESS FINDING (added to the script AFTER seeing the h=1
+mean-spread number looked implausibly large for a 1-day effect, BEFORE
+touching the pre-stated PASS/FAIL threshold itself — a diagnostic
+addition, not a rule change, REASONING STANDARD #4/#8): the h=1 mean is
+dominated by a few extreme single-name prints — worst being MVO (MV Oil
+Trust) at -53% alpha on an 8-K announcing its FINAL trust distribution
+(a real, legitimate wind-down/dissolution repricing event, not a data
+bug — this is literally the same MVO filing used as sec8kEarnings.
+test.ts's own fixture). Re-ran the split on MEDIAN alpha per group
+instead of mean: median spread = +1.3%, same sign as the mean spread
+(23bps of that 584bps was outlier-driven, not entirely). `outlier_robust:
+true` for this run, so the PASS is not a pure artifact of one tail event
+— but a same-sign-under-median result from N=47, ONE calendar week, ONE
+archive snapshot, tone-level-only (no delta), zero regime-conditioning,
+and only h=1 reaching MIN_SAMPLE is nowhere near ladder-gate-2
+completion. HONEST READ: a preliminary, mildly encouraging first look —
+NOT a validated signal, NOT tradeable, NOT sellable (RAW-DATA overlay
+only, no predictive claim ships anywhere per datacore/README.md's RAW-
+vs-SIGNAL rule — this script has no product/UI surface).
+
+RATCHET: `test_earnings_language_gate2.py` — 14 tests, zero live network
+(fetch_bars monkeypatched with synthetic bars, mirroring the injected-
+fetch pattern sec8kEarnings.test.ts/edgarForm4.test.ts already use on
+the TS side of this stream): tone scoring (positive/negative/empty/
+hyphenated-compound), reaction-index anchoring (after-hours vs pre-
+market vs unknown-timestamp vs filing-on-a-non-trading-day vs no-prior-
+bar vs beyond-available-history), forward-return horizon selection,
+Pearson edge cases (perfect correlation, n<3 -> None never spurious),
+and one end-to-end `compute()` wiring test proving n=2 never produces a
+PASS/FAIL (INSUFFICIENT SAMPLE only) even when the two synthetic
+filings are maximally opposite in both tone and return.
+
+GATES: this sandbox's node_modules/Python deps were bare at session
+start (both installed this session — `npm install` for the earlier PR,
+`pip install -r requirements.txt -r requirements-dev.txt` for this one
+— enabling real gates instead of isolated-file runs for the rest of
+this session). `python3 -m pytest -q` (full repo suite, NOT the uv-tool-
+isolated `/root/.local/bin/pytest` shim this sandbox also has, which
+resolves to a separate venv missing the packages just installed and
+fails everything importing `voltrade_daemon` — a sandbox packaging
+quirk, not a repo issue) — 663 passed, 1 skipped, 0 failed; A/B-verified
+by moving this PR's two new files aside: 649 passed baseline, so this
+PR added exactly its 14 new tests with zero regressions. No TypeScript/
+client files touched — `npx tsc`/`npm run build`/`npx tsx --test
+server/*.test.ts` out of scope for this PR's own gate (same convention
+as every other Python-only PR in this file).
+
+Backtest: N/A — this is the SIGNAL layer of the ladder for a stream not
+yet wired into any strategy; zero trading/execution/sizing code touched,
+and the verdict itself is INSUFFICIENT-SAMPLE/preliminary, so nothing
+here could ship to `bot_engine.py` even if the ladder allowed it yet.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/product-
+surface code touched; this stream's only public surface remains the
+existing RAW-DATA `/api/data/earnings-language` route, unchanged.
+
+MARKET-HOURS NOTE: session ran mid-day UTC per `/api/health`'s
+timestamp (checked at session start, all green, no LIVENESS ALARM);
+zero trading/execution code touched.
+
+Version 1.0.281 -> 1.0.282 (read-and-increment at commit time).
+
+RE-RUN TRIGGER (stated in the script's own header, not just here):
+re-run unchanged once the archive holds >=90 days (enough for N>=30 at
+the 5-day horizon) OR once a second quarter of filings exists per
+company (unlocks the QoQ language-delta feature — a DIFFERENT script,
+since it needs a paired-filing join this one can't do). Filed as the
+natural next action for whichever future session's fall-through reaches
+this stream again; open_questions.md's NEW DATA ROOTS #1 entry is
+otherwise unchanged (gate 1 status, licensing verdicts, honest gaps all
+still accurate).
+
+STARVED: no — both of this session's actions (the ticker-mapping repair
+PR #440 and this gate-2 pilot) shipped completely with full test
+coverage and honest verdicts. High-value work remains queued: platform_
+program.md P4/P5, worldview_globe.md's G0c/G2f/G2h/G4 backlog, KNOWN
+BROKEN #3's live options-order re-verification, item #21's next-trading-
+day data-source-errors check, and this entry's own re-run trigger above
+— next session's judgment call per SESSION BUDGET's fall-through order.
+
 ## 2026-07-12 — [REPAIR] sec8kEarnings ticker resolution picked warrants over common stock for multi-class issuers (v1.0.281)
 
 TERRITORY: T-DATACORE (server/sec8kEarnings.ts + test). Solo scheduled-routine
