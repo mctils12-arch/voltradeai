@@ -694,3 +694,14 @@ experiments.md.
   provider in the chain put a COMPLIANCE-WARNING in the audit log and
   degrade /api/health, so even a dashboard-only flip surfaces to the
   next DAILY health check.
+- SYMBOLS NOT DOTS (human-directed 2026-07-12, strengthening the
+  2026-07-04 legend directive): every point layer on the /data map
+  uses a SYMBOL (registry SDF shape) that encodes the feature's KIND
+  — never a bare colored dot — with color carrying a second dimension
+  (country, fuel, severity, altitude…), and every symbol/color gets a
+  Legend entry rendered from the same icon registry the map draws
+  (iconDataURL — one source of truth). The human's test: the map must
+  be readable at a glance without clicking (e.g. a nuclear TEST reads
+  differently from a nuclear-plant MELTDOWN). Honesty unchanged:
+  symbol classes come from catalogued fields, never inferred beyond
+  the documented decode tables.

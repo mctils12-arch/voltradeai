@@ -9,7 +9,9 @@ import {
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
+  classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
 } from "@/lib/mapIcons";
+import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
@@ -2847,14 +2849,21 @@ export default function DataMapPage() {
   // The "Lucy" scrub: a year slider drives a GPU filter (["<=",["get","y"],
   // year]) over one static geojson source — no refetch per tick, so dragging
   // through five decades is smooth. Tests IN the selected year pulse larger.
-  // Facts only: dates/sites/yields as catalogued; no fallout modeling. ──
+  // SYMBOL DIRECTIVE 2026-07-12: emplacement silhouettes (airburst / surface-
+  // tower / water / underground shaft) instead of dots, country tint kept,
+  // yield-scaled size — what KIND of shot it was reads at a glance. Blast
+  // rings are 5-psi ESTIMATES (Glasstone & Dolan cube-root scaling, 0.47 km ×
+  // ∛kt, surface-burst figure) drawn as true ground-distance polygons — an
+  // honest labeled estimate of severe-blast reach, NEVER fallout modeling
+  // (fallout depends on weather/burial the catalog doesn't carry). Buried
+  // shots get no ring: contained. Facts only otherwise. ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.nucleartests) {
       try {
-        for (const l of ["nuke-pts", "nuke-year"]) if (map.getLayer(l)) map.removeLayer(l);
-        if (map.getSource("nucleartests")) map.removeSource("nucleartests");
+        for (const l of ["nuke-ring-fill", "nuke-ring-year", "nuke-pts", "nuke-year"]) if (map.getLayer(l)) map.removeLayer(l);
+        for (const s of ["nucleartests", "nucleartests-rings"]) if (map.getSource(s)) map.removeSource(s);
       } catch {}
       setStatus("nucleartests", "off");
       return;
@@ -2875,27 +2884,67 @@ export default function DataMapPage() {
             type: "FeatureCollection",
             features: d.tests.map((t: any) => ({
               type: "Feature", geometry: { type: "Point", coordinates: [t.lon, t.lat] },
-              properties: t,
+              properties: { ...t, cls: classifyNukeTest(t.t) },
             })),
           } as any,
           attribution: "SIPRI / Johnston archive nuclear test catalog",
         } as any);
-        // sqrt-ish yield scaling: 1 kt small, Tsar Bomba (50,000 kt) reads big
-        const kt = ["coalesce", ["get", "kt"], 1] as any;
-        const radius = ["interpolate", ["linear"], ["zoom"],
-          2, ["min", 10, ["+", 1.5, ["/", ["sqrt", kt], 18]]],
-          8, ["min", 26, ["+", 3, ["/", ["sqrt", kt], 9]]]] as any;
+        // 5-psi blast-radius rings as true ground-distance polygons (48-gon,
+        // equirectangular — radii are a few km, distortion negligible). Only
+        // above-ground/water shots with a catalogued yield get one.
+        const ringFeatures: any[] = [];
+        for (const t of d.tests) {
+          const rkm = blastRadiusKm(t.kt, t.t);
+          if (!rkm) continue;
+          const dLat = rkm / 111.32;
+          const dLon = rkm / (111.32 * Math.max(0.15, Math.cos((t.lat * Math.PI) / 180)));
+          const ring: [number, number][] = [];
+          for (let i = 0; i <= 48; i++) {
+            const a = (i * 2 * Math.PI) / 48;
+            ring.push([t.lon + dLon * Math.cos(a), t.lat + dLat * Math.sin(a)]);
+          }
+          ringFeatures.push({
+            type: "Feature", geometry: { type: "Polygon", coordinates: [ring] },
+            properties: { y: t.y, kt: t.kt },
+          });
+        }
+        map.addSource("nucleartests-rings", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: ringFeatures } as any,
+        } as any);
+        // cumulative faint blast footprints up to the selected year…
         map.addLayer({
-          id: "nuke-pts", type: "circle", source: "nucleartests",
+          id: "nuke-ring-fill", type: "fill", source: "nucleartests-rings",
           filter: ["<=", ["get", "y"], histYear],
+          paint: { "fill-color": "rgba(253,224,71,0.05)", "fill-outline-color": "rgba(253,224,71,0.18)" },
+        } as any);
+        // …and the selected year's rings bright
+        map.addLayer({
+          id: "nuke-ring-year", type: "line", source: "nucleartests-rings",
+          filter: ["==", ["get", "y"], histYear],
+          paint: { "line-color": "#fde047", "line-width": 1.6, "line-opacity": 0.85 },
+        } as any);
+        // emplacement silhouette, country tint, yield-scaled size
+        const kt = ["coalesce", ["to-number", ["get", "kt"], 0], 0] as any;
+        const sizeAt = (base: number) =>
+          ["min", base * 2.4, ["+", base, ["/", ["sqrt", kt], 90 / base]]] as any;
+        map.addLayer({
+          id: "nuke-pts", type: "symbol", source: "nucleartests",
+          filter: ["<=", ["get", "y"], histYear],
+          layout: {
+            "icon-image": ["match", ["get", "cls"],
+              "air", NUKE_CLASS_ICON.air, "water", NUKE_CLASS_ICON.water,
+              "underground", NUKE_CLASS_ICON.underground, NUKE_CLASS_ICON.ground],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, sizeAt(0.34), 8, sizeAt(0.62)],
+            "icon-allow-overlap": true,      // history must not decimate under collision
+          },
           paint: {
-            "circle-radius": radius,
-            "circle-color": ["match", ["get", "c"],
-              "USA", "#60a5fa", "USSR", "#f87171", "FRANCE", "#c084fc",
-              "UK", "#4ade80", "CHINA", "#fbbf24", "INDIA", "#fb923c", "PAKIST", "#2dd4bf",
-              "#94a3b8"],
-            "circle-opacity": 0.55,
-            "circle-stroke-color": "rgba(8,12,20,0.85)", "circle-stroke-width": 0.5,
+            "icon-color": ["match", ["get", "c"],
+              "USA", NUKE_COUNTRY_COLOR.USA, "USSR", NUKE_COUNTRY_COLOR.USSR,
+              "FRANCE", NUKE_COUNTRY_COLOR.FRANCE, "UK", NUKE_COUNTRY_COLOR.UK,
+              "CHINA", NUKE_COUNTRY_COLOR.CHINA, "INDIA", NUKE_COUNTRY_COLOR.INDIA,
+              "PAKIST", NUKE_COUNTRY_COLOR.PAKIST, "#94a3b8"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
           },
         } as any);
         // tests detonated IN the selected year: bright pulse ring on top
@@ -2903,7 +2952,7 @@ export default function DataMapPage() {
           id: "nuke-year", type: "circle", source: "nucleartests",
           filter: ["==", ["get", "y"], histYear],
           paint: {
-            "circle-radius": ["+", 4, radius] as any,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 11, 8, 20] as any,
             "circle-color": "rgba(0,0,0,0)",
             "circle-stroke-color": "#fde047", "circle-stroke-width": 2,
           },
@@ -2911,18 +2960,23 @@ export default function DataMapPage() {
         detach = attachLayerInteractions(map, "nuke-pts", (e: any) => {
           const f = e.features?.[0]; if (!f) return; const t = f.properties;
           const CTRY: Record<string, string> = { USA: "United States", USSR: "Soviet Union", UK: "United Kingdom", FRANCE: "France", CHINA: "China", INDIA: "India", PAKIST: "Pakistan" };
+          const rkm = blastRadiusKm(t.kt, t.t);
           setDetail({
             kind: "nuketest",
             title: t.n && t.n !== "NA" ? t.n : "Nuclear test",
             subtitle: `${CTRY[t.c] || t.c} · ${t.d}${t.kt ? ` · ${Number(t.kt).toLocaleString()} kt` : ""}`,
             body: `${t.r ? `Site: ${t.r}\n` : ""}` +
-                  `${t.t ? `Type: ${t.t}\n` : ""}` +
-                  `${t.p ? `Purpose: ${t.p}\n` : ""}` +
-                  `\nHistorical record — SIPRI/Johnston archive catalog. Test site location as catalogued; no radiation/fallout modeling shown.`,
+                  `Conducted by: ${testingAgency(t.c, t.y)}\n\n` +
+                  `How it was fired: ${decodeType(t.t)}.\n` +
+                  `Why (catalog purpose): ${decodePurpose(t.p)}.\n\n` +
+                  `Yield: ${yieldContext(t.kt)}\n` +
+                  `${rkm ? `Ring on map: ~${rkm.toFixed(1)} km severe-blast (5 psi) radius ESTIMATE — Glasstone & Dolan cube-root scaling from the catalogued yield. An estimate of blast reach, not fallout: fallout depends on weather and burst height the catalog doesn't record.\n` :
+                          `No ring on map: ${Number(t.kt) > 0 ? "buried shot — blast contained underground" : "yield not catalogued, so no radius is estimated"}.\n`}` +
+                  `\nSource: the "Nuclear Explosions 1945–1998" catalog (Bergkvist & Ferm, Swedish Defence Research Establishment FOA / SIPRI) — the standard open historical record of all known tests: who, when, where, yield, emplacement and stated purpose. Locations and yields as catalogued (yields are the catalog's upper estimates).`,
           });
         });
         setStatus("nucleartests", "active", d.count,
-          `${d.count.toLocaleString()} tests 1945–1998 (${d.quarantined} unlocated, quarantined) — drag the year bar to travel`);
+          `${d.count.toLocaleString()} tests 1945–1998 (${d.quarantined} unlocated, quarantined) — symbols = how fired (air/surface/water/underground), color = country, ring = 5-psi blast estimate. Drag the year bar to travel`);
       },
       (failures) => setStatus("nucleartests", "error", undefined,
         failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
@@ -3091,6 +3145,8 @@ export default function DataMapPage() {
     try {
       if (map.getLayer("nuke-pts")) map.setFilter("nuke-pts", ["<=", ["get", "y"], histYear]);
       if (map.getLayer("nuke-year")) map.setFilter("nuke-year", ["==", ["get", "y"], histYear]);
+      if (map.getLayer("nuke-ring-fill")) map.setFilter("nuke-ring-fill", ["<=", ["get", "y"], histYear]);
+      if (map.getLayer("nuke-ring-year")) map.setFilter("nuke-ring-year", ["==", ["get", "y"], histYear]);
       if (map.getLayer("qh-pts")) map.setFilter("qh-pts", ["<=", ["get", "y"], histYear]);
       if (map.getLayer("qh-year")) map.setFilter("qh-year", ["==", ["get", "y"], histYear]);
     } catch {}
@@ -4592,6 +4648,23 @@ export default function DataMapPage() {
                             <span className="vt-legend-note">(~10-min, NASA GIBS/ABI — {firetempScanTime ? `${firetempScanTime} UTC` : "latest"})</span>
                           </>
                         )}
+                      </div>
+                    </div>
+                  )}
+                  {enabled.nucleartests && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Nuclear Tests</div>
+                      <div className="vt-legend-items">
+                        {(Object.keys(NUKE_CLASS_ICON) as Array<keyof typeof NUKE_CLASS_ICON>).map((k) => (
+                          <LegendIcon key={k} icon={NUKE_CLASS_ICON[k]} color="#eef3fb" label={NUKE_CLASS_LABEL[k]} />
+                        ))}
+                        {Object.entries(NUKE_COUNTRY_COLOR).map(([c, col]) => (
+                          <span key={c} className="vt-legend-chip"><i style={{ background: col }} /> {
+                            ({ USA: "USA", USSR: "USSR", FRANCE: "France", UK: "UK", CHINA: "China", INDIA: "India", PAKIST: "Pakistan" } as Record<string, string>)[c] || c
+                          }</span>
+                        ))}
+                        <span className="vt-legend-chip"><i style={{ background: "rgba(253,224,71,0.6)" }} /> 5-psi Blast Estimate Ring</span>
+                        <span className="vt-legend-note">(ring = Glasstone–Dolan blast estimate, not fallout)</span>
                       </div>
                     </div>
                   )}
