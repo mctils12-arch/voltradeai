@@ -332,3 +332,20 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   `power=tower` (currently substation-only seeds); (3c) fetch Duke-US zips
   to make substations trainable; (4) Phase B1 VERIFY spec. Polygon arbiter
   for ambiguous pools: EIA Atlas BA layer (re-check ~late July).
+
+As of 2026-07-12 (claude/google-maps-api-railway-9d2wwg):
+
+- STATE ROLLOUT + AUTHORITATIVE TIER COMPLETE on /data (this branch's
+  prior sessions): all 50 states + DC individual OSM grid toggles, one
+  national "all states" tile (blank-tile bug fixed #407 + PMTiles magic
+  CI guard), and the HIFLD authoritative trio — transmission (#405),
+  substations, power plants (#408, fuel-colored, EIA-860 fields).
+- LIDAR LANE PROBED AND PARKED 2026-07-12 (experiments.md entry): 3DEP
+  EPT reachable + decodable free in-session, BUT the 2 collects probed
+  (incl. a dedicated TL corridor survey) carry min-spec classification
+  (no ASPRS 13-16) and show NO structure-band returns at OSM-confirmed
+  tower sites. Tower extraction from 3DEP is UNPROVEN — do not build on
+  it. scripts/gridvision_lidar_probe.py (+6 tests) makes the wider
+  survey a one-command loop; the survey question is filed in
+  open_questions.md. If the survey stays negative, street-view ML for
+  distribution becomes the top remaining-gap modality.

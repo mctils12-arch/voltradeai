@@ -14530,3 +14530,60 @@ shipped completely. High-value work remains queued (location context
 engine's hazard layers, O4/O5 orbital, GRID VISION Phase B, item #21's
 Monday recheck) — next session's judgment call per SESSION BUDGET's
 fall-through order.
+
+---
+
+## 2026-07-12 [RESEARCH] — 3DEP LiDAR tower-extraction feasibility probe: NEGATIVE (T-DATACORE)
+
+PRIOR (stated before testing, per REASONING STANDARD #10): the modality
+report ranked free USGS 3DEP LiDAR #2 for tower extraction, citing
+peer-reviewed methods hitting 98.6% on transmission towers at 2.6-13.8
+pts/m2. Expected: EPT point clouds reachable, some collects carrying
+ASPRS wire/tower classes (13/14/15/16), and — where classes are absent —
+clear structure-band (8-60 m HAG) returns at tower sites enabling
+geometric extraction along HIFLD corridors. Expected feasibility:
+moderate-high.
+
+METHOD (all deterministic, all free, all reproducible via the new
+scripts/gridvision_lidar_probe.py): (a) verified the usgs-lidar-public
+EPT bucket is sandbox-reachable and laspy+lazrs decodes nodes; (b)
+walked the EPT octree (incl. -1 sub-hierarchy pages — and the trap that
+points for one location are spread across EVERY tree level, so ancestors
+must be fetched too); (c) counted classification codes in two collects;
+(d) computed height-above-ground (min-z 10 m ground grid, noise classes
+excluded) at OSM-power=tower-confirmed sites.
+
+RESULTS:
+1. NV_ClarkCo_1_B22 (15.5 B pts, covers Hoover 345/500 kV corridors):
+   classes = ground/unassigned/noise ONLY. At a 520 m box containing 3
+   OSM towers on the 345 kV line: ZERO non-noise returns in the 8-20 m
+   band (a lattice tower would fill it); only 37 points at 60-106 m HAG
+   in 1-3 point specks = air noise. Towers NOT recoverable.
+2. AZ_BrawleyRillito_TL_2018 (2 B pts — a DEDICATED transmission-line
+   corridor survey, the best case for wire classes): classes =
+   ground/unassigned/noise ONLY. HAG in a dense cell: healthy vegetation
+   profile 2-12 m, 172 pts 12-20 m, ZERO >20 m. No OSM towers fall
+   inside its footprint polygon (bbox overlap ≠ coverage — footprint
+   check via resources.geojson is mandatory), so no tower-site test was
+   possible there.
+
+CONCLUSION (honest, against my prior): 3DEP EPT tower extraction is
+UNPROVEN AND UNPROMISING on the evidence — vendors deliver min-spec
+classification, and aerial structure returns appear culled/thinned in
+the one collect where OSM ground truth allowed a direct test. The
+literature's positive results used purpose-flown or richer-classified
+data. NOT building a pipeline on this (anti-churn; ANTI-GOALS). n=2
+collects of 2,273 — the finding generalizes only as "cannot be assumed
+present"; a systematic multi-collect survey is now a one-command loop
+with the shipped probe script.
+
+ARTIFACT (EDGE DOCTRINE #3 — knowledge compiled into code):
+scripts/gridvision_lidar_probe.py (classify + hag subcommands, EPT
+walker with sub-hierarchy expansion) + test_gridvision_lidar_probe.py
+(6 no-network tests pinning the octree-key math, incl. the two traps
+hit live: -1 expansion, all-levels point spread). Smoke-tested live:
+classify on the AZ TL survey reproduces "NONE (min-spec)".
+
+NEXT per the modality ranking: street-view ML for distribution remains
+the open ML lane (heavier, costed); the authoritative-vector lane
+(HIFLD trio) already shipped. Backtest: N/A (research; no trading code).

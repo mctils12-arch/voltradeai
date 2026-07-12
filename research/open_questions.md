@@ -3731,3 +3731,27 @@ same click-through fields (capacity/operator) the WRI layer exposes.
 LADDER: N/A (raw overlay). NEXT: a session doing a STALENESS-AUDIT
 fall-through runs the coverage/field comparison and files the
 keep-or-remove call; if remove, it ships as one docs+code removal PR.
+
+---
+
+## [GRID-VISION · filed 2026-07-12] Do ANY 3DEP collects carry wire/tower classes or intact aerial returns?
+
+FINDING (experiments.md 2026-07-12): the 2 collects probed (incl. a
+dedicated TL corridor survey) have min-spec classification and no
+structure-band returns at OSM-confirmed tower sites — 3DEP LiDAR tower
+extraction UNPROVEN. But n=2 of 2,273 EPT resources.
+
+TESTABLE FORM (one command per collect now):
+  python3 scripts/gridvision_lidar_probe.py classify <resource>   # Q1: classes 13-16?
+  python3 scripts/gridvision_lidar_probe.py hag <resource> <x> <y> # Q2: 8-60m returns at OSM tower?
+Survey design: sample ~30 collects stratified by year (2018-2023; newer
+USGS specs demand more classes) and vendor; for each, pick OSM towers
+INSIDE the footprint polygon (resources.geojson — bbox is a lie) and run
+both probes. If ≥ some collects carry classes 14/15, LiDAR becomes a
+PARTIAL-coverage authoritative tower source (label coverage honestly,
+never extrapolate); if none do, close the LiDAR lane for towers and
+promote street-view ML to the top of the remaining-gap ranking.
+LADDER: this is DATA-gate work (reading vs external truth = OSM towers).
+PRIOR: most collects min-spec; maybe 10-25% of 2020+ collects carry
+wire classes (USGS Lidar Base Spec 2020+ lists them as optional-but-
+defined). COST: free, ~2 min/collect, no GPU.
