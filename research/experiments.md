@@ -14086,3 +14086,162 @@ completely. High-value work remains queued (Monday's item #21 recheck, O5/
 O4 above, PLATFORM P4/P5, Location Context Engine's dossier/PFAS/RadNet
 items, GRID VISION Phase B) — next session's judgment call per SESSION
 BUDGET's fall-through order.
+
+---
+
+## 2026-07-12 [PRODUCT] — Location Context Engine: click-anywhere hazard dossier cross-join (v1.0.287)
+
+TERRITORY: T-DATACORE-adjacent (server/dossier.ts, server/routes.ts) +
+T-CLIENT (client/src/pages/datamap.tsx) + SHARED (research/*, package.json —
+last commit, minimal per the merge-order protocol).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then the
+last several tagged sessions for loop-health (ORBITAL O7 [PRODUCT],
+Location Context Engine hazards wave [PRODUCT], PLATFORM P3 [PRODUCT],
+vite-base-path [REPAIR], master_kill_switch counterfactual [RULE-REVIEW]
+— nowhere near the 7+ REPAIR thrash trigger). `/api/health` clean live
+(server/database/alpaca/python/scanner/licensing all ok; bot active,
+drawdownPct 0.0, liveness not dark) — no liveness alarm. Checked
+`/api/diag/audit` for a fixable live bug per the REPAIR MANDATE: 200
+entries all TIER2/T2-FAIL/STREAM/DIAGNOSTIC/MANIPULATION/RULES/SCHEDULE/
+EXECUTION at normal cadence, ending in a clean SIGTERM shutdown (routine
+redeploy) — nothing new to chase. Item #21 (open_questions.md, the
+options-feed weekday recheck) remains gated on a weekday market-open
+window; today is Sunday 2026-07-12, same as the constraint that filed it —
+left untouched, not currently actionable.
+
+PRIMARY ACTION CHOICE: no fixable live bug found. `research/
+location_context_engine.md`'s own "Next concrete step" and the prior
+same-day PRODUCT session's experiments.md entry both named the same
+item directly: "click-anywhere LOCATION DOSSIER endpoint (cross-join the
+server-cached hazard+facility layers within a radius — the 'layer of all
+layers')" — queued immediately after superfund.ts/waterViolators.ts/
+quake_history.json/nuclear_tests.json shipped as standalone RAW layers.
+
+READ BEFORE WRITE: read server/dossier.ts (W5 ENTITY DOSSIER v2) and its
+dossier.test.ts in full before touching anything — found it ALREADY takes
+an anchor lat/lon and already computes `nearest_sites` via haversineKm
+against strategic_sites.json, but does NOT join any of the hazard layers
+(superfund/water-violators/quakes/nuclear-tests). This is a genuinely
+different scope than location_context_engine.md's vision (radius gather of
+hazard/facility RAW layers for ANY clicked point) vs. what W5 built
+(entity-graph identity + neighborhood + nearest curated sites) — extending
+the existing dossier rather than adding a new endpoint keeps one call site
+for the client and reuses the exact same warming-up/anchor-resolution
+logic. Read server/superfund.ts, server/waterViolators.ts, and the raw
+JSON shape of datacore/quake_history.json and datacore/nuclear_tests.json
+(python3 -c json.load probe, not assumed) to get field names right (quake
+`m` is magnitude 0-9.5, verified against the max value matching the
+Valdivia M9.5 sanity check the hazards-wave session already recorded — NOT
+month, which the terse field name could have been misread as). Read
+server/firesFacilities.ts's `haversineKm` + its own radius-join precedent
+(`firesNearFacilities`) as the shape to mirror. Read server/routes.ts's
+existing `/api/data/dossier` route + its imports to confirm
+datacoreQuakeHistory/datacoreNuclearTests/latestSuperfund/
+latestWaterViolators were already imported for their own standalone routes
+— zero new imports needed.
+
+WHAT SHIPPED:
+- `server/dossier.ts` — added a `hazards` field to `DossierResult`,
+  computed only when an anchor lat/lon resolves (from `?lat=&lon=` or a
+  graph-resolved entity's coordinates, same as `nearest_sites`). A new
+  pure `nearbyHazards<T>()` helper (haversineKm-based, mirrors
+  firesFacilities.ts's `firesNearFacilities` shape) computes, per category
+  (superfund/water_violators/quakes/nuclear_tests): `total_within` (the
+  TRUE count inside `radius_km`, never silently dropped), `hits` (nearest
+  `HAZARD_CAP`=10, sorted ascending by distance), `capped` (honest flag
+  when more exist than shown), and `ready` (false when the caller didn't
+  pass that layer's data at all — distinguishes "cache still cold" from "0
+  found", so a cold superfund poll can never render as a false
+  all-clear). `radius_km` param clamped to [1, `HAZARD_RADIUS_KM_MAX`=200],
+  default `HAZARD_RADIUS_KM_DEFAULT`=50. RAW/FACTUAL only — the caveat
+  string explicitly states "a count of nearby records is a FACT, not a
+  risk score" (Location Context Engine's honesty rails: SIGNAL claims stay
+  ladder-gate-2-only).
+- `server/dossier.test.ts` — 8 new tests: no-anchor degrades to
+  `hazards: null` (not empty sections); multi-category cross-join sorted
+  nearest-first with correct within/outside-radius filtering; a source
+  never passed by the caller is `ready:false` with `total_within:0` (not a
+  false-clean 0); a source passed as `[]` (cache warm, genuinely nothing
+  nearby) is `ready:true`; cap enforcement (`HAZARD_CAP+4` items ->
+  `hits.length===HAZARD_CAP`, `capped:true`, `total_within` still the true
+  count); `radius_km` param honored and clamped at both ends. All existing
+  9 tests unmodified and still pass — pure additive change to the return
+  shape (`hazards` is a new field, nothing removed or renamed).
+- `server/routes.ts` — `/api/data/dossier`'s doc comment updated; the
+  handler now reads `?radius_km=` and passes
+  `latestSuperfund()?.sites ?? null` / `latestWaterViolators()?.violators
+  ?? null` (null, not `[]`, on a cold cache — preserves the ready:false
+  distinction end-to-end) plus the two static compiled datasets (always
+  ready, loaded at import time, no polling) into `buildDossier`. No new
+  imports — all four sources were already imported for their own
+  standalone `/api/data/*` routes above this one in the same file.
+- `client/src/pages/datamap.tsx` — `DossierPayload` interface gained the
+  `hazards` field (mirrors dossier.ts's shape); the existing dossier
+  render block gained a "Nearby hazard records" section, filtered to only
+  categories that are BOTH `ready` AND have `total_within > 0` (a cold or
+  genuinely-empty category renders nothing, never a misleading "0 nearby"
+  line) — shows the true count, up to 3 nearest hits with distance, and a
+  "…more not shown (capped)" note when applicable. No new fetch: every
+  existing click handler (aircraft/vessels/trains/fires/gauges/alerts/
+  quakes/buoys/sites/powerplants) already calls `fetchDossier` with
+  lat/lon, so the hazard section populates automatically on every one of
+  them with zero new wiring.
+
+GATES: `npx tsx --test server/dossier.test.ts` — 15/15 pass (7 pre-existing
++ 8 new). `npx tsx --test server/*.test.ts` — 600/600 pass (this sandbox
+started without `node_modules/.bin/tsx`, same partial-sandbox class prior
+sessions documented; ran `npm install` first, which also resolved the 4
+pre-existing file-level test crashes earlier sessions logged — 572/576 ->
+600/600, a sandbox artifact fix, not a code change). `npx tsc --noEmit` —
+A/B'd via `git stash -u`/`git stash pop`: 66 errors before AND after,
+identical set (line numbers shifted by the new code, zero new errors, none
+reference dossier.ts/routes.ts/datamap.tsx's new code). `npm run build` —
+clean. `node scripts/visual_check.mjs --page data` — 0 hard failures at
+390/768/1440 (first run hit the tool harness's own 180s command timeout
+mid-render with zero output — re-ran as a longer-timeout background job,
+which completed normally; not a product bug, a harness-invocation mistake
+corrected mid-session). Same pre-existing touch-target/upload-hitch
+warnings as every prior data-page session, nothing new. NOT independently
+visually verified: the actual hazard card contents with real hazard data
+in view — same documented limitation every prior click-interaction PR in
+this file carries ("the harness can't drive live map clicks"); verified
+instead via the 8 fixture-driven unit tests plus a direct read of the
+rendered JSX against the fixture shapes. No Python files touched —
+`python3 -m pytest -q` out of scope, pytest not installed in this sandbox,
+same convention every other T-CLIENT/T-DATACORE-adjacent-only PR in this
+file follows.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/ad
+code touched.
+
+MARKET-HOURS NOTE: session ran Sunday 2026-07-12 (market closed all day).
+Zero trading/execution/scoring code touched — pure RAW-data cross-join +
+client display, same risk category as every prior T-CLIENT/T-DATACORE
+PR that has shipped without holding for market open in this file's own
+precedent.
+
+Backtest: N/A — no strategy, sizing, or signal logic touched. Every hazard
+category stays RAW/FACTUAL (a location/count, not a risk claim); nothing
+here enters the ROOT VALIDATION LADDER because nothing here asserts a
+predictive claim.
+
+Version 1.0.286 -> 1.0.287 (read-and-increment at commit time; re-verified
+HEAD was at origin/main's tip, b899e5b, before bumping — no collision).
+
+RESUME STATE update (research/location_context_engine.md): click-anywhere
+dossier hazard cross-join SHIPPED. NEXT (queued, unchanged from before this
+session): PFAS (UCMR5), RadNet, FEMA flood, CDC/SEER county cancer (each
+its own gate-1 ladder pipeline before it can join this cross-join);
+measured-RadNet history + labeled-model dispersion overlay as the honest
+path to "radiation over time"; a client-side radius_km control (currently
+server-default-only). PLATFORM P4 (usage & billing-history UI) and
+open_questions.md item #21's Monday weekday recheck also remain queued —
+next session's judgment call per SESSION BUDGET's fall-through order.
+
+STARVED: no — the chosen scope (dossier.ts hazard cross-join + 8 new tests
++ routes.ts wiring + datamap.tsx render + full gate battery + visual
+harness + RESUME STATE update) shipped completely. High-value work remains
+queued (PFAS/RadNet/FEMA-flood/CDC-cancer layers, PLATFORM P4, item #21's
+Monday recheck, O5/O4 orbital, GRID VISION Phase B) — next session's
+judgment call per SESSION BUDGET's fall-through order.
