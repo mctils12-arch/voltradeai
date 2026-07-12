@@ -36,6 +36,8 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays } from "@/lib/orbital/propagate";
+import { siteCoverageReport } from "@/lib/orbital/siteQuery";
+import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -93,7 +95,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator";
   title: string;
   subtitle: string;
   body: string;
@@ -1429,8 +1431,12 @@ export default function DataMapPage() {
   // search over the layer's own position buffer via pick.ts, gated to a tight
   // screen-pixel tolerance so it only fires on near-exact clicks and doesn't
   // steal clicks meant for other (properly feature-scoped) layers. Only
-  // registered while orbital_sats is enabled; a miss (nothing within
-  // tolerance) does nothing — it never clears an unrelated detail card. ──
+  // registered while orbital_sats is enabled. A miss (nothing within pixel
+  // tolerance) is now a Starlink COVERAGE query at the clicked ground point
+  // (O7; see siteQuery.ts) instead of a no-op — GPS DOP, the charter's other
+  // O7 example, is NOT wired here: GPS is MEO and this catalog's near-earth-
+  // only SGP4 kernel never gives it a valid position, so querying it would
+  // silently report permanent "no coverage" (a modeling gap, not a finding). ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !enabled["orbital_sats"]) return;
@@ -1451,7 +1457,31 @@ export default function DataMapPage() {
       const hit = pickNearestSatellite(
         positions, layer.getStride(), gp, clickMerc.x, clickMerc.y, tol,
       );
-      if (!hit) return; // honest miss — leave other layers' click handlers alone
+      if (!hit) {
+        // O7 STARLINK COVERAGE: reuse this tick's already-propagated buffer
+        // to answer "does Starlink cover this ground point right now" rather
+        // than leaving the click a pure no-op.
+        const { visible, totalModeled } = siteCoverageReport(
+          positions, layer.getStride(), gp, clickLL.lat, clickLL.lng,
+        );
+        const nearest = visible.slice(0, 5);
+        setDetail({
+          kind: "coverage",
+          title: "Starlink coverage",
+          subtitle: `${clickLL.lat.toFixed(2)}°, ${clickLL.lng.toFixed(2)}°`,
+          body: [
+            totalModeled === 0
+              ? "No Starlink elements in the current CelesTrak fetch had a valid position this tick."
+              : visible.length === 0
+                ? `0 of ${totalModeled} modeled Starlinks currently cover this point (>=${STARLINK_MIN_ELEV_DEG}° elevation mask) — a real gap right now, not missing data.`
+                : `${visible.length} of ${totalModeled} modeled Starlinks currently cover this point (>=${STARLINK_MIN_ELEV_DEG}° elevation mask).`,
+            ...nearest.map((s) =>
+              `${s.name ?? `NORAD ${s.noradId}`}: ${s.elevationDeg.toFixed(1)}° elevation, ${s.rangeKm.toFixed(0)} km range`),
+            "Geometric visibility only (published ~25° user-terminal mask) — no link-budget, beam-steering, or cell-capacity model; real SGP4 position, no predictive claim.",
+          ].filter(Boolean).join("\n"),
+        });
+        return;
+      }
 
       const g = hit.gp;
       const cls = ORBIT_CLASS_NAME[hit.classCode] ?? "unknown";
@@ -4577,7 +4607,7 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a point to identify it</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there</span>
                       </div>
                     </div>
                   )}

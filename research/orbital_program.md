@@ -212,9 +212,47 @@ KNOWN STATE; woven into every future build's assessment.)
   failures (pre-existing touch-target warnings unchanged).
   NEXT: O3 remainder (a real GPU/browser visual check of the click
   interaction — the harness can't drive live map clicks), O5 design-class
-  glTF models (LOD on zoom), O7 coverage/footprint tools (geometry.ts is
-  ready — Starlink coverage/blackout, GPS DOP, EO next-pass), O4
-  orbit-history archive (relay-gated).
+  glTF models (LOD on zoom), O4 orbit-history archive (relay-gated).
+- 2026-07-12 — O7 COVERAGE TOOLS, Starlink slice SHIPPED (own PR):
+  `client/src/lib/orbital/siteQuery.ts` (new, 7 tests) — pure
+  `siteCoverageReport()` reprojects the SAME already-propagated position
+  buffer O2/O3 already maintain (no new propagation, no new fetch) to
+  answer "which Starlink satellites currently cover this ground point"
+  (elevationAzimuthFromSite + the published ~25deg user-terminal mask,
+  both already in geometry.ts). Wired into `datamap.tsx`'s existing O3
+  click handler: a MISS on satellite-picking (previously a pure no-op)
+  now runs the coverage query at the clicked lon/lat and opens a detail
+  card — "N of M modeled Starlinks cover this point" or an honest
+  "0 of M — a real gap right now" (blackout), never conflating "nothing
+  matched the name filter" with "matched but below the mask". Legend
+  note updated to describe both click outcomes.
+  GPS DOP — the charter's OTHER O7 example, and `gpsDop()` in
+  geometry.ts already implements the math — is explicitly NOT wired:
+  traced `propagate.ts`'s own docstring first (READ BEFORE WRITE) and
+  confirmed GPS is a MEO constellation (~718 min period, over the
+  225-min deep-space threshold), which this repo's near-earth-only
+  inline SGP4 kernel always returns `null` for (`isDeepSpace() === true`,
+  SENTINEL_SKIP in the buffer) — never a real position. Querying GPS
+  today would deterministically report "0 satellites, permanent
+  blackout" forever, which is a modeling-gap artifact, not a real
+  coverage finding — building it would have shipped a dishonest tool.
+  Left filed here rather than built: GPS DOP is gated on the same SDP4
+  upgrade (`npm i satellite.js` for deep-space objects only, per
+  propagate.ts's own header) that already gates O4's orbit history for
+  GEO comms and MEO nav — a future session doing that upgrade unblocks
+  both in one pass.
+  GATES: `npx tsx --test client/src/lib/orbital/*.test.ts` 74 -> 81
+  (A/B'd via `git stash -u`, exactly the 7 new tests, zero regressions).
+  `npx tsc --noEmit` 8 errors before AND after (A/B'd via `git stash -u`
+  — pre-existing, none reference siteQuery.ts or datamap.tsx).
+  `npx tsx --test server/*.test.ts` 572/576 before AND after (same 4
+  pre-existing file-level sandbox artifacts — compression/gdeltEvents/
+  owmTiles/apiKeyAccounts — unrelated to this PR, resolved by `npm
+  install`; zero Python or other server files touched). `npm run build`
+  clean. `npm run visual -- --page data` — see experiments.md for the
+  result (session ran this after the RESUME STATE note was written).
+  NEXT: O5 glTF models, O3's own GPU/browser click-visual-check
+  remainder, O4/GPS-DOP behind the SDP4 upgrade.
 
 ## MASTER-BUILD EXTENSION (human directive 2026-07-07 — fidelity tiers + coverage geometry)
 
