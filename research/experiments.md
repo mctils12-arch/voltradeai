@@ -13878,3 +13878,44 @@ remains queued (P4/P5 per platform_program.md, the vite-base-path bug,
 worldview_globe.md's backlog, gate-2 work on several gate-1-passed
 streams) — next session's judgment call per SESSION BUDGET's fall-
 through order.
+
+---
+
+## 2026-07-12 [PRODUCT] — Location Context Engine build-out: time machine + hazard layers (T-DATACORE/T-CLIENT)
+
+Session arc (13 merged PRs across two days, wave-batched after the human's
+Actions-cost directive — recorded here: HUMAN OVERRIDE 2026-07-11/12 of the
+one-change-per-PR rule for RELATED non-trading changes; trading/measurement
+changes remain isolated for attribution):
+
+- #442 (v1.0.283) NUCLEAR-TESTS TIME MACHINE: datacore/nuclear_tests.json —
+  2,027 located tests 1945-1998 (SIPRI/Johnston catalog) compiled through the
+  data-quality gate (24 unlocated tests QUARANTINED, never plotted at (0,0));
+  /api/data/nucleartests; map layer with yield-scaled country-colored points +
+  a year scrub bar driving one GPU setFilter per tick (smoothness by
+  construction). Honesty: catalogued facts only; NO fallout modeling (a model
+  would be labeled a model).
+- #443 (v1.0.284) HAZARDS WAVE 2: (1) waterViolators.ts — EPA ECHO CWA
+  chronic violators (>8/12 quarters noncompliance, ~25k facilities; two-step
+  qid->bulk-CSV fetch since the paged JSON API returns one row per call);
+  LIVE-verified on the built server: 25,320 clean / 1 QUARANTINED by the gate
+  on first real run. (2) datacore/quake_history.json — 14,492 M6+ quakes
+  1900-2026 (USGS ComCat), 0 quarantined, sanity=Valdivia M9.5 max.
+  (3) time bar generalized to a shared history scrub (1900->now) driving all
+  history layers (nuke + quake filters together).
+
+Earlier same arc (logged for completeness; PR bodies carry detail): #431
+data-quality gate (server/dataQuality.ts — validate/quarantine/freshness/
+outlier + first consumer gridDemand); #433 EPA Superfund NPL (1,840 sites,
+live-verified); #429 GeoNames places layer (372,788 named places incl. 184k
+islands, click-to-identify); #430 Location Context Engine roadmap
+(research/location_context_engine.md).
+
+LADDER: all layers RAW/FACTUAL (gate-1-style source verification at ingest;
+no signal claims). BACKTEST: N/A — zero trading-path changes.
+
+NEXT (queued): click-anywhere LOCATION DOSSIER endpoint (cross-join the
+server-cached hazard+facility layers within a radius — the "layer of all
+layers"); PFAS (UCMR5), RadNet, FEMA flood, CDC/SEER county cancer (each on
+the gate); measured-RadNet history + labeled-model dispersion overlay as the
+honest path to "radiation over time".
