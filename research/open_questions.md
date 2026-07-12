@@ -2034,6 +2034,19 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    forward returns against size-matched random entry, regime-split;
    self-ASR side gates on guidance-sentence WER ≈ 0 vs 20
    company-published texts.
+   GATE 2 FIRST PILOT 2026-07-12 (v1.0.282, scripts/
+   earnings_language_gate2.py): tone-LEVEL-only pass (QoQ delta still
+   not testable — needs a second quarter of filings per company,
+   ~Oct-Nov 2026). N=47 at the 1-day horizon (only horizon reaching the
+   pre-stated 30-sample floor) — mean-spread PASS, outlier-robust under
+   median but dominated in magnitude by a few single-name events (worst:
+   MVO's -53% alpha on its final-trust-distribution 8-K, a real wind-
+   down repricing, not a data artifact). VERDICT: preliminary/
+   encouraging, NOT gate-2-complete — sample far too thin across one
+   calendar week of one archive snapshot to trust or trade. Re-run
+   trigger: >=90 days of archive (5-day horizon N>=30) or a second
+   filing quarter per company (unlocks the delta feature). Full trace +
+   numbers in experiments.md's 2026-07-12 [RESEARCH] entry.
 2. **Job postings via ATS public JSON (hiring velocity / role mix).**
    LICENSING: Greenhouse/Lever/Ashby/SmartRecruiters public postings
    endpoints carry no express third-party grant — CONDITIONAL: polite
