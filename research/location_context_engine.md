@@ -131,3 +131,21 @@ use is separate and gated.
 Ship the first hazard layer (recommend EPA Superfund or FRS+ECHO — free,
 national, ownable) as a map layer AND a dossier input, then build the
 click-anywhere dossier endpoint. Each is its own PR under the usual rules.
+
+STATUS 2026-07-12: the click-anywhere dossier endpoint SHIPPED (v1.0.287)
+as a `hazards` cross-join on the existing `/api/data/dossier` (W5 ENTITY
+DOSSIER v2) route rather than a new endpoint — same anchor lat/lon, same
+warming-up honesty, one less surface for the client to call. It reports,
+within `radius_km` (default 50, max 200) of the clicked point: nearby EPA
+Superfund NPL sites, EPA Clean Water Act chronic violators, historical
+M6+ earthquakes, and historical nuclear tests — each capped at 10 nearest
+with an honest `total_within` count (never silently truncated) and a
+`ready` flag so a cold cache (superfund/water-violators poll async) shows
+nothing rather than a false "0 nearby, all clear". Wired into datamap.tsx's
+existing dossier card (every click handler already sends lat/lon). NOT yet
+built: PFAS, RadNet, FEMA flood, CDC/SEER cancer layers (still queued,
+each its own ladder-gate-1 pipeline before it can join this cross-join);
+a UI toggle to adjust radius_km client-side (currently server default
+only); the harness still can't drive a live map click, so the actual
+card rendering was code-reviewed + unit-tested, not screenshotted with
+real hazard data in view (same limitation the O7/O3 sessions logged).

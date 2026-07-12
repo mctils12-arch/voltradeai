@@ -2857,19 +2857,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
   // NEW join this route adds — see server/dossier.ts) + nearest strategic
-  // sites, in one call. Pass ?entity=<ticker|MMSI|CIK|facility id> for a
-  // graph-resolvable entity, and/or ?lat=&lon= for point-anchored
-  // "nearest sites" (the only signal available for entity kinds the graph
-  // doesn't model yet — aircraft, fires, gauges, alerts, trains). Neither
-  // is required alone but at least one should be passed for a non-empty
-  // result; an unresolvable entity or missing coordinates degrades
-  // honestly (empty sections), never a 500. Same warming_up honesty as
-  // /api/data/graph while the first graph build is still in flight.
+  // sites + the LOCATION DOSSIER hazard cross-join (research/
+  // location_context_engine.md's "layer of all layers" — nearby superfund
+  // sites, EPA water violators, historical quakes, and nuclear tests, each
+  // from its own already-cached layer, RAW/count-only), in one call. Pass
+  // ?entity=<ticker|MMSI|CIK|facility id> for a graph-resolvable entity,
+  // and/or ?lat=&lon= for point-anchored "nearest sites"/hazards (the only
+  // signal available for entity kinds the graph doesn't model yet —
+  // aircraft, fires, gauges, alerts, trains) and optional
+  // ?radius_km= (default 50, capped at 200) for the hazard cross-join.
+  // Neither entity nor lat/lon is required alone but at least one should be
+  // passed for a non-empty result; an unresolvable entity or missing
+  // coordinates degrades honestly (empty sections), never a 500. Same
+  // warming_up honesty as /api/data/graph while the first graph build is
+  // still in flight — hazard layers are served from their own independent
+  // caches so they're available even before the graph finishes its first
+  // build.
   app.get("/api/data/dossier", (req, res) => {
     const entity = typeof req.query.entity === "string" ? req.query.entity : null;
     const lat = req.query.lat != null ? Number(req.query.lat) : null;
     const lon = req.query.lon != null ? Number(req.query.lon) : null;
     const hopsRaw = req.query.hops != null ? parseInt(String(req.query.hops), 10) : undefined;
+    const radiusRaw = req.query.radius_km != null ? Number(req.query.radius_km) : undefined;
     const graph = cachedGraphSync();
     res.set("Cache-Control", "public, max-age=300");
     const result = buildDossier(graph, {
@@ -2877,8 +2886,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       lat: lat != null && Number.isFinite(lat) ? lat : null,
       lon: lon != null && Number.isFinite(lon) ? lon : null,
       hops: hopsRaw,
-    }, { contracts: latestContracts()?.txns ?? null });
-    res.json(graph ? result : { ...result, warming_up: true, note: "first graph build in progress — nearest_sites still available, graph/contracts pending" });
+      radius_km: radiusRaw != null && Number.isFinite(radiusRaw) ? radiusRaw : undefined,
+    }, {
+      contracts: latestContracts()?.txns ?? null,
+      superfund: latestSuperfund()?.sites ?? null,
+      waterViolators: latestWaterViolators()?.violators ?? null,
+      quakes: (datacoreQuakeHistory as any).quakes ?? [],
+      nuclearTests: (datacoreNuclearTests as any).tests ?? [],
+    });
+    res.json(graph ? result : { ...result, warming_up: true, note: "first graph build in progress — nearest_sites/hazards still available, graph/contracts pending" });
   });
 
   // ── OpenWeatherMap global weather fields (Tier-1(b) global half) ─────────

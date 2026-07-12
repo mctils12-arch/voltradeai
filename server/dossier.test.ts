@@ -4,9 +4,11 @@
 // archive or datacore registries.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDossier, NEAREST_SITES_CAP, CONTRACTS_CAP } from "./dossier";
+import { buildDossier, NEAREST_SITES_CAP, CONTRACTS_CAP, HAZARD_CAP, HAZARD_RADIUS_KM_DEFAULT, HAZARD_RADIUS_KM_MAX } from "./dossier";
 import type { EverythingGraph, GraphNode, GraphEdge, SiteRow } from "./entityGraph";
 import type { ContractTxn } from "./usaSpending";
+import type { SuperfundSite } from "./superfund";
+import type { WaterViolator } from "./waterViolators";
 
 const node = (over: Partial<GraphNode>): GraphNode => ({
   id: "x", type: "company", label: "x", attrs: {}, ...over,
@@ -120,4 +122,75 @@ test("hops param is clamped to [0,3]", () => {
   assert.equal(out.query.hops, 3);
   const out2 = buildDossier(g, { entity: "cushing_hub", hops: -5 }, { sites });
   assert.equal(out2.query.hops, 0);
+});
+
+// LOCATION DOSSIER hazard cross-join (research/location_context_engine.md)
+const ANCHOR = { lat: 35.94, lon: -96.75 }; // Cushing Oil Hub, same fixture anchor as nearest_sites tests
+
+const superfundSite = (over: Partial<SuperfundSite>): SuperfundSite => ({
+  name: "Test NPL Site", epa_id: "OK0001", hrs_score: 50, status: "NPL Site",
+  state: "OK", city: "Cushing", county: "Payne", lat: ANCHOR.lat + 0.02, lon: ANCHOR.lon,
+  listed: "1990-01-01", ...over,
+});
+const violator = (over: Partial<WaterViolator>): WaterViolator => ({
+  name: "Test Facility", id: "OK0000001", city: "Cushing", state: "OK",
+  lat: ANCHOR.lat + 0.02, lon: ANCHOR.lon, permit: "Major", snc: "SNC", qtrs: 9, actions: 1, ...over,
+});
+
+test("no anchor coordinates (no entity resolved, no lat/lon passed) -> hazards is null, not empty sections", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { entity: "not-a-real-entity" }, {});
+  assert.equal(out.hazards, null);
+});
+
+test("hazard categories cross-join within radius_km of the anchor, sorted nearest-first, distances rounded", () => {
+  const g = graphFixture([], []);
+  const near = superfundSite({ name: "Near Site", lat: ANCHOR.lat + 0.01, lon: ANCHOR.lon }); // ~1.1km
+  const mid = superfundSite({ name: "Mid Site", lat: ANCHOR.lat + 0.03, lon: ANCHOR.lon }); // ~3.3km
+  const far = superfundSite({ name: "Far Site", epa_id: "FAR", lat: ANCHOR.lat + 5, lon: ANCHOR.lon }); // ~555km, outside default 50km
+  const out = buildDossier(g, { entity: "no-match", lat: ANCHOR.lat, lon: ANCHOR.lon }, { superfund: [far, mid, near] });
+  assert.ok(out.hazards);
+  assert.equal(out.hazards!.radius_km, HAZARD_RADIUS_KM_DEFAULT);
+  assert.equal(out.hazards!.superfund.ready, true);
+  assert.equal(out.hazards!.superfund.total_within, 2); // near + mid only, far excluded
+  assert.equal(out.hazards!.superfund.hits[0].label, "Near Site");
+  assert.equal(out.hazards!.superfund.hits[1].label, "Mid Site");
+  assert.ok(out.hazards!.superfund.hits[0].km < out.hazards!.superfund.hits[1].km);
+});
+
+test("hazard source not passed at all degrades to ready:false, not a false-clean 0", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { superfund: [superfundSite({})] });
+  assert.ok(out.hazards);
+  assert.equal(out.hazards!.superfund.ready, true);
+  assert.equal(out.hazards!.water_violators.ready, false); // waterViolators opt never passed
+  assert.equal(out.hazards!.water_violators.total_within, 0);
+  assert.equal(out.hazards!.water_violators.hits.length, 0);
+});
+
+test("hazard source passed as empty array (cache warm, genuinely nothing nearby) is ready:true with total_within 0", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { waterViolators: [] });
+  assert.equal(out.hazards!.water_violators.ready, true);
+  assert.equal(out.hazards!.water_violators.total_within, 0);
+});
+
+test("hazard hits are capped at HAZARD_CAP, but total_within reports the true count and capped is honestly flagged", () => {
+  const g = graphFixture([], []);
+  const many = Array.from({ length: HAZARD_CAP + 4 }, (_, i) =>
+    violator({ id: `v${i}`, name: `Violator ${i}`, lat: ANCHOR.lat + i * 0.001, lon: ANCHOR.lon }));
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { waterViolators: many });
+  assert.equal(out.hazards!.water_violators.total_within, HAZARD_CAP + 4);
+  assert.equal(out.hazards!.water_violators.hits.length, HAZARD_CAP);
+  assert.equal(out.hazards!.water_violators.capped, true);
+});
+
+test("radius_km param is honored and clamped to [1, HAZARD_RADIUS_KM_MAX]", () => {
+  const g = graphFixture([], []);
+  const mid = superfundSite({ name: "Mid Site", lat: ANCHOR.lat + 0.03, lon: ANCHOR.lon }); // ~3.3km
+  const tight = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon, radius_km: 1 }, { superfund: [mid] });
+  assert.equal(tight.hazards!.radius_km, 1);
+  assert.equal(tight.hazards!.superfund.total_within, 0); // 3.3km outside a 1km radius
+  const huge = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon, radius_km: 99999 }, { superfund: [mid] });
+  assert.equal(huge.hazards!.radius_km, HAZARD_RADIUS_KM_MAX);
 });

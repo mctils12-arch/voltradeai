@@ -137,6 +137,21 @@ interface DossierPayload {
   contracts: Array<{ r: string | null; tkr: string | null; amt: number; ag: string | null; rt: string }>;
   contracts_capped: boolean;
   nearest_sites: Array<{ id: string; name: string; category: string; km: number }>;
+  hazards: {
+    radius_km: number;
+    superfund: DossierHazardSection;
+    water_violators: DossierHazardSection;
+    quakes: DossierHazardSection;
+    nuclear_tests: DossierHazardSection;
+  } | null;
+}
+
+/** Mirrors server/dossier.ts's HazardSection. */
+interface DossierHazardSection {
+  total_within: number;
+  capped: boolean;
+  ready: boolean;
+  hits: Array<{ id: string; label: string; km: number; detail: Record<string, any> }>;
 }
 
 const IMAGERY_TILES =
@@ -4673,8 +4688,17 @@ export default function DataMapPage() {
             // fallback for an unfixtured route) must never crash the card.
             const contracts = dos.contracts ?? [];
             const nearestSites = dos.nearest_sites ?? [];
+            // LOCATION DOSSIER hazard cross-join (research/location_context_engine.md) —
+            // only categories whose layer cache was actually warm (`ready`) render, so
+            // a cold cache shows nothing rather than a false "0 nearby" all-clear.
+            const hazardCats: Array<{ key: string; label: string; section: DossierHazardSection | undefined }> = [
+              { key: "superfund", label: "EPA Superfund (NPL) site", section: dos.hazards?.superfund },
+              { key: "water_violators", label: "EPA Clean Water Act chronic violator", section: dos.hazards?.water_violators },
+              { key: "quakes", label: "historical M6+ earthquake", section: dos.hazards?.quakes },
+              { key: "nuclear_tests", label: "historical nuclear test", section: dos.hazards?.nuclear_tests },
+            ].filter((c) => c.section?.ready && c.section.total_within > 0);
             const hasContent = Boolean(companyNode) || insiderEdges.length > 0 || callsAtEdges.length > 0
-              || contracts.length > 0 || nearestSites.length > 0;
+              || contracts.length > 0 || nearestSites.length > 0 || hazardCats.length > 0;
             if (!hasContent) return null;
             return (
               <div>
@@ -4716,6 +4740,28 @@ export default function DataMapPage() {
                     <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>Nearest strategic sites:</p>
                     {nearestSites.map((s) => (
                       <p key={s.id} className="vt-site-card-trail">{s.name} · {s.km.toFixed(0)} km</p>
+                    ))}
+                  </div>
+                )}
+                {hazardCats.length > 0 && (
+                  <div>
+                    <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>
+                      Nearby hazard records ({dos.hazards!.radius_km} km radius — facts only, no risk claim):
+                    </p>
+                    {hazardCats.map((c) => (
+                      <div key={c.key}>
+                        <p className="vt-site-card-trail">
+                          {c.section!.total_within} {c.label}{c.section!.total_within > 1 ? "s" : ""} nearby
+                        </p>
+                        {c.section!.hits.slice(0, 3).map((h) => (
+                          <p key={h.id} className="vt-site-card-trail" style={{ paddingLeft: 8 }}>
+                            {h.label} · {h.km.toFixed(1)} km
+                          </p>
+                        ))}
+                        {c.section!.capped && (
+                          <p className="vt-site-card-trail" style={{ paddingLeft: 8 }}>…more not shown (capped)</p>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
