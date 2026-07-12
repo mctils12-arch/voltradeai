@@ -115,6 +115,17 @@
       "description": "All ~9,800 US plants by fuel type; capacity + operator on click. Static reference data (2021 vintage)."
     },
     {
+      "id": "nukefacilities",
+      "name": "Nuclear facilities (fuel cycle)",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "light",
+      "source": "Wikidata (CC0 1.0), curated through a quality gate",
+      "description": "67 nuclear fuel-cycle and production facilities worldwide (Hanford, Sellafield, Mayak, Savannah River, La Hague, Y-12, Los Alamos, Pantex…): uranium enrichment plants, reprocessing sites, radioactive-waste repositories, nuclear test-site facilities (the site entities — individual detonations live in the Nuclear Tests layer) and weapons-complex sites, building-trefoil symbols colored by category. Power plants and reactors EXCLUDED — the two power-plant layers cover them. Curation gate: English label + valid coordinates required, power-plant-classed items dropped, 4 US weapons-complex sites resolved individually. Locations as catalogued (Wikidata qid provenance per marker); no activity, output, or risk claims.",
+      "field": false
+    },
+    {
       "id": "superfund",
       "name": "Superfund sites (EPA NPL)",
       "kind": "raw",

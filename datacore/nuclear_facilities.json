@@ -1,0 +1,543 @@
+{
+ "_doc": "Nuclear fuel-cycle and production facilities, compiled 2026-07-12 from Wikidata (CC0 1.0): the nuclear-facility class tree (Q1739545 via P31/P279*) with coordinates (P625), FILTERED to the fuel-cycle/production tiers — uranium enrichment plants, reprocessing sites, radioactive-waste repositories, nuclear test SITES (the facility/region entities, distinct from individual test detonations in nuclear_tests.json), and generic 'nuclear facility' items — POWER PLANTS AND REACTORS EXCLUDED (covered by the two existing plant layers). Plus 4 curated US weapons-complex sites (Y-12, Los Alamos, Pantex, Rocky Flats) resolved individually — the class tree misses them. QUALITY GATE: English label required, coordinate validity + null-island check, power-plant-classed items dropped. Facts as catalogued; qid links each marker's Wikidata provenance.",
+ "source": "Wikidata (CC0 1.0)",
+ "count": 67,
+ "facilities": [
+  {
+   "qid": "Q2500027",
+   "n": "Ehemalige Uranerzaufbereitungsanlage Ellweiler",
+   "cat": "Enrichment plant",
+   "lon": 7.1599,
+   "lat": 49.6181,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q54338531",
+   "n": "Georges Besse I uranium enrichment plant",
+   "cat": "Enrichment plant",
+   "lon": 4.7217,
+   "lat": 44.3306,
+   "country": "France"
+  },
+  {
+   "qid": "Q3552593",
+   "n": "Georges Besse II uranium enrichment plant",
+   "cat": "Enrichment plant",
+   "lon": 4.7211,
+   "lat": 44.3292,
+   "country": "France"
+  },
+  {
+   "qid": "Q2500022",
+   "n": "Gronau Uranium Enrichment Plant",
+   "cat": "Enrichment plant",
+   "lon": 7.0739,
+   "lat": 52.2154,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q135287608",
+   "n": "Lanzhou uranium enrichment plant",
+   "cat": "Enrichment plant",
+   "lon": 103.5184,
+   "lat": 36.1507,
+   "country": "People's Republic of China"
+  },
+  {
+   "qid": "Q6012307",
+   "n": "Natanz nuclear facility",
+   "cat": "Enrichment plant",
+   "lon": 51.725,
+   "lat": 33.725,
+   "country": "Iran"
+  },
+  {
+   "qid": "Q135029531",
+   "n": "Arak Nuclear Complex",
+   "cat": "Nuclear facility",
+   "lon": 49.2407,
+   "lat": 34.3693,
+   "country": "Iran"
+  },
+  {
+   "qid": "Q3485454",
+   "n": "Creys-Malville nuclear site",
+   "cat": "Nuclear facility",
+   "lon": 5.4728,
+   "lat": 45.7581,
+   "country": "France"
+  },
+  {
+   "qid": "Q20981528",
+   "n": "Duynefontein",
+   "cat": "Nuclear facility",
+   "lon": 18.4306,
+   "lat": -33.668,
+   "country": "South Africa"
+  },
+  {
+   "qid": "Q757565",
+   "n": "Fordow Uranium Enrichment Plant",
+   "cat": "Nuclear facility",
+   "lon": 50.9967,
+   "lat": 34.8856,
+   "country": "Iran"
+  },
+  {
+   "qid": "Q140265559",
+   "n": "Fuel element receipt storage (WAA Wackersdorf)",
+   "cat": "Nuclear facility",
+   "lon": 12.2311,
+   "lat": 49.3225,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q580142",
+   "n": "Marcoule Nuclear Site",
+   "cat": "Nuclear facility",
+   "lon": 4.7094,
+   "lat": 44.1433,
+   "country": "France"
+  },
+  {
+   "qid": "Q612137",
+   "n": "Mayak",
+   "cat": "Nuclear facility",
+   "lon": 60.7798,
+   "lat": 55.6999,
+   "country": "Russia"
+  },
+  {
+   "qid": "Q140265723",
+   "n": "Module Test Stand Building (WAA Wackersdorf)",
+   "cat": "Nuclear facility",
+   "lon": 12.2284,
+   "lat": 49.3225,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q1752912",
+   "n": "Negev Nuclear Research Center",
+   "cat": "Nuclear facility",
+   "lon": 35.1467,
+   "lat": 31.0036,
+   "country": "Israel"
+  },
+  {
+   "qid": "Q1411438",
+   "n": "Orano La Hague site",
+   "cat": "Nuclear facility",
+   "lon": -1.8794,
+   "lat": 49.6783,
+   "country": "France"
+  },
+  {
+   "qid": "Q1419531",
+   "n": "Rokkasho Reprocessing Plant",
+   "cat": "Nuclear facility",
+   "lon": 141.3245,
+   "lat": 40.9564,
+   "country": "Japan"
+  },
+  {
+   "qid": "Q139796054",
+   "n": "Savannah River Plant",
+   "cat": "Nuclear facility",
+   "lon": -81.65,
+   "lat": 33.25,
+   "country": "United States"
+  },
+  {
+   "qid": "Q2458173",
+   "n": "Savannah River Site",
+   "cat": "Nuclear facility",
+   "lon": -81.65,
+   "lat": 33.25,
+   "country": "United States"
+  },
+  {
+   "qid": "Q1063567",
+   "n": "Sellafield",
+   "cat": "Nuclear facility",
+   "lon": -3.4881,
+   "lat": 54.4189,
+   "country": "United Kingdom"
+  },
+  {
+   "qid": "Q839585",
+   "n": "Sibirskaya Nuclear Power Plant",
+   "cat": "Nuclear facility",
+   "lon": 84.9056,
+   "lat": 56.6264,
+   "country": "Russia"
+  },
+  {
+   "qid": "Q1496060",
+   "n": "Taechon nuclear facility",
+   "cat": "Nuclear facility",
+   "lon": 125.5692,
+   "lat": 39.9278,
+   "country": "North Korea"
+  },
+  {
+   "qid": "Q339443",
+   "n": "Thermal Oxide Reprocessing Plant",
+   "cat": "Nuclear facility",
+   "lon": -3.5017,
+   "lat": 54.4155,
+   "country": "United Kingdom"
+  },
+  {
+   "qid": "Q14552211",
+   "n": "Tricastin nuclear site",
+   "cat": "Nuclear facility",
+   "lon": 4.7219,
+   "lat": 44.3361,
+   "country": "France"
+  },
+  {
+   "qid": "Q7911711",
+   "n": "Valindaba",
+   "cat": "Nuclear facility",
+   "lon": 27.9433,
+   "lat": -25.7997,
+   "country": "South Africa"
+  },
+  {
+   "qid": "Q3552670",
+   "n": "West Valley Reprocessing Plant",
+   "cat": "Nuclear facility",
+   "lon": -78.6547,
+   "lat": 42.4506,
+   "country": "United States"
+  },
+  {
+   "qid": "Q499004",
+   "n": "Yongbyon Nuclear Scientific Research Center",
+   "cat": "Nuclear facility",
+   "lon": 125.75,
+   "lat": 39.8,
+   "country": "North Korea"
+  },
+  {
+   "qid": "Q135771",
+   "n": "Z machine",
+   "cat": "Nuclear facility",
+   "lon": -106.5425,
+   "lat": 35.0355,
+   "country": null
+  },
+  {
+   "qid": "Q140404900",
+   "n": "Buildings of the Wackersdorf reprocessing plant",
+   "cat": "Reprocessing site",
+   "lon": 12.2278,
+   "lat": 49.3222,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q4834373",
+   "n": "Magnox Reprocessing Plant",
+   "cat": "Reprocessing site",
+   "lon": -3.5017,
+   "lat": 54.4155,
+   "country": "United Kingdom"
+  },
+  {
+   "qid": "Q11527800",
+   "n": "Tōkai Reprocessing Plant",
+   "cat": "Reprocessing site",
+   "lon": 140.6035,
+   "lat": 36.4393,
+   "country": "Japan"
+  },
+  {
+   "qid": "Q1372727",
+   "n": "Wackersdorf reprocessing plant",
+   "cat": "Reprocessing site",
+   "lon": 12.2284,
+   "lat": 49.3225,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q4788524",
+   "n": "Area 2",
+   "cat": "Test site",
+   "lon": -116.0735,
+   "lat": 37.138,
+   "country": "United States"
+  },
+  {
+   "qid": "Q5066829",
+   "n": "Chagai-II",
+   "cat": "Test site",
+   "lon": 63.86,
+   "lat": 28.43,
+   "country": "Pakistan"
+  },
+  {
+   "qid": "Q4156573",
+   "n": "Degelen",
+   "cat": "Test site",
+   "lon": 78.1181,
+   "lat": 49.8078,
+   "country": "Kazakhstan"
+  },
+  {
+   "qid": "Q506815",
+   "n": "Fangataufa",
+   "cat": "Test site",
+   "lon": -138.75,
+   "lat": -22.25,
+   "country": "France"
+  },
+  {
+   "qid": "Q3149614",
+   "n": "In Eker",
+   "cat": "Test site",
+   "lon": 5.0819,
+   "lat": 24.0206,
+   "country": "Algeria"
+  },
+  {
+   "qid": "Q753201",
+   "n": "Kapustin Yar",
+   "cat": "Test site",
+   "lon": 46.2952,
+   "lat": 48.5655,
+   "country": "Russia"
+  },
+  {
+   "qid": "Q318446",
+   "n": "Moruroa",
+   "cat": "Test site",
+   "lon": -138.9167,
+   "lat": -21.8333,
+   "country": "France"
+  },
+  {
+   "qid": "Q1344605",
+   "n": "Nevada National Security Site",
+   "cat": "Test site",
+   "lon": -116.05,
+   "lat": 37.1167,
+   "country": "United States"
+  },
+  {
+   "qid": "Q5306661",
+   "n": "Punggye-ri Nuclear Test Site",
+   "cat": "Test site",
+   "lon": 129.0872,
+   "lat": 41.2778,
+   "country": "North Korea"
+  },
+  {
+   "qid": "Q582905",
+   "n": "Reggane",
+   "cat": "Test site",
+   "lon": 0.1667,
+   "lat": 26.7,
+   "country": "Algeria"
+  },
+  {
+   "qid": "Q2214815",
+   "n": "Salmon Site",
+   "cat": "Test site",
+   "lon": -89.57,
+   "lat": 31.1422,
+   "country": "United States"
+  },
+  {
+   "qid": "Q782082",
+   "n": "Sary Shagan",
+   "cat": "Test site",
+   "lon": 72.8667,
+   "lat": 46.3833,
+   "country": "Soviet Union"
+  },
+  {
+   "qid": "Q757666",
+   "n": "Semipalatinsk Test Site",
+   "cat": "Test site",
+   "lon": 78.9956,
+   "lat": 50.0277,
+   "country": "Kazakhstan"
+  },
+  {
+   "qid": "Q2307093",
+   "n": "Totsky shooting range",
+   "cat": "Test site",
+   "lon": 52.8167,
+   "lat": 52.5472,
+   "country": "Soviet Union"
+  },
+  {
+   "qid": "Q130365600",
+   "n": "Abfall-Zwischenlager Brunsbüttel",
+   "cat": "Waste repository",
+   "lon": 9.2053,
+   "lat": 53.8933,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q316980",
+   "n": "Asse II mine",
+   "cat": "Waste repository",
+   "lon": 10.6708,
+   "lat": 52.1289,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q757630",
+   "n": "Atommülllager Gorleben",
+   "cat": "Waste repository",
+   "lon": 11.3505,
+   "lat": 53.0262,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q1284526",
+   "n": "Hanford Site",
+   "cat": "Waste repository",
+   "lon": -119.5986,
+   "lat": 46.6475,
+   "country": "United States"
+  },
+  {
+   "qid": "Q137657440",
+   "n": "Interim Storage Facility",
+   "cat": "Waste repository",
+   "lon": -3.4939,
+   "lat": 54.4108,
+   "country": "United Kingdom"
+  },
+  {
+   "qid": "Q827202",
+   "n": "Lake Karachay",
+   "cat": "Waste repository",
+   "lon": 60.7994,
+   "lat": 55.6772,
+   "country": "Russia"
+  },
+  {
+   "qid": "Q1726774",
+   "n": "Lop Nor / Malan nuclear test site",
+   "cat": "Waste repository",
+   "lon": 88.712,
+   "lat": 41.5448,
+   "country": "People's Republic of China"
+  },
+  {
+   "qid": "Q1340500",
+   "n": "Low Level Waste Repository",
+   "cat": "Waste repository",
+   "lon": -3.4569,
+   "lat": 54.3794,
+   "country": "United Kingdom"
+  },
+  {
+   "qid": "Q1054179",
+   "n": "Manche storage centre",
+   "cat": "Waste repository",
+   "lon": -1.8622,
+   "lat": 49.6778,
+   "country": "France"
+  },
+  {
+   "qid": "Q6795480",
+   "n": "Maxey Flats",
+   "cat": "Waste repository",
+   "lon": -83.5694,
+   "lat": 38.2583,
+   "country": "United States"
+  },
+  {
+   "qid": "Q2449640",
+   "n": "Nuclear waste storage Ahaus",
+   "cat": "Waste repository",
+   "lon": 7.0556,
+   "lat": 52.0763,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q2449646",
+   "n": "Nuclear waste storage Gorleben",
+   "cat": "Waste repository",
+   "lon": 11.3408,
+   "lat": 53.0336,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q4413020",
+   "n": "Onkalo spent nuclear fuel repository",
+   "cat": "Waste repository",
+   "lon": 21.4821,
+   "lat": 61.2351,
+   "country": "Finland"
+  },
+  {
+   "qid": "Q136647194",
+   "n": "Radioactive waste repository Alberschwende",
+   "cat": "Waste repository",
+   "lon": 9.8577,
+   "lat": 47.4583,
+   "country": "Austria"
+  },
+  {
+   "qid": "Q16821679",
+   "n": "Site A / Plot M Disposal Site",
+   "cat": "Waste repository",
+   "lon": -87.9122,
+   "lat": 41.7022,
+   "country": "United States"
+  },
+  {
+   "qid": "Q126891126",
+   "n": "Standort-Zwischenlager Brunsbüttel",
+   "cat": "Waste repository",
+   "lon": 9.2053,
+   "lat": 53.8916,
+   "country": "Germany"
+  },
+  {
+   "qid": "Q7907817",
+   "n": "Vaalputs",
+   "cat": "Waste repository",
+   "lon": 18.57,
+   "lat": -30.1314,
+   "country": "South Africa"
+  },
+  {
+   "qid": "Q379848",
+   "n": "Los Alamos National Laboratory",
+   "cat": "Weapons-complex site",
+   "lon": -106.3242,
+   "lat": 35.8756,
+   "country": "United States"
+  },
+  {
+   "qid": "Q2049862",
+   "n": "Pantex Plant",
+   "cat": "Weapons-complex site",
+   "lon": -101.56,
+   "lat": 35.3116,
+   "country": "United States"
+  },
+  {
+   "qid": "Q3214504",
+   "n": "Rocky Flats Plant",
+   "cat": "Weapons-complex site",
+   "lon": -105.204,
+   "lat": 39.8899,
+   "country": "United States"
+  },
+  {
+   "qid": "Q2061309",
+   "n": "Y-12 National Security Complex",
+   "cat": "Weapons-complex site",
+   "lon": -84.2547,
+   "lat": 35.9883,
+   "country": "United States"
+  }
+ ]
+}

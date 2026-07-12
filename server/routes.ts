@@ -15,6 +15,7 @@ import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
+import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
@@ -2347,6 +2348,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "no radiation, damage, or risk modeling is shown.",
       count: d.count,
       events: d.events,
+    });
+  });
+
+  // Nuclear fuel-cycle & production facilities (RAW/FACTUAL; Wikidata CC0,
+  // curated — enrichment/reprocessing/waste/test-site/weapons-complex tiers;
+  // power plants & reactors excluded, covered by the plant layers.)
+  app.get("/api/data/nukefacilities", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const d: any = datacoreNuclearFacilities;
+    res.json({
+      kind: "raw", predictive: false,
+      source: d.source,
+      attribution: "Wikidata (CC0 1.0)",
+      note: "Nuclear fuel-cycle and production facilities as catalogued in Wikidata — uranium "
+        + "enrichment, reprocessing, waste repositories, test-site facilities and weapons-complex "
+        + "sites. Power plants and reactors are excluded here (see the power-plant layers). "
+        + "Locations as catalogued; no activity, output, or risk claims.",
+      count: d.count,
+      facilities: d.facilities,
     });
   });
 
