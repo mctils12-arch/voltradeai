@@ -56,6 +56,15 @@ const PAGES = {
   // logged-out "log in to manage keys" state — the most common visitor.
   apikeys: { route: "/apikeys", map: false },
   landing: { route: "/", map: false },
+  // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
+  // fixed this PR): vite.config.ts's base:"./" baked a relative script src
+  // that only resolved correctly for single-segment routes; any 2+-segment
+  // route (this one included) rendered a blank white screen in production
+  // with no pageerror. Kept in PAGES permanently as the ratchet for that
+  // class of bug — see the "app actually mounted" check in CHECKS_SNIPPET,
+  // which is what actually catches it (a blank page has no overflow and no
+  // interactive elements, so the pre-existing checks alone passed it clean).
+  newsletterissue: { route: "/newsletter/test-issue", map: false },
 };
 const only = process.argv.includes("--page")
   ? process.argv[process.argv.indexOf("--page") + 1]
@@ -245,6 +254,13 @@ const FIXTURES = {
     disclaimer: "Data as-is; not for safety-of-life use (fixture).",
   },
   "/api/data/archive/stats": { kinds: { aircraft: { days: 2, samples: 96 }, vessels: { days: 2, samples: 96 } }, totalBytes: 12582912 },
+  // Backs the newsletterissue PAGES entry (multi-segment route regression,
+  // see vite.config.ts's base:"/" fix) — matched via startsWith prefix, so
+  // any /api/newsletter/issues/:slug request gets this single-issue shape.
+  "/api/newsletter/issues": {
+    slug: "test-issue", title: "Fixture Issue", subtitle: "Harness fixture",
+    date: "2026-07-11", excerpt: "Fixture excerpt.", html: "<p>Fixture body.</p>",
+  },
   "/api/data/portdwell": {
     kind: "raw", source: "Derived from our own AIS position archive (fixture)",
     window_hours: 168, vessels_seen: 240, visits_completed: 23, in_port_now: 7, anomaly_count: 1,
@@ -523,6 +539,17 @@ function startServer() {
 const CHECKS_SNIPPET = (width, touch, mapPage = true) => `(() => {
   const out = { failures: [], warnings: [], info: {} };
   const vw = window.innerWidth, vh = window.innerHeight;
+
+  // 0. the app actually mounted (found missing 2026-07-11: a blank white
+  // screen — e.g. from the vite base:"./" multi-segment routing bug — has
+  // no horizontal overflow and no interactive elements, so every check
+  // below this one passed clean on a totally dead page. #root is React's
+  // mount point (client/index.html); a script that never executed leaves
+  // it permanently empty.
+  const root = document.getElementById('root');
+  if (!root || root.childElementCount === 0) {
+    out.failures.push("app did not mount: #root has no children (blank page — script failed to load/execute)");
+  }
 
   // 1. no horizontal overflow caused by the page
   if (document.documentElement.scrollWidth > vw + 1) {

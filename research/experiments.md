@@ -13,6 +13,155 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-11 — [REPAIR] Multi-segment routes rendered blank in production — vite base:"./" fix + harness ratchet (v1.0.280)
+
+TERRITORY: T-CLIENT (vite.config.ts, scripts/visual_check.mjs). Solo
+[PRODUCT] scheduled-routine session.
+
+SESSION START per MEMORY PROTOCOL: read CLAUDE.md in full, this file's
+last 10 tagged entries ([RULE-REVIEW] masterkill shadow-log, [PRODUCT]
+P3 self-serve keys, [PIPELINE] SEC MIDAS, [PRODUCT] G2b GOES fire layer,
+[REPAIR] SPY-floor market-hours, [PRODUCT] W5 entity dossier, [PRODUCT]
+grid-overlay blank-tile fix, [RESEARCH] Markov-vs-VXX regime, [PRODUCT]
+W3 time scrubber, [REPAIR] tiles3dBudget durability — 2/10 REPAIR, well
+under the 7+ thrash trigger), open_questions.md KNOWN BROKEN in full,
+and wishlist.md's DATACORE MAXIMUS status block.
+
+HEALTH CHECK: `curl https://voltradeai-production.up.railway.app/api/health`
+— all green (server/db/alpaca ACTIVE/python/scanner/licensing ok, bot
+active, drawdownPct 0.0, liveness.dark false — no LIVENESS ALARM).
+`/api/diag/audit?type=TIER-KILL` empty (consistent with the prior
+session's note — nothing new to act on there). No KNOWN BROKEN item is
+both live-actionable and in T-CLIENT territory, so this session proceeded
+to PRIMARY ACTION selection per the [PRODUCT] brief.
+
+PRIMARY ACTION SELECTION: DATACORE MAXIMUS's only unclaimed census item
+(EPA CAMD) remains gated on Mike's key (checked env — not present).
+platform_program.md's queue (P4 usage/billing UI, or the vite base-path
+bug) and worldview_globe.md's backlog (G0c/G2f/G2h/G4) were the
+remaining candidates. Picked the vite base-path bug: it's a LIVE,
+already-diagnosed production defect (open_questions.md OPS GOTCHAS,
+filed 2026-07-11 by the PLATFORM P3 session) that silently blanks any
+2+-segment route — directly the PREMIUM EXPERIENCE STANDARD's "would a
+paying customer trust this" test, well-scoped (one config value + one
+harness gap), and higher-value than P4 (a new pre-revenue UI feature)
+or the G-series backlog (both lower-urgency showcase work) because it's
+an active defect affecting an EXISTING production route
+(`/newsletter/:slug`), not a missing feature.
+
+READ BEFORE WRITE: read `vite.config.ts` (root, base, outDir), the OPS
+GOTCHAS finding in full (exact root cause: `base:"./"` bakes a relative
+script src that resolves against the CURRENT URL's path, not the site
+root — correct by coincidence for 1-segment routes, wrong for 2+),
+`server/static.ts` (express.static + SPA-fallback — confirmed the whole
+app is served from one Express process, always at the domain root, no
+subpath), `railway.json`/Dockerfile (EXPOSE 3000, `node dist/index.cjs`
+— no reverse-proxy path prefix), and `scripts/visual_check.mjs`'s mock
+server + `CHECKS_SNIPPET` (confirmed why the harness's own `pageerror`
+listener and layout checks never caught this: a blank page has zero
+horizontal overflow and zero interactive elements, so every existing
+check passes clean on a totally dead page — the P3 session's own
+writeup says as much, this session verified it directly rather than
+taking that at face value, see DOWNSTREAM CHAIN below).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `base` only affects how Vite
+writes the `<script src>` in the built `index.html` — zero change to
+any server route, API, or trading-path code. The only downstream effect
+is which URL the browser requests for the JS bundle on page load;
+`server/static.ts` already serves `/assets/*` at the root and the SPA
+fallback is unconditional, so flipping to an absolute base is a pure
+correctness fix, not a new constraint (`base:"/"` was already the
+correct choice for the app's ACTUAL topology — always domain-root — it
+was simply never set that way).
+
+WHAT SHIPPED:
+- `vite.config.ts`: `base: "./"` -> `base: "/"`, with a comment stating
+  why (domain-root serving assumption) and pointing at the OPS GOTCHAS
+  writeup.
+- `scripts/visual_check.mjs`:
+  - New PAGES entry `newsletterissue: { route: "/newsletter/test-issue" }`
+    — the FIRST 2+-segment route in the harness's permanent battery
+    (every existing entry was either `/app#/...`, single-segment, or
+    `/`). Kept in PAGES permanently as the regression ratchet for this
+    exact bug class, reusing the real `/newsletter/:slug` route rather
+    than inventing a synthetic one.
+  - New FIXTURES entry `/api/newsletter/issues` (single-issue shape,
+    matched via the harness's existing prefix-match convention) backing
+    the new page — no server code touched, `server/newsletter.ts` is
+    untouched (CODEBASE MAP marks it frozen-adjacent; this PR never
+    opens it).
+  - New CHECKS_SNIPPET assertion #0 ("app actually mounted"): asserts
+    `#root` (React's mount point, `client/index.html`) has at least one
+    child element, on EVERY page (not gated by `cfg.map`). This is the
+    check that actually catches the bug class — the pre-existing checks
+    (overflow, interactive-element sizing) structurally cannot, since a
+    blank page trivially passes both. Retrofits the harness's blind spot
+    for ALL pages, not just the new one.
+
+A/B VERIFICATION (not just a clean single run — proved the ratchet
+actually ratchets): built with `base:"./"` (`git stash` isolating
+`vite.config.ts` alone) and ran
+`node scripts/visual_check.mjs --page newsletterissue`: 3/3 HARD
+FAILURES (`app did not mount: #root has no children`) at all three
+widths, script src confirmed `./assets/index-CxrKH7-_.js` in the built
+`index.html`. Restored the fix (`git stash pop`), rebuilt, reran: 0
+failures, script src confirmed `/assets/index-C5jK5R2E.js`, screenshots
+self-reviewed at 390/1440 (clean, on-brand, matches the existing
+newsletter design system).
+
+GATES:
+- `npm run build` — clean; confirmed `<script src="/assets/...">`
+  (absolute) in `dist/public/index.html` post-fix.
+- `node scripts/visual_check.mjs --soft` (full battery, every
+  registered page) — 0 hard failures across all 10 pages x 3 widths
+  (data/streams/gridstress/developers/apikeys/landing/newsletterissue +
+  the data-all-off/data-scale perf variants). Only pre-existing
+  warnings (touch-target sizes on the marketing nav, one clipped
+  "Copy" control on /developers) — none introduced by this PR, same
+  warnings present before this change. `data` page's heavy map/perf
+  battery passed cleanly this run (prior sessions noted it as
+  occasionally flaky in this sandbox; not chased further, consistent
+  with that precedent).
+- `npx tsc --noEmit` — 64 errors, byte-identical to the documented
+  baseline (verified by exact count, not just "looks similar") — zero
+  new errors; nothing in this PR's diff (a build-config value + a dev
+  harness script) is type-checked by `tsc` anyway.
+- `npx tsx --test server/*.test.ts` — 585/585 pass, 0 failed — matches
+  the P3 session's own baseline exactly (no server/*.ts file touched by
+  this PR).
+- No Python files touched — `python3 -m pytest -q` out of scope for
+  this PR's own gate, same convention as every other T-CLIENT-only PR
+  in this file.
+
+Backtest: N/A — build-config + dev-tooling change only; zero trading/
+scoring/sizing code touched.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/
+paid-feature-gating code touched.
+
+MARKET-HOURS NOTE: session ran Saturday evening ET (market closed
+regardless) and this PR touches zero trading/execution code — same
+risk category as every other pure-T-CLIENT PR that has shipped without
+holding for market close in this file's own precedent.
+
+`research/open_questions.md` OPS GOTCHAS entry updated to RESOLVED
+in place (not deleted — append-only spirit; the root-cause writeup stays
+for the historical record). `research/platform_program.md` RESUME STATE
+updated: the vite base-path bug (P3's own filed follow-up) is now
+closed; P4 (usage/billing-history UI, pre-revenue) is next in that
+program if a future session picks it up.
+
+Version 1.0.279 -> 1.0.280 (read-and-increment at commit time).
+
+STARVED: no — primary action shipped completely (config fix + a
+generalized harness ratchet that protects every future route, not just
+this one, proven via A/B rather than assumed). High-value work remains
+queued: platform_program.md P4/P5, worldview_globe.md's G0c/G2f/G2h/G4
+backlog, gate-2 work on several gate-1-passed DATACORE MAXIMUS streams,
+KNOWN BROKEN #3's live options-order verification, item #21's
+next-trading-day data-source-errors check — next session's judgment
+call per SESSION BUDGET's fall-through order.
+
 ## 2026-07-11 — [RULE-REVIEW] Counterfactual logging for master_kill_switch's CSP blackout (open_questions.md item #20) (v1.0.279)
 
 TERRITORY: T-BOT (tiered_strategy.py + its test). Solo scheduled-routine
