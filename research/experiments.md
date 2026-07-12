@@ -13919,3 +13919,170 @@ server-cached hazard+facility layers within a radius — the "layer of all
 layers"); PFAS (UCMR5), RadNet, FEMA flood, CDC/SEER county cancer (each on
 the gate); measured-RadNet history + labeled-model dispersion overlay as the
 honest path to "radiation over time".
+
+---
+
+## 2026-07-12 [PRODUCT] — ORBITAL O7 coverage tools: Starlink ground-site coverage query (v1.0.286)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/**, client/src/pages/datamap.tsx)
++ SHARED (research/orbital_program.md, package.json — last commit, minimal
+per the merge-order protocol).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then the last
+10 tagged sessions for the loop-health ratio (tiles3dBudget [REPAIR], ANALYST
+CONSOLE W3 [PRODUCT], Markov-regime [RESEARCH], grid-overlay+HIFLD [PRODUCT],
+ENTITY DOSSIER v2 [PRODUCT], SPY-floor market-hours [REPAIR], worldview-globe
+G2b [PRODUCT], SEC MIDAS [PIPELINE], PLATFORM P3 [PRODUCT], Location Context
+Engine [PRODUCT] — 2/10 REPAIR, nowhere near the 7+ thrash trigger). `/api/
+health` clean live (server/database/alpaca/python/scanner/licensing all ok;
+bot active, drawdownPct 0.0, liveness not dark) — no liveness alarm.
+
+PRIMARY ACTION CHOICE (SESSION BUDGET fall-through): checked `/api/diag/*`
+for a fixable live bug first, per the REPAIR MANDATE. Found two candidates
+that turned out to be dead ends on inspection, both logged here so a future
+session doesn't re-walk the same path:
+(a) STREAM-DISCONNECT/STREAM reconnect cycling every ~10min in `/api/diag/
+audit` — already confirmed NORMAL by the 2026-07-10 SPY-floor session
+(explicitly logged "no action needed"); re-confirmed the same cadence today,
+not a new finding.
+(b) 3x TIER2-ERROR daemon-timeout occurrences found in the audit history —
+all dated 2026-07-11 14:48/15:18/15:48Z, i.e. the SAME 3 occurrences already
+analyzed in the 2026-07-11 PLATFORM P3 session's health check; none since
+(19+ hours clean as of this session) — not a new, currently-actionable break.
+(c) Investigated further: `/api/diag/orders` showed ZERO non-floor-basket
+fills across the entire visible order history (SMH/QQQ/VXUS/KWEB/GLD only;
+the 17 us_option orders are the SAME 2026-06-04/05 fills KNOWN BROKEN #3's
+CONCLUSIVE EVIDENCE note already dated) and `/api/diag/ml` showed all 3 live
+feedback records are `orphan_exit` (0 pnl, 0 entry_features) — traced this to
+`_manage_spy_floor()` never calling `track_fill()` on its own entries (only
+WS exits do), so any floor-basket exit is a structural orphan by design, not
+a new bug: `orphan_exit` records are correctly excluded from training
+(`test_fills_slippage_stats.py::test_orphan_exit_records_excluded`), so this
+isn't corrupting learning, just confirming the floor basket doesn't feed it
+(expected — it's not an ML-scored decision). The `T2-FAIL: No options
+contracts available` messages for BSX/BBIO/EXE recurring every cycle were
+tempting to chase (traced to `options_execution.py`'s hardcoded `feed:
+"opra"` snapshot request with a bare `logger.warning` on non-200 — no
+audit trail, no entitlement-fallback the way `alpaca_feed.py` gives the
+stock-data SIP feed) — but open_questions.md item #21 (filed 2026-07-11,
+a Saturday session) already flags this exact symptom and explicitly gates
+the conclusion on a WEEKDAY check ("CHECK ON THE NEXT TRADING DAY (Monday
+2026-07-13 or later)"). Today is Sunday 2026-07-12 — one day early. Per this
+repo's own established precedent (KNOWN BROKEN #3's PARTIAL EVIDENCE note:
+"don't conclude from a market-closed window"), drawing a conclusion or
+shipping a fix from today's weekend data would repeat a mistake this file
+already corrected once. Left for Monday's session, not touched.
+
+No fixable, currently-actionable bug found; no queued experiment has reached
+its stated maturity date. Fell through to the next SESSION BUDGET tier: the
+next queued, unblocked roadmap item. `research/orbital_program.md`'s RESUME
+STATE named it directly: "O7 coverage/footprint tools (geometry.ts is ready
+— Starlink coverage/blackout, GPS DOP, EO next-pass)".
+
+READ BEFORE WRITE: read `geometry.ts` in full (footprint/look-angle/DOP/
+next-pass, all pure + already tested), `satBuffer.ts` (buffer layout +
+`readSatAt`/`mercatorToLonLat`, already exported), `pick.ts` (the existing
+index-aligned buffer/gp click-picking pattern to mirror), and `propagate.ts`'s
+own header comment BEFORE picking which O7 sub-feature to build — this
+caught a real problem before writing any code: GPS/GLONASS/Galileo are MEO
+constellations (~718 min orbital period), and `propagate.ts`'s near-earth-
+only inline SGP4 kernel returns `null` (`isDeepSpace() === true`) for every
+orbit >= 225 min BY DESIGN. `satWorker.ts` packs those as SENTINEL_SKIP —
+never a real position. A "GPS DOP at a point" tool built on this catalog
+would deterministically report 0 visible GPS satellites forever — not a
+real coverage finding, a modeling-gap artifact. Building it would have
+shipped a dishonest tool (exactly the HONESTY METRIC risk, just on a data
+product this time, not the trading side). Verified directly before writing
+any UI: Starlink is LEO (~95min period, well under the deep-space
+threshold), propagates correctly with the same kernel, and the charter
+already names it as a public/well-known ~25deg user-terminal mask — so this
+session built the Starlink slice and explicitly left GPS DOP filed as
+blocked on the same SDP4 upgrade (`npm i satellite.js`, worker-only) that
+already gates O4's orbit-history archive for GEO/MEO objects.
+
+WHAT SHIPPED:
+- `client/src/lib/orbital/siteQuery.ts` (NEW) — `isStarlinkName()` (anchored
+  regex, not a loose substring match) + `siteCoverageReport()`: reprojects
+  the SAME already-propagated position buffer O2/O3 already maintain (no new
+  fetch, no new propagation) via `mercatorToLonLat` + `elevationAzimuthFromSite`
+  (both pre-existing) to report, for an arbitrary ground lat/lon: how many
+  catalog entries matched the name filter AND had a valid position this tick
+  (`totalModeled` — the honest denominator), and which of those clear the
+  elevation mask (`visible`, sorted highest-elevation-first). Deep-space/
+  invalid slots are excluded from `totalModeled`, never silently counted as
+  "no coverage" — a genuine 0-visible-with-totalModeled>0 result is a real
+  blackout, distinguishable from "nothing matched the name filter at all".
+  Generic over `namePredicate`/`minElevDeg` (not hardcoded to Starlink) so a
+  future GPS-DOP build reuses the same function once SDP4 lands.
+- `client/src/lib/orbital/siteQuery.test.ts` (NEW, 7 tests) — name-anchoring
+  (rejects "NOT STARLINK-1"), overhead-visible + off-mask-invisible cases
+  (geometry values taken from a direct `elevationAzimuthFromSite` probe, not
+  guessed — an initial guess for the custom-mask test was wrong on the first
+  run and was corrected against the real function output rather than
+  adjusting the assertion to match), SENTINEL_SKIP exclusion from
+  `totalModeled`, custom mask/name-predicate honored, elevation-descending
+  sort, and the same buffer/gp length-mismatch safety `pick.test.ts` already
+  pins for the sibling picking function.
+- `client/src/pages/datamap.tsx` — the existing O3 satellite click-to-identify
+  handler's miss branch (previously `if (!hit) return;`, a pure no-op) now
+  runs `siteCoverageReport()` at the clicked lon/lat and opens a detail card:
+  "N of M modeled Starlinks currently cover this point (>=25° elevation
+  mask)" with the nearest 5 by elevation, or the honest 0-of-M blackout
+  wording, or "no Starlink elements had a valid position this tick" when
+  `totalModeled` is 0. Added a new `"coverage"` `Detail.kind` (distinct from
+  the pre-existing `"site"` kind, which is a different, unrelated sites-layer
+  entity dossier feature — reusing that name would have been confusing, not
+  incompatible). Legend note updated to describe both click outcomes (hit =
+  identify a satellite; miss = Starlink coverage at that ground point).
+  Zero-cost-when-off preserved: this only runs inside the existing
+  `orbital_sats`-gated click listener, same lifecycle as O3.
+
+GATES: `npx tsx --test client/src/lib/orbital/*.test.ts` — 74 -> 81 (A/B'd
+via `git stash -u`/`git stash pop`, not assumed: exactly this PR's 7 new
+tests, zero regressions elsewhere). `npx tsc --noEmit` — 8 errors before AND
+after (A/B'd the same way; this sandbox's baseline count differs from the
+"64" earlier sessions reported, likely a difference in what `npm install`
+restored — the number itself isn't the point, the A/B is: zero new errors,
+none reference `siteQuery.ts` or `datamap.tsx`). `npx tsx --test server/
+*.test.ts` — 572/576 before AND after (A/B'd; the 4 failures are file-level
+crashes in compression/gdeltEvents/owmTiles/apiKeyAccounts.test.ts, the same
+pre-existing partial-sandbox artifact the 2026-07-10 SEC MIDAS session
+documented, resolved by `npm install` — zero server files touched by this
+PR regardless). `npm run build` — clean (had to `npm install` first; this
+sandbox started without `node_modules/.bin/tsx` present, same partial-
+sandbox class as the test artifacts above). `node scripts/visual_check.mjs
+--page data` — 0 hard failures at 390/768/1440 (same pre-existing
+touch-target warnings as every prior data-page session; nothing new). NOT
+independently visually verified: the click interaction itself — same
+documented limitation O3's own RESUME STATE already carries ("the harness
+can't drive live map clicks"), not something this PR could close either.
+No Python files touched — `python3 -m pytest -q` out of scope for this PR's
+own gate (pytest isn't installed in this sandbox; same convention every
+other T-CLIENT-only PR in this file follows).
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/ad
+code touched.
+
+MARKET-HOURS NOTE: session ran Sunday 2026-07-12 (market closed all day).
+Zero trading/execution/scoring code touched — pure client-side data-viz
+addition, same risk category as every other T-CLIENT/DATACORE PR that has
+shipped without holding for market open in this file's own precedent.
+
+Backtest: N/A — no strategy, sizing, or signal logic touched.
+
+Version 1.0.285 -> 1.0.286 (read-and-increment at commit time; re-verified
+HEAD was at origin/main's tip, dc687f3, before bumping — no collision).
+
+RESUME STATE update (research/orbital_program.md): O7 Starlink slice
+shipped. NEXT = O5 glTF design-class models, O3's own GPU/browser click-
+visual-check remainder, and O4/GPS-DOP once a future session lands the
+SDP4 upgrade this session identified as the actual blocker (not "not
+prioritized yet" — a real capability gap, `npm i satellite.js` per
+propagate.ts's own header).
+
+STARVED: no — the chosen scope (siteQuery.ts + tests + datamap.tsx wiring +
+legend + full gate battery + visual harness + RESUME STATE update) shipped
+completely. High-value work remains queued (Monday's item #21 recheck, O5/
+O4 above, PLATFORM P4/P5, Location Context Engine's dossier/PFAS/RadNet
+items, GRID VISION Phase B) — next session's judgment call per SESSION
+BUDGET's fall-through order.
