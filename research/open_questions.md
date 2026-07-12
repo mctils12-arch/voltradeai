@@ -3817,3 +3817,39 @@ LADDER: this is DATA-gate work (reading vs external truth = OSM towers).
 PRIOR: most collects min-spec; maybe 10-25% of 2020+ collects carry
 wire classes (USGS Lidar Base Spec 2020+ lists them as optional-but-
 defined). COST: free, ~2 min/collect, no GPU.
+
+---
+
+## [MEASUREMENT-DEBT · filed 2026-07-12] Visual harness: two gaps found during the nuclear wave
+
+1. FIELDS-ON PROBE NONDETERMINISM: data@1440's wx probe failed 4/8 runs
+   across diffs that provably don't touch weather (registry
+   byte-identical; harness mocks the tiles itself) and passed the
+   final run clean — software-GL symbol-placement timing inside its
+   48×250ms window. Its own comments record a 2026-07-05 false-fail of
+   the same shape. FIX SHAPE: deterministic wait (poll until
+   areTilesLoaded AND two consecutive stable queryRenderedFeatures
+   counts, budget scaled when SwiftShader is detected), or a --retry-
+   once-on-fields-only policy. MEASUREMENT CODE: own [RULE-REVIEW] PR,
+   never bundled with layer work.
+2. REGISTRY FIXTURE DRIFT: scripts/visual_check.mjs hardcodes its
+   /api/data/layers fixture (comment says "every toggleable registry
+   layer must appear") — radiation, nukeaccidents, nukefacilities (and
+   any newer layers) are absent, so harness toggle/cost checks don't
+   exercise them. FIX SHAPE: generate the fixture FROM
+   datacore/layers.json at harness start (one source of truth), or a
+   drift test that fails when registry ids ⊄ fixture ids. Same
+   [RULE-REVIEW] PR as (1) or its own.
+
+## [WISHLIST-POINTER · filed 2026-07-12] GEM Global Nuclear Power Tracker (CC BY 4.0) — one human download
+
+Global reactor-unit-level data (1,749 units, 61 countries, all
+statuses incl. retired/under-construction, owner/operator, coords;
+March 2026 release) would upgrade the nuclear-facilities picture
+beyond US-HIFLD + Wikidata. License verified CC BY 4.0; download is
+FORM-GATED (name/email, no payment). BUILD-FIRST: no free ungated
+equivalent at unit level (Wikidata is entity-level and patchy on
+status; EIA-860M is US-only). ASK: human submits the form once at
+globalenergymonitor.org/projects/global-nuclear-power-tracker/download-data/
+and drops the xlsx in the repo or a volume path; a session wires the
+layer with attribution "Global Energy Monitor (CC BY 4.0)".
