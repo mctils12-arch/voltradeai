@@ -14390,3 +14390,143 @@ completely. High-value work remains queued (item #21's Monday recheck,
 PLATFORM P4, O5/O4 orbital, GRID VISION Phase B, PFAS/RadNet/FEMA-flood/
 CDC-cancer hazard layers) — next session's judgment call per SESSION
 BUDGET's fall-through order.
+
+---
+
+## 2026-07-12 [PRODUCT] — PLATFORM P4: usage & billing-history UI for self-serve API keys (v1.0.289)
+
+TERRITORY: T-CLIENT-primary (`/apikeys` page) with a small T-DATACORE-
+adjacent server addition (`apiKeyAccounts.ts`, same file P3 added — not
+itself a datacore/ module, per platform_program.md's own territory note)
++ SHARED (routes.ts, package.json — last commit, minimal, per the
+merge-order protocol).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then
+research/ (experiments.md tail, open_questions.md KNOWN BROKEN,
+wishlist.md). Loop-health ratio over the last 10 tagged entries (2026-07-
+09 through 2026-07-12): [RESEARCH], [PRODUCT] x2, [REPAIR], [PRODUCT] x4,
+[REPAIR], and this entry makes the 11th — 2 of the last 10 (before this
+one) are [REPAIR], nowhere near the 7+ thrash trigger. No live `/api/
+health` access from this sandbox (no reachable production URL); KNOWN
+BROKEN item #21 is explicitly gated on "check on the next trading day"
+(today, 2026-07-12, confirmed Sunday) and item #18's event-loop-lag
+monitor (shipped last session) needs a live TIER2-ERROR/STREAM-DISCONNECT
+coincidence to read, neither actionable from a read-only research pass —
+this is a [PRODUCT] session per its own framing, which does not preempt
+DAILY repair duty, so proceeded to product work per the task instructions.
+
+PRIMARY ACTION CHOICE: platform_program.md's own RESUME STATE named P4
+("usage & billing-history UI, still pre-revenue") as the explicit NEXT
+item after P3 and the vite base-path repair, both already shipped — the
+clearest queued item in SESSION BUDGET's fall-through order 1 (own PR,
+own tagged log entry, not bundled). Considered the location_context_engine.md
+queue (PFAS/RadNet/FEMA-flood/CDC-cancer hazard layers) as an alternative
+but those each need their own gate-1 ground-truth-source design before
+any code — a bigger, riskier scope than the already-specified P4 slice.
+
+READ BEFORE WRITE: read `server/apiKeyAccounts.ts` in full (the P3
+session's module — `createApiKeyStore`, `usageTodayForKid`, the
+`ApiKeySummary` shape) before touching it; read `server/apiKeyAccounts.
+test.ts` in full to match its DB-injection-factory test convention (never
+import auth.ts's live singleton — its own docstring explains why that
+hangs the runner) before adding tests; read `server/routes.ts`'s existing
+`/api/account/api-keys` route block and `client/src/pages/apikeys.tsx` in
+full before adding the new route and the new UI section.
+
+WHAT SHIPPED: `apiKeyAccounts.ts` — refactored `usageTodayForKid`'s
+inline day-file read into a shared `countUsageForDay(kid, baseDir, day)`
+helper (zero behavior change, confirmed by the pre-existing usageToday
+tests still passing unmodified) and added `usageHistoryForKid` (oldest-
+first daily counts over a clamped window) plus a new store method
+`keyUsageHistory(userId, id, days)` — ownership-checked the same way
+`revokeApiKey` is (id + userId together, never id alone: a bare
+auto-increment id is guessable and must not leak another account's
+usage), `days` clamped to the new `MAX_USAGE_HISTORY_DAYS` (30) so one
+request can't force an unbounded archive scan. New route `GET /api/
+account/api-keys/:id/usage?days=N` (`server/routes.ts`, `requireAuth`)
+returns 404 for a key that isn't the caller's own or doesn't exist.
+`client/src/pages/apikeys.tsx`: each key row gained a "Usage" toggle that
+lazy-fetches and renders a 14-day CSS bar chart (`UsageHistoryPanel`,
+plain divs sized by count/max — no new chart-library dependency for a
+small per-key preview widget) plus a "Billing" section that states the
+honest pre-revenue fact (every key is the free "dev" tier, $0 ever
+charged) instead of fabricating invoice rows the account has never
+generated — deliberately empty rather than premium-looking and false,
+per Amendment 5(c)/(f)'s "correctness wins over polish." `client/src/
+index.css`: matching `.vt-keys-usage-*` rules reusing the existing
+`--accent`/`--text-tertiary` tokens, no new design-system primitives.
+
+RATCHET: 2 new tests in `apiKeyAccounts.test.ts` (10 total, up from 8) —
+`keyUsageHistory` returns the right oldest-first per-day counts
+correlated the same way the existing `usageToday` test is (multiple
+`meterUsage()` calls across two days, one from an unrelated key that must
+not count), and a second test pinning both the cross-account refusal
+(`userId` mismatch -> null) and the `MAX_USAGE_HISTORY_DAYS` clamp
+(requesting 9999 days still returns exactly 30).
+
+GATES: `npx tsx --test server/apiKeyAccounts.test.ts` — 10/10 pass (8
+pre-existing + 2 new). `npx tsx --test server/*.test.ts` — 611/611 pass, 0
+failed (up from 609 baseline; this sandbox started without `node_modules/
+.bin/tsx` resolved, same partial-sandbox class every recent session has
+hit — `npm install` first resolved it, same as last session, not a code
+issue). `npx tsc --noEmit` — A/B'd via `git stash -u`/`git stash pop`: 66
+errors before AND after, byte-identical set, none reference this PR's
+files. `npm run build` — clean (same pre-existing large-chunk-size
+warnings every prior session has noted). `node scripts/visual_check.mjs
+--page apikeys` — 0 hard failures at 390/768/1440; screenshot self-review
+(390px) shows the pre-existing logged-out "log in to manage keys" state
+unchanged. NOT independently visually verified: the new authenticated
+Usage panel and Billing section — the harness's shared `/api/auth/me`
+fixture is `authenticated: false` by design (the apikeys PAGES entry's
+own comment: "exercises the most common visitor" state), and flipping
+it globally would risk changing every other page's rendered state in
+this same harness run for a benefit scoped to one page. Same documented
+limitation every prior click/auth-gated-content PR in this file carries
+("the harness can't drive live map clicks" / this session's equivalent
+for the logged-in view) — verified instead via the 10 unit tests plus a
+direct read of the rendered JSX (`Fragment` keying fixed after the first
+draft used a bare `<>` with a `key` prop, which React silently ignores —
+caught by re-reading the diff before running gates, not by a failing
+test) against the fixture shapes the tests exercise.
+
+MONETIZATION TRIPWIRE: re-ran per the standing rule — this PR's new
+"Billing" section is billing-adjacent by topic (same class of judgment
+call the P3 session made for API-key issuance), even though it contains
+zero billing logic. Aircraft-provider chain is unchanged (adsb.lol
+primary, airplanes.live + adsb.fi fallbacks, both still non-commercial);
+`server/providerCompliance.ts`, `server/billing.ts`, `server/auth.ts`
+untouched; no Stripe code, no pricing enablement, no key-tier change —
+the section's entire content is "you have not been charged," which is
+true today and stays true regardless of the compliance chain's state.
+MONETIZATION READINESS CHECKLIST items 1-4 remain exactly as the human
+left them (items 2/3 delivered 2026-07-04, items 1/4 waiting on the
+human's go per that entry).
+
+MARKET-HOURS NOTE: session ran Sunday 2026-07-12 (confirmed via `date -d
+"2026-07-12"`; market closed all day). Zero trading/execution/scoring
+code touched — client-side self-serve API usage UI + a small server-side
+read-only usage-history endpoint, same risk category as every prior
+T-CLIENT/platform-program PR that has shipped without holding for market
+open in this file's own precedent.
+
+Backtest: N/A — no strategy, sizing, or signal logic touched; this is a
+usage-transparency feature over an existing metering archive, not a
+trading or data-product signal.
+
+Version 1.0.288 -> 1.0.289 (read-and-increment at commit time; re-verified
+HEAD was at origin/main's tip, caf23f6, before bumping — no collision).
+
+RESUME STATE update (research/platform_program.md): P4 SHIPPED. Program
+queue is now clear except P5 (HUMAN-GATED, frozen paths, waits for the
+human's checklist approval). NEXT for a future PRODUCT session: either
+pick up a fresh item from location_context_engine.md's queue (PFAS,
+RadNet, FEMA flood, CDC/SEER cancer — each its own gate-1 pipeline), O4/O5
+orbital, or GRID VISION Phase B, per SESSION BUDGET's fall-through order.
+
+STARVED: no — the chosen scope (apiKeyAccounts.ts history support + new
+route + apikeys.tsx usage/billing UI + CSS + 2 new tests + full gate
+battery + visual harness + platform_program.md RESUME STATE update)
+shipped completely. High-value work remains queued (location context
+engine's hazard layers, O4/O5 orbital, GRID VISION Phase B, item #21's
+Monday recheck) — next session's judgment call per SESSION BUDGET's
+fall-through order.

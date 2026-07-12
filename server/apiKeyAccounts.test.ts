@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { createApiKeyStore, SELF_SERVE_MAX_KEYS, SELF_SERVE_TIER } from "./apiKeyAccounts";
+import { createApiKeyStore, SELF_SERVE_MAX_KEYS, SELF_SERVE_TIER, MAX_USAGE_HISTORY_DAYS } from "./apiKeyAccounts";
 import { keyId, meterUsage } from "./apiProduct";
 
 function freshStore(baseDir?: string) {
@@ -93,4 +93,35 @@ test("usageToday is 0 when no usage archive exists yet (fresh preview key)", () 
   const { store } = freshStore(base);
   store.createApiKey(6, "brand new");
   assert.equal(store.listApiKeys(6)[0].usageToday, 0);
+});
+
+test("keyUsageHistory returns a day-by-day breakdown oldest-first, correlated the same way usageToday is", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-apikeys-history-"));
+  const { store } = freshStore(base);
+  const issued = store.createApiKey(8, "history test");
+  const now = Date.now();
+  const yesterday = now - 86_400_000;
+  meterUsage({ key: issued.rawKey, endpoint: "/api/v1/stats/archive", status: 200, tier: SELF_SERVE_TIER }, base, yesterday);
+  meterUsage({ key: issued.rawKey, endpoint: "/api/v1/stats/archive", status: 200, tier: SELF_SERVE_TIER }, base, now);
+  meterUsage({ key: issued.rawKey, endpoint: "/api/v1/stats/archive", status: 200, tier: SELF_SERVE_TIER }, base, now);
+  meterUsage({ key: "some-other-key-entirely", endpoint: "/api/v1/stats/archive", status: 200, tier: SELF_SERVE_TIER }, base, now);
+
+  const usage = store.keyUsageHistory(8, issued.id, 3);
+  assert.ok(usage);
+  assert.equal(usage!.days, 3);
+  assert.equal(usage!.history.length, 3);
+  assert.equal(usage!.history[2].count, 2, "today (last entry) has 2 hits from this key");
+  assert.equal(usage!.history[1].count, 1, "yesterday has 1 hit from this key");
+  assert.equal(usage!.history[0].count, 0, "the day before yesterday has no traffic");
+  assert.equal(usage!.total, 3, "total sums the whole window, not just today");
+  assert.equal(usage!.label, "history test");
+});
+
+test("keyUsageHistory refuses another user's key id and clamps days to MAX_USAGE_HISTORY_DAYS", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-apikeys-history-clamp-"));
+  const { store } = freshStore(base);
+  const issued = store.createApiKey(9, "mine");
+  assert.equal(store.keyUsageHistory(999, issued.id, 14), null, "wrong user must not see this key's usage");
+  const usage = store.keyUsageHistory(9, issued.id, 9999);
+  assert.equal(usage!.days, MAX_USAGE_HISTORY_DAYS, "days is clamped to MAX_USAGE_HISTORY_DAYS, not passed through raw");
 });

@@ -2717,6 +2717,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   }));
 
+  // PLATFORM P4 (usage & billing-history UI, research/platform_program.md):
+  // trailing-days usage breakdown for one key. Reads the same apiusage
+  // archive listApiKeys()'s usageToday already reads — no new metering,
+  // no Stripe/billing changes; pre-revenue by design.
+  app.get("/api/account/api-keys/:id/usage", requireAuth((req, res) => {
+    try {
+      const days = Number(req.query.days) || 14;
+      const usage = apiKeyStore.keyUsageHistory(req.user.id, Number(req.params.id), days);
+      if (!usage) return res.status(404).json({ error: "key not found" });
+      res.json(usage);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to load usage history" });
+    }
+  }));
+
   app.get("/api/v1/tracks/:kind/:id", (req, res) => {
     const auth = requireApiKey(req, res);
     if (!auth) return;

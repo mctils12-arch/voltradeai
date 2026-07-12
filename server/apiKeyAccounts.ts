@@ -25,6 +25,10 @@ import { archiveBaseDir } from "./datacoreArchive";
 
 export const SELF_SERVE_TIER = "dev" as const;
 export const SELF_SERVE_MAX_KEYS = 3;
+/** Usage-history window cap (PLATFORM P4) — bounds how many day-files a
+ *  single request reads; 30 covers "this month" without inviting an
+ *  unbounded full-archive scan. */
+export const MAX_USAGE_HISTORY_DAYS = 30;
 
 export interface IssuedApiKey { id: number; rawKey: string; label: string; createdAt: number }
 export interface ApiKeySummary {
@@ -35,6 +39,14 @@ export interface ApiKeySummary {
   lastUsedAt: number | null;
   revokedAt: number | null;
   usageToday: number;
+}
+export interface UsageDay { date: string; count: number }
+export interface KeyUsageHistory {
+  label: string;
+  keyPreview: string;
+  days: number;
+  history: UsageDay[];
+  total: number;
 }
 
 function sha256Hex(raw: string): string {
@@ -47,13 +59,12 @@ function generateRawKey(): string {
   return `vt_live_${crypto.randomBytes(24).toString("hex")}`;
 }
 
-/** Counts today's (UTC) usage lines for a key by its correlation id.
- *  `kid` is the first 12 hex chars of sha256(rawKey) — by construction
- *  identical to apiProduct.ts's own `keyId()`, so it lines up with what
- *  meterUsage() already wrote for this key without importing that module
- *  (which would pull express-adjacent code into this DB-facing file). */
-function usageTodayForKid(kid: string, baseDir: string, nowMs = Date.now()): number {
-  const day = new Date(nowMs).toISOString().slice(0, 10);
+/** Counts one UTC day's usage lines for a key by its correlation id. `kid`
+ *  is the first 12 hex chars of sha256(rawKey) — by construction identical
+ *  to apiProduct.ts's own `keyId()`, so it lines up with what meterUsage()
+ *  already wrote for this key without importing that module (which would
+ *  pull express-adjacent code into this DB-facing file). */
+function countUsageForDay(kid: string, baseDir: string, day: string): number {
   const file = path.join(baseDir, "apiusage", `${day}.jsonl`);
   if (!fs.existsSync(file)) return 0;
   let count = 0;
@@ -62,6 +73,23 @@ function usageTodayForKid(kid: string, baseDir: string, nowMs = Date.now()): num
     try { if (JSON.parse(line).k === kid) count++; } catch { /* skip malformed line */ }
   }
   return count;
+}
+
+function usageTodayForKid(kid: string, baseDir: string, nowMs = Date.now()): number {
+  return countUsageForDay(kid, baseDir, new Date(nowMs).toISOString().slice(0, 10));
+}
+
+/** Oldest-first daily breakdown for the trailing `days` UTC days
+ *  (inclusive of today) — the PLATFORM P4 usage-history view. Missing
+ *  day-files (no traffic that day) count as 0, never as "unknown". */
+function usageHistoryForKid(kid: string, baseDir: string, days: number, nowMs = Date.now()): UsageDay[] {
+  const clamped = Math.min(Math.max(1, Math.floor(days) || 1), MAX_USAGE_HISTORY_DAYS);
+  const out: UsageDay[] = [];
+  for (let i = clamped - 1; i >= 0; i--) {
+    const date = new Date(nowMs - i * 86_400_000).toISOString().slice(0, 10);
+    out.push({ date, count: countUsageForDay(kid, baseDir, date) });
+  }
+  return out;
 }
 
 function ensureSchema(db: DatabaseType): void {
@@ -114,6 +142,25 @@ export function createApiKeyStore(db: DatabaseType, baseDir?: string) {
     }));
   }
 
+  /** PLATFORM P4: trailing-days usage breakdown for one key, ownership-
+   *  checked the same way revokeApiKey is (id + userId, never id alone —
+   *  a bare id is guessable and must not leak another account's usage). */
+  function keyUsageHistory(userId: number, id: number, days: number): KeyUsageHistory | null {
+    const row = db.prepare(
+      "SELECT key_hash, label FROM api_keys WHERE id = ? AND user_id = ?"
+    ).get(id, userId) as { key_hash: string; label: string } | undefined;
+    if (!row) return null;
+    const base = baseDir || archiveBaseDir();
+    const history = usageHistoryForKid(row.key_hash.slice(0, 12), base, days);
+    return {
+      label: row.label,
+      keyPreview: `vt_live_${row.key_hash.slice(0, 8)}…`,
+      days: history.length,
+      history,
+      total: history.reduce((sum, d) => sum + d.count, 0),
+    };
+  }
+
   function revokeApiKey(userId: number, id: number): boolean {
     const result = db.prepare(
       "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL"
@@ -136,7 +183,7 @@ export function createApiKeyStore(db: DatabaseType, baseDir?: string) {
     return { userId: row.user_id, tier: SELF_SERVE_TIER, label: row.label };
   }
 
-  return { createApiKey, listApiKeys, revokeApiKey, resolveApiKeyForAuth };
+  return { createApiKey, listApiKeys, revokeApiKey, resolveApiKeyForAuth, keyUsageHistory };
 }
 
 export type ApiKeyStore = ReturnType<typeof createApiKeyStore>;
