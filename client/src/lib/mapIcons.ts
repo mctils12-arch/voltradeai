@@ -403,6 +403,58 @@ const shapes: Record<string, () => ImageData> = {
     ctx.fillRect(m - 4.5, s - 16, 9, 3);       // body seam
     ctx.restore();
   }),
+  // ── nuclear-test emplacement silhouettes (symbol directive 2026-07-12:
+  // symbols not dots, so airburst vs tower/surface vs water vs underground
+  // shaft reads at a glance; per-feature icon-color carries the country tint) ──
+  // airburst (airdrop/balloon/rocket/space/atmospheric): radiating starburst
+  "vt-nuke-air": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath(); ctx.arc(m, m, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      const r0 = i % 2 ? 8 : 9, r1 = i % 2 ? 13 : 17;   // alternating ray lengths
+      ctx.beginPath();
+      ctx.moveTo(m + r0 * Math.cos(a), m + r0 * Math.sin(a));
+      ctx.lineTo(m + r1 * Math.cos(a), m + r1 * Math.sin(a));
+      ctx.stroke();
+    }
+  }),
+  // land surface / tower burst: mushroom cloud on a baseline
+  "vt-nuke-ground": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath(); ctx.arc(m, 13, 9, Math.PI, 0); ctx.closePath(); ctx.fill(); // cap
+    ctx.fillRect(m - 3, 13, 6, 13);                                              // stem
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(m - 14, s - 8); ctx.lineTo(m + 14, s - 8); ctx.stroke(); // ground
+  }),
+  // water surface / barge / underwater: burst dome over waves
+  "vt-nuke-water": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath(); ctx.arc(m, m + 2, 7, Math.PI, 0); ctx.closePath(); ctx.fill(); // dome
+    ctx.fillRect(m - 2.5, m - 12, 5, 8);                                            // column
+    ctx.lineWidth = 3;
+    ctx.beginPath();                                                                // waves
+    ctx.moveTo(m - 14, m + 9);
+    ctx.quadraticCurveTo(m - 7, m + 4, m, m + 9);
+    ctx.quadraticCurveTo(m + 7, m + 14, m + 14, m + 9);
+    ctx.stroke();
+  }),
+  // underground (shaft/tunnel/gallery/crater): ground line, shaft, contained burst below
+  "vt-nuke-ug": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(m - 14, 10); ctx.lineTo(m + 14, 10); ctx.stroke(); // surface
+    ctx.fillRect(m - 2, 10, 4, 9);                                                  // shaft
+    const by = m + 7;                                                               // burst below ground
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      const r = i % 2 ? 4.5 : 7.5;
+      ctx[i ? "lineTo" : "moveTo"](m + r * Math.cos(a), by + r * Math.sin(a));
+    }
+    ctx.closePath(); ctx.fill();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -500,6 +552,46 @@ export const EIA_FUEL_LABEL: Record<string, string> = {
 /** FIRMS confidence (low/nominal/high) -> marker tint. */
 export const FIRE_CONFIDENCE_COLOR: Record<string, string> = {
   low: "#fde047", nominal: "#fb923c", high: "#ff3b30",
+};
+
+// ── nuclear-test emplacement classification (catalog `t` codes from the
+// "Nuclear Explosions 1945-1998" / SIPRI-Johnston dataset; every code that
+// appears in datacore/nuclear_tests.json is mapped explicitly — the test
+// suite asserts full coverage so a future data refresh can't silently fall
+// through to the default) ──
+export type NukeEmplacement = "air" | "ground" | "water" | "underground";
+
+const NUKE_TYPE_TO_CLASS: Record<string, NukeEmplacement> = {
+  // lofted / free-air bursts
+  ATMOSPH: "air", AIRDROP: "air", BALLOON: "air", ROCKET: "air", SPACE: "air",
+  // land-surface and tower shots (CRATER = detonated IN a crater, at the
+  // surface — per the FOA key, not a buried emplacement)
+  TOWER: "ground", SURFACE: "ground", CRATER: "ground",
+  // at/under the water surface
+  BARGE: "water", SHIP: "water", WATERSUR: "water", "WATER SU": "water", UW: "water",
+  // buried emplacements (shaft/tunnel/gallery variants; MINE = Soviet KLIVAZH)
+  SHAFT: "underground", "SHAFT/GR": "underground", "SHAFT/LG": "underground",
+  TUNNEL: "underground", GALLERY: "underground", UG: "underground", MINE: "underground",
+};
+
+/** Catalog emplacement code -> symbol class ("ground" when unrecognized —
+ *  visually neutral, and the coverage test keeps the table complete). */
+export function classifyNukeTest(t?: string | null): NukeEmplacement {
+  return NUKE_TYPE_TO_CLASS[String(t || "").toUpperCase().trim()] || "ground";
+}
+
+export const NUKE_CLASS_ICON: Record<NukeEmplacement, string> = {
+  air: "vt-nuke-air", ground: "vt-nuke-ground",
+  water: "vt-nuke-water", underground: "vt-nuke-ug",
+};
+export const NUKE_CLASS_LABEL: Record<NukeEmplacement, string> = {
+  air: "Airburst test", ground: "Surface/tower test",
+  water: "Water test", underground: "Underground test",
+};
+/** Testing-state palette (shared by the map layer and the legend chips). */
+export const NUKE_COUNTRY_COLOR: Record<string, string> = {
+  USA: "#60a5fa", USSR: "#f87171", FRANCE: "#c084fc", UK: "#4ade80",
+  CHINA: "#fbbf24", INDIA: "#fb923c", PAKIST: "#2dd4bf",
 };
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).
