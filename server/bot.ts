@@ -14,6 +14,7 @@ import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
 import { aircraftProviderCompliance } from "./providerCompliance";
+import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -5434,6 +5435,23 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     if (streamWs) { try { streamWs.close(); } catch (_) {} streamWs = null; }
     streamConnected = false;
   }
+
+  // EVENT-LOOP LAG MONITOR (REPAIR 2026-07-12, KNOWN BROKEN #18 follow-up —
+  // see server/eventLoopLag.ts header for the full correlation this tests:
+  // both 2026-07-12 TIER2-ERROR daemon-timeout entries landed within
+  // 17-35ms of a STREAM-DISCONNECT entry, closer than two independent
+  // ~300s/~600s timers should coincidentally land. A shared cause — the
+  // event loop stalling long enough to delay both an elapsed setTimeout and
+  // a queued WS 'close' event until it catches up — is untested until now.
+  let eventLoopLagLastTick = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    const lag = computeLagMs(EVENTLOOP_LAG_CHECK_MS, now - eventLoopLagLastTick);
+    eventLoopLagLastTick = now;
+    if (lagExceedsThreshold(lag)) {
+      audit("EVENTLOOP-LAG", `Node event loop stalled ~${lag}ms past its ${EVENTLOOP_LAG_CHECK_MS}ms tick — check for a coincident TIER2-ERROR/STREAM-DISCONNECT (KNOWN BROKEN #18)`);
+    }
+  }, EVENTLOOP_LAG_CHECK_MS);
 
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;

@@ -14245,3 +14245,148 @@ harness + RESUME STATE update) shipped completely. High-value work remains
 queued (PFAS/RadNet/FEMA-flood/CDC-cancer layers, PLATFORM P4, item #21's
 Monday recheck, O5/O4 orbital, GRID VISION Phase B) — next session's
 judgment call per SESSION BUDGET's fall-through order.
+
+---
+
+## 2026-07-12 [REPAIR] — KNOWN BROKEN #18 follow-up: zombie-thread theory refuted, event-loop lag monitor shipped (v1.0.288)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths) + SHARED (research/*,
+package.json — last commit, minimal per the merge-order protocol).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full. Loop-health
+ratio over the last 10 tagged entries (2026-07-09 through 2026-07-12):
+[RESEARCH], [PRODUCT], [PRODUCT], [REPAIR], [PRODUCT], [PIPELINE],
+[PRODUCT], [PRODUCT], [PRODUCT], [PRODUCT] — 1 of 10 is [REPAIR], nowhere
+near the 7+ thrash trigger. `/api/health` clean live (server/database/
+alpaca/python/scanner/licensing all `ok`; bot `active`, `drawdownPct` 0.0,
+`liveness.dark` false) — no liveness alarm, no top-of-report condition.
+Confirmed today's actual date via `date -d "2026-07-12"`: Sunday (matches
+every prior same-day session's note — the task framing this run arrived
+under said "occurs during market hours," which does not hold today; noted
+below under MARKET-HOURS NOTE, handled the same way prior Sunday sessions
+have).
+
+PRIMARY ACTION CHOICE (REPAIR MANDATE — consult KNOWN BROKEN first): item
+#21 (open_questions.md) is explicitly gated on "CHECK ON THE NEXT TRADING
+DAY (Monday 2026-07-13 or later)" — today is Sunday, one day early, same
+constraint that filed it; left untouched again. Pulled `/api/diag/audit?
+limit=200&token=$DIAG_TOKEN` looking for a fixable bug per SESSION BUDGET's
+top tier and found two fresh `TIER2-ERROR` "Daemon timeout" occurrences
+today (14:43:42Z, 15:13:44Z) — the exact live-recurrence item #18's own
+"whichever session catches the next occurrence" NEXT STEP was written for.
+
+READ BEFORE WRITE: read the full audit window around both occurrences
+(not just the two TIER2-ERROR lines) before concluding anything — this is
+what surfaced the STREAM-DISCONNECT adjacency (see below), which a
+narrower read (just filtering `type=TIER2-ERROR`) would have missed
+entirely. Read `server/bot.ts`'s `pythonRpc`/`pythonCall`/`scheduleTier2`/
+`getTier2Interval` and the WS `ws.on("close", ...)` handler in full before
+writing anything — found the "Daemon timeout: 90s" code comment
+(bot.ts:3178) is stale: the actual call site (bot.ts:3184-3190) passes
+`300000` (5 min) for both daemon and subprocess timeouts, a 2026-04-23
+"bump ... temporarily" that was never reverted or the comment corrected
+(logged as a minor STALENESS AUDIT item in open_questions.md item #18's
+update, not fixed this session — fixing a stale comment is not the
+one logical change this PR makes). Read `server/tier2DaemonTimeoutVisibility.
+test.ts` in full to match its source-text-pinning test convention (bot.ts
+is a large route-registration closure, not structured for direct unit
+import) before writing new tests, rather than inventing a different style.
+
+FINDINGS (full detail in open_questions.md item #18's 2026-07-12 update,
+not duplicated here): (1) both occurrences today logged a REAL
+`active_dispatches` reading at the moment of the stall (`=1` both times,
+well under `MAX_INFLIGHT_REQUESTS=8`) — the v1.0.277 envelope-unwrap fix
+is working and the evidence it was built to capture is finally in. Two
+low readings retires the zombie-thread-pileup theory as the leading
+explanation. (2) A NEW correlation, not previously connected: both
+`TIER2-ERROR` entries landed within 17-35ms of a `STREAM-DISCONNECT`
+entry, closer than two independently-scheduled timers (~600s WS reconnect
+cycle, ~300s scan-dependent RPC timeout) should coincidentally produce —
+4 of the 6 `STREAM-DISCONNECT` entries in today's window have NO
+coincident `TIER2-ERROR` at all, so this isn't "every disconnect times
+out," it's "every observed timeout has coincided with a disconnect."
+HYPOTHESIS (not confirmed — REASONING STANDARD #4, distrust a 2-point
+pattern): a Node.js event-loop stall would explain both symptoms at once
+(an elapsed `setTimeout` and an unprocessed WS `close` event both queued
+until the loop resumes, firing back-to-back).
+
+WHAT SHIPPED: `server/eventLoopLag.ts` (NEW) — `computeLagMs(intervalMs,
+actualElapsedMs)` (clamped >=0) + `lagExceedsThreshold(lagMs, thresholdMs
+= 500)`, the standard event-loop-lag measurement technique: a
+`setInterval(2000)` tick that tracks its own last-fire timestamp and
+audits `EVENTLOOP-LAG` when a tick lands >=500ms late. Wired into
+`server/bot.ts` next to the other tier interval definitions, imported
+alongside the existing local-module imports. Pure measurement — touches
+no trading, sizing, scheduling, or scan-execution logic; cannot change any
+live decision. This is a THIRD pass on item #18 (after v1.0.266's
+visibility fix and v1.0.277's envelope-unwrap fix) but adds new
+diagnostic capability rather than re-patching the same mechanism, so the
+"two failed fixes = architecture smell" bar (which is about repairing the
+SAME broken thing twice) does not apply here — this is investigating with
+a new instrument, not a third attempt at the same repair.
+`server/eventLoopLag.test.ts` (NEW, 9 tests): pure-function coverage
+(on-schedule/late/early-clamped lag values; default and custom threshold
+behavior) plus wiring-pin tests mirroring `tier2DaemonTimeoutVisibility.
+test.ts`'s source-text-pinning convention, confirming bot.ts actually
+imports the helpers, arms the `setInterval` at `EVENTLOOP_LAG_CHECK_MS`,
+gates the audit call on `lagExceedsThreshold`, and tracks a real last-tick
+timestamp (not the nominal interval).
+
+GATES: `npx tsx --test server/eventLoopLag.test.ts` — 9/9 new tests pass.
+`npx tsc --noEmit` — A/B'd via `git stash -u`/`git stash pop`: byte-
+identical output before and after (8 pre-existing sandbox/config errors —
+missing `@types/node`/`vite/client` type-def entries, deprecated
+`baseUrl` — none reference `eventLoopLag.ts` or `bot.ts`'s new lines).
+`npx tsx --test server/*.test.ts` — first run: 587 passed, 4 failed
+(`apiKeyAccounts`/`compression`/`gdeltEvents`/`owmTiles`.test.ts, file-
+level crashes — the same partial-sandbox artifact class the 2026-07-10
+SEC MIDAS session documented, unrelated to any file this PR touches); ran
+`npm install` (this sandbox started without `node_modules/.bin/tsx`
+resolved for those specific packages), re-ran: 609/609 pass, 0 failed.
+`npm run build` — clean (same pre-existing large-chunk-size warnings every
+prior session has noted, nothing new). No Python files touched — `python3
+-m pytest -q` out of scope, pytest not installed in this sandbox, same
+convention every other T-BOT-server-only PR in this file follows when the
+change is Node/TS-only. No client/ files touched — PROMOTION RULE 6's
+visual-harness requirement does not apply.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/ad
+code touched.
+
+MARKET-HOURS NOTE: session ran Sunday 2026-07-12 (market closed all day,
+confirmed via `date -d "2026-07-12"` → Sunday, same as every prior
+same-day session in this file). The task framing for this run stated it
+"occurs during market hours" and asked that merge wait until after 4:00 PM
+ET unless the change fixes a critical live break — noting the actual day
+here rather than silently deferring to the framing: today is not a
+trading day, so the market-hours merge-timing concern does not bind either
+way, but the caution is honored regardless (this PR does not merge itself
+this session; see below). This change touches no trading/execution/sizing
+logic — it is a pure diagnostic addition (a new audited log-line type, no
+existing behavior altered), same risk category as v1.0.266/v1.0.277's
+prior visibility fixes on this exact item, both of which shipped and
+merged without holding for market open in this file's own precedent. Not
+a critical live break fix, so per the task's own instruction this PR
+should wait for human/session review past 4:00 PM ET before merge
+regardless of today being a non-trading day.
+
+Backtest: N/A — no strategy, sizing, or signal logic touched; this is
+observability-only, same category as v1.0.266/v1.0.277.
+
+Version 1.0.287 -> 1.0.288 (read-and-increment at commit time; re-verified
+HEAD was at origin/main's tip, a96e7a2, before bumping — no collision).
+
+RESUME STATE update (open_questions.md item #18): event-loop-lag monitor
+SHIPPED. NEXT = whichever session catches the next TIER2-ERROR/
+STREAM-DISCONNECT coincidence reads `/api/diag/audit?type=EVENTLOOP-LAG`
+for that window — an entry there confirms the stall hypothesis and turns
+this into a normal loop-blocking-code profiling problem; no entry despite
+a fresh coincidence refutes it and reopens the question. Do not guess
+either way before reading it.
+
+STARVED: no — the chosen scope (eventLoopLag.ts + 9 tests + bot.ts wiring
++ full gate battery + open_questions.md item #18 update) shipped
+completely. High-value work remains queued (item #21's Monday recheck,
+PLATFORM P4, O5/O4 orbital, GRID VISION Phase B, PFAS/RadNet/FEMA-flood/
+CDC-cancer hazard layers) — next session's judgment call per SESSION
+BUDGET's fall-through order.
