@@ -906,6 +906,68 @@
     fresh coincidence would refute the stall theory in turn and reopen
     the question — do not assume either answer before reading it.
 
+    UPDATE 2026-07-12 20:16 UTC, v1.0.291: STALL THEORY CONFIRMED LIVE —
+    A PLAUSIBLE ROOT CAUSE FOUND AND FIXED (converted to non-blocking;
+    causal proof of the specific magnitude still open). Live
+    `/api/diag/audit?type=EVENTLOOP-LAG&token=$DIAG_TOKEN` (this session,
+    ~4 hours after the event-loop-lag monitor shipped) shows the monitor
+    firing constantly, NOT rarely: 35 EVENTLOOP-LAG entries in a single
+    ~4-hour window (12:38-20:16 UTC), lag magnitudes 59,000-75,000ms per
+    occurrence (the loop stalls a full 60-75 SECONDS, not a brief GC
+    blip), on an almost-exact ~600s/10-minute rhythm (occasional shorter
+    gaps of 1-7 min are cascading reconnect bursts right after a big
+    stall, not independent stalls). Cross-checked against
+    `type=STREAM-DISCONNECT` over the same window: every ~10-minute
+    EVENTLOOP-LAG entry has a STREAM-DISCONNECT within 20-40ms of it
+    (e.g. 20:16:01.292Z lag vs. 20:16:01.323Z disconnect), and a fresh
+    `type=TIER2-ERROR` daemon-timeout landed in the same pattern at
+    19:30:09.944Z — CONFIRMS the shared-stall hypothesis this item has
+    been building evidence for since 2026-07-11.
+    ROOT CAUSE HYPOTHESIS (found by READ BEFORE WRITE grep for any
+    setInterval on a matching ~600000ms period doing synchronous work):
+    `server/bot.ts`'s temp-file cleanup interval — `setInterval(() => {
+    fs.readdirSync('/tmp')... fs.statSync()... fs.unlinkSync() }, 600000)`
+    — ran on the EXACT 600000ms period observed, using the fully
+    synchronous fs API on the Node event loop's own thread. This is the
+    ONLY setInterval in bot.ts with both a ~10-minute period and
+    synchronous fs work; every other periodic writeFileSync in the file
+    (equity curve, equity peak, kill-switch state) writes a small
+    (<1KB-few KB) object on event-driven or daily cadences, not a 10-min
+    timer, and none does a directory scan. NOT YET DIRECTLY MEASURED:
+    this identifies a real, textbook event-loop-blocking hazard on the
+    right period, but does not yet prove /tmp actually held enough
+    fb_/fill_/opt_ files to cost 60-75 real seconds of readdirSync+N*
+    (statSync+unlinkSync) — that would need a file-count reading at the
+    moment of the stall, which this fix does not capture retroactively
+    (REASONING STANDARD #4/#10: matching period is suggestive, not
+    proof of magnitude).
+    FIX (v1.0.291): extracted the sweep into `server/tmpCleanup.ts`,
+    rewritten with `node:fs/promises` (readdir/stat/unlink) — this
+    removes the blocking hazard unconditionally, regardless of file
+    count, since async fs work runs off the main thread via libuv's pool.
+    Wired into `bot.ts` at the same `TMP_CLEANUP_INTERVAL_MS` (600000)
+    and `TMP_FILE_MAX_AGE_MS` (300000) — identical cleanup behavior, only
+    the blocking mechanism changed. Added a new `TMP-CLEANUP` audit line,
+    gated on `TMP_CLEANUP_AUDIT_THRESHOLD` (200) — fires ONLY when a scan
+    is anomalously large, so if this really is the cause, a future
+    session will see large `scanned` counts logged right before the
+    cadence stops reappearing; if the cadence in `EVENTLOOP-LAG`/
+    `STREAM-DISCONNECT` STOPS after this ships with zero `TMP-CLEANUP`
+    entries ever firing, that's strong confirmation the fix (not a large
+    backlog) was what mattered — if the ~600s cadence CONTINUES despite
+    this fix, the theory is refuted and the search moves to the next
+    setInterval candidate, guided by whatever `TMP-CLEANUP` telemetry (or
+    its absence) shows.
+    NEXT STEP: whichever session checks in after this deploys (`git log`
+    shows the merge; a few hours of live data is enough given the ~10min
+    cadence) should query `/api/diag/audit?type=EVENTLOOP-LAG` and
+    `type=TMP-CLEANUP` — no more ~600s-cadence EVENTLOOP-LAG entries
+    confirms the fix; entries continuing on the same cadence with no
+    TMP-CLEANUP hits reopens the search for a different blocking op on a
+    10-minute period (re-grep bot.ts's setIntervals; also check whether
+    any Python-side daemon call this triggers is itself blocking
+    something Node-side synchronously awaits every ~10 min).
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
