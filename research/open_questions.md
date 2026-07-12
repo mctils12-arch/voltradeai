@@ -1384,9 +1384,23 @@ for any future "known endpoint moved" case in this repo.
   workflows/` is a FROZEN PATH) and deserves its own wishlist proposal with
   the exact before/after, not a same-session drive-by.
 
-- **[FOUND 2026-07-11, PLATFORM P3 session] Multi-segment top-level routes
-  404 their own JS bundle in production — a live bug, not just a test
-  artifact.** `vite.config.ts` sets `base: "./"`, so the built
+- **[RESOLVED 2026-07-11, v1.0.280]** ~~Multi-segment top-level routes
+  404 their own JS bundle in production~~ — FIXED: `vite.config.ts`'s
+  `base` flipped `"./"` -> `"/"` (the app is always served from the
+  domain root — `server/static.ts`'s express.static + unconditional SPA
+  fallback, no reverse-proxy path prefix in railway.json/Dockerfile,
+  confirmed this session, not assumed). A/B-verified: rebuilding with the
+  OLD config and running the visual harness against `/newsletter/:slug`
+  produced 3/3 hard failures at all three widths; the fix produces 0.
+  Also closed the harness's own blind spot that let this ship unnoticed
+  the first time: `scripts/visual_check.mjs`'s `CHECKS_SNIPPET` gained an
+  "app actually mounted" assertion (`#root` has >=1 child) on EVERY page
+  — the pre-existing checks (overflow, interactive-element sizing)
+  structurally cannot catch a blank page, since a dead page has zero of
+  both. `/newsletter/test-issue` is now a permanent PAGES entry (the
+  harness's first 2+-segment route) so this class of bug can't silently
+  regress. Full trace in experiments.md. Original text preserved below.
+  ~~`vite.config.ts` sets `base: "./"`, so the built
   `dist/public/index.html` bakes in a RELATIVE script src
   (`./assets/index-XXXX.js`). The browser resolves that relative to the
   CURRENT URL's directory, not the site root. For a single-segment route
@@ -1413,7 +1427,7 @@ for any future "known endpoint moved" case in this repo.
   and re-verify `/newsletter/:slug` and any other multi-segment route
   render (not just build) via the visual harness or a direct headless
   load — a build succeeding is not evidence a route renders, exactly what
-  let this ship unnoticed the first time.
+  let this ship unnoticed the first time.~~
 
 ## SPINOUT-READY DATA LAYER (human-approved 2026-07-03)
 

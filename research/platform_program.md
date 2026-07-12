@@ -114,6 +114,15 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   GOTCHAS, this feature's route kept single-segment to sidestep it. Full
   trace in experiments.md. NEXT: P4 (usage & billing-history UI, still
   pre-revenue) or the vite-base-path bug fix (own PR). P5 is HUMAN-GATED.
+- 2026-07-11: vite base-path bug FIXED (v1.0.280, own PR, [REPAIR]) —
+  `vite.config.ts`'s `base` flipped `"./"` -> `"/"`; A/B-verified against
+  the real `/newsletter/:slug` route (3/3 hard failures pre-fix, 0
+  post-fix); visual harness gained a generalized "app actually mounted"
+  check (`#root` child count) on every page plus a permanent 2+-segment
+  PAGES entry, so this bug class can't silently regress on any future
+  route. Full trace in experiments.md. NEXT: P4 (usage & billing-history
+  UI, still pre-revenue) — the queue is otherwise clear. P5 is
+  HUMAN-GATED.
 - TERRITORY: P1/P2/P3 are T-CLIENT-primary (P3's server/apiKeyAccounts.ts
   is a small T-DATACORE-adjacent addition, not itself a datacore/ module).
   P4 adds T-DATACORE proper + SHARED (routes.ts, package.json)
