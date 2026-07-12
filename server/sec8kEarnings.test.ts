@@ -321,7 +321,7 @@ test("MAX_EXHIBIT_TEXT_LEN truncation is honest — truncated flag set and textL
 // + ticker were DOCUMENTED in datacore/manifests/earnings8k.json but never
 // stored — downstream gate-2 work reading the manifest would assume a
 // lookahead-free timestamp that didn't exist. These pin the fields for real.
-import { getCikTickerMap } from "./sec8kEarnings";
+import { getCikTickerMap, resetCikTickerCacheForTests } from "./sec8kEarnings";
 
 test("parse8KFeed captures the entry <updated> timestamp as acceptanceDatetime", () => {
   const atom = `<feed><entry>
@@ -337,10 +337,45 @@ test("parse8KFeed captures the entry <updated> timestamp as acceptanceDatetime",
 });
 
 test("getCikTickerMap: exact CIK match, unlisted filers stay null-able, fetch failure degrades to empty", async () => {
+  resetCikTickerCacheForTests();
   const good = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({
     "0": { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." },
   }) });
   const map = await getCikTickerMap(good as any);
   assert.equal(map.get("320193"), "AAPL");
   assert.equal(map.get("999999999"), undefined, "unlisted CIK resolves to nothing — never guessed");
+});
+
+// [REPAIR 2026-07-11] multi-security-class CIKs: SEC lists a row per listed
+// class (common, warrants, preferred, units, rights). The common/primary
+// class must win regardless of feed order — live-verified against CIK
+// 797468 (Occidental Petroleum: "OXY" common + "OXY-WT" warrants).
+test("getCikTickerMap: primary (unsuffixed) ticker wins over a warrant/preferred suffix, common-then-suffixed order", async () => {
+  resetCikTickerCacheForTests();
+  const fx = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({
+    "0": { cik_str: 797468, ticker: "OXY", title: "OCCIDENTAL PETROLEUM CORP /DE/" },
+    "1": { cik_str: 797468, ticker: "OXY-WT", title: "OCCIDENTAL PETROLEUM CORP /DE/" },
+  }) });
+  const map = await getCikTickerMap(fx as any);
+  assert.equal(map.get("797468"), "OXY");
+});
+
+test("getCikTickerMap: primary (unsuffixed) ticker wins over a warrant/preferred suffix, suffixed-then-common order (order-independent)", async () => {
+  resetCikTickerCacheForTests();
+  const fx = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({
+    "0": { cik_str: 797468, ticker: "OXY-WT", title: "OCCIDENTAL PETROLEUM CORP /DE/" },
+    "1": { cik_str: 797468, ticker: "OXY", title: "OCCIDENTAL PETROLEUM CORP /DE/" },
+  }) });
+  const map = await getCikTickerMap(fx as any);
+  assert.equal(map.get("797468"), "OXY");
+});
+
+test("getCikTickerMap: no primary class exists — falls back to the first-seen suffixed ticker (never fabricated)", async () => {
+  resetCikTickerCacheForTests();
+  const fx = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({
+    "0": { cik_str: 1234567, ticker: "ZZZ-WT", title: "SPAC SHELL CORP" },
+    "1": { cik_str: 1234567, ticker: "ZZZ-U", title: "SPAC SHELL CORP" },
+  }) });
+  const map = await getCikTickerMap(fx as any);
+  assert.equal(map.get("1234567"), "ZZZ-WT");
 });

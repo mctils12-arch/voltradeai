@@ -200,7 +200,21 @@ function toExhibitUrl(indexUrl: string, href: string): string {
  *  (no name normalization involved), null for unlisted filers. 24h cache;
  *  a fetch failure degrades to an empty map (tickers null), never a
  *  batch failure. [REPAIR 2026-07-05, audit defect #5]: the manifest's
- *  ticker entity key was documented but never stored. */
+ *  ticker entity key was documented but never stored.
+ *  [REPAIR 2026-07-11, found while building the gate-2 forward-return test
+ *  for this stream's hypothesis]: SEC lists MULTIPLE rows per CIK when an
+ *  issuer has more than one listed security class — e.g. CIK 797468
+ *  (Occidental Petroleum) has both "OXY" (common) and "OXY-WT" (warrants).
+ *  The old loop did `map.set` unconditionally for every row, so whichever
+ *  row appeared LAST in the feed silently won — verified live 2026-07-11
+ *  that this mapped Occidental's 8-K to "OXY-WT", not "OXY", corrupting
+ *  the ticker field this pipeline publishes on /api/data/earnings-language
+ *  (a customer-facing RAW-DATA field) and would have corrupted any forward-
+ *  return signal test that fetched prices for the wrong instrument (a
+ *  warrant, not the common stock). Fix: never let a suffixed ticker
+ *  (contains "-", e.g. -WT/-WS/-PR/-U/-RT) overwrite an already-resolved
+ *  plain one for the same CIK — order-independent, so feed ordering
+ *  changes can't reintroduce this. */
 let cikTickerCache: { at: number; map: Map<string, string> } | null = null;
 export async function getCikTickerMap(fetchImpl: FetchFn = fetch as any): Promise<Map<string, string>> {
   if (cikTickerCache && Date.now() - cikTickerCache.at < 24 * 3600_000) return cikTickerCache.map;
@@ -208,13 +222,27 @@ export async function getCikTickerMap(fetchImpl: FetchFn = fetch as any): Promis
   try {
     const txt = await fetchText(fetchImpl, "https://www.sec.gov/files/company_tickers.json");
     for (const row of Object.values(JSON.parse(txt)) as any[]) {
-      if (row?.cik_str != null && row?.ticker) map.set(String(row.cik_str), row.ticker);
+      if (row?.cik_str == null || !row?.ticker) continue;
+      const cik = String(row.cik_str);
+      const existing = map.get(cik);
+      if (existing !== undefined && !existing.includes("-")) continue; // keep the already-resolved primary class
+      if (existing !== undefined && existing.includes("-") && !String(row.ticker).includes("-")) {
+        map.set(cik, row.ticker); // upgrade a suffixed placeholder to the primary class
+        continue;
+      }
+      if (existing === undefined) map.set(cik, row.ticker);
     }
   } catch {}
   // never cache a failed/empty fetch — the next call retries instead of
   // serving 24h of null tickers
   if (map.size > 0) cikTickerCache = { at: Date.now(), map };
   return map;
+}
+
+/** Test-only: clears the 24h in-memory cache so each test controls its own
+ *  fixture (mirrors satellites.ts's resetSatellitesForTests pattern). */
+export function resetCikTickerCacheForTests(): void {
+  cikTickerCache = null;
 }
 
 /** Fetches recent 8-Ks tagged Item 2.02, resolves each one's Exhibit 99
