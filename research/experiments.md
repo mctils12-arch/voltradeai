@@ -14624,3 +14624,49 @@ classify on the AZ TL survey reproduces "NONE (min-spec)".
 NEXT per the modality ranking: street-view ML for distribution remains
 the open ML lane (heavier, costed); the authoritative-vector lane
 (HIFLD trio) already shipped. Backtest: N/A (research; no trading code).
+
+---
+
+## 2026-07-12 [RESEARCH] — 3DEP classification survey COMPLETE: LiDAR lane CLOSED for wires/towers (T-DATACORE)
+
+Same session as the probe entry above; this answers the survey question
+filed in open_questions.md the moment it was filed (free, ~3s/collect
+with the probe script's walker).
+
+PRIOR (stated in open_questions.md before running): most collects
+min-spec; maybe 10-25% of 2020+ collects carry wire classes.
+
+SURVEY: 24 collects stratified by year (4 each, 2018-2023; seed 42,
+sample list in the survey script output). Census = classification
+counts in each collect's 3 largest EPT nodes.
+
+RESULT: 1/24 (4%) carries ANY wire class — below the prior's low end.
+CO_UpperColorado_Hydroflattened_2020: class 14 (wire-conductor) 74,248
+pts + class 13 (wire-guard) 12,143 pts across its 12 largest nodes;
+class 15 (tower) = 0 everywhere.
+
+DEEP-DIVE ON THE HIT (three independent geometric checks, all failed):
+1. vs HIFLD transmission: 1.8% of class-14 pts within 100 m of a HIFLD
+   line (median 2.9 km). Could have meant "distribution, not
+   transmission" — so:
+2. vs ALL OSM power lines (line + minor_line): 4.5% within 100 m.
+   Could have meant "unmapped rural distribution" — so:
+3. LINEARITY (decisive): PCA on 50 m neighborhoods of class-14 points.
+   Real conductors are 1-D (major/minor variance ratio >>10); these
+   score median 1.7 = diffuse blobs. Not wires. Only 17% within 30 m of
+   any road (distribution follows roads). The vendor's class-14 label
+   in this collect is unreliable clutter, not conductors.
+
+CONCLUSION: the 3DEP-classification lane for wires/towers is CLOSED —
+23/24 collects lack the classes entirely and the single hit fails
+geometric sanity. Combined with the HAG finding (aerial structure
+returns culled at OSM-confirmed tower sites), free 3DEP LiDAR provides
+no usable powerline signal at survey scale. Honest caveats: census
+reads each collect's largest (coarse) nodes — a class present only in
+rare deep nodes could be missed, but 3 independent geometry checks on
+the one hit make vendor-label unreliability the simpler explanation.
+STREET-VIEW ML is now the top remaining modality for the distribution
+gap (per the original research ranking), and it is a costed/ML lane —
+wishlist + GPU budget territory, not a free build.
+
+Backtest: N/A (research; no trading code).
