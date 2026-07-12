@@ -1419,3 +1419,52 @@ the alert is a TRIPWIRE not a budget — set $20/month with alerts at
 50% ($10) and 100% ($20) + the trial-credit-consumption alert. First
 stray dollar = something mis-wired or a guard failed. Set BEFORE
 volume.
+
+---
+
+## STREET-VIEW ML FOR DISTRIBUTION-GRID MAPPING (filed 2026-07-12 — decision needed before any build)
+
+CONTEXT: with the HIFLD authoritative trio shipped (transmission +
+substations + plants) and the 3DEP LiDAR lane CLOSED on evidence
+(experiments.md 2026-07-12: 1/24 collects with wire classes, the hit
+fails geometry checks), the last unmapped grid tier is DISTRIBUTION
+(<69 kV poles/lines). The modality report ranks street-view ML as the
+most-proven approach for it (>80% precision/recall vs PG&E ground
+truth in the literature; upward-facing detectors F1 ~0.93-0.95) —
+validated only in single CA/CT regions, cross-biome transfer UNPROVEN
+(same caveat that killed our NAIP tower detector's national plan).
+
+BUILD-FIRST ANALYSIS (rule-mandated before any paid capability):
+1. RAW MATERIAL, free path — MAPILLARY (Meta): crowdsourced
+   street-level imagery, free API, imagery CC-BY-SA; ToS permits
+   computer-vision derivatives with attribution. Coverage is the
+   catch: dense on highways/cities, thin on exactly the rural
+   distribution feeders we care about. Honest expectation: partial
+   corridor coverage, biased toward roads driven by contributors.
+2. PAID ALTERNATIVE — GOOGLE STREET VIEW Static API ($7/1k panos):
+   LIKELY FORBIDDEN REGARDLESS OF PRICE. Google Maps Platform ToS
+   (3.2.3 restrictions) prohibits extracting/deriving datasets from
+   Street View content — same class of ML/bulk-use ban that ruled out
+   Esri imagery in Phase A (grid_vision_research.md). The academic
+   papers used it under research exceptions we do not have. VERDICT:
+   do not budget for GSV; a compliance re-read is only warranted if
+   Google's ToS changes.
+3. ACCUMULATION substitute: none — we cannot drive roads.
+4. INFERENCE substitute: distribution GENERALLY follows road
+   networks; a "probable distribution corridor" overlay derivable
+   free from OSM roads + building density is honest as a PRIOR (would
+   be labeled estimate, never as observed infrastructure). Cheap,
+   ships without ML. Could be v0 while Mapillary coverage is assessed.
+
+COSTS IF PURSUED (Mapillary path): imagery $0; detector fine-tune ≈
+$1-3 RunPod GPU under the existing cost-cap gate — BUT the approved
+$50 plan currently names the grid-vision TOWER detector as the ONLY
+GPU workload, so a pole detector is a NEW workload needing explicit
+human sign-off (this entry is that ask). Label detections
+ml-discovered tier, ladder-gated, never promoted above measured
+accuracy (per the national mandate's honesty rules).
+
+DECISION REQUESTED: (a) approve Mapillary-coverage assessment (free,
+one session: quantify image density along N sample rural feeders vs
+urban); (b) approve or defer the pole-detector GPU workload pending
+(a)'s result; (c) confirm GSV stays off the table on ToS grounds.
