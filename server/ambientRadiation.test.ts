@@ -3,7 +3,7 @@
 // RadNet CSV incl. the Denver dose-column-empty case). No network.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseBfs, parseHealthCanada, parseFmi, parseRadnetCsv, loadRadnetCities } from "./ambientRadiation";
+import { parseBfs, parseHealthCanada, parseFmi, parseRadnetCsv, loadRadnetCities, friendlyHcName } from "./ambientRadiation";
 
 test("parseBfs: values pass, bad coords / negative values quarantined", () => {
   const s = parseBfs({
@@ -81,4 +81,19 @@ test("radnet city table loads with valid coordinates for every station", () => {
     assert.ok(Math.abs(c.lat) <= 72 && Math.abs(c.lon) <= 180, c.key);
     assert.ok(c.st.length === 2 && c.city.length >= 3, c.key);
   }
+});
+
+test("friendlyHcName: coded HC names render readable, real names pass through", () => {
+  assert.equal(
+    friendlyHcName("7000_15_52.1347_-106.6317", 52.1347, -106.6317),
+    "Gamma monitor 52.13\u00b0N 106.63\u00b0W (station 7000-15)");
+  assert.equal(friendlyHcName("Ottawa", 45.4, -75.7), "Ottawa", "a future friendly name must pass through");
+  assert.equal(friendlyHcName("", 45.4, -75.7), "FPSN station");
+});
+
+test("parseHealthCanada: coded names come out readable", () => {
+  const s = parseHealthCanada({
+    features: [{ geometry: { coordinates: [-106.6317, 52.1347] }, properties: { OBJECTID: 9, location_name: "7000_15_52.1347_-106.6317", latest_value_nSvHr: 41, time: 1783971900000 } }],
+  });
+  assert.match(s[0].name, /^Gamma monitor 52\.13/);
 });

@@ -82,13 +82,27 @@ export function parseHealthCanada(geojson: any): RadiationStation[] {
     if (!Array.isArray(c) || !coordValid(c[1], c[0]) || !Number.isFinite(nsv) || nsv < 0) continue;
     out.push({
       id: `ca-${p.OBJECTID ?? out.length}`,
-      name: String(p.location_name || "FPSN station"),
+      name: friendlyHcName(p.location_name, Number(c[1]), Number(c[0])),
       network: "hc-ca", lat: Number(c[1]), lon: Number(c[0]),
       unit: "uSv/h", value: nsv / 1000,
       time: Number.isFinite(Number(p.time)) ? new Date(Number(p.time)).toISOString() : null,
     });
   }
   return out;
+}
+
+/** Health Canada publishes ONLY coded station names (all 66, verified
+ *  2026-07-12: "10000_1_44.6540_-63.5896" = code_seq_lat_lon). Render a
+ *  readable, still-factual name from the coordinates — we never guess a
+ *  city; the station code rides along for provenance. A future friendly
+ *  name from HC would pass through untouched. */
+export function friendlyHcName(raw: unknown, lat: number, lon: number): string {
+  const s = String(raw || "").trim();
+  const coded = /^(\d+)_(\d+)_/.exec(s);
+  if (!coded) return s || "FPSN station";
+  const ns = lat >= 0 ? "N" : "S";
+  const ew = lon >= 0 ? "E" : "W";
+  return `Gamma monitor ${Math.abs(lat).toFixed(2)}°${ns} ${Math.abs(lon).toFixed(2)}°${ew} (station ${coded[1]}-${coded[2]})`;
 }
 
 /** FMI WFS "simple" XML: BsWfsElement blocks with Location gml:pos,
