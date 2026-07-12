@@ -170,6 +170,17 @@
       "field": false
     },
     {
+      "id": "nukeaccidents",
+      "name": "Nuclear accidents & incidents",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "light",
+      "source": "Wikidata (CC0 1.0), curated through a quality gate",
+      "description": "46 nuclear and radiological accident/incident sites 1949-2024 (Chernobyl, Fukushima, Kyshtym, Three Mile Island, Windscale, SL-1, Goiânia, Church Rock…), hazard-triangle-trefoil symbols tinted by the official INES severity level where Wikidata catalogs one (P2127) — levels are NEVER inferred, unrated events render gray and say so. Distinct symbol from nuclear TESTS (deliberate detonations) per the symbols directive. Curation gate: English label + date-or-INES evidence required, same-site/date duplicates merged keeping highest INES, three majors resolved individually; each marker links its Wikidata provenance (qid). Static history, refreshed by session curation.",
+      "field": false
+    },
+    {
       "id": "powergrid",
       "name": "US Power Grid (all states)",
       "kind": "raw",

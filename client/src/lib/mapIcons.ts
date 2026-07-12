@@ -403,6 +403,29 @@ const shapes: Record<string, () => ImageData> = {
     ctx.fillRect(m - 4.5, s - 16, 9, 3);       // body seam
     ctx.restore();
   }),
+  // nuclear accident/incident: hazard triangle enclosing a trefoil — reads
+  // instantly as "nuclear event" and distinctly from the plain-trefoil
+  // monitor and the atom-symbol power plant (symbol directive 2026-07-12:
+  // a meltdown must not look like a test or a plant)
+  "vt-meltdown": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3.2;
+    ctx.lineJoin = "round";
+    ctx.beginPath();                                   // warning triangle
+    ctx.moveTo(m, 4); ctx.lineTo(s - 4, s - 6); ctx.lineTo(4, s - 6);
+    ctx.closePath(); ctx.stroke();
+    const cy = m + 4.5;                                // trefoil inside
+    for (let i = 0; i < 3; i++) {
+      const a0 = -Math.PI / 2 + i * (2 * Math.PI / 3) - Math.PI / 6;
+      ctx.beginPath();
+      ctx.moveTo(m, cy);
+      ctx.arc(m, cy, 8, a0, a0 + Math.PI / 3);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.save(); ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath(); ctx.arc(m, cy, 3.4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.beginPath(); ctx.arc(m, cy, 1.8, 0, Math.PI * 2); ctx.fill();
+  }),
   // radiation monitor: trefoil — three 60° wedges + hub (the international
   // ionizing-radiation symbol; per-feature icon-color carries the dose band)
   "vt-radiation": () => draw(S, (ctx, s) => {
@@ -622,6 +645,21 @@ export const RADIATION_BANDS: Array<{ max: number; color: string; label: string 
   { max: Infinity, color: "#f87171", label: "> 1.0 µSv/h" },
 ];
 export const RADIATION_CPM_COLOR = "#94a3b8";
+
+/** INES level -> tint. The IAEA's own division: 4-7 are "accidents",
+ *  1-3 are "incidents"; events Wikidata carries no INES rating for
+ *  render gray "unrated" — we never infer a level. */
+export function inesColor(level: number | null | undefined): string {
+  const l = Number(level);
+  if (!Number.isFinite(l) || l < 1) return "#94a3b8";
+  if (l >= 7) return "#dc2626";
+  if (l >= 6) return "#ef4444";
+  if (l >= 5) return "#f87171";
+  if (l >= 4) return "#fb923c";
+  if (l >= 3) return "#fbbf24";
+  if (l >= 2) return "#fde047";
+  return "#a3e635";
+}
 export function radiationBandColor(uSvH: number | null | undefined, unit: string): string {
   if (unit !== "uSv/h" || uSvH == null || !Number.isFinite(uSvH)) return RADIATION_CPM_COLOR;
   for (const b of RADIATION_BANDS) if (uSvH < b.max) return b.color;

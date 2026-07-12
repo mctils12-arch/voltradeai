@@ -14,6 +14,7 @@ import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreNuclearTests from "../datacore/nuclear_tests.json";
+import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
@@ -2326,6 +2327,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at, networks: hit.networks,
       health: hit.health,
       stations: hit.stations,
+    });
+  });
+
+  // Nuclear accidents & radiological incidents (RAW/FACTUAL; Wikidata CC0,
+  // curated 2026-07-12 through a quality gate — see the datacore file's _doc.
+  // Static history; INES levels only where Wikidata carries P2127, never
+  // inferred. qid per event links provenance.)
+  app.get("/api/data/nukeaccidents", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const d: any = datacoreNuclearAccidents;
+    res.json({
+      kind: "raw", predictive: false,
+      source: d.source,
+      attribution: "Wikidata (CC0 1.0)",
+      note: "Factual records of nuclear accidents and radiological incidents as catalogued in "
+        + "Wikidata — event, date, location, and the official INES severity level where one is "
+        + "recorded (levels are never inferred; unrated events say so). Locations are event sites; "
+        + "no radiation, damage, or risk modeling is shown.",
+      count: d.count,
+      events: d.events,
     });
   });
 
