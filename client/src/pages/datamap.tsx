@@ -10,7 +10,7 @@ import {
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
-  radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor,
+  radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import FilingsView from "./filings";
@@ -98,7 +98,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident" | "nukefacility";
   title: string;
   subtitle: string;
   body: string;
@@ -210,7 +210,7 @@ const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
-  sites: "facilities", powerplants: "facilities",
+  sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -3073,6 +3073,83 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.radiation, mapReady, mapSettled, setStatus]);
 
+  // ── nuclear fuel-cycle & production facilities (RAW/FACTUAL; Wikidata CC0,
+  // 67 curated sites: enrichment, reprocessing, waste repositories, test-site
+  // facilities, weapons-complex — building+trefoil symbol, category-tinted.
+  // Power plants/reactors excluded (the plant layers cover them). Static. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.nukefacilities) {
+      try {
+        if (map.getLayer("nukefac-pt")) map.removeLayer("nukefac-pt");
+        if (map.getSource("nukefacilities")) map.removeSource("nukefacilities");
+      } catch {}
+      setStatus("nukefacilities", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("nukefacilities", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("nukefacilities", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/nukefacilities", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.facilities)) throw new Error("no facilities");
+        if (map.getSource("nukefacilities")) return;
+        map.addSource("nukefacilities", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.facilities.map((f: any) => ({
+              type: "Feature", geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+              properties: { ...f, tint: NUKE_FACILITY_COLOR[f.cat] || "#94a3b8" },
+            })),
+          } as any,
+          attribution: "Wikidata (CC0 1.0)",
+        } as any);
+        map.addLayer({
+          id: "nukefac-pt", type: "symbol", source: "nukefacilities",
+          layout: {
+            "icon-image": "vt-nukefacility",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.42, 8, 0.75],
+            "icon-allow-overlap": true,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.2,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "nukefac-pt", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          setDetail({
+            kind: "nukefacility",
+            title: p.n || "Nuclear facility",
+            subtitle: `${p.cat}${p.country ? ` · ${p.country}` : ""}`,
+            body: `What this marker is: a nuclear fuel-cycle or production FACILITY as catalogued in Wikidata — ` +
+                  `${p.cat === "Enrichment plant" ? "a plant that enriches uranium for fuel or weapons." :
+                     p.cat === "Reprocessing site" ? "a site that chemically reprocesses spent nuclear fuel." :
+                     p.cat === "Waste repository" ? "a radioactive-waste storage/disposal site." :
+                     p.cat === "Test site" ? "a nuclear test SITE facility/region — individual detonations live in the Nuclear Tests layer." :
+                     p.cat === "Weapons-complex site" ? "a nuclear-weapons design, production, or assembly site." :
+                     "a nuclear facility whose Wikidata classing is generic."}\n` +
+                  `\nDistinct from power plants (atom icons in the plant layers), radiation monitors (bare trefoil), ` +
+                  `and accident sites (warning triangle).\n` +
+                  `\nSource: Wikidata (CC0), curated 2026-07-12 — power-plant-classed items excluded, English label + ` +
+                  `valid coordinates required; 4 US weapons-complex sites resolved individually (the class tree misses them). ` +
+                  `Provenance: wikidata.org/wiki/${p.qid}. Locations as catalogued — no activity, output, or risk claims.`,
+          });
+        });
+        setStatus("nukefacilities", "active", d.count,
+          `${d.count} fuel-cycle & production facilities (Wikidata CC0, curated) — building-trefoil = facility, color = category; plants/reactors live in the power-plant layers`);
+      },
+      (failures) => setStatus("nukefacilities", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.nukefacilities, mapReady, mapSettled, setStatus]);
+
   // ── nuclear accidents & radiological incidents (RAW/FACTUAL; Wikidata CC0,
   // 46 curated events through a quality gate. Hazard-triangle-trefoil symbols
   // tinted by official INES level where catalogued (never inferred; unrated =
@@ -4828,6 +4905,17 @@ export default function DataMapPage() {
                         ))}
                         <span className="vt-legend-chip"><i style={{ background: RADIATION_CPM_COLOR }} /> CPM-only Station</span>
                         <span className="vt-legend-note">(display buckets of the measured dose rate, not thresholds)</span>
+                      </div>
+                    </div>
+                  )}
+                  {enabled.nukefacilities && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Nuclear Facilities</div>
+                      <div className="vt-legend-items">
+                        <LegendIcon icon="vt-nukefacility" color="#eef3fb" label="Fuel-cycle / Production Site" />
+                        {Object.entries(NUKE_FACILITY_COLOR).map(([cat, col]) => (
+                          <span key={cat} className="vt-legend-chip"><i style={{ background: col }} /> {cat}</span>
+                        ))}
                       </div>
                     </div>
                   )}

@@ -403,6 +403,29 @@ const shapes: Record<string, () => ImageData> = {
     ctx.fillRect(m - 4.5, s - 16, 9, 3);       // body seam
     ctx.restore();
   }),
+  // nuclear fuel-cycle/production facility: industrial building + trefoil
+  // over the door — a FACILITY (enrichment/reprocessing/weapons complex),
+  // distinct from the monitor (bare trefoil), the accident (triangle) and
+  // the power plant (atom)
+  "vt-nukefacility": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(7, m - 4, s - 14, m + 0.5);          // building body
+    ctx.beginPath();                                    // flat industrial roof + stack
+    ctx.moveTo(7, m - 4); ctx.lineTo(m - 3, 8); ctx.lineTo(s - 7, 8); ctx.lineTo(s - 7, m - 4);
+    ctx.stroke();
+    const cy = m + 6;                                   // trefoil on the body
+    for (let i = 0; i < 3; i++) {
+      const a0 = -Math.PI / 2 + i * (2 * Math.PI / 3) - Math.PI / 6;
+      ctx.beginPath();
+      ctx.moveTo(m, cy);
+      ctx.arc(m, cy, 6.5, a0, a0 + Math.PI / 3);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.save(); ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath(); ctx.arc(m, cy, 2.8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.beginPath(); ctx.arc(m, cy, 1.5, 0, Math.PI * 2); ctx.fill();
+  }),
   // nuclear accident/incident: hazard triangle enclosing a trefoil — reads
   // instantly as "nuclear event" and distinctly from the plain-trefoil
   // monitor and the atom-symbol power plant (symbol directive 2026-07-12:
@@ -645,6 +668,17 @@ export const RADIATION_BANDS: Array<{ max: number; color: string; label: string 
   { max: Infinity, color: "#f87171", label: "> 1.0 µSv/h" },
 ];
 export const RADIATION_CPM_COLOR = "#94a3b8";
+
+/** Nuclear fuel-cycle facility category (datacore/nuclear_facilities.json
+ *  `cat` values, exactly) -> tint. Shared by layer + legend. */
+export const NUKE_FACILITY_COLOR: Record<string, string> = {
+  "Enrichment plant": "#fbbf24",
+  "Reprocessing site": "#fb923c",
+  "Waste repository": "#a78bfa",
+  "Test site": "#f87171",
+  "Weapons-complex site": "#ef4444",
+  "Nuclear facility": "#94a3b8",
+};
 
 /** INES level -> tint. The IAEA's own division: 4-7 are "accidents",
  *  1-3 are "incidents"; events Wikidata carries no INES rating for
