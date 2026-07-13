@@ -3046,21 +3046,53 @@ export default function DataMapPage() {
           "stuk-fi": "Finland — STUK via FMI open data (CC BY 4.0)",
           "radnet-us": "United States — EPA RadNet (public domain)",
         };
+        // station reporting cadence, per each network's own documentation —
+        // shown so "measured N min ago" reads as normal, not stale
+        const NETWORK_CADENCE: Record<string, string> = {
+          "bfs-de": "this network's stations report hourly",
+          "hc-ca": "this network's stations report about every 15 minutes",
+          "stuk-fi": "this network's stations report every 10 minutes",
+          "radnet-us": "this network's monitors report several times a day",
+        };
         detach = attachLayerInteractions(map, "radiation-pt", (e: any) => {
           const f = e.features?.[0]; if (!f) return; const s = f.properties;
+          const v = Number(s.value);
           const val = s.unit === "uSv/h"
-            ? `${Number(s.value).toFixed(3)} µSv/h gamma dose rate`
-            : `${Number(s.value).toLocaleString()} counts/min gamma (this monitor publishes count rates, not dose — we never convert)`;
+            ? `${v.toFixed(3)} µSv/h gamma dose rate`
+            : `${v.toLocaleString()} counts/min gamma (this monitor publishes count rates, not dose — we never convert)`;
+          // NOT live-streaming: each card states measured-at (relative + absolute),
+          // the station's own cadence, and the platform's refresh cycle.
+          let when = "Measurement time not published for this reading.";
+          if (s.time) {
+            const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(s.time)) / 60000));
+            const ago = ageMin < 60 ? `${ageMin} min ago`
+              : ageMin < 2880 ? `${(ageMin / 60).toFixed(1)} h ago`
+              : `${Math.round(ageMin / 1440)} days ago`;
+            when = `Measured ${ago} (${s.time}) — not a live stream: ${NETWORK_CADENCE[s.network] || "stations report periodically"}, and this layer refreshes on a ~3-hour cycle.`;
+          }
+          // factual comparison against the typical natural background range —
+          // banding of the measured value, no health interpretation
+          let compare = "";
+          if (s.unit === "uSv/h" && Number.isFinite(v)) {
+            compare = v < 0.05
+              ? `How this compares: BELOW the typical natural background range (0.05–0.3 µSv/h) — nothing unusual; low-geology sites and some instruments simply read low.`
+              : v <= 0.3
+              ? `How this compares: WITHIN the typical natural background range (0.05–0.3 µSv/h) — the normal gamma from soil minerals and cosmic rays.`
+              : v <= 1.0
+              ? `How this compares: ABOVE the typical background range (0.05–0.3 µSv/h). Elevated background is common over granite and at altitude; this is the measured value, not an alert.`
+              : `How this compares: WELL ABOVE the typical background range (0.05–0.3 µSv/h) — a reading this high is rare; consult the source network's own site for context. We report the published value only.`;
+          } else if (s.unit === "cpm") {
+            compare = `How this compares: count rates (CPM) are instrument-specific and can't be compared to the µSv/h background range — compare this station against its own history on EPA's RadNet site.`;
+          }
           setDetail({
             kind: "radiation",
             title: s.name,
             subtitle: val,
-            body: `Network: ${NETWORK_LABEL[s.network] || s.network}\n` +
-                  `${s.time ? `Measured: ${s.time}\n` : ""}` +
-                  `${s.approx === true || s.approx === "true" ? "Location: APPROXIMATE city centroid — EPA publishes RadNet locations at city level only.\n" : ""}` +
-                  `\nObserved reading from the network's own published feed — no interpolation, no modeling, no health claim. ` +
-                  `Typical natural background gamma is roughly 0.05–0.3 µSv/h and varies with geology and altitude; ` +
-                  `marker color is a display bucket of the measured value (see legend), not a threshold.`,
+            body: `${s.approx === true || s.approx === "true" ? `LOCATION IS APPROXIMATE: this pin sits at the CITY CENTER, not at the instrument — the EPA publishes RadNet locations as "City, ST" only, so the symbol can land on an unrelated house or street. The reading is real; the exact instrument address is not public.\n\n` : ""}` +
+                  `${when}\n\n` +
+                  `${compare}\n\n` +
+                  `Network: ${NETWORK_LABEL[s.network] || s.network}\n` +
+                  `Observed reading from the network's own published feed — no interpolation, no modeling, no health claim. Marker color is a display bucket of the measured value (see legend), not a threshold.`,
           });
         });
         const nets = d.networks || {};
