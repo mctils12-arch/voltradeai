@@ -75,6 +75,50 @@ test('pickNearestSatellite: caps the search at min(gp.length, buffer slots) — 
   assert.equal(hit!.gp.noradId, 42);
 });
 
+// ── far-side occlusion filter (globe mode): cameraSphere parameter ──
+// Camera over lon 0 / lat 0 at 3 earth radii from center — the same value
+// SatLayer.getGlobeCamera() reconstructs from MapLibre's clipping plane
+// [0, 0, 1, -1/3] (see occlusion.test.ts).
+const CAM: readonly [number, number, number] = [0, 0, 3];
+
+test('occlusion filter: a click on a far-side satellite is an honest miss in globe mode', () => {
+  // lon 180 LEO — directly behind the earth from CAM.
+  const positions = new Float32Array([1.0, 0.5, 550000, CLASS_CODE.LEO]);
+  const gps = [gp(1)];
+  // without the camera (mercator view): pickable as before
+  const flat = pickNearestSatellite(positions, 4, gps, 1.0, 0.5, 0.05);
+  assert.ok(flat);
+  // with the camera (globe view): hidden behind the planet — never pickable
+  const globe = pickNearestSatellite(positions, 4, gps, 1.0, 0.5, 0.05, CAM);
+  assert.equal(globe, null);
+});
+
+test('occlusion filter is altitude-aware: at the same map spot past the limb, LEO is hidden but GEO is pickable', () => {
+  // lon 110 is ~20° past the visible limb for a camera over lon 0 at d=3.
+  // A LEO there is behind the disk; a GEO at the SAME lon/lat is far enough
+  // out to be seen around the side of the earth — the case a plain
+  // hemisphere test would get wrong.
+  const mercX110 = (110 + 180) / 360;
+  const positions = new Float32Array([
+    mercX110, 0.5, 550000, CLASS_CODE.LEO, // i=0 — occluded
+    mercX110, 0.5, 35786000, CLASS_CODE.GEO, // i=1 — visible past the limb
+  ]);
+  const gps = [gp(1), gp(2)];
+  const hit = pickNearestSatellite(positions, 4, gps, mercX110, 0.5, 0.05, CAM);
+  assert.ok(hit);
+  assert.equal(hit!.index, 1);
+  assert.equal(hit!.classCode, CLASS_CODE.GEO);
+});
+
+test('occlusion filter: null/omitted camera keeps the pre-globe behavior identical', () => {
+  const positions = new Float32Array([1.0, 0.5, 550000, CLASS_CODE.LEO]);
+  const gps = [gp(1)];
+  const a = pickNearestSatellite(positions, 4, gps, 1.0, 0.5, 0.05);
+  const b = pickNearestSatellite(positions, 4, gps, 1.0, 0.5, 0.05, null);
+  assert.deepEqual(a, b);
+  assert.ok(a);
+});
+
 test('pixelToleranceToMercUnits: halves per zoom level (slippy-map relation)', () => {
   const z5 = pixelToleranceToMercUnits(10, 5);
   const z6 = pixelToleranceToMercUnits(10, 6);

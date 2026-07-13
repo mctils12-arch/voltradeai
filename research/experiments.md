@@ -15056,3 +15056,75 @@ checks don't exercise them.
 
 Backtest: N/A — /data product surface only; zero trading, sizing, or
 execution code touched.
+
+---
+
+## 2026-07-13 [PRODUCT] — orbital: far-side cull (satellites behind the earth no longer draw through the globe) (T-CLIENT/orbital)
+
+HUMAN REPORT: wants only the facing hemisphere's satellites visible —
+they should slide behind the limb as the globe rotates or as they orbit.
+Also asked what "15,184 live · 802 not rendered (deep-space, needs SDP4)"
+means (answered in chat: live SGP4 count vs deep-space objects our
+near-earth kernel honestly skips instead of drawing wrong).
+
+ROOT CAUSE (read from maplibre-gl v5's generated projection shaders —
+READ BEFORE WRITE, not assumed): MapLibre clips far-side geometry for
+SURFACE features (projectTile -> interpolateProjection applies
+globeComputeClippingZ) but the 3D path SatLayer uses (projectTileFor3D
+-> interpolateProjectionFor3D) applies NO far-side clipping. Every
+satellite rendered, including those physically behind the planet.
+
+FIX (v1.0.301, own PR):
+- client/src/lib/orbital/occlusion.ts (NEW, pure, 14 tests): the single
+  source of truth. mercatorToSphere (exact replica of the globe
+  prelude's projectToSphere frame + altitude scaling),
+  cameraFromClippingPlane (verified against
+  GlobeTransform._computeClippingPlane: plane.xyz = unit center->camera
+  vector, plane.w = -1/d, so C = -xyz/w; degenerate plane -> null),
+  earthOccludes (EXACT segment-sphere test — a plain hemisphere
+  dot-product would wrongly hide GEO objects visible past the limb;
+  OCCLUSION_RADIUS 0.999 limb anti-flicker bias).
+- satLayer.ts: vertex shader inlines the same math (GLSL can't import
+  TS), `#ifdef GLOBE`-guarded (mercator prelude lacks the globe
+  uniforms — unguarded it would fail to compile there), gated to
+  u_projection_transition > 0.999 (no cull mid globe<->mercator morph)
+  and clipping_plane.w < 0. Sentinel cull stays first. Layer stashes the
+  per-frame clipping plane + transition; new getGlobeCamera() exposes
+  the reconstructed camera (null unless fully globe).
+- satLayer.test.ts (NEW, 5 tests): pins the shader source to the CPU
+  mirror — formulas, radius² constant, ifdef guard placement (globe
+  symbols must not leak outside the guard), transition gate, ordering.
+- pick.ts: optional cameraSphere param filters occluded satellites from
+  click-picking (a limb click must not select an invisible object);
+  null/omitted = old behavior (mercator + mid-transition). 3 new tests
+  incl. LEO-hidden/GEO-pickable at the same map point (altitude-aware).
+  siteCoverageReport deliberately NOT filtered — that's ground-site
+  elevation-mask geometry; the render camera is irrelevant to it.
+- datamap.tsx: passes layer.getGlobeCamera() at the O3 pick call site.
+
+BEHAVIORAL GPU VERIFICATION (beyond unit tests): scratch harness
+compiled the REAL VERT_SRC against MapLibre's REAL globe prelude
+(extracted from the installed dist) in headless chromium/SwiftShader,
+drew single satellites, read pixels: near-side LEO draws (208px),
+far-side LEO 0px, far-side GEO-directly-behind 0px, past-limb GEO
+draws (196px), past-limb LEO 0px, sentinel 0px — all six correct.
+(First run "failed" on past-limb GEO = 0px: harness artifact, the stub
+projection matrix mapped sphere-x 6.2 off the 64px screen; 0.125 scale
+fixed the harness, not the shader.)
+
+GATES: orbital suite 103/103 (81 baseline + 22 new); npm run test:node
+650/650; npx tsc 66 errors before AND after (A/B via git stash — all
+pre-existing, none in this PR's files); npm run build clean (satWorker
+still its own chunk; SGP4 in the main bundle only as UI strings);
+npm run visual -- --page data: 0 hard failures at 390/768/1440
+(pre-existing touch-target warnings unchanged).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): render-only + pick-only
+change -> no data, propagation, or archive path touched -> the honesty
+badge counts (shown/deep-space/invalid) are computed in the worker from
+propagation validity, NOT from visibility, so the badge does not change
+as the globe rotates (correct: culled-by-geometry is not "missing
+data"). Zero trading-system surface.
+
+BACKTEST: N/A — pure /data render + interaction change; no strategy,
+sizing, or measurement code touched.
