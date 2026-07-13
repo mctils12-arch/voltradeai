@@ -13,6 +13,81 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-13 [RESEARCH] — KNOWN BROKEN #18: v1.0.307 shadowFleet fix CONFIRMED LIVE, zero EVENTLOOP-LAG recurrence 3h41m post-deploy
+
+TERRITORY: SHARED only (research/open_questions.md, research/experiments.md)
+— no code touched, no PR territory conflict.
+
+MEMORY PROTOCOL: read CLAUDE.md, experiments.md's last 10 tagged entries
+(4/10 REPAIR — [REPAIR][REPAIR][PRODUCT][PRODUCT][REPAIR][RESEARCH]
+[RESEARCH][PRODUCT][REPAIR][PRODUCT], counting back from the prior top
+entry — nowhere near the 7+ thrash threshold, no HEALTH-OF-THE-LOOP
+escalation needed), open_questions.md's KNOWN BROKEN section, and
+wishlist.md (no STARVED flags, no overdue audit — staleness next due
+2026-08-04, constitutional audit awaiting human approval on already-filed
+proposals, calendar audit not due until December). Live `/api/health`:
+all green (server ok, database ok, Alpaca ACTIVE, python ok, bot active,
+drawdownPct 0.0, liveness.dark false, scanner 0 consecutive failures) —
+no LIVENESS ALARM.
+
+SESSION BUDGET PRIMARY ACTION: "judge a matured experiment" (second in
+the priority order, above starting new work) — KNOWN BROKEN #18's own
+NEXT STEP (filed by the immediately-prior session, v1.0.307/PR #470) was
+explicit: query `/api/diag/audit?type=EVENTLOOP-LAG` and
+`/api/data/shadowstats` a few hours after that fix deployed. It had
+deployed ~3h41m before this session started — squarely the window that
+note asked for.
+
+EVIDENCE (this session, live production, DIAG_TOKEN): `/api/health`
+reports `uptime_s: 13251` at 20:17:14 UTC → current process started
+~16:32:23 UTC, matching PR #470's 16:33:50 UTC merge/deploy timestamp.
+`/api/diag/audit?type=EVENTLOOP-LAG&token=$DIAG_TOKEN` (50 most recent):
+the last full-magnitude stall (~96,003ms) landed at 16:31:38 UTC — from
+the PRE-deploy process, not the new one. One minor 1,361ms blip followed
+at 16:36:26 UTC (below any alarm threshold, plausibly ordinary GC/
+scheduling noise rather than the tracked defect). Zero EVENTLOOP-LAG
+entries in the 3h41m since — against a defect that had fired reliably
+every ~10 minutes, without a single missed cycle, across every prior
+session's reading on this item (the growing-magnitude trend v1.0.307's
+root-cause writeup already explained). `type=DB-SLOW-WRITE` is still
+empty (consistent — that theory stays refuted, unaffected by this fix).
+`/api/data/shadowstats` confirms the fix preserved behavior, not just
+speed: `vessels_seen: 38215` (up from 34,895 at the time of the fix,
+archive still maturing as expected) and `identity_candidates: 149782` —
+non-zero and non-degenerate, so the spatial-grid rewrite did not
+silently zero out the statistic it computes.
+
+READ BEFORE WRITE: did not re-touch server/shadowFleet.ts or any code
+this session — this is a pure live-verification pass reading the
+already-shipped instrumentation, per the item's own NEXT STEP.
+
+VERDICT: CONFIRMED FIXED, not yet fully RESOLVED. 3h41m clean is strong
+evidence (22+ consecutive missed 10-minute occurrences against a ~100%
+prior recurrence rate) but shorter than the "several days clean" bar
+this item has implicitly used before closing prior sub-theories outright
+— logged in open_questions.md item #18 as an UPDATE, not a resolution
+strikethrough. NEXT STEP for a future session: re-check
+`/api/diag/audit?type=EVENTLOOP-LAG` after ≥24h live; if still clean,
+mark the item RESOLVED. Any recurrence at that point is a genuinely NEW
+(fourth) mechanism, not a reopening of the O(n²) theory — that path is
+now directly measured (perf ratchet + fuzz oracle + production-scale
+standalone benchmark), not inferred from a matching period the way the
+first two attempts were.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): read-only verification against
+already-live code -> no trading, sizing, scan, or scoring path touched
+-> zero effect on any live decision. This closes a KEEP-THE-SYSTEM-ALIVE-
+priority repair thread that has cost three sessions' worth of patch
+attempts; confirming it (rather than leaving it open with stale "not yet
+measured" caveats) is itself the value of this session, per the loop-
+health rule that repairs must ratchet and matured experiments must be
+judged, not just accumulated.
+
+BACKTEST: N/A — infra/reliability verification, no strategy or
+measurement-definition code touched.
+
+---
+
 ## 2026-07-13 [REPAIR] — KNOWN BROKEN #18 root cause found + fixed: shadowFleet identity-candidate detection was O(vessels²), ~1.2 BILLION haversine calls/cycle at live scale (v1.0.307, T-DATACORE)
 
 TERRITORY: T-DATACORE (server/shadowFleet.ts + its tests), SHARED minimal

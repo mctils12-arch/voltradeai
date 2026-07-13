@@ -1173,6 +1173,35 @@
     proposal in wishlist.md that the prior update already sketched,
     rather than attempt a fourth theory.
 
+    UPDATE 2026-07-13 ~20:20 UTC (this session, [RESEARCH] — judging a
+    matured experiment per SESSION BUDGET, no code touched): **LIVE
+    CONFIRMED — v1.0.307's shadowFleet O(n²) fix stopped the stall.**
+    `/api/health` shows the current process's `uptime_s: 13251` at
+    20:17:14 UTC, i.e. a restart at ~16:32:23 UTC — consistent with the
+    PR #470 merge/deploy at 16:33:50 UTC. `/api/diag/audit?
+    type=EVENTLOOP-LAG&token=$DIAG_TOKEN` shows the last big stall
+    (~96,003ms) at 16:31:38 UTC, from the PRE-deploy process, then a
+    single minor 1,361ms blip at 16:36:26 UTC (small enough to be
+    ordinary GC/scheduling noise, not the tracked defect), and **zero**
+    EVENTLOOP-LAG entries since — a clean 3h41m with no recurrence,
+    against a pre-fix cadence that had fired every ~10 minutes without
+    fail for days. `type=DB-SLOW-WRITE` is still empty (consistent,
+    that theory stays refuted). `/api/data/shadowstats` confirms the fix
+    preserved behavior, not just speed: `vessels_seen: 38215` (up from
+    34,895, archive still maturing as expected) and `identity_candidates:
+    149782` — sane and non-degenerate, not zeroed out by the rewrite.
+    3h41m is short of a full ~10-min-cadence multi-day read, but it is
+    22+ consecutive missed occurrences against a defect that had a
+    ~100% recurrence rate beforehand — strong evidence, not yet the
+    "several days clean" bar for fully closing the item. KNOWN BROKEN
+    #18 status: CONFIRMED FIXED, pending one more session's check a
+    day+ out to close it outright. NEXT STEP: a future session queries
+    `/api/diag/audit?type=EVENTLOOP-LAG` again after ≥24h live — if
+    still clean, mark this item RESOLVED; any recurrence at this point
+    would be a NEW, fourth mechanism (the shadowFleet path is now
+    directly measured and ruled out, not just theorized), not a
+    reopening of the O(n²) theory.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
