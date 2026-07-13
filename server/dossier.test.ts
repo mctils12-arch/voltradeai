@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDossier, NEAREST_SITES_CAP, CONTRACTS_CAP, HAZARD_CAP, HAZARD_RADIUS_KM_DEFAULT, HAZARD_RADIUS_KM_MAX } from "./dossier";
+import type { FloodZoneResult } from "./femaFlood";
 import type { EverythingGraph, GraphNode, GraphEdge, SiteRow } from "./entityGraph";
 import type { ContractTxn } from "./usaSpending";
 import type { SuperfundSite } from "./superfund";
@@ -183,6 +184,37 @@ test("hazard hits are capped at HAZARD_CAP, but total_within reports the true co
   assert.equal(out.hazards!.water_violators.total_within, HAZARD_CAP + 4);
   assert.equal(out.hazards!.water_violators.hits.length, HAZARD_CAP);
   assert.equal(out.hazards!.water_violators.capped, true);
+});
+
+// FEMA flood zone point lookup (research/location_context_engine.md hazard
+// layer #3) — pre-fetched by routes.ts, injected as a plain value so
+// buildDossier stays pure/sync like every other hazard source here.
+const floodZone = (over: Partial<FloodZoneResult>): FloodZoneResult => ({
+  zone: "AE", subtype: null, sfha: true, base_flood_elevation_ft: 12,
+  meaning: "1% annual-chance flood zone...", source_citation: "22071C_STUDY1",
+  source: "FEMA NFHL", ready: true, ...over,
+});
+
+test("flood_zone passes through opts.floodZone unchanged when an anchor exists", () => {
+  const g = graphFixture([], []);
+  const fz = floodZone({ zone: "VE", sfha: true });
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { floodZone: fz });
+  assert.deepEqual(out.hazards!.flood_zone, fz);
+});
+
+test("flood_zone defaults to ready:false/zone:null (not looked up) when opts.floodZone isn't passed, never crashes", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, {});
+  assert.equal(out.hazards!.flood_zone.ready, false);
+  assert.equal(out.hazards!.flood_zone.zone, null);
+});
+
+test("flood_zone with ready:true and zone:null (genuinely outside NFHL's mapped footprint) is preserved, not collapsed to 'not looked up'", () => {
+  const g = graphFixture([], []);
+  const fz = floodZone({ zone: null, subtype: null, sfha: null, base_flood_elevation_ft: null, meaning: null, source_citation: null, ready: true });
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { floodZone: fz });
+  assert.equal(out.hazards!.flood_zone.ready, true);
+  assert.equal(out.hazards!.flood_zone.zone, null);
 });
 
 test("radius_km param is honored and clamped to [1, HAZARD_RADIUS_KM_MAX]", () => {

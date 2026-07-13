@@ -31,6 +31,7 @@ import type { ContractTxn } from "./usaSpending";
 import { haversineKm } from "./firesFacilities";
 import type { SuperfundSite } from "./superfund";
 import type { WaterViolator } from "./waterViolators";
+import type { FloodZoneResult } from "./femaFlood";
 import sitesJson from "../datacore/sites/strategic_sites.json";
 
 export const NEAREST_SITES_CAP = 5;
@@ -48,6 +49,16 @@ export const DEFAULT_HOPS = 2;
 export const HAZARD_RADIUS_KM_DEFAULT = 50;
 export const HAZARD_RADIUS_KM_MAX = 200;
 export const HAZARD_CAP = 10;
+
+const FLOOD_ZONE_SOURCE = "FEMA National Flood Hazard Layer (NFHL), public domain";
+/** Same shape femaFlood.ts's own internal `unavailable()` returns — used
+ *  here only for "opts.floodZone wasn't passed at all" (routes.ts didn't
+ *  await the lookup, e.g. tests), kept local so this file stays a pure
+ *  function with no import of femaFlood's network code. */
+const FLOOD_ZONE_NOT_LOOKED_UP: FloodZoneResult = {
+  zone: null, subtype: null, sfha: null, base_flood_elevation_ft: null,
+  meaning: null, source_citation: null, source: FLOOD_ZONE_SOURCE, ready: false,
+};
 
 export interface QuakeRow { d: string; pl: string; lat: number; lon: number; dep?: number | null; m?: number }
 export interface NuclearTestRow { d: string; c: string; n: string; lat: number; lon: number; kt?: number | null }
@@ -76,6 +87,13 @@ export interface DossierHazards {
   water_violators: HazardSection;
   quakes: HazardSection;
   nuclear_tests: HazardSection;
+  /** Point-in-polygon lookup at the exact anchor, not a radius list — a
+   *  location either IS or ISN'T in a flood zone, unlike "N sites nearby".
+   *  Always an object (mirrors HazardSection's never-null convention):
+   *  ready:false + zone:null = not looked up / lookup failed; ready:true +
+   *  zone:null = genuinely outside NFHL's mapped footprint (a real answer,
+   *  not a gap). See server/femaFlood.ts. */
+  flood_zone: FloodZoneResult;
   caveat: string;
 }
 
@@ -157,6 +175,10 @@ export function buildDossier(
     waterViolators?: WaterViolator[] | null;
     quakes?: QuakeRow[] | null;
     nuclearTests?: NuclearTestRow[] | null;
+    /** Pre-fetched (routes.ts awaits server/femaFlood.ts's floodZoneAt
+     *  before calling buildDossier) — keeps this function pure/sync like
+     *  every other hazard source here; null = not looked up (no anchor). */
+    floodZone?: FloodZoneResult | null;
   } = {},
 ): DossierResult {
   const hops = Math.max(0, Math.min(3, params.hops ?? DEFAULT_HOPS));
@@ -236,12 +258,17 @@ export function buildDossier(
         (t) => ({ lat: t.lat, lon: t.lon }),
         (t, km) => ({ id: `${t.d}:${t.n}`, label: t.n, km: Math.round(km * 10) / 10,
           detail: { date: t.d, country: t.c, yield_kt: t.kt ?? null } })),
+      flood_zone: opts.floodZone ?? FLOOD_ZONE_NOT_LOOKED_UP,
       caveat: "RAW cross-join within radius_km of the clicked point, each category from its own "
-        + "already-validated layer (superfund.ts/waterViolators.ts/quake_history.json/nuclear_tests.json — "
+        + "already-validated layer (superfund.ts/waterViolators.ts/quake_history.json/nuclear_tests.json/"
+        + "femaFlood.ts — "
         + "see each layer's own route for full source/date/data-quality-gate detail). total_within is the "
         + `true count inside the radius; hits is capped at ${HAZARD_CAP} nearest, capped=true means more `
         + "exist. A count of nearby records is a FACT, not a risk score — no impact/safety claim is made "
-        + "or implied here (that would be an unvalidated SIGNAL).",
+        + "or implied here (that would be an unvalidated SIGNAL). flood_zone is different in shape: a "
+        + "point-in-polygon lookup AT the anchor itself (FEMA's own FLD_ZONE/SFHA_TF fields), not a "
+        + "radius count — null zone with ready:true means the point is outside NFHL's mapped footprint, "
+        + "never a 'minimal risk' claim.",
     };
   }
 

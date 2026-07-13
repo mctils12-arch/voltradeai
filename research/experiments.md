@@ -13,6 +13,141 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-13 [PRODUCT] — Location Context Engine: FEMA flood hazard zones, hazard layer #3 (v1.0.299, T-CLIENT + T-DATACORE)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx) + T-DATACORE
+(server/femaFlood.ts + dossier.ts wiring), SHARED minimal last
+(datacore/layers.json, package.json, research/*). PRODUCT session per
+CLAUDE.md's GOAL priority order: deepening the Location Context Engine
+(research/location_context_engine.md), the next queued item after last
+session's nuclear-hazards wave.
+
+PRE-FLIGHT: `/api/health` clean (bot active, drawdown 0%, no liveness
+alarm) — no trading-loop blocker, proceeded to product work per this
+session's own instructions. KNOWN BROKEN #18 evidence noted separately
+below (own paragraph, not this session's primary action).
+
+SHIPPED: FEMA National Flood Hazard Layer (NFHL) as the Location Context
+Engine's third hazard layer (after superfund.ts, waterViolators.ts) —
+research/location_context_engine.md flagged it "the closest direct
+Zillow parallel." Two parts, same underlying FEMA public service
+(hazards.fema.gov, confirmed live: CORS-open, reflects request Origin,
+zero key required):
+
+1. MAP OVERLAY (`floodzones` toggle, hazards group): a raster tile
+   source hitting FEMA's own MapServer `export` operation live via
+   MapLibre's `{bbox-epsg-3857}` template token (confirmed this is a
+   real MapLibre/Mapbox GL feature built for exactly this ArcGIS/WMS
+   dynamic-service case, not assumed from memory) — FEMA renders the
+   tile server-side, zero server cost/code on our end, same pattern as
+   the existing surfacewater/forest atlas-parity layers. Only renders at
+   roughly property-level zoom (FEMA's own `minScale`), stated honestly
+   in the status note rather than left looking broken when zoomed out.
+2. DOSSIER POINT LOOKUP (`server/femaFlood.ts`): unlike the four
+   existing radius-list hazard categories ("N sites within 50km"),
+   "is THIS clicked point in a flood zone" is a point-in-polygon
+   question at the exact anchor — `floodZoneAt(lat, lon)` queries FEMA's
+   NFHL layer 28 `query` endpoint directly at the point (confirmed live
+   against three real cases: New Orleans area -> AE/SFHA with a real
+   base flood elevation, coastal Miami -> VE/SFHA, interior Alaska ->
+   zero features = genuinely outside NFHL's mapped footprint). FEMA's
+   own `SFHA_TF` field is read directly for Special Flood Hazard Area
+   status — never inferred from the zone code ourselves (DATA QUALITY
+   GATE). FEMA's `-9999` no-data sentinel on BFE/DEPTH is converted to
+   `null`, never displayed as a real elevation (caught by testing a real
+   X-zone response, which carries the sentinel). An unrecognized
+   FLD_ZONE is quarantined (`ready:false`), never guessed into the
+   nearest bucket. Per-point cache (~1km grid, 30-day TTL — NFHL revises
+   on a per-county FIRM cycle, not daily) keeps repeat/nearby dossier
+   clicks fast and is a good citizen of FEMA's public service; a failed
+   lookup is deliberately NOT cached, so the next click retries instead
+   of an outage freezing into a permanent false "unavailable".
+   `server/dossier.ts`'s `buildDossier` stays pure/sync (its documented
+   contract) — routes.ts awaits `floodZoneAt` and injects the resolved
+   value as a plain opt, exactly like the other pre-cached hazard
+   sources are read synchronously from their own caches.
+
+CORRECTION filed in the same PR: research/location_context_engine.md's
+"NOT yet built" list had gone stale on one point — EPA RadNet was
+already shipped as part of the 2026-07-12 "ambient radiation" layer
+(#456), just never cross-referenced back to this file. Fixed.
+
+RATCHET: `server/femaFlood.test.ts` (NEW, 16 tests) — zone-glossary
+completeness/non-duplication, sentinel-to-null conversion, unrecognized-
+code quarantine, honest empty-features "no coverage" vs. HTTP-failure
+"unavailable" (the two gap cases the DATA QUALITY GATE requires never be
+confused), cache hit/TTL-expiry/never-cache-a-failure behavior, all
+against injected fetch mocks (no live network in the test itself, only
+used earlier this session to derive the real endpoint/schema/behavior
+documented in the file's header). `server/dossier.test.ts` (+3 tests):
+flood_zone passes through unchanged, defaults to `ready:false`/`zone:null`
+when not looked up (never crashes), and a genuine `ready:true`/`zone:null`
+"outside NFHL" result is preserved rather than collapsed into "not looked
+up". `server/layersRegistry.test.ts` (+1 test): floodzones layer
+attribution/honesty-rail/opacity-inheritance pin, same convention as the
+surfacewater/forest/firetemp tests it sits beside.
+
+Full gates: `python3 -m pytest -q` 669 passed, 1 skipped (zero Python
+files touched — confirms no incidental breakage); `npx tsx --test
+server/*.test.ts` 650 passed, 0 failed (up from the prior session's 574
+baseline); `npx tsc --noEmit` 64 errors, identical count to the pre-
+existing baseline documented in prior entries (confirmed zero new errors
+via a targeted grep for the touched files — the one hit in datamap.tsx
+is at an unrelated pre-existing line, `groupOf`/`PANEL_GROUPS` typing,
+not touched this session); `npm run build` clean. VISUAL VERIFICATION:
+`npm run visual -- --page data` at 390/768/1440 — first run hit the
+already-documented pre-existing 1440px `fields-on` flake (filed
+2026-07-12 as MEASUREMENT-DEBT, unrelated to weather code, timing-
+dependent across unrelated diffs); a clean retry passed all three widths
+with 0 hard failures, confirming this PR did not introduce the flake.
+Screenshots reviewed (data-390/768/1440, data-fields-768 with all field
+layers on simultaneously) — no visual regression, no crash; the harness
+still cannot drive a live map click (documented pre-existing limitation),
+so the flood-zone dossier card itself was unit-tested + code-reviewed,
+not screenshotted with a real flood-zone click in view.
+
+Backtest: N/A — /data product surface only, zero trading/sizing/
+execution code touched.
+
+Remaining Location Context Engine hazard layers still queued: PFAS (EPA
+UCMR5/SDWIS), CDC/SEER cancer rates (needs the county-polygon display
+guard, not a point marker — ecological-fallacy honesty rail already
+noted in the charter file). radius_km client-side toggle still not
+built. STARVED: no — chosen scope shipped completely; high-value work
+remains queued (PFAS/cancer layers, radius_km toggle, KNOWN BROKEN #18's
+still-open root cause below) for the next session's judgment call.
+
+## 2026-07-13 [NO-ACTION addendum, folded into the entry above] — KNOWN BROKEN #18 follow-up: the tmpCleanup fix (v1.0.291) did NOT resolve the event-loop stalls; cadence continues, magnitude grew
+
+Pre-flight health check this session queried
+`/api/diag/audit?type=EVENTLOOP-LAG&token=$DIAG_TOKEN` (~4 hours after
+v1.0.291 shipped, per that item's own "NEXT STEP" instruction) instead
+of assuming the fix held. Result: EVENTLOOP-LAG entries are STILL firing
+on the same ~10-minute cadence documented before the fix (12:38-20:16
+UTC then continuing through at least 00:01 UTC the next day), and the
+magnitude GREW (86,000-97,800ms per occurrence vs. the pre-fix
+59,000-75,000ms) rather than shrinking. `type=TMP-CLEANUP` returned ZERO
+entries in the same window (queried separately) — per v1.0.291's own
+stated test, "entries continuing on the same cadence with no
+TMP-CLEANUP hits reopens the search for a different blocking op on a
+10-minute period." This is exactly that outcome: THE TMPCLEANUP
+HYPOTHESIS IS REFUTED. This is not a "two failed fixes on the same
+mechanism" RECURRENCE-ESCALATES case (v1.0.291 was the first actual
+root-cause fix attempt, not a repeat of an earlier one; three prior
+passes were visibility-only) — it's the natural next step the item's
+own text anticipated. NOT investigated further this session (PRODUCT
+session, health check showed no liveness alarm, so per this session's
+own instructions the finding is noted and product work proceeds — see
+entry above). NEXT STEP for whichever REPAIR/DAILY session picks this
+up: re-grep `server/bot.ts`'s `setInterval` calls for the next
+~600000ms-period candidate doing synchronous or otherwise blocking work
+(tmpCleanup.ts is now confirmed innocent — async fs, and it's not even
+firing per TMP-CLEANUP's zero hits, meaning the scan sizes never
+crossed `TMP_CLEANUP_AUDIT_THRESHOLD` — so whatever's blocking the loop
+for 60-97 real seconds isn't there at all); the daemon-side RPC path
+(`voltrade_daemon.py`) triggered by whatever runs on this cadence is
+now the leading unexplored suspect, not yet investigated.
+
 ## 2026-07-12 — [REPAIR] /developers crashed whole-page on a JSON error body or version-skewed /api/v1/meta (v1.0.290)
 
 TERRITORY: T-CLIENT (client/src/pages/developers.tsx + new

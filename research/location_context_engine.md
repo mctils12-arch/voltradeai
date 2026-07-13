@@ -149,3 +149,37 @@ a UI toggle to adjust radius_km client-side (currently server default
 only); the harness still can't drive a live map click, so the actual
 card rendering was code-reviewed + unit-tested, not screenshotted with
 real hazard data in view (same limitation the O7/O3 sessions logged).
+
+CORRECTION 2026-07-13: RadNet is NOT a gap — the 2026-07-12 nuclear-wave
+session's "ambient radiation" layer (#456, v1.0.293) already includes EPA
+RadNet as one of its four national networks (~76 US stations). This file's
+"NOT yet built" list above was stale on that point; RadNet was done a
+session before this correction, just not cross-referenced back here.
+
+STATUS 2026-07-13: FEMA FLOOD ZONES SHIPPED (hazard layer #3, this
+session, T-CLIENT + T-DATACORE) — two parts:
+1. MAP OVERLAY: `floodzones` toggle in the hazards group — a raster tile
+   source hitting FEMA's own public NFHL MapServer `export` operation
+   live via MapLibre's `{bbox-epsg-3857}` template token (confirmed CORS-
+   open, confirmed reflects request Origin). Zero server cost/code, same
+   "someone else's public tile service" pattern as surfacewater/forest.
+   Only renders at roughly property-level zoom (FEMA's own scale limit).
+2. DOSSIER POINT LOOKUP: `server/femaFlood.ts`'s `floodZoneAt(lat, lon)` —
+   unlike the radius-list hazard categories, "is THIS point in a flood
+   zone" is a point-in-polygon query at the exact anchor, so it's awaited
+   server-side (routes.ts) before calling the still-pure/sync
+   `buildDossier`, then rendered as its own `flood_zone` dossier section
+   (zone code, FEMA's own SFHA_TF field — never inferred from the zone
+   code ourselves — base flood elevation with FEMA's -9999 no-data
+   sentinel converted to null, and FEMA's own plain-English zone-code
+   glossary as the `meaning` text). A point outside NFHL's mapped
+   footprint (confirmed live: zero features over interior Alaska) reports
+   honestly as unmapped, never as "minimal risk". Per-point cache (30-day
+   TTL, ~1km grid) keeps repeat/nearby clicks fast and is a good citizen
+   of FEMA's public service; failed lookups are never cached (retry next
+   click, don't freeze an outage into "unavailable" forever).
+Remaining hazard layers still queued: PFAS (EPA UCMR5/SDWIS), CDC/SEER
+cancer rates (needs the county-polygon ecological-fallacy display guard
+noted above — do not ship as a point layer). radius_km client toggle
+still not built. Live map-click screenshot verification still blocked on
+the harness limitation noted above.

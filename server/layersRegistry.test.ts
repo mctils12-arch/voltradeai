@@ -117,6 +117,18 @@ test("earthquakes layer: USGS attribution + magnitude-scale honesty (map-layer w
   assert.ok(/safety-of-life/i.test(q.description), "description must carry the not-for-safety-of-life caveat");
 });
 
+test("floodzones layer: FEMA attribution + zero-server-cost honesty + opacity inheritance (location_context_engine.md hazard #3)", () => {
+  const f = registry.layers.find((x: any) => x.id === "floodzones");
+  assert.ok(f, "floodzones layer missing");
+  assert.equal(f.kind, "raw");
+  assert.equal(f.status, "live");
+  assert.equal(f.group, "hazards");
+  assert.ok(f.source.includes("FEMA"), "attribution must name FEMA");
+  assert.ok(/zero server cost/i.test(f.description), "description must state the zero-server-cost live-render pattern");
+  assert.ok(/never a property risk claim/i.test(f.description), "description must carry the RAW-not-a-risk-claim honesty rail");
+  assert.equal(f.field, true, "raster inherits the registry opacity slider");
+});
+
 test("buoys layer: NDBC attribution + no-fabricated-zero honesty (map-layer wiring for ndbcBuoys.ts)", () => {
   const b = registry.layers.find((x: any) => x.id === "buoys");
   assert.ok(b, "buoys layer missing");

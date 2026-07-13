@@ -192,6 +192,17 @@
       "field": false
     },
     {
+      "id": "floodzones",
+      "name": "FEMA flood hazard zones",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "light",
+      "source": "FEMA National Flood Hazard Layer (NFHL), public domain — tiles rendered live by FEMA's own public map service",
+      "description": "FEMA's official flood zone map: Special Flood Hazard Areas (1% annual-chance flood, coastal velocity zones) and moderate/minimal-risk zones, colored per FEMA's own legend. Rendered live from FEMA's public service (hazards.fema.gov) — zero server cost, no data archived by us for the overlay. Only visible at property-level zoom (FEMA's own scale limit; renders blank when zoomed out). The location dossier's click-anywhere card separately reports the FEMA-published zone code, Special Flood Hazard Area status, and base flood elevation AT the clicked point — a fact about the zone designation, never a property risk claim (that would be a ladder-gated signal). Areas outside NFHL's mapped footprint are reported honestly as unmapped, never shown as low-risk.",
+      "field": true
+    },
+    {
       "id": "powergrid",
       "name": "US Power Grid (all states)",
       "kind": "raw",

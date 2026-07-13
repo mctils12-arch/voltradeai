@@ -146,6 +146,7 @@ interface DossierPayload {
     water_violators: DossierHazardSection;
     quakes: DossierHazardSection;
     nuclear_tests: DossierHazardSection;
+    flood_zone: DossierFloodZone;
   } | null;
 }
 
@@ -155,6 +156,19 @@ interface DossierHazardSection {
   capped: boolean;
   ready: boolean;
   hits: Array<{ id: string; label: string; km: number; detail: Record<string, any> }>;
+}
+
+/** Mirrors server/femaFlood.ts's FloodZoneResult — a point-in-polygon
+ *  lookup AT the anchor, not a radius list (see DossierHazardSection
+ *  above for the "N nearby" shape this is deliberately NOT). */
+interface DossierFloodZone {
+  zone: string | null;
+  subtype: string | null;
+  sfha: boolean | null;
+  base_flood_elevation_ft: number | null;
+  meaning: string | null;
+  source_citation: string | null;
+  ready: boolean;
 }
 
 const IMAGERY_TILES =
@@ -212,7 +226,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
-  radiation: "hazards", nukeaccidents: "hazards",
+  radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -584,6 +598,7 @@ export default function DataMapPage() {
     soilmoisture: "gibs-soilmoisture",
     no2: "gibs-no2",
     firetemp: "gibs-firetemp",
+    floodzones: "fema-floodzones",
   };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
@@ -2846,6 +2861,57 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.superfund, mapReady, mapSettled, setStatus]);
 
+  // ── FEMA flood hazard zones (RAW; location_context_engine.md hazard layer
+  // #3 — "the closest direct Zillow parallel"). Raster overlay rendered LIVE
+  // by FEMA's own public ArcGIS MapServer (hazards.fema.gov, CORS-open,
+  // verified live) via MapLibre's `{bbox-epsg-3857}` template token — the
+  // same "zero server cost, tiles from someone else's public service"
+  // pattern as surfacewater/forest above, no data archived by us for the
+  // overlay itself (the click-anywhere dossier's flood_zone field is the
+  // separate server-side point lookup, server/femaFlood.ts). FEMA's own
+  // scale limit (minScale ~1:36k) means this legitimately renders blank
+  // until zoomed to roughly property level — stated in the status note, not
+  // a bug. field:true — opacity slider inherited. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.floodzones) {
+      try {
+        if (map.getLayer("fema-floodzones")) map.removeLayer("fema-floodzones");
+        if (map.getSource("fema-floodzones")) map.removeSource("fema-floodzones");
+      } catch {}
+      setStatus("floodzones", "off");
+      return;
+    }
+    try {
+      if (!map.getSource("fema-floodzones")) {
+        map.addSource("fema-floodzones", {
+          type: "raster",
+          tiles: [
+            "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/export?" +
+            "bbox={bbox-epsg-3857}&bboxSR=102100&imageSR=102100&size=256,256&format=png32&" +
+            "transparent=true&layers=show:28&f=image",
+          ],
+          tileSize: 256, maxzoom: 16,
+          attribution: "Flood hazard zones © FEMA (public domain)",
+        } as any);
+      }
+      if (!map.getLayer("fema-floodzones")) {
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: "fema-floodzones", type: "raster", source: "fema-floodzones",
+          paint: { "raster-opacity": opacityOf("floodzones") / 100 },
+        } as any, firstMarker?.id);
+      }
+      setStatus("floodzones", "active", undefined,
+        "FEMA National Flood Hazard Layer · rendered live by FEMA's own map service — only visible " +
+        "zoomed to roughly property level (FEMA's own scale limit, not a bug); click anywhere for the " +
+        "exact zone/SFHA status at that point");
+    } catch {
+      setStatus("floodzones", "error");
+    }
+  }, [enabled.floodzones, mapReady, setStatus]);
+
   // ── nuclear tests time machine (RAW/FACTUAL; SIPRI/Johnston archive catalog,
   // 1945-1998 — 2,027 located tests; 24 unlocated quarantined server-side.
   // The "Lucy" scrub: a year slider drives a GPU filter (["<=",["get","y"],
@@ -5082,8 +5148,15 @@ export default function DataMapPage() {
               { key: "quakes", label: "historical M6+ earthquake", section: dos.hazards?.quakes },
               { key: "nuclear_tests", label: "historical nuclear test", section: dos.hazards?.nuclear_tests },
             ].filter((c) => c.section?.ready && c.section.total_within > 0);
+            // flood_zone is a POINT lookup, not a radius list — render only
+            // once ready (mirrors the hazardCats ready-gate above); a
+            // ready:true zone:null result (outside NFHL's footprint) is
+            // still real content worth showing, not withheld like an
+            // empty hazardCats section would be.
+            const floodZone = dos.hazards?.flood_zone;
+            const showFloodZone = Boolean(floodZone?.ready);
             const hasContent = Boolean(companyNode) || insiderEdges.length > 0 || callsAtEdges.length > 0
-              || contracts.length > 0 || nearestSites.length > 0 || hazardCats.length > 0;
+              || contracts.length > 0 || nearestSites.length > 0 || hazardCats.length > 0 || showFloodZone;
             if (!hasContent) return null;
             return (
               <div>
@@ -5148,6 +5221,29 @@ export default function DataMapPage() {
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+                {showFloodZone && (
+                  <div>
+                    <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>FEMA flood zone at this point:</p>
+                    {floodZone!.zone ? (
+                      <>
+                        <p className="vt-site-card-trail">
+                          Zone {floodZone!.zone}{floodZone!.subtype ? ` (${floodZone!.subtype})` : ""}
+                          {floodZone!.sfha != null ? ` · ${floodZone!.sfha ? "Special Flood Hazard Area" : "not a Special Flood Hazard Area"}` : ""}
+                        </p>
+                        {floodZone!.meaning && (
+                          <p className="vt-site-card-trail" style={{ paddingLeft: 8 }}>{floodZone!.meaning}</p>
+                        )}
+                        {floodZone!.base_flood_elevation_ft != null && (
+                          <p className="vt-site-card-trail" style={{ paddingLeft: 8 }}>
+                            Base flood elevation: {floodZone!.base_flood_elevation_ft} ft
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="vt-site-card-trail">Outside FEMA's mapped NFHL footprint (unstudied, not a low-risk claim).</p>
+                    )}
                   </div>
                 )}
               </div>

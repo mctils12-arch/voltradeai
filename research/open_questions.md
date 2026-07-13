@@ -968,6 +968,24 @@
     any Python-side daemon call this triggers is itself blocking
     something Node-side synchronously awaits every ~10 min).
 
+    UPDATE 2026-07-13, pre-flight health check (this session, PRODUCT —
+    noted per this session's own instructions, not investigated further):
+    TMPCLEANUP HYPOTHESIS REFUTED. `/api/diag/audit?type=EVENTLOOP-LAG&
+    token=$DIAG_TOKEN` (~4h after v1.0.291 deployed) shows the exact
+    outcome this item's own NEXT STEP anticipated as the refutation case:
+    EVENTLOOP-LAG entries continue on the same ~10-minute cadence
+    (12:38-20:16 UTC the day it shipped, still recurring past 00:01 UTC
+    the next day), magnitude GREW (86,000-97,800ms vs. the pre-fix
+    59,000-75,000ms), and `type=TMP-CLEANUP` returned ZERO entries in the
+    same window — the /tmp sweep isn't even the thing crossing
+    `TMP_CLEANUP_AUDIT_THRESHOLD`, let alone the blocking cause. tmpCleanup.ts
+    is now confirmed innocent (it's async fs AND it's not even the trigger).
+    NEXT STEP unchanged in spirit, narrower in scope: re-grep bot.ts's
+    setIntervals for the next ~600000ms-period candidate (tmpCleanup ruled
+    out); the daemon-side RPC path is the leading unexplored suspect,
+    not yet investigated. Full detail in research/experiments.md's
+    2026-07-13 entry.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
