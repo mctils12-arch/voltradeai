@@ -53,6 +53,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 // across toggle cycles. attachLayerInteractions binds them with named handlers
 // and returns a detach() the effect cleanup calls — no more stacking.
 import { attachLayerInteractions } from "@/lib/mapInteractions";
+import { formatPortDetail } from "@/lib/portDetail";
 
 // Satellite GP element cache (live-tracking stability). CelesTrak's `active`
 // group is ~6.6 MB / ~16k objects and CelesTrak RATE-LIMITS repeated pulls, so
@@ -98,7 +99,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident" | "nukefacility";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident" | "nukefacility" | "port";
   title: string;
   subtitle: string;
   body: string;
@@ -4159,6 +4160,7 @@ export default function DataMapPage() {
     if (!mapSettled) { setStatus("portdwell", "loading", undefined, "queued — mounts after the map settles"); return; }
     setStatus("portdwell", "loading");
     let stop = false;
+    let detachClicks: (() => void) | null = null;
     const load = async () => {
       try {
         const r = await fetch("/api/data/portdwell");
@@ -4174,6 +4176,19 @@ export default function DataMapPage() {
               label: `${String(p.name).replace(/^Port of /, "")}\n` +
                      `${p.in_port_now} in port · ` +
                      (p.dwell_median_h != null ? `med ${p.dwell_median_h}h` : `${p.visits_completed} calls`),
+              // full per-port stats ride in the feature so the click card
+              // (attached ONCE below) always shows the latest setData payload
+              name: p.name,
+              in_port_now: p.in_port_now,
+              visits_completed: p.visits_completed,
+              unique_vessels: p.unique_vessels,
+              dwell_median_h: p.dwell_median_h,
+              dwell_p90_h: p.dwell_p90_h,
+              dwell_max_h: p.dwell_max_h,
+              anomaly_count: p.anomaly_count,
+              anomaly_examples: JSON.stringify(p.anomaly_examples || []),
+              window_hours: d.window_hours,
+              caveat: d.caveat, // server's own honesty text — pass through verbatim
             },
           })),
         };
@@ -4196,6 +4211,14 @@ export default function DataMapPage() {
               "text-halo-width": 1.3,
             },
           });
+          // click card (user report: clicking a port marker showed the
+          // Starlink coverage fallback because ports had NO handler at all).
+          // Attached once per layer creation, detached in cleanup — never
+          // per-load (BUG 4: stacked anonymous handlers).
+          detachClicks = attachLayerInteractions(map, "portdwell-labels", (e: any) => {
+            const p = e.features?.[0]?.properties; if (!p) return;
+            setDetail({ kind: "port", ...formatPortDetail(p) });
+          });
         }
         setStatus("portdwell", "active", d.visits_completed,
           `${Math.round(d.window_hours / 24)}d: ${d.visits_completed} completed calls · ${d.in_port_now} in port now · ` +
@@ -4206,7 +4229,7 @@ export default function DataMapPage() {
     };
     load();
     const iv = window.setInterval(load, 10 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    return () => { stop = true; window.clearInterval(iv); detachClicks?.(); };
   }, [enabled.portdwell, mapReady, mapSettled, setStatus]);
 
   // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
