@@ -66,6 +66,7 @@ import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
+import { floodZoneAt } from "./femaFlood";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
@@ -2959,18 +2960,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // still in flight — hazard layers are served from their own independent
   // caches so they're available even before the graph finishes its first
   // build.
-  app.get("/api/data/dossier", (req, res) => {
+  app.get("/api/data/dossier", async (req, res) => {
     const entity = typeof req.query.entity === "string" ? req.query.entity : null;
     const lat = req.query.lat != null ? Number(req.query.lat) : null;
     const lon = req.query.lon != null ? Number(req.query.lon) : null;
     const hopsRaw = req.query.hops != null ? parseInt(String(req.query.hops), 10) : undefined;
     const radiusRaw = req.query.radius_km != null ? Number(req.query.radius_km) : undefined;
     const graph = cachedGraphSync();
+    const anchorLat = lat != null && Number.isFinite(lat) ? lat : null;
+    const anchorLon = lon != null && Number.isFinite(lon) ? lon : null;
+    // FEMA flood-zone lookup is the one hazard source that isn't a pre-cached
+    // bulk archive (it's a per-point spatial query against FEMA's own live
+    // service, internally cached — see server/femaFlood.ts) so it's awaited
+    // here rather than read synchronously like superfund/waterViolators;
+    // buildDossier itself stays a pure/sync function over the resolved value.
+    const floodZone = anchorLat != null && anchorLon != null ? await floodZoneAt(anchorLat, anchorLon) : null;
     res.set("Cache-Control", "public, max-age=300");
     const result = buildDossier(graph, {
       entity,
-      lat: lat != null && Number.isFinite(lat) ? lat : null,
-      lon: lon != null && Number.isFinite(lon) ? lon : null,
+      lat: anchorLat,
+      lon: anchorLon,
       hops: hopsRaw,
       radius_km: radiusRaw != null && Number.isFinite(radiusRaw) ? radiusRaw : undefined,
     }, {
@@ -2979,6 +2988,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       waterViolators: latestWaterViolators()?.violators ?? null,
       quakes: (datacoreQuakeHistory as any).quakes ?? [],
       nuclearTests: (datacoreNuclearTests as any).tests ?? [],
+      floodZone,
     });
     res.json(graph ? result : { ...result, warming_up: true, note: "first graph build in progress — nearest_sites/hazards still available, graph/contracts pending" });
   });
