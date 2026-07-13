@@ -80,6 +80,7 @@ test("radnet city table loads with valid coordinates for every station", () => {
     assert.ok(Number.isFinite(c.lat) && Number.isFinite(c.lon), c.key);
     assert.ok(Math.abs(c.lat) <= 72 && Math.abs(c.lon) <= 180, c.key);
     assert.ok(c.st.length === 2 && c.city.length >= 3, c.key);
+    assert.ok(c.rkm >= 1 && c.rkm <= 40, `${c.key} rkm ${c.rkm} — city-area radius out of sane range`);
   }
 });
 

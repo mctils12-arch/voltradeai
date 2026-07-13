@@ -3065,8 +3065,8 @@ export default function DataMapPage() {
     if (!map || !mapReady) return;
     if (!enabled.radiation) {
       try {
-        if (map.getLayer("radiation-pt")) map.removeLayer("radiation-pt");
-        if (map.getSource("radiation")) map.removeSource("radiation");
+        for (const l of ["radiation-pt", "radiation-area-fill", "radiation-area-line"]) if (map.getLayer(l)) map.removeLayer(l);
+        for (const s of ["radiation", "radiation-areas"]) if (map.getSource(s)) map.removeSource(s);
       } catch {}
       setStatus("radiation", "off");
       return;
@@ -3083,16 +3083,55 @@ export default function DataMapPage() {
         if (d.warming_up) throw new Error("radiation feed warming up");
         if (!Array.isArray(d.stations) || !d.stations.length) throw new Error("no stations");
         if (map.getSource("radiation")) return;
+        // EXACT-location stations (DE/CA/FI) keep the trefoil pin; US RadNet
+        // stations are city-approximate, so a pin would fake precision — they
+        // render instead as a translucent circle spanning roughly the CITY's
+        // land area (rkm = equivalent-circle radius from the Census gazetteer):
+        // "the instrument is somewhere in this shaded area."
+        const exact = d.stations.filter((s: any) => s.approx !== true);
+        const approx = d.stations.filter((s: any) => s.approx === true);
         map.addSource("radiation", {
           type: "geojson",
           data: {
             type: "FeatureCollection",
-            features: d.stations.map((s: any) => ({
+            features: exact.map((s: any) => ({
               type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] },
               properties: { ...s, band: radiationBandColor(s.value, s.unit) },
             })),
           } as any,
           attribution: "BfS · Health Canada · STUK/FMI · EPA RadNet",
+        } as any);
+        // geodesic 48-gon per approx station (true ground distance, same
+        // approach as the nuclear blast rings; radii are 2-25 km so
+        // equirectangular distortion is negligible)
+        map.addSource("radiation-areas", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: approx.map((s: any) => {
+              const rkm = Number(s.rkm) > 0 ? Number(s.rkm) : 6;
+              const dLat = rkm / 111.32;
+              const dLon = rkm / (111.32 * Math.max(0.15, Math.cos((s.lat * Math.PI) / 180)));
+              const ring: [number, number][] = [];
+              for (let i = 0; i <= 48; i++) {
+                const a = (i * 2 * Math.PI) / 48;
+                ring.push([s.lon + dLon * Math.cos(a), s.lat + dLat * Math.sin(a)]);
+              }
+              return {
+                type: "Feature", geometry: { type: "Polygon", coordinates: [ring] },
+                properties: { ...s, band: radiationBandColor(s.value, s.unit) },
+              };
+            }),
+          } as any,
+          attribution: "EPA RadNet (public domain)",
+        } as any);
+        map.addLayer({
+          id: "radiation-area-fill", type: "fill", source: "radiation-areas",
+          paint: { "fill-color": ["get", "band"], "fill-opacity": 0.16 },
+        } as any);
+        map.addLayer({
+          id: "radiation-area-line", type: "line", source: "radiation-areas",
+          paint: { "line-color": ["get", "band"], "line-opacity": 0.65, "line-width": 1.4, "line-dasharray": [3, 2] },
         } as any);
         map.addLayer({
           id: "radiation-pt", type: "symbol", source: "radiation",
@@ -3120,7 +3159,7 @@ export default function DataMapPage() {
           "stuk-fi": "this network's stations report every 10 minutes",
           "radnet-us": "this network's monitors report several times a day",
         };
-        detach = attachLayerInteractions(map, "radiation-pt", (e: any) => {
+        const onRadiationClick = (e: any) => {
           const f = e.features?.[0]; if (!f) return; const s = f.properties;
           const v = Number(s.value);
           const val = s.unit === "uSv/h"
@@ -3154,16 +3193,19 @@ export default function DataMapPage() {
             kind: "radiation",
             title: s.name,
             subtitle: val,
-            body: `${s.approx === true || s.approx === "true" ? `LOCATION IS APPROXIMATE: this pin sits at the CITY CENTER, not at the instrument — the EPA publishes RadNet locations as "City, ST" only, so the symbol can land on an unrelated house or street. The reading is real; the exact instrument address is not public.\n\n` : ""}` +
+            body: `${s.approx === true || s.approx === "true" ? `LOCATION IS APPROXIMATE: the shaded circle spans roughly this CITY's land area — the EPA publishes RadNet locations as "City, ST" only, so the instrument is somewhere within the circle; its exact address is not public. The reading is real.\n\n` : ""}` +
                   `${when}\n\n` +
                   `${compare}\n\n` +
                   `Network: ${NETWORK_LABEL[s.network] || s.network}\n` +
                   `Observed reading from the network's own published feed — no interpolation, no modeling, no health claim. Marker color is a display bucket of the measured value (see legend), not a threshold.`,
           });
-        });
+        };
+        const d1 = attachLayerInteractions(map, "radiation-pt", onRadiationClick);
+        const d2 = attachLayerInteractions(map, "radiation-area-fill", onRadiationClick);
+        detach = () => { d1(); d2(); };
         const nets = d.networks || {};
         setStatus("radiation", "active", d.stations.length,
-          `${d.stations.length.toLocaleString()} monitors — DE ${nets["bfs-de"] ?? 0} · CA ${nets["hc-ca"] ?? 0} · FI ${nets["stuk-fi"] ?? 0} · US ${nets["radnet-us"] ?? 0} (US = city-approximate). Observed readings, no modeling`);
+          `${d.stations.length.toLocaleString()} monitors — DE ${nets["bfs-de"] ?? 0} · CA ${nets["hc-ca"] ?? 0} · FI ${nets["stuk-fi"] ?? 0} · US ${nets["radnet-us"] ?? 0}. US monitors draw as translucent city-area circles (exact addresses not public); pins elsewhere are exact. Observed readings, no modeling`);
       },
       (failures) => setStatus("radiation", "error", undefined,
         failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
@@ -4997,12 +5039,13 @@ export default function DataMapPage() {
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Ambient Radiation</div>
                       <div className="vt-legend-items">
-                        <LegendIcon icon="vt-radiation" color="#eef3fb" label="Gamma Monitor" />
+                        <LegendIcon icon="vt-radiation" color="#eef3fb" label="Gamma Monitor (exact location)" />
+                        <span className="vt-legend-chip"><i style={{ background: "rgba(74,222,128,0.35)", borderRadius: "50%" }} /> US Monitor — City-Area Circle</span>
                         {RADIATION_BANDS.map((b) => (
                           <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
                         ))}
                         <span className="vt-legend-chip"><i style={{ background: RADIATION_CPM_COLOR }} /> CPM-only Station</span>
-                        <span className="vt-legend-note">(display buckets of the measured dose rate, not thresholds)</span>
+                        <span className="vt-legend-note">(bands = display buckets, not thresholds; US circles span roughly the city's area — exact addresses not public)</span>
                       </div>
                     </div>
                   )}
