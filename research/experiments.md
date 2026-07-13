@@ -13,6 +13,129 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-13 [PRODUCT] — Location Context Engine: PFAS drinking-water detections, hazard layer #4 (v1.0.303, T-DATACORE + T-CLIENT)
+
+TERRITORY: T-DATACORE (scripts/pfas_ucmr5.py, server/pfasUcmr5.ts) +
+T-CLIENT (client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx),
+SHARED minimal last (datacore/layers.json, package.json, research/*).
+PRODUCT session per CLAUDE.md's GOAL priority order.
+
+PRE-FLIGHT: `/api/health` clean (bot active, drawdown 0%, no liveness
+alarm — confirmed live). KNOWN BROKEN #18 (event-loop-lag) noted as the
+still-open top item from a same-day session but not this session's
+primary action (T-BOT territory, not blocking product work per this
+session's own instructions). Read research/experiments.md's last 10
+tagged entries (no thrash-ratio flag) and location_context_engine.md's
+explicit queue: "PFAS (EPA UCMR5/SDWIS), CDC/SEER cancer rates" — PFAS
+picked as the clear next hazard layer (#4, after superfund/water
+violators/FEMA flood zones).
+
+RESEARCH FIRST (READ BEFORE WRITE extends to external data, not just
+code): verified live before writing any pipeline code that (a) SDWIS/
+ECHO's own SDWA violation fields carry no PFAS-specific signal — EPA's
+PFAS NPDWR sets real MCLs but they aren't enforceable until 2029, so a
+violation-based layer would be empty/misleading right now; (b) UCMR5
+(Fifth Unregulated Contaminant Monitoring Rule) is the actual source of
+PFAS lab results, but its ~300MB bulk text file carries PWSID/State/
+Contaminant/Result/Date columns and NO lat/lon — a public water system
+isn't a single-point facility like an NPDES discharger, so geocoding
+needs a separate join. Traced and live-verified the exact two-hop path
+through EPA ECHO before committing to the design: PWSID ->
+sdw_rest_services.get_systems (exact p_pid filter) -> RegistryID ->
+echo_rest_services.get_facilities (same p_pid pattern) -> FacLat/
+FacLong (the FRS Locational Reference Table) — confirmed end-to-end on
+real PWSIDs (e.g. WY5600011 CHEYENNE BOARD OF PUBLIC UTILITIES ->
+RegistryID 110012840104 -> 41.100082,-104.924884) before writing
+scripts/pfas_ucmr5.py.
+
+SHIPPED: `scripts/pfas_ucmr5.py` downloads EPA's UCMR5 occurrence zip,
+filters to the 28 PFAS analytes (of UCMR5's 29 monitored substances —
+lithium is the 29th and excluded as non-PFAS) with a detection above
+the method reporting limit (AnalyticalResultsSign == "="), then
+geocodes every detected PWSID through the two ECHO hops above and
+writes `datacore/pfas/pfas_ucmr5.json`. Real-file run: 1,863,306 PFAS
+rows across 10,297 monitored systems; 37,546 detections; 3,539 systems
+with >=1 detection; 3,412/3,539 (96.4%) geocoded — 127 honestly
+excluded (missing_geocode), never guessed at a state/region centroid.
+FOUND-AND-FIXED DURING THE BUILD: `echo_rest_services.get_facilities`
+returns HTTP 500 on a GET URL built from ~300 comma-separated
+RegistryIDs (confirmed live via direct batch-size probing: 200 ids OK,
+300 ids 500s) — dropped that hop's batch size to 150 (kept the SDWA
+hop's batch at 300, which is unaffected) rather than guessing a
+generic retry/backoff.
+
+`server/pfasUcmr5.ts` imports the artifact directly (dossier.ts's own
+`sitesJson` convention — bundled into dist/index.cjs at build time,
+confirmed by grepping the built bundle for the artifact's content; no
+runtime fs read, sidestepping the R14 packaging pitfall entirely). New
+route `/api/data/pfas-ucmr5` (static, no warming_up state — the source
+doesn't change on its own between script re-runs) serves the map layer;
+`server/dossier.ts` gained a `pfas` HazardSection in the click-anywhere
+radius cross-join, alongside superfund/water_violators/quakes/
+nuclear_tests.
+
+CLIENT: new `vt-pfas` SDF icon (client/src/lib/mapIcons.ts) — an
+outlined water droplet (distinct from `vt-hydro`'s SOLID droplet, a
+power-plant icon) enclosing a 3-atom molecule glyph, reading as
+"chemical detected in water" at a glance per the SYMBOLS NOT DOTS
+standing behavior. ONE flat tint for the whole layer — deliberately
+NOT severity-graded, since no validated risk threshold exists (EPA's
+MRLs for PFOA/PFOS happen to sit at the eventual MCL level, 4 ppt =
+0.004 µg/L, so any detection is already "at the future regulatory
+line" — coloring by that would read as a risk score we haven't
+validated). Wired into `datamap.tsx`'s hazards group (toggle, popup
+listing every detected compound/concentration/date, legend entry) and
+the dossier card's hazard list. Spot-rendered the new icon standalone
+via a throwaway playwright script (not part of the harness) to confirm
+it draws a legible shape before shipping.
+
+HONESTY RAILS: every surface (map popup, dossier caveat, layers.json
+description) states plainly that a detection is EPA's own lab result,
+not a violation or safety claim, and names the 2029 PFAS MCL
+compliance deadline that hasn't arrived — matching the Location
+Context Engine's RAW-vs-SIGNAL rule (this is RAW/FACTUAL, no risk
+interpretation).
+
+RATCHET: 9 new Python tests (test_pfas_ucmr5.py — parse/detection
+filtering, bad-row counting, geocode-quarantine-never-guesses, sorted
+detections, committed-artifact coherence) + 4 new server tests
+(server/pfasUcmr5.test.ts) + 2 new dossier tests (nearby cross-join +
+ready:false-when-not-passed). `layersWiring.test.ts`'s ratchet (every
+registry layer must appear in datamap.tsx's LAYER_GROUP) covers the
+new `pfas` id automatically since it was added to both files in this PR.
+
+GATES: `python3 -m pytest -q` 675 passed, 2 skipped (this sandbox was
+missing numpy/pandas/requests/openpyxl/pytest entirely — a sandbox-only
+gap, not a repo issue — installed them to get a real full-suite signal;
+666 baseline + 9 new, zero regressions). `npx tsx --test
+server/*.test.ts` 640 passed / 4 failed (same 4 pre-existing
+network-dependent failures as baseline — apiKeyAccounts/compression/
+gdeltEvents/owmTiles — A/B-verified via `git stash`, unrelated files,
+untouched by this PR). `npx tsc --noEmit`: same 3 pre-existing
+environment errors before/after (A/B via `git stash` — missing
+@types/node/vite entry points, deprecated tsconfig option). `npm run
+build`: clean, dist/index.cjs confirmed to contain the bundled PFAS
+artifact. `npm run visual -- --page data`: 0 hard failures at
+390/768/1440 (pre-existing touch-target warnings unchanged). Version
+1.0.302 -> 1.0.303 (read-and-increment at commit time; re-fetched
+`origin/claude/beautiful-planck-vz0ubi` immediately before — no advance
+since session start).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): new static-data map layer +
+dossier cross-join section -> zero trading, scoring, sizing, or
+execution code touched -> no effect on any live trading decision.
+
+BACKTEST: N/A — /data product surface only.
+
+Remaining Location Context Engine hazard layers: CDC/SEER cancer rates
+(needs the county-polygon ecological-fallacy display guard already
+noted in research/location_context_engine.md — do not ship as a point
+layer). radius_km client-side toggle still not built (server default
+only). NEXT (whoever picks this queue back up): CDC/SEER is the last
+named hazard layer in the original roadmap; after it, this program's
+queue is clear except housekeeping (radius_km toggle) — a natural point
+to fall through to STALENESS AUDIT or another queued item.
+
 ## 2026-07-13 [PRODUCT] — Location Context Engine: FEMA flood hazard zones, hazard layer #3 (v1.0.299, T-CLIENT + T-DATACORE)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx) + T-DATACORE

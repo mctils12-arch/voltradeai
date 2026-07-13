@@ -10,6 +10,7 @@ import type { EverythingGraph, GraphNode, GraphEdge, SiteRow } from "./entityGra
 import type { ContractTxn } from "./usaSpending";
 import type { SuperfundSite } from "./superfund";
 import type { WaterViolator } from "./waterViolators";
+import type { PfasSystem } from "./pfasUcmr5";
 
 const node = (over: Partial<GraphNode>): GraphNode => ({
   id: "x", type: "company", label: "x", attrs: {}, ...over,
@@ -137,6 +138,12 @@ const violator = (over: Partial<WaterViolator>): WaterViolator => ({
   name: "Test Facility", id: "OK0000001", city: "Cushing", state: "OK",
   lat: ANCHOR.lat + 0.02, lon: ANCHOR.lon, permit: "Major", snc: "SNC", qtrs: 9, actions: 1, ...over,
 });
+const pfasSystem = (over: Partial<PfasSystem>): PfasSystem => ({
+  pws_id: "OK0000123", name: "Test Water System", state: "OK", region: "6",
+  lat: ANCHOR.lat + 0.02, lon: ANCHOR.lon, n_detections: 1, max_result_ug_l: 0.03,
+  detections: [{ contaminant: "PFOA", result: 0.03, mrl: 0.004, units: "µg/L", date: "8/12/2024" }],
+  ...over,
+});
 
 test("no anchor coordinates (no entity resolved, no lat/lon passed) -> hazards is null, not empty sections", () => {
   const g = graphFixture([], []);
@@ -174,6 +181,32 @@ test("hazard source passed as empty array (cache warm, genuinely nothing nearby)
   const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { waterViolators: [] });
   assert.equal(out.hazards!.water_violators.ready, true);
   assert.equal(out.hazards!.water_violators.total_within, 0);
+});
+
+test("pfas hazard section: nearby detections cross-join with contaminant list + max result in detail", () => {
+  const g = graphFixture([], []);
+  const near = pfasSystem({ pws_id: "NEAR", name: "Near System", lat: ANCHOR.lat + 0.01, lon: ANCHOR.lon,
+    n_detections: 2, max_result_ug_l: 0.05,
+    detections: [
+      { contaminant: "PFOA", result: 0.05, mrl: 0.004, units: "µg/L", date: "1/1/2024" },
+      { contaminant: "PFOS", result: 0.02, mrl: 0.004, units: "µg/L", date: "1/1/2024" },
+    ] });
+  const far = pfasSystem({ pws_id: "FAR", name: "Far System", lat: ANCHOR.lat + 5, lon: ANCHOR.lon });
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { pfas: [near, far] });
+  assert.ok(out.hazards);
+  assert.equal(out.hazards!.pfas.ready, true);
+  assert.equal(out.hazards!.pfas.total_within, 1); // far excluded (>50km default radius)
+  assert.equal(out.hazards!.pfas.hits[0].id, "NEAR");
+  assert.equal(out.hazards!.pfas.hits[0].detail.max_result_ug_l, 0.05);
+  assert.deepEqual(out.hazards!.pfas.hits[0].detail.contaminants.sort(), ["PFOA", "PFOS"]);
+  assert.match(out.hazards!.caveat, /UCMR5 lab detections/);
+});
+
+test("pfas hazard source not passed degrades to ready:false, not a false-clean 0", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { superfund: [superfundSite({})] });
+  assert.equal(out.hazards!.pfas.ready, false);
+  assert.equal(out.hazards!.pfas.total_within, 0);
 });
 
 test("hazard hits are capped at HAZARD_CAP, but total_within reports the true count and capped is honestly flagged", () => {

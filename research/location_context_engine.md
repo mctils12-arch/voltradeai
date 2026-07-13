@@ -183,3 +183,55 @@ cancer rates (needs the county-polygon ecological-fallacy display guard
 noted above — do not ship as a point layer). radius_km client toggle
 still not built. Live map-click screenshot verification still blocked on
 the harness limitation noted above.
+
+STATUS 2026-07-13: PFAS DRINKING-WATER DETECTIONS SHIPPED (hazard layer
+#4, this session, T-DATACORE + T-CLIENT) — EPA UCMR5 (Fifth Unregulated
+Contaminant Monitoring Rule), the ONLY source that carries actual PFAS
+lab results (SDWIS/ECHO's own SDWA violation fields have no PFAS-specific
+signal yet — EPA's PFAS NPDWR MCLs are real but not enforceable until
+2029, so no compliance violations exist in the data as of this build;
+confirmed live before building). UCMR5's own 308MB bulk file carries no
+lat/lon (a public water system isn't a single-point facility like an
+NPDES discharger) — geocoding required a two-hop join through EPA
+ECHO/FRS (PWSID -> RegistryID via sdw_rest_services.get_systems exact
+p_pid filter -> FacLat/FacLong via echo_rest_services.get_facilities),
+both hops verified live against real PWSIDs before writing any code.
+`scripts/pfas_ucmr5.py` (session-run, not scheduled — UCMR5's 2023-2025
+monitoring window is complete) filtered the real file to PFAS analytes
+with a detection above the method reporting limit (28 of UCMR5's 29
+monitored substances; lithium is the 29th and excluded as non-PFAS):
+1,863,306 PFAS rows across 10,297 monitored systems, 37,546 detections,
+3,539 systems with >=1 detection, geocoded 3,412/3,539 (96.4% — 127
+honestly excluded, never guessed at a centroid; discovered and fixed a
+real ECHO API limit along the way: get_facilities 500s past ~200
+comma-separated RegistryIDs in one GET, confirmed via live batch-size
+probing, batch size dropped to 150 for that hop only). Artifact
+(datacore/pfas/pfas_ucmr5.json, 3.6MB, in line with other committed
+datacore artifacts) is imported directly by `server/pfasUcmr5.ts`
+(dossier.ts's own sitesJson-import convention — bundled into dist/
+index.cjs at build time, confirmed by grepping the built bundle, so this
+sidesteps the R14 runtime-fs-read packaging pitfall entirely; no live
+poll needed since the source data doesn't change on its own). Wired into
+both the `/api/data/pfas-ucmr5` map layer (new `vt-pfas` droplet+molecule
+symbol, ONE flat tint — deliberately not severity-graded, since no
+validated risk threshold exists) and the click-anywhere dossier's hazard
+cross-join (server/dossier.ts's `pfas` HazardSection, alongside
+superfund/water_violators/quakes/nuclear_tests). Honesty: every surface
+(map popup, dossier caveat, layers.json description) states plainly that
+a detection is a lab result, not a violation or safety claim, and names
+the 2029 MCL compliance deadline that hasn't arrived.
+GATES: 9 new Python tests (test_pfas_ucmr5.py) + 4 new server tests
+(server/pfasUcmr5.test.ts) + 2 new dossier tests — full suites green
+(675 Python incl. the new 9, zero regressions; 644 Node tests, the same
+4 pre-existing network-dependent failures as baseline, A/B-verified via
+git stash). `npx tsc --noEmit`: same 3 pre-existing environment errors
+before/after (A/B via git stash). `npm run build`: clean, artifact
+confirmed bundled into dist/index.cjs. `npm run visual -- --page data`:
+0 hard failures at 390/768/1440 (pre-existing touch-target warnings
+unchanged); the new `vt-pfas` icon also spot-rendered standalone to
+confirm it draws a legible shape before shipping (the harness's registry
+fixture is a KNOWN separate debt item — filed 2026-07-12 — that doesn't
+yet exercise every newer toggle, `pfas` included; not this PR's job to
+fix, per that item's own note).
+Remaining hazard layers still queued: CDC/SEER cancer rates (needs the
+county-polygon display guard). radius_km client toggle still not built.

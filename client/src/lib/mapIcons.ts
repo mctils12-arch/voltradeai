@@ -516,6 +516,27 @@ const shapes: Record<string, () => ImageData> = {
     }
     ctx.closePath(); ctx.fill();
   }),
+  // PFAS drinking-water detection: outlined water droplet (distinct from
+  // vt-hydro's SOLID droplet — a power plant, not a hazard) enclosing a
+  // small 3-atom molecule glyph, reading as "chemical detected in water"
+  // at a glance (symbol directive 2026-07-12). One flat tint for the whole
+  // layer — deliberately NOT severity-graded (no validated risk threshold
+  // exists yet; EPA's PFAS MCLs are not enforceable until 2029).
+  "vt-pfas": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.moveTo(m, 4);
+    ctx.bezierCurveTo(m + 11, m + 1, m + 9, s - 6, m, s - 4);
+    ctx.bezierCurveTo(m - 9, s - 6, m - 11, m + 1, m, 4);
+    ctx.closePath(); ctx.stroke();
+    const cy = m + 3, r = 8, dot = 2.4;
+    const pts: [number, number][] = [[m, cy - r * 0.6], [m - r * 0.7, cy + r * 0.5], [m + r * 0.7, cy + r * 0.5]];
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]);
+    ctx.lineTo(pts[2][0], pts[2][1]); ctx.closePath(); ctx.stroke();
+    for (const [x, y] of pts) { ctx.beginPath(); ctx.arc(x, y, dot, 0, Math.PI * 2); ctx.fill(); }
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */

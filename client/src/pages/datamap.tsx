@@ -98,7 +98,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident" | "nukefacility";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident" | "nukefacility" | "pfas";
   title: string;
   subtitle: string;
   body: string;
@@ -146,6 +146,7 @@ interface DossierPayload {
     water_violators: DossierHazardSection;
     quakes: DossierHazardSection;
     nuclear_tests: DossierHazardSection;
+    pfas: DossierHazardSection;
     flood_zone: DossierFloodZone;
   } | null;
 }
@@ -226,7 +227,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
-  radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards",
+  radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -3374,6 +3375,83 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.nukeaccidents, mapReady, mapSettled, setStatus]);
 
+  // ── EPA UCMR5 PFAS drinking-water detections (Location Context Engine
+  // hazard layer #4, research/location_context_engine.md — RAW/FACTUAL lab
+  // results, not a violation/safety claim; served from a static offline-built
+  // artifact via server/pfasUcmr5.ts, so no live re-poll and no warming_up
+  // state). Droplet-with-molecule symbol, one flat tint (deliberately NOT
+  // severity-graded — no validated risk threshold exists yet). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.pfas) {
+      try {
+        if (map.getLayer("pfas-pt")) map.removeLayer("pfas-pt");
+        if (map.getSource("pfas")) map.removeSource("pfas");
+      } catch {}
+      setStatus("pfas", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("pfas", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("pfas", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/pfas-ucmr5", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.systems)) throw new Error("no systems");
+        if (map.getSource("pfas")) return;
+        map.addSource("pfas", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.systems.map((s: any) => ({
+              type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+              properties: s,
+            })),
+          } as any,
+          attribution: "US EPA UCMR5, public domain",
+        } as any);
+        map.addLayer({
+          id: "pfas-pt", type: "symbol", source: "pfas", minzoom: 3,
+          layout: {
+            "icon-image": "vt-pfas",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.4, 8, 0.7],
+            "icon-allow-overlap": true,
+          },
+          paint: {
+            "icon-color": "#22d3ee",
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.2,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "pfas-pt", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const dets: any[] = typeof p.detections === "string" ? JSON.parse(p.detections) : p.detections || [];
+          const lines = dets.slice(0, 8).map((det: any) =>
+            `${det.contaminant}: ${det.result} µg/L (MRL ${det.mrl}) — ${det.date}`).join("\n");
+          setDetail({
+            kind: "pfas",
+            title: p.name || "Public water system",
+            subtitle: `${p.state || ""}${p.n_detections ? ` · ${p.n_detections} detection${p.n_detections === 1 ? "" : "s"}` : ""}`,
+            body: `EPA UCMR5 (Fifth Unregulated Contaminant Monitoring Rule) lab results for this public ` +
+                  `water system, 2023-2025 mandated monitoring — a FACTUAL detection above the method ` +
+                  `reporting limit, NOT a violation or safety claim (EPA's PFAS National Primary Drinking ` +
+                  `Water Regulation MCLs carry a 2029 compliance deadline that has not arrived).\n\n${lines}\n\n` +
+                  `Geocoded via EPA ECHO/FRS (a water system's own coordinate, not a specific tap or address). ` +
+                  `Source: EPA UCMR5, public domain.`,
+          });
+        });
+        setStatus("pfas", "active", d.systems.length,
+          `${d.systems.length.toLocaleString()} public water systems with a PFAS detection (EPA UCMR5, ` +
+          `2023-2025 monitoring) — lab results, not a safety claim`);
+      },
+      (failures) => setStatus("pfas", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.pfas, mapReady, mapSettled, setStatus]);
+
   // ── earthquake history (RAW; USGS ComCat M6+ since 1900, public domain —
   // 14,492 events compiled through the data-quality gate. Shares the history
   // time bar: accumulate to the year, the year's quakes pulse. The LIVE quakes
@@ -5076,6 +5154,15 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
+                  {enabled.pfas && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">PFAS Drinking-Water Detections</div>
+                      <div className="vt-legend-items">
+                        <LegendIcon icon="vt-pfas" color="#22d3ee" label="PFAS Detected (EPA UCMR5)" />
+                        <span className="vt-legend-note">(lab result above the reporting limit — not a violation; EPA's PFAS MCLs aren't enforceable until 2029)</span>
+                      </div>
+                    </div>
+                  )}
                   {enabled.nucleartests && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Nuclear Tests</div>
@@ -5194,6 +5281,7 @@ export default function DataMapPage() {
               { key: "water_violators", label: "EPA Clean Water Act chronic violator", section: dos.hazards?.water_violators },
               { key: "quakes", label: "historical M6+ earthquake", section: dos.hazards?.quakes },
               { key: "nuclear_tests", label: "historical nuclear test", section: dos.hazards?.nuclear_tests },
+              { key: "pfas", label: "public water system with a PFAS detection (EPA UCMR5)", section: dos.hazards?.pfas },
             ].filter((c) => c.section?.ready && c.section.total_within > 0);
             // flood_zone is a POINT lookup, not a radius list — render only
             // once ready (mirrors the hazardCats ready-gate above); a

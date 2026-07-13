@@ -203,6 +203,17 @@
       "field": true
     },
     {
+      "id": "pfas",
+      "name": "PFAS drinking-water detections (EPA UCMR5)",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "light",
+      "source": "US EPA Fifth Unregulated Contaminant Monitoring Rule (UCMR5); geocoded via EPA ECHO/FRS — public domain",
+      "description": "3,412 public water systems that detected at least one of 28 PFAS analytes above the method reporting limit in EPA's mandated 2023-2025 UCMR5 monitoring (of 10,297 systems tested), droplet-with-molecule symbols, click for every detected compound/concentration/date. FACTUAL lab results, NOT a violation or safety claim — EPA's PFAS National Primary Drinking Water Regulation MCLs carry a 2029 compliance deadline that has not arrived. Geocoded per water system (not a specific tap or address) via a two-hop EPA ECHO/FRS join; 127 systems with a detection could not be geocoded and are honestly excluded, never guessed at a state/region centroid. Static artifact, built offline (scripts/pfas_ucmr5.py) — re-run when EPA posts a data update, not on a fixed schedule.",
+      "field": false
+    },
+    {
       "id": "powergrid",
       "name": "US Power Grid (all states)",
       "kind": "raw",

@@ -67,6 +67,7 @@ import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDeman
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { floodZoneAt } from "./femaFlood";
+import { pfasSystems, pfasArtifactMeta } from "./pfasUcmr5";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
@@ -2393,6 +2394,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // EPA UCMR5 PFAS drinking-water detections (Location Context Engine
+  // hazard layer #4 — served from a static offline-built artifact, see
+  // server/pfasUcmr5.ts; no live poll, so no warming_up state).
+  app.get("/api/data/pfas-ucmr5", (_req, res) => {
+    const meta = pfasArtifactMeta();
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: meta.source,
+      geocode_source: meta.geocode_source,
+      attribution: meta.attribution,
+      built_at: meta.built_at,
+      selection: meta.selection,
+      note: meta.caveat,
+      counts: meta.counts,
+      systems: pfasSystems(),
+    });
+  });
+
   bootGridStressPoll();
   app.get("/api/data/grid-stress", (_req, res) => {
     if (!gridStressEnabled()) {
@@ -2988,6 +3009,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       waterViolators: latestWaterViolators()?.violators ?? null,
       quakes: (datacoreQuakeHistory as any).quakes ?? [],
       nuclearTests: (datacoreNuclearTests as any).tests ?? [],
+      pfas: pfasSystems(),
       floodZone,
     });
     res.json(graph ? result : { ...result, warming_up: true, note: "first graph build in progress — nearest_sites/hazards still available, graph/contracts pending" });
