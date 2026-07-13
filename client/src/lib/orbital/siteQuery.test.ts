@@ -111,3 +111,22 @@ test('siteCoverageReport: caps the search at min(gp.length, buffer slots) and sk
   assert.equal(report.totalModeled, 1);
   assert.equal(report.visible.length, 1);
 });
+
+// ── coverageQueryAllowed: the O7 click-routing guard ─────────────────────────
+// Regression for the live bug where clicking the LA port marker surfaced the
+// "Starlink coverage" card instead of the port: the coverage fallback may only
+// claim clicks on genuinely empty ground (raster-only basemap ⇒ any rendered
+// vector feature at the point belongs to a data layer that owns the click).
+import { coverageQueryAllowed } from './siteQuery.ts';
+
+test('coverageQueryAllowed: empty ground (no rendered features) → coverage card allowed', () => {
+  assert.equal(coverageQueryAllowed([]), true);
+});
+
+test('coverageQueryAllowed: any rendered feature under the click → coverage card suppressed', () => {
+  assert.equal(coverageQueryAllowed([{ layer: { id: 'portdwell-labels' } }]), false);
+  assert.equal(coverageQueryAllowed([
+    { layer: { id: 'powergrid_hifld_plants-pt' } },
+    { layer: { id: 'powergrid_hifld_sub-pt' } },
+  ]), false);
+});

@@ -39,7 +39,7 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays } from "@/lib/orbital/propagate";
-import { siteCoverageReport } from "@/lib/orbital/siteQuery";
+import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
@@ -1496,6 +1496,15 @@ export default function DataMapPage() {
         layer.getGlobeCamera(),
       );
       if (!hit) {
+        // FEATURE CLICKS OWN THEIR POPUPS: only fall through to the coverage
+        // report on genuinely empty ground. The basemap is raster-only, so any
+        // rendered vector feature under the cursor belongs to a data layer
+        // (port markers, plants, alerts, …) — its handler owns the click, and
+        // the coverage card must not paint over it (live bug: clicking the LA
+        // port marker showed "Starlink coverage" instead of the port).
+        let atPoint: unknown[] = [];
+        try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch { /* style mid-swap */ }
+        if (!coverageQueryAllowed(atPoint)) return;
         // O7 STARLINK COVERAGE: reuse this tick's already-propagated buffer
         // to answer "does Starlink cover this ground point right now" rather
         // than leaving the click a pure no-op.

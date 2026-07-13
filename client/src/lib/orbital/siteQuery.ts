@@ -49,6 +49,20 @@ export function isStarlinkName(name: string | null | undefined): boolean {
 }
 
 /**
+ * Click-routing guard for the O7 coverage fallback (datamap's satellite
+ * click handler). The /data basemap is raster-only (background + imagery
+ * tiles), so ANY rendered vector feature under the click belongs to a data
+ * layer (port markers, power plants, alert polygons, …) — that layer's own
+ * handler (or deliberate lack of one) owns the click. The Starlink coverage
+ * card may only claim clicks on genuinely empty ground; it must never paint
+ * over — or race — a feature layer's popup (live bug: clicking the LA port
+ * marker surfaced "Starlink coverage" instead of the port).
+ */
+export function coverageQueryAllowed(featuresAtPoint: readonly unknown[]): boolean {
+  return featuresAtPoint.length === 0;
+}
+
+/**
  * Which members of a named constellation currently cover (siteLatDeg,
  * siteLonDeg) above `minElevDeg`, from an already-propagated position
  * buffer. `positions`/`stride`/`gp` are the SAME index-aligned triple
