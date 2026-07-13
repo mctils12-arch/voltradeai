@@ -1852,6 +1852,14 @@ export default function DataMapPage() {
             body: `${p.operator ? `Operator: ${p.operator}\n` : ""}` +
                   `${p.state ? `State: ${p.state}\n` : ""}` +
                   `${p.status ? `Status: ${STATUS_LABEL[p.status] || p.status}\n` : ""}` +
+                  // per-plant position honesty (HIFLD VAL_METHOD; mirrors the WRI
+                  // layer's convention) — user report: a wind-plant icon sat on a
+                  // house; registry-reported points can mark the plant's
+                  // registered address rather than the equipment itself.
+                  `${p.val === "IMAGERY" ? "Position imagery-verified (HIFLD).\n"
+                    : p.val === "IMAGERY/OTHER" ? "Position verified against imagery/other sources (HIFLD).\n"
+                    : p.val === "OTHER" ? "Position verified by a non-imagery source (HIFLD).\n"
+                    : "Position registry-reported (EIA-860), unverified — the point may mark the plant's registered address rather than the equipment.\n"}` +
                   `\nHIFLD authoritative (U.S. DHS / Oak Ridge National Laboratory, public domain; from EIA-860).`,
           });
         }));
