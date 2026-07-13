@@ -107,6 +107,103 @@ export function detectGapEvents(tracks: Map<string, Pt[]>,
   return out.sort((a, b) => b.gapHours - a.gapHours);
 }
 
+interface Endpoint { mmsi: string; t: number; la: number; lo: number }
+
+/** [PERF REPAIR 2026-07-13, KNOWN BROKEN #18 root cause] Hull-swap candidate
+ *  count: is vessel A's last point followed, within `withinHours` and
+ *  `nearKm`, by some other vessel B's first point? The naive form compares
+ *  every (A,B) pair — O(vessels²) — which at the live archive's scale
+ *  (34,895 distinct vessels in the 72h window, 2026-07-13) is ~1.2 BILLION
+ *  haversine calls, run synchronously with zero yield points inside a
+ *  10-minute setInterval (server/routes.ts refreshShadowStats/
+ *  refreshPortDwell's shared computeShadowStatsAsync -> ShadowAggregator.
+ *  finish()). That is the actual cause of the recurring ~10-minute,
+ *  60-95s-and-growing EVENTLOOP-LAG stalls — the two prior fix attempts on
+ *  this item (tmpCleanup async conversion v1.0.291, SQLite WAL mode
+ *  v1.0.302) targeted different, ultimately-innocent candidates because
+ *  neither session grepped routes.ts's setIntervals, only bot.ts's. Grows
+ *  monotonically with the archive because `vessels_seen` in a fixed window
+ *  only grows as coverage/history accumulates — matching the observed
+ *  growing-magnitude symptom exactly.
+ *  Fix: sort firsts by time, binary-search each last's (t, t+window] slice
+ *  instead of scanning all N firsts. Same predicate, same output (pinned by
+ *  the RATCHET [PERF] test below) — just doesn't do 34,895x more distance
+ *  calls than the data requires. */
+// Terrestrial AIS traffic packs into a FIXED wall-clock window (windowHours,
+// e.g. 72h) regardless of how many vessels the archive has accumulated —
+// meaning time-window filtering alone only buys a constant-factor
+// (withinHours/windowHours) reduction, not a real complexity fix: density
+// (firsts per second) scales WITH vessel count, so the time-window slice
+// size scales with N too. A spatial grid is the piece that actually breaks
+// the N^2 (real ocean traffic clusters near coastlines/receivers, not
+// uniformly over the globe, so per-cell candidate counts stay small as N
+// grows). Cell size = nearKm degrees-equivalent; longitude degrees compress
+// toward the poles (1 lon-degree ~= 111*cos(lat) km), so the lon-neighbor
+// search radius widens with latitude to guarantee a true nearKm-radius
+// circle is never under-covered (never a false negative — may scan a few
+// extra, harmless, cells instead).
+const EARTH_KM_PER_DEG = 111.0;
+
+// KNOWN LIMITATION: cell keys use raw (unwrapped) longitude, so a pair
+// straddling the antimeridian (e.g. 179.9 / -179.9, ~11km apart in reality)
+// lands in far-apart buckets and is missed. None of this system's tracked
+// zones (Gibraltar, Malta, Fujairah, Laconian Gulf) are near the date line;
+// accepted as a known gap in a heuristic RAW statistic rather than adding
+// dateline-wrap bucket logic for a real-world-irrelevant case.
+function countHullSwapCandidates(lasts: Endpoint[], firsts: Endpoint[],
+                                 nearKm: number, withinHours: number): number {
+  const windowSec = withinHours * 3600;
+  const cellDeg = nearKm / EARTH_KM_PER_DEG;
+  const grid = new Map<string, { pts: Endpoint[]; times: number[] }>();
+  const cellKey = (la: number, lo: number) => `${Math.floor(la / cellDeg)}|${Math.floor(lo / cellDeg)}`;
+  for (const f of firsts) {
+    const key = cellKey(f.la, f.lo);
+    let bucket = grid.get(key);
+    if (!bucket) { bucket = { pts: [], times: [] }; grid.set(key, bucket); }
+    bucket.pts.push(f);
+  }
+  grid.forEach((bucket) => {
+    bucket.pts.sort((a, b) => a.t - b.t);
+    bucket.times = bucket.pts.map((f) => f.t);
+  });
+
+  let count = 0;
+  for (const last of lasts) {
+    const latCell = Math.floor(last.la / cellDeg);
+    const lonCell = Math.floor(last.lo / cellDeg);
+    // +1 buffer beyond the geometric minimum guards floating-point cell-edge
+    // rounding; cos clamped to avoid an unbounded radius at the poles (no
+    // real shipping traffic operates there).
+    const cosLat = Math.max(Math.cos((last.la * Math.PI) / 180), 0.05);
+    const lonRadius = Math.max(1, Math.ceil(1 / cosLat)) + 1;
+    const latRadius = 2;
+    for (let dLat = -latRadius; dLat <= latRadius; dLat++) {
+      for (let dLon = -lonRadius; dLon <= lonRadius; dLon++) {
+        const bucket = grid.get(`${latCell + dLat}|${lonCell + dLon}`);
+        if (!bucket) continue;
+        const lo = upperBoundExclusive(bucket.times, last.t);
+        const hi = upperBoundExclusive(bucket.times, last.t + windowSec);
+        for (let i = lo; i < hi; i++) {
+          const f = bucket.pts[i];
+          if (f.mmsi === last.mmsi) continue;
+          if (kmBetween(last.la, last.lo, f.la, f.lo) <= nearKm) count++;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+/** First index i such that sorted[i] > value (sorted ascending). */
+function upperBoundExclusive(sorted: number[], value: number): number {
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] <= value) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
 /** Identity-change candidates: (a) a name seen under two different MMSIs in
  *  the window; (b) an MMSI first-seen within `nearKm` and `withinHours` of
  *  another MMSI's last-seen point (hull-swap heuristic). Conservative counts
@@ -125,17 +222,14 @@ export function detectIdentityCandidates(tracks: Map<string, Pt[]>,
   }
   for (const s of byName.values()) if (s.size > 1) count += s.size - 1;
 
-  const entries = [...tracks.entries()];
-  for (const [aM, aPts] of entries) {
-    const lastA = aPts[aPts.length - 1];
-    for (const [bM, bPts] of entries) {
-      if (aM === bM) continue;
-      const firstB = bPts[0];
-      const dtH = (firstB.t - lastA.t) / 3600;
-      if (dtH <= 0 || dtH > withinHours) continue;
-      if (kmBetween(lastA.la, lastA.lo, firstB.la, firstB.lo) <= nearKm) count++;
-    }
+  const lasts: Endpoint[] = [];
+  const firsts: Endpoint[] = [];
+  for (const [mmsi, pts] of tracks) {
+    const f = pts[0], l = pts[pts.length - 1];
+    firsts.push({ mmsi, t: f.t, la: f.la, lo: f.lo });
+    lasts.push({ mmsi, t: l.t, la: l.la, lo: l.lo });
   }
+  count += countHullSwapCandidates(lasts, firsts, nearKm, withinHours);
   return count;
 }
 
@@ -307,18 +401,11 @@ export class ShadowAggregator {
     });
     let identity = 0;
     this.byName.forEach((s) => { if (s.size > 1) identity += s.size - 1; });
-    const entries: string[] = [];
-    this.prev.forEach((_v, k) => entries.push(k));
-    for (const aM of entries) {
-      const lastA = this.prev.get(aM)!;
-      for (const bM of entries) {
-        if (aM === bM) continue;
-        const firstB = this.first.get(bM)!;
-        const dtH = (firstB.t - lastA.t) / 3600;
-        if (dtH <= 0 || dtH > 12) continue;
-        if (kmBetween(lastA.la, lastA.lo, firstB.la, firstB.lo) <= 20) identity++;
-      }
-    }
+    const lasts: Endpoint[] = [];
+    const firsts: Endpoint[] = [];
+    this.prev.forEach((p, mmsi) => lasts.push({ mmsi, t: p.t, la: p.la, lo: p.lo }));
+    this.first.forEach((p, mmsi) => firsts.push({ mmsi, t: p.t, la: p.la, lo: p.lo }));
+    identity += countHullSwapCandidates(lasts, firsts, 20, 12);
     const gaps = this.gaps.sort((a, b) => b.gapHours - a.gapHours);
     return {
       window_hours: windowHours,
