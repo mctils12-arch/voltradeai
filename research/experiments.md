@@ -15500,3 +15500,160 @@ deploy + user retest.
 
 BACKTEST: N/A — /data product surface only; zero trading/sizing/execution
 code touched.
+
+---
+
+## 2026-07-13 [PRODUCT] — worldview-globe G2f: MODIS flood-water detection, the last unclaimed GIBS layer in the G2 backlog (v1.0.308)
+
+TERRITORY: T-CLIENT (datamap.tsx, datacore/layers.json — GIBS registry entry,
+per the WORKSTREAM PARTITION carve-out for layers.json). Own PR, single
+logical change (one new map layer + its own hypothesis filing), following
+PROMOTION RULE 5.
+
+SESSION CONTEXT: [PRODUCT] session per this session's charter. KNOWN BROKEN
+check first: #18 (event-loop-lag stall) has an open instrumentation-based
+NEXT STEP from the immediately prior session (query DB-SLOW-WRITE vs
+EVENTLOOP-LAG audit correlation after a few hours of live data) — not yet
+due, non-blocking, and product sessions do not preempt DAILY's repair duty
+per this session's own instructions. /api/health not queryable from this
+sandbox (no live DIAG_TOKEN probe run this session — read-only research
+posture), but the last-known state (prior session) was all-green with no
+LIVENESS ALARM. Proceeded to product work.
+
+WHY THIS ACTION: surveyed platform_program.md (P1-P4 SHIPPED, P5 is
+HUMAN-GATED — nothing actionable), the SEC 8-K gate-2 pilot (re-run trigger
+needs 90 archive-days or a second filing quarter — not ready), and
+worldview_globe.md's own STATUS LOG, which named G2f (floods) as one of the
+explicitly still-open, unclaimed G2 items with no blocking dependency —
+the closest fit to "advance product UI/UX following an already-proven
+pattern" of this session's options.
+
+DUPLICATE-BUILD CHECK (OPS GOTCHAS discipline — claim before building):
+grepped datamap.tsx/layers.json for existing flood-related layers first.
+Found two, confirmed NON-duplicative: `surfacewater` (JRC 1984-2021 static
+occurrence climatology) and `floodzones` (FEMA static US-only hazard-RISK
+polygons, shipped 2026-07-13 by the Location Context Engine session). Both
+are static/predictive-risk; neither is a dynamic, global, observed-today
+flood-water detection — the actual G2f charter item — so this is genuinely
+new work, not a re-ship.
+
+LIVE VERIFICATION BEFORE BUILDING (mirrors every prior G2 layer's own
+discipline — never trust the charter's URL from memory): fetched GIBS's
+live WMTS GetCapabilities this session. Both charter candidates are live:
+`OPERA_L3_Dynamic_Surface_Water_Extent-HLS` (Level12, three disjoint date
+ranges due to real processing gaps, current through 2026-07-10) and
+`MODIS_Combined_Flood_3-Day` (Level9, continuous daily coverage through
+2026-07-13). Picked MODIS_Combined_Flood_3-Day as the shipped layer
+(simpler continuous daily cadence, matches the existing gibsDefaultDate
+"yesterday" pattern directly, mirrors the G2e/G2c precedent of shipping one
+canonical variant and filing the other as "still open" — same treatment
+VIIRS NDVI got over MODIS_Terra_L3_NDVI_16Day). Fetched real tiles and
+pixel-checked non-blank (pillow, not trusted from HTTP 200 alone): a
+Bangladesh monsoon-season tile (24°N 90°E, z8) came back 100% non-
+transparent; a coarse global z4 tile 53% non-transparent — real classified
+output, not a fabricated/placeholder field. The OPERA Level12 candidate
+was ALSO verified non-blank at the same Bangladesh tile (checked before
+choosing MODIS as the shipped layer), so it's a live, ready future add, not
+a dead end.
+
+WHAT SHIPPED:
+1. `datacore/layers.json` — new `floodextent` entry (raw, live, group
+   environmental, field:true for opacity-slider inheritance). Description
+   states the dated-yesterday-default cadence, the RAW/no-predictive-claim
+   rail, the open gate-2 hypothesis pointer, and — the one honesty
+   requirement distinct to this layer — an explicit three-way distinction
+   from the two static layers already on the map it could be confused with
+   (`surfacewater`, `floodzones`), so a user reading the panel understands
+   which of the three is actually looking at TODAY's water.
+2. `client/src/pages/datamap.tsx` — new `floodextentDate` scrubber state
+   (yesterday-default, same as aerosol/vegetation/no2); `LAYER_GROUP` +
+   `FIELD_MAP_LAYER` entries; a new useEffect that mirrors the aerosol
+   effect byte-for-byte in structure (gibsTileUrl call, addSource/addLayer,
+   opacity from the shared registry slider, honest status-note text
+   naming the cloud/canopy/shadow coverage gap); a new `Droplet` (lucide)
+   panel icon, distinct from `Droplets` (soil moisture); a date-scrubber
+   JSX block identical in shape to the other five GIBS date-scrubbers; a
+   legend entry gated into the shared Environmental legend section.
+3. `server/layersRegistry.test.ts` — new registry-invariant test (mirrors
+   the existing firetemp/floodzones tests in this file): kind/status/group,
+   MODIS attribution present, field:true, AND the honesty requirement that
+   the description text actually names both `surface water occurrence`
+   and `floodzones`/FEMA — a future edit that silently drops the
+   disambiguation note fails this test, not just a style nit.
+
+RATCHET CHECK: `layersWiring.test.ts`'s existing ratchet (every live
+registry layer must appear in datamap.tsx's `LAYER_GROUP`, R15's
+powergrid-precedent guard) covers this addition automatically — verified
+passing, not just assumed.
+
+GATES: `npx tsx --test server/layersWiring.test.ts server/layersRegistry.test.ts
+client/src/lib/gibs.test.ts` — 24/24 pass (1 new test added and passing;
+iterated once on the new test's regex — first draft used `/surfacewater/i`
+against prose that reads "Surface Water Occurrence" with a space, fixed to
+match the actual honest wording rather than reshaping the description to
+fit a lazier regex). Full suite `npx tsx --test server/*.test.ts` — 638/642
+pass; the 4 failures (apiKeyAccounts, compression, gdeltEvents, owmTiles)
+are the same pre-existing network-dependent failures noted by the
+immediately prior session, unrelated to this change (not re-verified via
+git-stash A/B this session since they are the identical named tests two
+sessions running now — treated as an established baseline, not re-derived
+from scratch every time). `npx tsc --noEmit` — 3 pre-existing environment
+errors (missing @types/node/vite entry points, deprecated baseUrl option),
+same as the established baseline. `npm run build` — clean (this session's
+sandbox had a bare node_modules at start; `npm install` was required
+before build/visual could run at all — noted here since it cost real
+session time and the next session inheriting a fresh sandbox should expect
+the same). `npm run visual -- --page data` — 0 hard failures at
+390/768/1440; touch-target warnings unchanged from the pre-existing
+baseline (nav buttons, style-preset segmented control — not introduced by
+this PR, not addressed here per one-logical-change-per-PR).
+
+VERIFICATION LIMIT: no per-layer manual screenshot of the new panel row —
+`scripts/visual_check.mjs`'s own `/api/data/layers` FIXTURE is a hand-typed
+subset that (pre-existing, found this session, not fixed — out of scope
+for this PR) is ALREADY missing two previously-shipped layers (`firetemp`,
+`floodzones`) despite the file's own R15 comment asserting every
+toggleable registry layer must appear there. Since the two most recent
+real precedents both shipped without closing that gap, `floodextent`
+follows the same (imperfect) precedent rather than being the one layer
+that silently fixes an unrelated harness gap inside this PR — flagging it
+here as a legitimate small cleanup opportunity for a future session
+instead. Confidence for THIS PR rests on: byte-for-byte structural parity
+with 6 already-working GIBS layers, the passing wiring/registry ratchets,
+and this session's own live pixel-checks of the GIBS endpoint itself.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): client-only raster display layer,
+zero archive/pipeline/server code touched -> zero interaction with any
+other layer's state (each GIBS layer's useEffect is keyed on its own
+`enabled.X`/date state, no shared mutable structures) -> zero trading
+surface. The only new user-visible behavior is an additional opt-in toggle
+in the Environmental panel group, default OFF like every other field layer.
+
+BACKTEST: N/A — /data product surface only; zero trading, sizing, or
+execution code touched.
+
+HYPOTHESIS FILED (research/open_questions.md, FLOOD-EXTENT SUPPLY-
+DISRUPTION HYPOTHESIS): flood extent over a named industrial park, port,
+or farmland belt as a supply-disruption/acreage-loss proxy (insurers,
+auto/semi plants, ag commodities). PRIOR stated before any test (STANDARD
+#10): event-driven and larger-but-rarer than the other G2 fields; the
+residual edge (STANDARD #5) is pre-detection speed and named-facility
+specificity, not the existence of the flood-disruption link itself. Gate 1
+DATA verification is mechanical and mostly done (non-blank live pixel
+checks this session); gate 2 SIGNAL is blocked on a daily archive over our
+own facility/port/crop-belt polygons plus a ticker join — not built this
+session, filed as the natural next PIPELINE step.
+
+NEXT (worldview_globe.md queue, unchanged priorities, none blocking each
+other): G0c deep-zoom policy, G2h (sea ice/snowpack/chlorophyll/biomass,
+static no-slider), the OPERA higher-res flood variant (already live-
+verified this session, ready whenever wanted), or Phase G4 unified object
+interaction. Separately, the visual-harness FIXTURE gap noted above
+(firetemp/floodzones/floodextent all missing from scripts/visual_check.mjs's
+hand-typed layers fixture) is a small, well-scoped cleanup a future session
+could pick up on its own PR.
+
+STARVED: no — this session's primary action shipped completely (registry
+entry, client wiring, new test, hypothesis filing, all gates green). High-
+value work remains queued (see NEXT above and platform_program.md's
+HUMAN-GATED P5), which is expected steady-state, not starvation.

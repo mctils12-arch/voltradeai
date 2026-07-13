@@ -98,6 +98,18 @@ test("firetemp layer: GOES-East attribution + irregular-cadence honesty + FIRMS-
   assert.equal(f.field, true, "raster inherits the registry opacity slider");
 });
 
+test("floodextent layer: MODIS/GIBS attribution + dynamic-vs-static honesty + opacity inheritance (G2f)", () => {
+  const f = registry.layers.find((x: any) => x.id === "floodextent");
+  assert.ok(f, "floodextent layer missing");
+  assert.equal(f.kind, "raw");
+  assert.equal(f.status, "live");
+  assert.equal(f.group, "environmental");
+  assert.ok(f.source.includes("MODIS"), "attribution must name MODIS");
+  assert.ok(/surface water occurrence/i.test(f.description), "description must distinguish itself from the static surfacewater (JRC) layer");
+  assert.ok(/floodzones|FEMA/i.test(f.description), "description must distinguish itself from the static FEMA floodzones layer");
+  assert.equal(f.field, true, "raster inherits the registry opacity slider");
+});
+
 test("weather layer states US-only coverage honestly (Tier-1(b), licensing register 2026-07-04)", () => {
   const w = registry.layers.find((x: any) => x.id === "weather");
   assert.ok(w, "weather layer missing");

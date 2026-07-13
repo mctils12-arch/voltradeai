@@ -2205,6 +2205,63 @@ R6. **Dashboards from monitoring we already emit (charter directive
   still-open TEMPO (US hourly) and SO₂ (point-source smelter on/off) layers would
   deepen exactly this cross-tie once the sub-daily factory work lands.
 
+## FLOOD-EXTENT SUPPLY-DISRUPTION HYPOTHESIS (RAW layer shipped 2026-07-13 —
+   client/src/pages/datamap.tsx "floodextent" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2f — NASA GIBS MODIS Near Real-Time Global
+   Flood Mapping, 3-day composite)
+
+- **Observed flood extent over a NAMED industrial park, port, or farmland
+  belt as a supply-disruption / acreage-loss proxy (Pillar 6, per
+  worldview_globe.md's G2f text).** PRIOR before any test: a flood-water
+  detection event over a specific facility, port, or crop-belt polygon
+  co-moves with, and typically LEADS by days, the market's pricing of that
+  disruption — insurers via claims exposure, auto/semiconductor plants via
+  a forced shutdown, ag commodities via acreage-loss revisions to
+  USDA/WASDE prints. Unlike the other G2 hypotheses (aerosol/NDVI/soil-
+  moisture/NO2, all slow-moving, continuously-valued fields), flood
+  detection is EVENT-DRIVEN and binary-ish (water/no-water), so the
+  tradeable window is short and the effect, when it fires, should be large
+  — closer in shape to the low-water/generation-exposure cross-tie below
+  than to the ambient-field hypotheses above. Second-order (STANDARD #5):
+  flood-as-disruption is an obvious, well-covered story once CNN reports
+  it — the residual edge for a small system is PRE-DETECTION SPEED (a
+  daily satellite composite before the wire story) and NAMED-FACILITY
+  SPECIFICITY (this exact plant/port/field, not "the region"), not the
+  existence of the link itself.
+- Ladder: gate 1 DATA — NASA-published product; verification mechanical
+  (access + non-blank field confirmed live 2026-07-13 against GIBS
+  GetCapabilities: a Bangladesh-monsoon-season tile pixel-checked 100%
+  non-transparent, a coarse global-overview tile 53% — real classified
+  output, not a fabricated field; a spot-check of a few dates against the
+  GIBS Worldview UI is the remaining mechanical step, same as every prior
+  G2 layer). Gate 2 SIGNAL is blocked on (a) a daily flood-extent ARCHIVE
+  sampled over our own facility/port/crop-belt polygons (this PR is
+  display-only, no pipeline yet — same prerequisite gap as every other G2
+  layer before its own archive shipped) and (b) a facility/port → ticker
+  join. RAW today, no predictive claim; cloud/canopy/urban-shadow
+  suppression is stated as honest retrieval coverage in the layer
+  description and status note, never silently hidden.
+- HONEST DISTINCTION from the two layers already on this map that could be
+  confused with this one: `surfacewater` is JRC's STATIC 1984-2021
+  occurrence climatology (where water usually is, not an event); `floodzones`
+  is FEMA's STATIC US-only predicted-risk polygon (a hazard-likelihood map,
+  never an observed-event claim). `floodextent` is the one DYNAMIC, global,
+  observed-right-now layer of the three — the only one that could actually
+  detect an active flood happening today.
+- CROSS-TIE (2026-07-07 integration principle): the natural join is flood
+  extent × the strategic-facility/powerplant/port-dwell archives already on
+  the entity spine (the same one fires/AOD/NO2 hang off) — a flood polygon
+  intersecting an archived facility or port is the pre-computed, NAMED
+  exposure list this layer's value depends on, mirroring the low-water/
+  generation-exposure cross-tie's pattern exactly. Not built this session
+  (this PR is the display layer only); the natural next PIPELINE step once
+  a daily archive exists.
+- Discount per STANDARD #4: N=0 tests run, one layer, no archive yet — this
+  is a prior, not a finding. Per STANDARD #7, floods are seasonal/regional
+  (monsoon Asia, US spring snowmelt, hurricane-season Gulf) — any future
+  backtest must be regime/season-conditioned, never pooled across a full
+  year as if flood risk were uniform.
+
 ## LOW-WATER / GENERATION-EXPOSURE HYPOTHESIS (RAW cross-tie shipped 2026-07-08,
    v1.0.232 — server/riverPlants.ts + /api/data/plants-near-rivergauges,
    worldview-globe Pillar 6 backend inference)

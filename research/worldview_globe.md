@@ -173,9 +173,25 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
   planting-calendar baseline). Still-open: `MODIS_Terra_L3_NDVI_16Day` variant
   and disturbance `OPERA_L3_DIST-ALERT-HLS_Color_Index` (palm/pulp/miner
   concessions) as future adds.
-- G2f Floods `OPERA_L3_Dynamic_Surface_Water_Extent-HLS`, `MODIS_Combined_Flood_3-Day`.
-  Hypothesis: flood over industrial parks/ports/farmland → insurers, auto/semi
-  plants, acreage loss.
+- [SHIPPED v1.0.308] G2f Floods `MODIS_Combined_Flood_3-Day` (PNG,
+  `GoogleMapsCompatible_Level9`, daily rolling 3-day composite — access +
+  non-blank field verified live 2026-07-13: a Bangladesh-monsoon tile
+  pixel-checked 100% non-transparent, a coarse global tile 53%). Registry
+  `floodextent` (RAW, field:true, environmental); Droplet icon; same
+  daily-scrubber mirror. Hypothesis (Pillar 6): flood extent over a named
+  industrial park/port/farmland belt as a supply-disruption/acreage-loss
+  proxy → insurers, auto/semi plants, ag commodities; filed in
+  open_questions.md with prior (event-driven, pre-detection-speed + named-
+  facility-specificity is the residual, not the link itself), ladder path
+  (gate-2 blocked on a daily archive over facility/port/crop-belt polygons
+  + a ticker join), and the honest three-way distinction from the two
+  static layers already on the map (`surfacewater` = JRC static occurrence
+  climatology; `floodzones` = FEMA static US-only hazard-risk polygons;
+  `floodextent` is the one DYNAMIC observed-right-now layer of the three).
+  Still-open: `OPERA_L3_Dynamic_Surface_Water_Extent-HLS` (Level12,
+  higher-res HLS-based variant, non-blank verified live over the same
+  Bangladesh tile at z8 but not yet wired — a future higher-resolution
+  add, same "still open" precedent as G2e's MODIS_Terra NDVI variant).
 - [SHIPPED v1.0.231] G2g NO2 throughput `TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column`
   (PNG, `GoogleMapsCompatible_Level6`, DAILY — access + continuous non-blank field
   verified live 2026-07-08: yesterday tile 100% over N.America; ocean legitimately
@@ -271,3 +287,9 @@ version = read-and-increment at commit time; rebase on collision.
   deep-zoom policy, G2f floods, G2h (sea ice/snowpack/chlorophyll/biomass —
   static, no slider), or Phase G4 unified object interaction — pick per the
   next session's own judgment; none block on each other.
+- 2026-07-13 [PRODUCT session]: G2f (MODIS flood-water detection) SHIPPED
+  v1.0.308 — see the G2f bullet above for full detail; hypothesis filed
+  open_questions.md (FLOOD-EXTENT SUPPLY-DISRUPTION HYPOTHESIS). NEXT: G0c
+  deep-zoom policy, G2h (sea ice/snowpack/chlorophyll/biomass), the OPERA
+  higher-res flood variant, or Phase G4 unified object interaction — pick
+  per the next session's own judgment; none block on each other.

@@ -1098,6 +1098,17 @@
       "field": true
     },
     {
+      "id": "floodextent",
+      "name": "Flood water detection (MODIS, GIBS)",
+      "kind": "raw",
+      "status": "live",
+      "group": "environmental",
+      "costTier": "moderate",
+      "source": "NASA GIBS/ESDIS — MODIS Near Real-Time Global Flood Mapping (3-day composite), public domain",
+      "description": "Detected surface water vs. expected/reference water from a rolling 3-day MODIS composite (reduces single-day cloud gaps), dated (default: yesterday; step back via the on-panel scrubber). This is a DYNAMIC, global, near-real-time observation of water on the ground right now — distinct from the two static layers already on this map: Surface Water Occurrence (JRC's 1984-2021 historical climatology of where water usually is) and FEMA flood hazard zones (US-only, static predicted-risk polygons, never an observed-event claim). As-is display, no predictive claim: flood extent over a named industrial park, port, or farmland belt as a supply-disruption/acreage-loss proxy (insurers, auto/semiconductor plants, ag commodities) is an open gate-2 hypothesis (research/open_questions.md), not yet a signal. Cloud cover, dense forest canopy, and urban shadow all suppress detection — the retrieval's honest coverage gap, not a bug.",
+      "field": true
+    },
+    {
       "id": "rivergauges",
       "name": "River gauges (barge corridor)",
       "kind": "raw",
