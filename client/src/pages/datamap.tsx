@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
@@ -54,6 +54,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 // and returns a detach() the effect cleanup calls — no more stacking.
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
+import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits } from "@/lib/units";
 
 // Satellite GP element cache (live-tracking stability). CelesTrak's `active`
 // group is ~6.6 MB / ~16k objects and CelesTrak RATE-LIMITS repeated pulls, so
@@ -618,7 +619,14 @@ export default function DataMapPage() {
   // never denser than the sampling — the note shows real spacing).
   const [windArrows, setWindArrows] = useState(true);
   const [tempLabels, setTempLabels] = useState(false);
-  const [tempUnitF, setTempUnitF] = useState(true);
+  // site-wide unit system (imperial|metric; lib/units.ts). useSyncExternalStore
+  // keeps panel JSX (legends, chips, the toggle itself) re-rendering on change;
+  // click handlers read the live pref at call time through the fmt* helpers.
+  const unitSystem = useSyncExternalStore(subscribeUnits, getUnits, getUnits);
+  // weather temp labels follow the global pref by default; its own °F/°C
+  // chip still overrides for the map-label layer specifically.
+  const [tempUnitF, setTempUnitF] = useState(() => getUnits() === "imperial");
+  useEffect(() => { setTempUnitF(unitSystem === "imperial"); }, [unitSystem]);
   const [wxGrid, setWxGrid] = useState<any>(null);
   useEffect(() => {
     const onHash = () => {
@@ -1524,7 +1532,7 @@ export default function DataMapPage() {
                 ? `0 of ${totalModeled} modeled Starlinks currently cover this point (>=${STARLINK_MIN_ELEV_DEG}° elevation mask) — a real gap right now, not missing data.`
                 : `${visible.length} of ${totalModeled} modeled Starlinks currently cover this point (>=${STARLINK_MIN_ELEV_DEG}° elevation mask).`,
             ...nearest.map((s) =>
-              `${s.name ?? `NORAD ${s.noradId}`}: ${s.elevationDeg.toFixed(1)}° elevation, ${s.rangeKm.toFixed(0)} km range`),
+              `${s.name ?? `NORAD ${s.noradId}`}: ${s.elevationDeg.toFixed(1)}° elevation, ${fmtKm(s.rangeKm)} range`),
             "Geometric visibility only (published ~25° user-terminal mask) — no link-budget, beam-steering, or cell-capacity model; real SGP4 position, no predictive claim.",
           ].filter(Boolean).join("\n"),
         });
@@ -1538,7 +1546,7 @@ export default function DataMapPage() {
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
-        subtitle: `${cls} · ${altKm.toFixed(0)} km altitude`,
+        subtitle: `${cls} · ${fmtKm(altKm)} altitude`,
         body: [
           `NORAD catalog ID: ${g.noradId}`,
           g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
@@ -2480,7 +2488,7 @@ export default function DataMapPage() {
       iconPaint: { "icon-color": ALT_COLOR, "icon-opacity": 0.95 },
       onClick: async (p, lngLat) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
-        const alt = p.ground === true || p.ground === "true" ? "on ground" : (p.alt != null ? `${p.alt} m` : "alt unknown");
+        const alt = p.ground === true || p.ground === "true" ? "on ground" : (p.alt != null ? fmtMeters(p.alt) : "alt unknown");
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
         setDetail({
           kind: "aircraft",
@@ -3060,7 +3068,7 @@ export default function DataMapPage() {
                   `How it was fired: ${decodeType(t.t)}.\n` +
                   `Why (catalog purpose): ${decodePurpose(t.p)}.\n\n` +
                   `Yield: ${yieldContext(t.kt)}\n` +
-                  `${rkm ? `Ring on map: ~${rkm.toFixed(1)} km severe-blast (5 psi) radius ESTIMATE — Glasstone & Dolan cube-root scaling from the catalogued yield. An estimate of blast reach, not fallout: fallout depends on weather and burst height the catalog doesn't record.\n` :
+                  `${rkm ? `Ring on map: ~${fmtKm(rkm, 1)} severe-blast (5 psi) radius ESTIMATE — Glasstone & Dolan cube-root scaling from the catalogued yield. An estimate of blast reach, not fallout: fallout depends on weather and burst height the catalog doesn't record.\n` :
                           `No ring on map: ${Number(t.kt) > 0 ? "buried shot — blast contained underground" : "yield not catalogued, so no radius is estimated"}.\n`}` +
                   `\nSource: the "Nuclear Explosions 1945–1998" catalog (Bergkvist & Ferm, Swedish Defence Research Establishment FOA / SIPRI) — the standard open historical record of all known tests: who, when, where, yield, emplacement and stated purpose. Locations and yields as catalogued (yields are the catalog's upper estimates).`,
           });
@@ -3457,7 +3465,7 @@ export default function DataMapPage() {
             kind: "quake",
             title: q.pl || "Earthquake",
             subtitle: `M${q.m} · ${q.d}`,
-            body: `${q.dep != null ? `Depth: ${q.dep} km\n` : ""}` +
+            body: `${q.dep != null ? `Depth: ${fmtKm(q.dep)}\n` : ""}` +
                   `\nUSGS ANSS ComCat (public domain) — historical catalog M6+ since 1900; the live quakes layer covers the present.`,
           });
         });
@@ -3632,7 +3640,7 @@ export default function DataMapPage() {
               kind: "train",
               title: `${p.label}`,
               subtitle: `${p.country === "FI" ? "Finland · Digitraffic (CC BY 4.0)" : "Norway · Entur (NLOD)"}`,
-              body: `${p.speed != null && p.speed !== "null" ? `Speed: ${p.speed} km/h\n` : ""}Live passenger-rail position, shown as received.`,
+              body: `${p.speed != null && p.speed !== "null" ? `Speed: ${fmtKmh(Number(p.speed))}\n` : ""}Live passenger-rail position, shown as received.`,
               trailId: p.id, trailKind: "trains", dossierKey,
             });
             // Trains aren't Everything Graph nodes — lat/lon-only dossier.
@@ -3834,10 +3842,10 @@ export default function DataMapPage() {
                 .map(([fuel, mw]: any) => `${fuel} ${Math.round(mw).toLocaleString()} MW`)
                 .join(", ");
               const top = (xt.plants || []).slice(0, 3)
-                .map((pl: any) => `${pl.name} (${pl.capacity_mw.toLocaleString()} MW ${pl.fuel}, ${pl.distance_km} km)`)
+                .map((pl: any) => `${pl.name} (${pl.capacity_mw.toLocaleString()} MW ${pl.fuel}, ${fmtKm(pl.distance_km)})`)
                 .join("\n  ");
               exposure =
-                `\n\nGenerating capacity within 50 km: ${xt.plant_count} plants, ` +
+                `\n\nGenerating capacity within ${fmtKm(50)}: ${xt.plant_count} plants, ` +
                 `${xt.total_capacity_mw.toLocaleString()} MW\n  ${fuels}` +
                 `${top ? `\nNearest:\n  ${top}` : ""}` +
                 `\nRAW proximity join (plants near this reach), NOT confirmed water-intake ` +
@@ -4011,7 +4019,7 @@ export default function DataMapPage() {
             setDetail({
               kind: "quake",
               title: `M${p.mag != null ? Number(p.mag).toFixed(1) : "?"} — ${p.place || "unknown location"}`,
-              subtitle: `${p.time ? new Date(p.time).toUTCString() : "time unknown"}${p.depth != null ? ` · ${Math.round(p.depth)} km deep` : ""}`,
+              subtitle: `${p.time ? new Date(p.time).toUTCString() : "time unknown"}${p.depth != null ? ` · ${fmtKm(p.depth)} deep` : ""}`,
               body: `${p.type !== "earthquake" ? `Reported type: ${p.type}\n` : ""}` +
                     `${p.status ? `Review status: ${p.status}\n` : ""}` +
                     `${p.magType ? `Magnitude type: ${p.magType}\n` : ""}` +
@@ -4099,11 +4107,12 @@ export default function DataMapPage() {
               kind: "buoy",
               title: `Buoy ${p.station}`,
               subtitle: p.time ? new Date(p.time).toUTCString() : "time unknown",
-              body: `Wave height: ${fmt(p.waveHeight, "m")}\n` +
+              // hPa stays in both systems (NDBC/NWS marine convention — units.ts)
+              body: `Wave height: ${fmtMetersSmall(p.waveHeight)}\n` +
                     `Dominant period: ${fmt(p.dominantPeriod, "s", 0)}\n` +
-                    `Wind speed: ${fmt(p.windSpeed, "m/s")}\n` +
+                    `Wind speed: ${fmtMetersPerSec(p.windSpeed)}\n` +
                     `Pressure: ${fmt(p.pressure, "hPa", 0)}${p.pressureTendency != null ? ` (${p.pressureTendency > 0 ? "+" : ""}${p.pressureTendency.toFixed(1)} hPa/3h)` : ""}\n` +
-                    `Air / water temp: ${fmt(p.airTemp, "°C")} / ${fmt(p.waterTemp, "°C")}\n\n` +
+                    `Air / water temp: ${fmtCelsius(p.airTemp)} / ${fmtCelsius(p.waterTemp)}\n\n` +
                     `NOAA National Data Buoy Center — raw station reading, missing sensors shown as no data.`,
               links: [{ label: "NDBC station page", href: `https://www.ndbc.noaa.gov/station_page.php?station=${p.station}` }],
               dossierKey,
@@ -4901,6 +4910,21 @@ export default function DataMapPage() {
                 reload the page to enable the newest layers.
               </div>
             )}
+            {/* Site-wide unit system (human directive 2026-07-13): every
+                measurement in cards/panels renders through lib/units.ts.
+                Open cards keep their units until reopened. */}
+            <div className="vt-preset-switch" role="group" aria-label="Unit system"
+                 style={{ position: "static", transform: "none", margin: "6px 10px 2px", justifyContent: "flex-start", alignItems: "center" }}>
+              <span className="vt-streams-launch-sub" style={{ marginRight: 6 }}>Units</span>
+              {([["imperial", "mi · °F"], ["metric", "km · °C"]] as const).map(([id, label]) => (
+                <button key={id}
+                        className={`vt-preset-pill${unitSystem === id ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={unitSystem === id}
+                        onClick={() => setUnits(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
             {/* Streams inventory launcher (Phase 4, 2026-07-06): the archive
                 census is page-wide, not layer-scoped, so it launches from the
                 panel top — "nothing ships invisible". */}
@@ -5190,7 +5214,7 @@ export default function DataMapPage() {
           )}
           {detail.timeline && (
             <div>
-              <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>Past 7 days within 50 km (own archives):</p>
+              <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>Past 7 days within {fmtKm(50)} (own archives):</p>
               {detail.timeline.events.length === 0 && (
                 <p className="vt-site-card-trail">No archived alerts, fire detections, or gauge readings.</p>
               )}
@@ -5284,14 +5308,14 @@ export default function DataMapPage() {
                   <div>
                     <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>Nearest strategic sites:</p>
                     {nearestSites.map((s) => (
-                      <p key={s.id} className="vt-site-card-trail">{s.name} · {s.km.toFixed(0)} km</p>
+                      <p key={s.id} className="vt-site-card-trail">{s.name} · {fmtKm(s.km)}</p>
                     ))}
                   </div>
                 )}
                 {hazardCats.length > 0 && (
                   <div>
                     <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>
-                      Nearby hazard records ({dos.hazards!.radius_km} km radius — facts only, no risk claim):
+                      Nearby hazard records ({fmtKm(dos.hazards!.radius_km)} radius — facts only, no risk claim):
                     </p>
                     {hazardCats.map((c) => (
                       <div key={c.key}>
@@ -5300,7 +5324,7 @@ export default function DataMapPage() {
                         </p>
                         {c.section!.hits.slice(0, 3).map((h) => (
                           <p key={h.id} className="vt-site-card-trail" style={{ paddingLeft: 8 }}>
-                            {h.label} · {h.km.toFixed(1)} km
+                            {h.label} · {fmtKm(h.km, 1)}
                           </p>
                         ))}
                         {c.section!.capped && (

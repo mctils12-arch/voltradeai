@@ -705,3 +705,18 @@ experiments.md.
   differently from a nuclear-plant MELTDOWN). Honesty unchanged:
   symbol classes come from catalogued fields, never inferred beyond
   the documented decode tables.
+- UNITS PREFERENCE (human-directed 2026-07-13): the site has ONE
+  user-facing unit-system setting (imperial | metric; imperial
+  default), persisted, switchable in the /data layers panel, and
+  implemented in client/src/lib/units.ts (getUnits/setUnits/
+  subscribeUnits + fmtKm/fmtMeters/fmtMetersPerSec/fmtKmh/fmtCelsius).
+  EVERY new data source, layer, card, or panel that displays a
+  distance, length, speed, or temperature MUST render it through
+  those formatters — never a hardcoded `${x} km`-style string; this
+  transfers automatically to future features ("always transfer this
+  info or feature when adding new data sources" — verbatim human
+  directive). Storage and computation stay in the source's native
+  units (archives never converted); only display converts. Domain
+  conventions stay fixed in both systems: knots (vessels/aircraft/
+  wind), hPa (barometric), MW, Kelvin (fire radiative power), µSv/h,
+  quake magnitude.
