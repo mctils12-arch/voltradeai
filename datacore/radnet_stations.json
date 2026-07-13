@@ -1,311 +1,387 @@
 {
- "_doc": "EPA RadNet fixed-monitor city list (from epa.gov/radnet/radnet-csv-file-downloads, 2026-07-12) joined to U.S. Census Bureau 2023 Places Gazetteer centroids (both public domain). RadNet publishes CITY-LEVEL locations only, so markers are APPROXIMATE city centroids \u2014 every consumer must label them so.",
+ "_doc": "EPA RadNet fixed-monitor city list (from epa.gov/radnet/radnet-csv-file-downloads, 2026-07-12) joined to U.S. Census Bureau 2023 Places Gazetteer centroids (both public domain). RadNet publishes CITY-LEVEL locations only, so markers are APPROXIMATE city centroids \u2014 every consumer must label them so. rkm = equivalent-circle radius (km) of the city's Census land area (sqrt(ALAND/pi)) \u2014 sizes the city-approximate display circle; rkm_fallback marks the few visual-convention 6 km defaults.",
  "source": "EPA RadNet city list + US Census 2023 Gazetteer (public domain)",
  "count": 76,
  "stations": {
   "AK/FAIRBANKS": {
    "lat": 64.8365,
-   "lon": -147.6517
+   "lon": -147.6517,
+   "rkm": 5.1
   },
   "AL/BIRMINGHAM": {
    "lat": 33.5272,
-   "lon": -86.797
+   "lon": -86.797,
+   "rkm": 11.0
   },
   "AL/MOBILE": {
    "lat": 30.6684,
-   "lon": -88.1002
+   "lon": -88.1002,
+   "rkm": 10.7
   },
   "AL/MONTGOMERY": {
    "lat": 32.3485,
-   "lon": -86.2673
+   "lon": -86.2673,
+   "rkm": 11.5
   },
   "AR/FT SMITH": {
    "lat": 35.3493,
-   "lon": -94.3709
+   "lon": -94.3709,
+   "rkm": 7.3
   },
   "AR/LITTLE ROCK": {
    "lat": 34.7254,
-   "lon": -92.3586
+   "lon": -92.3586,
+   "rkm": 10.0
   },
   "AZ/PHOENIX": {
    "lat": 33.5722,
-   "lon": -112.0901
+   "lon": -112.0901,
+   "rkm": 20.7
   },
   "AZ/YUMA": {
    "lat": 32.5163,
-   "lon": -114.5218
+   "lon": -114.5218,
+   "rkm": 10.0
   },
   "CA/ANAHEIM": {
    "lat": 33.8555,
-   "lon": -117.7587
+   "lon": -117.7587,
+   "rkm": 6.4
   },
   "CA/BAKERSFIELD": {
    "lat": 35.3532,
-   "lon": -119.0379
+   "lon": -119.0379,
+   "rkm": 11.1
   },
   "CA/EUREKA": {
    "lat": 40.7976,
-   "lon": -124.1542
+   "lon": -124.1542,
+   "rkm": 2.8
   },
   "CA/FRESNO": {
    "lat": 36.7827,
-   "lon": -119.7934
+   "lon": -119.7934,
+   "rkm": 9.8
   },
   "CA/LOS ANGELES": {
    "lat": 34.0194,
-   "lon": -118.4108
+   "lon": -118.4108,
+   "rkm": 19.7
   },
   "CA/RIVERSIDE": {
    "lat": 33.9381,
-   "lon": -117.3932
+   "lon": -117.3932,
+   "rkm": 8.2
   },
   "CA/SAN DIEGO": {
    "lat": 32.815,
-   "lon": -117.1356
+   "lon": -117.1356,
+   "rkm": 16.4
   },
   "CA/SAN FRANCISCO": {
    "lat": 37.7272,
-   "lon": -123.0322
+   "lon": -123.0322,
+   "rkm": 6.2
   },
   "CA/SAN JOSE": {
    "lat": 37.296,
-   "lon": -121.8146
+   "lon": -121.8146,
+   "rkm": 12.1
   },
   "CO/COLORADO SPRINGS": {
    "lat": 38.8673,
-   "lon": -104.7607
+   "lon": -104.7607,
+   "rkm": 12.9
   },
   "CO/DENVER": {
    "lat": 39.7619,
-   "lon": -104.8811
+   "lon": -104.8811,
+   "rkm": 11.2
   },
   "CO/GRAND JUNCTION": {
    "lat": 39.0891,
-   "lon": -108.5675
+   "lon": -108.5675,
+   "rkm": 5.8
   },
   "CT/HARTFORD": {
    "lat": 41.7659,
-   "lon": -72.6816
+   "lon": -72.6816,
+   "rkm": 3.8
   },
   "DC/WASHINGTON": {
    "lat": 38.9042,
-   "lon": -77.0165
+   "lon": -77.0165,
+   "rkm": 7.1
   },
   "DE/DOVER": {
    "lat": 39.1606,
-   "lon": -75.5217
+   "lon": -75.5217,
+   "rkm": 4.4
   },
   "FL/JACKSONVILLE": {
    "lat": 30.3369,
-   "lon": -81.6616
+   "lon": -81.6616,
+   "rkm": 24.8
   },
   "FL/ORLANDO": {
    "lat": 28.4087,
-   "lon": -81.2548
+   "lon": -81.2548,
+   "rkm": 9.6
   },
   "FL/TALLAHASSEE": {
    "lat": 30.4535,
-   "lon": -84.2523
+   "lon": -84.2523,
+   "rkm": 9.2
   },
   "FL/TAMPA": {
    "lat": 27.9663,
-   "lon": -82.4776
+   "lon": -82.4776,
+   "rkm": 9.7
   },
   "GA/ATLANTA": {
    "lat": 33.7629,
-   "lon": -84.4227
+   "lon": -84.4227,
+   "rkm": 10.6
   },
   "IA/FORT MADISON": {
    "lat": 40.6208,
-   "lon": -91.3495
+   "lon": -91.3495,
+   "rkm": 2.8
   },
   "IA/MASON CITY": {
    "lat": 43.1486,
-   "lon": -93.1998
+   "lon": -93.1998,
+   "rkm": 4.8
   },
   "ID/IDAHO FALLS": {
    "lat": 43.4889,
-   "lon": -112.0363
+   "lon": -112.0363,
+   "rkm": 4.7
   },
   "IN/INDIANAPOLIS": {
    "lat": 39.7767,
-   "lon": -86.1459
+   "lon": -86.1459,
+   "rkm": 17.3
   },
   "KS/KANSAS CITY": {
    "lat": 39.1225,
-   "lon": -94.7418
+   "lon": -94.7418,
+   "rkm": 10.1
   },
   "KS/WICHITA": {
    "lat": 37.6906,
-   "lon": -97.3458
+   "lon": -97.3458,
+   "rkm": 11.6
   },
   "KY/LOUISVILLE": {
    "lat": 38.2247,
-   "lon": -85.7406
+   "lon": -85.7406,
+   "rkm": 7.1
   },
   "LA/BATON ROUGE": {
    "lat": 30.4404,
-   "lon": -91.1332
+   "lon": -91.1332,
+   "rkm": 8.5
   },
   "LA/SHREVEPORT": {
    "lat": 32.4669,
-   "lon": -93.7922
+   "lon": -93.7922,
+   "rkm": 9.4
   },
   "MA/BOSTON": {
    "lat": 42.3386,
-   "lon": -71.0183
+   "lon": -71.0183,
+   "rkm": 6.3
   },
   "MA/WORCESTER": {
    "lat": 42.2695,
-   "lon": -71.8078
+   "lon": -71.8078,
+   "rkm": 5.5
   },
   "MD/BALTIMORE": {
    "lat": 39.3,
-   "lon": -76.6105
+   "lon": -76.6105,
+   "rkm": 8.2
   },
   "ME/ORONO": {
    "lat": 44.8783,
-   "lon": -68.6881
+   "lon": -68.6881,
+   "rkm": 2.4
   },
   "MI/DETROIT": {
    "lat": 42.383,
-   "lon": -83.1022
+   "lon": -83.1022,
+   "rkm": 10.7
   },
   "MI/GRAND RAPIDS": {
    "lat": 42.9612,
-   "lon": -85.6556
+   "lon": -85.6556,
+   "rkm": 6.1
   },
   "MN/ST. PAUL": {
    "lat": 44.9489,
-   "lon": -93.1041
+   "lon": -93.1041,
+   "rkm": 6.5
   },
   "MO/JEFFERSON CITY": {
    "lat": 38.5675,
-   "lon": -92.1753
+   "lon": -92.1753,
+   "rkm": 5.5
   },
   "MO/SPRINGFIELD": {
    "lat": 37.1942,
-   "lon": -93.2926
+   "lon": -93.2926,
+   "rkm": 8.3
   },
   "MT/KALISPELL": {
    "lat": 48.2162,
-   "lon": -114.3276
+   "lon": -114.3276,
+   "rkm": 3.2
   },
   "NC/WILMINGTON": {
    "lat": 34.2092,
-   "lon": -77.8858
+   "lon": -77.8858,
+   "rkm": 6.5
   },
   "NE/OMAHA": {
    "lat": 41.2627,
-   "lon": -96.0535
+   "lon": -96.0535,
+   "rkm": 10.9
   },
   "NH/CONCORD": {
    "lat": 43.2325,
-   "lon": -71.5613
+   "lon": -71.5613,
+   "rkm": 7.3
   },
   "NH/PORTSMOUTH": {
    "lat": 43.0606,
-   "lon": -70.7803
+   "lon": -70.7803,
+   "rkm": 3.6
   },
   "NM/CARLSBAD": {
    "lat": 32.4008,
-   "lon": -104.241
+   "lon": -104.241,
+   "rkm": 5.1
   },
   "NY/SYRACUSE": {
    "lat": 43.041,
-   "lon": -76.1436
+   "lon": -76.1436,
+   "rkm": 4.5
   },
   "NY/YAPHANK": {
    "lat": 40.831,
-   "lon": -72.9317
+   "lon": -72.9317,
+   "rkm": 3.4
   },
   "OH/COLUMBUS": {
    "lat": 39.9839,
-   "lon": -82.9849
+   "lon": -82.9849,
+   "rkm": 13.5
   },
   "OK/TULSA": {
    "lat": 36.1279,
-   "lon": -95.9023
+   "lon": -95.9023,
+   "rkm": 12.8
   },
   "OR/CORVALLIS": {
    "lat": 44.5699,
-   "lon": -123.2783
+   "lon": -123.2783,
+   "rkm": 3.5
   },
   "PA/BLOOMSBURG": {
    "lat": 41.0027,
-   "lon": -76.4566
+   "lon": -76.4566,
+   "rkm": 1.9
   },
   "TN/MEMPHIS": {
    "lat": 35.109,
-   "lon": -89.9675
+   "lon": -89.9675,
+   "rkm": 15.6
   },
   "TX/EL PASO": {
    "lat": 31.8478,
-   "lon": -106.4311
+   "lon": -106.4311,
+   "rkm": 14.6
   },
   "TX/HARLINGEN": {
    "lat": 26.1912,
-   "lon": -97.6974
+   "lon": -97.6974,
+   "rkm": 5.8
   },
   "TX/HOUSTON": {
    "lat": 29.7857,
-   "lon": -95.3888
+   "lon": -95.3888,
+   "rkm": 23.0
   },
   "TX/LAREDO": {
    "lat": 27.5604,
-   "lon": -99.4892
+   "lon": -99.4892,
+   "rkm": 9.4
   },
   "TX/LUBBOCK": {
    "lat": 33.5619,
-   "lon": -101.8889
+   "lon": -101.8889,
+   "rkm": 10.8
   },
   "TX/SAN ANGELO": {
    "lat": 31.4411,
-   "lon": -100.4505
+   "lon": -100.4505,
+   "rkm": 7.0
   },
   "WA/RICHLAND": {
    "lat": 46.2841,
-   "lon": -119.294
+   "lon": -119.294,
+   "rkm": 5.7
   },
   "WI/MILWAUKEE": {
    "lat": 43.0633,
-   "lon": -87.9667
+   "lon": -87.9667,
+   "rkm": 8.9
   },
   "WI/SHAWANO": {
    "lat": 44.7779,
-   "lon": -88.586
+   "lon": -88.586,
+   "rkm": 2.3
   },
   "WY/CASPER": {
    "lat": 42.8421,
-   "lon": -106.3213
+   "lon": -106.3213,
+   "rkm": 4.7
   },
   "CA/SAN BERNARDINO COUNTY": {
    "lat": 34.1411,
-   "lon": -117.2946
+   "lon": -117.2946,
+   "rkm": 7.2
   },
   "HI/HONOLULU": {
    "lat": 21.3243,
-   "lon": -157.8476
+   "lon": -157.8476,
+   "rkm": 7.1
   },
   "ID/BOISE": {
    "lat": 43.6002,
-   "lon": -116.2317
+   "lon": -116.2317,
+   "rkm": 8.3
   },
   "NM/NAVAJO LAKE": {
    "lat": 36.8729,
-   "lon": -107.6232
+   "lon": -107.6232,
+   "rkm": 3.2
   },
   "NY/NYC": {
    "lat": 40.6627,
-   "lon": -73.9387
+   "lon": -73.9387,
+   "rkm": 15.7
   },
   "PR/SAN JUAN": {
    "lat": 18.4046,
-   "lon": -66.0637
+   "lon": -66.0637,
+   "rkm": 5.7
   },
   "TX/FT. WORTH": {
    "lat": 32.782,
-   "lon": -97.3486
+   "lon": -97.3486,
+   "rkm": 17.0
   }
  }
 }

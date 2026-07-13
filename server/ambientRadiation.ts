@@ -40,6 +40,10 @@ export interface RadiationStation {
   value: number;
   time: string | null;   // ISO timestamp of the measurement (as published)
   approx?: boolean;      // true = city-centroid location (EPA RadNet)
+  /** For approx stations: equivalent-circle radius (km) of the city's
+   *  Census land area — sizes the client's translucent "somewhere in this
+   *  city" circle. Absent on exact-location stations. */
+  rkm?: number;
 }
 
 const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
@@ -162,14 +166,16 @@ export function parseRadnetCsv(csv: string, id: string, name: string, lat: numbe
 
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
-let radnetCities: Array<{ key: string; st: string; city: string; lat: number; lon: number }> | null = null;
-export function loadRadnetCities(): Array<{ key: string; st: string; city: string; lat: number; lon: number }> {
+let radnetCities: Array<{ key: string; st: string; city: string; lat: number; lon: number; rkm: number }> | null = null;
+export function loadRadnetCities(): Array<{ key: string; st: string; city: string; lat: number; lon: number; rkm: number }> {
   if (radnetCities) return radnetCities;
   try {
     const raw = radnetStationsTable as any;
-    radnetCities = Object.entries(raw.stations as Record<string, { lat: number; lon: number }>).map(([key, c]) => {
+    radnetCities = Object.entries(raw.stations as Record<string, { lat: number; lon: number; rkm?: number }>).map(([key, c]) => {
       const [st, city] = key.split("/");
-      return { key, st, city, lat: c.lat, lon: c.lon };
+      // rkm = equivalent-circle radius of the city's Census land area;
+      // 6 km is the flagged visual-convention fallback in the table
+      return { key, st, city, lat: c.lat, lon: c.lon, rkm: Number(c.rkm) > 0 ? Number(c.rkm) : 6 };
     });
   } catch (e: any) {
     console.error("[datacore] radnet stations table:", e?.message || e);
@@ -213,7 +219,7 @@ export async function fetchAmbientRadiation(fetchImpl: FetchFn = fetch as any, n
       const r = await fetchImpl(radnetCsvUrl(year, c.st, c.city), { headers: UA, signal: AbortSignal.timeout(20000) as any });
       if (!r.ok) continue;
       const s = parseRadnetCsv(await r.text(), `us-${c.key}`, `${c.city}, ${c.st} (city-approximate)`, c.lat, c.lon);
-      if (s) { stations.push(s); us++; }
+      if (s) { s.rkm = c.rkm; stations.push(s); us++; }
     } catch { /* one bad city never kills the sweep */ }
   }
   networks["radnet-us"] = us;
