@@ -15575,3 +15575,53 @@ deploy + user retest.
 
 BACKTEST: N/A — /data product surface only; zero trading/sizing/execution
 code touched.
+
+---
+
+## 2026-07-13 [PRODUCT] — site-wide imperial/metric unit setting (human directive) (T-CLIENT)
+
+DIRECTIVE (verbatim intent): user screenshot of the buoy card (wave m,
+wind m/s, temps °C, distances km) — "have the ability to change these
+variables all over to imperial system or metric so somewhere in a
+setting and always transfer this info or feature when adding new data
+sources".
+
+SHIPPED: client/src/lib/units.ts — one persisted preference (imperial |
+metric; imperial default, consistent with the weather layer's existing
+°F-default) with getUnits/setUnits/subscribeUnits + null-safe formatters
+(fmtKm, fmtMeters, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius;
+missing readings stay "no data", never 0). Toggle UI in the /data layers
+panel (mi·°F | km·°C pills); panel JSX re-renders via
+useSyncExternalStore; click-built cards read the live pref at click time
+(open cards keep their units until reopened — accepted). The weather
+temp-label toggle now DEFAULTS from the global pref and remains a
+per-layer override.
+
+SWEEP (all display-only; archives/computation never converted): buoy
+card (wave height, wind speed, air/water temp), satellite altitude +
+Starlink coverage ranges, aircraft altitude, quake depth (card +
+subtitle), train speed, nuclear blast-ring radius, dossier strategic-
+site + hazard distances and radius labels, site-timeline "within 50 km"
+headers, plant cross-tie distances. DELIBERATELY unswitched (domain
+conventions, both systems): knots, hPa, MW, Kelvin FRP, µSv/h,
+magnitude.
+
+CONSTITUTION: UNITS PREFERENCE standing behavior installed in CLAUDE.md
+(human-directed 2026-07-13 — the explicit directive IS the approval per
+HUMAN SOVEREIGNTY): every future data source/layer/card must render
+distance/length/speed/temperature through units.ts formatters.
+
+RATCHET: client/src/lib/units.test.ts 3/3 (conversion correctness both
+systems incl. the screenshot's exact values, no-data honesty, pref
+round-trip + subscriber semantics). Full suite: units+portDetail+
+layersWiring+gridTiles 8/8; npm run build OK; tsc noEmit shows only the
+pre-existing group-union error (line-shifted, verified on clean main
+2026-07-13 session).
+
+VERIFICATION LIMIT: same sandbox constraint as prior entries — no live
+visual pass (production + basemap CDN firewalled); confidence = hermetic
+tests + clean build + the toggle reusing the existing preset-pill
+component. End-to-end check is the Railway deploy + user retest.
+
+BACKTEST: N/A — /data display surface only; zero trading/sizing/
+execution code touched.
