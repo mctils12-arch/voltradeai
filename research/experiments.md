@@ -15309,3 +15309,47 @@ DB-SLOW-WRITE entries, the theory is refuted and the item escalates per
 RECURRENCE ESCALATES as described above. NEXT STEP for the session that
 catches the next occurrence: query `/api/diag/audit?type=EVENTLOOP-LAG`
 and `type=DB-SLOW-WRITE` a few hours after this deploys and read both.
+
+---
+
+## 2026-07-13 [REPAIR] — /data popups: Starlink card stole feature clicks; port + plant cards (T-CLIENT)
+
+TERRITORY: T-CLIENT (datamap.tsx, client/src/lib/{portDetail,orbital/siteQuery},
+client/public/tiles). Trigger: user screenshot — clicking the LA port marker
+opened the "Starlink coverage" card; separately, a wind-plant icon sat on a
+house. Three logical changes, three PRs, each merged green.
+
+1. #466 (v1.0.303) — CLICK ROUTING. The orbital layer's map-wide click
+   handler treated every non-satellite click as an O7 coverage query,
+   painting over other layers' popups. Fix: coverage fallback fires only on
+   genuinely empty ground — the basemap is raster-only, so ANY rendered
+   vector feature at the click point belongs to a data layer that owns the
+   click (pure helper coverageQueryAllowed() in siteQuery.ts). RATCHET:
+   siteQuery.test.ts 9/9 (2 new).
+
+2. #467 (v1.0.304) — WHY THE CLICK FELL THROUGH AT ALL: port-dwell markers
+   had NO click handler. Added a real card (in-port count, window, calls,
+   unique vessels, dwell median/p90/max, ≥3× anomaly flags capped at 2
+   examples, portDwell server caveat passed through VERBATIM — single
+   source of truth). Pure formatter client/src/lib/portDetail.ts;
+   handlers attached once per layer creation + detached in cleanup (BUG-4
+   discipline). RATCHET: portDetail.test.ts 3/3.
+
+3. #468 (v1.0.305) — WINDMILL-ON-A-HOUSE: data provenance, not a render
+   bug. EIA-860 coordinates are operator-reported; small-plant points can
+   mark the registered address, not the equipment. HIFLD's per-plant
+   VAL_METHOD (5,716 IMAGERY / 3,490 IMAGERY-OTHER / 1,061 OTHER / 1,543
+   UNVERIFIED) was dropped by the first ingest — re-ingested the tile with
+   it ("val", 6.6MB, PMTiles magic verified) and the plant card now states
+   position provenance per plant, mirroring the WRI layer's convention.
+   VAL_METHOD=OTHER deliberately reads "verified by a non-imagery source",
+   NOT lumped into "unverified" — honesty cuts both ways.
+
+VERIFICATION LIMIT (same as 2026-07-09 entry): no in-sandbox visual pass —
+production and the basemap CDN are firewalled here; confidence = hermetic
+tests (12/12 across the two new suites), gridTiles+layersWiring guards 2/2,
+clean builds, and CI green ×3. End-to-end confirmation is the Railway
+deploy + user retest.
+
+BACKTEST: N/A — /data product surface only; zero trading/sizing/execution
+code touched.
