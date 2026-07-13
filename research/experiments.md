@@ -13,6 +13,153 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-13 [REPAIR] — KNOWN BROKEN #18 root cause found + fixed: shadowFleet identity-candidate detection was O(vessels²), ~1.2 BILLION haversine calls/cycle at live scale (v1.0.307, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/shadowFleet.ts + its tests), SHARED minimal
+last (research/*, package.json). This is a root-cause-analysis REPAIR
+session under RECURRENCE ESCALATES (CLAUDE.md — HEALTH OF THE LOOP
+ITSELF): two prior fix attempts on this exact item — tmpCleanup async
+conversion (v1.0.291) and SQLite WAL mode (v1.0.302) — were both refuted
+by live evidence. Full narrative, evidence, and next-step live in
+research/open_questions.md item #18's 2026-07-13 (v1.0.307) update; this
+entry is the compact version.
+
+PRE-FLIGHT: `/api/health` clean (no liveness alarm — bot active, Alpaca
+ACTIVE, drawdown 0%). Loop-health ratio (last 10 tagged entries before
+this one): 4 REPAIR, 3 PRODUCT, 1 RESEARCH, 1 RULE-REVIEW, plus this
+session's own REPAIR addendum from earlier today — under the 7-of-10
+thrash threshold; the repeated REPAIR tags on this one item reflect
+genuine progressive root-cause narrowing (each pass found new evidence
+and ruled out a genuinely different mechanism), not thrash on a broken
+fix generator.
+
+SESSION BUDGET PRIMARY ACTION: "fix a bug seen in audit logs" (first in
+the SESSION BUDGET priority order). Live `/api/diag/audit?type=
+EVENTLOOP-LAG&token=$DIAG_TOKEN` showed the ~10-minute, 72,000-98,000ms
+event-loop stall STILL firing on the currently-deployed v1.0.302 (server
+uptime traced via /api/health to a restart at 13:49 UTC today, well
+after that fix went live) — SECOND REFUTATION, confirmed via zero
+`type=DB-SLOW-WRITE` audit entries despite the WAL-mode instrument being
+live and armed.
+
+ROOT CAUSE (found by widening the search past bot.ts, where both prior
+attempts stopped): `server/routes.ts` has THREE `setInterval`s on the
+exact same `10 * 60_000` period — `archiveTick`, `refreshShadowStats`,
+`refreshPortDwell` — none of which either prior session's bot.ts-only
+grep could have found. `refreshShadowStats` → `computeShadowStatsAsync`
+(server/shadowFleet.ts) uses a genuinely non-blocking streaming file
+reader for the archive itself, but ends every cycle inside
+`ShadowAggregator.finish()` with a fully synchronous, zero-yield-point
+ALL-PAIRS comparison for hull-swap identity-candidate detection: for
+every vessel's last point, compare against every OTHER vessel's first
+point. Live `/api/data/shadowstats` confirms `vessels_seen: 34895` in
+the 72h window — 34,895² ≈ 1.2 BILLION haversine (trig) calls, run
+synchronously with no yield point, comfortably enough single-threaded
+CPU work to explain an 80-95 second stall. The identical O(N²) shape
+exists in both the sync path (`detectIdentityCandidates`, used by tests
+and the request-path variant) and the async path (`ShadowAggregator.
+finish()`, the one the live 10-min poller actually calls) — a genuine
+algorithmic bug predating both this session and the 2026-07-05 OOM/
+streaming-I/O repair (which fixed file-read blocking, not the
+computation that runs after the read). This also explains the GROWING
+MAGNITUDE trend every prior update on this item observed and couldn't
+account for: `vessels_seen` in a fixed 72h window only grows as archive
+coverage matures, so the O(N²) blowup compounds daily regardless of
+whatever the file-cleanup or DB-write fixes did. `refreshPortDwell` (the
+third 10-min interval) was checked and does NOT share this defect — its
+dwell detection is a straightforward per-vessel fold, no all-pairs loop.
+
+FIX: replaced the all-pairs loop (now shared by both call sites via one
+`countHullSwapCandidates` helper — identical predicate, identical
+output) with a spatial grid (cell size = nearKm degrees-equivalent, with
+a latitude-aware longitude-neighbor radius so polar degree-compression
+never produces a false negative) combined with a sorted-by-time
+binary-search window per cell. Time-window filtering ALONE was
+considered and rejected during this session's design work: since
+terrestrial AIS traffic packs into a FIXED 72h wall-clock window
+regardless of vessel count, per-second density scales WITH the archive,
+so a time-only filter's per-query candidate count also scales with N —
+no real complexity fix, just a ~6x constant-factor reduction
+(withinHours/windowHours). The spatial grid is what actually breaks the
+N² (real traffic clusters near coastlines/receivers, not uniformly over
+the globe). Known, accepted limitation documented in the code: unwrapped-
+longitude cell keys miss antimeridian-straddling pairs (~180°) — none of
+this system's tracked zones are near the date line, and this is a
+heuristic RAW statistic, not a trading signal.
+
+VERIFICATION (this is the gap in both prior attempts on this item — they
+each honestly flagged "not yet directly measured"; this one is measured
+before shipping): (1) all pre-existing shadowFleet tests pass unchanged,
+including the 2026-07-05 sync-vs-async byte-identical ratchet, proving
+the new shared helper is output-identical to the pre-fix code on real
+fixtures; (2) new 8,000-vessel perf ratchet test: ~140ms post-fix;
+A/B-verified via `git stash` that the OLD code takes 700-1600ms on the
+SAME input (gap widens non-linearly with N, confirming this is an
+algorithmic fix, not a constant-factor tweak); (3) an INDEPENDENT
+brute-force O(n²) oracle — deliberately not sharing any code with the
+fix, so a shared bug can't hide in both the implementation and its own
+proof — fuzz-verifies exact-count-match across 40 random/clustered
+layouts including the worst-case "everyone in one cell" scenario; a
+deliberately-injected radius bug (`latRadius=0`) was confirmed to make
+both this fuzz oracle and a dedicated deterministic boundary test fail,
+proving the tests actually catch this defect class rather than passing
+by construction; (4) a standalone (non-CI) Node measurement simulating
+PRODUCTION SCALE — 34,895 vessels clustered into as few as 5 hotspots
+(more pathological than real global AIS coverage) — completed in ~1
+second, vs. the 80-95 second live stalls this item tracks.
+
+RATCHET: `server/shadowFleet.test.ts` — perf regression test (5s ceiling
+at 8,000 vessels), independent 40-trial fuzz-oracle correctness test,
+deterministic hull-swap boundary test (exactly-12h / exactly-20km edges,
+both directions). Full gates: `python3 -m pytest -q` 669 passed, 1
+skipped (zero Python files touched, confirms no incidental breakage);
+`npx tsx --test server/*.test.ts` 661 passed, 0 failed (up from the
+655-ish pre-existing baseline — net +8 new tests, zero regressions;
+node_modules needed a fresh `npm install` in this session's container
+before the full suite, `npm run build`, and an accurate `tsc` reading
+would run — 4 apparent test failures and a misleadingly-low tsc count
+(3) with a stale/partial install were confirmed pre-existing/install-
+artifacts via `git stash`, not caused by this change — the older log
+entries' "64 errors" baseline was correct all along); after a full
+`npm install`, `npx tsc --noEmit` initially showed 68 (baseline 64 + 4
+new, all from this session's new grid code triggering downlevelIteration/
+implicit-any on a `Map.values()` `for...of`); switched that one loop to
+`.forEach()` (matching the file's existing Map-iteration convention
+elsewhere, e.g. `ShadowAggregator`'s own `this.prev.forEach(...)`) and
+confirmed byte-identical 64 vs. the `git stash`-verified baseline —
+zero new type errors; `npm run build` clean.
+
+Backtest: N/A — this is a RAW statistics performance/correctness fix on
+the /data map's dark-ship analytics (server/shadowFleet.ts), zero
+trading/sizing/scoring/execution code touched.
+
+NOT YET LIVE-CONFIRMED: same honest posture as every prior update on
+this item — static analysis and synthetic benchmarks cannot substitute
+for watching the production EVENTLOOP-LAG cadence actually stop. NEXT
+STEP for whichever session checks in after this deploys and merges (a
+few hours of live data given the ~10min cadence): query `/api/diag/
+audit?type=EVENTLOOP-LAG` and `/api/data/shadowstats` (confirm
+`identity_candidates` stays a sane, non-degenerate number — the fix must
+preserve behavior, not just speed). No more ~600s-cadence entries (or a
+large drop) confirms the fix. If the exact cadence/magnitude persists
+despite this deploy, that is the THIRD refutation on this item and — per
+RECURRENCE ESCALATES, now genuinely warranted — the next session must
+stop patching and file the CPU-profiler/compute-tier structural proposal
+in wishlist.md that the 2026-07-12 update already sketched, rather than
+attempt a fourth theory.
+
+MERGE NOTE (per this run's own instructions — session occurs during
+market hours): PR prepared but merge held until after 4:00 PM ET today,
+since this is a performance/correctness fix to a non-trading RAW-stats
+poller, not a live-break requiring an immediate merge.
+
+STARVED: no — this was the single highest-value action available
+(a live, worsening, production event-loop stall directly threatens
+Priority 1 KEEP THE SYSTEM ALIVE by starving Tier 1 stop-loss monitoring
+and the WS position-exit stream for 80-95 seconds every 10 minutes
+during market hours) and it was carried to a fully-tested, PR-ready fix
+within this session.
+
 ## 2026-07-13 [PRODUCT] — Location Context Engine: FEMA flood hazard zones, hazard layer #3 (v1.0.299, T-CLIENT + T-DATACORE)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx) + T-DATACORE

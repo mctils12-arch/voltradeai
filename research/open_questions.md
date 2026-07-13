@@ -1051,6 +1051,128 @@
     out to be container-level CPU throttling rather than anything in this
     codebase at all) instead of guessing a third mechanism.
 
+    UPDATE 2026-07-13 (v1.0.307), this session — SECOND REFUTATION
+    CONFIRMED LIVE, AND (unlike the prior two hypotheses) A ROOT CAUSE
+    ACTUALLY LOCATED AND FIXED WITH DIRECT EVIDENCE, NOT A PERIOD-MATCHING
+    GUESS. This is a root-cause-analysis session per RECURRENCE ESCALATES
+    (two prior fix attempts on this item — tmpCleanup v1.0.291, SQLite WAL
+    v1.0.302 — both refuted), not a third blind patch: it widens the
+    search that both priors scoped too narrowly, and it verifies the
+    mechanism directly rather than inferring it from a matching period.
+    SECOND REFUTATION, confirmed before investigating further: live
+    `/api/diag/audit?type=DB-SLOW-WRITE&token=$DIAG_TOKEN` returned ZERO
+    entries; `/api/diag/audit?type=EVENTLOOP-LAG` on the currently-running
+    process (uptime traced via `/api/health` to a restart at 13:49 UTC
+    today, well after v1.0.302's WAL-mode fix was live) shows the same
+    ~10-minute cadence CONTINUING with magnitude GROWN FURTHER (83,000-
+    95,000ms, up from the pre-WAL-fix 72,000-98,000ms). The SQLite
+    sync-write theory is refuted exactly as its own NEXT STEP anticipated.
+    ROOT CAUSE FOUND (widening the search past bot.ts): every prior
+    update in this item grepped ONLY `server/bot.ts`'s `setInterval`s.
+    `server/routes.ts` has THREE separate `setInterval`s on the exact same
+    `10 * 60_000` period: `archiveTick`, `refreshShadowStats`,
+    `refreshPortDwell`. `refreshShadowStats` calls
+    `computeShadowStatsAsync` (`server/shadowFleet.ts`) which — despite
+    being named "Async" and using a genuinely non-blocking streaming file
+    reader (`foldVesselArchiveAsync`, the 2026-07-05 OOM-repair precedent)
+    — ends every cycle with `ShadowAggregator.finish()` calling a fully
+    SYNCHRONOUS, single-threaded, zero-yield-point all-pairs comparison
+    for hull-swap identity-candidate detection: for every vessel A's last
+    point, compare against every OTHER vessel B's first point (O(vessels²)
+    haversine distance calls). Live confirmation:
+    `/api/data/shadowstats` reports `vessels_seen: 34895` in the 72h
+    window (2026-07-13) — 34,895² ≈ 1.2 BILLION haversine calls, run
+    synchronously with no `await`/`setImmediate` yield anywhere in the
+    loop, which is more than enough single-threaded CPU work to explain
+    an 80-95 SECOND stall. This is the same O(N²) shape in BOTH the sync
+    (`detectIdentityCandidates`, used by `computeShadowStats`, the
+    request-path/test variant) and async (`ShadowAggregator.finish()`,
+    used by the live 10-min poller) code paths — a genuine algorithmic
+    bug, not something the 2026-07-05 streaming-I/O fix introduced or
+    could have caught (that fix targeted file-read blocking, not the
+    computation that runs after the read finishes). It also explains the
+    GROWING MAGNITUDE trend across every session's readings on this item:
+    `vessels_seen` in a fixed 72h window only grows as the archive's
+    coverage/history matures, so the O(N²) blowup gets worse every day,
+    independent of whatever the tmpCleanup/WAL fixes did or didn't do —
+    a symptom neither prior hypothesis could explain (file counts and DB
+    write volume don't have an obvious multi-day growth trend the way
+    `vessels_seen` does). `refreshPortDwell` (the third 10-min interval)
+    was checked and does NOT share this defect — `portDwell.ts`'s dwell
+    detection is a straightforward per-vessel fold, no all-pairs
+    comparison; `archiveTick` is two lightweight upstream fetches. The
+    root cause is isolated to `refreshShadowStats`'s identity-candidate
+    computation specifically.
+    FIX (`server/shadowFleet.ts`): replaced the all-pairs loop (shared by
+    both `detectIdentityCandidates` and `ShadowAggregator.finish()` via a
+    new shared `countHullSwapCandidates` helper — same predicate, same
+    output) with a spatial grid (cell size = nearKm degrees-equivalent,
+    with a latitude-aware longitude-neighbor-cell radius so degree
+    compression toward the poles never causes a false negative) combined
+    with a sorted-by-time binary-search window per cell. Time-window
+    filtering ALONE was checked and rejected as insufficient during this
+    session's own design work: terrestrial AIS traffic packs into a FIXED
+    72h wall-clock window regardless of vessel count, so `firsts`-per-
+    second density scales WITH the archive, meaning a time-only filter's
+    candidate-per-query count (K) also scales with N — real complexity
+    unchanged, only a constant-factor (withinHours/windowHours ≈ 1/6)
+    win. The spatial grid is what actually breaks the N² (real traffic
+    clusters near coastlines/receivers rather than spreading uniformly
+    over the globe, so per-cell candidate counts stay bounded as N
+    grows). KNOWN, ACCEPTED LIMITATION: cell keys use unwrapped longitude,
+    so a pair straddling the antimeridian (~180°) would be missed; none
+    of this system's tracked zones are near the date line, and this is a
+    heuristic RAW statistic, not a trading signal, so this was accepted
+    rather than adding dateline-wrap bucket logic for a real-world-
+    irrelevant case (documented in the code).
+    VERIFICATION (this is where the prior two attempts on this item fell
+    short — "not yet directly measured" was their own honest caveat both
+    times; this fix is measured against realistic scale before shipping,
+    not inferred from a matching period): (1) all pre-existing tests pass
+    unchanged, including the 2026-07-05 sync-vs-async byte-identical
+    ratchet, confirming the new shared helper produces IDENTICAL output
+    to the pre-fix code on real fixtures; (2) a synthetic 8,000-vessel
+    perf ratchet test (`server/shadowFleet.test.ts`) completes in ~140ms
+    post-fix; A/B-verified via `git stash` that the OLD code takes
+    ~700-1600ms on the SAME 8,000-vessel input (the gap widens
+    non-linearly with N — this is O(N²) vs. much-better-than-N² by
+    construction, not a fixed multiplier); (3) an INDEPENDENT brute-force
+    O(n²) oracle (deliberately not sharing any code with the fix, so a
+    shared bug can't hide in both the fix and its own test) fuzz-verifies
+    the optimized path against 40 random/clustered layouts (including the
+    "everyone in one grid cell" worst case) — exact count match every
+    time; a deliberately-injected radius bug (`latRadius = 0`) was
+    confirmed to make both the fuzz oracle and a dedicated boundary test
+    fail, proving the tests actually catch this class of defect, not just
+    pass by construction; (4) a standalone Node measurement (not part of
+    the shipped test suite, too slow for CI) simulated PRODUCTION SCALE —
+    34,895 vessels clustered into as few as 5 hotspots (a more
+    pathological concentration than real global AIS coverage) — and
+    completed in ~1 SECOND, vs. the 80-95 SECOND live stalls this item
+    tracks.
+    RATCHET: `server/shadowFleet.test.ts` — perf regression test (5s
+    ceiling on 8,000 vessels; old code would take tens of seconds at this
+    N, let alone the ~35,000 seen live), independent fuzz-oracle
+    correctness test (40 trials), and a deterministic hull-swap boundary
+    test (exactly-12h/exactly-20km edges, both directions).
+    NOT YET LIVE-CONFIRMED (same honest posture as every prior update on
+    this item): this fix has not yet been observed to actually stop the
+    production EVENTLOOP-LAG cadence — that is the one thing static
+    analysis and synthetic benchmarks cannot substitute for. NEXT STEP
+    for whichever session checks in after this deploys and merges (a few
+    hours of live data is enough given the ~10min cadence, same as every
+    prior update): query `/api/diag/audit?type=EVENTLOOP-LAG` and
+    `/api/data/shadowstats` (confirm `identity_candidates` is still a
+    sane, non-zero, non-degenerate number — the fix must preserve
+    behavior, not just speed). No more ~600s-cadence EVENTLOOP-LAG
+    entries (or a large drop in magnitude/frequency) confirms the fix;
+    if the exact-same cadence and magnitude persist despite this deploy,
+    that would be the THIRD refutation on this item and — per RECURRENCE
+    ESCALATES, now genuinely warranted — the next session must stop
+    patching entirely and file the CPU-profiler/compute-tier structural
+    proposal in wishlist.md that the prior update already sketched,
+    rather than attempt a fourth theory.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

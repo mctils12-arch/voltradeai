@@ -128,3 +128,134 @@ test("RATCHET [REPAIR 2026-07-05]: async streaming reader is byte-identical to t
   const s = computeShadowStats(zones, 72, base, NOW);
   assert.deepEqual(a, s);
 });
+
+test("RATCHET [PERF REPAIR 2026-07-13, KNOWN BROKEN #18 root cause]: hull-swap detection stays fast as vessel count grows — was O(vessels^2), the actual cause of the recurring 10-minute EVENTLOOP-LAG stalls", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-perf-"));
+  // 8,000 distinct vessels, each with exactly one point, spread evenly
+  // across the 72h window and across the globe — no two are within
+  // nearKm/withinHours of each other, so the true identity_candidates
+  // count is 0 (pure performance probe, not a correctness fixture).
+  // The naive O(N^2) form does N*(N-1) ~= 64M haversine calls on this
+  // input; at real prod scale (34,895 vessels, 2026-07-13) the same shape
+  // did ~1.2 BILLION calls synchronously with zero yield points, which is
+  // what actually produced the 60-95s+ EVENTLOOP-LAG entries this item
+  // tracks — this test pins that the fix (sort + binary-search window
+  // instead of all-pairs) keeps runtime near-linear.
+  const N = 8000;
+  // Direct (non-modular) grid placement: row/col indexing (not `i % period`)
+  // so no two vessels can ever land on the same cell via periodic wraparound
+  // (an earlier draft of this test used `i % 160`/`(i*7) % 340`, whose
+  // lcm(160,340)=2720 silently reintroduced ~7,840 close pairs within
+  // N=8000 — caught by this test itself failing its own n===0 assertion).
+  // Grid spacing (~1.9 deg lat x ~3.8 deg lon) keeps every pair >20km apart
+  // even at the highest latitude used (worst case ~36km at row 89).
+  const gridSize = Math.ceil(Math.sqrt(N)); // 90
+  const points: Array<Record<string, any>> = [];
+  const stepSec = Math.floor((71 * 3600) / N); // ~31s apart, spans ~71h
+  for (let i = 0; i < N; i++) {
+    const row = Math.floor(i / gridSize), col = i % gridSize;
+    points.push({
+      t: t(71) + i * stepSec,
+      i: `V${String(i).padStart(9, "0")}`,
+      c: `SHIP${i}`,
+      la: -85 + row * (170 / gridSize),
+      lo: -170 + col * (340 / gridSize),
+      v: 5,
+    });
+  }
+  writeArchive(base, points);
+  const tracks = readVesselTracks(72, base, NOW);
+  assert.equal(tracks.size, N);
+  const start = performance.now();
+  const n = detectIdentityCandidates(tracks);
+  const elapsedMs = performance.now() - start;
+  assert.equal(n, 0, "widely-scattered single-point vessels must not match each other");
+  assert.ok(elapsedMs < 5000,
+    `detectIdentityCandidates(${N} vessels) took ${elapsedMs.toFixed(0)}ms — ` +
+    `an O(vessels^2) regression would take tens of seconds here (this is the ` +
+    `exact shape that blocked the event loop in production)`);
+});
+
+/** Independent oracle — deliberately naive O(vessels^2) reimplementation,
+ *  NOT sharing any code with shadowFleet.ts's grid+time-window fix, used
+ *  only to fuzz-verify the optimized path's correctness. Sharing an
+ *  implementation between "the fix" and "the test that proves the fix is
+ *  right" would let the same bug hide in both. */
+function bruteForceHullSwapCount(pts: Array<{ mmsi: string; t: number; la: number; lo: number }>,
+                                 nearKm: number, withinHours: number): number {
+  const kmBetween = (aLat: number, aLon: number, bLat: number, bLon: number) => {
+    const R = 6371, dLat = ((bLat - aLat) * Math.PI) / 180, dLon = ((bLon - aLon) * Math.PI) / 180;
+    const s = Math.sin(dLat / 2) ** 2 +
+      Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  };
+  let count = 0;
+  for (const a of pts) {
+    for (const b of pts) {
+      if (a.mmsi === b.mmsi) continue;
+      const dtH = (b.t - a.t) / 3600;
+      if (dtH <= 0 || dtH > withinHours) continue;
+      if (kmBetween(a.la, a.lo, b.la, b.lo) <= nearKm) count++;
+    }
+  }
+  return count;
+}
+
+test("FUZZ oracle: grid+time-window hull-swap count matches independent brute-force O(n^2) reference across random/clustered layouts", () => {
+  let seed = 42;
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+
+  for (let trial = 0; trial < 40; trial++) {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-fuzz-"));
+    const N = 40 + Math.floor(rand() * 60); // small enough for O(n^2) oracle to run instantly
+    const numClusters = 1 + Math.floor(rand() * 6); // includes the "everyone in one spot" worst case
+    const clusters = Array.from({ length: numClusters }, () => ({
+      la: -70 + rand() * 140, lo: -175 + rand() * 350,
+    }));
+    // Scatter radius (~0.5 deg, comparable to the grid's ~0.18-deg cell
+    // size for nearKm=20) deliberately puts many pairs right around cell
+    // boundaries — the case a wrong neighbor-radius would silently drop.
+    const points: Array<Record<string, any>> = [];
+    for (let i = 0; i < N; i++) {
+      const c = clusters[i % numClusters];
+      points.push({
+        t: t(rand() * 71), // NOW-relative (not epoch-1970-relative) — must fall inside readVesselTracks's window cutoff
+        i: `F${trial}${String(i).padStart(6, "0")}`,
+        c: null, // isolate the hull-swap heuristic from the name-reuse heuristic
+        la: Math.max(-89, Math.min(89, c.la + (rand() - 0.5) * 0.5)),
+        lo: Math.max(-179, Math.min(179, c.lo + (rand() - 0.5) * 0.5)),
+        v: 5,
+      });
+    }
+    writeArchive(base, points);
+    const tracks = readVesselTracks(72, base, NOW);
+    const actual = detectIdentityCandidates(tracks);
+    const oracle = bruteForceHullSwapCount(
+      [...tracks.entries()].map(([mmsi, pts]) => ({ mmsi, t: pts[0].t, la: pts[0].la, lo: pts[0].lo })),
+      20, 12,
+    );
+    assert.equal(actual, oracle,
+      `trial ${trial}: N=${N} clusters=${numClusters} — optimized count (${actual}) must match brute-force oracle (${oracle})`);
+  }
+});
+
+test("hull-swap boundary: candidate exactly at withinHours/nearKm counts; just past either edge doesn't", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-boundary-"));
+  writeArchive(base, [
+    { t: t(30), i: "100000001", c: "A-EDGE-IN", la: 10.0, lo: 10.0, v: 5 },
+    // exactly 12h later, ~19.9km away (inside both edges)
+    { t: t(18), i: "200000002", c: "B-EDGE-IN", la: 10.179, lo: 10.0, v: 5 },
+    { t: t(50), i: "300000003", c: "A-EDGE-OUT", la: 20.0, lo: 20.0, v: 5 },
+    // 12h + 1s later — just past withinHours
+    { t: t(50) + (12 * 3600 + 1), i: "400000004", c: "B-EDGE-OUT", la: 20.001, lo: 20.0, v: 5 },
+  ]);
+  const tracks = readVesselTracks(72, base, NOW);
+  const lasts: Array<{ mmsi: string; t: number; la: number; lo: number }> = [];
+  const firsts: Array<{ mmsi: string; t: number; la: number; lo: number }> = [];
+  for (const [mmsi, pts] of tracks) {
+    firsts.push({ mmsi, t: pts[0].t, la: pts[0].la, lo: pts[0].lo });
+    lasts.push({ mmsi, t: pts[pts.length - 1].t, la: pts[pts.length - 1].la, lo: pts[pts.length - 1].lo });
+  }
+  const n = detectIdentityCandidates(tracks);
+  assert.equal(n, 1, "only the within-bounds pair should count; the just-past-12h pair must not");
+});
