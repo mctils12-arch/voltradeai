@@ -12,6 +12,7 @@
 // testable (`npx tsx --test`).
 
 import { SENTINEL_SKIP } from './satBuffer.js';
+import { earthOccludes, mercatorToSphere, type Vec3 } from './occlusion.js';
 import type { GpRecord } from './tle.js';
 
 export interface PickResult {
@@ -33,6 +34,12 @@ export interface PickResult {
  * `gp` must be the SAME array (same order/length) that was sent to the
  * worker's `init` message — the index alignment is the caller's contract to
  * keep, not something this function can verify.
+ *
+ * `cameraSphere` (SatLayer.getGlobeCamera()): when non-null, satellites the
+ * globe's far-side cull has hidden (behind the earth from this camera; see
+ * ./occlusion) are excluded — a click near the limb must never select an
+ * invisible object. Null (mercator view / mid-transition) skips the filter,
+ * matching the shader, which only culls in full globe mode.
  */
 export function pickNearestSatellite(
   positions: ArrayLike<number>,
@@ -41,6 +48,7 @@ export function pickNearestSatellite(
   clickX: number,
   clickY: number,
   toleranceUnits: number,
+  cameraSphere?: Vec3 | null,
 ): PickResult | null {
   const total = Math.min(gp.length, Math.floor(positions.length / stride));
   const tol2 = toleranceUnits * toleranceUnits;
@@ -54,6 +62,15 @@ export function pickNearestSatellite(
     const dy = positions[base + 1] - clickY;
     const d2 = dx * dx + dy * dy;
     if (d2 <= bestD2) {
+      if (
+        cameraSphere &&
+        earthOccludes(
+          cameraSphere,
+          mercatorToSphere(positions[base], positions[base + 1], positions[base + 2]),
+        )
+      ) {
+        continue; // hidden behind the earth — not rendered, so not pickable
+      }
       bestD2 = d2;
       bestI = i;
     }

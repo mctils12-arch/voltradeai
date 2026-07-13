@@ -254,6 +254,42 @@ KNOWN STATE; woven into every future build's assessment.)
   NEXT: O5 glTF models, O3's own GPU/browser click-visual-check
   remainder, O4/GPS-DOP behind the SDP4 upgrade.
 
+- 2026-07-13 — FAR-SIDE CULL SHIPPED (own PR): satellites behind the
+  earth no longer draw on top of the globe (human report: wanted only
+  the facing hemisphere's satellites, disappearing around the limb as
+  the globe turns / as they orbit). ROOT CAUSE (read from maplibre-gl
+  v5's generated projection shaders, not assumed): projectTile (surface
+  features) applies globeComputeClippingZ, but the 3D path SatLayer
+  uses — projectTileFor3D -> interpolateProjectionFor3D — applies NO
+  far-side clipping at all. FIX: exact segment-sphere occlusion in the
+  vertex shader, `#ifdef GLOBE`-guarded (mercator prelude lacks the
+  globe uniforms), gated to u_projection_transition > 0.999 and a valid
+  clipping plane. Camera reconstructed from MapLibre's clipping plane
+  (verified against GlobeTransform._computeClippingPlane: plane.xyz =
+  unit center->camera vector, plane.w = -1/d, so C = -xyz/w). A plain
+  hemisphere test would be WRONG: GEO at ~6.6 earth radii stays visible
+  past the limb — the exact test is altitude-aware. OCCLUSION_RADIUS =
+  0.999 (limb anti-flicker bias). New pure module
+  client/src/lib/orbital/occlusion.ts (mercatorToSphere replicating the
+  prelude's projectToSphere frame + cameraFromClippingPlane +
+  earthOccludes; 14 tests) is the single source of truth; the shader
+  inlines it (GLSL can't import TS) and satLayer.test.ts (5 tests) pins
+  the shader source to the mirror (formulas, radius-squared constant,
+  ifdef guard, transition gate, sentinel-before-cull ordering).
+  PICKING KEPT CONSISTENT: pickNearestSatellite gained an optional
+  cameraSphere param (SatLayer.getGlobeCamera(), reconstructed from the
+  last frame's clipping plane) so clicks near the limb can't select
+  hidden satellites; mercator/mid-transition passes null = unfiltered
+  (matches the shader). 3 new pick tests incl. the LEO-hidden/
+  GEO-pickable same-spot case. siteCoverageReport deliberately NOT
+  filtered (ground-site elevation-mask geometry — camera irrelevant).
+  GATES: orbital suite 103/103 (81 baseline + 22 new), server suite
+  650/650, tsc 66 errors before AND after (A/B'd via git stash — all
+  pre-existing, none in this PR's files), npm run build clean, visual
+  harness run recorded in experiments.md.
+  NEXT (unchanged): O5 glTF models, O4/GPS-DOP behind the SDP4 upgrade
+  (the 802 deep-space skips the badge reports honestly).
+
 ## MASTER-BUILD EXTENSION (human directive 2026-07-07 — fidelity tiers + coverage geometry)
 
 Extends the base program above. Two additions: honest per-design-class

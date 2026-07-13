@@ -8,6 +8,12 @@
 //   - color-by-orbit-class (packed classCode field)
 //   - a validity sentinel: slots with NO real position (deep-space / invalid)
 //     render at size 0 — NEVER a fabricated point (charter honesty rule)
+//   - FAR-SIDE CULL (globe mode): satellites occluded by the earth are hidden
+//     — projectTileFor3D itself applies no clipping, so without this the far
+//     hemisphere's objects draw on top of the globe. Exact segment–sphere
+//     test, altitude-aware (GEO stays visible past the limb); math mirrored
+//     and unit-tested in ./occlusion, pinned by ./satLayer.test.ts. The CPU
+//     pick path applies the same cull via getGlobeCamera().
 //
 // It consumes the Float32Array produced by ./satWorker (SAT_STRIDE floats per
 // object; see ./satBuffer for the layout). This file is KERNEL-FREE: it imports
@@ -35,6 +41,7 @@ import type {
   Map as MapLibreMap,
 } from 'maplibre-gl';
 import { SAT_STRIDE, readSatAt } from './satBuffer.js';
+import { cameraFromClippingPlane, type Vec3 } from './occlusion.js';
 import type { SatPositionsMessage } from './satWorker.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
@@ -82,7 +89,10 @@ const DEFAULT_COLORS = {
   GEO: [0.85, 0.45, 1.0, 0.9] as Rgba, // violet
 };
 
-const VERT_SRC = (prelude: string, define: string): string => `#version 300 es
+/** Exported for satLayer.test.ts, which pins the far-side-cull block to the
+ * CPU mirror in ./occlusion (the shader inlines that module's math — GLSL
+ * can't import TS, so the test is the sync mechanism). */
+export const VERT_SRC = (prelude: string, define: string): string => `#version 300 es
 ${prelude}
 ${define}
 in vec4 a_data;            // x=mercX(0..1) y=mercY(0..1) z=altMeters w=classCode
@@ -101,6 +111,33 @@ void main() {
     v_color = vec4(0.0);
     return;
   }
+#ifdef GLOBE
+  // FAR-SIDE CULL (globe only): MapLibre's projectTileFor3D applies NO
+  // occlusion (interpolateProjectionFor3D skips globeComputeClippingZ), so
+  // without this, satellites physically behind the earth draw on top of the
+  // globe. Exact segment–sphere test against the camera reconstructed from
+  // the clipping plane (C = plane.xyz · -1/plane.w) — a plain hemisphere
+  // test would wrongly hide high-altitude (GEO) objects visible past the
+  // limb. Mirrors ./occlusion.ts (earthOccludes / cameraFromClippingPlane);
+  // 0.998001 = OCCLUSION_RADIUS² (0.999², limb anti-flicker bias). Skipped
+  // mid globe↔mercator transition (positions blend toward flat; there is no
+  // far side to hide) and on a degenerate plane (w must be < 0).
+  if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
+    vec3 satPos = projectToSphere(a_data.xy) * (1.0 + a_data.z / GLOBE_RADIUS);
+    vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
+    vec3 v = satPos - cam;
+    float t = -dot(cam, v) / dot(v, v);
+    if (t > 0.0 && t < 1.0) {
+      vec3 closest = cam + t * v;
+      if (dot(closest, closest) < 0.998001) {
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        gl_PointSize = 0.0;
+        v_color = vec4(0.0);
+        return;
+      }
+    }
+  }
+#endif
   gl_Position = projectTileFor3D(a_data.xy, a_data.z);
   gl_PointSize = u_size;
   v_color = cls < 0.5 ? u_colorLEO : (cls < 1.5 ? u_colorMEO : u_colorGEO);
@@ -152,6 +189,11 @@ export class SatLayer implements CustomLayerInterface {
   private total = 0;
   private renderCap: number | null = null;
   private meta: PositionMeta | null = null;
+
+  // last frame's globe projection state, mirrored for the CPU pick path so
+  // picking applies the SAME far-side cull the GPU applied (see ./occlusion).
+  private lastClippingPlane: [number, number, number, number] | null = null;
+  private lastTransition = 0;
 
   private pointSize: number;
   private colorLEO: Rgba;
@@ -217,6 +259,10 @@ export class SatLayer implements CustomLayerInterface {
     // Projection uniforms (globe + mercator + altitude); skip any the current
     // variant does not declare (mercator variant lacks the globe-only ones).
     const pd = args.defaultProjectionData;
+    this.lastClippingPlane = [
+      pd.clippingPlane[0], pd.clippingPlane[1], pd.clippingPlane[2], pd.clippingPlane[3],
+    ];
+    this.lastTransition = pd.projectionTransition;
     if (this.uProjMatrix) gl.uniformMatrix4fv(this.uProjMatrix, false, pd.mainMatrix);
     if (this.uProjTile) {
       gl.uniform4f(
@@ -342,6 +388,18 @@ export class SatLayer implements CustomLayerInterface {
   /** The last position buffer (for CPU nearest-point picking). Index-aligned to worker GP order. */
   getPositions(): Float32Array | null {
     return this.data;
+  }
+
+  /**
+   * Camera position in unit-sphere space, reconstructed from the last frame's
+   * clipping plane — non-null ONLY when the map is fully in globe mode (the
+   * only mode where the shader far-side cull runs). Pass it to
+   * pickNearestSatellite so clicks can't select satellites hidden behind the
+   * earth. Null (mercator / mid-transition / no frame yet) = don't filter.
+   */
+  getGlobeCamera(): Vec3 | null {
+    if (!this.lastClippingPlane || this.lastTransition <= 0.999) return null;
+    return cameraFromClippingPlane(this.lastClippingPlane);
   }
 
   /** Floats per object in the position buffer. */

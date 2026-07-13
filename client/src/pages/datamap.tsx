@@ -1490,6 +1490,10 @@ export default function DataMapPage() {
       const tol = pixelToleranceToMercUnits(PICK_TOLERANCE_PX, map.getZoom());
       const hit = pickNearestSatellite(
         positions, layer.getStride(), gp, clickMerc.x, clickMerc.y, tol,
+        // globe mode: exclude satellites the far-side cull has hidden — a
+        // click at the limb must not select an invisible object (null in
+        // mercator view, where nothing is culled).
+        layer.getGlobeCamera(),
       );
       if (!hit) {
         // O7 STARLINK COVERAGE: reuse this tick's already-propagated buffer
