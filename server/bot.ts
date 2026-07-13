@@ -16,6 +16,7 @@ import { buildExitFillPayload } from "./exitFill";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
+import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -918,13 +919,39 @@ try {
   )`).run();
 } catch {}
 
+// REPAIR 2026-07-13 (KNOWN BROKEN #18 follow-up, see server/dbWriteTiming.ts
+// for the full evidence trail): `db` (from server/auth.ts, a FROZEN PATH —
+// this call configures the already-exported connection from bot.ts instead
+// of editing that file) defaulted to SQLite's rollback-journal mode on
+// `/data`, the Railway persistent volume. WAL avoids a per-transaction
+// journal-file create/fsync/delete cycle; `synchronous` is left at its FULL
+// default so durability for auth.ts's users/sessions tables is unchanged.
+try {
+  const mode = db.pragma("journal_mode = WAL", { simple: true });
+  audit("STARTUP", `SQLite journal_mode=${mode} (KNOWN BROKEN #18 follow-up)`);
+} catch (err: any) {
+  audit("STARTUP", `SQLite WAL pragma failed: ${String(err?.message || err).slice(0, 200)}`);
+}
+
 function persistAudit(type: string, message: string) {
   try {
+    const insertStart = Date.now();
     db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
       new Date().toISOString(), type, message.slice(0, 500)
     );
+    const insertMs = Date.now() - insertStart;
+
+    const deleteStart = Date.now();
     // Keep last 2000 entries
     db.prepare("DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT 2000)").run();
+    const deleteMs = Date.now() - deleteStart;
+
+    // Guard on `type` to bound recursion to one level (the nested
+    // audit("DB-SLOW-WRITE", ...) call below re-enters persistAudit with
+    // type="DB-SLOW-WRITE", which this check refuses to re-trigger on).
+    if (type !== "DB-SLOW-WRITE" && (isSlowDbWrite(insertMs) || isSlowDbWrite(deleteMs))) {
+      audit("DB-SLOW-WRITE", formatSlowWriteMessage(insertMs, deleteMs));
+    }
   } catch {}
 }
 
