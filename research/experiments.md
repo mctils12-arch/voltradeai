@@ -13,6 +13,139 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-13 [REPAIR] — KNOWN BROKEN #18 root cause found + fixed: shadowstats identity-candidate O(n^2) all-pairs scan was blocking the event loop 83-98s every ~10 minutes (v1.0.301, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/shadowFleet.ts + test) + SHARED minimal
+(package.json version bump, research/*). REPAIR MANDATE session: per this
+session's own instructions, checked system health and open_questions.md's
+KNOWN BROKEN section before any other work. Health was green (no liveness
+alarm, /api/health clean), but item #18 was still open with a growing,
+unexplained ~10-minute event-loop stall (86,000-97,800ms per occurrence as
+of yesterday's PRODUCT session's pre-flight note) — a critical unresolved
+item per the Repair Mandate, so this became the session's [REPAIR] slice
+before any new product/research work.
+
+PRIOR: two real fixes (async streaming reader 2026-07-05; tmpCleanup.ts
+async rewrite 2026-07-12) had already been shipped against earlier
+hypotheses for this same symptom and were confirmed NOT the cause
+(tmpCleanup refuted live yesterday — zero TMP-CLEANUP audit hits despite
+the stall continuing). Per RECURRENCE ESCALATES, a third patch attempt on
+an ALREADY-PATCHED mechanism would need architecture-smell treatment, but
+this is a first attempt at a genuinely NEW mechanism (an O(n^2) algorithm
+bug never previously identified), not a repeat — confirmed by reading the
+actual code this session, not assuming from the log.
+
+DIAGNOSIS: `/api/data/shadowstats`'s `generated_at` (`02:34:29.146Z`)
+landed 2ms from a live `/api/diag/audit?type=EVENTLOOP-LAG` entry
+(`02:34:29.148Z`) — direct, not inferred, correlation. Traced the call
+graph: `routes.ts`'s `refreshShadowStats` (10-min poller) ->
+`computeShadowStatsAsync` -> `ShadowAggregator.finish()` in
+`server/shadowFleet.ts`. `finish()`'s identity-candidate ("hull swap")
+heuristic ran a literal all-pairs nested loop over every vessel `mmsi` ever
+seen in the window (`for (const aM of entries) for (const bM of entries)
+{ ... this.first.get(bM) ... }`), NOT restricted to vessels near an actual
+gap event. Live `vessels_seen: 35493` at the coincident timestamp means
+35493^2 ~= 1.26 BILLION `Map.get()` calls per refresh. Back-of-envelope
+(65ns/call, plausible V8 Map.get cost at this access pattern): ~82s —
+matches the observed 83-98s band closely. This also explains the item's
+full history: the exact ~10min cadence (the poller period), the magnitude
+GROWING over the past 2 days (vessels_seen grows with archive/coverage
+size, cost is quadratic in it), and why neither prior fix touched it (both
+were real fixes for different bugs in the per-point fold, which was
+already O(1)/point since the 2026-07-05 OOM repair — `finish()`'s POST-fold
+identity count was never touched by either).
+
+HYPOTHESIS (stated before fixing, per REASONING STANDARD #10): if this is
+the true root cause, (a) a synthetic reproduction at ~35k vessels should
+take tens of seconds under the pre-fix code and under ~1s after an
+O(n log n)-or-better rewrite, and (b) production EVENTLOOP-LAG entries on
+this ~10min cadence should stop (or shrink to a much smaller residual)
+within a few hours of deploy. (a) confirmed this session (below). (b) is
+the live test the NEXT STEP below asks a future session to check.
+
+FIX: replaced the O(n^2) scan (in both `detectIdentityCandidates`, the
+sync/test path, and `ShadowAggregator.finish()`, the online/production
+path — these must stay behaviorally identical per the existing 2026-07-05
+async-vs-sync ratchet) with a spatial grid over the "first-seen" points:
+cell size >= nearKm(20km) in both dimensions (longitude cell width widened
+by the dataset's own max abs latitude via 1/cos(lat), snapped to evenly
+divide 360 degrees for exact antimeridian wraparound), so a 3x3 cell
+neighborhood lookup per vessel is provably guaranteed to find every true
+match (two points within nearKm can't differ by more than nearKm in either
+the north-south or east-west component). This makes the resulting COUNT
+mathematically identical to the brute-force scan — verified, not assumed:
+
+- A/B via `git stash` (not just unit tests): built an 800-vessel synthetic
+  AIS archive, ran `detectIdentityCandidates` against it on the pre-fix
+  code and again on the post-fix code — both returned exactly 611.
+- Local reproduction at production scale (35,493 vessels, uniform-random
+  across a 60x120-degree span — spatially WORSE-spread than production's
+  actual clustered zones) completes in ~159ms, vs. the ~85,000-98,000ms
+  measured live in production — roughly 550-600x, comfortably under the
+  500ms EVENTLOOP-LAG alert threshold even in this harder-than-real case.
+
+RATCHET (`server/shadowFleet.test.ts`, 4 new tests): (1)
+`countHullSwapCandidates` matches an independently-reimplemented (not
+imported) brute-force reference on a randomized mixed cluster/spread
+fixture, asserted non-vacuous (want > 0) so the test can't pass emptily;
+(2) an explicit antimeridian-crossing pair (179.95E vs -179.95E, ~9km
+apart) is found, pinning dateline-wraparound correctness directly (no
+grid bug can silently drop this case again); (3) a production-scale
+(n=35,493, matching the exact live reading that measured the pre-fix
+stall) timing test asserts completion under 1s — would fail hard against
+any reintroduced O(n^2)/O(n*window) scan; (4) the pre-existing
+`computeShadowStatsAsync` deepEqual `computeShadowStats` ratchet
+(2026-07-05) still passes unchanged, confirming online/sync agreement
+survived the rewrite.
+
+Full gates: `python3 -m pytest -q` 669 passed, 1 skipped — zero Python
+files touched, confirms no incidental breakage (note: this session's
+container had neither the project's Python deps nor pytest installed;
+`pip install -r requirements.txt -r requirements-dev.txt` was run first —
+worth a future STALENESS-AUDIT-adjacent note if this recurs, since a
+REPAIR session silently unable to run pytest would be a real gap).
+`npx tsx --test server/*.test.ts` 629 passed, 4 pre-existing failures
+(apiKeyAccounts/compression/gdeltEvents/owmTiles) confirmed unrelated via
+git-stash A/B — fail identically on main without this diff (not
+investigated further, out of this PR's scope; a future session should
+file these as their own STALENESS/REPAIR item if still failing).
+`npx tsc --noEmit` 64 errors, identical COUNT to the documented baseline;
+diffed the full error sets with line numbers stripped before/after — one
+Map-iteration `downlevelIteration` error changed form (iterating
+`.entries()` vs. the Map directly) but stays the exact same pre-existing
+accepted error category already present ~10 times elsewhere in this same
+file, confirmed not a new class of error. `npm run build` clean.
+
+Backtest: N/A — mechanical algorithmic-complexity fix to a RAW-statistics
+diagnostic (`identity_candidates`, labeled "candidates, never claims,"
+never traded on); output is proven identical to the pre-fix value via
+direct A/B, so PROMOTION RULE 3's Sharpe/drawdown comparison doesn't
+apply — this is a MEASUREMENT-adjacent change (an internal diagnostic
+computation, not the backtest/fill/P&L measurement machinery itself) so
+MEASUREMENT INTEGRITY's stricter same-PR rule doesn't apply either, but
+the same discipline (prove identical output, don't just assert it) was
+applied anyway given the ladder/honesty culture here.
+
+Full detail, live evidence, and the exact fix/test description live in
+research/open_questions.md's KNOWN BROKEN #18 entry (now marked ROOT
+CAUSE FOUND + FIXED). NEXT STEP for whichever session checks in after
+this deploys: query `/api/diag/audit?type=EVENTLOOP-LAG&token=$DIAG_TOKEN`
+a few hours post-deploy — no more ~10min-cadence entries (of any
+magnitude) confirms this was the sole cause; entries continuing (even
+much smaller in magnitude) would mean a second, smaller contributor
+exists and the daemon-RPC-path hypothesis from the 2026-07-12 update
+becomes live again. Given the near-exact timestamp coincidence and the
+magnitude match to the back-of-envelope O(n^2) estimate, full resolution
+is expected but per REASONING STANDARD #10 must be confirmed live, not
+assumed — do not close this out further without that check.
+
+STARVED: yes — the repair (root cause + fix + spatial-grid rewrite +
+A/B verification + 4 new tests) consumed the session; PFAS/cancer-rate
+Location Context Engine layers, the radius_km client toggle, and the
+STALENESS-AUDIT-adjacent pytest/tsc-environment gap noted above all
+remain queued for the next session per SESSION BUDGET's fall-through
+order.
+
 ## 2026-07-13 [PRODUCT] — Location Context Engine: FEMA flood hazard zones, hazard layer #3 (v1.0.299, T-CLIENT + T-DATACORE)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx) + T-DATACORE

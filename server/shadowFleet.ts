@@ -107,6 +107,83 @@ export function detectGapEvents(tracks: Map<string, Pt[]>,
   return out.sort((a, b) => b.gapHours - a.gapHours);
 }
 
+export interface TimedPoint { mmsi: string; t: number; la: number; lo: number }
+
+/** [REPAIR 2026-07-13, KNOWN BROKEN #18 root cause] Hull-swap candidate count
+ *  for the (lastPts x firstPts) pairing, WITHOUT the O(n^2) all-pairs scan
+ *  the brute-force version used (~1.26 BILLION Map.get calls/refresh at
+ *  production archive size, ~85-98s of synchronous event-loop time on the
+ *  exact 10min refreshShadowStats cadence in routes.ts — the confirmed root
+ *  cause of KNOWN BROKEN #18's stalls, growing with vessels_seen over time;
+ *  portdwell's own 10-min refresh is unaffected, its VisitDetector fold is
+ *  already linear per-point, no all-pairs scan).
+ *
+ *  Uses a spatial grid over `firstPts`, cell size chosen so every cell is
+ *  >= nearKm wide in BOTH dimensions everywhere in the actual dataset:
+ *  latCellDeg = nearKm/KM_PER_DEG_LAT (exact); lonCellDeg is widened by
+ *  1/cos(maxAbsLat) (using the dataset's own highest absolute latitude, so
+ *  it's never too narrow for any point actually present) and snapped to
+ *  evenly divide 360 degrees for clean antimeridian wraparound. Since two
+ *  points within nearKm of each other cannot differ by more than nearKm in
+ *  EITHER the north-south or east-west component (each is a lower bound on
+ *  the true great-circle distance), and every cell covers at least nearKm
+ *  in both dimensions, any true match is guaranteed to fall in the query
+ *  point's own cell or one of its 8 immediate neighbors (with longitude
+ *  wraparound at +-180) — a 3x3 lookup can never miss a match, and the
+ *  final dtH/kmBetween checks are the SAME exact conditions the brute-force
+ *  scan used, so the count is identical, just reached without ever
+ *  enumerating physically-distant or out-of-time-window pairs. */
+const KM_PER_DEG_LAT = (6371 * Math.PI) / 180; // matches kmBetween's R=6371
+
+export function countHullSwapCandidates(lastPts: TimedPoint[], firstPts: TimedPoint[],
+                                 nearKm: number, withinHours: number): number {
+  if (firstPts.length === 0 || lastPts.length === 0) return 0;
+
+  let maxAbsLat = 0;
+  for (const p of firstPts) if (Math.abs(p.la) > maxAbsLat) maxAbsLat = Math.abs(p.la);
+  for (const p of lastPts) if (Math.abs(p.la) > maxAbsLat) maxAbsLat = Math.abs(p.la);
+  const latCellDeg = nearKm / KM_PER_DEG_LAT;
+  // Floor cos() at a small epsilon so a (realistically never-hit) near-pole
+  // point can't blow up the cell width to infinity/NaN.
+  const cosFloor = Math.max(Math.cos(Math.min(maxAbsLat, 89) * Math.PI / 180), 0.05);
+  const lonBuckets = Math.max(1, Math.ceil(360 / (latCellDeg / cosFloor)));
+  const lonCellDeg = 360 / lonBuckets; // evenly divides 360 -> exact wraparound
+
+  const latBucketOf = (la: number) => Math.floor(la / latCellDeg);
+  const lonBucketOf = (lo: number) => {
+    const norm = ((lo + 180) % 360 + 360) % 360; // normalize to [0, 360)
+    return Math.floor(norm / lonCellDeg) % lonBuckets;
+  };
+
+  const grid = new Map<string, TimedPoint[]>();
+  for (const p of firstPts) {
+    const key = `${latBucketOf(p.la)}:${lonBucketOf(p.lo)}`;
+    let cell = grid.get(key);
+    if (!cell) { cell = []; grid.set(key, cell); }
+    cell.push(p);
+  }
+
+  let count = 0;
+  for (const A of lastPts) {
+    const latIdx = latBucketOf(A.la);
+    const lonIdx = lonBucketOf(A.lo);
+    for (let dLat = -1; dLat <= 1; dLat++) {
+      const lonWrapped = ((lonIdx + lonBuckets) % lonBuckets); // reused per dLon below
+      for (let dLon = -1; dLon <= 1; dLon++) {
+        const cell = grid.get(`${latIdx + dLat}:${(lonWrapped + dLon + lonBuckets) % lonBuckets}`);
+        if (!cell) continue;
+        for (const B of cell) {
+          if (B.mmsi === A.mmsi) continue;
+          const dtH = (B.t - A.t) / 3600;
+          if (dtH <= 0 || dtH > withinHours) continue;
+          if (kmBetween(A.la, A.lo, B.la, B.lo) <= nearKm) count++;
+        }
+      }
+    }
+  }
+  return count;
+}
+
 /** Identity-change candidates: (a) a name seen under two different MMSIs in
  *  the window; (b) an MMSI first-seen within `nearKm` and `withinHours` of
  *  another MMSI's last-seen point (hull-swap heuristic). Conservative counts
@@ -125,17 +202,14 @@ export function detectIdentityCandidates(tracks: Map<string, Pt[]>,
   }
   for (const s of byName.values()) if (s.size > 1) count += s.size - 1;
 
-  const entries = [...tracks.entries()];
-  for (const [aM, aPts] of entries) {
-    const lastA = aPts[aPts.length - 1];
-    for (const [bM, bPts] of entries) {
-      if (aM === bM) continue;
-      const firstB = bPts[0];
-      const dtH = (firstB.t - lastA.t) / 3600;
-      if (dtH <= 0 || dtH > withinHours) continue;
-      if (kmBetween(lastA.la, lastA.lo, firstB.la, firstB.lo) <= nearKm) count++;
-    }
+  const lastPts: TimedPoint[] = [];
+  const firstPts: TimedPoint[] = [];
+  for (const [mmsi, pts] of tracks) {
+    const last = pts[pts.length - 1], first = pts[0];
+    lastPts.push({ mmsi, t: last.t, la: last.la, lo: last.lo });
+    firstPts.push({ mmsi, t: first.t, la: first.la, lo: first.lo });
   }
+  count += countHullSwapCandidates(lastPts, firstPts, nearKm, withinHours);
   return count;
 }
 
@@ -307,18 +381,15 @@ export class ShadowAggregator {
     });
     let identity = 0;
     this.byName.forEach((s) => { if (s.size > 1) identity += s.size - 1; });
-    const entries: string[] = [];
-    this.prev.forEach((_v, k) => entries.push(k));
-    for (const aM of entries) {
-      const lastA = this.prev.get(aM)!;
-      for (const bM of entries) {
-        if (aM === bM) continue;
-        const firstB = this.first.get(bM)!;
-        const dtH = (firstB.t - lastA.t) / 3600;
-        if (dtH <= 0 || dtH > 12) continue;
-        if (kmBetween(lastA.la, lastA.lo, firstB.la, firstB.lo) <= 20) identity++;
-      }
-    }
+    // [REPAIR 2026-07-13, KNOWN BROKEN #18] was an O(n^2) all-pairs Map.get
+    // scan over every vessel seen (~1.26B calls at 35k vessels — the
+    // confirmed root cause of the ~10min event-loop stalls). See
+    // countHullSwapCandidates's header for the equivalence argument.
+    const lastPts: TimedPoint[] = [];
+    const firstPts: TimedPoint[] = [];
+    this.prev.forEach((p, mmsi) => lastPts.push({ mmsi, t: p.t, la: p.la, lo: p.lo }));
+    this.first.forEach((p, mmsi) => firstPts.push({ mmsi, t: p.t, la: p.la, lo: p.lo }));
+    identity += countHullSwapCandidates(lastPts, firstPts, 20, 12);
     const gaps = this.gaps.sort((a, b) => b.gapHours - a.gapHours);
     return {
       window_hours: windowHours,

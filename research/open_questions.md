@@ -740,7 +740,7 @@
     this one call site's error detail collapsed to a bare "failed" instead
     of a real message.
 
-18. **[FOUND + PARTIALLY REPAIRED 2026-07-10, v1.0.266] TIER2-ERROR "daemon
+18. **[ROOT CAUSE FOUND + FIXED 2026-07-13, v1.0.301] TIER2-ERROR "daemon
     run_full_scan failed: Daemon timeout" recurred 7x in ~95 minutes
     (18:22-19:57 UTC) with zero diagnostic detail — visibility fixed,
     ROOT CAUSE STILL OPEN.** Full trace in experiments.md's 2026-07-10
@@ -985,6 +985,90 @@
     out); the daemon-side RPC path is the leading unexplored suspect,
     not yet investigated. Full detail in research/experiments.md's
     2026-07-13 entry.
+
+    ROOT CAUSE FOUND + FIXED 2026-07-13, v1.0.301 (this session, [REPAIR] —
+    triggered by the Repair Mandate: this item was the one unresolved
+    critical KNOWN BROKEN entry at session start). NOT the daemon RPC path
+    the prior update flagged as the leading suspect — READ BEFORE WRITE
+    this session instead started from the live evidence: `/api/data/
+    shadowstats`'s `generated_at` timestamp (`2026-07-13T02:34:29.146Z`)
+    landed 2ms from a live `EVENTLOOP-LAG` entry (`02:34:29.148Z`) — an
+    exact coincidence, not a suspected one. `server/routes.ts`'s
+    `refreshShadowStats` poller (10-min cadence, matching the stall period)
+    calls `computeShadowStatsAsync` -> `ShadowAggregator.finish()`
+    (`server/shadowFleet.ts`), whose "identity candidate" hull-swap
+    heuristic ran an ALL-PAIRS scan over every vessel seen in the window
+    — `for (const aM of entries) for (const bM of entries) { ...
+    this.first.get(bM) ... }` — with NO restriction to vessels that
+    actually went dark near each other. Live `vessels_seen: 35493` at that
+    exact timestamp means `35493^2 ≈ 1.26 BILLION` `Map.get()` calls per
+    refresh; a back-of-envelope check (65ns/call, a realistic V8 Map.get
+    cost under this access pattern) predicts ~82s — matching the observed
+    83-98s stalls almost exactly. This is a textbook O(n^2) algorithmic bug,
+    not an I/O or infra issue, and explains every previously-observed
+    property: the exact ~10min cadence (the poller interval), the growth
+    over days (vessels_seen grows as the archive/coverage grows, and cost
+    is quadratic in it), and why the async streaming reader + tmpCleanup
+    fixes (both real fixes for different, earlier-found problems) never
+    touched it — the aggregator's per-point work is O(1) (already fixed
+    2026-07-05 for the OOM bug), but `finish()`'s POST-fold identity-count
+    step was untouched by either repair. `portDwell.ts`'s own 10-min
+    refresh was checked and is NOT affected — its `VisitDetector` fold is
+    strictly linear per point, no all-pairs step exists there.
+    FIX (`server/shadowFleet.ts`): replaced the O(n^2) scan (both the sync
+    `detectIdentityCandidates` and the online `ShadowAggregator.finish()`
+    paths — they must stay behaviorally identical per the existing async-
+    vs-sync ratchet) with a spatial grid over the candidate "first-seen"
+    points (cell size >= nearKm=20 in both dimensions, derived from the
+    dataset's own max abs latitude so it's never too narrow, longitude
+    buckets sized to evenly divide 360 degrees for exact antimeridian
+    wraparound) — a 3x3 cell-neighborhood lookup per vessel can provably
+    never miss a true match (two points within nearKm can't differ by more
+    than nearKm in either the north-south or east-west component, and every
+    cell already covers >= nearKm), so the COUNT is mathematically
+    identical to the brute-force scan, just reached without enumerating
+    physically-distant or out-of-time-window pairs. A/B-verified directly
+    (git stash, not just unit tests): built an 800-vessel synthetic AIS
+    archive, ran `detectIdentityCandidates` against it on both the pre-fix
+    and post-fix code — both returned exactly 611. Local reproduction of
+    the production shape (35,493 vessels, uniform-random across a
+    realistic 60x120-degree span, WORSE spatial spread than production's
+    actual clustered zones) completes in ~159ms, vs. the ~85,000-98,000ms
+    measured live — roughly 550-600x, safely under the 500ms EVENTLOOP-LAG
+    alert threshold even in this harder-than-production synthetic case.
+    RATCHET (`server/shadowFleet.test.ts`, 4 new tests): (1) the optimized
+    `countHullSwapCandidates` matches an independently-reimplemented
+    brute-force reference (not the code under test) on a randomized mixed
+    cluster/spread fixture, asserted non-vacuous; (2) an explicit
+    antimeridian-crossing pair (179.95E vs -179.95E, ~9km apart) is found,
+    pinning the dateline-wraparound correctness; (3) a production-scale
+    (n=35,493) timing test asserts completion under 1s, which would fail
+    hard against any reintroduced O(n^2) scan; (4) the pre-existing
+    `computeShadowStatsAsync` deepEqual `computeShadowStats` ratchet
+    (2026-07-05) still passes unchanged, confirming online/sync agreement
+    survived the rewrite. Full gates: `python3 -m pytest -q` 669 passed, 1
+    skipped (zero Python files touched); `npx tsx --test server/*.test.ts`
+    629 passed, 4 pre-existing failures confirmed unrelated via git-stash
+    A/B (apiKeyAccounts/compression/gdeltEvents/owmTiles — fail identically
+    on main without this diff); `npx tsc --noEmit` 64 errors, identical
+    count to baseline (one Map-iteration downlevelIteration error shifted
+    forms — same pre-existing accepted category, not a new one, confirmed
+    by diffing the error sets with line numbers stripped); `npm run build`
+    clean.
+    Backtest: N/A — this is a mechanical algorithmic-complexity fix to a
+    RAW-statistics diagnostic ("candidates, never claims", not traded on);
+    output is proven identical to the pre-fix value, so PROMOTION RULE 3's
+    Sharpe/drawdown comparison doesn't apply.
+    NEXT STEP for whichever session checks in after this deploys: query
+    `/api/diag/audit?type=EVENTLOOP-LAG&token=$DIAG_TOKEN` a few hours
+    post-deploy — no more ~10min-cadence entries (of any magnitude)
+    confirms this was the sole cause; entries continuing (even much
+    smaller) would mean a second, smaller contributor exists and the
+    daemon-RPC-path hypothesis from the prior update becomes live again.
+    Given the near-exact timestamp coincidence and the magnitude match to
+    the back-of-envelope O(n^2) estimate, a full resolution is expected,
+    but per REASONING STANDARD #10 this should be confirmed live, not
+    assumed.
 
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
