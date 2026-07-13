@@ -986,6 +986,71 @@
     not yet investigated. Full detail in research/experiments.md's
     2026-07-13 entry.
 
+    UPDATE 2026-07-13 (v1.0.302), this session: re-grepped bot.ts's
+    setIntervals per the prior update's NEXT STEP — no other JS timer with a
+    ~600000ms period doing synchronous work exists (TIER2's interval varies
+    60s-1800s by time of day, inconsistent with the constant ~600s cadence
+    actually observed in the diag data, and every other setInterval on the
+    file is 30s/45s/60s/2s/3600s). That pointed the search away from a JS
+    timer entirely and toward a candidate no prior update in this item had
+    named: `db` (server/auth.ts, imported into bot.ts for the audit_log
+    table) is a better-sqlite3 connection — fully SYNCHRONOUS, every
+    .run()/.get() call blocks the Node event loop itself for the full
+    duration of the underlying write syscall. `DB_PATH` resolves to
+    `/data/voltrade.db`, the Railway PERSISTENT VOLUME (not local/ephemeral
+    disk), and auth.ts never sets `PRAGMA journal_mode` — it runs SQLite's
+    default rollback-journal mode, which does a create/write/fsync/delete
+    cycle on a separate journal file for EVERY transaction. `audit()` calls
+    `persistAudit()` synchronously on every audit-worthy event (dozens to
+    hundreds of times per 10-minute window), so any periodic I/O latency on
+    the persistent volume (a known characteristic of network-attached block
+    storage, e.g. background snapshot/housekeeping jobs) would stall
+    whichever synchronous write happens to be in flight — explaining a
+    ~600s-periodic, market-hours-INDEPENDENT cadence (an infra-side period)
+    far better than Tier 2's own time-of-day-dependent interval could.
+    NOT YET DIRECTLY MEASURED at the moment of a live EVENTLOOP-LAG entry —
+    same posture as every prior update on this item: plausible architecture,
+    not yet proof. SHIPPED (own PR, v1.0.302): `server/dbWriteTiming.ts`
+    (NEW) times persistAudit's INSERT and DELETE independently and audits a
+    new `DB-SLOW-WRITE` entry (with which statement was slow and for how
+    long) whenever either crosses 500ms — the direct instrument this theory
+    needs, mirroring eventLoopLag.ts's precedent exactly. Also switched the
+    shared `db` connection to WAL journal mode (`db.pragma("journal_mode =
+    WAL")`, called from bot.ts — auth.ts is a FROZEN PATH, so this
+    configures the already-exported connection instead of editing that
+    file); `synchronous` was left untouched (SQLite's FULL default) to avoid
+    weakening durability for auth.ts's users/sessions tables. This is a
+    genuinely different mechanism than the refuted tmpCleanup fix (a
+    different file, a different blocking primitive, a different physical
+    volume) — per the "two failed fixes = architecture smell" bar being
+    about repairing the SAME mechanism twice, not a second hypothesis on the
+    same open item, this does not trip it; if EVENTLOOP-LAG keeps firing
+    with zero coincident DB-SLOW-WRITE entries after this deploys, THAT
+    would be the second refutation, and the next session should stop
+    guessing and file the architecture-smell escalation per RECURRENCE
+    ESCALATES rather than attempt a third theory blind.
+    RATCHET: `server/dbWriteTiming.test.ts` (NEW, 9 tests) — pure-function
+    coverage for `isSlowDbWrite`/`formatSlowWriteMessage` plus wiring-pin
+    tests (mirroring eventLoopLag.test.ts's convention of reading bot.ts's
+    source text) confirming the WAL pragma call exists, persistAudit times
+    both statements, gates the audit call on either exceeding the
+    threshold, and guards against re-entrant recursion when logging its own
+    slow-write event.
+    NEXT STEP for whichever session checks in after this deploys (a few
+    hours of live data is enough given the ~10min cadence): query
+    `/api/diag/audit?type=EVENTLOOP-LAG` and `type=DB-SLOW-WRITE`. Entries
+    landing in the same windows confirms this theory (and turns the next
+    move — likely moving audit_log writes off the main thread via a worker
+    thread, since better-sqlite3 has no async API — into a justified,
+    evidence-backed change rather than a guess). EVENTLOOP-LAG continuing
+    with zero coincident DB-SLOW-WRITE entries refutes it — that is the
+    second refutation on this item, and per RECURRENCE ESCALATES the next
+    session must stop patching and file a structural wishlist.md proposal
+    (e.g., request the ability to attach a CPU/heap profiler, or propose
+    moving off Railway's shared/burstable compute tier if the stall turns
+    out to be container-level CPU throttling rather than anything in this
+    codebase at all) instead of guessing a third mechanism.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

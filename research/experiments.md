@@ -15128,3 +15128,184 @@ data"). Zero trading-system surface.
 
 BACKTEST: N/A — pure /data render + interaction change; no strategy,
 sizing, or measurement code touched.
+
+────────────────────────────────────────────────────────────────────────────
+[REPAIR] 2026-07-13 — KNOWN BROKEN #18: tmpCleanup fix confirmed refuted;
+new candidate found (synchronous better-sqlite3 writes to the /data
+persistent volume), instrumented + WAL mode shipped (v1.0.302)
+
+TERRITORY: T-BOT (server/bot.ts + a new sibling module,
+server/dbWriteTiming.ts, following the eventLoopLag.ts/tmpCleanup.ts
+pattern). Touched research/open_questions.md and research/experiments.md
+(SHARED) as the last, smallest commits per MERGE-ORDER PROTOCOL; version
+bump in package.json (SHARED) read-and-incremented at commit time
+(1.0.301 -> 1.0.302).
+
+MEMORY PROTOCOL: read CLAUDE.md, then a triage pass over
+research/experiments.md's last 10 tagged entries (2/10 REPAIR — no
+thrash-ratio flag), research/open_questions.md's KNOWN BROKEN section,
+and research/wishlist.md (no STALL/STARVATION flags; no overdue audit in
+the register). Live /api/health: all green, bot active, drawdownPct 0.0,
+liveness.dark=false — no LIVENESS ALARM by the strict 2-market-hour/24h
+threshold. But live `/api/diag/audit?type=EVENTLOOP-LAG` (session
+DIAG_TOKEN) showed the stall still firing every ~10 minutes, 75-95s per
+occurrence, actively blanking Tier-1 stop-loss monitoring and the WS
+position-exit stream on that cadence — a real, ongoing liveness-adjacent
+degradation even though it hasn't crossed the strict alarm bar yet. This
+was the clear SESSION BUDGET primary action: item #18's own NEXT STEP was
+explicit, actionable, and directly serves GOAL priority 1.
+
+PRIOR STATE (full detail in open_questions.md item #18): v1.0.291 shipped
+a fix converting bot.ts's /tmp orphan-file sweep from synchronous
+(readdirSync/statSync/unlinkSync) to fs.promises, on the theory that a
+~600000ms setInterval running that sweep on the event loop's own thread
+was the blocking cause (period matched exactly; a real, textbook
+event-loop-blocking pattern). This session's own pre-flight check (logged
+same-day, before this PR) found the theory REFUTED: EVENTLOOP-LAG entries
+continued on the identical ~10-minute cadence post-deploy, magnitude GREW
+(86,000-97,800ms vs. the pre-fix 59,000-75,000ms), and zero TMP-CLEANUP
+audit entries fired in the window — the /tmp sweep was never even
+scanning enough files to be the trigger. tmpCleanup.ts is confirmed
+innocent.
+
+READ BEFORE WRITE: re-grepped every setInterval in server/bot.ts this
+session (fresh read, not from memory) for any other ~600000ms-period
+candidate per the prior update's NEXT STEP. Found none — every other
+timer in the file is 30s (python-mutex watchdog), 60s (liveness
+snapshot, position sync), 45s (Tier 1), 2s (event-loop-lag monitor
+itself), or 3600s (Tier 3). Tier 2's own interval varies 60s-1800s by
+time of day (system_config.py's TIER2_*_MS values, read via
+getTier2Interval()) — inconsistent with the CONSTANT ~600s cadence
+actually observed spanning multiple of those windows in the live diag
+data, so Tier 2 does not fit either. This ruled out every JS setInterval
+as the direct cause and redirected the search.
+
+NEW CANDIDATE (not previously named in this item's history): `db`
+(server/auth.ts, imported into bot.ts for the audit_log table) is a
+better-sqlite3 connection. better-sqlite3 is a FULLY SYNCHRONOUS binding
+— every .run()/.get() call blocks the calling thread, which for this
+process is the Node event loop itself, for the entire duration of the
+underlying write syscall including any journal fsync; there is no worker
+thread involved anywhere in this path. `DB_PATH` resolves to
+`/data/voltrade.db` (auth.ts: `DATA_DIR = fs.existsSync("/data") ?
+"/data" : process.cwd()`) — the Railway PERSISTENT VOLUME, not local
+ephemeral disk (network-attached block storage is a common source of
+periodic I/O latency spikes, e.g. background snapshot/housekeeping
+jobs). auth.ts never sets `PRAGMA journal_mode`, so the connection runs
+SQLite's default rollback-journal mode, which does a create/write/
+fsync/delete cycle on a SEPARATE journal file for every single
+transaction — materially more I/O-heavy per commit than WAL mode.
+`audit()` calls `persistAudit()` synchronously on every audit-worthy
+event across the whole bot (dozens to hundreds of times per any given
+10-minute window, given how frequently audit() fires across Tier 1/2/3
+and the stream handler), so ANY periodic latency on the persistent
+volume would stall whichever synchronous write happens to be in flight
+or issued next — this explains a ~600s-periodic, MARKET-HOURS-
+INDEPENDENT cadence (an infra-side period) far better than any app-side
+timer could, since the observed cadence stayed constant across market-
+open, midday, and after-hours windows despite Tier 2's own interval
+changing across those same windows.
+
+Checked downstream interactions before touching anything (REASONING
+STANDARD #1): grepped for other `new Database(...)` call sites —
+server/billing.ts opens a SEPARATE file (`voltradeai.db` in
+process.cwd(), not `/data/voltrade.db`), so this change has zero blast
+radius on billing.ts despite both being FROZEN. auth.ts's `db` also
+backs the users/sessions/password_resets tables — WAL mode is a
+strict concurrency improvement for those (readers no longer block
+behind a writer's file lock) and does not require editing auth.ts
+itself, since `.pragma()` is called on the already-exported `db`
+instance from bot.ts (mutable, T-BOT territory).
+
+NOT YET DIRECTLY MEASURED — same posture as every prior update on this
+item (REASONING STANDARD #4/#10: a plausible, evidence-consistent
+architecture is not proof of magnitude). Per the item's own established
+discipline ("do not re-patch this without checking whether the NEXT
+occurrence's diagnostic actually supports the theory first"), this PR
+ships the fix as a strict improvement AND ships direct measurement in
+the same PR (mirroring the v1.0.291/v1.0.288 precedent exactly) rather
+than waiting a full session cycle to instrument-then-fix separately,
+since both are low-risk and the instrument is what lets the NEXT session
+confirm or refute without guessing a third time.
+
+CHANGE (v1.0.302):
+1. `server/dbWriteTiming.ts` (NEW, pure module) — `DB_SLOW_WRITE_
+   THRESHOLD_MS = 500`; `isSlowDbWrite(durationMs)`; `formatSlowWrite
+   Message(insertMs, deleteMs)`.
+2. `server/bot.ts`'s `persistAudit()` now times its INSERT and DELETE
+   statements independently (`Date.now()` around each) and audits a new
+   `DB-SLOW-WRITE` entry (via the existing `audit()` call, not a
+   parallel logging path) whenever either exceeds the threshold. Guarded
+   on `type !== "DB-SLOW-WRITE"` to bound recursion to one level (the
+   nested audit call re-enters persistAudit with that type, which the
+   guard refuses to re-trigger on).
+3. `server/bot.ts` now calls `db.pragma("journal_mode = WAL", { simple:
+   true })` once at module load (right after the audit_log CREATE TABLE,
+   same place the table itself is bootstrapped) and audits the resulting
+   mode under STARTUP — or the pragma failure, if it throws — so this is
+   visible on every boot, not just inferred. `synchronous` was
+   deliberately left at SQLite's FULL default (not touched, not weakened)
+   to avoid trading away any durability on auth.ts's users/sessions
+   tables for this fix.
+
+RATCHET: `server/dbWriteTiming.test.ts` (NEW, 9 tests) — pure-function
+coverage for `isSlowDbWrite`/`formatSlowWriteMessage` at and around the
+threshold, plus wiring-pin tests (mirroring eventLoopLag.test.ts's
+convention of reading bot.ts's own source text) confirming: the WAL
+pragma call exists and targets the shared `db` connection; persistAudit
+times both statements independently; the DB-SLOW-WRITE audit call is
+gated on either exceeding the threshold; and the recursion guard is
+present. A/B not needed here (this is new code, not a behavior change to
+existing logic with an existing test to flip) — the wiring-pin style
+matches the codebase's established convention for this kind of
+diagnostic-module PR.
+
+RECURRENCE ESCALATES check: this is the SECOND fix attempt on item #18's
+underlying ~600s stall (after tmpCleanup.ts's refuted one), but a
+genuinely different mechanism — different file, different blocking
+primitive (fs syscalls vs. SQLite writes), different physical volume
+target (`/tmp` ephemeral vs. `/data` persistent) — matching the "does not
+trip the two-failed-fixes bar, which is about repairing the SAME
+mechanism twice" precedent v1.0.288 already established for this same
+item. If EVENTLOOP-LAG keeps firing post-deploy with zero coincident
+DB-SLOW-WRITE entries, THAT is the second true refutation on this item,
+and per RECURRENCE ESCALATES the next session must stop guessing a third
+mechanism blind and instead file a structural wishlist.md proposal
+(candidates worth naming there: request profiler/CPU-sampling access for
+autonomous sessions, or treat container-level CPU throttling on
+Railway's shared/burstable compute tier as the leading remaining
+suspect if no app-code candidate survives a third round).
+
+GATES: `npx tsx --test server/dbWriteTiming.test.ts server/eventLoopLag.
+test.ts server/tmpCleanup.test.ts` — 28/28 pass. Full suite `npx tsx
+--test server/*.test.ts` — 634/638 pass; the 4 failures (apiKeyAccounts,
+compression, gdeltEvents, owmTiles) are network-dependent tests that
+fail identically on the unmodified branch (verified via `git stash`
+A/B) — pre-existing, unrelated to this change. `npx tsc --noEmit` — same
+3 pre-existing environment errors (missing @types/node/vite entry points,
+deprecated tsconfig option) before and after (A/B via git stash) — not
+introduced by this PR. `python3 -m pytest` unavailable in this sandbox
+(voltrade_daemon.py's own import guard sys.exit(2)s without the full
+numpy/pandas/lightgbm stack installed) — moot in spirit since this PR
+touches zero Python files.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): pure measurement + a DB
+connection-level pragma change -> no trading, sizing, scheduling, scan,
+or scoring logic touched -> zero effect on any live trading decision.
+The only behavior change with any user-visible surface is WAL mode
+itself, which is strictly additive for read/write concurrency on the
+users/sessions/audit_log tables and does not change query results.
+
+BACKTEST: N/A — infra/reliability repair, no strategy or measurement-
+definition code touched.
+
+HYPOTHESIS (stated before the evidence comes in, per REASONING STANDARD
+#10): if the synchronous-SQLite-write theory is correct, DB-SLOW-WRITE
+entries will appear inside the next few EVENTLOOP-LAG windows and this
+becomes a normal, evidence-backed follow-up fix (moving audit_log writes
+off the main thread via a worker_thread, since better-sqlite3 has no
+async API). If EVENTLOOP-LAG keeps firing with zero coincident
+DB-SLOW-WRITE entries, the theory is refuted and the item escalates per
+RECURRENCE ESCALATES as described above. NEXT STEP for the session that
+catches the next occurrence: query `/api/diag/audit?type=EVENTLOOP-LAG`
+and `type=DB-SLOW-WRITE` a few hours after this deploys and read both.
