@@ -15731,3 +15731,111 @@ component. End-to-end check is the Railway deploy + user retest.
 
 BACKTEST: N/A — /data display surface only; zero trading/sizing/
 execution code touched.
+
+---
+
+## 2026-07-14 [REPAIR] — KNOWN BROKEN #21 CONFIRMED: deep_score's alt-data enrichment blind spot; get_stock_details() diag capture shipped (v1.0.310, T-BOT)
+
+TERRITORY: T-BOT (bot_engine.py + its test file).
+
+TRIGGER: session-start health check per the Repair Mandate. `/api/health`
+ok, KNOWN BROKEN #18 (event-loop stall) already CONFIRMED FIXED as of the
+2026-07-13 session (large ~85-98s stalls gone since the v1.0.307 shadowFleet
+O(n²) fix; this session re-checked at ~10h post-deploy and found only
+occasional sub-1.5s GC-level EVENTLOOP-LAG blips, zero TIER2-ERROR/
+STREAM-DISCONNECT — not yet the ≥24h close-out bar, logged in
+open_questions.md, no code change needed). That left item #21 — filed
+2026-07-11 as "SUSPECTED, NOT CONFIRMED" with an explicit "CHECK ON THE
+NEXT TRADING DAY" instruction — as the one item with a concrete, cheap,
+actionable next step.
+
+PRIOR: if `/api/diag/audit?type=DIAGNOSTIC` still shows wikipedia/gdelt/
+fred "down" during Monday's market hours, the weekend-quiet explanation is
+dead and this is a real gap in deep_score's enrichment path — most likely
+`get_stock_details()`'s silent early-return, per the item's own hypothesis
+(b). If it clears up, no action needed.
+
+CHECK: `/api/diag/audit?type=DIAGNOSTIC&token=$DIAG_TOKEN` — every entry
+from 2026-07-13 12:13 UTC through 22:45 UTC (a full Monday trading day)
+reports `wikipedia`/`gdelt`/`fred` down. `/api/diag/scanner?token=
+$DIAG_TOKEN` — `dataSourceErrors: {}` the whole time. CONFIRMED: this is
+real, not weekend noise.
+
+ROOT CAUSE (READ BEFORE WRITE, static trace — no live analyze.py access
+from this sandbox): `alt_data.py`'s three wikipedia/fred/gdelt fetchers
+each unconditionally call `_cache_set()` at their own end regardless of
+network success (each swallows its own HTTP exceptions and still writes a
+default result) — so if `_fetch_alt()`'s `get_alt_data_score(ticker)` ever
+actually ran to completion for any ticker that day, all three cache files
+would exist. Their simultaneous 10+ hour absence means the whole 5-fetcher
+enrichment block (macro/intel/alt/social/finnhub) was never entered at
+all — gated behind `deep_score()`'s early return keyed on
+`get_stock_details(ticker)`, a 30s-timeout subprocess call to `analyze.py`
+wrapped in a bare `except Exception: pass` with zero diagnostic capture
+anywhere (confirmed via grep: no caller ever inspected the failure reason).
+This is a STRICTLY LARGER blind spot than the wiki/fred/gdelt symptom
+alone — macro/intel/social/finnhub enrichment would be equally starved,
+just without a cache-freshness alarm surfacing it.
+
+FIX (visibility only, v1.0.310): `get_stock_details(ticker, _diag=None)`
+gained the same optional `_diag` parameter deep_score's 5 fetchers already
+use (mirrors `_run_diag_fetch`) — captures subprocess exception type+
+message, empty-stdout detail (exit code + truncated stderr), or analyze.py's
+own `{"error": ...}` payload into `_diag["stock_details"]`, without
+changing any return value (byte-identical with/without `_diag`, proven by
+test). `deep_score()` forwards its own `_diag` into
+`get_stock_details(ticker, _diag=_diag)` — one call site; already reads
+into `data_source_errors` -> `server/bot.ts`'s `tier2LastDataSourceErrors`
+-> `/api/diag/scanner`, so no new wiring needed downstream. Did NOT touch
+`analyze.py` itself or attempt to fix the underlying failure — the failure
+reason is still unknown, and guessing at it without the new diagnostic's
+evidence would violate REASONING STANDARD #10 (state a prior, then check).
+
+RATCHET: `test_get_stock_details_diag.py` (NEW, 6 tests) — analyze.py-
+error-payload capture, empty-stdout+stderr+exit-code capture, subprocess-
+timeout capture, malformed-JSON capture, a byte-identical-return-value
+check with/without `_diag`, and a static-shape check that `deep_score`
+forwards `_diag` into `get_stock_details`. A/B-verified via `git stash`:
+all 6 fail on pre-fix code (`TypeError: get_stock_details() got an
+unexpected keyword argument '_diag'`), all 6 pass post-fix.
+`test_silent_except_ratchet.py`'s `bot_engine.py` pin lowered 78 -> 77 (this
+fix converts one bare `except Exception: pass` into a capturing handler —
+a genuine improvement per that ratchet's own "count dropped, lower the
+pin" rule, not a new silent handler).
+
+GATES: `python3 -m pytest -q` — 673 passed, 2 skipped (baseline + 6 new,
+zero regressions; openpyxl/pandas/numpy/lightgbm/pytest installed fresh
+into this sandbox this session — were previously missing entirely, so the
+bare-repo suite had never been run in-sandbox before; noted for a future
+STALENESS AUDIT pass on session-start tooling, not chased further here).
+`npx tsx --test server/*.test.ts` — 640/644; the 4 failures
+(apiKeyAccounts/compression/gdeltEvents/owmTiles) are network-dependent
+and pre-existing per prior sessions' notes — this PR touches zero
+TypeScript files, confirmed unrelated. `npx tsc --noEmit` — same 3
+pre-existing sandbox-environment errors (missing @types/node/vite entry
+points, deprecated tsconfig `baseUrl` option) as documented in prior
+sessions. `npm run build` could not run (`tsx` binary absent from
+`node_modules/.bin` in this sandbox — an environment gap, not a code
+issue) — moot in spirit, zero TS/client files touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): pure diagnostic-capture change
+-> `get_stock_details`'s and `deep_score`'s return values are unchanged
+for every input (proven by the byte-identical-return-value test) -> zero
+effect on scoring, sizing, candidate selection, or any live trading
+decision. The only new behavior is a value appearing in an optional dict
+that only ever reaches a token-gated read-only diagnostic endpoint.
+
+BACKTEST: N/A — visibility-only repair, no strategy/scoring/sizing code
+touched.
+
+HYPOTHESIS (stated before the evidence comes in, per REASONING STANDARD
+#10): once a future session reads `/api/diag/scanner`'s
+`dataSourceErrors.stock_details` during market hours, one of three things
+will be true — (a) a subprocess timeout (ties to Railway's shared/
+burstable CPU tier, worth checking for correlation with the now-closed
+KNOWN BROKEN #18 event-loop investigation as a sibling symptom, though #18
+was Node-side and this is a separate Python subprocess, not assumed to
+share a cause), (b) a missing/expired dependency or API key inside
+analyze.py's own code path, or (c) a code-level bug in analyze.py itself.
+NEXT STEP for whichever session catches the next occurrence: read that
+field before guessing between these three.
