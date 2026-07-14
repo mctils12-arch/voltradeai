@@ -339,8 +339,21 @@ def ewma_vol(returns, lambd=0.94):
 
 
 
-def get_stock_details(ticker):
-    """Get detailed analysis from analyze.py."""
+def get_stock_details(ticker, _diag=None):
+    """
+    Get detailed analysis from analyze.py.
+
+    _diag: optional dict (source name -> "detail"), visibility only — return
+    values are byte-identical whether or not _diag is passed. Mirrors
+    deep_score's _diag convention (_run_diag_fetch). KNOWN BROKEN #21
+    (2026-07-14): a failure here makes deep_score's early return skip ALL
+    FIVE enrichment fetchers (macro/intel/alt/social/finnhub) with zero
+    diagnostic trace anywhere — confirmed live via wikipedia/gdelt/fred
+    reporting "down" for a full trading day while /api/diag/scanner's
+    dataSourceErrors (which DOES capture those 5 fetchers) stayed empty,
+    meaning the enrichment block was never even reached. This closes that
+    blind spot the same way v1.0.150/v1.0.155 closed it for the 5 fetchers.
+    """
     import subprocess
     try:
         result = subprocess.run(
@@ -348,9 +361,18 @@ def get_stock_details(ticker):
             capture_output=True, text=True, timeout=30
         )
         if result.stdout.strip():
-            return json.loads(result.stdout.strip())
-    except Exception:
-        pass
+            parsed = json.loads(result.stdout.strip())
+            if _diag is not None and isinstance(parsed, dict) and "error" in parsed:
+                _diag["stock_details"] = f"analyze.py error: {str(parsed['error'])[:150]}"
+            return parsed
+        if _diag is not None:
+            _diag["stock_details"] = (
+                f"analyze.py empty stdout (exit={result.returncode}, "
+                f"stderr={result.stderr.strip()[:150]!r})"
+            )
+    except Exception as e:
+        if _diag is not None:
+            _diag["stock_details"] = f"{type(e).__name__}: {str(e)[:150]}"
     return None
 
 
@@ -557,7 +579,7 @@ def deep_score(ticker, quick_result, _diag=None):
     these 5 sources but never captured the actual exception; this closes
     that gap (REPAIR 2026-07-06 pt.2).
     """
-    detail = get_stock_details(ticker)
+    detail = get_stock_details(ticker, _diag=_diag)
     if not detail or "error" in detail:
         return quick_result
 

@@ -52,7 +52,7 @@ BASELINE = {
     "analyze.py": 32,
     "backtest_v2.py": 1,
     "backup_to_github.py": 2,
-    "bot_engine.py": 78,
+    "bot_engine.py": 77,
     "csp_universe.py": 7,
     "diagnostics.py": 7,
     "etf_analyzer.py": 13,
