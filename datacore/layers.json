@@ -992,6 +992,16 @@
       "description": "Daily consolidated short-marked execution volume per symbol, published by FINRA — a flow proxy, NOT short interest. As-is display (today's top ratio movers + a per-ticker multi-year lookup into our own archive, back to 2024-06-17); short-ratio-extremes-precede-reversals is an open gate-2 hypothesis, not yet surfaced as a signal."
     },
     {
+      "id": "attention",
+      "name": "Attention proxy (Wikipedia pageviews)",
+      "kind": "raw",
+      "status": "live",
+      "group": "filings",
+      "costTier": "light",
+      "source": "Wikimedia pageviews API (en.wikipedia, all-access, agent=user, no API key required)",
+      "description": "Daily article pageviews for a curated ~23-ticker seed (the pytrends/Google Trends replacement — that lane failed gate 1) — an attention PROXY, not a signal. As-is display: today's ranked panel + a market-wide seed-total trend + a per-ticker archive lookup; attention-spikes-lead-volume is an open gate-2 hypothesis, gated on trailing archive depth, not yet surfaced as a signal."
+    },
+    {
       "id": "shadowstats",
       "name": "Dark-ship statistics",
       "kind": "raw",

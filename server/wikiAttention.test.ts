@@ -6,9 +6,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import {
   parsePageviews, fetchAttention, archiveAttention, gzipOldAttentionDays,
   pickLatestCompleteDay, lastAttentionCycle, ARTICLES, REQUEST_SPACING_MS,
+  listArchivedDates, readArchivedDay, lookupTickerHistory, readAggregateHistory,
 } from "./wikiAttention";
 
 const ITEMS = (article: string, days: Array<[string, number]>) => ({
@@ -89,4 +91,56 @@ test("pickLatestCompleteDay: an in-progress publish day never masquerades as the
   assert.equal(day.date, "2026-07-03", "majority rule skips the 2-article partial day");
   assert.equal(day.tickers.length, Object.keys(ARTICLES).length);
   assert.equal(pickLatestCompleteDay([]), null);
+});
+
+// History reads (#/data/attention full view). Day-files written directly
+// to disk (not via archiveAttention) — archivedKeys dedup is module-level
+// state shared across this whole test file regardless of baseDir, same
+// caveat finraShortVolume.test.ts notes for its own archivedDates set.
+test("listArchivedDates + readArchivedDay: newest-first, plain and gz both readable", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "wiki-hist-"));
+  const dir = path.join(base, "wikiattention");
+  fs.mkdirSync(dir, { recursive: true });
+  const row = (date: string, ticker: string, views: number) =>
+    JSON.stringify({ date, ticker, article: ARTICLES[ticker] || ticker, views, rt: date });
+  fs.writeFileSync(path.join(dir, "2026-05-01.jsonl"), `${row("2026-05-01", "NVDA", 1000)}\n${row("2026-05-01", "GME", 200)}\n`);
+  fs.writeFileSync(path.join(dir, "2026-05-02.jsonl.gz"), zlib.gzipSync(`${row("2026-05-02", "NVDA", 1100)}\n`));
+  assert.deepEqual(listArchivedDates(base, 90), ["2026-05-02", "2026-05-01"], "newest first");
+  assert.deepEqual(listArchivedDates(base, 1), ["2026-05-02"], "limit respected");
+  assert.equal(readArchivedDay("2026-05-01", base).length, 2);
+  assert.equal(readArchivedDay("2026-05-02", base).length, 1, "gz day readable");
+  assert.deepEqual(readArchivedDay("2026-05-03", base), [], "missing day = empty, not a throw");
+});
+
+test("lookupTickerHistory: ascending by date, honest gap on absent ticker-day, case-insensitive", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "wiki-tick-"));
+  const dir = path.join(base, "wikiattention");
+  fs.mkdirSync(dir, { recursive: true });
+  const row = (date: string, ticker: string, views: number) =>
+    JSON.stringify({ date, ticker, article: ARTICLES[ticker] || ticker, views, rt: date });
+  fs.writeFileSync(path.join(dir, "2026-05-10.jsonl"), `${row("2026-05-10", "nvda", 500)}\n`);
+  fs.writeFileSync(path.join(dir, "2026-05-11.jsonl"), `${row("2026-05-11", "GME", 400)}\n`); // no NVDA this day
+  fs.writeFileSync(path.join(dir, "2026-05-12.jsonl"), `${row("2026-05-12", "NVDA", 700)}\n`);
+  const series = lookupTickerHistory("NVDA", 90, base);
+  assert.deepEqual(series.map((r) => r.date), ["2026-05-10", "2026-05-12"], "05-11 honestly omitted, not zero-filled");
+  assert.equal(series[0].views, 500, "case-insensitive ticker match");
+  assert.equal(series[1].views, 700);
+  assert.deepEqual(lookupTickerHistory("NOPE", 90, base), []);
+});
+
+test("readAggregateHistory: seed-total views + ticker count per archived day, ascending by date", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "wiki-agg-"));
+  const dir = path.join(base, "wikiattention");
+  fs.mkdirSync(dir, { recursive: true });
+  const row = (date: string, ticker: string, views: number) =>
+    JSON.stringify({ date, ticker, article: ARTICLES[ticker] || ticker, views, rt: date });
+  fs.writeFileSync(path.join(dir, "2026-05-20.jsonl"), `${row("2026-05-20", "NVDA", 500)}\n${row("2026-05-20", "GME", 300)}\n`);
+  fs.writeFileSync(path.join(dir, "2026-05-21.jsonl"), `${row("2026-05-21", "NVDA", 600)}\n`);
+  const trend = readAggregateHistory(90, base);
+  assert.deepEqual(trend.map((t) => t.date), ["2026-05-20", "2026-05-21"], "ascending by date");
+  assert.equal(trend[0].tickers, 2);
+  assert.equal(trend[0].total_views, 800);
+  assert.equal(trend[1].tickers, 1);
+  assert.equal(trend[1].total_views, 600);
+  assert.deepEqual(readAggregateHistory(5, path.join(base, "nonexistent")), [], "missing dir = empty, not a throw");
 });

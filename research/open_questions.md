@@ -2989,6 +2989,13 @@ the ladder before belief.)
    coordinate table exists yet either — unverified whether one is
    readily available; check before assuming it's a straight port.
 
+   UI STATUS 2026-07-14: #3 Wikimedia attention SHIPPED (v1.0.309) —
+   `#/data/attention` full view, exact insider/earnings/shortvol
+   inline-panel-row + full-view pattern; see experiments.md. #2 CFTC
+   COT disaggregated is now the sole remaining lowest-effort UI gap
+   from this note (same pattern applies directly — `/api/data/cot`
+   already serves it, `server/cftcCot.ts`).
+
 ## BUILD ORDER 4 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 3 closed 6/6 same-day; [T-DATACORE] unless noted.
 Theme: DEEPEN what tonight built — the gate-2 unlocks and the queued

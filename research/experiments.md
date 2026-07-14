@@ -13,6 +13,112 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-14 [PRODUCT] — Wikipedia attention proxy: #/data/attention full view (v1.0.309, T-CLIENT-primary)
+
+TERRITORY: T-CLIENT (client/src/pages/attention.tsx new, client/src/pages/
+datamap.tsx layer wiring) + a small T-DATACORE-adjacent addition to
+server/wikiAttention.ts (mirrors P3's apiKeyAccounts.ts precedent — a
+server module addition that isn't itself a new datacore/ pipeline).
+
+MEMORY PROTOCOL: read CLAUDE.md, the last 10 tagged experiments.md entries
+(no thrash — well under the 7+ REPAIR threshold), open_questions.md's
+KNOWN BROKEN section (all resolved or human-blocked; no LIVENESS ALARM),
+and wishlist.md (no STARVED flags; staleness/constitutional audits not
+yet due). Checked platform_program.md (queue clear except human-gated
+P5), console_charter.md (W1-W6 fully shipped), BUILD ORDER 6 (closed).
+
+SESSION BUDGET PRIMARY ACTION: dispatched a research subagent to survey
+the full backlog (BUILD ORDER 2-6, GIP queue, DATA STREAM EXPANSION,
+DATACORE DEFECT QUEUE, GRID VISION/ORBITAL/SCALE/worldview_globe RESUME
+STATE blocks) for the highest-value unblocked next action. Findings:
+most named programs are closed or human/GPU-blocked. BUILD ORDER 5's own
+2026-07-06 UI STATUS note flagged CFTC COT-disaggregated (#2) and
+Wikipedia attention (#3) as pipelines that shipped API-only in
+2026-07-05 and were STILL UNSURFACED — zero client references anywhere
+for either, confirmed by grep. Picked Wikipedia attention: its curated
+ticker->article seed and existing archive layout (day-files, one row per
+ticker) map almost exactly onto the FINRA short-volume full-view
+precedent (v1.0.145) that BUILD ORDER 5's note explicitly named as the
+pattern to reuse.
+
+SHIPPED: server/wikiAttention.ts gained four history-read functions
+(listArchivedDates/readArchivedDay/lookupTickerHistory/
+readAggregateHistory) — same shape as finraShortVolume.ts's
+listArchivedDates/lookupSymbolHistory, but simpler: the curated ~23-
+ticker seed means day-files are tiny, so BOTH the market-wide trend AND
+per-ticker lookups read straight off the day archive — no separate
+persisted trend log needed (FINRA needed one because its day-files are
+~12K rows). New route GET /api/data/attention/history (no ticker =
+seed-total views trend per archived day; ?ticker=X = that ticker's own
+series, honest gaps never zero-filled, 90-day cap matching the sibling
+history routes). Client: client/src/pages/attention.tsx (AttentionView)
+— reuses the generic .vt-filings-*/.vt-shortvol-* CSS classes verbatim
+(zero new styles): market-wide sparkline+trend, ticker search + per-
+ticker sparkline+table, today's ranked-by-views panel. Wired into
+datamap.tsx exactly like shortvol: new "attention" layer id (group
+"filings", DEFAULT_ON, Eye icon, 300s-poll status badge showing ticker
+count), inline "Open attention view" panel-row button, hash-routed
+#/data/attention overlay + hashchange listener entry. datacore/
+layers.json gained the "attention" registry entry (RAW, kind "raw",
+same gate-2-hypothesis-not-yet-a-signal language the server route
+already carried). research/open_questions.md's BUILD ORDER 5 UI STATUS
+note updated in place to record #3 shipped and #2 (CFTC COT
+disaggregated) as the sole remaining item from that note.
+
+RATCHET: server/wikiAttention.test.ts gained 3 new tests for the history
+functions (newest-first date listing + plain/gz read-back, per-ticker
+series with honest gaps + case-insensitive match, aggregate trend +
+missing-dir honesty) — day-files written directly to disk rather than
+via archiveAttention, sidestepping that function's module-level
+date|ticker dedup Set (shared state across the whole test file, same
+caveat finraShortVolume.test.ts documents for its own archivedDates
+set). server/layersWiring.test.ts's existing RATCHET (every live
+registry id must appear in datamap.tsx's LAYER_GROUP, R15 powergrid
+precedent) covers the new "attention" entry automatically — verified
+green, not just assumed.
+
+GATES: `npx tsx --test server/wikiAttention.test.ts server/
+layersWiring.test.ts` 10/10. Full suite `npx tsx --test server/*.test.ts`
+664/664, zero regressions. `npx tsc --noEmit` 66 errors, byte-identical
+in substance to the git-stash-verified baseline (one pre-existing error's
+union-member print ordering shifted cosmetically — same line, same
+error class, confirmed via diff against the stashed baseline's output).
+`npm run build` clean (attention.tsx bundles into the existing
+DataWorldMap chunk, no new chunk warnings). Visual harness (`npm run
+visual -- --page data`, 390/768/1440 per PROMOTION RULE 6): FIRST RUN
+caught a real gap before it shipped — scripts/visual_check.mjs's own
+`/api/data/layers` FIXTURES list (a synthetic subset the harness's
+toggle-consistency battery iterates, separate from the real
+datacore/layers.json) did NOT include "attention", so the battery would
+have silently never clicked the new switch — the exact defect class
+R15's comment in that file already warns about ("every toggleable
+registry layer must appear in this fixture"). Added the "attention"
+fixture entry + `/api/data/attention` and `/api/data/attention/history`
+response fixtures, re-ran: 0 hard failures at all three widths, session
+reviewed data-1440.png (layer panel renders cleanly). Warnings present
+(touch-target sizes, one clipped "About Live trains" tooltip, one
+clipped "Environmental" group-count chip at 768px) are pre-existing and
+identical across both runs — unrelated to this change, not introduced
+by it. No dedicated #/data/attention screenshot exists, matching the
+established precedent that shortvol/insider/earnings/graph full views
+(same overlay pattern) aren't independently screenshot-tested either
+— only "streams" has its own PAGES entry.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): pure UI surfacing of an
+already-recording, already-labeled RAW stream — zero change to any
+scoring/sizing/scheduling/trading code path, zero change to what the
+poller fetches or archives. The only new request-path code is a bounded
+read of small day-files (never the request-path-materializes-the-whole-
+archive mistake).
+
+BACKTEST: N/A — /data product surface only.
+
+HYPOTHESIS: unchanged from wikiAttention.ts's existing gate-locked one
+(attention spikes lead volume/volatility 1-5d) — this PR adds no new
+claim, only a way for a human (or the analyst pane) to actually see the
+archive that's been accumulating since 2026-07-05. Gate 2 stays blocked
+on trailing archive depth, same as before.
+
 ## 2026-07-13 [RESEARCH] — KNOWN BROKEN #18: v1.0.307 shadowFleet fix CONFIRMED LIVE, zero EVENTLOOP-LAG recurrence 3h41m post-deploy
 
 TERRITORY: SHARED only (research/open_questions.md, research/experiments.md)
