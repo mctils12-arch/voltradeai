@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -16,6 +16,7 @@ import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm }
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
+import AttentionView from "./attention";
 import GraphView from "./graph";
 import StreamsView from "./streams";
 import GridStressView from "./gridstress";
@@ -201,7 +202,7 @@ const HIST_MAX_YEAR = 2026;
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
-  : { imagery: true, places: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, powerplants: true, trains: true, shadowstats: true, portdwell: true, graph: true };
+  : { imagery: true, places: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, attention: true, powerplants: true, trains: true, shadowstats: true, portdwell: true, graph: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -240,7 +241,7 @@ const LAYER_GROUP: Record<string, string> = {
   alerts: "environmental",
   earthquakes: "environmental",
   buoys: "environmental",
-  insider: "filings", earnings: "filings", shortvol: "filings", shadowstats: "filings", portdwell: "filings",
+  insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
@@ -448,6 +449,8 @@ export default function DataMapPage() {
   const [earningsOpen, setEarningsOpen] = useState(() => window.location.hash === "#/data/earnings");
   // Full FINRA short-volume view (#/data/short-volume) — same overlay pattern.
   const [shortvolOpen, setShortvolOpen] = useState(() => window.location.hash === "#/data/short-volume");
+  // Full Wikipedia attention view (#/data/attention) — same overlay pattern.
+  const [attentionOpen, setAttentionOpen] = useState(() => window.location.hash === "#/data/attention");
   // Everything Graph full view (#/data/graph) — same overlay pattern.
   const [graphOpen, setGraphOpen] = useState(() => window.location.hash === "#/data/graph");
   // Streams inventory (#/data/streams) — same overlay pattern (Phase 4).
@@ -633,6 +636,7 @@ export default function DataMapPage() {
       setFilingsOpen(window.location.hash === "#/data/filings");
       setEarningsOpen(window.location.hash === "#/data/earnings");
       setShortvolOpen(window.location.hash === "#/data/short-volume");
+      setAttentionOpen(window.location.hash === "#/data/attention");
       setGraphOpen(window.location.hash === "#/data/graph");
       setStreamsOpen(window.location.hash === "#/data/streams");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
@@ -4327,6 +4331,33 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.shortvol, mapSettled, setStatus]);
 
+  // ── Wikipedia pageviews attention proxy (RAW; non-geospatial — same
+  // inline-panel-row + full-view pattern as insider/earnings/shortvol).
+  // BUILD ORDER 5 #3 pipeline shipped API-only 2026-07-05; this is its
+  // UI follow-up (the "next lowest-effort UI gap" the build-order note
+  // named). Server polls every 12h; this poll only refreshes the panel's
+  // ticker-count badge, same cadence convention as the sibling layers. ──
+  useEffect(() => {
+    if (!enabled.attention) { setStatus("attention", "off"); return; }
+    if (!mapSettled) { setStatus("attention", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("attention", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/attention");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("attention", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("attention", "active", d.count);
+      } catch {
+        if (!stop) setStatus("attention", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.attention, mapSettled, setStatus]);
+
   // ── Everything Graph (RAW join over insiders/facilities/vessels; non-
   // geospatial — same inline-panel-row + full-view pattern as insider/
   // earnings/shortvol). Server rebuilds every 15 min; this poll only reads
@@ -4373,6 +4404,7 @@ export default function DataMapPage() {
     id === "firetemp" ? <ThermometerSun size={15} /> :
     id === "earthquakes" ? <Activity size={15} /> :
     id === "buoys" ? <Waves size={15} /> :
+    id === "attention" ? <Eye size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
@@ -4391,7 +4423,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "attention" ? "tickers" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -4671,6 +4703,16 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "attention" && on && (
+          // Same pattern as insider/earnings/shortvol: a ticker search +
+          // trend table doesn't belong in a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/attention"; setAttentionOpen(true); }}>
+              Open attention view — ticker lookup, ranked panel →
+            </button>
+          </div>
+        )}
         {l.id === "graph" && on && (
           // Same pattern as insider/earnings/shortvol: an entity-search +
           // connections view doesn't belong in a layer-toggle sidebar.
@@ -4730,6 +4772,9 @@ export default function DataMapPage() {
       )}
       {shortvolOpen && (
         <ShortVolView onBack={() => { window.location.hash = "#/data"; setShortvolOpen(false); }} />
+      )}
+      {attentionOpen && (
+        <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />
       )}
       {graphOpen && (
         <GraphView onBack={() => { window.location.hash = "#/data"; setGraphOpen(false); }} />

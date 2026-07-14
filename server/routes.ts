@@ -72,7 +72,7 @@ import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQu
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
-import { bootAttentionPoll, latestAttention, lastAttentionCycle, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
+import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached } from "./fleetUtilization";
@@ -2521,6 +2521,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "RAW daily user pageviews for a curated ticker->article seed (stated size above); an attention PROXY, not a signal — no spike claims until the archive holds trailing history and gate 1 passes",
       tickers: hit.day.tickers,
     });
+  });
+
+  // Wikipedia attention history (#/data/attention full view). Two modes,
+  // same shape as short-volume/history: (1) no ticker — the market-wide
+  // trend (seed-total views per archived day, bounded read straight off
+  // the day archive — no separate persisted log needed at this seed size);
+  // (2) ?ticker=X — that ticker's own pageview series from the archive.
+  app.get("/api/data/attention/history", (req, res) => {
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    const ticker = typeof req.query.ticker === "string" ? req.query.ticker.trim() : "";
+    try {
+      if (ticker) {
+        const series = lookupTickerHistory(ticker, days, undefined);
+        return res.json({
+          kind: "raw",
+          source: "Wikimedia pageviews API (en.wikipedia, all-access, agent=user)",
+          ticker: ticker.toUpperCase(),
+          article: WIKI_ARTICLES[ticker.toUpperCase()] ?? null,
+          days,
+          count: series.length,
+          note: series.length ? undefined
+            : (WIKI_ARTICLES[ticker.toUpperCase()]
+                ? "no rows for this ticker in the archived window yet"
+                : "ticker not in the curated seed (research/open_questions.md BUILD ORDER 5 #3)"),
+          series,
+        });
+      }
+      res.json({
+        kind: "raw",
+        source: "Wikimedia pageviews API (en.wikipedia, all-access, agent=user)",
+        days,
+        today: latestAttention()?.day ?? null,
+        trend: readAggregateHistory(days, undefined),
+        note: "seed-total daily pageviews across the curated ticker->article panel; pass ?ticker=TICKER for that ticker's own series",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "history read failed" });
+    }
   });
 
   // FAA national airspace status (RAW — BUILD ORDER 5 #4, keyless).

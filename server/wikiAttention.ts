@@ -252,6 +252,77 @@ export function pickLatestCompleteDay(obs: AttentionObs[]): AttentionDay | null 
   return null;
 }
 
+// ── History reads (#/data/attention full view — mirrors finraShortVolume's
+// listArchivedDates/lookupSymbolHistory pattern; day-files here hold only
+// the ~seed-size ticker panel, not FINRA's ~12K rows/day, so both per-ticker
+// AND market-wide aggregate reads go straight to the day archive — no
+// separate persisted trend log needed). ──────────────────────────────────
+
+/** Archived view-dates, newest first (jsonl or jsonl.gz only). */
+export function listArchivedDates(baseDir?: string, limit = 90): string[] {
+  let files: string[];
+  try { files = fs.readdirSync(attDir(baseDir)); } catch { return []; }
+  return files
+    .map((f) => f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/))
+    .filter((m): m is RegExpMatchArray => !!m)
+    .map((m) => m[1])
+    .sort()
+    .reverse()
+    .slice(0, limit);
+}
+
+/** Read one archived view-day back (plain or gz). */
+export function readArchivedDay(iso: string, baseDir?: string): AttentionObs[] {
+  const dir = attDir(baseDir);
+  for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+    let text: string | null = null;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    const out: AttentionObs[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch {}
+    }
+    return out;
+  }
+  return [];
+}
+
+export interface AttentionTickerPoint { date: string; views: number; }
+
+/** One ticker's daily pageview series across its last `days` archived
+ *  view-dates, ascending by date. A day with no reported views for that
+ *  ticker's article is honestly omitted, never zero-filled. */
+export function lookupTickerHistory(ticker: string, days: number, baseDir?: string): AttentionTickerPoint[] {
+  const t = ticker.trim().toUpperCase();
+  const dates = listArchivedDates(baseDir, days);
+  const out: AttentionTickerPoint[] = [];
+  for (const iso of dates) {
+    const r = readArchivedDay(iso, baseDir).find((x) => x.ticker.toUpperCase() === t);
+    if (r) out.push({ date: r.date, views: r.views });
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out;
+}
+
+export interface AttentionTrendPoint { date: string; tickers: number; total_views: number; }
+
+/** Market-wide trend: seed-total pageviews per archived day, ascending by
+ *  date. Day-files are seed-size (~23 rows), so summing every archived day
+ *  is a bounded read, unlike FINRA's need for a separately persisted log. */
+export function readAggregateHistory(days: number, baseDir?: string): AttentionTrendPoint[] {
+  const dates = listArchivedDates(baseDir, days);
+  const out = dates.map((iso) => {
+    const rows = readArchivedDay(iso, baseDir);
+    return { date: iso, tickers: rows.length, total_views: rows.reduce((s, r) => s + r.views, 0) };
+  });
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out;
+}
+
 export async function refreshAttention(fetchImpl: FetchFn = fetch as any, nowMs?: number,
                                        spacingMs?: number): Promise<void> {
   try {

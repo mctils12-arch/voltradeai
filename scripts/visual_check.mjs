@@ -94,6 +94,7 @@ const FIXTURES = {
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
       { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
       { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest." },
+      { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
@@ -403,6 +404,28 @@ const FIXTURES = {
     trend: [
       { date: "2026-07-01", symbols: 12200, agg_short_ratio: 0.4610 },
       { date: "2026-07-02", symbols: 12240, agg_short_ratio: 0.4633 },
+    ],
+  },
+  "/api/data/attention": {
+    kind: "raw", source: "Wikimedia pageviews API (en.wikipedia, all-access, agent=user)", time: 1,
+    date: "2026-07-02", seed_size: 23, count: 2,
+    tickers: [
+      { ticker: "NVDA", article: "Nvidia", views: 10883 },
+      { ticker: "GME", article: "GameStop", views: 4211 },
+    ],
+  },
+  "/api/data/attention/history": {
+    kind: "raw", source: "Wikimedia pageviews API (en.wikipedia, all-access, agent=user)", days: 60,
+    today: {
+      date: "2026-07-02", seed_size: 23, count: 2,
+      tickers: [
+        { ticker: "NVDA", article: "Nvidia", views: 10883 },
+        { ticker: "GME", article: "GameStop", views: 4211 },
+      ],
+    },
+    trend: [
+      { date: "2026-07-01", tickers: 23, total_views: 98210 },
+      { date: "2026-07-02", tickers: 23, total_views: 101422 },
     ],
   },
   "/api/data/insider/history": {
