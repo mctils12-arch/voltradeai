@@ -1416,6 +1416,99 @@
     identical-return-value test), so this cannot affect any live trading
     decision.
 
+    UPDATE 2026-07-14 later same day ([REPAIR], v1.0.311) — RESOLVED. Per
+    this item's own NEXT STEP, read `/api/diag/scanner?token=$DIAG_TOKEN`
+    ~8h after v1.0.310 deployed (Tier2 scans confirmed running throughout,
+    "Scanned 11901 stocks, 2 trade candidates" every ~5min via
+    `/api/diag/audit?type=TIER2`): `dataSourceErrors` was STILL `{}`, and
+    `stock_details` never appeared — ruling out ALL THREE leading
+    candidates named above (analyze.py timeout, missing key/dependency,
+    code bug in analyze.py). If `get_stock_details()` were failing, the new
+    v1.0.310 capture would show it; it never fired even once, meaning
+    `get_stock_details()` itself was never the blocker — `deep_score()`
+    was never being reached AT ALL, for a different reason.
+    ACTUAL ROOT CAUSE (read-before-write trace of `bot_engine.py`'s
+    memory-pressure guards, `scan_market()`): `_mem_rss_mb()` (used by
+    BOTH the `SURVIVAL_MODE` guard at 700MB, bot_engine.py ~2627-2671, AND
+    the `pre_deep_score` skip/trim guard at 130MB/100MB, ~2681-2720) read
+    `resource.getrusage(RUSAGE_SELF).ru_maxrss` — a per-process HIGH-WATER
+    MARK that never decreases for the life of the process (POSIX
+    semantics), not "current" memory. Both guards compare that value
+    against a threshold expecting real-time pressure. A long-running
+    daemon process with pandas/numpy/lightgbm loaded will cross 130MB (and
+    very plausibly 700MB, given hours of scanning 11,901 stocks per cycle)
+    within its first scan or two — after which `ru_maxrss` stays at that
+    peak FOREVER, so the guard trips once and never releases, even after
+    GC frees memory back down. Net effect: `deep_score()` — and therefore
+    `get_stock_details()` and all 5 enrichment fetchers — was silently
+    disabled for the remainder of every daemon process's uptime after the
+    first memory spike, exactly matching the observed symptom (multi-day
+    all-three-sources-down with zero exceptions ever captured, because the
+    code that would raise them was never reached). NOTE: a near-identical
+    bug was partially patched once before without addressing the shared
+    root cause — the `SURVIVAL-FIX 2026-04-23` comment on the 700MB guard
+    describes fixing an env-var default that skipped deep score on every
+    Railway scan; that fix left the underlying `_mem_rss_mb()` peak-vs-
+    current confusion in place, so the class of bug re-manifested through
+    the SAME helper function via a different trigger.
+    FIX SHIPPED (own PR, v1.0.311): `_mem_rss_mb()` now reads
+    `/proc/self/status`'s `VmRSS` line (actual current RSS on Linux — what
+    Railway runs) as the primary path, falling back to the old
+    `ru_maxrss` path only when `/proc` is unavailable (e.g. local macOS
+    dev) — unchanged behavior there. This is a single shared-helper fix
+    that corrects BOTH mem-pressure guards at once, not a per-guard patch
+    — the RECURRENCE ESCALATES-flavored structural fix rather than a third
+    band-aid on a different threshold. RATCHET: new
+    `test_mem_rss_current.py` (5 tests) — A/B-verified via `git stash`:
+    2 of 5 fail on pre-fix code (peak-leaks-through-as-800MB-when-current-
+    is-100MB regression pin, and the basic /proc-read test), 3 pass
+    unchanged (fallback + error-path tests, confirming the non-Linux
+    fallback behavior is preserved byte-for-byte). The new `/proc` read
+    path's `except Exception: pass` was narrowed to `except (OSError,
+    ValueError):` specifically to exit `test_silent_except_ratchet.py`'s
+    AST-based silent-handler scan (which forbids raising any pin) rather
+    than bumping `bot_engine.py`'s pin from 77 to 78.
+    GATES: `python3 -m pytest -q` — 678 passed, 2 skipped (baseline 673 +
+    5 new, zero regressions); `test_silent_except_ratchet.py` — 2/2 pass
+    (narrowed except, pin unchanged at 77). `npx tsx --test
+    server/*.test.ts` — 640/644, same 4 pre-existing network-dependent
+    failures (apiKeyAccounts/compression/gdeltEvents/owmTiles) as every
+    prior session's baseline — this PR touches zero TS files. `npx tsc
+    --noEmit` — same 3 pre-existing sandbox-environment errors, unrelated.
+    `npm run build` could not run (`tsx` binary absent from
+    `node_modules/.bin` in this sandbox, an environment gap, not a code
+    issue, same as the v1.0.310 session) — moot in spirit, zero TS/client
+    files touched.
+    DOWNSTREAM CHAIN (REASONING STANDARD #1): the guards' INTENT (skip
+    deep scoring under genuine memory pressure to avoid an OOM SIGKILL) is
+    fully preserved — they now trigger on real current pressure instead of
+    a stale permanent trip. The change makes deep_score() run MORE than it
+    was (correctly, when memory is actually fine) — this restores ML-
+    enriched scoring, yfinance fundamentals, and the 5-source alt-data
+    enrichment to trade candidates that were silently getting quick-scan-
+    only treatment, which is a real improvement to decision quality, not
+    just a diagnostic — but carries the (intended, not a regression) risk
+    that a Railway container running close to its real memory ceiling
+    could now legitimately hit the 130MB/100MB/700MB gates far more
+    reactively (rising and FALLING with actual pressure) than before,
+    where they were effectively latched off. Worth watching post-deploy:
+    OOM/SIGKILL rate should not increase (the guards restored to their
+    intended real-time behavior); if it does, the 130MB/100MB thresholds
+    themselves (unchanged by this PR) are the next thing to evidence-check
+    per RULE REVIEW, not this fix.
+    BACKTEST: N/A — infra/memory-guard correctness fix; does not change
+    what deep_score computes for any candidate it does reach, only whether
+    it is reached at all under actual (now correctly measured) memory
+    pressure.
+    STILL OPEN: whether the 130MB/100MB/700MB threshold VALUES themselves
+    are well-calibrated for the current container size now that they will
+    actually be evaluated against live current-RSS readings going forward
+    (previously untestable, since the guards were effectively always-on
+    after the first spike) — a future session should check
+    `/api/diag/audit?type=DIAGNOSTIC` clears (wikipedia/gdelt/fred caches
+    should start appearing) and confirm no new OOM/restart signature
+    post-deploy before this item can be marked fully closed.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

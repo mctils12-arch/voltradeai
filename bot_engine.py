@@ -196,7 +196,40 @@ SECTOR_MAP = {
 
 # ── Memory diagnostics helpers (added 2026-04-20 after Railway OOM) ─────────
 def _mem_rss_mb() -> int:
-    """Return current process RSS in MB. Returns 0 if unavailable."""
+    """Return the process's CURRENT RSS in MB. Returns 0 if unavailable.
+
+    KNOWN BROKEN #21 root cause (2026-07-14): this used to read
+    resource.getrusage(RUSAGE_SELF).ru_maxrss, which is a per-process HIGH-
+    WATER MARK that never decreases for the life of the process (POSIX
+    semantics). Every mem-pressure guard in this file (SURVIVAL_MODE at
+    700MB, the pre_deep_score skip/trim guard at 130MB/100MB) compares
+    against that value expecting "how much memory is in use right now" —
+    but once RSS peaks past a threshold even once, ru_maxrss stays there
+    forever, so the guard trips permanently after the first spike and never
+    releases even after GC frees memory. That silently disabled deep_score
+    (and therefore its 5-source enrichment fetchers: macro/intel/alt/
+    social/finnhub) for the remainder of every daemon process's uptime,
+    matching the live symptom: wikipedia/gdelt/fred caches absent for a
+    full multi-day span with zero exceptions ever recorded in
+    dataSourceErrors, because get_stock_details() was never even reached.
+    Fix: read actual current RSS from /proc/self/status (Linux — what
+    Railway runs) so the guards reflect real-time pressure and release once
+    memory is freed. Falls back to the old ru_maxrss path when /proc is
+    unavailable (e.g. local macOS dev) — same behavior as before there.
+    """
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    # e.g. "VmRSS:	  123456 kB"
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) // 1024
+    except (OSError, ValueError):
+        # OSError: /proc unavailable (e.g. non-Linux dev machine) — expected,
+        # falls through to the ru_maxrss path below. ValueError: malformed
+        # VmRSS line — also falls through rather than crashing a hot path.
+        pass
     try:
         import resource
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
