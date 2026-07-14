@@ -95,6 +95,7 @@ const FIXTURES = {
       { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
       { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest." },
       { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
+      { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
@@ -426,6 +427,27 @@ const FIXTURES = {
     trend: [
       { date: "2026-07-01", tickers: 23, total_views: 98210 },
       { date: "2026-07-02", tickers: 23, total_views: 101422 },
+    ],
+  },
+  "/api/data/cot": {
+    kind: "raw", source: "CFTC Commitments of Traders, disaggregated futures-only (public domain)", time: 1,
+    report_date: "2026-06-23", count: 2,
+    markets: [
+      { code: "067651", market: "CRUDE OIL - NYMEX", commodity: "CRUDE OIL", open_interest: 428305, m_money_long: 68457, m_money_short: 138890 },
+      { code: "088691", market: "GOLD - COMMODITY EXCHANGE INC.", commodity: "GOLD", open_interest: 512300, m_money_long: 91200, m_money_short: 40100 },
+    ],
+  },
+  "/api/data/cot/history": {
+    kind: "raw", source: "CFTC Commitments of Traders, disaggregated futures-only (public domain)", weeks: 52,
+    today: {
+      report_date: "2026-06-23",
+      rows: [
+        { code: "067651", market: "CRUDE OIL - NYMEX", commodity: "CRUDE OIL", open_interest: 428305, m_money_long: 68457, m_money_short: 138890 },
+      ],
+    },
+    trend: [
+      { report_date: "2026-06-16", markets: 274, total_open_interest: 18320000 },
+      { report_date: "2026-06-23", markets: 274, total_open_interest: 18455000 },
     ],
   },
   "/api/data/insider/history": {

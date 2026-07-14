@@ -58,7 +58,8 @@ import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
 import { bootShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
-import { bootCotPoll, latestCot } from "./cftcCot";
+import { bootCotPoll, latestCot, searchMarkets as searchCotMarkets,
+         lookupMarketHistory, readAggregateHistory as readCotAggregateHistory } from "./cftcCot";
 import { bootTffPoll, latestTff } from "./cftcTff";
 import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
@@ -2078,6 +2079,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "weekly positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; positioning-extreme signals need trailing history the archive is only beginning to accumulate",
       markets: hit.rows,
     });
+  });
+
+  // CFTC COT history (#/data/cot full view). Three modes, all bounded
+  // reads off the weekly archive (never the request-path-materializes-
+  // the-whole-archive mistake): (1) no query — the market-wide trend
+  // (total open interest + market count per archived week); (2) ?q= — up
+  // to 20 markets matching by contract code (exact) or market/commodity
+  // name (substring), since unlike shortvol/attention there is no curated
+  // ticker seed to key an exact lookup off of; (3) ?code= — that exact
+  // market's managed-money net-positioning series across archived weeks.
+  app.get("/api/data/cot/history", (req, res) => {
+    const weeks = Math.min(90, Math.max(1, parseInt(String(req.query.weeks || "26"), 10) || 26));
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const code = typeof req.query.code === "string" ? req.query.code.trim() : "";
+    try {
+      if (code) {
+        const series = lookupMarketHistory(code, weeks, undefined);
+        return res.json({
+          kind: "raw",
+          source: "CFTC Commitments of Traders, disaggregated futures-only (public domain)",
+          code: code.toUpperCase(),
+          weeks,
+          count: series.length,
+          note: series.length ? undefined : "no rows for this contract code in the archived window (typo, or the archive hasn't seen this market's report_date yet)",
+          series,
+        });
+      }
+      if (q) {
+        return res.json({
+          kind: "raw",
+          source: "CFTC Commitments of Traders, disaggregated futures-only (public domain)",
+          query: q,
+          matches: searchCotMarkets(q, undefined),
+          note: "matched against the newest archived week only; pass the returned code to ?code= for its multi-week series",
+        });
+      }
+      res.json({
+        kind: "raw",
+        source: "CFTC Commitments of Traders, disaggregated futures-only (public domain)",
+        weeks,
+        today: latestCot(),
+        trend: readCotAggregateHistory(weeks, undefined),
+        note: "seed-wide total open interest + market count per archived week; pass ?q=NAME to search markets or ?code=CODE for one market's series",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "history read failed" });
+    }
   });
 
   // CFTC Traders in Financial Futures, futures-only (RAW — BUILD

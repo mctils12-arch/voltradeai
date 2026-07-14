@@ -3200,6 +3200,15 @@ the ladder before belief.)
    from this note (same pattern applies directly — `/api/data/cot`
    already serves it, `server/cftcCot.ts`).
 
+   UI STATUS 2026-07-14 (later same day): #2 CFTC COT disaggregated
+   SHIPPED (v1.0.313) — `#/data/cot` full view. COT has no curated
+   ticker seed (unlike attention/shortvol), so the exact-key lookup is
+   replaced by a market search (name/commodity substring or exact
+   contract code) that then drills into that market's managed-money
+   net-position series; see experiments.md. ALL FIVE #1-5 pipelines
+   from this build order now have their /data UI follow-up — this note
+   is closed.
+
 ## BUILD ORDER 4 (SELF-PROPOSED, standing directive; filed 2026-07-05
 after BUILD ORDER 3 closed 6/6 same-day; [T-DATACORE] unless noted.
 Theme: DEEPEN what tonight built — the gate-2 unlocks and the queued
