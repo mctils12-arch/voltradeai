@@ -15839,3 +15839,136 @@ share a cause), (b) a missing/expired dependency or API key inside
 analyze.py's own code path, or (c) a code-level bug in analyze.py itself.
 NEXT STEP for whichever session catches the next occurrence: read that
 field before guessing between these three.
+
+---
+
+## 2026-07-14 [REPAIR] — KNOWN BROKEN #21 RESOLVED: `_mem_rss_mb()` read a monotonic peak, not current RSS — deep_score permanently latched off after the first memory spike (v1.0.311, T-BOT)
+
+TERRITORY: T-BOT (bot_engine.py + its test file).
+
+TRIGGER: session-start health check per the Repair Mandate. `/api/health`
+ok (`bot.liveness.dark: false`, no LIVENESS ALARM), loop-health ratio over
+the last 10 tagged entries = 4 REPAIR / 4 PRODUCT / 2 RESEARCH — under the
+7/10 thrash threshold, no meta-problem to diagnose. KNOWN BROKEN #21 was
+the one open item with an explicit, cheap, actionable "read this field on
+the next occurrence" instruction left by the prior session (v1.0.310,
+PR #474) — the clear highest-value primary action.
+
+CHECK (per #21's own NEXT STEP): `/api/diag/scanner?token=$DIAG_TOKEN`
+~8h after v1.0.310 deployed, with Tier2 scans confirmed running throughout
+(`/api/diag/audit?type=TIER2` — "Scanned 11901 stocks, 2 trade candidates"
+every ~5min) — `dataSourceErrors` was STILL `{}`. `stock_details` never
+appeared once. This refutes all three candidates the prior session named
+(analyze.py timeout / missing key or dependency / analyze.py code bug):
+v1.0.310's new capture would have shown a `get_stock_details()` failure if
+that were the mechanism, and it never fired — meaning `get_stock_details()`
+was never even being CALLED, not that it was failing silently.
+
+ROOT CAUSE (READ BEFORE WRITE trace of `scan_market()`'s memory guards):
+`_mem_rss_mb()` (bot_engine.py:198) read
+`resource.getrusage(RUSAGE_SELF).ru_maxrss` — a per-process HIGH-WATER
+MARK that never decreases for the life of the process (standard POSIX
+semantics). Two separate guards compare this value against a threshold
+expecting REAL-TIME memory pressure: `SURVIVAL_MODE` at 700MB
+(bot_engine.py ~2627-2671, returns a fully partial scan result with no
+`data_source_errors` key at all) and the `pre_deep_score` skip/trim guard
+at 130MB/100MB (~2681-2720, skips `deep_score()` entirely above 130MB). A
+long-running daemon with pandas/numpy/lightgbm loaded, scanning 11,901
+stocks per cycle for hours, will cross 130MB — plausibly 700MB — within
+its first cycle or two. Once `ru_maxrss` crosses either threshold, it
+NEVER drops back down, so the guard that tripped stays tripped for the
+rest of that process's uptime regardless of actual current memory — even
+immediately after GC frees hundreds of MB. Net effect: `deep_score()`
+(and therefore `get_stock_details()` and all 5 enrichment fetchers:
+macro/intel/alt/social/finnhub) was silently disabled for the remainder of
+every daemon process's life after the first spike — exactly matching the
+live symptom (wikipedia/gdelt/fred absent for a full multi-day span, zero
+exceptions ever captured because the code that would raise them was never
+reached).
+
+RECURRENCE ESCALATES note: a near-identical symptom was partially patched
+once before without fixing the shared root cause — the `SURVIVAL-FIX
+2026-04-23` comment on the 700MB guard describes a prior session finding
+"previous default was ON for all Railway deploys, which skipped deep score
+every scan" and fixing the env-var default. That fix left `_mem_rss_mb()`'s
+peak-vs-current confusion in place, so the same failure class re-emerged
+through the identical helper via a different trigger (natural RSS growth
+instead of a bad default). This session's fix targets the SHARED helper
+function rather than patching either guard's threshold individually —
+the structural fix the RECURRENCE ESCALATES rule calls for once a
+mechanism has broken the same way twice.
+
+FIX (v1.0.311): `_mem_rss_mb()` now reads `/proc/self/status`'s `VmRSS`
+line first (actual current RSS on Linux, which is what Railway runs),
+falling back to the original `ru_maxrss` path only when `/proc` is
+unavailable (e.g. local macOS dev) — unchanged behavior there, zero risk
+to non-Linux dev workflows. The two guards' THRESHOLDS (130/100/700MB)
+were deliberately left untouched — RULE REVIEW requires evidence before a
+threshold change, and this PR's evidence is about the MEASUREMENT being
+wrong, not the thresholds; changing both in one PR would make it
+impossible to attribute results to either change.
+
+RATCHET: `test_mem_rss_current.py` (NEW, 5 tests) — reads VmRSS correctly,
+falls back to ru_maxrss when /proc is unavailable, returns 0 when both
+paths fail, handles a malformed/missing VmRSS line without crashing, and
+the regression pin: a simulated stale 800MB peak (`ru_maxrss`) must NOT
+leak into the result when `/proc/self/status` reports a current 100MB —
+this is exactly the scenario that permanently wedged both guards before
+the fix. A/B-verified via `git stash`: 2 of 5 fail on pre-fix code (the
+peak-leaks-through pin and the basic /proc-read test), 3 pass unchanged
+(fallback/error-path tests — confirms the non-Linux fallback is preserved
+byte-for-byte). The new code's `try/except` around the `/proc` read was
+narrowed from `except Exception: pass` to `except (OSError, ValueError):`
+specifically so it does not trip `test_silent_except_ratchet.py`'s
+AST-based scan (which forbids raising any pin, per CLAUDE.md) — confirmed
+via that suite: 2/2 pass, `bot_engine.py` pin unchanged at 77.
+
+GATES: `python3 -m pytest -q` — 678 passed, 2 skipped (baseline 673 + 5
+new, zero regressions; numpy/pandas/lightgbm/pytest/openpyxl/scikit-learn
+installed fresh into this sandbox this session, same recurring
+environment-tooling gap the 2026-07-14 v1.0.310 session also hit — worth a
+STALENESS AUDIT look at whether session-start tooling setup belongs in a
+setup script, not chased further here). `npx tsx --test server/*.test.ts`
+— 640/644, the same 4 pre-existing network-dependent failures
+(apiKeyAccounts/compression/gdeltEvents/owmTiles) documented in every
+recent session's notes — this PR touches zero TypeScript files. `npx tsc
+--noEmit` — same 3 pre-existing sandbox-environment errors (missing
+@types/node/vite entry points, deprecated tsconfig baseUrl option),
+unrelated. `npm run build` could not run (`tsx` binary absent from
+`node_modules/.bin` in this sandbox — an environment gap, not a code
+issue, same as the prior session) — moot in spirit, zero TS/client files
+touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the guards' INTENT (skip deep
+scoring under genuine memory pressure to avoid an OOM SIGKILL) is fully
+preserved — they now measure real current pressure instead of a stale
+permanent trip. This makes `deep_score()` run MORE than before (correctly,
+whenever memory is actually fine), restoring ML-enriched scoring, yfinance
+fundamentals, and 5-source alt-data enrichment to trade candidates that
+were silently getting quick-scan-only treatment — a real improvement to
+decision quality, not just a diagnostic. The traced risk (intended, not a
+regression): the guards will now legitimately fire and release with real
+memory pressure rather than being effectively latched off after the first
+spike — if container OOM/SIGKILL rate rises post-deploy, the 130MB/100MB/
+700MB threshold VALUES (unchanged by this PR) are the next evidence-driven
+thing to check per RULE REVIEW, not this correctness fix.
+
+BACKTEST: N/A — infra/memory-guard correctness fix; does not change what
+deep_score computes for any candidate it reaches, only whether it is
+reached at all, gated on genuinely current (not stale) memory pressure.
+
+HYPOTHESIS (stated before the evidence comes in, per REASONING STANDARD
+#10): once this deploys, `/api/diag/audit?type=DIAGNOSTIC` should stop
+showing "Multiple API sources down: ['wikipedia', 'gdelt', 'fred']" within
+a few scan cycles (the caches should start populating), and
+`/api/diag/scanner`'s `dataSourceErrors` should start showing REAL entries
+occasionally (individual fetcher exceptions, now actually reachable) rather
+than a permanent empty `{}`. If wikipedia/gdelt/fred are STILL reported
+down a full trading day after this deploys, that's a genuine third
+mechanism and, per RECURRENCE ESCALATES, the next session must stop
+patching this subsystem and file a structural wishlist.md proposal
+instead. NEXT STEP for whichever session catches the next occurrence:
+check `/api/diag/audit?type=DIAGNOSTIC` clears and confirm no new OOM/
+restart signature in `/api/health`'s `uptime_s` (a sudden reset would flag
+the untouched thresholds as too permissive now that the guards actually
+release).
