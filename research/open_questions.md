@@ -1509,6 +1509,93 @@
     should start appearing) and confirm no new OOM/restart signature
     post-deploy before this item can be marked fully closed.
 
+    UPDATE 2026-07-14 later same day ([REPAIR], v1.0.314) — RECURRED, per
+    exactly this item's own "STILL OPEN" question above, and RESOLVED
+    (pending live confirmation). Per RECURRENCE ESCALATES this session
+    became root-cause analysis, not a re-patch. Checked
+    `/api/diag/audit?type=DIAGNOSTIC&token=$DIAG_TOKEN` ~9h after v1.0.311
+    deployed: EVERY one of 18 entries from 2026-07-14 10:57 UTC through
+    19:57 UTC (spanning the v1.0.311 deploy at 11:20:58 UTC and the full
+    trading day after) still reports `"Multiple API sources down:
+    ['wikipedia', 'gdelt', 'fred']"`; `/api/diag/scanner`'s
+    `dataSourceErrors` was still `{}` throughout — same shape of evidence
+    as the original finding, meaning `deep_score()` was still never being
+    reached, even after the monotonic-peak bug was fixed.
+    ROOT CAUSE: `/api/diag/daemon?token=$DIAG_TOKEN` gave the answer this
+    item's own STILL-OPEN question asked for — live daemon `rss_mb` read
+    **254.2MB**, stable across 4 polls over ~80s with `active_dispatches:
+    1` (i.e. this is baseline idle load, not a scan-induced spike), with
+    `modules_loaded` confirming `ml_model_v2` (lightgbm+sklearn) stays
+    permanently imported across calls. The 130MB skip / 100MB trim
+    defaults were tuned 2026-04-22 against a short-lived subprocess's RSS
+    trajectory ("Railway SIGKILLs bot_engine 'full' around 150-180MB") —
+    but the persistent daemon (the primary execution path per CLAUDE.md's
+    CODEBASE MAP) never resets that baseline between cycles, so its idle
+    RSS alone sat above BOTH thresholds before any scan started. Once
+    v1.0.311 made `_mem_rss_mb()` accurate, the guard's real behavior on
+    the daemon path became "skip deep scoring unconditionally, every
+    cycle" — the identical live symptom via a newly-exposed mechanism, a
+    second failure on the same subsystem (RECURRENCE ESCALATES: two
+    failed fixes = architecture smell, root-cause analysis required, which
+    this update is).
+    FIX SHIPPED (own PR, v1.0.314): re-based `VOLTRADE_MEM_SKIP_DEEP_MB`/
+    `VOLTRADE_MEM_TRIM_DEEP_MB` defaults from 130/100 to 550/400 —
+    grounded in the two untouched, already-live thresholds on the same
+    guard chain (SURVIVAL_MODE=700MB, daemon self-kill=1024MB) rather than
+    a fresh guess: trim_mb=400 leaves ~150MB margin above the live-
+    measured 254MB idle baseline for normal per-scan allocation growth;
+    skip_mb=550 leaves 150MB of clean margin below SURVIVAL_MODE so "skip
+    deep scoring" is a real intermediate escalation step again, not a
+    permanently-tripped floor. SURVIVAL_MODE (700MB) and the daemon
+    self-kill ceiling (1024MB) are UNCHANGED — this only re-tunes the
+    guard tier below them. The inline if/elif threshold comparison was
+    extracted into a small pure function, `_deep_score_guard_decision`,
+    specifically so the threshold values are unit-testable against the
+    live-observed baseline without invoking the full scan pipeline.
+    RATCHET: new `test_deep_score_guard_decision.py` (6 tests) — pins the
+    254MB-is-"normal"-at-550/400 case (the regression this recurrence
+    exposed), and separately documents that the OLD 130/100 defaults
+    would classify that same 254MB baseline as "skip" (so a future
+    session cannot silently re-lower the defaults back into the bug
+    without a test failing).
+    GATES: `python3 -m pytest -q` — 687 passed, 1 skipped, zero
+    regressions (this sandbox needed a fresh `pip install -r
+    requirements.txt -r requirements-dev.txt` this session — same
+    recurring environment-tooling gap noted by the two immediately-prior
+    sessions, still not chased further here). Zero TypeScript/client
+    files touched, so `npx tsx --test`/`tsc`/`npm run build` were not
+    re-run — no server/bot.ts call site reads these env vars (grepped;
+    this guard is fully internal to bot_engine.py).
+    DOWNSTREAM CHAIN (REASONING STANDARD #1): raises how often deep_score
+    runs (restoring ML/alt-data enrichment on the daemon path, same
+    direction as v1.0.311's intended effect, now actually realized) while
+    leaving SURVIVAL_MODE and the daemon self-kill ceiling as the true OOM
+    backstops, unchanged. Traced risk: if the container's real available
+    memory is smaller than the 700MB/1024MB thresholds assume (unverified
+    this session — inferred only from the daemon surviving multiple hours
+    at 254MB), deep scoring now running on every cycle instead of never
+    could push RSS higher more often and expose an OOM ceiling this
+    session didn't have visibility into. ROLLBACK TRIGGER: rising OOM/
+    SIGKILL frequency or daemon-restart cadence in `/api/diag/daemon`'s
+    `uptime_seconds` resetting unexpectedly post-deploy — revert skip_mb/
+    trim_mb toward 130/100 and re-open this item rather than re-guessing.
+    BACKTEST: N/A — same infra/memory-guard class as v1.0.311; does not
+    change what deep_score computes, only whether it runs.
+    NEXT STEP for whichever session catches the next occurrence: confirm
+    live via `/api/diag/audit?type=DIAGNOSTIC` clearing (wikipedia/gdelt/
+    fred should start appearing fresh) within a few scan cycles post-
+    deploy, and `/api/diag/scanner`'s `dataSourceErrors` starting to show
+    occasional real entries (individual fetcher exceptions, now actually
+    reachable) instead of a permanent empty `{}`. If wikipedia/gdelt/fred
+    are STILL down a full trading day after v1.0.314 deploys, the
+    threshold re-tune did not fully address it and per RECURRENCE
+    ESCALATES the next session must stop threshold-tuning this guard and
+    file a structural wishlist.md proposal (e.g., decoupling deep_score's
+    enrichment fetch from the memory guard's candidate-scoring skip, or
+    moving the memory ceiling constants into system_config.py with
+    proper regime-aware bounds) instead of adjusting these numbers a
+    third time.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

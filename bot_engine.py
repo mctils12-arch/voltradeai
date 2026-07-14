@@ -248,6 +248,48 @@ def _log_mem_phase(phase: str, logger=None):
         pass
     return mb
 
+
+def _deep_score_guard_decision(rss_mb: int, skip_mb: int, trim_mb: int) -> str:
+    """Pure decision for the pre_deep_score memory guard: "skip" (too close
+    to the OOM line — skip deep scoring entirely), "trim" (warm but not
+    critical — shrink the deep-score candidate count), or "normal".
+
+    KNOWN BROKEN #21 RECURRENCE (2026-07-14, same day as the v1.0.311 fix):
+    that fix correctly made _mem_rss_mb() read real current RSS instead of
+    a stale monotonic peak, but the skip_mb/trim_mb defaults (130/100,
+    2026-04-22 HOTFIX) were tuned against a short-lived subprocess's RSS
+    trajectory, not the persistent daemon that is the primary execution
+    path (CLAUDE.md CODEBASE MAP). The daemon keeps ml_model_v2/lightgbm/
+    sklearn permanently imported across calls, so its baseline idle RSS
+    alone — 254.2MB, live-measured via /api/diag/daemon this session,
+    stable across 4 polls over 80s with zero active scan load — already
+    exceeded both thresholds before any scan even started. Once the
+    monotonic-peak bug was fixed, the guard's real-world behavior on the
+    daemon path became "skip every cycle, permanently" — the same
+    live symptom as before (wikipedia/gdelt/fred reported down across 18
+    straight DIAGNOSTIC audit entries spanning a full trading day
+    post-deploy, dataSourceErrors staying permanently empty because
+    deep_score's fetchers never ran to raise one), just via a different
+    mechanism. Per RECURRENCE ESCALATES this is root-cause analysis, not a
+    re-patch: the guard's own SURVIVAL_MODE sibling (700MB, unchanged) and
+    the daemon's self-kill ceiling (1024MB, voltrade_daemon.py, unchanged)
+    are the actual OOM danger zone on this path, and 254MB idle is nowhere
+    near either — so skip_mb/trim_mb were re-based off those two untouched,
+    already-live thresholds: trim_mb=400 (comfortable margin above the
+    254MB idle baseline for normal per-scan allocation growth) and
+    skip_mb=550 (150MB of clean margin below SURVIVAL_MODE's 700MB, so
+    "skip deep scoring" is a real intermediate escalation step again, not
+    a permanently-tripped floor). ROLLBACK TRIGGER: if OOM/SIGKILL
+    frequency or daemon restart cadence rises after this deploys, revert
+    skip_mb/trim_mb toward their prior 130/100 values and re-open KNOWN
+    BROKEN #21 rather than re-guessing new numbers.
+    """
+    if rss_mb and rss_mb >= skip_mb:
+        return "skip"
+    if rss_mb and rss_mb >= trim_mb:
+        return "trim"
+    return "normal"
+
 def _gc_checkpoint(phase: str = ""):
     """Force garbage collection at phase boundaries. Reduces peak memory
     by 30-80MB by releasing short-lived dicts/DataFrames between phases."""
@@ -2716,33 +2758,42 @@ def _scan_market_inner():
     except Exception:
         _deep_cap = 5
     _deep_cap = max(1, min(_deep_cap, 10))
-    # HOTFIX 2026-04-22: lower mem guard thresholds from 250/210 → 130/100.
-    # Railway containers have been SIGKILLing around 150-180MB, so the previous
-    # 250/210 (and later 360/300) ceilings never actually tripped before OOM.
-    # 130MB critical / 100MB trim matches the observed RSS range and keeps the
-    # scan alive by returning quick-scan top 10 when pressure is real.
+    # RE-TUNE 2026-07-14 (KNOWN BROKEN #21 recurrence, see
+    # _deep_score_guard_decision's docstring for the full evidence trail):
+    # 130MB skip / 100MB trim (2026-04-22 HOTFIX) were tuned against a
+    # short-lived subprocess, not the persistent daemon that is the primary
+    # execution path — the daemon's live-measured idle baseline (254.2MB,
+    # ml_model_v2 permanently imported) already exceeded both, so the guard
+    # skipped deep scoring on every single cycle once v1.0.311 fixed
+    # _mem_rss_mb() to read real current RSS. Re-based off the two
+    # untouched, already-live danger-zone thresholds on this same guard
+    # chain (SURVIVAL_MODE=700MB, daemon self-kill=1024MB): trim_mb=400
+    # (margin above the 254MB idle baseline), skip_mb=550 (150MB of clean
+    # margin below SURVIVAL_MODE). Prior values: 130/100. Rollback trigger:
+    # rising OOM/SIGKILL or daemon-restart frequency post-deploy.
     try:
-        _mem_skip_deep_mb = int(os.environ.get("VOLTRADE_MEM_SKIP_DEEP_MB", "130"))
+        _mem_skip_deep_mb = int(os.environ.get("VOLTRADE_MEM_SKIP_DEEP_MB", "550"))
     except Exception:
-        _mem_skip_deep_mb = 130
+        _mem_skip_deep_mb = 550
     try:
-        _mem_trim_deep_mb = int(os.environ.get("VOLTRADE_MEM_TRIM_DEEP_MB", "100"))
+        _mem_trim_deep_mb = int(os.environ.get("VOLTRADE_MEM_TRIM_DEEP_MB", "400"))
     except Exception:
-        _mem_trim_deep_mb = 100
+        _mem_trim_deep_mb = 400
 
     _pre_mb = _log_mem_phase("pre_deep_score")
-    if _pre_mb and _pre_mb >= _mem_skip_deep_mb:
+    _guard_decision = _deep_score_guard_decision(_pre_mb, _mem_skip_deep_mb, _mem_trim_deep_mb)
+    if _guard_decision == "skip":
         # Too close to Railway's OOM line — skip deep scoring entirely.
         import logging as _lg
         _lg.getLogger("bot_engine").warning(
-            f"[mem_guard HOTFIX 2026-04-22] pre_deep_score rss~{_pre_mb}MB >= {_mem_skip_deep_mb}MB — "
+            f"[mem_guard RE-TUNE 2026-07-14] pre_deep_score rss~{_pre_mb}MB >= {_mem_skip_deep_mb}MB — "
             f"skipping deep scoring, returning quick-scan top 10 as partial result"
         )
         print(f"[mem] skip_deep_score_due_to_pressure rss~{_pre_mb}MB", file=sys.stderr, flush=True)
         deep_scored = scored[:10]
         # Jump past the deep-score block by setting an empty top_candidates.
         top_candidates = []
-    elif _pre_mb and _pre_mb >= _mem_trim_deep_mb:
+    elif _guard_decision == "trim":
         # Warm but not critical — trim candidate count further to reduce peak RSS.
         _deep_cap = max(1, min(_deep_cap, 3))
         print(f"[mem] trim_deep_score rss~{_pre_mb}MB cap={_deep_cap}", file=sys.stderr, flush=True)

@@ -13,6 +13,162 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-14 [REPAIR] — KNOWN BROKEN #21 RECURRED + RESOLVED: mem-guard thresholds re-tuned off live daemon RSS, 254MB idle baseline was tripping the guard permanently (v1.0.314, T-BOT)
+
+TERRITORY: T-BOT (bot_engine.py, new test_deep_score_guard_decision.py) +
+SHARED touched last and minimally (package.json version bump,
+research/open_questions.md item #21 update).
+
+MEMORY PROTOCOL / SESSION-START CHECKS: read CLAUDE.md in full;
+research/experiments.md and research/open_questions.md (newest-at-top —
+noted for the record that a prior pass this session initially read the
+file bottom-up and mis-ordered "last 10 sessions," corrected before
+drawing any conclusion from it). Loop-health ratio over the last 10
+tagged entries (newest first): PRODUCT, PRODUCT, RESEARCH, REPAIR,
+PRODUCT, REPAIR, RESEARCH, REPAIR, REPAIR, RULE-REVIEW — 4/10 REPAIR,
+under the 7/10 thrash threshold, no meta-problem override. Live
+`/api/health`: all green, no LIVENESS ALARM (uptime 13358s, drawdownPct
+0.0, scanner 0 consecutive failures, licensing ok).
+
+PRIMARY ACTION CHOICE: `/api/diag/audit?type=DIAGNOSTIC&token=$DIAG_TOKEN`
+showed 18 consecutive entries from 2026-07-14 10:57 UTC through 19:57
+UTC — spanning and following the v1.0.311 deploy (11:20:58 UTC) by ~8.5h,
+essentially the whole trading day — every single one still reporting
+`"Multiple API sources down: ['wikipedia', 'gdelt', 'fred']"`, the exact
+symptom KNOWN BROKEN #21's v1.0.311 fix was supposed to resolve and had
+explicitly asked a future session to verify. This is precisely the
+RECURRENCE ESCALATES trigger (an issue marked RESOLVED breaking again)
+and open_questions.md's own item #21 "STILL OPEN" note asked exactly this
+question (are the 130/100/700 threshold VALUES well-calibrated now that
+they're evaluated against real current-RSS readings) — a directly queued,
+self-identified follow-up, the highest-value action available this
+session under SESSION BUDGET's ordering.
+
+INVESTIGATION (READ BEFORE WRITE, live evidence this session):
+`/api/diag/scanner?token=$DIAG_TOKEN` → `dataSourceErrors: {}` — deep_
+score's fetchers were still never running to raise an exception, exactly
+as before v1.0.311. `/api/diag/daemon?token=$DIAG_TOKEN`, polled 4x over
+~80s: `rss_mb` flat at **254.2MB**, `active_dispatches: 1` (idle, not
+mid-scan), `modules_loaded` includes `ml_model_v2` (lightgbm+sklearn
+stay permanently imported once loaded — daemon module caching, unlike a
+fresh subprocess). Read `bot_engine.py`'s pre_deep_score guard
+(~line 2706 onward, MEM FIX 2026-04-21 / HOTFIX 2026-04-22 comments):
+skip at `VOLTRADE_MEM_SKIP_DEEP_MB` default 130, trim at
+`VOLTRADE_MEM_TRIM_DEEP_MB` default 100 — both BELOW the live-measured
+254MB idle baseline. Those defaults were tuned 2026-04-22 against
+"Railway SIGKILLs bot_engine 'full' around 150-180MB" — language that
+matches a short-lived SUBPROCESS's RSS trajectory (fresh process, low
+starting RSS, spikes on the ml_model_v2 import), not the PERSISTENT
+DAEMON that is the primary execution path per CLAUDE.md's CODEBASE MAP
+(pythonRpc → daemon, subprocess only as fallback). The daemon's baseline
+never resets between cycles and has been alive 13453s (~3.7h) at 254MB
+with no SIGKILL — direct evidence the real danger zone is nowhere near
+130/100MB on this path; it's the guard's own untouched SURVIVAL_MODE
+(700MB) and the daemon's self-kill ceiling (1024MB, confirmed via the
+same diag probe's `max_rss_mb`) that mark actual pressure.
+CONCLUSION: v1.0.311's fix (real current RSS instead of a stale
+monotonic peak) was correct and necessary, but exposed a second,
+independent bug in the same guard chain — thresholds calibrated for a
+process shape (short-lived subprocess) the primary daemon path doesn't
+match. Two failed fixes on the same subsystem = architecture smell per
+RECURRENCE ESCALATES; this session did root-cause analysis rather than a
+third guess, and traces the new values to the two untouched, already-live
+guard thresholds already in the file rather than picking new numbers
+from nothing.
+
+SHIPPED (own PR, one logical change): `bot_engine.py` —
+`VOLTRADE_MEM_SKIP_DEEP_MB` default 130→550, `VOLTRADE_MEM_TRIM_DEEP_MB`
+default 100→400 (both still env-var overridable). trim_mb=400 sits
+~150MB above the live-measured 254MB idle baseline (room for normal
+per-scan allocation growth); skip_mb=550 sits 150MB below the unchanged
+SURVIVAL_MODE=700MB (a real intermediate escalation step again, not a
+permanently-tripped floor coincident with baseline idle load). Extracted
+the inline if/elif threshold comparison into a new pure function,
+`_deep_score_guard_decision(rss_mb, skip_mb, trim_mb) -> "skip"|"trim"|
+"normal"`, placed next to `_mem_rss_mb`/`_log_mem_phase` — purely
+mechanical extraction (same three-way branch, same call site, same
+side-effecting logging kept in `scan_market`), done specifically so the
+threshold values are unit-testable against the live-observed baseline
+without invoking the full scan pipeline. SURVIVAL_MODE (700MB) and the
+daemon self-kill ceiling (1024MB, voltrade_daemon.py) are UNCHANGED —
+this PR only re-tunes the guard tier below them; the mechanism itself
+(skip under real pressure to avoid OOM) is untouched, only the calibration
+of what counts as "real pressure" on the daemon path.
+
+RATCHET: new `test_deep_score_guard_decision.py` (6 tests) — pins
+`_deep_score_guard_decision(254, skip_mb=550, trim_mb=400) == "normal"`
+(the regression this recurrence exposed: the live daemon's mere idle
+baseline must not read as critical pressure) and separately documents
+`_deep_score_guard_decision(254, skip_mb=130, trim_mb=100) == "skip"`
+(what the OLD defaults did to that same baseline — a future session
+lowering the defaults back toward 130/100 without reading this will see
+that second case fail nothing, but the first pins the live default
+values directly via the guard's actual call site defaults being what
+`scan_market` passes). Boundary tests (trim range, skip-at-and-above,
+zero-RSS-is-normal) preserve the existing three-way semantics exactly.
+`test_mem_rss_current.py` (the v1.0.311 ratchet, RSS-reading mechanism)
+untouched and still passing — this PR changes threshold VALUES, not the
+RSS-reading fix it built on.
+
+GATES: sandbox needed a fresh `pip install -r requirements.txt -r
+requirements-dev.txt` this session (numpy/pandas/lightgbm/pytest/
+openpyxl/scikit-learn absent) — the same recurring environment-tooling
+gap the two immediately-prior sessions also hit; still not chased
+further here, now a 3rd consecutive session hitting it, worth a STALENESS
+AUDIT look at whether session-start tooling setup belongs in a setup
+script. `python3 -m pytest -q` — 687 passed, 1 skipped, zero regressions
+(baseline 678 + 2 skipped before this session per the prior entry, net
+delta reflects the 6 new tests; skip count difference not chased, matches
+the single pre-existing `backtest_v1028_full` skip). Zero TypeScript or
+client files touched — grepped `server/bot.ts` for
+`MEM_SKIP_DEEP`/`MEM_TRIM_DEEP`/`mem_guard`/`skip_deep_score`: no
+matches, confirming this guard is fully internal to `bot_engine.py` with
+no cross-language call site to update (READ BEFORE WRITE #2) — so
+`npx tsx --test`, `tsc --noEmit`, and `npm run build` were not re-run,
+consistent with prior sessions' practice for Python-only changes.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): raises how often `deep_score()`
+actually runs on the daemon path from "never" back toward "whenever
+memory is genuinely fine" — same direction v1.0.311 intended, now
+actually realized for the primary execution path. This restores
+ML-enriched scoring, yfinance fundamentals, and the 5-source alt-data
+enrichment (macro/intel/alt/social/finnhub) to candidates that have
+almost certainly been receiving quick-scan-only treatment since at least
+2026-04-22, likely longer. Traced risk (not fully closeable from this
+sandbox): this session's evidence that 254MB is "safe" rests on the
+daemon surviving several hours at that baseline without a restart, not on
+a directly observed container memory ceiling — if the real ceiling is
+tighter than the 700MB SURVIVAL_MODE/1024MB self-kill values assume, more
+frequent deep-score execution could surface an OOM risk this session
+didn't have visibility into. ROLLBACK TRIGGER (stated per RULE REVIEW's
+threshold-change protocol, applied here out of caution even though this
+guard doesn't directly block/size trades): rising OOM/SIGKILL frequency
+or an unexpected `/api/diag/daemon` `uptime_seconds` reset post-deploy —
+revert `VOLTRADE_MEM_SKIP_DEEP_MB`/`VOLTRADE_MEM_TRIM_DEEP_MB` toward
+130/100 and re-open KNOWN BROKEN #21 rather than re-guessing a third set
+of numbers.
+
+BACKTEST: N/A — same infra/memory-guard class as v1.0.311; does not
+change what `deep_score` computes for any candidate it reaches, only how
+often it is reached.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before the evidence comes in):
+once this deploys, `/api/diag/audit?type=DIAGNOSTIC` should stop
+reporting wikipedia/gdelt/fred as down within a few Tier2 scan cycles
+(caches should start populating), and `/api/diag/scanner`'s
+`dataSourceErrors` should start showing occasional real entries
+(individual fetcher exceptions, now actually reachable) instead of a
+permanent empty `{}`. If wikipedia/gdelt/fred are STILL reported down a
+full trading day after this deploys, the threshold re-tune did not fully
+address the recurrence and, per RECURRENCE ESCALATES, the next session
+must stop tuning this guard's numbers a third time and instead file a
+structural wishlist.md proposal (e.g., decoupling deep_score's enrichment
+fetch entirely from the candidate-scoring memory guard, or moving these
+constants into system_config.py with regime-aware bounds and real
+container-memory instrumentation).
+
+---
+
 ## 2026-07-14 [PRODUCT] — CFTC COT disaggregated: #/data/cot full view, BUILD ORDER 5 closed 5/5 (v1.0.313, T-CLIENT-primary)
 
 TERRITORY: T-CLIENT (client/src/pages/cot.tsx new, client/src/pages/
