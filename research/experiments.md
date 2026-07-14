@@ -13,6 +13,127 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-14 [PRODUCT] — CFTC COT disaggregated: #/data/cot full view, BUILD ORDER 5 closed 5/5 (v1.0.313, T-CLIENT-primary)
+
+TERRITORY: T-CLIENT (client/src/pages/cot.tsx new, client/src/pages/
+datamap.tsx layer wiring) + a T-DATACORE-adjacent addition to
+server/cftcCot.ts (mirrors the same-day wikiAttention.ts precedent — a
+server module addition, not a new datacore/ pipeline). SHARED touched
+last and minimally: package.json version bump, research/open_questions.md
+UI-status note update.
+
+MEMORY PROTOCOL: read CLAUDE.md, the last 10 tagged experiments.md
+entries (PRODUCT RESEARCH REPAIR PRODUCT REPAIR RESEARCH REPAIR REPAIR
+RULE-REVIEW PRODUCT, counting back — 4/10 REPAIR, well under the 7+
+thrash threshold), open_questions.md's KNOWN BROKEN section (all
+resolved or human-blocked; no LIVENESS ALARM), and wishlist.md (no
+STARVED flags, no overdue audit — staleness next due 2026-08-04,
+constitutional audit awaiting human approval on already-filed proposals,
+calendar audit not due until December). Live `/api/health`: all green
+(server ok, database ok, Alpaca ACTIVE, python ok, bot active,
+drawdownPct 0.0, liveness.dark false, scanner 0 consecutive failures) —
+no LIVENESS ALARM.
+
+SESSION BUDGET PRIMARY ACTION: this session's own predecessor (same day,
+the Wikipedia attention entry above) left BUILD ORDER 5's UI-status note
+with exactly one item remaining: #2 CFTC COT disaggregated, the sole
+pipeline from that build order still shipped API-only with no /data
+surface. Picked it up directly — no fresh survey needed, the queued item
+was already named.
+
+SHIPPED: server/cftcCot.ts gained four history-read functions
+(listArchivedDates/searchMarkets/lookupMarketHistory/
+readAggregateHistory) — same shape as wikiAttention.ts's sibling
+functions, but COT has no curated ticker seed (274 markets/week, no
+ticker mapping), so the exact-key lookup those siblings use is replaced
+by a two-step flow: searchMarkets() matches the newest archived week's
+markets by exact contract code or case-insensitive market/commodity name
+substring, then lookupMarketHistory(code, weeks) walks the archived
+weeks for that exact code and computes managed-money net position
+(long-short) and its ratio to open interest — a week with no row for
+that code is honestly omitted, never zero-filled. New route GET
+/api/data/cot/history: no query = market-wide trend (total open
+interest + market count per archived week); ?q= = up to 20 search
+matches; ?code= = one market's multi-week series. Client:
+client/src/pages/cot.tsx (CotView) — reuses the generic .vt-filings-*/
+.vt-shortvol-* CSS verbatim (zero new styles): trend sparkline, search
+form -> match list -> per-market series view, and today's ranked panel
+(largest |managed-money net % of open interest|, open interest floored
+at 1,000 contracts client-side — same reasoning as shortvol's
+FLOOR_TOTAL_VOL: an illiquid market can show a huge ratio on noise
+alone). Wired into datamap.tsx exactly like attention: new "cot" layer
+id (group "filings", DEFAULT_ON, lucide Scale icon, 300s-poll status
+badge showing market count), inline "Open COT view" panel-row button,
+hash-routed #/data/cot overlay + hashchange listener entry. datacore/
+layers.json gained the "cot" registry entry (RAW, same gate-2-hypothesis-
+not-yet-a-signal language the server route already carried).
+research/open_questions.md's BUILD ORDER 5 UI STATUS note updated in
+place: all five #1-5 pipelines now have their /data follow-up, note
+closed.
+
+RATCHET: server/cftcCot.test.ts gained 4 new tests for the history
+functions (newest-first date listing, exact-code/name/commodity-
+substring search scoped to the newest week only, net-position series
+with honest gaps + ascending order, aggregate trend). Day-files written
+DIRECTLY to disk in the new tests rather than via archiveCotWeek,
+sidestepping that function's module-level `archivedWeeks` dedup Set
+(shared across the whole test file regardless of base dir — the same
+caveat wikiAttention.test.ts documents for its own archivedKeys set;
+first-draft tests reusing dates already claimed by the file's
+pre-existing tests silently no-op'd archiveCotWeek and failed 4 of 8,
+caught and fixed this session by switching to direct writes with
+never-before-used dates). server/layersWiring.test.ts's existing RATCHET
+(every live registry id must appear in datamap.tsx's LAYER_GROUP, R15
+powergrid precedent) covers the new "cot" entry automatically — verified
+green.
+
+GATES: `npx tsx --test server/cftcCot.test.ts server/layersWiring.test.ts`
+10/10. Full suite `npx tsx --test server/*.test.ts` 668/668 (664 baseline
++ 4 new), zero regressions. `npx tsc --noEmit`: 66 errors both before and
+after (git-stash-verified baseline), the one datamap.tsx error present in
+both runs is the same pre-existing `known.has(groupOf(l))` generic-type
+mismatch, shifted by line number only from this PR's insertions above it
+— confirmed by content match, not just count match. `npm run build`
+clean (cot.tsx bundles into the existing DataWorldMap chunk, no new chunk
+warnings). Visual harness (`npm run visual -- --page data`, 390/768/1440
+per PROMOTION RULE 6): 0 hard failures at all three widths + the
+zero-cost and layer-scale batteries; the toggle-consistency battery
+exercised the new "cot" fixture entry (added to scripts/visual_check.mjs
+alongside its /api/data/cot and /api/data/cot/history response fixtures)
+without failure. Warnings present (touch-target sizes, one clipped
+"About Live trains" tooltip) are byte-identical to the same-day
+attention PR's documented pre-existing warnings — unrelated to this
+change. Session reviewed data-1440.png and data-fields-1440.png (layer
+panel renders cleanly, no visual regression); the panel captures didn't
+happen to scroll to the "Filings & flows" group specifically, so the new
+row's on-map rendering rides on the toggle-consistency battery's
+pass/fail rather than a direct screenshot crop — same level of review
+the same-day attention entry recorded.
+
+MARKET-HOURS NOTE: this session ran during market hours (2026-07-14,
+per the run instructions) — the change is a pure /data product surface
+addition with zero touch to any scoring/sizing/scheduling/trading code
+path (same DOWNSTREAM CHAIN class as the attention PR below), so it is
+not a critical live-break fix. PR left open for merge after 4:00 PM ET
+per instruction, not merged same-session.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): pure UI surfacing of an
+already-recording, already-labeled RAW stream — zero change to any
+scoring/sizing/scheduling/trading code path, zero change to what the
+poller fetches or archives. The only new request-path code is a bounded
+read of the small weekly archive (one week materialized and discarded
+at a time), never the request-path-materializes-the-whole-archive
+mistake.
+
+BACKTEST: N/A — /data product surface only.
+
+HYPOTHESIS: unchanged from cftcCot.ts's existing gate-locked one
+(managed-money net-positioning extremes mean-revert in commodity-linked
+ETFs) — this PR adds no new claim, only a way for a human (or the
+analyst pane) to see the archive and a raw, unmodeled net-position ratio
+that has been accumulating since 2026-07-05. Gate 2 stays blocked on
+trailing archive depth, same as before.
+
 ## 2026-07-14 [PRODUCT] — Wikipedia attention proxy: #/data/attention full view (v1.0.309, T-CLIENT-primary)
 
 TERRITORY: T-CLIENT (client/src/pages/attention.tsx new, client/src/pages/

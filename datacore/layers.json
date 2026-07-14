@@ -1002,6 +1002,16 @@
       "description": "Daily article pageviews for a curated ~23-ticker seed (the pytrends/Google Trends replacement — that lane failed gate 1) — an attention PROXY, not a signal. As-is display: today's ranked panel + a market-wide seed-total trend + a per-ticker archive lookup; attention-spikes-lead-volume is an open gate-2 hypothesis, gated on trailing archive depth, not yet surfaced as a signal."
     },
     {
+      "id": "cot",
+      "name": "Commitments of Traders (CFTC, disaggregated)",
+      "kind": "raw",
+      "status": "live",
+      "group": "filings",
+      "costTier": "light",
+      "source": "CFTC Public Reporting Socrata API, disaggregated futures-only (no API key required)",
+      "description": "Weekly futures-only positioning by trader category (producer/merchant, swap dealer, managed money, other reportables), ~274 markets. As-is display: a market search + per-market managed-money net-position history + today's ranked panel by |net % of open interest|; positioning-extremes-mean-revert is an open gate-2 hypothesis, gated on trailing archive depth, not yet surfaced as a signal."
+    },
+    {
       "id": "shadowstats",
       "name": "Dark-ship statistics",
       "kind": "raw",

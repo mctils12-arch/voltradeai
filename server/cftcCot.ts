@@ -218,6 +218,107 @@ export function readArchivedWeek(week: string, baseDir?: string): CotRow[] {
   return [];
 }
 
+// ── History reads (#/data/cot full view — mirrors wikiAttention's
+// listArchivedDates/lookupTickerHistory/readAggregateHistory pattern; here
+// the archive key is the weekly report_date and the per-row identity is the
+// CFTC contract market code rather than a curated ticker seed). ───────────
+
+/** Archived report dates, newest first (jsonl or jsonl.gz only). */
+export function listArchivedDates(baseDir?: string, limit = 90): string[] {
+  let files: string[];
+  try { files = fs.readdirSync(cotDir(baseDir)); } catch { return []; }
+  return files
+    .map((f) => f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/))
+    .filter((m): m is RegExpMatchArray => !!m)
+    .map((m) => m[1])
+    .sort()
+    .reverse()
+    .slice(0, limit);
+}
+
+export interface CotMarketMatch {
+  code: string;
+  market: string;
+  commodity: string | null;
+  report_date: string;
+  open_interest: number | null;
+}
+
+/** Search the NEWEST archived week's markets by contract code (exact) or
+ *  market/commodity name (case-insensitive substring) — there is no
+ *  curated ticker seed here, so lookups start from a search, not an exact
+ *  key, same reasoning shortvol/attention avoid for their ticker seeds. */
+export function searchMarkets(query: string, baseDir?: string, limit = 20): CotMarketMatch[] {
+  const q = query.trim().toUpperCase();
+  if (!q) return [];
+  const dates = listArchivedDates(baseDir, 1);
+  if (!dates.length) return [];
+  const week = readArchivedWeek(dates[0], baseDir);
+  const hits = week.filter((r) =>
+    r.code.toUpperCase() === q ||
+    r.market.toUpperCase().includes(q) ||
+    (r.commodity != null && r.commodity.toUpperCase().includes(q))
+  );
+  return hits.slice(0, limit).map((r) => ({
+    code: r.code, market: r.market, commodity: r.commodity,
+    report_date: r.report_date, open_interest: r.open_interest,
+  }));
+}
+
+export interface CotMarketPoint {
+  report_date: string;
+  open_interest: number | null;
+  m_money_long: number | null;
+  m_money_short: number | null;
+  m_money_net: number | null;
+  m_money_net_pct_oi: number | null;
+}
+
+/** One market's managed-money net-positioning series across its last
+ *  `weeks` archived report dates, ascending by date. A week with no row
+ *  for that code is honestly omitted, never zero-filled (same rule as
+ *  wikiAttention's lookupTickerHistory). Keyed by the exact CFTC contract
+ *  market code (from a prior searchMarkets() call), never a fuzzy name. */
+export function lookupMarketHistory(code: string, weeks: number, baseDir?: string): CotMarketPoint[] {
+  const c = code.trim().toUpperCase();
+  const dates = listArchivedDates(baseDir, weeks);
+  const out: CotMarketPoint[] = [];
+  for (const iso of dates) {
+    const r = readArchivedWeek(iso, baseDir).find((x) => x.code.toUpperCase() === c);
+    if (!r) continue;
+    const net = (r.m_money_long != null && r.m_money_short != null) ? r.m_money_long - r.m_money_short : null;
+    out.push({
+      report_date: r.report_date,
+      open_interest: r.open_interest,
+      m_money_long: r.m_money_long,
+      m_money_short: r.m_money_short,
+      m_money_net: net,
+      m_money_net_pct_oi: (net != null && r.open_interest) ? net / r.open_interest : null,
+    });
+  }
+  out.sort((a, b) => (a.report_date < b.report_date ? -1 : a.report_date > b.report_date ? 1 : 0));
+  return out;
+}
+
+export interface CotTrendPoint { report_date: string; markets: number; total_open_interest: number; }
+
+/** Market-wide trend: total open interest + market count per archived
+ *  week, ascending by date. A bounded read (one week materialized at a
+ *  time), same pattern as wikiAttention's readAggregateHistory. */
+export function readAggregateHistory(weeks: number, baseDir?: string): CotTrendPoint[] {
+  const dates = listArchivedDates(baseDir, weeks);
+  const out = dates.map((iso) => {
+    const rows = readArchivedWeek(iso, baseDir);
+    return {
+      report_date: iso,
+      markets: rows.length,
+      total_open_interest: rows.reduce((s, r) => s + (r.open_interest ?? 0), 0),
+    };
+  });
+  out.sort((a, b) => (a.report_date < b.report_date ? -1 : a.report_date > b.report_date ? 1 : 0));
+  return out;
+}
+
 /** On restart with the newest week already archived, rebuild the cache
  *  from disk (same honesty rule as finraShortVolume). */
 export async function refreshCot(fetchImpl: FetchFn = fetch as any, nowMs?: number,
