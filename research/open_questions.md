@@ -4239,6 +4239,54 @@ LADDER: N/A (raw overlay). NEXT: a session doing a STALENESS-AUDIT
 fall-through runs the coverage/field comparison and files the
 keep-or-remove call; if remove, it ships as one docs+code removal PR.
 
+UPDATE 2026-07-14 (this session, [PRODUCT]) — coverage/field comparison
+RUN; the LEANING above is REVISED, not confirmed. On raw display fields
+HIFLD IS the superset the 2026-07-09 note expected: 11,810 plants (WRI:
+9,833 US rows), public-domain licensing (no CC-BY attribution burden),
+name/fuel/mw/operator all present PLUS state/status/VAL_METHOD position-
+honesty fields WRI lacks, and it already renders fuel-typed SDF icons
+(SYMBOLS NOT DOTS-compliant) — so a naive removal looked justified.
+
+BUT (REASONING STANDARD #1 — trace the downstream chain before changing
+anything) a fuller trace turned up a real coupling the 2026-07-09 filing
+didn't check: `server/entityGraph.ts` builds its ENTIRE "operates" edge
+set and every `facility:plant:N` node from `datacore/powerplants/
+us_power_plants.json` (the WRI array) BY ARRAY INDEX — nothing server-
+side reads the HIFLD PMTiles data at all. The WRI map layer's click
+handler is therefore the ONLY live path that calls `fetchDossier(...,
+"facility:plant:${p.plantId}", ...)` with a real entity id; clicking a
+plant there returns the FULL dossier (identity + 2-hop Everything Graph
+neighborhood + ticker linkage + insider filings + USAspending contracts +
+hazards), per server/dossier.ts. The HIFLD plants layer, meanwhile, had
+NO `fetchDossier` call at all before this session (a plain parity gap
+vs. every other clickable layer — aircraft/trains/fires/gauges/quakes/
+buoys all wire it with `entityId:null` for the graph doesn't-model-this-
+yet case). Removing the WRI toggle as filed would have silently deleted
+the only click path to that richer dossier for power plants — a real
+product regression the 2026-07-09 filing's "same click-through fields"
+check (capacity/operator only) was too narrow to catch.
+
+WHAT SHIPPED THIS SESSION (small, safe, non-regressive): HIFLD plants'
+click handler now calls `fetchDossier(dossierKey, null, lat, lon)` too —
+closes the parity gap (every HIFLD plant now gets the lat/lon-keyed
+nearest-sites + hazards + flood-zone section other ungraphed layers get),
+with zero risk since `entityId:null` cannot collide with or corrupt the
+WRI-indexed graph. `datacore/layers.json`/`DEFAULT_ON`/`LAYER_GROUP` were
+NOT touched — both toggles stay live.
+
+REVISED NEXT STEP (this is now the real size of the consolidation, not a
+one-PR removal): before the WRI toggle can be safely retired, something
+needs to build a server-side HIFLD plant dataset (a compact JSON extract
+alongside/instead of the PMTiles, analogous to `us_power_plants.json`)
+and migrate `entityGraph.ts`'s facility nodes + `operates` edges onto it
+(11,810 rows vs. 9,833 — the id scheme changes, every existing
+`facility:plant:N` dossier reference and the riverPlants.ts pillar-6
+cross-tie's `PlantTuple` consumer would need updating in the same
+migration). That is its own scoped PR, is where the "keep-or-remove"
+call should actually be filed, and is NOT attempted this session (scope
+discipline — one logical change per PR). Until then, both toggles
+staying live is the CORRECT state, not unresolved debt.
+
 ---
 
 ## [GRID-VISION · filed 2026-07-12 · ANSWERED SAME DAY — see experiments.md survey entry: 1/24 collects, hit fails geometry checks, lane CLOSED] Do ANY 3DEP collects carry wire/tower classes or intact aerial returns?

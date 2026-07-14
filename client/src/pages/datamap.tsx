@@ -1857,6 +1857,17 @@ export default function DataMapPage() {
           const canon = EIA_FUEL_TO_CANON[p.fuel] || "other";
           const fuelLabel = EIA_FUEL_LABEL[p.fuel] || POWER_FUEL_LABEL[canon] || p.fuel || "Unknown fuel";
           const mw = (p.mw != null && p.mw !== "") ? `${Number(p.mw).toLocaleString()} MW` : "capacity n/a";
+          // dossier parity fix (2026-07-14, filed PRODUCT-DEBT 2026-07-09): this
+          // layer never called fetchDossier — every other clickable layer does
+          // (aircraft/trains/fires/gauges/quakes/buoys all pass entityId:null +
+          // lat/lon for "nearest_sites"+hazards enrichment, per fetchDossier's own
+          // doc comment). HIFLD plants have no entity-graph node of their own yet
+          // (entityGraph.ts's facility:plant:N ids are built from the WRI GPPD
+          // array only — see research/open_questions.md PRODUCT-DEBT entry for
+          // why a full consolidation onto HIFLD needs that migrated first), so
+          // entityId stays null here rather than guessing a WRI index; lat/lon
+          // alone still surfaces the location-dossier hazard/nearest-site section.
+          const dossierKey = `plant_hifld:${e.lngLat?.lat},${e.lngLat?.lng}:${Date.now()}`;
           setDetail({
             kind: "powerplant",
             title: p.name || "Power plant",
@@ -1873,7 +1884,9 @@ export default function DataMapPage() {
                     : p.val === "OTHER" ? "Position verified by a non-imagery source (HIFLD).\n"
                     : "Position registry-reported (EIA-860), unverified — the point may mark the plant's registered address rather than the equipment.\n"}` +
                   `\nHIFLD authoritative (U.S. DHS / Oak Ridge National Laboratory, public domain; from EIA-860).`,
+            dossierKey,
           });
+          fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
         }));
         setStatus(pSrc, "active", undefined,
           "US power plants — HIFLD authoritative (DHS / Oak Ridge Nat'l Lab, public domain; EIA-860): 11,810 stations, fuel-typed icons — tap for details");
