@@ -15972,3 +15972,152 @@ check `/api/diag/audit?type=DIAGNOSTIC` clears and confirm no new OOM/
 restart signature in `/api/health`'s `uptime_s` (a sudden reset would flag
 the untouched thresholds as too permissive now that the guards actually
 release).
+
+---
+
+## 2026-07-14 [PRODUCT] — HIFLD power-plants dossier-parity fix; the filed "consolidate two power-plant layers" debt is revised, not closed (v1.0.312, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx), with research/*.md
+bookkeeping. No FROZEN paths touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full; `/api/health`
+liveness — no LIVENESS ALARM; loop-health ratio over the last 10 tagged
+entries = 4 REPAIR / 4 PRODUCT / 2 RESEARCH (per the immediately prior
+session's own count), under the 7/10 thrash threshold, so no meta-problem
+override. KNOWN BROKEN: items #10/#17/#18/#20 remain open but none are
+liveness-critical or block product work; item #21 (deep_score enrichment
+blind spot) was CONFIRMED RESOLVED by the two immediately-prior sessions
+(v1.0.310 visibility fix + v1.0.311 root-cause fix) — nothing new to
+triage. This is a [PRODUCT] session; KNOWN BROKEN's remaining open items
+were noted and not preempted, per this program's own standing instruction
+that product sessions don't take over the DAILY routines' repair duty.
+
+PRIMARY ACTION CHOICE: scanned platform_program.md (queue clear except
+P5, HUMAN-GATED — nothing to pick up), data_census.md (remaining
+un-built roots are all BLOCKED-FOR-MIKE key/token asks or need real
+calendar time to accumulate history — not actionable this session), and
+open_questions.md's MIDAS/settlement-stress gate-2 hypotheses (both
+explicitly blocked on accumulating multi-quarter history, not ripe). The
+one concrete, self-contained, immediately actionable item was the
+[PRODUCT-DEBT · filed 2026-07-09] "two overlapping power-plant layers"
+entry, whose own NEXT step ("a session runs the coverage/field
+comparison and files the keep-or-remove call") was still open.
+
+WORK DONE — ran the comparison the 2026-07-09 filing asked for:
+`datacore/powerplants/us_power_plants.json` (WRI GPPD, the CC-BY layer)
+has 9,833 US rows (`[name, mw, fuel, operator, lat, lon, verified]`);
+HIFLD (public domain, EIA-860) has 11,810. On raw display fields HIFLD
+IS the superset the filing expected: more plants, no CC-BY attribution
+burden, name/fuel/mw/operator all present PLUS state/status/VAL_METHOD
+position-honesty fields WRI lacks, and it already renders fuel-typed SDF
+icons. That comparison alone would have justified removing the WRI
+toggle exactly as the filing's LEANING suggested.
+
+REASONING STANDARD #1 (trace the downstream chain before changing
+anything) caught what the narrower 2026-07-09 field check missed:
+`server/entityGraph.ts` builds its entire plant "facility" node set and
+every `operates` edge from the WRI array BY INDEX (`plantFacilityId =
+facility:plant:${idx}`) — nothing server-side reads the HIFLD PMTiles
+data. The WRI map layer's click handler is therefore the ONLY live path
+that calls `fetchDossier(..., "facility:plant:${p.plantId}", ...)` with
+a real entity id, which is what gives a clicked plant the FULL dossier
+(identity + 2-hop Everything Graph neighborhood + ticker linkage +
+insider filings + USAspending contracts + hazards, per server/dossier.ts)
+instead of just a bare nearest-sites/hazards list. `server/riverPlants.ts`
+(the Pillar-6 low-water/generation-exposure cross-tie) also consumes the
+WRI array directly via its own `PlantTuple` type. Removing the WRI toggle
+as filed would have silently deleted the only click path to that richer
+dossier for every power plant on the map — a real product regression the
+2026-07-09 filing's field check (capacity/operator parity only) had no
+way to catch, because it never traced who else reads the data.
+
+Separately, checking HIFLD's own click handler this session found it had
+NO `fetchDossier` call at all — a plain parity gap against every other
+clickable layer in the file (aircraft/trains/fires/gauges/quakes/buoys
+all call it with `entityId: null` for the "graph doesn't model this
+entity yet" case, per `fetchDossier`'s own doc comment, which still
+returns lat/lon-keyed nearest-sites + hazards + flood-zone).
+
+SHIPPED (small, safe, additive — one logical change): HIFLD plants'
+click handler (`client/src/pages/datamap.tsx`, the `powergrid_hifld_
+plants` block) now calls `fetchDossier(dossierKey, null, lat, lon)`,
+matching the established convention for ungraphed layers. `entityId`
+stays `null` rather than guessing/joining to a WRI index — that join
+does not exist and building one is exactly the scope of the real
+follow-up (below), not this PR. `datacore/layers.json`, `DEFAULT_ON`,
+and `LAYER_GROUP` were NOT touched; both power-plant toggles stay live.
+(Both a `layers.json`-removal edit and a `DEFAULT_ON`/`LAYER_GROUP`
+edit were drafted and then reverted this session once the entityGraph
+coupling surfaced — recorded here so a future session doesn't re-walk
+the same dead end.)
+
+open_questions.md's PRODUCT-DEBT entry (2026-07-09) got an UPDATE block
+with this finding and a corrected NEXT step: the real consolidation
+needs a server-side HIFLD plant dataset (compact JSON extract alongside
+the PMTiles, analogous to `us_power_plants.json`) and a migration of
+`entityGraph.ts`'s facility nodes/edges plus `riverPlants.ts`'s consumer
+onto it — its own scoped PR, not attempted here. Both toggles staying
+live is now the CORRECT filed state, not unresolved debt.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new `fetchDossier` call
+only ever passes `entityId: null` — it cannot collide with, overwrite,
+or corrupt any WRI-indexed `facility:plant:N` graph node or edge. Zero
+effect on entityGraph.ts, riverPlants.ts, or any trading/scoring code.
+Pure additive UI enrichment on an existing, already-shipped RAW layer.
+
+VERIFICATION: `npx tsx --test server/layersWiring.test.ts server/
+powerplants.test.ts` 5/5 (unaffected, as expected — no registry/route
+change). Full suite `npx tsx --test server/*.test.ts` 664/664 (this
+sandbox had `node_modules` freshly installed this session — a genuine
+full run, not the partial 640/644-with-4-known-network-failures baseline
+prior sessions logged without deps installed). `npx tsc --noEmit`: 66
+lines of output before and after, `diff` shows the two files identical
+except one pre-existing `datamap.tsx` union-type error's line number
+shifting by the +13 lines this diff added (same error, same file,
+confirmed byte-identical pre-existing baseline, same pattern documented
+by the 2026-07-13 units.ts session). `npm run build`: clean, both
+client + server bundles, no new warnings.
+`python3 -m pytest -q` not re-run — zero Python files touched.
+
+VISUAL HARNESS — attempted, blocked by a NEW sandbox finding (not a
+regression signal): `npm run visual` and `node scripts/visual_check.mjs
+--page data` both crashed ("Target page, context or browser has been
+closed") partway through the `data` page's real render (past font-load,
+during/after the perf-pan + screenshot phase). Isolated the cause before
+giving up: a plain `chromium.launch()` in this sandbox resolves to a
+`chrome-headless-shell` revision that plain does not exist on disk here
+(`/opt/pw-browsers` only carries the full `chromium-1194` build) — the
+harness's own try/catch already falls back to `executablePath: "/opt/
+pw-browsers/chromium"`, which launches successfully, but the renderer
+still dies specifically on the real, layer-heavy `/data` page (a trivial
+`data:text/html` page and a crude static-file smoke test both survived
+fine with `--no-sandbox` added). Temporarily added `--no-sandbox` +
+`--disable-dev-shm-usage` to `scripts/visual_check.mjs`'s GL_ARGS to test
+whether that was the fix (`/dev/shm` has 7.9G free, ruling out the usual
+shm-starvation cause) — the crash persisted even with those flags, so
+the real cause is still unidentified (likely a deeper container
+sandboxing/seccomp restriction on the full-chromium renderer process
+under real WebGL+many-layers load, distinct from the CDN-firewall
+limitation prior sessions hit). The script edit was NOT kept — reverted
+to the original file before committing (`git diff --stat -- scripts/
+visual_check.mjs` empty); this PR ships with zero harness-script changes.
+Confidence in lieu of screenshots rests on: the diff touches zero DOM/
+CSS/rendering code (a JS-only addition to an existing click handler that
+calls a function — `fetchDossier` — already exercised identically by
+six other layers in the same file), the full TS test suite passing
+664/664, and the byte-identical `tsc` baseline. Filed as a new sandbox-
+environment finding (distinct from the pre-existing CDN-firewall one)
+for whoever next needs the harness to actually run here — worth a
+STALENESS AUDIT or dedicated environment-setup look, not chased further
+in this PRODUCT session.
+
+BACKTEST: N/A — /data display-surface enrichment only; zero trading,
+sizing, scoring, or execution code touched.
+
+HYPOTHESIS (per REASONING STANDARD #10, stated before evidence): once
+deployed, a HIFLD plant click should show a dossier panel populated with
+nearest-sites/hazards content (previously always empty for that layer);
+a future session cross-checking `/api/data/dossier?lat=..&lon=..`
+against a known HIFLD plant coordinate (no `entity` param) should get a
+non-empty `nearest_sites`/`hazards` section, confirming the wiring works
+live and not just in the unit-tested/build-clean sandbox checks above.
