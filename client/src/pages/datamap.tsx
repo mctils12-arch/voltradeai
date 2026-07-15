@@ -37,7 +37,13 @@ import { mmsiFlag } from "@/lib/mmsiFlag";
 // GPU-instanced points. REAL positions only — deep-space objects need SDP4
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer } from "@/lib/orbital/satLayer";
-import { fetchGp, type GpRecord } from "@/lib/orbital/tle";
+import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
+// EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
+// operator→ticker map turn a clicked point into "small payload, CubeSat-class
+// size, owned by X, launched Y" — formatting lives in lib/orbital/identity
+// (pure, tested); resolveOperator stays conservative (null = honest unmapped).
+import { satelliteIdentityLines, nameStemForOperator } from "@/lib/orbital/identity";
+import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
@@ -81,6 +87,29 @@ const ORBITAL_GP_TTL_MS = 2 * 60 * 60_000; // 2h — CelesTrak's GP refresh cade
 // registry entry predates v2 (mid-deploy older registry). The registry's own
 // `lod` block is the source of truth and overrides this.
 const ORBITAL_LOD_FALLBACK = { camMinKm: 100, fadeBandKm: 150 };
+// EARTH TWIN E4-1: SATCAT identity catalog — module cache mirroring
+// orbitalGpCache (survives effect unmounts; one download per day at most —
+// catalog metadata changes slowly and CelesTrak rate-limits). Fetched in the
+// BACKGROUND when the satellites layer enables, never blocking the layer;
+// a click before it lands gets an honest "still downloading" line.
+let satcatByNorad: Map<number, SatcatRecord> | null = null;
+let satcatFetchedAt = 0;
+let satcatState: "loading" | "ready" | "error" = "error";
+let satcatInflight: Promise<void> | null = null;
+const SATCAT_TTL_MS = 24 * 60 * 60_000;
+function ensureSatcat(): void {
+  if (satcatByNorad && Date.now() - satcatFetchedAt < SATCAT_TTL_MS) return;
+  if (satcatInflight) return;
+  satcatState = "loading";
+  satcatInflight = fetchSatcat()
+    .then((rows) => {
+      satcatByNorad = new Map(rows.map((r) => [r.noradId, r]));
+      satcatFetchedAt = Date.now();
+      satcatState = "ready";
+    })
+    .catch(() => { satcatState = "error"; }) // identity stays honestly absent
+    .finally(() => { satcatInflight = null; });
+}
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
@@ -1579,6 +1608,7 @@ export default function DataMapPage() {
         worker.postMessage({ type: "init", gp });
         worker.postMessage({ type: "start", hz: 1 });
         applyLod(); // a page opened already deep-zoomed pauses immediately
+        ensureSatcat(); // E4-1: identity catalog in the background, non-blocking
       },
       (failures) => setStatus("orbital_sats", "error", undefined,
         failures === 0 ? "could not reach CelesTrak — retrying automatically…" : "still retrying automatically…"),
@@ -1678,16 +1708,25 @@ export default function DataMapPage() {
       const cls = ORBIT_CLASS_NAME[hit.classCode] ?? "unknown";
       const altKm = hit.altMeters / 1000;
       const ageDays = epochAgeDays(g.epoch, Date.now());
+      // E4-1 identity: SATCAT row (may still be downloading — honest line) +
+      // conservative operator resolve (owner code first, then the
+      // constellation name stem; null = honestly unmapped, never guessed).
+      const sc = satcatByNorad?.get(g.noradId) ?? null;
+      const op = sc
+        ? resolveOperator(sc.owner, sc.country) ??
+          resolveOperator(nameStemForOperator(g.name ?? sc.name), sc.country)
+        : null;
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
-        subtitle: `${cls} · ${fmtKm(altKm)} altitude`,
+        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls} · ${fmtKm(altKm)} altitude`,
         body: [
           `NORAD catalog ID: ${g.noradId}`,
+          ...satelliteIdentityLines(sc, op, satcatState === "loading" ? "loading" : sc ? "ready" : "error"),
           g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
-          "RAW orbital element, SGP4-propagated from CelesTrak GP data — real position, no predictive claim.",
+          "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
           label: "CelesTrak catalog entry",
