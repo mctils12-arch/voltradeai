@@ -38,8 +38,10 @@ Directive installed as charter section O6. Shipped:
 PRIOR: the focus arc + find are the two biggest UX gaps named by the
 human; falsifier for the mini band (2500km): minis too dense/sparse
 at that ceiling → tune MINI_MAX_CAM_KM one constant. GATES: client
-212/212 (18 new), server untouched except none, tsc 66 baseline,
-build clean, harness recorded below.
+212/212 (18 new), server untouched, tsc 66 baseline, build clean.
+HARNESS: run 1 hit the documented data@1440 fields-on locator-timeout
+flake (same signature as the filed harness-env question), re-run
+clean — 0 hard failures at 390/768/1440; 390 data screenshot reviewed.
 
 ## 2026-07-15 [PRODUCT] — EARTH TWIN session #3 continued: vessels delta + per-class aircraft 3D (v1.0.340-341, post-#486 branch restart)
 
