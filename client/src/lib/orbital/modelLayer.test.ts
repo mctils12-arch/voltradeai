@@ -56,3 +56,26 @@ test('API smoke (no GL): form/anchor setters, unknown class = no mesh, no-anchor
   assert.equal(layer.getRenderFailed(), false);
   assert.equal(MODEL_PIXELS >= 48 && MODEL_PIXELS <= 160, true, 'focused-object size stays sane');
 });
+
+test('O5-3b real mesh: precedence over the form, cleared = fall back, renderable without a form', () => {
+  const layer = new SatModelLayer();
+  const real = {
+    positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+    normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
+    colors: new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1]),
+    vertexCount: 3,
+  };
+  layer.setForm('bus');
+  assert.notEqual(layer.getActiveMesh(), null);
+  const formMesh = layer.getActiveMesh();
+  layer.setRealMesh(real);
+  assert.equal(layer.getActiveMesh(), real, 'real model outranks the representative form');
+  layer.setRealMesh(null);
+  assert.equal(layer.getActiveMesh(), formMesh, 'clearing falls back to the form, not to nothing');
+  // ISS-before-SATCAT case: real mesh with NO form still renders
+  layer.setForm(null);
+  layer.setRealMesh(real);
+  assert.equal(layer.getActiveMesh(), real);
+  layer.setRealMesh(null);
+  assert.equal(layer.getActiveMesh(), null, 'nothing left → render is a no-op again');
+});

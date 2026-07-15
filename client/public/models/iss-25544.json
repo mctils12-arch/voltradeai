@@ -1,0 +1,19 @@
+{
+  "norad": 25544,
+  "name": "International Space Station",
+  "file": "iss-25544.vtm",
+  "source": {
+    "asset": "ISS_stationary.glb (42.4 MB, 247,547 triangles)",
+    "publisher": "NASA — https://science.nasa.gov/resource/international-space-station-3d-model/",
+    "license": "Public domain (NASA media usage guidelines)",
+    "retrieved": "2026-07-15"
+  },
+  "processing": {
+    "tool": "scripts/earthtwin_iss_mesh.mjs",
+    "method": "node hierarchy baked; vertex-cluster decimation (grid 64, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
+    "verts": 22890,
+    "tris": 27411,
+    "spanMeters": 111.99
+  },
+  "honesty": "Decimated derivative of NASA's official ISS model for focused-object display (~72–150 px). Geometry and colors are simplified from the source asset; this is a real model of the real station, not a class-representative form."
+}

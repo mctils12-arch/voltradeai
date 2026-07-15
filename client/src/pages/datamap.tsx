@@ -43,6 +43,7 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // class-representative form drawn at its live position on the globe.
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
 import { classForm, formLabel } from "@/lib/orbital/model3d";
+import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
 // operator→ticker map turn a clicked point into "small payload, CubeSat-class
 // size, owned by X, launched Y" — formatting lives in lib/orbital/identity
@@ -1972,6 +1973,20 @@ export default function DataMapPage() {
       // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
       // (unknown class = honest ring-only follow, never a guessed spacecraft)
       satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
+      // O5-3b: REAL model where a verified public asset exists (ISS: NASA's
+      // own model, decimated — provenance in client/public/models/*.json).
+      // Cleared FIRST so the previous target's model never rides this orbit;
+      // lazy fetch, and the result only applies if this sat is still followed.
+      satModelLayerRef.current?.setRealMesh(null);
+      const realLabel = realModelLabel(g.noradId);
+      if (realLabel) {
+        const wantNorad = g.noradId;
+        loadRealModel(wantNorad).then((mesh) => {
+          if (!mesh) return; // fetch/decode failed → representative form stays
+          if (satFollowRef.current?.noradId !== wantNorad) return;
+          satModelLayerRef.current?.setRealMesh(mesh);
+        });
+      }
       try {
         if (!map.getSource("sat-focus")) {
           map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
@@ -2001,7 +2016,9 @@ export default function DataMapPage() {
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
           "FOLLOWING — the camera tracks this object as it moves (updates each second); drag the map or click empty ground to stop.",
-          sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
+          realLabel
+            ? `On-map 3D: ${realLabel}.`
+            : sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
