@@ -138,6 +138,18 @@ test("buoys layer: NDBC attribution + no-fabricated-zero honesty (map-layer wiri
   assert.ok(/no.?data|missing/i.test(b.description), "description must state missing sensors are never coerced to zero");
 });
 
+test("seafloor layer: ETOPO1/NOAA attribution + interpolation & not-for-navigation honesty + opacity inheritance (EARTH TWIN E2-1)", () => {
+  const s = registry.layers.find((x: any) => x.id === "seafloor");
+  assert.ok(s, "seafloor layer missing");
+  assert.equal(s.kind, "raw");
+  assert.equal(s.status, "live");
+  assert.ok(/ETOPO1/.test(s.source) && /NOAA/.test(s.source), "attribution must name NOAA ETOPO1");
+  assert.ok(/interpolation/i.test(s.description), "description must state the soundings + satellite-gravity interpolation blend");
+  assert.ok(/never navigational|not.{0,10}navigation/i.test(s.description), "description must carry the not-for-navigation caveat");
+  assert.equal(s.field, true, "depth raster inherits the registry opacity slider");
+  assert.equal(s.altitudeRef, "depth", "v2: z means depth for this layer");
+});
+
 // ── REGISTRY v2 (EARTH TWIN E0-1, research/earth_twin_program.md A2) ──
 // All v2 fields are OPTIONAL and additive: entries that omit them stay valid
 // forever; entries that carry them must carry them WELL-FORMED so the LOD

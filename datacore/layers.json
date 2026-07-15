@@ -33,6 +33,29 @@
       }
     },
     {
+      "id": "seafloor",
+      "name": "Seafloor (drain the ocean)",
+      "kind": "raw",
+      "status": "live",
+      "group": "base",
+      "costTier": "moderate",
+      "source": "NOAA ETOPO1 bathymetry via Terrain Tiles on AWS (Mapzen/Tilezen, open data)",
+      "description": "Ocean-floor relief as a depth-tinted overlay: toggling drains the ocean — trenches, ridges, and shelves appear where the sea surface was, while land imagery stays untouched (transparent above sea level). HONESTY: ETOPO1 is ~1 arc-minute (~2 km) and blends ship soundings with satellite-gravity interpolation — only ~a quarter of the world's seafloor is direct-measured, so depths are indicative, never navigational. Higher-fidelity GEBCO 15-arc-second relief plus its per-cell measured-vs-interpolated confidence grid is the charter's planned upgrade (research/earth_twin_program.md E2).",
+      "field": true,
+      "altitudeRef": "depth",
+      "time": {
+        "mode": "static"
+      },
+      "renderKind": "raster-field",
+      "provenance": {
+        "license": "Terrain Tiles: open (Mapzen / AWS Open Data); bathymetry: NOAA ETOPO1, public domain",
+        "commercialOk": true,
+        "resolution": "~1 arc-minute (ETOPO1); oversampled beyond z6",
+        "coverage": "global ocean",
+        "confidence": "verified"
+      }
+    },
+    {
       "id": "weather",
       "name": "Weather radar (US)",
       "kind": "raw",

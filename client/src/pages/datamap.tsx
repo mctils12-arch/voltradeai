@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -51,6 +51,9 @@ import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // out near the ground and pauses its worker (zero cost), returning on zoom
 // out — a render choice, always reversible, surfaced on-panel, never silent.
 import { cameraAltitudeKmFromMap, lodOpacity, type LodEnvelope } from "@/lib/lod";
+// EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
+// source of truth shared by the map's color-relief ramp and the legend chips.
+import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -238,7 +241,7 @@ const PANEL_GROUPS = [
 // not). Passed to gibsDefaultDate/gibsIsLatestAvailable as latencyDays.
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
-  imagery: "base", terrain: "base", weather: "base",
+  imagery: "base", terrain: "base", seafloor: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
@@ -625,7 +628,11 @@ export default function DataMapPage() {
     no2: "gibs-no2",
     firetemp: "gibs-firetemp",
     floodzones: "fema-floodzones",
+    seafloor: "seafloor-relief",
   };
+  // Most field layers are raster (paint prop "raster-opacity"); layer types
+  // with their own opacity prop override here (seafloor is a color-relief).
+  const FIELD_OPACITY_PROP: Record<string, string> = { seafloor: "color-relief-opacity" };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
   });
@@ -636,7 +643,7 @@ export default function DataMapPage() {
       try { sessionStorage.setItem("vt-field-opacity", JSON.stringify(next)); } catch {}
       return next;
     });
-    try { mapRef.current?.setPaintProperty(FIELD_MAP_LAYER[id], "raster-opacity", v / 100); } catch {}
+    try { mapRef.current?.setPaintProperty(FIELD_MAP_LAYER[id], FIELD_OPACITY_PROP[id] ?? "raster-opacity", v / 100); } catch {}
   };
   // Wind vectors + temperature labels — sampled point grid (HONEST: OWM
   // tiles carry no vector data; numbers come from point samples, arrows
@@ -1054,6 +1061,58 @@ export default function DataMapPage() {
       setStatus("terrain", "error");
     }
   }, [enabled.terrain, mapReady, setStatus]);
+
+  // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
+  // research/earth_twin_program.md V4). NOAA ETOPO1 ocean depths via the open
+  // Terrain Tiles bucket (terrarium raster-dem with bathymetry baked in at
+  // every zoom — verified live: the z0 tile's imagery-sources header names
+  // ETOPO1), drawn as a color-relief depth tint that is TRANSPARENT at and
+  // above sea level: toggling swaps the sea surface for seafloor relief while
+  // land imagery stays untouched. Its OWN raster-dem source — never reuses
+  // terrain-dem (that source is land-only and feeds setTerrain; MapLibre
+  // treats terrain-owned sources specially) and never calls setTerrain.
+  // HONESTY: ~1 arc-minute, soundings + satellite-gravity interpolation —
+  // indicative, not navigational; GEBCO 15-arcsec + per-cell TID confidence
+  // is the charter's E2 v2. Degrade-safe: any failure keeps the base map. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.seafloor) {
+      try {
+        if (map.getLayer("seafloor-relief")) map.removeLayer("seafloor-relief");
+        if (map.getSource("seafloor-dem")) map.removeSource("seafloor-dem");
+      } catch {}
+      setStatus("seafloor", "off");
+      return;
+    }
+    try {
+      if (!map.getSource("seafloor-dem")) {
+        map.addSource("seafloor-dem", {
+          type: "raster-dem",
+          tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+          encoding: "terrarium",
+          tileSize: 256,
+          maxzoom: 15,
+          attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
+        } as any);
+      }
+      if (!map.getLayer("seafloor-relief")) {
+        // under all marker layers, same anchor rule as every raster overlay
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: "seafloor-relief", type: "color-relief", source: "seafloor-dem",
+          paint: {
+            "color-relief-color": bathymetryColorRelief(),
+            "color-relief-opacity": opacityOf("seafloor") / 100,
+          },
+        } as any, firstMarker?.id);
+      }
+      setStatus("seafloor", "active", undefined,
+        "ocean drained — ETOPO1 depth relief (~1 arc-min; soundings + gravity interpolation, not navigational)");
+    } catch {
+      setStatus("seafloor", "error");
+    }
+  }, [enabled.seafloor, mapReady, setStatus]);
 
   // ── surface water (RAW; JRC Global Surface Water v2021 — atlas-parity
   // layer 1, licensing per open_questions ATLAS PARITY: free with EC
@@ -4583,6 +4642,7 @@ export default function DataMapPage() {
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
     id === "terrain" ? <Mountain size={15} /> :
+    id === "seafloor" ? <Anchor size={15} /> :
     id === "weather" ? <CloudRain size={15} /> :
     id === "weather_temp" ? <Thermometer size={15} /> :
     id === "weather_wind" ? <Wind size={15} /> :
@@ -5453,6 +5513,21 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
                         <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there · fades out near street zoom (LOD) — zoom out to bring the sky back</span>
+                      </div>
+                    </div>
+                  )}
+                  {enabled.seafloor && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Seafloor depth</div>
+                      <div className="vt-legend-items">
+                        {/* chips render from the SAME stops the map ramp uses
+                            (lib/bathymetry — one source of truth), shallow → deep */}
+                        {[...BATHYMETRY_STOPS].reverse().map((s) => (
+                          <span key={s.elevM} className="vt-legend-chip">
+                            <i style={{ background: s.color }} /> {s.label}{s.depthM > 0 ? ` ~${fmtMeters(s.depthM)}` : ""}
+                          </span>
+                        ))}
+                        <span className="vt-legend-note">NOAA ETOPO1 (~1 arc-min) — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation</span>
                       </div>
                     </div>
                   )}
