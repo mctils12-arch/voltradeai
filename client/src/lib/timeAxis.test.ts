@@ -7,6 +7,7 @@ import {
   setTimeAxis,
   subscribeTimeAxis,
   gibsDateForAxis,
+  formatAxisInstant,
 } from "./timeAxis.js";
 import { gibsDefaultDate } from "./gibs.js";
 
@@ -57,4 +58,10 @@ test("gibsDateForAxis: HISTORICAL newer than the layer's ceiling snaps back hone
   const smap = gibsDateForAxis({ mode: "historical", atMs: NOW - 3 * 86400_000 }, NOW, 7);
   assert.equal(smap.dateISO, gibsDefaultDate(NOW, 7), "3 days ago is still inside SMAP's ~7-day lag → its ceiling");
   assert.equal(smap.snapped, true);
+});
+
+test("formatAxisInstant: renders a stable UTC 'YYYY-MM-DD HH:MM UTC' string", () => {
+  assert.equal(formatAxisInstant(NOW), "2026-07-15 12:00 UTC");
+  const tenDaysAgo = NOW - 10 * 86400_000;
+  assert.equal(formatAxisInstant(tenDaysAgo), new Date(tenDaysAgo).toISOString().slice(0, 16).replace("T", " ") + " UTC");
 });
