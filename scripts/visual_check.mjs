@@ -1023,6 +1023,17 @@ async function main() {
           await btn.click().catch(() => {});
           await page.waitForTimeout(120);
         }
+        // GROUP_ROW_CAP progressive disclosure: rows past a group's cap sit
+        // behind a visible "+N more — show all" button by DESIGN — expand
+        // them all so "reachable" means what the UX means. (First crossed
+        // 2026-07-15: biomass made environmental 13 > cap 12, hiding the
+        // forest row from this check while the app was working correctly.)
+        for (let round = 0; round < 8; round++) {
+          const more = page.locator(".vt-layer-showmore").first();
+          if (!(await more.count())) break;
+          await more.click().catch(() => {});
+          await page.waitForTimeout(120);
+        }
         const layerIds = FIXTURES["/api/data/layers"].layers.map((l) => l.id);
         const selfSee = await page.evaluate((ids) => {
           const fails = [];
