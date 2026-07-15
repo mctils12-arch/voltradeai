@@ -43,6 +43,10 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // size, owned by X, launched Y" — formatting lives in lib/orbital/identity
 // (pure, tested); resolveOperator stays conservative (null = honest unmapped).
 import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/lib/orbital/identity";
+// ORBITAL O5 slice 1 (human directive: click a satellite → it remains in
+// focus): pure follow math + the focus-ring geometry live in lib/orbital/
+// follow; this file owns the camera easing and the stop conditions.
+import { followTarget, focusRingFeatureCollection } from "@/lib/orbital/follow";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -544,6 +548,9 @@ export default function DataMapPage() {
   // the freshest registry value WITHOUT re-running (and tearing down) the
   // whole effect when the registry fetch lands.
   const orbitalLodRef = useRef<LodEnvelope | null>(null);
+  // ORBITAL O5 slice 1: the followed satellite (buffer index is stable —
+  // the worker keeps ONE slot per GP record forever). null = not following.
+  const satFollowRef = useRef<{ index: number; noradId: number; name: string | null } | null>(null);
   // Pillar-6 cross-tie cache: generating capacity near each river gauge, keyed
   // by USGS site, populated when the rivergauges layer loads so the gauge-click
   // detail can surface the exposed plants without a network round-trip on click.
@@ -1618,7 +1625,39 @@ export default function DataMapPage() {
       } catch {}
       satLayerRef.current = null;
       orbitalGpRef.current = null;
+      satFollowRef.current = null;
+      try {
+        if (map.getLayer("sat-focus-ring")) map.removeLayer("sat-focus-ring");
+        if (map.getSource("sat-focus")) map.removeSource("sat-focus");
+      } catch {}
     };
+
+    // ── ORBITAL O5 slice 1: FOLLOW — each worker tick re-centers on the
+    // followed object's fresh SGP4 position and moves the focus ring.
+    // Camera eases 800ms (under the 1s tick) so tracking reads smooth;
+    // easing is skipped while the map is already moving (a user gesture or
+    // a running ease — dragstart below is the explicit hand-back). ──
+    const followTick = () => {
+      const f = satFollowRef.current;
+      if (!f) return;
+      const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+      const ringSrc: any = map.getSource("sat-focus");
+      if (ringSrc) ringSrc.setData(focusRingFeatureCollection(t));
+      if (!t) return; // sentinel this tick — ring cleared, camera stays put
+      try {
+        if (!map.isMoving()) map.easeTo({ center: [t.lonDeg, t.latDeg], duration: 800 });
+      } catch {}
+    };
+    const stopFollow = () => {
+      if (!satFollowRef.current) return;
+      satFollowRef.current = null;
+      try {
+        const ringSrc: any = map.getSource("sat-focus");
+        if (ringSrc) ringSrc.setData(focusRingFeatureCollection(null));
+      } catch {}
+    };
+    // user drag = the user takes the camera back; following must yield
+    map.on("dragstart", stopFollow);
 
     if (!enabled["orbital_sats"]) {
       teardown();
@@ -1657,6 +1696,7 @@ export default function DataMapPage() {
       if (op <= 0 && !lodPaused) {
         lodPaused = true;
         satWorkerRef.current?.postMessage({ type: "stop" }); // pause: gp stays loaded
+        stopFollow(); // an invisible object is never silently "followed"
         publishOrbitalStatus();
       } else if (op > 0 && lodPaused) {
         lodPaused = false;
@@ -1708,6 +1748,7 @@ export default function DataMapPage() {
             });
             lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
             publishOrbitalStatus(); // formats the LOD-paused note when applicable
+            followTick(); // O5: keep the followed satellite centered + ringed
           }
         };
         worker.postMessage({ type: "init", gp });
@@ -1722,7 +1763,7 @@ export default function DataMapPage() {
       { timeoutMs: 45_000 },
     );
 
-    return () => { map.off("move", applyLod); map.off("resize", applyLod); stopLoad(); teardown(); };
+    return () => { map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", stopFollow); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched
@@ -1775,6 +1816,9 @@ export default function DataMapPage() {
         layer.getGlobeCamera(),
       );
       if (!hit) {
+        // clicking empty ground releases any followed satellite (O5)
+        satFollowRef.current = null;
+        try { (map.getSource("sat-focus") as any)?.setData(focusRingFeatureCollection(null)); } catch {}
         // FEATURE CLICKS OWN THEIR POPUPS: only fall through to the coverage
         // report on genuinely empty ground. The basemap is raster-only, so any
         // rendered vector feature under the cursor belongs to a data layer
@@ -1822,6 +1866,29 @@ export default function DataMapPage() {
         ? resolveOperator(sc.owner, sc.country) ??
           resolveOperator(nameStemForOperator(g.name ?? sc.name), sc.country)
         : null;
+      // ── ORBITAL O5 slice 1: FOLLOW — the clicked satellite remains in
+      // focus: the O2 effect's followTick re-centers the camera on its
+      // fresh position every worker tick and moves the focus ring with it.
+      // Drag the map (or click empty ground) to take the camera back. ──
+      satFollowRef.current = { index: hit.index, noradId: g.noradId, name: g.name ?? null };
+      try {
+        if (!map.getSource("sat-focus")) {
+          map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
+          map.addLayer({
+            id: "sat-focus-ring", type: "circle", source: "sat-focus",
+            paint: {
+              "circle-radius": 13,
+              "circle-color": "rgba(0,0,0,0)",
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#ffd166",
+              "circle-pitch-alignment": "map",
+            },
+          });
+        }
+        // seed the ring at the clicked position immediately (the next tick takes over)
+        (map.getSource("sat-focus") as any)?.setData(
+          focusRingFeatureCollection(followTarget(positions, hit.index)));
+      } catch { /* ring is chrome — a failure never blocks the card */ }
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
@@ -1832,6 +1899,7 @@ export default function DataMapPage() {
           g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
+          "FOLLOWING — the camera tracks this object as it moves (updates each second); drag the map or click empty ground to stop.",
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
@@ -5710,7 +5778,7 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there · fades out by city zoom, once the camera descends below LEO altitudes (LOD) — zoom out to bring the sky back</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify + FOLLOW it (the camera tracks it live — drag to stop), click empty ground for Starlink coverage there · fades out by city zoom, once the camera descends below LEO altitudes (LOD) — zoom out to bring the sky back</span>
                       </div>
                     </div>
                   )}
