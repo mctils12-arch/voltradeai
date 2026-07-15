@@ -349,15 +349,29 @@ registry v2 contract, units.ts formatting, SYMBOLS NOT DOTS.
   seamounts, ridges — point/label layer, free); NOAA AWOIS wrecks +
   obstructions [PUBLIC, US waters, coverage-labeled]; hydrothermal
   vents (InterRidge, free).
-- SUBMARINE CABLES: TeleGeography's public map data is CC BY-NC-SA —
-  NON-COMMERCIAL, so it trips the MONETIZATION TRIPWIRE on a billed
-  product. LICENSE-GATED: do not ship it on /data without the
-  compliance check passing; the build-first alternative is FCC cable
-  landing license filings [US-touching cables, public domain] — file
-  the fuller-coverage decision to wishlist.md if NC licensing blocks.
-- MARINE PROTECTED AREAS: WDPA has NC redistribution terms →
-  LICENSE-GATED same as cables; NOAA MPA inventory [US, public
-  domain] is the clean v1.
+- SUBMARINE CABLES (license resolution, human-discussed 2026-07-15):
+  TeleGeography's map data is CC BY-NC-SA (non-commercial) — NEVER
+  wire it in, even while the platform is pre-revenue: billing exists
+  and is intended (P5), so NC data would be a guaranteed future
+  rip-out, violating the compounding-asset principle. The v1 is
+  commercially-clean data: OSM submarine cables
+  (communication=line, submarine=yes) under ODbL [commercial use OK
+  with attribution + DB share-alike] + FCC cable-landing-license
+  filings [US-touching, public domain], coverage-labeled. The moat
+  play: routes in every public map are schematic anyway — accumulate
+  OUR OWN cable dataset from public filings/landing records/operator
+  announcements, labeled schematic/estimated (BUILD-FIRST tier 2). If
+  TeleGeography-grade coverage ever matters commercially, that is a
+  paid-license wishlist entry (tier 4, human decides).
+- MARINE PROTECTED AREAS (same resolution): WDPA is NC — never wire
+  it in. v1 = NOAA MPA inventory [US, public domain] + OSM
+  boundary=protected_area [ODbL, global, commercial-clean] +
+  national open portals (e.g. EU Natura 2000). Coverage-labeled.
+- LICENSE ENFORCEMENT IS ARCHITECTURE: registry v2's
+  provenance.license field makes the MONETIZATION TRIPWIRE
+  machine-checkable per layer (providerCompliance.ts precedent) — a
+  billing activation with an NC-licensed layer live must surface as a
+  compliance warning automatically, not rely on a manual checklist.
 - WATER DYNAMICS: tides (NOAA CO-OPS stations + harmonic predictions —
   real forecast, labeled); currents (NOAA RTOFS/OSCAR fields);
   sea state (already have buoys live); storm surge (NOAA SLOSH/NHC —
