@@ -91,6 +91,29 @@ test('LOD: setGlobalOpacity clamps to 0..1 and getGlobalOpacity reports it (no-G
   assert.equal(layer.getGlobalOpacity(), 1, 'clamped above');
 });
 
+// ── SYMBOLS NOT DOTS (human-directed 2026-07-15) ──
+
+test('SHAPES: a_shape declared outside the GLOBE guard; glyph branches exist; dot stays the unidentified fallback', () => {
+  const ifdef = src.indexOf('#ifdef GLOBE');
+  const endif = src.indexOf('#endif');
+  const outside = src.slice(0, ifdef) + src.slice(endif);
+  assert.ok(outside.includes('in float a_shape;'), 'a_shape compiles in BOTH projection variants');
+  assert.ok(src.includes('v_shape = a_shape;'), 'shape code reaches the fragment stage');
+  assert.ok(/a_shape > 0\.5 \? u_size \* 2\.6 : u_size/.test(src),
+    'identified glyphs get the larger point size; unidentified dots keep the original');
+});
+
+test('SHAPES: setShapeCodes stores/clears; misaligned buffers are ignorable by contract (dots, never mislabels)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const layer = new SatLayer();
+  assert.equal(layer.getShapeCodes(), null, 'no catalog joined yet = all dots');
+  const codes = new Float32Array([1, 2, 3, 0]);
+  layer.setShapeCodes(codes);
+  assert.equal(layer.getShapeCodes(), codes);
+  layer.setShapeCodes(null);
+  assert.equal(layer.getShapeCodes(), null, 'clearing returns to all-dots');
+});
+
 test('LOD: at opacity 0 render() is a no-op even with data loaded (zero GPU cost when hidden)', async () => {
   const { SatLayer } = await import('./satLayer.js');
   const { SAT_STRIDE } = await import('./satBuffer.js');

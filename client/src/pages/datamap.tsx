@@ -120,6 +120,16 @@ let satcatFetchedAt = 0;
 let satcatState: "loading" | "ready" | "error" = "error";
 let satcatInflight: Promise<void> | null = null;
 const SATCAT_TTL_MS = 24 * 60 * 60_000;
+// SYMBOLS NOT DOTS (human-directed 2026-07-15): shape code per catalogued
+// object type — a dot now MEANS "not yet identified". Index-aligned to gp.
+function shapeCodesFromSatcat(gp: GpRecord[], byNorad: Map<number, SatcatRecord>): Float32Array {
+  const codes = new Float32Array(gp.length); // default 0 = dot
+  for (let i = 0; i < gp.length; i++) {
+    const t = byNorad.get(gp[i].noradId)?.objectType;
+    codes[i] = t === "PAYLOAD" ? 1 : t === "ROCKET BODY" ? 2 : t === "DEBRIS" ? 3 : 0;
+  }
+  return codes;
+}
 // PERF (SCALE queue item 3): GP fetch+parse off the main thread — the 6.6MB
 // res.json() + parseGp of ~16k records froze the map 150-500ms at satellite
 // enable. Same worker shape as SATCAT below; the resilient-load's abort
@@ -179,9 +189,9 @@ function fetchSatcatRowsOffThread(): Promise<SatcatRecord[]> {
     worker.postMessage({ type: "fetch" });
   });
 }
-function ensureSatcat(): void {
-  if (satcatByNorad && Date.now() - satcatFetchedAt < SATCAT_TTL_MS) return;
-  if (satcatInflight) return;
+function ensureSatcat(): Promise<void> {
+  if (satcatByNorad && Date.now() - satcatFetchedAt < SATCAT_TTL_MS) return Promise.resolve();
+  if (satcatInflight) return satcatInflight;
   satcatState = "loading";
   satcatInflight = fetchSatcatRowsOffThread()
     .then(async (rows) => {
@@ -196,6 +206,7 @@ function ensureSatcat(): void {
     })
     .catch(() => { satcatState = satcatByNorad ? "ready" : "error"; }) // honest absent; stale-but-real cache still counts
     .finally(() => { satcatInflight = null; });
+  return satcatInflight;
 }
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
@@ -1777,7 +1788,13 @@ export default function DataMapPage() {
         worker.postMessage({ type: "init", gp });
         worker.postMessage({ type: "start", hz: 1 });
         applyLod(); // a page opened already deep-zoomed pauses immediately
-        ensureSatcat(); // E4-1: identity catalog in the background, non-blocking
+        // E4-1: identity catalog in the background, non-blocking — and once
+        // it lands, identified objects stop being dots (SYMBOLS NOT DOTS):
+        // shape = catalogued type, color = orbit class, dot = unidentified.
+        ensureSatcat().then(() => {
+          const g = orbitalGpRef.current;
+          if (g && satcatByNorad) satLayerRef.current?.setShapeCodes(shapeCodesFromSatcat(g, satcatByNorad));
+        }).catch(() => {});
       },
       (failures) => setStatus("orbital_sats", "error", undefined,
         failures === 0 ? "could not reach CelesTrak — retrying automatically…" : "still retrying automatically…"),
@@ -5802,9 +5819,10 @@ export default function DataMapPage() {
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Orbital</div>
                       <div className="vt-legend-items">
-                        <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
-                        <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
-                        <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO</span>
+                        <span className="vt-legend-chip">shape = type: ▣ payload · ▮ rocket body · ◆ debris · ● not yet identified</span>
                         <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify + FOLLOW it (the camera tracks it live — drag to stop), click empty ground for Starlink coverage there · fades out by city zoom, once the camera descends below LEO altitudes (LOD) — zoom out to bring the sky back</span>
                       </div>
                     </div>
