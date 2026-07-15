@@ -13,6 +13,171 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PIPELINE] — session_health_check.py: compiles the manual KNOWN BROKEN diagnostic dance into a script (EDGE DOCTRINE #3, v1.0.316, T-DATACORE)
+
+TERRITORY: T-DATACORE (scripts/ pipeline tooling per the WORKSTREAM
+PARTITION's explicit inclusion of "scripts/ pipeline tooling" in that
+territory) + root-level test_session_health_check.py, mirroring the
+existing scripts/runpod_budget.py / test_runpod_budget.py pairing
+convention. SHARED touched last and minimally: package.json version bump
+only (no routes.ts/layers.json/other research/* files touched).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full; the branch
+`claude/dazzling-planck-7szwk2` had already been merged to main (PR history
+ended at #479/v1.0.315) — restarted the branch from `origin/main` per this
+routine's own merged-branch instruction rather than stacking on stale
+history. research/open_questions.md's KNOWN BROKEN section read in full
+(all 21 numbered items + the #20/#21 update chains). research/wishlist.md
+top (DATACORE MAXIMUS resume block) skimmed for a blocking decision — none
+found.
+
+LIVE HEALTH CHECK (`/api/health`, `/api/diag/*?token=$DIAG_TOKEN`, prod):
+no LIVENESS ALARM (`bot.liveness.dark: false`, drawdownPct 0.0, all
+subsystems ok, daemon rss 165.6MB). Loop-health ratio over the last 10
+tagged entries (this session's own read, chronologically: 313P/309P/307RES
+[confirm]/307R/299P/290R/282RES/280R/281R... — REPAIR count well under
+7/10) — no thrash override triggered. **No KNOWN BROKEN item was both
+critical and unaddressed** — this was NOT a [REPAIR] session by the
+mandate's own trigger:
+- #3/#19/#5/#6/#7/#8/#9/#11/#13/#14/#15/#16 are RESOLVED.
+- #4's original symptom (equityPeak reset on restart) is filed in
+  wishlist.md pending human approval (frozen-path adjacent), not
+  actionable this session.
+- #10/#17/#20 are evidence-gated (need >=90d shadow_portfolio history,
+  or a future TIER-KILL firing, or are self-healing/low-priority) — no
+  new evidence to act on today.
+- #18 (daemon timeout clustering) live-checked: only 2 TIER2-ERROR
+  entries in the visible window (2026-07-14, pre-dating this session),
+  `active_dispatches` not elevated (2) — nothing new to diagnose.
+- **#21 (deep_score alt-data enrichment blind spot)**: v1.0.314's
+  mem-guard re-tune (550/400MB) shipped 2026-07-14 with its own explicit
+  "NEXT STEP: confirm live... within a few scan cycles post-deploy, and
+  if wikipedia/gdelt/fred are STILL down a full trading day after
+  v1.0.314 deploys, file a structural wishlist proposal instead of
+  re-tuning a third time" instruction. Checked this session
+  (`/api/diag/audit?type=DIAGNOSTIC`): the visible window's newest entry
+  is 2026-07-14T19:57:31Z — market-close-adjacent, ~6.5h before this
+  session started at 2026-07-15T02:35Z — so **no post-deploy,
+  market-hours DIAGNOSTIC data exists yet to judge v1.0.314 by**; the
+  item's own confirmation bar (a full trading day) has not elapsed. This
+  is NOT a new recurrence to act on — it is an absence of evidence, and
+  per this repo's own PARTIAL EVIDENCE precedent (item #3's neighbor
+  note), absence of evidence during an off-hours/pre-open window is not
+  evidence of failure. Correctly left open for the next session that
+  catches a full trading day post-deploy (market opens 2026-07-15
+  13:30 UTC, well after this session's read).
+
+PRIMARY ACTION CHOICE: no critical repair pending → proceeded to this
+routine's EDGE DOCTRINE axis selection. Surveyed axis (a)'s named
+candidates (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT,
+FDA calendar, Google Trends) plus BUILD ORDER 6's four keyless items (CFTC
+TFF, Treasury DTS, FDIC bank data, NHTSA complaints velocity) via direct
+grep — **every one of them is already built** (server/edgarForm4.ts,
+edgar13f.ts, usaSpending.ts, fdaEvents.ts, datacore/sentinel2/,
+cftcCot.ts, cftcTff.ts, treasuryDts.ts, fdicBanks.ts,
+nhtsaComplaints.ts, all with live manifests in datacore/manifests/);
+Google Trends already failed its gate-1 stability probe (dormant by
+design, not an oversight). Axis (a)'s currently-known queue is
+exhausted — a fresh entry would need new research to find a genuinely
+unprobed free root, a larger task than this session's remaining scope
+warranted after the diligence above.
+
+Picked axis (d) instead: COMPILE KNOWLEDGE INTO CODE ("never analyze the
+same thing twice with reasoning — the second occurrence becomes a
+script"). This session's own KNOWN BROKEN review above required six
+separate manual `curl .../api/diag/*?token=$DIAG_TOKEN` calls plus
+by-hand classification against the exact signatures documented in
+open_questions.md (#21's wikipedia/gdelt/fred-down pattern, #21's
+550/400MB memory thresholds, #18's timeout-clustering shape, #12(c)'s
+orphan_exit signature) — the identical reasoning at least one prior
+session (the #21 update chain, 2026-07-13/14) already performed by hand.
+That is exactly the "second occurrence" EDGE DOCTRINE #3 says should
+become code, not be re-derived at token cost every session.
+
+WORK SHIPPED: `scripts/session_health_check.py` — fetches `/api/health`
+(keyless) + `/api/diag/{daemon,audit?type=DIAGNOSTIC,audit?type=TIER2-ERROR,ml}`
+(DIAG_TOKEN-gated) and classifies into OK/WARN/ALARM findings via six
+PURE functions (no network inside them, network isolated to a thin
+`gather()`/`_fetch_json()` shell): `check_liveness` (reads
+`/api/health`'s already-computed `checks.bot.liveness.dark` rather than
+re-deriving it — deliberately does NOT duplicate server/liveness.ts's
+logic, avoiding a RULE-REVIEW-flavored drift risk between two
+implementations of the same alarm), `check_health_subsystems`,
+`check_alt_data_enrichment` (KNOWN BROKEN #21 signature: ALL DIAGNOSTIC
+entries in the window reporting wikipedia/gdelt/fred down, with a
+too-few-entries-to-judge floor so a quiet/off-hours window never gets
+misclassified as a break — same discipline as this session's own #21
+read above), `check_daemon_memory` (KNOWN BROKEN #21's 550/400MB
+thresholds, ALARM on recurrence at/above skip_mb), `check_tier2_daemon_
+timeouts` (KNOWN BROKEN #18, clusters + surfaces `active_dispatches`
+readings), `check_ml_feedback` (KNOWN BROKEN #12(c)'s all-orphan_exit
+signature, plus `retrain_overdue`). CLI prints a plain-text or `--json`
+report and exits 0/1/2 (ok/warn/alarm) for future cron/log-grep use — no
+cron job wired this session (that would be an ops/infra change outside
+this PR's one-logical-change scope; filed as the natural follow-up
+below).
+
+RATCHET: `test_session_health_check.py` (NEW, 30 tests) — every
+classifier exercised against fixture payloads shaped like the real
+endpoints, including a fixture built from THIS SESSION's own live read
+(`test_run_all_checks_end_to_end_reproduces_live_known_broken_21_snapshot`,
+daemon rss=165.6MB + all-down DIAGNOSTIC entries → WARN not ALARM,
+overall exit code 1) so a future change to the thresholds or
+classification logic that would silently reclassify today's real,
+already-diagnosed state gets caught. LIVE-VERIFIED end-to-end against
+prod this session (not just fixtures): `python3 scripts/
+session_health_check.py` against `https://voltradeai-production.up.
+railway.app` with the session's real `$DIAG_TOKEN` reproduced this
+session's own by-hand findings exactly (liveness OK, subsystems OK,
+alt_data_enrichment WARN citing KNOWN BROKEN #21, daemon_memory OK at
+165.6MB, tier2_daemon_timeouts OK, ml_feedback WARN citing KNOWN
+BROKEN #12(c) — 15 live records, all orphan_exit), exit code 1.
+
+GATES: `python3 -m pytest -q` — 727 passed, 1 skipped (this sandbox
+needed a fresh `pip install -r requirements.txt -r requirements-dev.txt`,
+same recurring environment-tooling gap prior sessions have noted;
+baseline + 30 new, zero regressions). Zero TypeScript/client files
+touched — `npx tsx --test`/`tsc`/`npm run build`/visual harness not
+re-run, moot in spirit (this PR is Python + a root-level test file only).
+
+BACKTEST: N/A — pure read-only diagnostic tooling; touches zero
+trading/scoring/sizing/execution code and cannot affect any live
+decision.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this script reads, never
+writes — zero coupling to bot.ts/bot_engine.py/the daemon beyond the
+existing token-gated diag HTTP surface (server/diag.ts, already
+human-approved 2026-07-04/07). It cannot change scan cadence, position
+sizing, or kill-switch behavior. The one interaction worth naming: its
+`check_daemon_memory` thresholds (550/400MB) are a COPY of
+bot_engine.py's `VOLTRADE_MEM_SKIP_DEEP_MB`/`VOLTRADE_MEM_TRIM_DEEP_MB`
+defaults, not a read of them (this script only ever talks to the
+deployed HTTP surface, never imports Python trading modules) — if a
+future session re-tunes those env vars without updating this script's
+defaults, the script will silently drift stale. Flagged in the script's
+own docstring/NEXT STEP below rather than solved now (over-engineering a
+config-sync mechanism for a two-constant duplication is not this PR's
+scope).
+
+NEXT STEP for a future session: (1) once a full trading day post-v1.0.314
+elapses, run this script (or just its `check_alt_data_enrichment`/
+`check_daemon_memory` findings) as the KNOWN BROKEN #21 confirmation
+check instead of re-deriving it by hand — this is exactly the token-cost
+compression this PR exists for; (2) if #21 is confirmed resolved, update
+open_questions.md accordingly; (3) consider wiring this script into a
+DAILY/session-start routine step (cron-adjacent, out of scope here); (4)
+if `VOLTRADE_MEM_SKIP_DEEP_MB`/`_TRIM_DEEP_MB` are ever re-tuned again,
+update `check_daemon_memory`'s defaults in the same PR.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before checking): a script
+that mechanizes this diagnosis will get RUN more often than the manual
+version gets performed (zero token cost vs. six manual curl+reason
+cycles), which should show up over the coming weeks as future sessions'
+experiments.md entries citing `session_health_check.py`'s output instead
+of re-running the same six `/api/diag/*` probes by hand — a future
+session should check whether that citation pattern actually appears
+before calling this fully adopted.
+
 ## 2026-07-15 [PRODUCT] — PFAS drinking-water detections: hazard layer #4, EPA UCMR 5 (v1.0.315, T-CLIENT + T-DATACORE)
 
 TERRITORY: T-CLIENT (client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx)
