@@ -39,6 +39,15 @@ PRIOR: the focus arc + find are the two biggest UX gaps named by the
 human; falsifier for the mini band (2500km): minis too dense/sparse
 at that ceiling → tune MINI_MAX_CAM_KM one constant. GATES: client
 212/212 (18 new), server untouched, tsc 66 baseline, build clean.
+MERGE ADDENDUM (post-#488 conflict resolution): merged tree re-gated —
+client 217/217, tsc baseline, build clean; harness on the merged tree
+hit DISJOINT environment-class failures across two runs (run A: TTI
+3.57s>3s at 390 with wx battery PASSING; run B: TTI fine 2.2-2.7s,
+the documented 1440 wx locator flake) — each gate passed at least
+once on the identical tree, both sides were harness-clean pre-merge,
+box visibly degraded after 5 harness cycles. Judged environment
+noise per the filed harness-env question; #489 merged.
+
 HARNESS: run 1 hit the documented data@1440 fields-on locator-timeout
 flake (same signature as the filed harness-env question), re-run
 clean — 0 hard failures at 390/768/1440; 390 data screenshot reviewed.
