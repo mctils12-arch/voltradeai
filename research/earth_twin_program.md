@@ -588,6 +588,22 @@ filter.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-15 (session #3, O6 wave — same session as v1.0.340-342):
+  O6 SHIPPED COMPLETE (v1.0.343-345): O6-1 orbit arc (ArcLayer +
+  sampleOrbitArc) + follow v2 (drag = camera only, card X ends
+  focus, per-class zoom-in); O6-2 auto-3D minis (<2500km cam,
+  catalogued-only, cap 12); O6-3 SatFinder (search → same focus path
+  as click, constellation chips w/ sentinel-mask filtering, group
+  orbits RAAN-colored, cap disclosed); O6-4 airline callsign-prefix
+  filter via wireLivePoints transformData (feeds every renderer).
+  NEXT (unchanged queue): GEBCO v2 + TID, React memo boundaries
+  (fresh session), keepFraction density (HUMAN INPUT), hover
+  altitude labels, more real models, SCALE S2, 1Hz orbital repaint
+  reconsideration. O6 follow-ups worth a look after live feedback:
+  arc re-sample cadence (arc is epoch-static per focus — fine for
+  one period), group-orbit live refresh (one-shot per toggle),
+  MINI_MAX_CAM_KM tuning.
+
 - 2026-07-15 (session #3 continued) — O5-3b SHIPPED (v1.0.339): the
   REAL ISS on the globe. Loader-spike decision: NO three.js — NASA's
   official public-domain ISS_stationary.glb (42MB, 247k tris) is
