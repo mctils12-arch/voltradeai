@@ -11,6 +11,7 @@ import {
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
+  PFAS_COUNT_BANDS,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import FilingsView from "./filings";
@@ -102,7 +103,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "radiation" | "nukeaccident" | "nukefacility" | "port";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port";
   title: string;
   subtitle: string;
   body: string;
@@ -148,6 +149,7 @@ interface DossierPayload {
     radius_km: number;
     superfund: DossierHazardSection;
     water_violators: DossierHazardSection;
+    pfas: DossierHazardSection;
     quakes: DossierHazardSection;
     nuclear_tests: DossierHazardSection;
     flood_zone: DossierFloodZone;
@@ -230,7 +232,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
-  radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards",
+  radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   aerosol: "environmental",
@@ -2912,6 +2914,89 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.superfund, mapReady, mapSettled, setStatus]);
 
+  // ── PFAS drinking-water detections (RAW/FACTUAL hazard layer; EPA UCMR 5,
+  // public domain — location_context_engine.md's queued PFAS item. Droplet-
+  // with-chemical-ring SYMBOLS (not bare dots, per the symbols directive)
+  // tinted by the COUNT of distinct PFAS compounds detected at that system —
+  // a factual count, never a concentration/risk tier. Location is the
+  // system's service-area centroid, an approximation (stated in the card).
+  // Static artifact (server/pfas.ts), rebuilt session-side — no boot poll. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.pfas) {
+      try {
+        if (map.getLayer("pfas-pts")) map.removeLayer("pfas-pts");
+        if (map.getSource("pfas")) map.removeSource("pfas");
+      } catch {}
+      setStatus("pfas", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("pfas", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("pfas", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/pfas", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!Array.isArray(d.systems)) throw new Error("no systems in response");
+        if (map.getSource("pfas")) return;
+        map.addSource("pfas", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.systems.map((s: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+              properties: s,
+            })),
+          } as any,
+          attribution: "U.S. EPA UCMR 5, public domain",
+        } as any);
+        map.addLayer({
+          id: "pfas-pts", type: "symbol", source: "pfas", minzoom: 3,
+          layout: {
+            "icon-image": "vt-pfas",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.3, 8, 0.5, 13, 0.7],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["step", ["get", "n_analytes_detected"],
+              "#fde047",
+              2, "#fb923c",
+              4, "#f87171"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "pfas-pts", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const dets: any[] = typeof p.detections === "string" ? JSON.parse(p.detections) : (p.detections || []);
+          const lines = dets.map((det: any) =>
+            `  ${det.contaminant}: max ${det.max_value} ${det.units} (${det.n_detections} detection${det.n_detections === 1 ? "" : "s"}, last ${det.last_detected})`);
+          setDetail({
+            kind: "pfas",
+            title: p.name || "Water system",
+            subtitle: `${p.n_analytes_detected} PFAS compound${p.n_analytes_detected === 1 ? "" : "s"} detected${p.population_served ? ` · serves ~${Number(p.population_served).toLocaleString()} people` : ""}`,
+            body: `${lines.join("\n")}\n\n` +
+                  `Location is this system's service-area CENTROID (an approximation, not the exact intake). ` +
+                  `EPA UCMR 5 monitoring (2023-2025 cycle), public domain. NOT an MCL-exceedance or health-risk ` +
+                  `claim — PFAS MCL compliance monitoring under the 2024 NPDWR doesn't begin until 2027-2029, ` +
+                  `and UCMR5 predates that compliance data. Marker color is a display bucket of the detected-` +
+                  `compound COUNT (see legend), not a concentration or risk threshold.`,
+          });
+        });
+        const h = d.health;
+        setStatus("pfas", "active", d.systems.length,
+          `EPA UCMR 5 — ${d.systems.length.toLocaleString()} water systems with a PFAS detection${h?.suspect ? ` (${h.suspect} quarantined by the data-quality gate)` : ""} · ${h?.freshness || "public domain"}`);
+      },
+      (failures) => setStatus("pfas", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.pfas, mapReady, mapSettled, setStatus]);
+
   // ── FEMA flood hazard zones (RAW; location_context_engine.md hazard layer
   // #3 — "the closest direct Zillow parallel"). Raster overlay rendered LIVE
   // by FEMA's own public ArcGIS MapServer (hazards.fema.gov, CORS-open,
@@ -5222,6 +5307,18 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
+                  {enabled.pfas && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">PFAS Drinking-Water Detections</div>
+                      <div className="vt-legend-items">
+                        <LegendIcon icon="vt-pfas" color="#eef3fb" label="Water System (service-area centroid)" />
+                        {PFAS_COUNT_BANDS.map((b) => (
+                          <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
+                        ))}
+                        <span className="vt-legend-note">(color = count of distinct PFAS compounds detected, a fact — not a concentration or health-risk tier; EPA UCMR 5, 2023-2025 monitoring)</span>
+                      </div>
+                    </div>
+                  )}
                   {enabled.nukefacilities && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Nuclear Facilities</div>
@@ -5361,6 +5458,7 @@ export default function DataMapPage() {
             const hazardCats: Array<{ key: string; label: string; section: DossierHazardSection | undefined }> = [
               { key: "superfund", label: "EPA Superfund (NPL) site", section: dos.hazards?.superfund },
               { key: "water_violators", label: "EPA Clean Water Act chronic violator", section: dos.hazards?.water_violators },
+              { key: "pfas", label: "PFAS-detecting water system (EPA UCMR 5)", section: dos.hazards?.pfas },
               { key: "quakes", label: "historical M6+ earthquake", section: dos.hazards?.quakes },
               { key: "nuclear_tests", label: "historical nuclear test", section: dos.hazards?.nuclear_tests },
             ].filter((c) => c.section?.ready && c.section.total_within > 0);

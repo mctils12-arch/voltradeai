@@ -170,6 +170,17 @@
       "field": false
     },
     {
+      "id": "pfas",
+      "name": "PFAS drinking-water detections (EPA UCMR 5)",
+      "kind": "raw",
+      "status": "live",
+      "group": "hazards",
+      "costTier": "moderate",
+      "source": "U.S. EPA Fifth Unregulated Contaminant Monitoring Rule (UCMR 5), public domain — service-area location: EPA Community Water System Service Areas",
+      "description": "3,417 public water systems with at least one detected PFAS ('forever chemical') compound in EPA's UCMR 5 national monitoring (2023-2025 cycle, 29 analytes tested, 37,546 detection records). Droplet-with-chemical-ring symbols tinted by the COUNT of distinct PFAS compounds detected (1 / 2-3 / 4+) — a factual count, NOT a concentration or health-risk tier. Click a system for its detected compounds, max reported concentration, and detection dates. Location is the system's service-area boundary CENTROID (an approximation, stated as such), not the exact intake. FACTS as EPA publishes them — NOT an MCL-exceedance or health-risk claim: PFAS MCL compliance monitoring under the 2024 NPDWR doesn't begin until 2027-2029, and UCMR5 predates that compliance data. Rebuilt session-side (scripts/pfas_ucmr5.py) on EPA's own release cadence (roughly quarterly), not a live poll.",
+      "field": false
+    },
+    {
       "id": "radiation",
       "name": "Ambient radiation (gamma)",
       "kind": "raw",
