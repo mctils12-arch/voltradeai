@@ -13,6 +13,70 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [REPAIR] — perf session (human report: "extremely laggy and freezes often"): profile + three shipped fixes (v1.0.324–326, T-CLIENT + T-DATACORE, same branch)
+
+TERRITORY: T-CLIENT (lib/livePoints + lib/orbital/satcatWorker +
+datamap wireLivePoints/ensureSatcat) + T-DATACORE (datacoreArchive
+streamed reads) + SHARED minimal (routes.ts track handlers only,
+package.json bumps, research/*).
+
+DIAGNOSIS (3 parallel profiler agents; full reports in the session
+workflow journal; every claim line-anchored and the key numbers
+MEASURED, not estimated):
+- "Laggy" = (a) steady-state draw volume at default zoom under globe
+  (median 133-167ms frames @768/1440 — the harness's own numbers;
+  2026-07-05 precedent proved the density lever: 10k→3.5k icons took
+  median 117→83ms); (b) the live-points tick pipeline: MB-scale
+  JSON.parse + ~2 full per-record passes (points + velocity vectors —
+  vectors built while INVISIBLE below minzoom 6) + two structured-clone
+  setData per fresh snapshot, re-fired on every pan settle because the
+  0.1°-rounded server cache key treats jitter as a new viewport;
+  (c) whole-page React re-renders per tick (45 useState, no memo
+  boundaries; live counts defeat setStatus's no-op bail).
+- "Freezes" = synchronous event-loop stalls in the ONE Node process
+  shared with the trading bot: /api/data/track ran recentTrack — up to
+  48 hour-files readFileSync+gunzipSync+JSON.parse-per-line per
+  request (hundreds of MB decompressed for vessels), re-fired every
+  30s per open detail card; same class pending in the maintenance
+  timers + W3/W4 sync reads (queued). Client-side: the SATCAT ~300ms-1s
+  parse (fixed) and the GP 6.6MB parse (queued).
+
+SHIPPED (each own commit + tests):
+- v1.0.324 SATCAT off-thread (satcatWorker, 2.33kB own chunk, +
+  chunked buildNoradIndex — no frame carries more than one 10k batch).
+- v1.0.325 track endpoint: recentTrackAsync (streamed gunzip+readline,
+  id substring prefilter — output test-pinned deepEqual-identical to
+  the sync path over raw+gz fixtures) + recentTrackCached (30s TTL —
+  the client's 30s card refresh becomes zero-I/O). Both /api/data and
+  /api/v1 track routes switched.
+- v1.0.326 live-points pipeline: vector build gated to zoom≥5.5 +
+  zoomend lazy build from the kept payload; isMoving tick skip;
+  needsRefetch jitter-pan skip (~20% of served radius); display-
+  quantized counts (exact ≤500, nearest-25 above). New pure lib
+  livePoints.ts, 3 tests.
+
+MEASURED OUTCOME (solo harness, identical widths/protocol): medians
+unchanged 50/133/167ms (expected — they are steady-state draw volume,
+and the harness deliberately stubs the tick path the fixes target);
+p95 improved 200→133ms @768 and 267→183ms @1440; the "upload-hitch
+spikes" warning is GONE at 1440. The freeze-class wins (track stalls,
+SATCAT parse) are server/tick-path effects the harness cannot measure —
+falsifier for the human: with a detail card open, the map should no
+longer hitch every 30s, and clicking entities should not stall other
+tabs/users. Full suites: server 687/687, client 162/162, tsc 66-line
+baseline, builds clean. Known flake: the pre-existing weather
+fields-on locator timed out at 1440 in 2 of 3 harness runs (passed
+clean once on identical code; SwiftShader CPU starvation) — re-verify
+on a normal machine at merge review.
+
+RATCHET: regression tests shipped with each fix (async≡sync archive
+pin incl. gz + decoy-id prefilter case; cache TTL behavior; the three
+livePoints guards; worker protocol). REMAINING QUEUE (evidence-backed,
+ranked) filed in scale_program.md RESUME STATE: maintenance-timer
+gzipSync stalls, vessels delta+cache headers, GP parse worker + 1Hz
+repaint, React memo boundaries, the keepFraction/globe median lever
+(visual tradeoff — flag for human), S2 server aggregation.
+
 ## 2026-07-15 [PRODUCT] — EARTH TWIN session #1 verify pass: adversarial review + three fixes (v1.0.321–323, same branch)
 
 3-lens review (correctness / constitution / UX-perf; ~330k tokens of
