@@ -46,8 +46,13 @@ import { ArcLayer } from "@/lib/orbital/arcLayer";
 import { sampleOrbitArc } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
+import { raanColor } from "@/lib/orbital/orbitArc";
+import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS } from "@/lib/orbital/satFind";
+import { readSatAt } from "@/lib/orbital/satBuffer";
+import { SatFinder } from "@/components/SatFinder";
 import { classForm, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
+import { AIRLINE_PRESETS, applyAirlineFilter } from "@/lib/air/airFilter";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
 // operator→ticker map turn a clicked point into "small payload, CubeSat-class
 // size, owned by X, launched Y" — formatting lives in lib/orbital/identity
@@ -581,6 +586,30 @@ export default function DataMapPage() {
   const satFollowRef = useRef<{ index: number; noradId: number; name: string | null; cameraLock: boolean } | null>(null);
   const satArcLayerRef = useRef<ArcLayer | null>(null);
   const stopSatFocusRef = useRef<(() => void) | null>(null);
+  // O6-3 find & group: search focuses via the same path as a click; a group
+  // filters the sky by writing the layer's own sentinel into non-members.
+  const focusSatByIndexRef = useRef<((index: number) => void) | null>(null);
+  const satGroupMaskRef = useRef<Uint8Array | null>(null);
+  const satGroupInfoRef = useRef<{ label: string; count: number } | null>(null);
+  const [satGroup, setSatGroup] = useState<string | null>(null);
+  const [satGroupOrbits, setSatGroupOrbits] = useState(false);
+  const [satGroupCount, setSatGroupCount] = useState<number | null>(null);
+  const [satArcInfo, setSatArcInfo] = useState<{ shown: number; total: number } | null>(null);
+  const [gpVersion, setGpVersion] = useState(0);
+  // O6-4: aircraft operator filter (broadcast callsign prefix, e.g. AAL*)
+  const [airFilter, setAirFilter] = useState<string | null>(null);
+  const applySatGroup = useCallback((key: string | null) => {
+    setSatGroup(key);
+    setSatGroupOrbits(false);
+    const gp = orbitalGpRef.current;
+    const mask = key && gp ? groupMask(gp, key) : null;
+    satGroupMaskRef.current = mask;
+    const count = mask ? maskCount(mask) : null;
+    setSatGroupCount(count);
+    satGroupInfoRef.current = mask && key
+      ? { label: SAT_GROUPS.find((g) => g.key === key)?.label ?? key, count: count ?? 0 }
+      : null;
+  }, []);
   // O5-2b: the on-map 3D form layer for the followed satellite (one instance,
   // same lifecycle as satLayerRef).
   const satModelLayerRef = useRef<SatModelLayer | null>(null);
@@ -1740,6 +1769,12 @@ export default function DataMapPage() {
       } catch {}
       satArcLayerRef.current = null;
       stopSatFocusRef.current = null;
+      // O6-3: masks are index-aligned to THIS gp load — never survive it
+      satGroupMaskRef.current = null;
+      satGroupInfoRef.current = null;
+      setSatGroup(null);
+      setSatGroupOrbits(false);
+      setSatGroupCount(null);
       try {
         if (map.getLayer("sat-focus-ring")) map.removeLayer("sat-focus-ring");
         if (map.getSource("sat-focus")) map.removeSource("sat-focus");
@@ -1839,8 +1874,11 @@ export default function DataMapPage() {
         setStatus("orbital_sats", "active", lastCounts.shown,
           `hidden at this zoom (LOD) — returns above ~${fmtKm(minKm)} camera altitude; propagation paused, nothing lost`);
       } else {
-        setStatus("orbital_sats", "active", lastCounts.shown,
-          `${lastCounts.shown.toLocaleString()} live · ${lastCounts.skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
+        const grp = satGroupInfoRef.current;
+        setStatus("orbital_sats", "active", grp ? grp.count : lastCounts.shown,
+          grp
+            ? `filtered to ${grp.label} — ${grp.count.toLocaleString()} of ${lastCounts.shown.toLocaleString()} live shown (clear the chip to see the whole sky)`
+            : `${lastCounts.shown.toLocaleString()} live · ${lastCounts.skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
       }
     };
     const applyLod = () => {
@@ -1886,6 +1924,7 @@ export default function DataMapPage() {
         if (signal.aborted) return;
         if (!gp.length) throw new Error("no orbital elements returned");
         orbitalGpRef.current = gp; // index-aligned to the worker's buffer — picking reads this
+        setGpVersion((v) => v + 1); // O6-3: SatFinder can search now
         if (satWorkerRef.current) return; // already initialized — don't double-add
 
         const layer = new SatLayer({ id: "orbital_sats" });
@@ -1909,7 +1948,12 @@ export default function DataMapPage() {
         worker.onmessage = (ev: MessageEvent<SatWorkerOutbound>) => {
           const m = ev.data;
           if (m.type === "positions") {
-            satLayerRef.current?.updatePositions(new Float32Array(m.buf), {
+            // O6-3: an active group filter hides non-members via the layer's
+            // own sentinel semantics (copy — the worker buffer stays whole)
+            let posBuf = new Float32Array(m.buf);
+            const gmask = satGroupMaskRef.current;
+            if (gmask) posBuf = applyGroupSentinel(posBuf, gmask);
+            satLayerRef.current?.updatePositions(posBuf, {
               shown: m.shown,
               deepSpaceSkipped: m.deepSpaceSkipped,
               invalidSkipped: m.invalidSkipped,
@@ -1950,6 +1994,34 @@ export default function DataMapPage() {
     const entry = layers.find((l) => l.id === "orbital_sats") as any;
     orbitalLodRef.current = entry?.lod ?? null;
   }, [layers]);
+
+  // ── O6-3: GROUP ORBITS — the real SGP4 tracks of the filtered
+  // constellation, RAAN-colored so planes read apart, evenly sampled under
+  // GROUP_ARC_CAP with the cap DISCLOSED in the panel. A live follow's own
+  // arc takes the layer over; toggling here rebuilds. ──
+  useEffect(() => {
+    const arcs = satArcLayerRef.current;
+    if (!arcs || !mapReady) return;
+    if (!satGroup || !satGroupOrbits) {
+      setSatArcInfo(null);
+      if (!satFollowRef.current) arcs.setArcs(null);
+      return;
+    }
+    const gp = orbitalGpRef.current;
+    const mask = satGroupMaskRef.current;
+    if (!gp || !mask) return;
+    const members: number[] = [];
+    for (let i = 0; i < mask.length; i++) if (mask[i]) members.push(i);
+    const chosen = spreadIndices(members);
+    const now = Date.now();
+    const list: { pts: Float32Array; color: [number, number, number, number] }[] = [];
+    for (const idx of chosen) {
+      const pts = sampleOrbitArc(gp[idx], now, 121);
+      if (pts) list.push({ pts, color: raanColor(gp[idx].raan) });
+    }
+    arcs.setArcs(list.length ? list : null);
+    setSatArcInfo({ shown: list.length, total: members.length });
+  }, [satGroup, satGroupOrbits, mapReady, gpVersion]);
 
   // ── satellite click-to-identify (ORBITAL O3; research/orbital_program.md's
   // "O3 picking" recipe). SatLayer is a raw custom WebGL layer with no
@@ -1994,9 +2066,9 @@ export default function DataMapPage() {
         layer.getGlobeCamera(),
       );
       if (!hit) {
-        // clicking empty ground releases any followed satellite (O5)
-        satFollowRef.current = null;
-        try { (map.getSource("sat-focus") as any)?.setData(focusRingFeatureCollection(null)); } catch {}
+        // O6-1: empty ground NO LONGER releases the focus — the directive is
+        // explicit: the focus lives until the card's ✕ (drag already freed
+        // the camera). Fall through to the coverage report only.
         // FEATURE CLICKS OWN THEIR POPUPS: only fall through to the coverage
         // report on genuinely empty ground. The basemap is raster-only, so any
         // rendered vector feature under the cursor belongs to a data layer
@@ -2031,9 +2103,23 @@ export default function DataMapPage() {
         return;
       }
 
-      const g = hit.gp;
-      const cls = ORBIT_CLASS_NAME[hit.classCode] ?? "unknown";
-      const altKm = hit.altMeters / 1000;
+      focusSat(hit.index);
+    };
+
+    // ── O6-3: one focus path for BOTH entrances — a map click (above) and a
+    // search hit (SatFinder → focusSatByIndexRef). Position/class come from
+    // the live buffer; an object with no live position this tick (deep-space,
+    // group-filtered) still gets its identity card, honestly un-followed. ──
+    const focusSat = (index: number) => {
+      const layer = satLayerRef.current;
+      const gp = orbitalGpRef.current;
+      const g = gp?.[index];
+      if (!layer || !g) return;
+      const positions = layer.getPositions();
+      const t = followTarget(positions ?? null, index);
+      const s = positions ? readSatAt(positions, index) : null;
+      const cls = t && s ? (ORBIT_CLASS_NAME[s.classCode] ?? "unknown") : "no live position";
+      const altKm = s && t ? s.altMeters / 1000 : null;
       const ageDays = epochAgeDays(g.epoch, Date.now());
       // E4-1 identity: SATCAT row (may still be downloading — honest line) +
       // conservative operator resolve (owner code first, then the
@@ -2044,76 +2130,74 @@ export default function DataMapPage() {
         ? resolveOperator(sc.owner, sc.country) ??
           resolveOperator(nameStemForOperator(g.name ?? sc.name), sc.country)
         : null;
-      // ── ORBITAL O5 slice 1: FOLLOW — the clicked satellite remains in
-      // focus: the O2 effect's followTick re-centers the camera on its
-      // fresh position every worker tick and moves the focus ring with it.
-      // Drag the map (or click empty ground) to take the camera back. ──
-      satFollowRef.current = { index: hit.index, noradId: g.noradId, name: g.name ?? null, cameraLock: true };
-      // O6-1: the REAL orbit track for this one object — one full period,
-      // SGP4-propagated from the epoch elements (gaps honest, never bridged).
-      // Amber matches the focus ring; cleared by the card's X / next focus.
-      try {
-        const arcPts = sampleOrbitArc(g, Date.now());
-        satArcLayerRef.current?.setArcs(arcPts ? [{ pts: arcPts, color: [1.0, 0.82, 0.4, 0.85] }] : null);
-      } catch { satArcLayerRef.current?.setArcs(null); }
-      // O6-1: clicking zooms IN on the object (closer than the browse view);
-      // per-class targets keep GEO from slamming to street zoom.
-      try {
-        const targetZoom = hit.classCode === 0 ? 4.3 : hit.classCode === 1 ? 2.9 : 2.4;
-        if ((map.getZoom() ?? 0) < targetZoom) {
-          map.easeTo({ center: [clickLL.lng, clickLL.lat], zoom: targetZoom, duration: 1200 });
-        }
-      } catch {}
-      // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
-      // (unknown class = honest ring-only follow, never a guessed spacecraft)
-      satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
-      // O5-3b: REAL model where a verified public asset exists (ISS: NASA's
-      // own model, decimated — provenance in client/public/models/*.json).
-      // Cleared FIRST so the previous target's model never rides this orbit;
-      // lazy fetch, and the result only applies if this sat is still followed.
-      satModelLayerRef.current?.setRealMesh(null);
-      const realLabel = realModelLabel(g.noradId);
-      if (realLabel) {
-        const wantNorad = g.noradId;
-        loadRealModel(wantNorad).then((mesh) => {
-          if (!mesh) return; // fetch/decode failed → representative form stays
-          if (satFollowRef.current?.noradId !== wantNorad) return;
-          satModelLayerRef.current?.setRealMesh(mesh);
-        });
-      }
-      try {
-        if (!map.getSource("sat-focus")) {
-          map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
-          map.addLayer({
-            id: "sat-focus-ring", type: "circle", source: "sat-focus",
-            paint: {
-              "circle-radius": 13,
-              "circle-color": "rgba(0,0,0,0)",
-              "circle-stroke-width": 2,
-              "circle-stroke-color": "#ffd166",
-              "circle-pitch-alignment": "map",
-            },
+      // ── ORBITAL O5 slice 1 + O6-1: FOLLOW — only with an honest live
+      // position this tick; the focus persists until the card's ✕. ──
+      if (t && s) {
+        satFollowRef.current = { index, noradId: g.noradId, name: g.name ?? null, cameraLock: true };
+        // the REAL orbit track for this one object — one full period,
+        // SGP4-propagated (gaps honest, never bridged). Amber = focus ring.
+        try {
+          const arcPts = sampleOrbitArc(g, Date.now());
+          satArcLayerRef.current?.setArcs(arcPts ? [{ pts: arcPts, color: [1.0, 0.82, 0.4, 0.85] }] : null);
+        } catch { satArcLayerRef.current?.setArcs(null); }
+        // zoom IN on the object (closer than the browse view); per-class
+        // targets keep GEO from slamming to street zoom.
+        try {
+          const targetZoom = s.classCode === 0 ? 4.3 : s.classCode === 1 ? 2.9 : 2.4;
+          if ((map.getZoom() ?? 0) < targetZoom) {
+            map.easeTo({ center: [t.lonDeg, t.latDeg], zoom: targetZoom, duration: 1200 });
+          }
+        } catch {}
+        // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
+        // (unknown class = honest ring-only follow, never a guessed spacecraft)
+        satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
+        // O5-3b: REAL model where a verified public asset exists. Cleared
+        // FIRST so the previous target's model never rides this orbit.
+        satModelLayerRef.current?.setRealMesh(null);
+        if (realModelLabel(g.noradId)) {
+          const wantNorad = g.noradId;
+          loadRealModel(wantNorad).then((mesh) => {
+            if (!mesh) return; // fetch/decode failed → representative form stays
+            if (satFollowRef.current?.noradId !== wantNorad) return;
+            satModelLayerRef.current?.setRealMesh(mesh);
           });
         }
-        // seed the ring at the clicked position immediately (the next tick takes over)
-        (map.getSource("sat-focus") as any)?.setData(
-          focusRingFeatureCollection(followTarget(positions, hit.index)));
-      } catch { /* ring is chrome — a failure never blocks the card */ }
+        try {
+          if (!map.getSource("sat-focus")) {
+            map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
+            map.addLayer({
+              id: "sat-focus-ring", type: "circle", source: "sat-focus",
+              paint: {
+                "circle-radius": 13,
+                "circle-color": "rgba(0,0,0,0)",
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#ffd166",
+                "circle-pitch-alignment": "map",
+              },
+            });
+          }
+          // seed the ring immediately (the next tick takes over)
+          (map.getSource("sat-focus") as any)?.setData(focusRingFeatureCollection(t));
+        } catch { /* ring is chrome — a failure never blocks the card */ }
+      }
+      const realLabel = realModelLabel(g.noradId);
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
-        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls} · ${fmtKm(altKm)} altitude`,
+        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls}${altKm != null ? ` · ${fmtKm(altKm)} altitude` : ""}`,
         body: [
           `NORAD catalog ID: ${g.noradId}`,
           ...satelliteIdentityLines(sc, op, satcatState),
           g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
-          "FOLLOWING — the camera tracks this object as it moves (updates each second). Drag to look elsewhere: the focus and orbit track stay until you close this card (✕).",
-          "Orbit track shown: one full period, SGP4-propagated from the epoch elements — the real path, not a drawn ellipse.",
-          realLabel
+          t
+            ? "FOLLOWING — the camera tracks this object as it moves (updates each second). Drag to look elsewhere: the focus and orbit track stay until you close this card (✕)."
+            : "No live position this tick (deep-space object needs SDP4, or it is filtered out) — identity only, nothing followed.",
+          t ? "Orbit track shown: one full period, SGP4-propagated from the epoch elements — the real path, not a drawn ellipse." : null,
+          t && realLabel
             ? `On-map 3D: ${realLabel}.`
-            : sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
+            : t && sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
@@ -2122,9 +2206,10 @@ export default function DataMapPage() {
         }],
       });
     };
+    focusSatByIndexRef.current = focusSat; // SatFinder's entrance
 
     map.on("click", onClick);
-    return () => { map.off("click", onClick); };
+    return () => { map.off("click", onClick); focusSatByIndexRef.current = null; };
   }, [enabled["orbital_sats"], mapReady, setDetail]);
 
   // ── country borders (RAW; Natural Earth 1:110m admin-0, PUBLIC DOMAIN —
@@ -2855,6 +2940,11 @@ export default function DataMapPage() {
     /** E3: fresh-snapshot hook — the caller feeds side renderers (the 3D
      *  aircraft layer) from the same payload the symbols use. */
     onData?: (d: any) => void;
+    /** O6-4: display-side payload transform (operator/callsign filtering).
+     *  Applied AFTER the delta cursor is recorded (the raw feed stays the
+     *  delta unit) and before features/vectors/onData/status — one filter,
+     *  every renderer. Must return an honest count/coverage_note. */
+    transformData?: (d: any) => any;
     /** Low-zoom render decimation ([REPAIR 2026-07-05] perf 3/3): below
      *  splitZoom draw only features with rank < keepFraction (rank is a
      *  stable per-feature hash set by toFeatures). RENDER-side only — the
@@ -2957,20 +3047,24 @@ export default function DataMapPage() {
           return;
         }
         if (d.time != null) sinceRef.current[id] = String(d.time);
+        // O6-4: display-side transform (operator filter) — after the delta
+        // cursor, before every renderer reads the payload.
+        const dd = opts.transformData ? opts.transformData(d) : d;
         // record what this fetch covered (redundant-refetch skip) + keep the
         // payload for the lazy vector build on zoom-in
         try {
           const c = map.getCenter();
           lastFetch = fetchFootprint(c.lat, c.lng, map.getZoom(), b.getNorth(), b.getSouth(), b.getEast(), b.getWest());
         } catch {}
-        lastPayload = d;
+        lastPayload = dd;
 
         // Honest feed states (DESIGN.md): partial coverage + staleness shown.
         let note: string | undefined;
-        if (d.coverage === "partial" && d.coverage_note) note = d.coverage_note;
-        if (d.stale) note = `stale — data as of ${new Date(d.stale_at || Date.now()).toLocaleTimeString()}`;
+        if (dd.coverage === "partial" && dd.coverage_note) note = dd.coverage_note;
+        if (dd.filter_note) note = dd.filter_note; // O6-4 operator filter disclosure
+        if (dd.stale) note = `stale — data as of ${new Date(dd.stale_at || Date.now()).toLocaleTimeString()}`;
 
-        const features = opts.toFeatures(d);
+        const features = opts.toFeatures(dd);
         const fc = { type: "FeatureCollection", features };
         const src: any = map.getSource(srcId);
         if (src) {
@@ -3003,13 +3097,13 @@ export default function DataMapPage() {
         // second structured-clone setData over up to 10k records) only runs
         // when the vec layer can actually be seen; below that the payload is
         // kept and the zoomend handler builds lazily on the way in.
-        if (opts.toVectors && shouldBuildVectors(map.getZoom())) applyVectors(d);
+        if (opts.toVectors && shouldBuildVectors(map.getZoom())) applyVectors(dd);
         else vectorsCurrent = false;
-        try { opts.onData?.(d); } catch {} // E3 side renderers — never break the tick
+        try { opts.onData?.(dd); } catch {} // E3 side renderers — never break the tick
         // Quantized count (nearest-25 above 500, display-only): the exact
         // count jiggled ±dozens per tick, defeating setStatus's no-op bail
         // and re-rendering the entire page component every fresh snapshot.
-        setStatus(id, "active", quantizeLiveCount(d.count ?? features.length), note);
+        setStatus(id, "active", quantizeLiveCount(dd.count ?? features.length), note);
       } catch {
         if (!stop) setStatus(id, "error", undefined, "feed error — backing off, retrying");
       }
@@ -3099,6 +3193,9 @@ export default function DataMapPage() {
       lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
       // E3: icons cap at the hand-off zoom; the 3D silhouettes take over
       iconMaxZoom: AIR_3D_MIN_ZOOM,
+      // O6-4: operator filter — one pass feeds symbols, vectors AND the 3D
+      // layer; the note discloses exactly what the filter dropped.
+      transformData: (d: any) => applyAirlineFilter(d, airFilter),
       onData: (d: any) => {
         const built = buildAircraftInstances(d.aircraft || []);
         airRows = built.rows;
@@ -3213,7 +3310,7 @@ export default function DataMapPage() {
       try { map.off("click", onAir3dClick); } catch {}
       try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
     };
-  }, [enabled.aircraft, mapReady, wireLivePoints, setStatus]);
+  }, [enabled.aircraft, mapReady, wireLivePoints, setStatus, airFilter]);
 
   // ── live vessels (RAW; class icons + heading, destination from AIS) ──
   useEffect(() => {
@@ -5867,6 +5964,20 @@ export default function DataMapPage() {
                             <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
                             <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
                             <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain</span>
+                            {/* O6-4: operator filter — broadcast callsign prefixes (ICAO
+                                telephony codes), one airline's sky at a time */}
+                            <div className="vt-satfinder-groups" style={{ width: "100%", marginTop: 4 }}>
+                              {AIRLINE_PRESETS.map((p) => (
+                                <button key={p.key}
+                                        className={`vt-satfinder-chip${airFilter === p.prefix ? " vt-satfinder-chip-on" : ""}`}
+                                        onClick={() => setAirFilter(airFilter === p.prefix ? null : p.prefix)}>
+                                  {p.label}
+                                </button>
+                              ))}
+                            </div>
+                            {airFilter && (
+                              <span className="vt-legend-note">showing only callsigns {airFilter}* (broadcast flight IDs — the operator's ICAO code; charters/GA under other callsigns won't match)</span>
+                            )}
                           </>
                         )}
                         {enabled.vessels && (
@@ -6081,6 +6192,17 @@ export default function DataMapPage() {
                   {enabled["orbital_sats"] && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Orbital</div>
+                      <SatFinder
+                        gp={orbitalGpRef.current}
+                        gpVersion={gpVersion}
+                        activeGroup={satGroup}
+                        groupCount={satGroupCount}
+                        orbitsOn={satGroupOrbits}
+                        arcInfo={satArcInfo}
+                        onFind={(i) => focusSatByIndexRef.current?.(i)}
+                        onGroup={applySatGroup}
+                        onOrbits={setSatGroupOrbits}
+                      />
                       <div className="vt-legend-items">
                         <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO</span>
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO</span>
