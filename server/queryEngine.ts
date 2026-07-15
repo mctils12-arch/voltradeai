@@ -26,7 +26,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import readline from "readline";
-import { archiveBaseDir, RAW_RETENTION_DAYS } from "./datacoreArchive";
+import { archiveBaseDir, RAW_RETENTION_DAYS, streamJsonlLines } from "./datacoreArchive";
 import { parseBbox, filterByViewport } from "./viewport";
 
 // ── layers ───────────────────────────────────────────────────────────────────
@@ -104,6 +104,28 @@ const kmBetween = (aLat: number, aLon: number, bLat: number, bLon: number) => {
 function lastDays(nowMs: number, n: number): string[] {
   const out: string[] = [];
   for (let i = 0; i < n; i++) out.push(new Date(nowMs - i * 86400_000).toISOString().slice(0, 10));
+  return out;
+}
+
+/**
+ * OUTAGE-CLASS SWEEP 2/2 (2026-07-15): the async variant of readJsonlDay for
+ * UNBOUNDED payloads — querySnapshot's position mode reads whole aircraft/
+ * vessel HOUR files (tens of MB decompressed) per uncached scrub position;
+ * the sync gunzipSync stalled every concurrent response AND the trading loop
+ * for the duration (same class as #483/v1.0.325/327). Streams line-by-line
+ * via the shared datacoreArchive reader; identical record output (both the
+ * .jsonl and .jsonl.gz candidates read, same fallthrough semantics). The
+ * sync readJsonlDay below stays for the small-file event layers (audit
+ * verdict v1.0.335: KB-scale daily pulls, low risk).
+ */
+async function readJsonlDayAsync(dir: string, day: string): Promise<any[]> {
+  const out: any[] = [];
+  for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+    if (!fs.existsSync(fp)) continue;
+    await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
+      try { out.push(JSON.parse(line)); } catch {}
+    });
+  }
   return out;
 }
 
@@ -343,8 +365,8 @@ export function snapshotWindow(nowMs = Date.now()): { minMs: number; maxMs: numb
   return { minMs: nowMs - RAW_RETENTION_DAYS * 86400_000, maxMs: nowMs };
 }
 
-export function querySnapshot(layerName: string, atIso: string, bboxStr: unknown,
-                              base = archiveBaseDir(), nowMs = Date.now()): SnapshotResult {
+export async function querySnapshot(layerName: string, atIso: string, bboxStr: unknown,
+                                    base = archiveBaseDir(), nowMs = Date.now()): Promise<SnapshotResult> {
   if (!(SUPPORTED_LAYERS as readonly string[]).includes(layerName)) {
     throw new Error(`unknown layer "${layerName}" — supported: ${SUPPORTED_LAYERS.join(", ")}`);
   }
@@ -364,11 +386,11 @@ export function querySnapshot(layerName: string, atIso: string, bboxStr: unknown
   if (src.mode === "position") {
     bucketAt = d.toISOString().slice(0, 13) + ":00:00.000Z";
     const stamp = d.toISOString().slice(0, 13).replace("T", "-"); // YYYY-MM-DD-HH
-    raw = readJsonlDay(dir, stamp);
+    raw = await readJsonlDayAsync(dir, stamp); // hour files are the unbounded class
   } else {
     const day = d.toISOString().slice(0, 10);
     bucketAt = day + "T00:00:00.000Z";
-    raw = readJsonlDay(dir, day);
+    raw = await readJsonlDayAsync(dir, day);
   }
 
   let points: SnapshotPoint[] = [];

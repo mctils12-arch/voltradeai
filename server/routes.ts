@@ -1832,12 +1832,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // seeing live state. RAW overlay composition (archive readout, no inference),
   // no ladder gate. bbox optional (SCALE S1 viewport pattern); point cap stated
   // in the envelope, never silent.
-  app.get("/api/data/snapshot", (req, res) => {
+  app.get("/api/data/snapshot", async (req, res) => {
     try {
       const layer = String(req.query.layer || "");
       const at = String(req.query.at || "");
       res.set("Cache-Control", "public, max-age=300");
-      res.json({ kind: "raw", ...querySnapshot(layer, at, req.query.bbox) });
+      // OUTAGE-CLASS SWEEP 2/2: streamed hour-file reads — the scrub no
+      // longer stalls the event loop (or the trading loop) per position.
+      res.json({ kind: "raw", ...(await querySnapshot(layer, at, req.query.bbox)) });
     } catch (e: any) {
       const msg = String(e?.message || "snapshot query failed");
       res.status(msg.startsWith("unknown layer") || msg.startsWith("invalid") || msg.includes("outside the retained") ? 400 : 500)
