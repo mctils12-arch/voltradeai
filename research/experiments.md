@@ -13,7 +13,48 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
-## 2026-07-15 [PIPELINE] — session_health_check.py: compiles the manual KNOWN BROKEN diagnostic dance into a script (EDGE DOCTRINE #3, v1.0.316, T-DATACORE)
+## 2026-07-15 [RESEARCH] — EARTH TWIN program charter installed (human directive: "Infinite 4D Earth Digital Twin"; docs-only, no version bump)
+
+TERRITORY: SHARED research/* + a factual CLAUDE.md KNOWN STATE append
+(both permitted; no code, no registry, no routes touched — docs-only
+PR, so no package.json version bump per the Location-Context-Engine
+roadmap precedent, #430).
+
+CHANGE: research/earth_twin_program.md — the multi-session build
+charter for the human's 4D digital-twin directive (seamless
+space→street zoom, time as the fourth dimension, true-altitude
+aircraft, zoom-gated identifiable satellites, ocean water toggle over
+mapped bathymetry with displayed uncertainty, underground/atmosphere/
+celestial layers, plug-in layer framework, inferred-vs-verified visual
+honesty, graceful degradation). Before writing, a full survey of the
+existing stack was run (agent + direct reads, recorded in the charter's
+inventory section): globe/terrain/GIBS/orbital/archives/registry/
+viewport/3d-tiles-proxy — the twin is ~40% built already; the charter
+sequences only the NEW work and defers to WORLDVIEW/ORBITAL/SCALE/
+CONSOLE where they already govern. Spine: A1 LOD director
+(camera-altitude envelopes — delivers the directive's satellite
+appear/disappear behavior), A2 registry v2 plug-in schema + generic
+render engines (altitudeRef/time/lod/provenance/renderKind), A3 global
+time axis (unifies W3 + GIBS scrubbers; forecast zone only for real
+models), A4 = SCALE consumed not duplicated. Verticals V1–V7 with
+named FREE data sources per EDGE DOCTRINE (GEBCO + TID uncertainty
+grid, AWS terrarium bathymetry v1, USGS 3DEP/faults/aquifers, MSHA,
+EIA/HIFLD pipelines, OSM buildings/tunnels, NOAA GFS/CO-OPS/SWPC/NHC,
+JPL SBDB, city street-tree inventories, WorldPop). Every "impossible"
+ask mapped to an honest approximation tier (interiors capped at
+placeholder — fabrication banned; derived animations labeled tier-4).
+License gates filed: TeleGeography cables CC BY-NC-SA + WDPA NC terms
+(monetization tripwire), GEM faults + Launch Library verify-at-build.
+
+HYPOTHESIS (prior, stated before building anything): E0's registry-v2
++ LOD-director spine will let each subsequent vertical slice ship as
+registry entries + one adapter with near-zero bespoke client code; if
+early slices (E2 ocean, E3 air) still need large hand-wired useEffects,
+the spine design is wrong and gets revisited before the sweep — judge
+after the first two vertical slices land.
+
+NEXT: E0 slice 1 (registry v2 additive schema + validation test) —
+falls to the next session; this session's remit was the charter itself.
 
 TERRITORY: T-DATACORE (scripts/ pipeline tooling per the WORKSTREAM
 PARTITION's explicit inclusion of "scripts/ pipeline tooling" in that
