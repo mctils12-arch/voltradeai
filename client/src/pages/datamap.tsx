@@ -1131,15 +1131,19 @@ export default function DataMapPage() {
         } as any);
       }
       if (!map.getLayer("seafloor-relief")) {
-        // under all marker layers, same anchor rule as every raster overlay
+        // under all marker layers, same anchor rule as every raster overlay —
+        // and DETERMINISTICALLY below terrain-hillshade when terrain is on
+        // (both share the firstMarker anchor, so without this the stacking
+        // depended on toggle order; review finding, session #1)
         const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        const beforeId = map.getLayer("terrain-hillshade") ? "terrain-hillshade" : firstMarker?.id;
         map.addLayer({
           id: "seafloor-relief", type: "color-relief", source: "seafloor-dem",
           paint: {
             "color-relief-color": bathymetryColorRelief(),
             "color-relief-opacity": opacityOf("seafloor") / 100,
           },
-        } as any, firstMarker?.id);
+        } as any, beforeId);
       }
       setStatus("seafloor", "active", undefined,
         "ocean drained — ETOPO1 depth relief (~1 arc-min; soundings + gravity interpolation, not navigational)");
@@ -5573,7 +5577,7 @@ export default function DataMapPage() {
                             <i style={{ background: s.color }} /> {s.label}{s.depthM > 0 ? ` ~${fmtMeters(s.depthM)}` : ""}
                           </span>
                         ))}
-                        <span className="vt-legend-note">NOAA ETOPO1 (~1 arc-min) — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation</span>
+                        <span className="vt-legend-note">NOAA ETOPO1 (~1 arc-min) — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · coarse cells can tint slightly past the shoreline (more visible with 3D terrain on)</span>
                       </div>
                     </div>
                   )}
