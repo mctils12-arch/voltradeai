@@ -796,3 +796,18 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   harness could not complete in this sandbox (container-level restarts
   under headless-Chromium WebGL load, twice) — run `npm run visual --
   --page data` on a normal machine at review time.
+- 2026-07-15 (continuous-build session, T-CLIENT): cross-reference —
+  scale_program.md's queue item (c), 1Hz orbital repaint, shipped this
+  session (v1.0.343, SatLayer.updatePositions accumulation-based
+  repaint skip). Full detail lives in scale_program.md's RESUME STATE;
+  noted here only because it touches the same satWorker/SatLayer O5
+  code this charter's follow/model-layer work depends on — followed-
+  satellite camera tracking is unaffected (modelLayer.setAnchor still
+  repaints every tick unconditionally). ALSO BACKFILLED THIS SESSION
+  (pure record-keeping, no code changed): PR #487 shipped v1.0.342 (the
+  real Hubble model + the generalized earthtwin_real_mesh.mjs tool, per
+  the commit's own message) but never got its own experiments.md
+  session-log entry — only v1.0.340-341 was logged. JWST is the
+  natural next real-model candidate now that the mesh tool is
+  generalized and reusable (queue carried over from the v1.0.339/341
+  NEXT notes above).

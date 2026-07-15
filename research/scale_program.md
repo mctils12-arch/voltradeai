@@ -137,3 +137,40 @@ what keeps "no added latency" true when the archive is 10x bigger.
   (f) S2 SERVER AGGREGATION (structural): low zoom ships cluster
       counts, not 10-15k individual records — the charter's own plan;
       kills the payload+parse class entirely at continent zoom.
+- 2026-07-15 (continuous-build session, T-CLIENT only): QUEUE CORRECTED
+  before picking up work — (a) W3/W4 SYNC READS was already done: an
+  earlier same-day commit ("OUTAGE-CLASS SWEEP 2/2", queryEngine.ts:
+  111-130) converted querySnapshot's readJsonlDay call (BOTH position
+  and event modes) to the async streamed reader; only scanEventLayer's
+  small-file multi-day fold stays sync, already audited low-risk
+  (KB-scale daily pulls). (b) VESSELS DELTA also already done
+  (v1.0.340, logged in experiments.md, this file's own item (b) simply
+  never got checked off). Neither is re-litigated here — pure
+  record-keeping so the next session doesn't re-derive it.
+  (c) 1Hz ORBITAL REPAINT SHIPPED (v1.0.343): SatLayer.updatePositions()
+  gained an optional tickIntervalSec param — when the worker (hz=1)
+  supplies it, the layer accumulates elapsed tick time since the last
+  ACTUAL repaint and only forces map.triggerRepaint() once the
+  worst-case ground-track displacement (conservative 8000 m/s bound,
+  covers any LEO object) would exceed one screen pixel at the map's
+  current center lat/zoom (reuses lib/lod.ts's existing metersPerPixel,
+  no new math primitive) — then resets the accumulator. Accumulating
+  (not just checking the latest tick) bounds staleness to <1px of
+  drift at all times, so the layer can never silently freeze: any
+  repaint from ANY source (camera move, another layer) still redraws
+  fresh data via the pre-existing dataDirty flag, and the position
+  buffer itself is always updated regardless of the repaint decision.
+  Followed-satellite tracking is untouched — modelLayer.setAnchor()
+  (called every tick from followTick()) already triggers its own
+  repaint unconditionally, so follow stays fully live. 5 new tests in
+  satLayer.test.ts (pure threshold math incl. fail-open on bad input,
+  accumulation-then-forced-repaint at low zoom, immediate repaint at
+  close zoom, backward-compatible no-tickIntervalSec path). GATES:
+  server 699/699, client 199/199, tsc 66-line baseline, build clean;
+  visual harness 0 hard failures at 390/768/1440 (this default battery
+  does not enable orbital_sats, so it cannot exercise the tick path
+  directly — same class of measurement gap the live-points fixes
+  noted; medians unchanged-to-slightly-better: 33/83/100ms vs the
+  prior 33/83/117ms baseline, within normal run-to-run noise). REMAINING
+  QUEUE: (d) React memo boundaries, (e) median lever (human input),
+  (f) S2 server aggregation.

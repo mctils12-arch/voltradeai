@@ -10,7 +10,8 @@
 // projection transition.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { VERT_SRC } from './satLayer.js';
+import { VERT_SRC, shouldSkipTickRepaint, MAX_GROUND_TRACK_SPEED_MPS } from './satLayer.js';
+import { metersPerPixel } from '../lod.js';
 import { OCCLUSION_RADIUS } from './occlusion.js';
 
 const PRELUDE = '/* prelude stub */';
@@ -126,4 +127,84 @@ test('LOD: at opacity 0 render() is a no-op even with data loaded (zero GPU cost
   layer.render(explodingGl as any, {} as any);
   assert.equal(layer.getRenderFailed(), false,
     'render() must early-out before any GL work when the LOD fade is 0 (and never trip the failure latch)');
+});
+
+// ── PERF: 1Hz orbital repaint (scale_program.md queue item (c)) ──
+
+test('shouldSkipTickRepaint: matches metersPerPixel directly (skip iff worst-case displacement is sub-pixel)', () => {
+  // zoomed way out at the equator: 8000 m/s worst-case ground track moves
+  // far less than one screen pixel per second (78271m/px at z0).
+  assert.equal(shouldSkipTickRepaint(0, 0, 1), true);
+  assert.equal(metersPerPixel(0, 0) > MAX_GROUND_TRACK_SPEED_MPS, true, 'sanity: z0 really is sub-pixel for 1s');
+  // zoomed in close: meters/px is tiny, worst-case displacement dwarfs it.
+  assert.equal(shouldSkipTickRepaint(0, 15, 1), false);
+  assert.equal(metersPerPixel(0, 15) < MAX_GROUND_TRACK_SPEED_MPS, true, 'sanity: z15 is well past one pixel for 1s');
+  // longer elapsed time crosses the threshold even at a zoom that was
+  // sub-pixel for a single tick — accumulation must matter.
+  assert.equal(shouldSkipTickRepaint(0, 0, 1), true);
+  assert.equal(shouldSkipTickRepaint(0, 0, 100), false, 'accumulated 100s of drift is no longer sub-pixel at z0');
+});
+
+test('shouldSkipTickRepaint: fails open (never skips) on non-finite or non-positive input', () => {
+  assert.equal(shouldSkipTickRepaint(NaN, 0, 1), false);
+  assert.equal(shouldSkipTickRepaint(0, NaN, 1), false);
+  assert.equal(shouldSkipTickRepaint(0, 0, NaN), false);
+  assert.equal(shouldSkipTickRepaint(0, 0, 0), false);
+  assert.equal(shouldSkipTickRepaint(0, 0, -1), false);
+});
+
+test('updatePositions: sub-pixel ticks at low zoom accumulate and skip triggerRepaint until the drift would be visible', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  let repaints = 0;
+  const fakeMap = {
+    getZoom: () => 0,
+    getCenter: () => ({ lat: 0 }),
+    triggerRepaint: () => { repaints++; },
+  };
+  const layer = new SatLayer();
+  layer.onAdd(fakeMap as any, { createBuffer: () => ({}) } as any);
+  const buf = new Float32Array(SAT_STRIDE * 2);
+
+  layer.updatePositions(buf, { shown: 2, deepSpaceSkipped: 0, invalidSkipped: 0 }, 1);
+  assert.equal(repaints, 0, 'first sub-pixel tick at z0 must not force a repaint');
+  assert.equal(layer.getPositions(), buf, 'the buffer itself is always updated regardless of the repaint decision');
+
+  for (let i = 0; i < 40; i++) {
+    layer.updatePositions(buf, { shown: 2, deepSpaceSkipped: 0, invalidSkipped: 0 }, 1);
+  }
+  assert.ok(repaints >= 1, 'accumulated drift over ~40s must eventually force a repaint (never freezes forever)');
+});
+
+test('updatePositions: always repaints immediately at a close-in zoom (no accumulation needed)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  let repaints = 0;
+  const fakeMap = {
+    getZoom: () => 15,
+    getCenter: () => ({ lat: 0 }),
+    triggerRepaint: () => { repaints++; },
+  };
+  const layer = new SatLayer();
+  layer.onAdd(fakeMap as any, { createBuffer: () => ({}) } as any);
+  const buf = new Float32Array(SAT_STRIDE * 2);
+  layer.updatePositions(buf, { shown: 2, deepSpaceSkipped: 0, invalidSkipped: 0 }, 1);
+  assert.equal(repaints, 1, 'a single tick at z15 already exceeds one pixel of worst-case drift');
+});
+
+test('updatePositions: omitting tickIntervalSec always repaints (one-off updates, e.g. non-worker callers)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  let repaints = 0;
+  const fakeMap = {
+    getZoom: () => 0,
+    getCenter: () => ({ lat: 0 }),
+    triggerRepaint: () => { repaints++; },
+  };
+  const layer = new SatLayer();
+  layer.onAdd(fakeMap as any, { createBuffer: () => ({}) } as any);
+  const buf = new Float32Array(SAT_STRIDE * 2);
+  layer.updatePositions(buf, { shown: 2, deepSpaceSkipped: 0, invalidSkipped: 0 });
+  layer.updatePositions(buf, { shown: 2, deepSpaceSkipped: 0, invalidSkipped: 0 });
+  assert.equal(repaints, 2, 'no tickIntervalSec means every call repaints, matching pre-existing behavior');
 });
