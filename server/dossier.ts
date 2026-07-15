@@ -32,6 +32,7 @@ import { haversineKm } from "./firesFacilities";
 import type { SuperfundSite } from "./superfund";
 import type { WaterViolator } from "./waterViolators";
 import type { FloodZoneResult } from "./femaFlood";
+import type { PfasSystem } from "./pfas";
 import sitesJson from "../datacore/sites/strategic_sites.json";
 
 export const NEAREST_SITES_CAP = 5;
@@ -85,6 +86,7 @@ export interface DossierHazards {
   radius_km: number;
   superfund: HazardSection;
   water_violators: HazardSection;
+  pfas: HazardSection;
   quakes: HazardSection;
   nuclear_tests: HazardSection;
   /** Point-in-polygon lookup at the exact anchor, not a radius list — a
@@ -173,6 +175,7 @@ export function buildDossier(
     sites?: SiteRow[];
     superfund?: SuperfundSite[] | null;
     waterViolators?: WaterViolator[] | null;
+    pfas?: PfasSystem[] | null;
     quakes?: QuakeRow[] | null;
     nuclearTests?: NuclearTestRow[] | null;
     /** Pre-fetched (routes.ts awaits server/femaFlood.ts's floodZoneAt
@@ -250,6 +253,11 @@ export function buildDossier(
         (v) => ({ lat: v.lat, lon: v.lon }),
         (v, km) => ({ id: v.id, label: v.name, km: Math.round(km * 10) / 10,
           detail: { permit: v.permit, snc: v.snc, qtrs_noncompliant: v.qtrs } })),
+      pfas: nearbyHazards(opts.pfas ?? null, anchor.lat, anchor.lon, radiusKm,
+        (p) => ({ lat: p.lat, lon: p.lon }),
+        (p, km) => ({ id: p.pwsid, label: p.name, km: Math.round(km * 10) / 10,
+          detail: { analytes_detected: p.n_analytes_detected, population_served: p.population_served,
+            top: p.detections.slice(0, 3).map((d) => `${d.contaminant} ${d.max_value}${d.units}`) } })),
       quakes: nearbyHazards(opts.quakes ?? null, anchor.lat, anchor.lon, radiusKm,
         (q) => ({ lat: q.lat, lon: q.lon }),
         (q, km) => ({ id: `${q.d}:${q.pl}`, label: q.pl, km: Math.round(km * 10) / 10,

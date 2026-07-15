@@ -516,6 +516,31 @@ const shapes: Record<string, () => ImageData> = {
     }
     ctx.closePath(); ctx.fill();
   }),
+  // PFAS drinking-water detection (Location Context Engine hazard layer):
+  // water droplet with a chemical-ring cutout — distinct from the radiation
+  // trefoil and nuke-test/accident silhouettes. icon-color carries the
+  // detected-analyte-COUNT bucket (a factual count), never a risk tier.
+  "vt-pfas": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 4);
+    ctx.bezierCurveTo(m + 11, 17, m + 10, s - 6, m, s - 5);
+    ctx.bezierCurveTo(m - 10, s - 6, m - 11, 17, m, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    const hr = 5.5, hy = m + 3;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI / 3) * i - Math.PI / 2;
+      const px = m + hr * Math.cos(a), py = hy + hr * Math.sin(a);
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -668,6 +693,16 @@ export const RADIATION_BANDS: Array<{ max: number; color: string; label: string 
   { max: Infinity, color: "#f87171", label: "> 1.0 µSv/h" },
 ];
 export const RADIATION_CPM_COLOR = "#94a3b8";
+
+// PFAS (UCMR5) marker tint — bucketed by the COUNT of distinct PFAS analytes
+// detected at a system (a FACT: "how many different compounds"), never a
+// concentration/risk threshold (that would require ladder-gate-2
+// validation this layer does not carry — see server/pfas.ts's caveat).
+export const PFAS_COUNT_BANDS: Array<{ max: number; color: string; label: string }> = [
+  { max: 1, color: "#fde047", label: "1 analyte detected" },
+  { max: 3, color: "#fb923c", label: "2–3 analytes detected" },
+  { max: Infinity, color: "#f87171", label: "4+ analytes detected" },
+];
 
 /** Nuclear fuel-cycle facility category (datacore/nuclear_facilities.json
  *  `cat` values, exactly) -> tint. Shared by layer + legend. */

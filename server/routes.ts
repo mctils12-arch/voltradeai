@@ -68,6 +68,7 @@ import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDeman
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { floodZoneAt } from "./femaFlood";
+import { latestPfas } from "./pfas";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
@@ -2441,6 +2442,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // EPA UCMR 5 PFAS drinking-water detections (RAW/FACTUAL hazard layer,
+  // public domain; Location Context Engine — research/location_context_engine.md.
+  // Static artifact (server/pfas.ts + scripts/pfas_ucmr5.py); no boot poll —
+  // EPA republishes the source file every few months, not on a live cadence.
+  app.get("/api/data/pfas", (_req, res) => {
+    const hit = latestPfas();
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json({
+      kind: "raw",
+      source: hit.meta.source,
+      attribution: hit.meta.attribution,
+      predictive: false,
+      note: "Detected PFAS concentrations at public water systems as published in EPA's UCMR 5 "
+        + "national occurrence data, joined to EPA's own service-area boundary centroids for a "
+        + "location (an approximation — see geocode_source). " + hit.meta.caveat,
+      geocode_source: hit.meta.geocode_source,
+      built_at: hit.meta.built_at,
+      source_last_modified: hit.meta.source_last_modified,
+      totals: hit.meta.totals,
+      health: hit.health,
+      systems: hit.systems,
+    });
+  });
+
   bootGridStressPoll();
   app.get("/api/data/grid-stress", (_req, res) => {
     if (!gridStressEnabled()) {
@@ -3072,6 +3097,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       contracts: latestContracts()?.txns ?? null,
       superfund: latestSuperfund()?.sites ?? null,
       waterViolators: latestWaterViolators()?.violators ?? null,
+      pfas: latestPfas().systems,
       quakes: (datacoreQuakeHistory as any).quakes ?? [],
       nuclearTests: (datacoreNuclearTests as any).tests ?? [],
       floodZone,

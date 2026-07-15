@@ -13,6 +13,188 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — PFAS drinking-water detections: hazard layer #4, EPA UCMR 5 (v1.0.315, T-CLIENT + T-DATACORE)
+
+TERRITORY: T-CLIENT (client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx)
++ T-DATACORE (scripts/pfas_ucmr5.py, server/pfas.ts, datacore/pfas/) +
+SHARED touched last and minimally (server/routes.ts route registration,
+server/dossier.ts hazard cross-join, datacore/layers.json registry entry,
+package.json version bump).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full, research/
+experiments.md tail, research/open_questions.md's KNOWN BROKEN section,
+research/wishlist.md. `/api/health` — no LIVENESS ALARM (`bot.liveness.
+dark: false`, all subsystems ok, drawdown 0.0%). Loop-health ratio over the
+last 10 tagged entries (280R/281R/282RES/290R/299P/307R/307RES/309P/310R/
+311R/312P/313P/314R — reading the last 10 chronologically) came out under
+the 7/10 REPAIR thrash threshold, so no meta-problem override. No critical
+trading-loop item was unfixed and blocking; this session proceeded with
+product work per this routine's own instruction that [PRODUCT] sessions
+don't preempt the DAILY routines' repair duty.
+
+PRIMARY ACTION CHOICE: scanned platform_program.md (queue clear except
+P5, HUMAN-GATED), console_charter.md (W1-W6 fully shipped), data_census.md
+(remaining un-built roots are BLOCKED-FOR-MIKE key/token asks), grid_vision
+program (stalled since 2026-07-10 on a genuine ML-generalization plateau —
+div5-ks held-out AP50 0.197 vs the 0.30 gate-1(a) bar, needs real ML
+judgment/redesign, not a quick pick for this session's fall-through slot).
+The clear highest-value, well-scoped, self-contained item was PFAS (EPA
+UCMR5/SDWIS) from location_context_engine.md's hazard-layer queue — logged
+as still-missing across at least six prior session entries (2026-07-09
+through 2026-07-14) without anyone actually building it, immediately
+after RadNet/FEMA-flood/Superfund/waterviolators all shipped as the
+established, working pattern for exactly this kind of layer.
+
+WORK DONE — full ladder-gate-1 pipeline + product surface, one session:
+
+DATA (gate 1 — verified against EPA's own live source, 2026-07-15 probe):
+EPA's UCMR 5 national occurrence data file (public domain, keyless,
+https://www.epa.gov/system/files/other-files/2023-08/ucmr5-occurrence-data.zip,
+13MB zip / 308MB cp1252-encoded tab-delimited UCMR5_All.txt, Last-Modified
+2026-02-12) contains 1,928,117 rows across 30 Contaminant values = the 29
+UCMR5 PFAS analytes + lithium (excluded — not PFAS). The file carries NO
+coordinates, only PWSID — joined against EPA's "Community Water System
+Service Areas" ArcGIS FeatureServer (same org, cJ9YHowT8TU7DUyn, already
+hosting the Superfund NPL layer server/superfund.ts uses) via
+`returnCentroid=true&returnGeometry=false`, POSTed in batches of 150 (a GET
+with 150 quoted PWSIDs in the WHERE clause 404'd — the service's URL-length
+tolerance, discovered live and fixed by switching to POST). Queried ONLY
+for the 3,539 PWSIDs with >=1 detection, never the full ~124k-system
+boundary layer.
+
+Given the 308MB file size, this was built as a session-run Python script
+(`scripts/pfas_ucmr5.py`, JODI/eiaweekly precedent — WHOLE-FILE REBUILD
+per run, git keeps vintages) rather than a live Node fetch+parse: the
+just-repaired mem-guard system (KNOWN BROKEN #21, the immediately prior
+three sessions) made a transient 300MB+ decompression buffer inside the
+live Railway Node process (currently 513MB RSS baseline) an unnecessary
+risk for data EPA only republishes every few months. Streamed the file
+(no full-file buffering), filtered to AnalyticalResultsSign=='=' rows only
+(an actual detection with a numeric value — '<' non-detect rows are
+counted but never treated as a zero-concentration claim), aggregated per
+system per contaminant (max value, first/last detected date, sample
+count). Result: 3,539 systems with >=1 PFAS detection scanned, 37,546
+detection rows, 3,417 successfully geocoded (122 dropped — unmapped
+service areas, counted honestly in `totals.systems_ungeocoded`, never
+guessed). Output: `datacore/pfas/ucmr5_detections.json` (2.3MB).
+
+PRODUCT (SIGNAL vs RAW call): this is RAW/FACTUAL per location_context_
+engine.md's honesty rails — a detected concentration is EPA's own
+published federal monitoring record, not an interpretation. Explicitly
+NOT an MCL-exceedance or health-risk claim, stated verbatim in the API
+response and the map-click card: PFAS MCLs took effect under the 2024
+NPDWR but compliance MONITORING doesn't begin until 2027-2029 — UCMR5
+(2023-2025 monitoring) predates and is separate from that compliance
+data, and the file carries no exceedance flag of its own. No ladder gate
+2 needed (no predictive/tradable claim is made).
+
+SHIPPED:
+1. `server/pfas.ts` — reads the static artifact, re-validates at serve
+   time (coordValid, required fields, >=1 detection) via the shared
+   server/dataQuality.ts gate — defense in depth on top of the build
+   script's own ingest filtering, matching every other hazard layer's
+   contract (superfund.ts/waterViolators.ts).
+2. `/api/data/pfas` route (server/routes.ts) — same RAW/predictive:false/
+   health-summary shape as every other hazard layer.
+3. Map layer (client/src/pages/datamap.tsx): a proper SYMBOL layer (new
+   `vt-pfas` SDF icon in mapIcons.ts — droplet with a chemical-ring
+   cutout), NOT a bare circle. This is a real improvement over the two
+   EARLIER hazard layers (superfund-pts/wv-pts), which still render as
+   plain "circle" layers because they predate the 2026-07-12 SYMBOLS NOT
+   DOTS directive and nobody has revisited them since — filed as a small
+   remaining consolidation debt in location_context_engine.md rather than
+   scope-crept into this PR (one logical change per PR). Marker color
+   (`PFAS_COUNT_BANDS`) is bucketed by the COUNT of distinct PFAS
+   compounds detected — a fact, never a concentration/risk threshold.
+   Legend entry included (LegendIcon, same registry the map draws from —
+   DESIGN.md's single-source-of-truth legend rule).
+4. Dossier cross-join: `pfas` added to `/api/data/dossier`'s `hazards`
+   section (server/dossier.ts) alongside superfund/water_violators/
+   quakes/nuclear_tests — same radius/cap/ready contract, reports each
+   nearby system's detected-compound count, population served, and
+   top-3 compounds by concentration.
+5. `datacore/layers.json` registry entry (group "hazards", kind "raw").
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this is a pure-additive RAW
+display layer — zero trading, scoring, sizing, or execution code touched.
+The one shared-state risk traced: `server/dossier.ts`'s `buildDossier`
+gained a new `opts.pfas` parameter with a safe default (`?? null` ->
+`ready:false`), so every existing caller (routes.ts's other dossier
+invocations, all prior dossier.test.ts cases) is unaffected by
+construction — verified by the full dossier.test.ts suite passing
+unchanged plus 2 new PFAS-specific cases.
+
+RATCHET: `test_pfas_ucmr5.py` (NEW, 10 tests) — header-shape guard,
+lithium exclusion, non-detect exclusion, per-contaminant max/date-range
+aggregation, bad-row counting, date-key sorting, geocode batching/
+dedup, fetch_centroids with an injected fake POST (no real network in
+tests), build_artifact's refuse-on-empty + honest-drop-on-ungeocoded,
+and a "committed artifact is coherent" pin against the real 2.3MB file
+(JODI precedent). `server/pfas.test.ts` (NEW, 6 tests) — systemFromRecord
+accept/reject paths (missing fields, bad coordinates incl. null-island,
+empty detections), parsePfasArtifact partitioning, and the same
+committed-artifact coherence pin on the TS read side. `server/
+dossier.test.ts` gained 2 new cases (pfas cross-join distance/detail
+contract; pfas-not-passed degrades to ready:false like every other
+source). `server/layersWiring.test.ts` ratchet passes (pfas added to
+LAYER_GROUP in the same PR as its registry entry, per the R15 lesson).
+
+GATES: `python3 -m pytest -q` — 694 passed, 2 skipped (684 baseline + 10
+new, zero regressions; numpy/pandas/lightgbm/scikit-learn/openpyxl/pytest
+installed fresh into this sandbox this session, the same recurring
+environment-tooling gap prior sessions have logged — still worth a
+STALENESS AUDIT look at a setup script).
+
+TOOLING-GAP CORRECTION (same session): this sandbox had NO `node_modules`
+at all (not just no `tsx` binary, the deeper gap prior sessions' notes
+undersold) — `npx tsx --test` and `npx tsc` were silently running against
+a near-empty module graph, which is why the "before" tsc baseline every
+recent session cited was only 8 lines (missing @types/node itself, not a
+real typecheck) and 4 TS tests "failed" for network reasons that were
+actually MISSING DEPENDENCIES, not network flakiness. `npm install` (485
+packages) fixed this properly. Re-ran everything after: `npx tsc --noEmit`
+now produces the REAL 66-line baseline (this repo's actual pre-existing
+error set — Buffer/.trim(), downlevelIteration, a few type mismatches
+across bot.ts/billing.ts/etc., none touched by this PR); A/B'd via
+git-stash and confirmed byte-identical except one pre-existing datamap.tsx
+error's line number shifting by this diff's +85 lines (same pattern
+documented in the 2026-07-13 units.ts session). `npx tsx --test
+server/*.test.ts client/src/lib/*.test.ts` now passes **711/711** — the
+4 "pre-existing network-dependent failures" every recent session logged
+(apiKeyAccounts/compression/gdeltEvents/owmTiles) were actually failing
+on the missing-node_modules gap, not real network conditions; they pass
+clean now. Future sessions: run `npm install` before trusting any
+tsc/test-suite baseline in a fresh sandbox — the "byte-identical
+baseline" claims in recent PRs were comparing two BROKEN typechecks, not
+confirming zero regressions against the real one. `npm run build` —
+clean, client + server bundles, no new warnings beyond the pre-existing
+maplibre/chunk-size ones.
+
+VISUAL HARNESS: `node scripts/visual_check.mjs --page data` at 390/768/
+1440 — 0 hard failures (needed ~550s in this sandbox; the 120-280s
+timeouts recent sessions hit were just too short, not a real crash —
+worth noting for the next session that also hits an apparent hang here).
+All variants (globe/legend/timescrub/analyst/fields/flat/scale) passed.
+Reviewed the 390px base screenshot: clean render, no layout break. PFAS
+isn't in DEFAULT_ON (matching every other hazard layer — superfund/
+waterviolators/radiation/floodzones are all opt-in too), so it doesn't
+appear in the default screenshots; the layersWiring ratchet + full test
+suite are the verification for its actual wiring, consistent with how
+recent hazard-layer PRs verified themselves.
+
+BACKTEST: N/A — /data display-surface + dossier enrichment only; zero
+trading, sizing, scoring, or execution code touched.
+
+HYPOTHESIS (per REASONING STANDARD #10, stated before evidence): once
+deployed, a PFAS marker click on `/data` should show a dossier-style card
+with detected compounds, max concentrations, and detection dates; a
+future session cross-checking `/api/data/pfas` against a known high-
+profile PFAS contamination case (e.g. a system in a documented AFFF-
+impacted area) should find that system present with a plausible compound
+list. If EPA republishes a UCMR5 update batch before this artifact is
+next rebuilt, `source_last_modified` will visibly lag — that's expected
+and honest (static artifact, not a live poll), not a bug.
+
 ## 2026-07-14 [REPAIR] — KNOWN BROKEN #21 RECURRED + RESOLVED: mem-guard thresholds re-tuned off live daemon RSS, 254MB idle baseline was tripping the guard permanently (v1.0.314, T-BOT)
 
 TERRITORY: T-BOT (bot_engine.py, new test_deep_score_guard_decision.py) +

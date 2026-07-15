@@ -183,3 +183,59 @@ cancer rates (needs the county-polygon ecological-fallacy display guard
 noted above — do not ship as a point layer). radius_km client toggle
 still not built. Live map-click screenshot verification still blocked on
 the harness limitation noted above.
+
+STATUS 2026-07-15: PFAS SHIPPED (hazard layer #4, T-CLIENT + T-DATACORE,
+v1.0.315) — this item had been logged as still-queued across at least six
+prior session entries without anyone picking it up; a [PRODUCT] session
+finally built it end to end:
+1. DATA: `scripts/pfas_ucmr5.py` — session-run build (EPA's own release
+   cadence is roughly quarterly, not a live poll target) parses EPA's
+   UCMR 5 national occurrence data file (public domain, 308MB cp1252
+   tab-delimited, keyless) for the 29 PFAS analytes it tests (lithium,
+   UCMR5's one non-PFAS analyte, excluded), aggregates DETECTED rows
+   (AnalyticalResultsSign=='=' only — a non-detect is never a zero-
+   concentration claim) per system per contaminant (max value, first/
+   last detected date, sample count), then geocodes the 3,539 systems
+   with >=1 detection against EPA's own "Community Water System Service
+   Areas" ArcGIS FeatureServer (same org that hosts the Superfund NPL
+   layer) via a `returnCentroid=true&returnGeometry=false` batched query
+   — 3,417 geocoded (122 unmapped service areas honestly dropped, not
+   guessed). Output: `datacore/pfas/ucmr5_detections.json` (2.3MB,
+   37,546 detection rows summarized into per-system/per-contaminant
+   records). `server/pfas.ts` re-validates at serve time (coordinates,
+   required fields) — defense in depth on top of the build script's own
+   ingest gate, matching every other hazard layer's contract.
+2. MAP OVERLAY: `pfas` toggle in the hazards group — a proper SYMBOL
+   layer (droplet-with-chemical-ring icon, `vt-pfas` in
+   client/src/lib/mapIcons.ts), NOT a bare circle like the two earlier
+   hazard layers (superfund/waterviolators predate the 2026-07-12
+   symbols directive and were not revisited here — a small remaining
+   consolidation debt, filed below). Tinted by the COUNT of distinct
+   PFAS compounds detected (1 / 2-3 / 4+, `PFAS_COUNT_BANDS`) — a
+   factual count, never a concentration or risk tier. Legend entry
+   included.
+3. DOSSIER CROSS-JOIN: `pfas` added to `/api/data/dossier`'s `hazards`
+   section alongside superfund/water_violators/quakes/nuclear_tests,
+   same radius/cap/ready contract, reporting each nearby system's
+   detected-compound count, population served, and top-3 compounds by
+   concentration.
+Honesty rails maintained: the API response's `note` field states
+verbatim that this is NOT an MCL-exceedance or health-risk claim — PFAS
+MCL compliance monitoring under the 2024 NPDWR doesn't begin until
+2027-2029, and UCMR5 (2023-2025 monitoring) predates and is separate
+from that compliance data; the geocode is a service-area CENTROID
+(stated as an approximation, not the exact intake). Tests: 10 new
+Python tests (scripts/pfas_ucmr5.py's pure functions), 6 new TS tests
+(server/pfas.ts) + 2 new dossier.test.ts cases. Full gates: pytest
+694/2skip (684 baseline + 10 new), `npx tsx --test server/*.test.ts
+client/src/lib/*.test.ts` 687/691 (4 pre-existing network-dependent
+failures — apiKeyAccounts/compression/gdeltEvents/owmTiles — documented
+in prior sessions, unrelated to this PR), tsc baseline byte-identical
+(8 lines before/after), layersWiring ratchet passes.
+REMAINING DEBT (filed, not fixed here): superfund-pts/wv-pts still
+render as plain "circle" layers, predating the SYMBOLS NOT DOTS
+directive (2026-07-12) — a future T-CLIENT session should give both a
+real SDF symbol + legend entry for full consistency with every hazard
+layer shipped since. CDC/SEER cancer rates remains the one queued
+hazard layer left (needs the county-polygon display guard). radius_km
+client-side toggle still not built.

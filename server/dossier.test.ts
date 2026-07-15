@@ -10,6 +10,7 @@ import type { EverythingGraph, GraphNode, GraphEdge, SiteRow } from "./entityGra
 import type { ContractTxn } from "./usaSpending";
 import type { SuperfundSite } from "./superfund";
 import type { WaterViolator } from "./waterViolators";
+import type { PfasSystem } from "./pfas";
 
 const node = (over: Partial<GraphNode>): GraphNode => ({
   id: "x", type: "company", label: "x", attrs: {}, ...over,
@@ -137,6 +138,16 @@ const violator = (over: Partial<WaterViolator>): WaterViolator => ({
   name: "Test Facility", id: "OK0000001", city: "Cushing", state: "OK",
   lat: ANCHOR.lat + 0.02, lon: ANCHOR.lon, permit: "Major", snc: "SNC", qtrs: 9, actions: 1, ...over,
 });
+const pfasSystem = (over: Partial<PfasSystem>): PfasSystem => ({
+  pwsid: "OK0000001", name: "Test Water System", state: "OK",
+  lat: ANCHOR.lat + 0.02, lon: ANCHOR.lon, population_served: 5000,
+  n_analytes_detected: 2,
+  detections: [
+    { contaminant: "PFOA", units: "µg/L", mrl: 0.004, max_value: 0.01, first_detected: "1/1/2024", last_detected: "6/1/2024", n_detections: 2 },
+    { contaminant: "PFOS", units: "µg/L", mrl: 0.004, max_value: 0.02, first_detected: "1/1/2024", last_detected: "6/1/2024", n_detections: 2 },
+  ],
+  ...over,
+});
 
 test("no anchor coordinates (no entity resolved, no lat/lon passed) -> hazards is null, not empty sections", () => {
   const g = graphFixture([], []);
@@ -184,6 +195,26 @@ test("hazard hits are capped at HAZARD_CAP, but total_within reports the true co
   assert.equal(out.hazards!.water_violators.total_within, HAZARD_CAP + 4);
   assert.equal(out.hazards!.water_violators.hits.length, HAZARD_CAP);
   assert.equal(out.hazards!.water_violators.capped, true);
+});
+
+test("pfas hazard category cross-joins by distance and carries analyte detail, same contract as the other hazard sources", () => {
+  const g = graphFixture([], []);
+  const near = pfasSystem({ pwsid: "near", name: "Near System", lat: ANCHOR.lat + 0.01, lon: ANCHOR.lon });
+  const far = pfasSystem({ pwsid: "far", name: "Far System", lat: ANCHOR.lat + 5, lon: ANCHOR.lon });
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { pfas: [far, near] });
+  assert.ok(out.hazards);
+  assert.equal(out.hazards!.pfas.ready, true);
+  assert.equal(out.hazards!.pfas.total_within, 1);
+  assert.equal(out.hazards!.pfas.hits[0].label, "Near System");
+  assert.equal(out.hazards!.pfas.hits[0].detail.analytes_detected, 2);
+  assert.deepEqual(out.hazards!.pfas.hits[0].detail.top, ["PFOA 0.01µg/L", "PFOS 0.02µg/L"]);
+});
+
+test("pfas hazard source not passed at all degrades to ready:false, matching every other hazard source's contract", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { superfund: [superfundSite({})] });
+  assert.equal(out.hazards!.pfas.ready, false);
+  assert.equal(out.hazards!.pfas.total_within, 0);
 });
 
 // FEMA flood zone point lookup (research/location_context_engine.md hazard
