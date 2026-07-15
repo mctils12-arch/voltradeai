@@ -13,6 +13,26 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PIPELINE] — EARTH TWIN O5-2b: the 3D spacecraft moves ONTO the world map (v1.0.332, T-CLIENT, same branch — supersedes v1.0.331's card viewer)
+
+Human corrected course same-day: the 3D rendering must show ON the
+map, not a side viewer. v1.0.331's SatModelView DELETED (no orphaned
+code, dead-code policy); new lib/orbital/modelLayer draws the
+class-representative form at the followed satellite's live SGP4
+position + altitude on the globe — lit, tumbling, constant ~72px
+focused-object size (true scale is meters = invisible; the anchor.w
+clip-offset trick is test-pinned), the satLayer's exact far-side cull
+(pinned vs OCCLUSION_RADIUS²), renderingMode 3d for self-occlusion,
+repaint self-requested ONLY while a model is visible (zero cost
+otherwise — the perf discipline from this session's repair pass
+holds). Honesty unchanged: unknown class = ring-only follow; sentinel
+ticks hide the model; the card carries the derived-not-imagery
+caption. model3d.ts (the mesh source) is unchanged and shared.
+SUPERSESSION NOTE: the v1.0.331 entry below records the intermediate
+card-viewer approach for the timeline; its honest-tier design carried
+forward intact. Gates: client 179/179, tsc 66-line baseline, build
+clean.
+
 ## 2026-07-15 [PIPELINE] — EARTH TWIN O5-2: class-representative 3D spacecraft forms in the card (v1.0.331, T-CLIENT, same branch)
 
 Second half of the clarified 4D directive: the clicked (and followed)

@@ -647,6 +647,15 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   unknown-stays-fragment + determinism all test-pinned) + SatModelView
   (zero-dep raw-WebGL1 card viewer, lit + tumbling, GL cleanup,
   no-WebGL degrade); renders only when the catalog knows the class.
+  O5-2b SHIPPED same session (v1.0.332, human corrected: ON THE MAP,
+  not a side viewer — SatModelView deleted): lib/orbital/modelLayer,
+  a CustomLayerInterface on the satLayer template drawing the form at
+  the followed satellite's LIVE position/altitude at constant ~72px
+  (anchor.w-scaled clip offsets, test-pinned), identical far-side
+  cull, repaint self-requested only while visible, sentinel ticks
+  hide the model, unknown class = ring-only. The full directive arc
+  is now LIVE: whole sky → click → follow → the point becomes a
+  spacecraft riding its orbit on the globe.
   O5-3 = the real-model upgrade (ISS/Starlink, loader spike) — next.
   HARNESS after E1-1+O5-1+O5-2: ALL PASS 0 hard failures; perf
   medians improved vs session start: 33/83/117ms at 390/768/1440
