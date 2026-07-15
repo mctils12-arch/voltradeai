@@ -302,6 +302,56 @@ export function archiveMidasPeriod(period: string, rows: MidasRow[], baseDir?: s
   }
 }
 
+/**
+ * OUTAGE FIX (2026-07-15, site down — root cause): the sync archive above
+ * builds `rows.map(JSON.stringify).join("\n")` as ONE ~189MB string (probe-
+ * measured live) before gzipSync — with cons-string flattening and the
+ * Buffer copy, boot heap blows the production 512MB cap the FIRST time a
+ * not-yet-archived quarter publishes. The volume's dedup guard hid this for
+ * weeks: every boot skipped the write until SEC published the next quarter,
+ * then EVERY boot OOM'd = a Railway crash loop (502 "Application failed to
+ * respond"). This variant writes the identical bytes through a gzip STREAM
+ * in row batches with backpressure — peak memory is O(batch), not O(file).
+ * refreshMidas awaits this; the sync variant stays for tests/back-compat.
+ */
+export async function archiveMidasPeriodStreamed(
+  period: string,
+  rows: MidasRow[],
+  baseDir?: string,
+  batchRows = 5000,
+): Promise<number> {
+  if (!rows.length) return 0;
+  seedSeen(baseDir);
+  if (archivedQuarters.has(period)) return 0;
+  const dir = midasDir(baseDir);
+  const fp = path.join(dir, `${period}.jsonl.gz`);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const gz = zlib.createGzip();
+    const out = fs.createWriteStream(fp);
+    const done = new Promise<void>((resolve, reject) => {
+      out.on("finish", resolve);
+      out.on("error", reject);
+      gz.on("error", reject);
+    });
+    gz.pipe(out);
+    for (let i = 0; i < rows.length; i += batchRows) {
+      const chunk = rows.slice(i, i + batchRows).map((r) => JSON.stringify(r)).join("\n") + "\n";
+      if (!gz.write(chunk)) {
+        await new Promise<void>((resolve) => gz.once("drain", resolve)); // backpressure
+      }
+    }
+    gz.end();
+    await done;
+    archivedQuarters.add(period);
+    return rows.length;
+  } catch (e: any) {
+    console.error(`[datacore] secmidas archive (streamed) ${period}:`, e?.message || e);
+    try { fs.unlinkSync(fp); } catch {} // drop a partial file — never a corrupt archive
+    return 0;
+  }
+}
+
 export function readMidasPeriod(period: string, baseDir?: string): MidasRow[] {
   try {
     const text = zlib.gunzipSync(fs.readFileSync(path.join(midasDir(baseDir), `${period}.jsonl.gz`))).toString("utf8");
@@ -418,7 +468,7 @@ export async function refreshMidas(
       if (archivedQuarters.has(period)) continue;
       const rows = await fetchMidasPeriod(period, fetchImpl, now);
       if (rows === null || rows.length === 0) continue; // retry-later or not published — keep probing older
-      archiveMidasPeriod(period, rows, baseDir);
+      await archiveMidasPeriodStreamed(period, rows, baseDir); // OUTAGE FIX: O(batch) memory, not a 189MB string
       const s = summarizeMidas(period, rows);
       if (s && (!cache || period >= cache.summary.period)) cache = { at: Date.now(), summary: s };
       return;

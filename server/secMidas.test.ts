@@ -151,6 +151,25 @@ test("archive: gz-on-write, period dedup, disk-seeded across restarts, roundtrip
   assert.equal(readMidasPeriod("2025q4", base)[0].ticker, "AAPL");
 });
 
+test("OUTAGE FIX: streamed archive writes byte-identical gz content to the sync path, dedups, drops partials on failure", async () => {
+  const { archiveMidasPeriodStreamed } = await import("./secMidas");
+  const zlib = await import("zlib");
+  // enough rows to exercise multiple batches (batchRows=7 below → 5 batches)
+  const rows = parseMidas(midasCsv(
+    Array.from({ length: 31 }, (_, i) => row("20251001", "Stock", `T${String(i).padStart(3, "0")}`, (i % 10) + 1)),
+  ), "2026-07-10");
+  const a = tmp();
+  const b = tmp();
+  assert.equal(archiveMidasPeriod("2025q3", rows, a), rows.length);
+  _resetMidasForTests();
+  assert.equal(await archiveMidasPeriodStreamed("2025q3", rows, b, 7), rows.length);
+  const read = (base: string) =>
+    zlib.gunzipSync(fs.readFileSync(path.join(base, "secmidas", "2025q3.jsonl.gz"))).toString("utf8");
+  assert.equal(read(b), read(a), "streamed output decompresses to the SAME bytes as the sync path");
+  assert.equal(await archiveMidasPeriodStreamed("2025q3", rows, b, 7), 0, "period dedup holds on the streamed path");
+  _resetMidasForTests();
+});
+
 test("summarizeMidas: small-cap watch is Stock-only, McapRank<=2, trades-for-hidden floor enforced, sorted by cancel-to-trade desc", () => {
   const rows = parseMidas(midasCsv([
     // small-cap stock, high cancel/trade — should be first
