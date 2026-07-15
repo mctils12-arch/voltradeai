@@ -6,8 +6,12 @@
 // that draws every live aircraft as a heading-oriented plane SILHOUETTE at
 // its REAL barometric altitude via projectTileFor3D — with pitch + 3D
 // terrain, planes visibly fly above the ground instead of being painted on
-// it. WebGL2 instancing: ONE static silhouette mesh + a 5-float instance
-// record per aircraft (~200KB at the 10k cap — a trivial per-tick upload).
+// it. WebGL2 instancing: a small static silhouette mesh PER CLASS (decoded
+// from the broadcast ADS-B emitter category — symbols-not-dots, in 3D) + a
+// 6-float instance record per aircraft (~240KB at the 10k cap — a trivial
+// per-tick upload), drawn one instanced call per contiguous class group,
+// plus one LINES pass drawing every aircraft's altitude drop-line to the
+// surface (fades toward the ground end; degenerate for ground traffic).
 //
 // LOD SPLIT (charter E3): below AIR_3D_MIN_ZOOM the existing 2D class-icon
 // symbol layer covers the map (altitude is sub-pixel at continent zooms and
@@ -34,11 +38,31 @@ import { lonLatToMercator } from '../orbital/satBuffer.js';
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above. */
 export const AIR_3D_MIN_ZOOM = 8;
 
-/** floats per instance: mercX, mercY, altMeters, headingDeg, band. */
-export const AIR_INST_STRIDE = 5;
+/** floats per instance: mercX, mercY, altMeters, headingDeg, band, shape. */
+export const AIR_INST_STRIDE = 6;
 
 /** altitude band codes (match the 2D layer's ALT_COLOR semantics). */
 export const AIR_BAND = { GROUND: 0, LOW: 1, CRUISE: 2 } as const;
+
+/** silhouette shape codes — decoded from the broadcast ADS-B emitter
+ *  category ONLY (a catalogued field; no category → the generic default,
+ *  never a guessed class). */
+export const AIR_SHAPE = { DEFAULT: 0, LIGHT: 1, HEAVY: 2, PERF: 3, ROTOR: 4 } as const;
+
+/** ADS-B emitter category (DO-260 A1..A7, as broadcast) → silhouette.
+ *  A1 light / A2-A4 small-to-large fixed-wing (the generic airliner) /
+ *  A5 heavy / A6 high-performance / A7 rotorcraft. Anything else —
+ *  missing, or the B/C categories (gliders, UAVs, surface vehicles) —
+ *  stays DEFAULT. */
+export function shapeForCategory(category: string | null | undefined): number {
+  switch (String(category || '').toUpperCase()) {
+    case 'A1': return AIR_SHAPE.LIGHT;
+    case 'A5': return AIR_SHAPE.HEAVY;
+    case 'A6': return AIR_SHAPE.PERF;
+    case 'A7': return AIR_SHAPE.ROTOR;
+    default: return AIR_SHAPE.DEFAULT;
+  }
+}
 
 /**
  * Top-view airliner silhouette as a local-space triangle soup (x,y pairs;
@@ -65,42 +89,110 @@ export const PLANE_SILHOUETTE: Float32Array = new Float32Array([
   0.05, -0.46, 0.05, -0.34, 0.28, -0.52,
 ]);
 
+// tiny deterministic builder for the class silhouettes (x,y pairs, nose +Y)
+function silhouette(build: (quad: (x0: number, y0: number, x1: number, y1: number) => void,
+                            tri: (ax: number, ay: number, bx: number, by: number, cx: number, cy: number) => void) => void): Float32Array {
+  const v: number[] = [];
+  const tri = (ax: number, ay: number, bx: number, by: number, cx: number, cy: number) => { v.push(ax, ay, bx, by, cx, cy); };
+  const quad = (x0: number, y0: number, x1: number, y1: number) => {
+    tri(x0, y0, x1, y0, x1, y1);
+    tri(x0, y0, x1, y1, x0, y1);
+  };
+  build(quad, tri);
+  return new Float32Array(v);
+}
+
+/** Per-class top-view silhouettes, indexed by AIR_SHAPE code. Class comes
+ *  from the broadcast emitter category (decode above) — the shape encodes
+ *  KIND (SYMBOLS-NOT-DOTS, in 3D), color keeps encoding altitude band.
+ *  All extents within ±0.62 (the DEFAULT airliner's envelope). */
+export const AIR_SILHOUETTES: Float32Array[] = [
+  PLANE_SILHOUETTE, // DEFAULT: the generic airliner
+  // LIGHT (A1): small, straight (unswept) wing, prop-plane proportions
+  silhouette((quad, tri) => {
+    quad(-0.045, -0.38, 0.045, 0.30);   // fuselage
+    tri(-0.045, 0.30, 0.045, 0.30, 0, 0.42); // nose
+    quad(-0.55, 0.02, 0.55, 0.13);      // straight wing
+    quad(-0.22, -0.36, 0.22, -0.28);    // tailplane
+  }),
+  // HEAVY (A5): wide-body — longer/wider fuselage, big swept wings
+  silhouette((quad, tri) => {
+    quad(-0.085, -0.55, 0.085, 0.48);   // fuselage
+    tri(-0.085, 0.48, 0.085, 0.48, 0, 0.62);
+    tri(-0.085, 0.16, -0.085, -0.10, -0.62, -0.34); // left wing
+    tri(-0.085, 0.16, -0.62, -0.34, -0.62, -0.22);
+    tri(0.085, -0.10, 0.085, 0.16, 0.62, -0.34);    // right wing
+    tri(0.085, 0.16, 0.62, -0.22, 0.62, -0.34);
+    tri(-0.06, -0.40, -0.06, -0.54, -0.34, -0.60);  // left tailplane
+    tri(0.06, -0.54, 0.06, -0.40, 0.34, -0.60);     // right tailplane
+  }),
+  // PERF (A6): high-performance — slim body, delta wing set far back
+  silhouette((quad, tri) => {
+    quad(-0.05, -0.45, 0.05, 0.35);     // fuselage
+    tri(-0.05, 0.35, 0.05, 0.35, 0, 0.58);
+    tri(-0.05, 0.10, -0.05, -0.38, -0.45, -0.38);   // left delta
+    tri(0.05, -0.38, 0.05, 0.10, 0.45, -0.38);      // right delta
+    tri(-0.03, -0.40, -0.03, -0.45, -0.16, -0.47);  // left fin
+    tri(0.03, -0.45, 0.03, -0.40, 0.16, -0.47);     // right fin
+  }),
+  // ROTOR (A7): rotorcraft — cabin, tail boom, rotor cross
+  silhouette((quad, tri) => {
+    quad(-0.09, -0.05, 0.09, 0.25);     // cabin
+    tri(-0.09, 0.25, 0.09, 0.25, 0, 0.33);
+    quad(-0.03, -0.45, 0.03, -0.05);    // tail boom
+    quad(-0.10, -0.47, 0.10, -0.43);    // tail rotor
+    quad(-0.035, -0.33, 0.035, 0.53);   // main rotor blade N-S (disc centered 0.10)
+    quad(-0.43, 0.065, 0.43, 0.135);    // main rotor blade E-W
+  }),
+];
+
 export interface AircraftInstanceInput {
   lon?: number | null;
   lat?: number | null;
   altitude_m?: number | null;
   heading?: number | null;
   on_ground?: boolean | null;
+  category?: string | null;
 }
+
+export interface AirShapeGroup { shape: number; start: number; count: number }
 
 /**
  * Pure: aircraft payload rows → packed instance buffer + the index-aligned
- * rows (for CPU picking → the click card). Rows without a finite position
- * are skipped (counted by the caller via rows.length vs input length —
- * nothing rendered from a guessed position).
+ * rows (for CPU picking → the click card) + contiguous per-shape draw
+ * groups. Rows are STABLE-sorted by shape so each class renders as one
+ * instanced draw over a contiguous range. Rows without a finite position
+ * are skipped — nothing rendered from a guessed position.
  */
 export function buildAircraftInstances<T extends AircraftInstanceInput>(
   aircraft: T[],
-): { inst: Float32Array; rows: T[] } {
+): { inst: Float32Array; rows: T[]; groups: AirShapeGroup[] } {
   const rows: T[] = [];
   for (const a of aircraft) {
     if (a == null || !Number.isFinite(a.lon as number) || !Number.isFinite(a.lat as number)) continue;
     if ((a.lat as number) < -85 || (a.lat as number) > 85) continue; // outside mercator
     rows.push(a);
   }
+  rows.sort((a, b) => shapeForCategory(a.category) - shapeForCategory(b.category)); // stable
   const inst = new Float32Array(rows.length * AIR_INST_STRIDE);
+  const groups: AirShapeGroup[] = [];
   for (let i = 0; i < rows.length; i++) {
     const a = rows[i];
     const m = lonLatToMercator(a.lon as number, a.lat as number);
     const ground = !!a.on_ground;
     const alt = ground ? 0 : Math.max(0, a.altitude_m ?? 0);
+    const shape = shapeForCategory(a.category);
     inst[i * AIR_INST_STRIDE] = m.x;
     inst[i * AIR_INST_STRIDE + 1] = m.y;
     inst[i * AIR_INST_STRIDE + 2] = alt;
     inst[i * AIR_INST_STRIDE + 3] = a.heading ?? 0;
     inst[i * AIR_INST_STRIDE + 4] = ground ? AIR_BAND.GROUND : alt < 3000 ? AIR_BAND.LOW : AIR_BAND.CRUISE;
+    inst[i * AIR_INST_STRIDE + 5] = shape;
+    const g = groups[groups.length - 1];
+    if (g && g.shape === shape) g.count += 1;
+    else groups.push({ shape, start: i, count: 1 });
   }
-  return { inst, rows };
+  return { inst, rows, groups };
 }
 
 /** Pure: nearest instance to a mercator point within tolerance, else -1. */
@@ -132,6 +224,8 @@ export const AIR_VERT_SRC = (prelude: string, define: string): string => `#versi
 ${prelude}
 ${define}
 in vec2 a_local;           // silhouette vertex (per-vertex)
+in float a_altFrac;        // per-vertex altitude fraction: 1 for silhouettes;
+                           // 0→1 for the ground drop-line (constant-attrib trick)
 in vec4 a_inst;            // per-instance: mercX, mercY, altMeters, headingDeg
 in float a_band;           // per-instance: altitude band (0 ground / 1 low / 2 cruise)
 uniform float u_bearing;   // map bearing (deg) — silhouettes rotate with the map like icons
@@ -160,7 +254,7 @@ void main() {
     }
   }
 #endif
-  vec4 anchor = projectTileFor3D(a_inst.xy, a_inst.z * u_altScale);
+  vec4 anchor = projectTileFor3D(a_inst.xy, a_inst.z * u_altScale * a_altFrac);
   float rot = radians(a_inst.w - u_bearing);
   float c = cos(rot);
   float s = sin(rot);
@@ -168,6 +262,9 @@ void main() {
   gl_Position = anchor + vec4(p.x * u_scaleClip / u_aspect, p.y * u_scaleClip, 0.0, 0.0) * anchor.w;
   int band = int(clamp(a_band, 0.0, 2.0));
   v_color = u_bandColors[band];
+  // the drop-line fades toward the ground end (altFrac 0); silhouettes
+  // (altFrac 1 everywhere) keep full band alpha
+  v_color.a *= mix(0.25, 1.0, a_altFrac);
 }`;
 
 const AIR_FRAG_SRC = `#version 300 es
@@ -193,9 +290,11 @@ export class AirLayer implements CustomLayerInterface {
   private map: MapLibreMap | null = null;
   private program: WebGLProgram | null = null;
   private cachedVariant: string | null = null;
-  private geomBuffer: WebGLBuffer | null = null;
+  private geomBuffers: (WebGLBuffer | null)[] = [];
+  private lineBuffer: WebGLBuffer | null = null;
   private instBuffer: WebGLBuffer | null = null;
   private aLocal = -1;
+  private aAltFrac = -1;
   private aInst = -1;
   private aBand = -1;
   private uBearing: WebGLUniformLocation | null = null;
@@ -210,6 +309,7 @@ export class AirLayer implements CustomLayerInterface {
   private uProjFallback: WebGLUniformLocation | null = null;
 
   private inst: Float32Array | null = null;
+  private groups: AirShapeGroup[] = [];
   private instDirty = false;
   private geomUploaded = false;
   private count = 0;
@@ -226,19 +326,25 @@ export class AirLayer implements CustomLayerInterface {
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
     if (this.program) gl.deleteProgram(this.program);
-    for (const b of [this.geomBuffer, this.instBuffer]) if (b) gl.deleteBuffer(b);
+    for (const b of [...this.geomBuffers, this.lineBuffer, this.instBuffer]) if (b) gl.deleteBuffer(b);
     this.program = null;
-    this.geomBuffer = this.instBuffer = null;
+    this.geomBuffers = [];
+    this.lineBuffer = this.instBuffer = null;
     this.cachedVariant = null;
     this.geomUploaded = false;
     this.instDirty = this.inst != null;
     this.map = null;
   }
 
-  /** Fresh tick's instance buffer (null clears). */
-  setInstances(inst: Float32Array | null): void {
+  /** Fresh tick's instance buffer + contiguous per-shape draw groups
+   *  (null clears). Groups default to one DEFAULT-shape run for callers
+   *  that don't classify. */
+  setInstances(inst: Float32Array | null, groups?: AirShapeGroup[]): void {
     this.inst = inst;
     this.count = inst ? Math.floor(inst.length / AIR_INST_STRIDE) : 0;
+    this.groups = inst
+      ? (groups && groups.length ? groups : [{ shape: AIR_SHAPE.DEFAULT, start: 0, count: this.count }])
+      : [];
     this.instDirty = inst != null;
     this.map?.triggerRepaint();
   }
@@ -311,15 +417,17 @@ export class AirLayer implements CustomLayerInterface {
     if (this.uAspect) gl.uniform1f(this.uAspect, w / h);
     if (this.uBandColors) gl.uniform4fv(this.uBandColors, BAND_COLORS.flat());
 
-    if (!this.geomBuffer) this.geomBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.geomBuffer);
     if (!this.geomUploaded) {
-      gl.bufferData(gl.ARRAY_BUFFER, PLANE_SILHOUETTE, gl.STATIC_DRAW);
+      for (let s = 0; s < AIR_SILHOUETTES.length; s++) {
+        if (!this.geomBuffers[s]) this.geomBuffers[s] = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.geomBuffers[s]);
+        gl.bufferData(gl.ARRAY_BUFFER, AIR_SILHOUETTES[s], gl.STATIC_DRAW);
+      }
+      if (!this.lineBuffer) this.lineBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 1]), gl.STATIC_DRAW); // altFrac endpoints
       this.geomUploaded = true;
     }
-    gl.enableVertexAttribArray(this.aLocal);
-    gl.vertexAttribPointer(this.aLocal, 2, gl.FLOAT, false, 0, 0);
-    gl.vertexAttribDivisor(this.aLocal, 0);
 
     if (!this.instBuffer) this.instBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuffer);
@@ -328,22 +436,56 @@ export class AirLayer implements CustomLayerInterface {
       this.instDirty = false;
     }
     gl.enableVertexAttribArray(this.aInst);
-    gl.vertexAttribPointer(this.aInst, 4, gl.FLOAT, false, AIR_INST_STRIDE * 4, 0);
     gl.vertexAttribDivisor(this.aInst, 1);
     gl.enableVertexAttribArray(this.aBand);
-    gl.vertexAttribPointer(this.aBand, 1, gl.FLOAT, false, AIR_INST_STRIDE * 4, 16);
     gl.vertexAttribDivisor(this.aBand, 1);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, PLANE_SILHOUETTE.length / 2, this.count);
+
+    // ── pass 1: ALTITUDE DROP-LINES for every instance (one draw). The
+    // line's two vertices are altFrac 0→1 from lineBuffer; a_local is held
+    // constant at (0,0) so the line runs surface→aircraft with no offset.
+    // Ground aircraft (alt 0) produce a degenerate, invisible line.
+    gl.disableVertexAttribArray(this.aLocal);
+    gl.vertexAttrib2f(this.aLocal, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
+    gl.enableVertexAttribArray(this.aAltFrac);
+    gl.vertexAttribPointer(this.aAltFrac, 1, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(this.aAltFrac, 0);
+    this.bindInstPointers(gl, 0);
+    gl.drawArraysInstanced(gl.LINES, 0, 2, this.count);
+
+    // ── pass 2: per-class silhouettes, one instanced draw per contiguous
+    // shape group (a_altFrac held constant at 1 = full altitude, full alpha).
+    gl.disableVertexAttribArray(this.aAltFrac);
+    gl.vertexAttrib1f(this.aAltFrac, 1);
+    for (const g of this.groups) {
+      const geom = this.geomBuffers[g.shape] ?? this.geomBuffers[AIR_SHAPE.DEFAULT];
+      const verts = (AIR_SILHOUETTES[g.shape] ?? PLANE_SILHOUETTE).length / 2;
+      gl.bindBuffer(gl.ARRAY_BUFFER, geom);
+      gl.enableVertexAttribArray(this.aLocal);
+      gl.vertexAttribPointer(this.aLocal, 2, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribDivisor(this.aLocal, 0);
+      this.bindInstPointers(gl, g.start);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, verts, g.count);
+    }
 
     // reset divisors so we never corrupt MapLibre's own attribute state
     gl.vertexAttribDivisor(this.aInst, 0);
     gl.vertexAttribDivisor(this.aBand, 0);
     gl.disableVertexAttribArray(this.aLocal);
+    gl.disableVertexAttribArray(this.aAltFrac);
     gl.disableVertexAttribArray(this.aInst);
     gl.disableVertexAttribArray(this.aBand);
+  }
+
+  /** (Re)point the per-instance attributes at a group's contiguous range. */
+  private bindInstPointers(gl: WebGL2RenderingContext, startInstance: number): void {
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuffer);
+    const base = startInstance * AIR_INST_STRIDE * 4;
+    gl.vertexAttribPointer(this.aInst, 4, gl.FLOAT, false, AIR_INST_STRIDE * 4, base);
+    gl.vertexAttribPointer(this.aBand, 1, gl.FLOAT, false, AIR_INST_STRIDE * 4, base + 16);
   }
 
   private compile(gl: WebGL2RenderingContext, prelude: string, define: string, variant: string): void {
@@ -380,6 +522,7 @@ export class AirLayer implements CustomLayerInterface {
     this.program = p;
     this.cachedVariant = variant;
     this.aLocal = gl.getAttribLocation(p, 'a_local');
+    this.aAltFrac = gl.getAttribLocation(p, 'a_altFrac');
     this.aInst = gl.getAttribLocation(p, 'a_inst');
     this.aBand = gl.getAttribLocation(p, 'a_band');
     this.uBearing = gl.getUniformLocation(p, 'u_bearing');

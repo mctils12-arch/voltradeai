@@ -3023,7 +3023,7 @@ export default function DataMapPage() {
       onData: (d: any) => {
         const built = buildAircraftInstances(d.aircraft || []);
         airRows = built.rows;
-        airLayer.setInstances(built.inst);
+        airLayer.setInstances(built.inst, built.groups);
         // match the terrain mesh's vertical exaggeration so a plane above a
         // peak stays above the exaggerated peak (never-intersect-mountains)
         try { airLayer.setAltScale(map.getTerrain() ? 1.3 : 1); } catch {}
@@ -5787,7 +5787,7 @@ export default function DataMapPage() {
                             <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> Cruise</span>
                             <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
                             <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
-                            <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude — tilt the map to see them fly above the terrain</span>
+                            <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain</span>
                           </>
                         )}
                         {enabled.vessels && (
