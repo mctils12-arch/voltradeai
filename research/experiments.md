@@ -13,6 +13,58 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — EARTH TWIN O5-3b: the real ISS on the globe (v1.0.339, T-CLIENT + scripts tool)
+
+Loader spike decided AGAINST a runtime glTF stack (three.js ~600KB or
+a client GLB parser both parse 42MB at runtime): preprocessing wins —
+scripts/earthtwin_iss_mesh.mjs bakes NASA's official public-domain
+ISS model (247k tris) into a committed 439KB .vtm (22.9k verts /
+27.4k tris, vertex-cluster decimation keyed by material + normal
+octant so both faces of thin solar panels survive back-face culling;
+per-vertex color = the real texture's texel at each vertex UV — the
+first flat-average attempt washed the whole station gray, the
+sampled version keeps gold wings/white modules, verified by an
+offline software render reviewed in-session). Client: realMesh.ts
+registry+decoder (lazy fetch on follow only; failure → representative
+form), modelLayer real>form precedence, caption names NASA + admits
+simplification. Integrity ratchet test decodes the committed asset
+against its committed provenance meta. VERSION COLLISION: concurrent
+#485 took v1.0.335 on main while this branch had used 335-338;
+attribution unaffected (disjoint files); branch continued at .339 and
+merged origin/main (keep-both on this file). #485 also shipped the E1
+LIVE/HISTORICAL badge — dropped from our queue (supersession).
+GATES on the merged tree: server 694/694, client 192/192, tsc 66-line
+baseline, build clean (asset ships in dist/public/models), visual
+harness solo run recorded below in this entry's session log.
+HYPOTHESIS (prior): a recognizable real ISS at follow is the single
+strongest "this is real data" proof-moment on the site; falsifier:
+users can't tell it from the generic bus form at 72px → raise
+MODEL_PIXELS for real models or add a zoom-on-follow.
+
+## 2026-07-15 [PIPELINE] — EARTH TWIN session #3: outage-class sweep done + E3 true-altitude aircraft (v1.0.335-338, fresh branch off merged main)
+
+Branch restarted from main per the merged-branch rule (#484 was
+auto-SQUASHED — per-commit versions collapsed into one deploy unit;
+noted, acceptable: no trading logic). Four slices: v1.0.335 secMidas
+READ-side streamed (every-boot ~190MB cache-warm; streamed fold
+test-pinned identical); v1.0.336 querySnapshot hour-files streamed
+(the last unbounded sync-zlib on any hot path — the class from #483
+is now EXTINCT: every unbounded payload streams); v1.0.337
+[RULE-REVIEW] harness self-see expands GROUP_ROW_CAP show-more (main's
+#482 crossed the environmental cap → harness red on PURE MAIN,
+verified by running origin/main; measurement change shipped alone,
+bias stated: loosens only for rows behind exhaustive visible
+expansion); v1.0.338 E3 TRUE-ALTITUDE AIRCRAFT (icon→3D-silhouette
+hand-off at z8, real baro altitude, terrain-exaggeration-matched,
+instanced WebGL2, one card handler both renderers, negative-baro
+clamp + on-ground-at-surface pinned). GATES: server 694/694, client
+186/186, tsc 66-line baseline throughout, builds clean, harness 0
+hard failures at 390/768/1440 post-measurement-fix (one 1440
+fields-on flake re-ran clean — documented SwiftShader class).
+HYPOTHESIS (E3 prior): the tilt+terrain+planes-at-altitude view
+becomes the twin's screenshot moment at airport zooms; falsifier:
+reports that silhouettes read worse than icons at z8-9 → raise the
+hand-off zoom in one constant (AIR_3D_MIN_ZOOM).
 ## 2026-07-15 [PRODUCT] — EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge outside the Time Machine panel (v1.0.335, T-CLIENT, scheduled-routine session)
 
 TERRITORY: T-CLIENT (client/src/lib/timeAxis.ts, client/src/pages/

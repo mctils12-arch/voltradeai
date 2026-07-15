@@ -118,6 +118,7 @@ export class SatModelLayer implements CustomLayerInterface {
   private uProjFallback: WebGLUniformLocation | null = null;
 
   private mesh: Mesh | null = null;
+  private realMesh: Mesh | null = null;
   private meshDirty = false;
   private form: FormKind | null = null;
   private anchor: ModelAnchor | null = null;
@@ -154,6 +155,27 @@ export class SatModelLayer implements CustomLayerInterface {
     return this.form;
   }
 
+  /** O5-3b: a REAL model of the followed unit (decoded .vtm from a verified
+   *  public asset — see lib/orbital/realMesh). Takes precedence over the
+   *  class-representative form while set; null falls back to the form.
+   *  Callers clear this when the follow target changes so one satellite's
+   *  real model can never appear on another. */
+  setRealMesh(mesh: Mesh | null): void {
+    if (mesh === this.realMesh) return;
+    this.realMesh = mesh;
+    this.meshDirty = true;
+    this.map?.triggerRepaint();
+  }
+
+  getRealMesh(): Mesh | null {
+    return this.realMesh;
+  }
+
+  /** The mesh render() actually draws: real model first, then the form. */
+  getActiveMesh(): Mesh | null {
+    return this.realMesh ?? this.mesh;
+  }
+
   /** The followed satellite's live position (null = not following). */
   setAnchor(a: ModelAnchor | null): void {
     this.anchor = a;
@@ -170,7 +192,7 @@ export class SatModelLayer implements CustomLayerInterface {
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
     if (this.renderFailed) return;
-    if (!this.anchor || !this.mesh) return; // not following → zero cost, no repaint
+    if (!this.anchor || !this.getActiveMesh()) return; // not following → zero cost, no repaint
     try {
       this.renderInner(gl, args);
       this.map?.triggerRepaint(); // animate the tumble ONLY while visible
@@ -182,7 +204,7 @@ export class SatModelLayer implements CustomLayerInterface {
   }
 
   private renderInner(gl: AnyGl, args: CustomRenderMethodInput): void {
-    const mesh = this.mesh;
+    const mesh = this.getActiveMesh();
     const anchor = this.anchor;
     if (!mesh || !anchor) return;
     const sd = args.shaderData;
@@ -208,9 +230,13 @@ export class SatModelLayer implements CustomLayerInterface {
     if (this.uProjFallback) gl.uniformMatrix4fv(this.uProjFallback, false, pd.fallbackMatrix);
 
     if (this.uAnchor) gl.uniform3f(this.uAnchor, anchor.mercX, anchor.mercY, anchor.altMeters);
-    // slow tumble, time-based (display animation only — clearly not telemetry)
+    // slow tumble, time-based (display animation only — clearly not telemetry).
+    // A real model turns gently (a stately survey of the actual design);
+    // representative forms keep the quicker symbolic tumble.
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
-    if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, rotationMat3(t * 0.5, 0.4));
+    const yawRate = this.realMesh ? 0.15 : 0.5;
+    const pitch = this.realMesh ? 0.3 : 0.4;
+    if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, rotationMat3(t * yawRate, pitch));
     const h = gl.drawingBufferHeight || 1;
     const w = gl.drawingBufferWidth || 1;
     // clip units per model unit so the form spans ~MODEL_PIXELS on screen

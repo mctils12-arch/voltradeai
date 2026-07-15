@@ -478,7 +478,7 @@ export async function recentTrackAsync(kind: ArchiveKind, id: string,
  * propagate through pipe() to the readline iterator and would crash the
  * process. Shared by recentTrackAsync + rollupOldDaysAsync.
  */
-function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: string) => void): Promise<void> {
+export function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: string) => void): Promise<void> {
   return new Promise<void>((resolve) => {
     let src: fs.ReadStream;
     try { src = fs.createReadStream(fp); } catch { resolve(); return; }

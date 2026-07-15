@@ -43,6 +43,7 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // class-representative form drawn at its live position on the globe.
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
 import { classForm, formLabel } from "@/lib/orbital/model3d";
+import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
 // operator→ticker map turn a clicked point into "small payload, CubeSat-class
 // size, owned by X, launched Y" — formatting lives in lib/orbital/identity
@@ -52,6 +53,9 @@ import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/
 // focus): pure follow math + the focus-ring geometry live in lib/orbital/
 // follow; this file owns the camera easing and the stop conditions.
 import { followTarget, focusRingFeatureCollection } from "@/lib/orbital/follow";
+// EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
+// real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
+import { AirLayer, buildAircraftInstances, pickNearestAircraft, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -1985,6 +1989,20 @@ export default function DataMapPage() {
       // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
       // (unknown class = honest ring-only follow, never a guessed spacecraft)
       satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
+      // O5-3b: REAL model where a verified public asset exists (ISS: NASA's
+      // own model, decimated — provenance in client/public/models/*.json).
+      // Cleared FIRST so the previous target's model never rides this orbit;
+      // lazy fetch, and the result only applies if this sat is still followed.
+      satModelLayerRef.current?.setRealMesh(null);
+      const realLabel = realModelLabel(g.noradId);
+      if (realLabel) {
+        const wantNorad = g.noradId;
+        loadRealModel(wantNorad).then((mesh) => {
+          if (!mesh) return; // fetch/decode failed → representative form stays
+          if (satFollowRef.current?.noradId !== wantNorad) return;
+          satModelLayerRef.current?.setRealMesh(mesh);
+        });
+      }
       try {
         if (!map.getSource("sat-focus")) {
           map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
@@ -2014,7 +2032,9 @@ export default function DataMapPage() {
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
           "FOLLOWING — the camera tracks this object as it moves (updates each second); drag the map or click empty ground to stop.",
-          sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
+          realLabel
+            ? `On-map 3D: ${realLabel}.`
+            : sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
@@ -2750,6 +2770,12 @@ export default function DataMapPage() {
     onClick: (props: any, lngLat: any) => void;
     iconLayout: any;
     iconPaint: any;
+    /** E3 LOD hand-off: cap the 2D symbol layer at this zoom (the 3D
+     *  silhouette layer takes over above it — one representation at a time). */
+    iconMaxZoom?: number;
+    /** E3: fresh-snapshot hook — the caller feeds side renderers (the 3D
+     *  aircraft layer) from the same payload the symbols use. */
+    onData?: (d: any) => void;
     /** Low-zoom render decimation ([REPAIR 2026-07-05] perf 3/3): below
      *  splitZoom draw only features with rank < keepFraction (rank is a
      *  stable per-feature hash set by toFeatures). RENDER-side only — the
@@ -2876,6 +2902,7 @@ export default function DataMapPage() {
           map.addLayer({
             id: layerId, type: "symbol", source: srcId,
             ...(lz ? { minzoom: lz.splitZoom } : {}),
+            ...(opts.iconMaxZoom ? { maxzoom: opts.iconMaxZoom } : {}),
             layout: opts.iconLayout, paint: opts.iconPaint,
           });
           if (lz) {
@@ -2899,6 +2926,7 @@ export default function DataMapPage() {
         // kept and the zoomend handler builds lazily on the way in.
         if (opts.toVectors && shouldBuildVectors(map.getZoom())) applyVectors(d);
         else vectorsCurrent = false;
+        try { opts.onData?.(d); } catch {} // E3 side renderers — never break the tick
         // Quantized count (nearest-25 above 500, display-only): the exact
         // count jiggled ±dozens per tick, defeating setStatus's no-op bail
         // and re-rendering the entire page component every fresh snapshot.
@@ -2952,7 +2980,10 @@ export default function DataMapPage() {
     };
   }, [setStatus]);
 
-  // ── live aircraft (RAW; WebGL symbols, heading-rotated, class icons) ──
+  // ── live aircraft (RAW; WebGL symbols, heading-rotated, class icons;
+  // EARTH TWIN E3: at/above AIR_3D_MIN_ZOOM the icons hand off to 3D
+  // heading-oriented silhouettes at REAL baro altitude — with pitch +
+  // terrain, planes fly above the ground instead of being painted on it) ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -2961,6 +2992,7 @@ export default function DataMapPage() {
         if (map.getLayer("aircraft-sym")) map.removeLayer("aircraft-sym");
         if (map.getLayer("aircraft-sym-lo")) map.removeLayer("aircraft-sym-lo");
         if (map.getLayer("aircraft-veclines")) map.removeLayer("aircraft-veclines");
+        if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d");
         if (map.getSource("aircraft")) map.removeSource("aircraft");
         if (map.getSource("aircraft-vec")) map.removeSource("aircraft-vec");
       } catch {}
@@ -2975,10 +3007,27 @@ export default function DataMapPage() {
       for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
       return (Math.abs(h) % 100) / 100;
     };
-    return wireLivePoints({
+
+    // E3: the 3D silhouette layer — draws nothing below the hand-off zoom or
+    // before the first payload; instances rebuilt from each fresh snapshot.
+    const airLayer = new AirLayer({ id: "aircraft-3d" });
+    try { map.addLayer(airLayer); } catch {}
+    let airRows: any[] = []; // index-aligned to the instance buffer (picking)
+
+    const wire = () => wireLivePoints({
       id: "aircraft",
       intervalMs: 15_000,
       lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
+      // E3: icons cap at the hand-off zoom; the 3D silhouettes take over
+      iconMaxZoom: AIR_3D_MIN_ZOOM,
+      onData: (d: any) => {
+        const built = buildAircraftInstances(d.aircraft || []);
+        airRows = built.rows;
+        airLayer.setInstances(built.inst);
+        // match the terrain mesh's vertical exaggeration so a plane above a
+        // peak stays above the exaggerated peak (never-intersect-mountains)
+        try { airLayer.setAltScale(map.getTerrain() ? 1.3 : 1); } catch {}
+      },
       toFeatures: (d) => (d.aircraft || []).map((a: any) => {
         const cls = classifyAircraft(a.type, a.category);
         return {
@@ -3015,7 +3064,10 @@ export default function DataMapPage() {
         "icon-ignore-placement": true,
       },
       iconPaint: { "icon-color": ALT_COLOR, "icon-opacity": 0.95 },
-      onClick: async (p, lngLat) => {
+      onClick: (p: any, lngLat: any) => { void onAircraftClickProps(p, lngLat); },
+    });
+    // one card handler for BOTH renderers (2D symbol clicks + 3D picks)
+    const onAircraftClickProps = async (p: any, lngLat: any) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
         const alt = p.ground === true || p.ground === "true" ? "on ground" : (p.alt != null ? fmtMeters(p.alt) : "alt unknown");
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
@@ -3051,8 +3103,37 @@ export default function DataMapPage() {
         fetchDossier(dossierKey, null, lngLat?.lat, lngLat?.lng);
         const { note, lastT } = await showTrail("aircraft", p.icao24);
         setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
-      },
-    });
+    };
+    const stopWire = wire();
+    // E3 picking above the hand-off zoom: custom layers have no
+    // queryRenderedFeatures (the satellite-picking precedent) — CPU nearest
+    // over the instance buffer; any real rendered feature keeps priority.
+    const onAir3dClick = (e: any) => {
+      if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
+      let atPoint: unknown[] = [];
+      try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
+      if (atPoint.length > 0) return; // a feature-scoped handler owns this click
+      const ll = map.unproject(e.point);
+      const merc = lonLatToMercator(ll.lng, ll.lat);
+      const tol = pixelToleranceToMercUnits(12, map.getZoom());
+      const idx = pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, tol);
+      if (idx < 0) return;
+      const a = airRows[idx];
+      if (!a) return;
+      void onAircraftClickProps({
+        cls: classifyAircraft(a.type, a.category),
+        callsign: a.callsign || a.icao24, icao24: a.icao24,
+        country: a.origin_country, type: a.type || "",
+        alt: a.altitude_m, ground: !!a.on_ground, heading: a.heading ?? 0,
+        kts: a.velocity_ms == null ? null : Math.round(a.velocity_ms * 1.944),
+      }, ll);
+    };
+    map.on("click", onAir3dClick);
+    return () => {
+      stopWire();
+      try { map.off("click", onAir3dClick); } catch {}
+      try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
+    };
   }, [enabled.aircraft, mapReady, wireLivePoints, setStatus]);
 
   // ── live vessels (RAW; class icons + heading, destination from AIS) ──
@@ -5706,6 +5787,7 @@ export default function DataMapPage() {
                             <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> Cruise</span>
                             <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
                             <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
+                            <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude — tilt the map to see them fly above the terrain</span>
                           </>
                         )}
                         {enabled.vessels && (

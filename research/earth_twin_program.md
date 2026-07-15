@@ -564,6 +564,75 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-15 (session #3 continued) — O5-3b SHIPPED (v1.0.339): the
+  REAL ISS on the globe. Loader-spike decision: NO three.js — NASA's
+  official public-domain ISS_stationary.glb (42MB, 247k tris) is
+  preprocessed OFFLINE by scripts/earthtwin_iss_mesh.mjs into a
+  committed 439KB client/public/models/iss-25544.vtm (vertex-cluster
+  decimation keyed by material + normal octant so thin solar panels
+  keep both faces; per-vertex colors SAMPLED from the real textures
+  at each vertex UV — gold wings/white modules are the asset's own
+  colors, nothing invented; provenance JSON ships beside the asset).
+  Client: lib/orbital/realMesh.ts (registry {25544}, .vtm decoder →
+  model3d Mesh soup, cached lazy fetch on follow only, failure falls
+  back to the representative form), modelLayer.setRealMesh precedence
+  (real > form > nothing, gentler rotation for real models), card
+  caption names NASA + admits simplification. Integrity ratchet: the
+  test decodes the COMMITTED asset against the COMMITTED meta (tris,
+  ±1.2 extent, palette spread ≥8 buckets). Extending the registry =
+  drop a new .vtm + one REAL_MODELS entry (same honest pipeline —
+  documented public assets only).
+  MERGE NOTE: concurrent session shipped #485 (E1 LIVE/HISTORICAL
+  badge — REMOVED from our queue, supersession precedent) and took
+  v1.0.335 on main; this branch's numbers 335-338 collide in the log
+  (attribution unaffected: different files), branch continued at
+  .339. origin/main merged into the branch (datamap auto-merged,
+  experiments.md keep-both, version kept highest).
+  NEXT: GEBCO v2 + TID confidence overlay, vessels delta
+  (time/since + Cache-Control), React memo boundaries
+  (LayersPanel/Legend/DetailCard), keepFraction density decision
+  (human input), aircraft 3D polish (per-class silhouettes, ground
+  line, altitude label on hover), more real models where public
+  assets verify (Hubble/JWST candidates — NASA 3D resources).
+- 2026-07-15 (session #3, post-merge — #484 MERGED + DEPLOYED, site
+  live at v1.0.334; note: the auto-merge SQUASHED the branch, so the
+  40 per-commit versions collapsed into one deploy unit — acceptable
+  here, nothing touched trading logic; branch restarted from main per
+  the merged-branch rule): OUTAGE-CLASS SWEEP COMPLETED —
+  v1.0.335 secMidas READ side streamed (the every-boot ~190MB
+  cache-warm; summarizeMidasStreamed test-pinned identical) +
+  v1.0.336 querySnapshot hour-files streamed (the last unbounded
+  sync-zlib on any hot path). Audit verdict: the 11 remaining
+  gunzipSync sites are KB-scale daily pulls, deliberately left sync.
+  SESSION #3 CONTINUED — E3 SHIPPED (v1.0.338): true-altitude
+  aircraft live on the branch — 2D class icons hand off to 3D
+  heading-oriented silhouettes at real baro altitude at z8+
+  (lib/air/airLayer, WebGL2 instanced, terrain-exaggeration-matched
+  altitude, orbital far-side cull verbatim, one card handler for both
+  renderers, 5 tests). Also v1.0.337 [RULE-REVIEW] harness fix:
+  self-see now expands GROUP_ROW_CAP show-more buttons — main's #482
+  had crossed the environmental cap and turned the harness red on
+  PURE MAIN (verified); measurement change shipped alone with the
+  bias statement. Harness after: 0 hard failures at all widths.
+  NEXT: O5-3b real ISS model (NASA public-domain asset + loader
+  spike), E1 LIVE/HISTORICAL mode chip, GEBCO v2 + TID confidence,
+  vessels delta, React memo boundaries, keepFraction density decision
+  (human input), aircraft 3D polish (per-class silhouettes, ground
+  line, altitude-label on hover).
+  PRIOR NEXT (superseded above): E3 TRUE-ALTITUDE AIRCRAFT — the original
+  directive's 'see the planes at altitude'. Recipe: airLayer.ts on
+  the modelLayer/satLayer template (CustomLayerInterface,
+  projectTileFor3D, far-side cull) rendering heading-oriented plane
+  silhouette geometry per aircraft at real baro altitude, fed from
+  wireLivePoints' lastPayload each tick; LOD split — existing 2D
+  symbol layer below ~z8, 3D silhouettes above (altitude
+  imperceptible at continent zoom, symbols-not-dots preserved);
+  terrain-clamp guard (rendered z >= DEM sample + margin, clamp
+  state on the click card); velocity-vector layer folds in. Then:
+  O5-3b real ISS model (NASA public-domain asset spike), E1
+  LIVE/HISTORICAL mode chip, GEBCO v2 pipeline, vessels delta,
+  React memo boundaries, keepFraction density decision (human).
+
 - 2026-07-15: charter installed (this file). Survey of existing stack
   completed and recorded above (globe/terrain/GIBS/orbital/archives/
   registry/viewport/3d-tiles-proxy inventory). NOTHING NEW BUILT YET.
