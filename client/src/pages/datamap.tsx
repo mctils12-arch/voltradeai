@@ -44,6 +44,7 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // (pure, tested); resolveOperator stays conservative (null = honest unmapped).
 import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/lib/orbital/identity";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
+import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
@@ -107,6 +108,41 @@ let satcatFetchedAt = 0;
 let satcatState: "loading" | "ready" | "error" = "error";
 let satcatInflight: Promise<void> | null = null;
 const SATCAT_TTL_MS = 24 * 60 * 60_000;
+// PERF (SCALE queue item 3): GP fetch+parse off the main thread — the 6.6MB
+// res.json() + parseGp of ~16k records froze the map 150-500ms at satellite
+// enable. Same worker shape as SATCAT below; the resilient-load's abort
+// signal terminates the worker (timeout semantics preserved); Worker
+// construction failure falls back to the main-thread path (degrade, never
+// break).
+function fetchGpOffThread(group: string, signal?: AbortSignal): Promise<GpRecord[]> {
+  return new Promise((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(
+        new URL("../lib/orbital/gpWorker.ts", import.meta.url),
+        { type: "module" },
+      );
+    } catch {
+      fetchGp(group, signal ? ((url: string) => fetch(url, { signal }) as any) : undefined).then(resolve, reject);
+      return;
+    }
+    const done = (fn: () => void) => { try { worker.terminate(); } catch {} fn(); };
+    const onAbort = () => done(() => reject(new DOMException("aborted", "AbortError")));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    worker.onmessage = (ev: MessageEvent<GpWorkerOutbound>) => {
+      signal?.removeEventListener("abort", onAbort);
+      const m = ev.data;
+      if (m.type === "rows") done(() => resolve(m.rows));
+      else done(() => reject(new Error(m.message)));
+    };
+    worker.onerror = () => {
+      signal?.removeEventListener("abort", onAbort);
+      done(() => reject(new Error("GP worker failed")));
+    };
+    worker.postMessage({ type: "fetch", group });
+  });
+}
+
 function fetchSatcatRowsOffThread(): Promise<SatcatRecord[]> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
@@ -1620,7 +1656,9 @@ export default function DataMapPage() {
         } else if (orbitalGpCache && Date.now() - orbitalGpCache.at < ORBITAL_GP_TTL_MS) {
           gp = orbitalGpCache.gp; // reuse cached elements — toggling never re-hits CelesTrak
         } else {
-          gp = await fetchGp("active", (url: string) => fetch(url, { signal }) as any);
+          // PERF: fetched + parsed in a one-shot worker (150-500ms main-thread
+          // freeze removed); the resilient-load signal still aborts/times out.
+          gp = await fetchGpOffThread("active", signal);
           if (gp.length) orbitalGpCache = { at: Date.now(), gp }; // cache for the session
         }
         if (signal.aborted) return;
