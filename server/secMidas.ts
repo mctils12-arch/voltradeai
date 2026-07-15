@@ -72,7 +72,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
-import { archiveBaseDir } from "./datacoreArchive";
+import { archiveBaseDir, streamJsonlLines } from "./datacoreArchive";
 
 const SEC_UA = { "User-Agent": "voltradeai-datacore/1.0 (research@voltradeai.com)" };
 
@@ -431,6 +431,63 @@ export function summarizeMidas(period: string, rows: MidasRow[]): MidasSummary |
   };
 }
 
+/**
+ * OUTAGE-CLASS SWEEP (2026-07-15, follow-up to the #483 boot OOM): the READ
+ * side had the same bomb — readMidasPeriod gunzipSyncs the ~30MB quarter
+ * archive into a ~190MB string + 533k line strings + row objects to warm the
+ * summary cache, and refreshMidas runs that at EVERY boot once a quarter is
+ * archived (transient heap spike within ~15% of the 512MB production cap,
+ * growing with each new quarter). This streamed summarizer folds the SAME
+ * summary in one pass keeping only the tiny filtered smallcap candidates
+ * per date (memory O(candidates), not O(rows)) — output test-pinned
+ * deepEqual-identical to summarizeMidas(readMidasPeriod(...)).
+ */
+export async function summarizeMidasStreamed(period: string, baseDir?: string): Promise<MidasSummary | null> {
+  const fp = path.join(midasDir(baseDir), `${period}.jsonl.gz`);
+  if (!fs.existsSync(fp)) return null;
+  let total = 0;
+  let stockCount = 0;
+  const dates = new Set<string>();
+  // per-date FILTERED candidates only (rank<=max smallcap stocks with the
+  // trades floor) — a few hundred per date, not 533k rows
+  const candByDate = new Map<string, Array<{ ticker: string; mcapRank: number; cancelToTrade: number | null; hiddenRatePct: number | null; oddLotRatePct: number | null }>>();
+  await streamJsonlLines(fp, true, (line) => {
+    let r: MidasRow;
+    try { r = JSON.parse(line); } catch { return; }
+    total++;
+    dates.add(r.date);
+    if (r.kind === "Stock") stockCount++;
+    if (r.kind === "Stock" && r.mcapRank != null && r.mcapRank <= MIDAS_SMALLCAP_MAX_RANK
+        && r.tradesForHidden >= MIDAS_MIN_TRADES_FOR_HIDDEN) {
+      const arr = candByDate.get(r.date) ?? [];
+      arr.push({
+        ticker: r.ticker,
+        mcapRank: r.mcapRank as number,
+        cancelToTrade: r.litTrades > 0 ? r.cancels / r.litTrades : null,
+        hiddenRatePct: r.tradesForHidden > 0 ? (100 * r.hidden) / r.tradesForHidden : null,
+        oddLotRatePct: r.tradesForOddLots > 0 ? (100 * r.oddLots) / r.tradesForOddLots : null,
+      });
+      candByDate.set(r.date, arr);
+    }
+  });
+  if (total === 0) return null;
+  const newest = Array.from(dates).sort().pop()!;
+  const watch = (candByDate.get(newest) ?? [])
+    .filter((r) => r.cancelToTrade != null)
+    .sort((a, b) => (b.cancelToTrade as number) - (a.cancelToTrade as number))
+    .slice(0, MIDAS_TOP_CAP);
+  return {
+    period,
+    kind_counts: { stock: stockCount, etf: total - stockCount },
+    newest_date: newest,
+    rows: total,
+    smallcap_watch: watch,
+    smallcap_max_rank: MIDAS_SMALLCAP_MAX_RANK,
+    min_trades_for_hidden: MIDAS_MIN_TRADES_FOR_HIDDEN,
+    top_cap: MIDAS_TOP_CAP,
+  };
+}
+
 let cache: { at: number; summary: MidasSummary } | null = null;
 let polling = false;
 
@@ -455,7 +512,8 @@ export async function refreshMidas(
     // regardless of whether a new fetch happens below.
     const newestArchived = candidates.find((p) => archivedQuarters.has(p));
     if (newestArchived && cache?.summary.period !== newestArchived) {
-      const s = summarizeMidas(newestArchived, readMidasPeriod(newestArchived, baseDir));
+      // OUTAGE-CLASS SWEEP: streamed fold — never re-materialize the quarter
+      const s = await summarizeMidasStreamed(newestArchived, baseDir);
       if (s) cache = { at: Date.now(), summary: s };
     }
     // Probe candidates newest-first. 404s ("not published yet") and

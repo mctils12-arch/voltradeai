@@ -170,6 +170,24 @@ test("OUTAGE FIX: streamed archive writes byte-identical gz content to the sync 
   _resetMidasForTests();
 });
 
+test("OUTAGE-CLASS SWEEP: summarizeMidasStreamed ≡ summarizeMidas(readMidasPeriod(...)) on an archived quarter", async () => {
+  const { summarizeMidasStreamed } = await import("./secMidas");
+  const base = tmp();
+  const rows = parseMidas(midasCsv([
+    row("20250701", "Stock", "AAA", 1), row("20250701", "Stock", "BBB", 2),
+    row("20250702", "Stock", "CCC", 2), row("20250702", "Stock", "BIG", 10),
+    row("20250702", "ETF", "SPYX", 3),
+  ]), "2026-07-10");
+  _resetMidasForTests();
+  assert.equal(archiveMidasPeriod("2025q3", rows, base), rows.length);
+  const viaRows = summarizeMidas("2025q3", readMidasPeriod("2025q3", base));
+  const streamed = await summarizeMidasStreamed("2025q3", base);
+  assert.deepEqual(streamed, viaRows,
+    "the streaming fold must produce the EXACT summary the materializing path produced");
+  assert.equal(await summarizeMidasStreamed("2099q1", base), null, "missing quarter = honest null");
+  _resetMidasForTests();
+});
+
 test("summarizeMidas: small-cap watch is Stock-only, McapRank<=2, trades-for-hidden floor enforced, sorted by cancel-to-trade desc", () => {
   const rows = parseMidas(midasCsv([
     // small-cap stock, high cancel/trade — should be first
