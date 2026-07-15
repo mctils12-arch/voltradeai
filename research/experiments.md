@@ -35,8 +35,11 @@ dies at ~8s; fixed build boots, downloads + archives the real 2025q4
 secMidas 9/9 incl. streamed≡sync byte-equivalence. RATCHET: the
 equivalence test pins the streamed path. DELIVERY: cherry-picked
 hotfix PR #483 (claude/hotfix-midas-oom, version on main's line);
-merged on green CI per the autonomy grant (repair, one change,
-tested; the human was mid-conversation directing "keep working").
+all CI green; the repo's own Auto-merge-Claude-PRs workflow merged it
+at 15:08:46Z. RECOVERY CONFIRMED 15:11:45Z: /api/health HTTP 200,
+status ok, Alpaca ACTIVE, bot active + liveness not dark, scanner 0
+failures — total outage ~5.5h (first bad boot ~09:35Z deploy),
+resolved ~3min after merge.
 LESSON for the ledger: the 2026-07-15 perf session's finding — sync
 gzipSync of unbounded payloads on the serving process — had ONE more
 instance (secMidas) not caught because it hides behind a
