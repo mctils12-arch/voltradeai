@@ -13,6 +13,24 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PIPELINE] — EARTH TWIN O5-2: class-representative 3D spacecraft forms in the card (v1.0.331, T-CLIENT, same branch)
+
+Second half of the clarified 4D directive: the clicked (and followed)
+satellite's card now renders a lit, tumbling 3D form chosen from its
+CATALOGUED class — CubeSat+wings (SMALL-RCS payload), small-sat bus,
+large bus+arrays, spent rocket stage, debris shard. Honesty pinned by
+tests: captions always read "derived, not imagery of this unit";
+unknown types stay a neutral fragment; no form until the catalog knows
+the class; deterministic geometry (randomness banned). Zero new deps
+(raw WebGL1 viewer, ~150 lines, full GL cleanup, no-WebGL degrade).
+O5-3 (real models for documented craft only — ISS via NASA public
+domain assets; loader spike) is chartered next. VISUAL HARNESS after
+E1-1+O5-1+O5-2: ALL FIVE CHECKS PASS, 0 hard failures — and perf
+medians BEAT the session-start baseline at every width (33/83/117ms
+vs 50/133/167 at 390/768/1440; TTI ~30% lower), consistent with the
+session's perf fixes landing in the steady-state window. Gates:
+client suites 176/176, tsc 66-line baseline, build clean.
+
 ## 2026-07-15 [PIPELINE] — EARTH TWIN O5-1: satellite click-to-FOLLOW (v1.0.330, T-CLIENT, same branch)
 
 Human clarified the 4D intent (recorded verbatim in the charter):

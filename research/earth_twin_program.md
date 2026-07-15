@@ -642,6 +642,15 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   documented craft with verifiable public assets (ISS via NASA 3D
   resources public domain; Starlink per published imagery) — loader
   decision spike first (lazy three.js vs minimal glTF parser).
+  O5-2(a) SHIPPED same session (v1.0.331): lib/orbital/model3d (pure
+  forms — cubesat/smallsat/bus/rocket-body/fragment, honest-label +
+  unknown-stays-fragment + determinism all test-pinned) + SatModelView
+  (zero-dep raw-WebGL1 card viewer, lit + tumbling, GL cleanup,
+  no-WebGL degrade); renders only when the catalog knows the class.
+  O5-3 = the real-model upgrade (ISS/Starlink, loader spike) — next.
+  HARNESS after E1-1+O5-1+O5-2: ALL PASS 0 hard failures; perf
+  medians improved vs session start: 33/83/117ms at 390/768/1440
+  (were 50/133/167), TTI down ~30% at every width.
 - 2026-07-15 (session #2) — E1 SLICE 1 SHIPPED (v1.0.329, after the
   perf pass v1.0.324-328 recorded in scale_program.md): GLOBAL TIME
   AXIS v1 — lib/timeAxis (subscribe-store + gibsDateForAxis honest
