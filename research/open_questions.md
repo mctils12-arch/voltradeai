@@ -1596,6 +1596,24 @@
     proper regime-aware bounds) instead of adjusting these numbers a
     third time.
 
+    UPDATE 2026-07-15 (this session, [PIPELINE], not [REPAIR] — no new
+    evidence to act on) — checked this item's own confirmation bar per
+    the NEXT STEP above: `/api/diag/audit?type=DIAGNOSTIC` at
+    2026-07-15T02:35Z's newest entry is still 2026-07-14T19:57:31Z
+    (market-close-adjacent), so **no post-deploy, market-hours DIAGNOSTIC
+    data exists yet** — the "full trading day after v1.0.314 deploys" bar
+    has not elapsed (market opens 2026-07-15 13:30 UTC). Absence of
+    evidence in an off-hours window is not evidence either way (same
+    discipline as this item's own PARTIAL EVIDENCE note, 2026-07-11).
+    `/api/diag/daemon` reads rss=165.6MB, well under the 550MB skip_mb
+    threshold — no sign of the pre-v1.0.314 recurrence, but this is a
+    quiet-hours idle reading, not a scan-loaded one. Genuinely open,
+    correctly left open. TOOLING: `scripts/session_health_check.py`
+    (new this session, see experiments.md) now runs exactly this item's
+    two checks (`check_alt_data_enrichment`, `check_daemon_memory`)
+    mechanically — the next session that catches a full post-deploy
+    trading day should run it instead of re-deriving this by hand.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
