@@ -77,7 +77,7 @@ import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
 import { shouldBuildVectors, quantizeLiveCount, fetchFootprint, needsRefetch, type FetchFootprint } from "@/lib/livePoints";
 // EARTH TWIN E1: the global time axis — the Time Machine publishes, the
 // dated GIBS layers subscribe (one scrubber moves the whole world).
-import { getTimeAxis, subscribeTimeAxis, gibsDateForAxis } from "@/lib/timeAxis";
+import { getTimeAxis, subscribeTimeAxis, gibsDateForAxis, setTimeAxis, formatAxisInstant } from "@/lib/timeAxis";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -759,6 +759,22 @@ export default function DataMapPage() {
       setVegetationDate(gibsDateForAxis(axis, now).dateISO);
       setNo2Date(gibsDateForAxis(axis, now).dateISO);
       setSoilmoistureDate(gibsDateForAxis(axis, now, SOIL_LATENCY_DAYS).dateISO);
+    };
+    return subscribeTimeAxis(apply);
+  }, []);
+  // EARTH TWIN E1 remainder: a persistent LIVE/HISTORICAL indicator OUTSIDE
+  // the Time Machine panel — the panel is small and can scroll out of view
+  // (mobile especially), and dated imagery layers silently show the past
+  // while the rest of the map looks unchanged, so the mode needs its own
+  // always-visible chip, not just the panel's inline date line.
+  const [historicalAtMs, setHistoricalAtMs] = useState<number | null>(() => {
+    const axis = getTimeAxis();
+    return axis.mode === "historical" ? axis.atMs : null;
+  });
+  useEffect(() => {
+    const apply = () => {
+      const axis = getTimeAxis();
+      setHistoricalAtMs(axis.mode === "historical" ? axis.atMs : null);
     };
     return subscribeTimeAxis(apply);
   }, []);
@@ -5421,6 +5437,30 @@ export default function DataMapPage() {
       )}
       {gridStressOpen && (
         <GridStressView onBack={() => { window.location.hash = "#/data"; setGridStressOpen(false); }} />
+      )}
+
+      {/* EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge, outside
+          the Time Machine panel — see the historicalAtMs effect above.
+          "Back to live" mirrors the panel's own close behavior (its unmount
+          cleanup already resets the axis) so there is one path that resets
+          both the panel's replay state and the axis, never two that could
+          drift apart; the direct setTimeAxis call is a defensive fallback
+          for the (currently unreachable) case of historical mode without
+          the panel open. */}
+      {historicalAtMs !== null && (
+        <div className="vt-time-axis-badge" data-testid="time-axis-badge" role="status">
+          <Clock size={13} />
+          <span>HISTORICAL — {formatAxisInstant(historicalAtMs)}</span>
+          <button
+            className="vt-time-axis-badge-live"
+            onClick={() => {
+              if (timescrubOpen) setTimescrubOpen(false);
+              else setTimeAxis({ mode: "live" });
+            }}
+          >
+            Back to live
+          </button>
+        </div>
       )}
 
       {/* Phase 3a imagery capture-date chip (DESIGN.md imagery-honesty

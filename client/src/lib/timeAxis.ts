@@ -46,6 +46,15 @@ export function subscribeTimeAxis(fn: () => void): () => void {
   return () => { listeners.delete(fn); };
 }
 
+/** Human-readable UTC instant for the historical-mode badge (charter E1
+ *  remainder: "a visible LIVE/HISTORICAL mode chip outside the panel" —
+ *  the Time Machine panel is small and can scroll out of view, especially
+ *  on mobile, so the world needs a persistent reminder that dated layers
+ *  are showing the past, not now). */
+export function formatAxisInstant(atMs: number): string {
+  return new Date(atMs).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+}
+
 export interface GibsAxisDate {
   /** the date the layer should display (YYYY-MM-DD, UTC). */
   dateISO: string;
