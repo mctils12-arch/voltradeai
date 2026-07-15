@@ -564,6 +564,30 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-15 (session #3, post-merge — #484 MERGED + DEPLOYED, site
+  live at v1.0.334; note: the auto-merge SQUASHED the branch, so the
+  40 per-commit versions collapsed into one deploy unit — acceptable
+  here, nothing touched trading logic; branch restarted from main per
+  the merged-branch rule): OUTAGE-CLASS SWEEP COMPLETED —
+  v1.0.335 secMidas READ side streamed (the every-boot ~190MB
+  cache-warm; summarizeMidasStreamed test-pinned identical) +
+  v1.0.336 querySnapshot hour-files streamed (the last unbounded
+  sync-zlib on any hot path). Audit verdict: the 11 remaining
+  gunzipSync sites are KB-scale daily pulls, deliberately left sync.
+  NEXT (in order): E3 TRUE-ALTITUDE AIRCRAFT — the original
+  directive's 'see the planes at altitude'. Recipe: airLayer.ts on
+  the modelLayer/satLayer template (CustomLayerInterface,
+  projectTileFor3D, far-side cull) rendering heading-oriented plane
+  silhouette geometry per aircraft at real baro altitude, fed from
+  wireLivePoints' lastPayload each tick; LOD split — existing 2D
+  symbol layer below ~z8, 3D silhouettes above (altitude
+  imperceptible at continent zoom, symbols-not-dots preserved);
+  terrain-clamp guard (rendered z >= DEM sample + margin, clamp
+  state on the click card); velocity-vector layer folds in. Then:
+  O5-3b real ISS model (NASA public-domain asset spike), E1
+  LIVE/HISTORICAL mode chip, GEBCO v2 pipeline, vessels delta,
+  React memo boundaries, keepFraction density decision (human).
+
 - 2026-07-15: charter installed (this file). Survey of existing stack
   completed and recorded above (globe/terrain/GIBS/orbital/archives/
   registry/viewport/3d-tiles-proxy inventory). NOTHING NEW BUILT YET.
