@@ -77,6 +77,24 @@ gzipSync stalls, vessels delta+cache headers, GP parse worker + 1Hz
 repaint, React memo boundaries, the keepFraction/globe median lever
 (visual tradeoff — flag for human), S2 server aggregation.
 
+SAME SESSION, CONTINUED (queue items 1+3 shipped): v1.0.327
+maintenance timers off the event loop — compressOldHoursAsync
+(streamed read→gzip→write pipeline; failed pipeline drops its partial
+.gz and keeps the raw; in-flight latch) + rollupOldDaysAsync (hour
+files stream through the shared streamJsonlLines reader;
+accumulation/summary extracted into helpers used by BOTH sync and
+async paths — equivalence pinned by directory-copied-fixture tests:
+gz payloads byte-identical, summaries deepEqual). recentTrackAsync
+refactored onto the same shared reader. v1.0.328 GP fetch+parse
+off-thread (gpWorker, 1.5kB chunk, abort-signal → terminate, fallback
+preserved) — the 150-500ms satellite-enable freeze removed; the
+session GP cache + resilient retry flow untouched. Gates: server
+689/689, gpWorker 3/3, tsc 66-line baseline, builds clean with both
+workers as own chunks. All three FREEZE classes from the diagnosis
+are now fixed (SATCAT parse, request-path archive scans, maintenance
+timers) plus the GP enable freeze; remaining queue re-ranked in
+scale_program.md (W3/W4 sync reads next).
+
 ## 2026-07-15 [PRODUCT] — EARTH TWIN session #1 verify pass: adversarial review + three fixes (v1.0.321–323, same branch)
 
 3-lens review (correctness / constitution / UX-perf; ~330k tokens of

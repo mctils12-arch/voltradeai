@@ -105,27 +105,35 @@ what keeps "no added latency" true when the archive is 10x bigger.
   the render bail engages — p95 frame 200→133ms @768, 267→183ms @1440,
   upload-hitch warning gone; medians unchanged as expected: they are
   steady-state draw volume, the harness stubs the tick path).
-  EVIDENCE-BACKED QUEUE (next unblocked slices, ranked):
-  (1) MAINTENANCE-TIMER STALLS: compressOldHours (30min) +
-      rollupOldDays (6h) gzipSync whole hours/days in-process —
-      periodic multi-second freezes with zero user interaction; same
-      class: querySnapshot/scanEventLayer sync readJsonlDay (W3/W4).
-      Move to worker_threads or streamed async (the v1.0.325 pattern).
-  (2) VESSELS DELTA: handler emits no `time` and ignores `since` →
+  SAME SESSION, QUEUE ITEMS SHIPPED: (1) maintenance-timer stalls →
+  v1.0.327 (compressOldHoursAsync streamed pipeline w/ partial-gz
+  rollback + rollupOldDaysAsync on shared accumulation helpers +
+  in-flight latches; equivalence test-pinned vs the sync paths);
+  (3) GP parse → v1.0.328 (gpWorker one-shot fetch+parse, abort →
+  terminate, main-thread fallback; the satellite-enable 150-500ms
+  freeze removed).
+  REMAINING QUEUE (ranked; next continuous-build session picks up
+  from here):
+  (a) W3/W4 SYNC READS: querySnapshot/scanEventLayer readJsonlDay is
+      still readFileSync+gunzipSync per uncached scrub position —
+      convert to the shared streamJsonlLines pattern (v1.0.325/327
+      precedent, straightforward).
+  (b) VESSELS DELTA: handler emits no `time` and ignores `since` →
       full 2.37MB re-ship every 20s when enabled; give it the aircraft
-      treatment + Cache-Control on the three live endpoints.
-  (3) GP PARSE: 6.6MB res.json()+parseGp on the main thread at
-      satellite enable (~150-500ms) — move into satWorker (E4-2
-      pattern); also reconsider the 1Hz triggerRepaint (map never
-      idles while satellites are on — weak-GPU lag).
-  (4) REACT MEMO BOUNDARIES: 45 useState in one 5.8k-line component,
+      treatment + Cache-Control on the three live endpoints. (Lower
+      urgency: vessels is default-off + awaiting_key today.)
+  (c) 1Hz ORBITAL REPAINT: updatePositions → triggerRepaint every
+      second means the map never idles while satellites are on —
+      weak-GPU lag; consider skip-when-subpixel or lower hz + shader
+      interpolation.
+  (d) REACT MEMO BOUNDARIES: 45 useState in one 5.8k-line component,
       zero memo — extract LayersPanel/Legend/DetailCard as memoized
       children (remaining full-tree renders → subtree renders).
-  (5) MEDIAN LEVER (visual tradeoff — human input welcome): low-zoom
+  (e) MEDIAN LEVER (visual tradeoff — human input welcome): low-zoom
       draw density keepFraction 0.35→~0.2 + globe cost. 2026-07-05
       precedent measured 10k→3.5k icons = median 117→83ms @1440;
       today's 133-167ms medians are steady-state draw volume under
       globe projection.
-  (6) S2 SERVER AGGREGATION (structural): low zoom ships cluster
+  (f) S2 SERVER AGGREGATION (structural): low zoom ships cluster
       counts, not 10-15k individual records — the charter's own plan;
       kills the payload+parse class entirely at continent zoom.
