@@ -625,6 +625,18 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   Hypothesis to judge (stated at E0-1): if E2/E3-class slices still
   need large hand-wired useEffects after the engines land, the spine
   design is wrong — revisit before sweeping.
+- 2026-07-15 (session #2) — E1 SLICE 1 SHIPPED (v1.0.329, after the
+  perf pass v1.0.324-328 recorded in scale_program.md): GLOBAL TIME
+  AXIS v1 — lib/timeAxis (subscribe-store + gibsDateForAxis honest
+  latency clamping, 4 tests); the Time Machine panel PUBLISHES the
+  axis on every committed scrub and returns the world to LIVE on
+  close; all five dated GIBS layers FOLLOW (one scrubber = archives
+  replay + dated imagery at the same instant); per-layer scrubbers
+  remain manual overrides; firetemp honestly excluded (sub-daily
+  latest-scan-only). E1 REMAINDER: registry-driven follower discovery
+  (use the v2 time blocks instead of the hand-list of five setters),
+  a visible LIVE/HISTORICAL mode chip outside the panel, forecast
+  zone, sub-daily scan picker.
 - 2026-07-15 (same session, verify pass) — 3-lens adversarial review
   (correctness/constitution/UX-perf) over the four slices: NO
   high-severity findings; constitution clean (frozen paths untouched,

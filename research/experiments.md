@@ -13,6 +13,25 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PIPELINE] — EARTH TWIN E1-1: global time axis (v1.0.329, T-CLIENT, same branch)
+
+Human asked "where is the 4D world" — the honest answer was "in
+fragments" (per-layer GIBS scrubbers, W3 archive replay, live SGP4),
+so this slice unified it: lib/timeAxis.ts (subscribe-store, 4 tests)
++ TimeScrubber publishes every committed scrub + all five dated GIBS
+layers follow with per-layer honest latency clamping (dailies snap to
+yesterday, SMAP to its ~7-day ceiling, snap reported; LIVE restores
+defaults; close returns the world to live — never silently stuck in
+the past). firetemp deliberately excluded (sub-daily latest-scan-only
+— honest gap). One scrubber now moves the archive replay AND the
+dated imagery to the same instant. HYPOTHESIS (prior): users will
+read the Time Machine as "the world's clock" rather than "a replay
+tool"; falsifier = confusion reports that imagery changed "on its
+own" → add the visible LIVE/HISTORICAL mode chip (already queued in
+the charter E1 remainder) sooner. Gates: client suites 169/169, tsc
+66-line baseline (one new TS2802 caught pre-commit — the repo target
+predates Set iteration), build clean.
+
 ## 2026-07-15 [REPAIR] — perf session (human report: "extremely laggy and freezes often"): profile + three shipped fixes (v1.0.324–326, T-CLIENT + T-DATACORE, same branch)
 
 TERRITORY: T-CLIENT (lib/livePoints + lib/orbital/satcatWorker +
