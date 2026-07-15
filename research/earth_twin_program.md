@@ -574,7 +574,22 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   v1.0.336 querySnapshot hour-files streamed (the last unbounded
   sync-zlib on any hot path). Audit verdict: the 11 remaining
   gunzipSync sites are KB-scale daily pulls, deliberately left sync.
-  NEXT (in order): E3 TRUE-ALTITUDE AIRCRAFT — the original
+  SESSION #3 CONTINUED — E3 SHIPPED (v1.0.338): true-altitude
+  aircraft live on the branch — 2D class icons hand off to 3D
+  heading-oriented silhouettes at real baro altitude at z8+
+  (lib/air/airLayer, WebGL2 instanced, terrain-exaggeration-matched
+  altitude, orbital far-side cull verbatim, one card handler for both
+  renderers, 5 tests). Also v1.0.337 [RULE-REVIEW] harness fix:
+  self-see now expands GROUP_ROW_CAP show-more buttons — main's #482
+  had crossed the environmental cap and turned the harness red on
+  PURE MAIN (verified); measurement change shipped alone with the
+  bias statement. Harness after: 0 hard failures at all widths.
+  NEXT: O5-3b real ISS model (NASA public-domain asset + loader
+  spike), E1 LIVE/HISTORICAL mode chip, GEBCO v2 + TID confidence,
+  vessels delta, React memo boundaries, keepFraction density decision
+  (human input), aircraft 3D polish (per-class silhouettes, ground
+  line, altitude-label on hover).
+  PRIOR NEXT (superseded above): E3 TRUE-ALTITUDE AIRCRAFT — the original
   directive's 'see the planes at altitude'. Recipe: airLayer.ts on
   the modelLayer/satLayer template (CustomLayerInterface,
   projectTileFor3D, far-side cull) rendering heading-oriented plane

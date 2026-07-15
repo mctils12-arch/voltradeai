@@ -13,6 +13,31 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PIPELINE] — EARTH TWIN session #3: outage-class sweep done + E3 true-altitude aircraft (v1.0.335-338, fresh branch off merged main)
+
+Branch restarted from main per the merged-branch rule (#484 was
+auto-SQUASHED — per-commit versions collapsed into one deploy unit;
+noted, acceptable: no trading logic). Four slices: v1.0.335 secMidas
+READ-side streamed (every-boot ~190MB cache-warm; streamed fold
+test-pinned identical); v1.0.336 querySnapshot hour-files streamed
+(the last unbounded sync-zlib on any hot path — the class from #483
+is now EXTINCT: every unbounded payload streams); v1.0.337
+[RULE-REVIEW] harness self-see expands GROUP_ROW_CAP show-more (main's
+#482 crossed the environmental cap → harness red on PURE MAIN,
+verified by running origin/main; measurement change shipped alone,
+bias stated: loosens only for rows behind exhaustive visible
+expansion); v1.0.338 E3 TRUE-ALTITUDE AIRCRAFT (icon→3D-silhouette
+hand-off at z8, real baro altitude, terrain-exaggeration-matched,
+instanced WebGL2, one card handler both renderers, negative-baro
+clamp + on-ground-at-surface pinned). GATES: server 694/694, client
+186/186, tsc 66-line baseline throughout, builds clean, harness 0
+hard failures at 390/768/1440 post-measurement-fix (one 1440
+fields-on flake re-ran clean — documented SwiftShader class).
+HYPOTHESIS (E3 prior): the tilt+terrain+planes-at-altitude view
+becomes the twin's screenshot moment at airport zooms; falsifier:
+reports that silhouettes read worse than icons at z8-9 → raise the
+hand-off zoom in one constant (AIR_3D_MIN_ZOOM).
+
 ## 2026-07-15 [REPAIR] — PRODUCTION OUTAGE root-caused + hotfixed: secMidas boot-archive OOM crash loop (PR #483; fix also on the feature branch)
 
 Human reported the site down; confirmed live: 502 "Application failed
