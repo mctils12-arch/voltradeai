@@ -25,6 +25,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import readline from "readline";
 
 export const RAW_RETENTION_DAYS = 7;
 export type ArchiveKind = "aircraft" | "vessels" | "trains";
@@ -317,6 +318,85 @@ export function recentTrack(kind: ArchiveKind, id: string,
   }
   pts.sort((a, b) => a.t - b.t);
   return pts.slice(-maxPoints);
+}
+
+/**
+ * PERF (EARTH TWIN session #2, user-reported freezes): the sync recentTrack
+ * above readFileSync+gunzipSync+JSON.parses up to 48 hour-files IN ONE EVENT-
+ * LOOP TURN — a multi-second stall that freezes every concurrent response AND
+ * the trading loop (one Node process; eventLoopLag.ts audits exactly this at
+ * ≥500ms), and the /data client re-fires it every 30s while a detail card is
+ * open. This variant returns IDENTICAL results but streams each file through
+ * createGunzip+readline in chunks (the loop breathes between chunks) and
+ * skips JSON.parse for the ~99% of lines that cannot contain the id (cheap
+ * substring prefilter — a SUPERSET filter; matches still verify r.i === id,
+ * so output is exactly the sync path's). Sync recentTrack stays for tests /
+ * any caller that genuinely wants it.
+ */
+export async function recentTrackAsync(kind: ArchiveKind, id: string,
+                                       baseDir?: string, nowMs?: number, maxPoints = 500): Promise<Array<{ t: number; la: number; lo: number; al?: number }>> {
+  const base = baseDir || archiveBaseDir();
+  const now = nowMs ?? Date.now();
+  const dir = path.join(base, kind);
+  if (!fs.existsSync(dir)) return [];
+  const days = [new Date(now), new Date(now - 86400_000)].map((d) => d.toISOString().slice(0, 10));
+  const pts: Array<{ t: number; la: number; lo: number; al?: number }> = [];
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir).sort(); } catch { return []; }
+  for (const f of files) {
+    if (!days.some((d) => f.startsWith(d))) continue;
+    const fp = path.join(dir, f);
+    // Event-based per file: stream errors (corrupt gz, vanished file) bail
+    // that file only — mirrors the sync path's per-file try/catch. for-await
+    // is avoided deliberately: fs-stream errors don't propagate through
+    // pipe() to the readline iterator and would crash the process.
+    await new Promise<void>((resolve) => {
+      let src: fs.ReadStream;
+      try { src = fs.createReadStream(fp); } catch { resolve(); return; }
+      const input = f.endsWith(".gz") ? src.pipe(zlib.createGunzip()) : src;
+      const rl = readline.createInterface({ input, crlfDelay: Infinity });
+      const bail = () => { try { rl.close(); } catch {} resolve(); };
+      src.on("error", bail);
+      if (input !== src) (input as NodeJS.ReadableStream).on("error", bail);
+      rl.on("line", (line) => {
+        if (!line || !line.includes(id)) return; // prefilter: parse only candidate lines
+        try {
+          const r = JSON.parse(line);
+          if (r.i === id) pts.push({ t: r.t, la: r.la, lo: r.lo, al: r.al });
+        } catch {}
+      });
+      rl.on("close", () => resolve());
+    });
+  }
+  pts.sort((a, b) => a.t - b.t);
+  return pts.slice(-maxPoints);
+}
+
+// Short-TTL track cache: the /data client refreshes an open card's trail
+// every 30s and users re-click the same entity — each was a full archive
+// scan. FIFO-capped; injectable clock for tests.
+const trackCache = new Map<string, { at: number; points: Array<{ t: number; la: number; lo: number; al?: number }> }>();
+const TRACK_CACHE_TTL_MS = 30_000;
+const TRACK_CACHE_MAX = 64;
+
+export async function recentTrackCached(kind: ArchiveKind, id: string,
+                                        baseDir?: string, nowMs?: number): Promise<Array<{ t: number; la: number; lo: number; al?: number }>> {
+  const now = nowMs ?? Date.now();
+  const key = `${kind}:${id}:${baseDir ?? ""}`;
+  const hit = trackCache.get(key);
+  if (hit && now - hit.at < TRACK_CACHE_TTL_MS) return hit.points;
+  const points = await recentTrackAsync(kind, id, baseDir, nowMs);
+  trackCache.set(key, { at: now, points });
+  if (trackCache.size > TRACK_CACHE_MAX) {
+    const oldest = trackCache.keys().next().value;
+    if (oldest !== undefined) trackCache.delete(oldest);
+  }
+  return points;
+}
+
+/** Test seam: reset the track cache between hermetic cases. */
+export function clearTrackCache(): void {
+  trackCache.clear();
 }
 
 export function archiveStats(baseDir?: string): any {

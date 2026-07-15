@@ -10,7 +10,8 @@ import path from "path";
 import zlib from "zlib";
 import {
   archiveAircraft, archiveVessels, compressOldHours, rollupOldDays,
-  recentTrack, archiveStats, aircraftIntervalMs, vesselIntervalMs,
+  recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
+  archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS,
 } from "./datacoreArchive";
 
@@ -53,6 +54,42 @@ test("archive append + per-entity cadence + recentTrack round-trip", () => {
   const track = recentTrack("aircraft", "abc123", base, t0 + 6 * 60_000);
   assert.equal(track.length, 2);
   assert.ok(track[0].t < track[1].t, "track sorted by time");
+});
+
+test("PERF: recentTrackAsync returns byte-identical results to the sync path (raw + gzipped hours)", async () => {
+  const base = tmp();
+  const now = Date.now();
+  // Unique ids per test: the archive's per-entity thinning state is
+  // module-level and persists across tests in one process.
+  // An old (gz-eligible) hour + a current raw hour, plus a decoy id whose
+  // lines must survive the substring prefilter without polluting the result.
+  archiveAircraft([cruise("perfid1", 44, -31)], SITES, base, now - 3 * 3600_000);
+  archiveAircraft([cruise("perfid1x", 10, 10)], SITES, base, now - 3 * 3600_000);
+  archiveAircraft([cruise("perfid1", 45, -30)], SITES, base, now);
+  compressOldHours(base, now); // old hour → .jsonl.gz, exercising the gunzip stream
+  const sync = recentTrack("aircraft", "perfid1", base, now);
+  const async_ = await recentTrackAsync("aircraft", "perfid1", base, now);
+  assert.deepEqual(async_, sync, "streamed path must reproduce the sync path exactly");
+  assert.equal(async_.length, 2);
+  assert.ok(async_.every((p) => typeof p.la === "number" && typeof p.lo === "number"));
+});
+
+test("PERF: recentTrackCached serves repeats from cache inside the TTL, rescans after it", async () => {
+  clearTrackCache();
+  const base = tmp();
+  const t0 = Date.now();
+  archiveAircraft([cruise("perfid2")], SITES, base, t0);
+  const first = await recentTrackCached("aircraft", "perfid2", base, t0 + 1000);
+  assert.equal(first.length, 1);
+  // new archive point lands; a re-read INSIDE the 30s TTL must serve the
+  // cached result (this is exactly the client's 30s card refresh)
+  archiveAircraft([cruise("perfid2", 46, -29)], SITES, base, t0 + 6 * 60_000);
+  const cached = await recentTrackCached("aircraft", "perfid2", base, t0 + 1000 + 10_000);
+  assert.equal(cached.length, 1, "inside the TTL the archive is NOT rescanned");
+  // past the TTL the fresh point appears
+  const fresh = await recentTrackCached("aircraft", "perfid2", base, t0 + 6 * 60_000 + 40_000);
+  assert.equal(fresh.length, 2, "after the TTL a rescan picks up new points");
+  clearTrackCache();
 });
 
 test("vessel archive stores static enrichment fields", () => {
