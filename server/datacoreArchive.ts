@@ -26,6 +26,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import readline from "readline";
+import { pipeline } from "stream/promises";
 
 export const RAW_RETENTION_DAYS = 7;
 export type ArchiveKind = "aircraft" | "vessels" | "trains";
@@ -233,6 +234,54 @@ export function compressOldHours(baseDir?: string, nowMs?: number): number {
   return done;
 }
 
+/**
+ * PERF (session #2, user-reported freezes): the sync compressOldHours above
+ * gzipSyncs a whole hour file (tens of MB) in one event-loop turn on a
+ * 30-minute timer — a periodic multi-second stall for every response AND
+ * the trading loop, with zero user interaction. This variant selects the
+ * same files but compresses each via streamed pipeline (read→gzip→write in
+ * chunks; the loop breathes), verifying the .gz landed before unlinking the
+ * raw (a failed pipeline removes its partial .gz and KEEPS the raw — the
+ * archive is never the casualty of a compression error). In-flight latch:
+ * a run outliving the timer interval never overlaps itself. The tiny
+ * both-files-exist read window (readers scan .jsonl and .jsonl.gz) also
+ * existed on the sync path; duplicate trail points sort/round away.
+ */
+let compressInFlight = false;
+export async function compressOldHoursAsync(baseDir?: string, nowMs?: number): Promise<number> {
+  if (compressInFlight) return 0;
+  compressInFlight = true;
+  try {
+    const base = baseDir || archiveBaseDir();
+    const now = nowMs ?? Date.now();
+    let done = 0;
+    for (const kind of ["aircraft", "vessels", "trains"] as const) {
+      const dir = path.join(base, kind);
+      if (!fs.existsSync(dir)) continue;
+      let files: string[] = [];
+      try { files = fs.readdirSync(dir); } catch { continue; }
+      for (const f of files) {
+        if (!f.endsWith(".jsonl")) continue;
+        const stamp = f.replace(".jsonl", "");
+        const fileMs = Date.parse(`${stamp.slice(0, 10)}T${stamp.slice(11, 13)}:00:00Z`);
+        if (!Number.isFinite(fileMs) || now - fileMs < 2 * 3600_000) continue;
+        const fp = path.join(dir, f);
+        try {
+          await pipeline(fs.createReadStream(fp), zlib.createGzip(), fs.createWriteStream(fp + ".gz"));
+          await fs.promises.unlink(fp);
+          done++;
+        } catch (e: any) {
+          console.error("[archive] gzip (async):", e?.message || e);
+          await fs.promises.unlink(fp + ".gz").catch(() => {}); // drop the partial, keep the raw
+        }
+      }
+    }
+    return done;
+  } finally {
+    compressInFlight = false;
+  }
+}
+
 /** Roll raw hours older than RAW_RETENTION_DAYS into per-entity daily track
  *  summaries, then delete the raw files. Summary: one JSON line per entity per
  *  day: {i, d, n, t0, t1, bbox, pl: coarse polyline (max ~50 pts)}. */
@@ -254,32 +303,18 @@ export function rollupOldDays(baseDir?: string, nowMs?: number): number {
       (byDay[m[1]] ||= []).push(f);
     }
     for (const [day, files] of Object.entries(byDay)) {
-      const tracks: Record<string, { n: number; t0: number; t1: number;
-        minLa: number; maxLa: number; minLo: number; maxLo: number;
-        pl: Array<[number, number, number]> }> = {};
+      const tracks: RollupTracks = {};
       for (const f of files) {
         try {
           const fp = path.join(dir, f);
           const raw = f.endsWith(".gz") ? zlib.gunzipSync(fs.readFileSync(fp)).toString() : fs.readFileSync(fp, "utf8");
           for (const line of raw.split("\n")) {
             if (!line) continue;
-            let r: any; try { r = JSON.parse(line); } catch { continue; }
-            const tr = (tracks[r.i] ||= { n: 0, t0: r.t, t1: r.t, minLa: r.la, maxLa: r.la, minLo: r.lo, maxLo: r.lo, pl: [] });
-            tr.n++; tr.t0 = Math.min(tr.t0, r.t); tr.t1 = Math.max(tr.t1, r.t);
-            tr.minLa = Math.min(tr.minLa, r.la); tr.maxLa = Math.max(tr.maxLa, r.la);
-            tr.minLo = Math.min(tr.minLo, r.lo); tr.maxLo = Math.max(tr.maxLo, r.lo);
-            tr.pl.push([r.t, r.la, r.lo]);
+            accumulateTrackLine(tracks, line);
           }
         } catch (e: any) { console.error("[archive] rollup read:", e?.message || e); }
       }
-      const out: string[] = [];
-      for (const [id, tr] of Object.entries(tracks)) {
-        tr.pl.sort((a, b) => a[0] - b[0]);
-        const step = Math.max(1, Math.floor(tr.pl.length / 50));
-        const pl = tr.pl.filter((_, idx) => idx % step === 0).map(([, la, lo]) => [la, lo]);
-        out.push(JSON.stringify({ i: id, d: day, n: tr.n, t0: tr.t0, t1: tr.t1,
-          bbox: [tr.minLa, tr.minLo, tr.maxLa, tr.maxLo], pl }));
-      }
+      const out = emitDaySummary(tracks, day);
       try {
         const tdir = path.join(base, kind + "_tracks");
         fs.mkdirSync(tdir, { recursive: true });
@@ -290,6 +325,84 @@ export function rollupOldDays(baseDir?: string, nowMs?: number): number {
     }
   }
   return rolled;
+}
+
+// Shared rollup internals — extracted so the sync path (tests, back-compat)
+// and the streamed async path below are provably the same computation.
+type RollupTracks = Record<string, { n: number; t0: number; t1: number;
+  minLa: number; maxLa: number; minLo: number; maxLo: number;
+  pl: Array<[number, number, number]> }>;
+
+function accumulateTrackLine(tracks: RollupTracks, line: string): void {
+  let r: any; try { r = JSON.parse(line); } catch { return; }
+  const tr = (tracks[r.i] ||= { n: 0, t0: r.t, t1: r.t, minLa: r.la, maxLa: r.la, minLo: r.lo, maxLo: r.lo, pl: [] });
+  tr.n++; tr.t0 = Math.min(tr.t0, r.t); tr.t1 = Math.max(tr.t1, r.t);
+  tr.minLa = Math.min(tr.minLa, r.la); tr.maxLa = Math.max(tr.maxLa, r.la);
+  tr.minLo = Math.min(tr.minLo, r.lo); tr.maxLo = Math.max(tr.maxLo, r.lo);
+  tr.pl.push([r.t, r.la, r.lo]);
+}
+
+function emitDaySummary(tracks: RollupTracks, day: string): string[] {
+  const out: string[] = [];
+  for (const [id, tr] of Object.entries(tracks)) {
+    tr.pl.sort((a, b) => a[0] - b[0]);
+    const step = Math.max(1, Math.floor(tr.pl.length / 50));
+    const pl = tr.pl.filter((_, idx) => idx % step === 0).map(([, la, lo]) => [la, lo]);
+    out.push(JSON.stringify({ i: id, d: day, n: tr.n, t0: tr.t0, t1: tr.t1,
+      bbox: [tr.minLa, tr.minLo, tr.maxLa, tr.maxLo], pl }));
+  }
+  return out;
+}
+
+/**
+ * PERF (session #2): streamed rollup — the sync path above reads + parses
+ * ENTIRE archived days (potentially hundreds of MB decompressed) in one
+ * event-loop turn on a 6-hour timer. Same file selection, same accumulation
+ * (shared helpers above), but hour files stream line-by-line so the loop
+ * breathes; the summary write stays gzipSync (summaries are ~50 points per
+ * entity — small). In-flight latch prevents self-overlap.
+ */
+let rollupInFlight = false;
+export async function rollupOldDaysAsync(baseDir?: string, nowMs?: number): Promise<number> {
+  if (rollupInFlight) return 0;
+  rollupInFlight = true;
+  try {
+    const base = baseDir || archiveBaseDir();
+    const now = nowMs ?? Date.now();
+    const cutoff = now - RAW_RETENTION_DAYS * 86400_000;
+    let rolled = 0;
+    for (const kind of ["aircraft", "vessels", "trains"] as const) {
+      const dir = path.join(base, kind);
+      if (!fs.existsSync(dir)) continue;
+      const byDay: Record<string, string[]> = {};
+      let names: string[] = [];
+      try { names = fs.readdirSync(dir); } catch { continue; }
+      for (const f of names) {
+        const m = f.match(/^(\d{4}-\d{2}-\d{2})-\d{2}\.jsonl(\.gz)?$/);
+        if (!m) continue;
+        const dayMs = Date.parse(m[1] + "T00:00:00Z");
+        if (dayMs >= cutoff) continue;
+        (byDay[m[1]] ||= []).push(f);
+      }
+      for (const [day, files] of Object.entries(byDay)) {
+        const tracks: RollupTracks = {};
+        for (const f of files) {
+          await streamJsonlLines(path.join(dir, f), f.endsWith(".gz"), (line) => accumulateTrackLine(tracks, line));
+        }
+        const out = emitDaySummary(tracks, day);
+        try {
+          const tdir = path.join(base, kind + "_tracks");
+          fs.mkdirSync(tdir, { recursive: true });
+          fs.writeFileSync(path.join(tdir, `${day}.jsonl.gz`), zlib.gzipSync(out.join("\n") + "\n"));
+          for (const f of files) fs.unlinkSync(path.join(dir, f));
+          rolled++;
+        } catch (e: any) { console.error("[archive] rollup write (async):", e?.message || e); }
+      }
+    }
+    return rolled;
+  } finally {
+    rollupInFlight = false;
+  }
 }
 
 // ── reads ────────────────────────────────────────────────────────────────────
@@ -345,31 +458,38 @@ export async function recentTrackAsync(kind: ArchiveKind, id: string,
   try { files = fs.readdirSync(dir).sort(); } catch { return []; }
   for (const f of files) {
     if (!days.some((d) => f.startsWith(d))) continue;
-    const fp = path.join(dir, f);
-    // Event-based per file: stream errors (corrupt gz, vanished file) bail
-    // that file only — mirrors the sync path's per-file try/catch. for-await
-    // is avoided deliberately: fs-stream errors don't propagate through
-    // pipe() to the readline iterator and would crash the process.
-    await new Promise<void>((resolve) => {
-      let src: fs.ReadStream;
-      try { src = fs.createReadStream(fp); } catch { resolve(); return; }
-      const input = f.endsWith(".gz") ? src.pipe(zlib.createGunzip()) : src;
-      const rl = readline.createInterface({ input, crlfDelay: Infinity });
-      const bail = () => { try { rl.close(); } catch {} resolve(); };
-      src.on("error", bail);
-      if (input !== src) (input as NodeJS.ReadableStream).on("error", bail);
-      rl.on("line", (line) => {
-        if (!line || !line.includes(id)) return; // prefilter: parse only candidate lines
-        try {
-          const r = JSON.parse(line);
-          if (r.i === id) pts.push({ t: r.t, la: r.la, lo: r.lo, al: r.al });
-        } catch {}
-      });
-      rl.on("close", () => resolve());
+    await streamJsonlLines(path.join(dir, f), f.endsWith(".gz"), (line) => {
+      if (!line.includes(id)) return; // prefilter: parse only candidate lines
+      try {
+        const r = JSON.parse(line);
+        if (r.i === id) pts.push({ t: r.t, la: r.la, lo: r.lo, al: r.al });
+      } catch {}
     });
   }
   pts.sort((a, b) => a.t - b.t);
   return pts.slice(-maxPoints);
+}
+
+/**
+ * Stream a (possibly gzipped) JSONL file line-by-line, yielding to the event
+ * loop between chunks. Event-based per file: stream errors (corrupt gz,
+ * vanished file) bail that file only — mirrors the sync paths' per-file
+ * try/catch. for-await is avoided deliberately: fs-stream errors don't
+ * propagate through pipe() to the readline iterator and would crash the
+ * process. Shared by recentTrackAsync + rollupOldDaysAsync.
+ */
+function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: string) => void): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let src: fs.ReadStream;
+    try { src = fs.createReadStream(fp); } catch { resolve(); return; }
+    const input = isGz ? src.pipe(zlib.createGunzip()) : src;
+    const rl = readline.createInterface({ input, crlfDelay: Infinity });
+    const bail = () => { try { rl.close(); } catch {} resolve(); };
+    src.on("error", bail);
+    if (input !== src) (input as NodeJS.ReadableStream).on("error", bail);
+    rl.on("line", (line) => { if (line) onLine(line); });
+    rl.on("close", () => resolve());
+  });
 }
 
 // Short-TTL track cache: the /data client refreshes an open card's trail

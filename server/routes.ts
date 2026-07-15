@@ -22,7 +22,7 @@ import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadia
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import { version as pkgVersion } from "../package.json";
 import {
-  archiveAircraft, archiveVessels, archiveTrains, compressOldHours, rollupOldDays,
+  archiveAircraft, archiveVessels, archiveTrains, compressOldHoursAsync, rollupOldDaysAsync,
   recentTrackCached, archiveStats,
 } from "./datacoreArchive";
 import { applyViewport } from "./viewport";
@@ -1095,8 +1095,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       archiveVessels(pts, ARCHIVE_SITES);
     } catch (e: any) { console.error("[archive] vessel tick:", e?.message || e); }
   }, 60_000).unref?.();
-  setInterval(() => { try { compressOldHours(); } catch {} }, 30 * 60_000).unref?.();
-  setInterval(() => { try { rollupOldDays(); } catch {} }, 6 * 3600_000).unref?.();
+  // PERF (session #2, user-reported freezes): the sync maintenance passes
+  // gzipSync'd whole hours / parsed whole days in one event-loop turn every
+  // 30min/6h — periodic multi-second stalls for every response AND the
+  // trading loop with zero user interaction. Streamed variants breathe.
+  setInterval(() => { compressOldHoursAsync().catch(() => {}); }, 30 * 60_000).unref?.();
+  setInterval(() => { rollupOldDaysAsync().catch(() => {}); }, 6 * 3600_000).unref?.();
 
   // Recent trail for one entity (serves the client's track-on-click).
   // PERF (session #2, user-reported freezes): was the sync recentTrack —
