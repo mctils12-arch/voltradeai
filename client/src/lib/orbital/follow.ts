@@ -13,6 +13,10 @@ export interface FollowTarget {
   lonDeg: number;
   latDeg: number;
   altKm: number;
+  /** raw mercator coords straight from the buffer — the on-map model layer
+   *  anchors on these (no lossy lon/lat round-trip). */
+  mercX: number;
+  mercY: number;
 }
 
 /**
@@ -30,7 +34,7 @@ export function followTarget(
   if (!s.valid) return null;
   const ll = mercatorToLonLat(s.mercX, s.mercY);
   if (!Number.isFinite(ll.lonDeg) || !Number.isFinite(ll.latDeg)) return null;
-  return { lonDeg: ll.lonDeg, latDeg: ll.latDeg, altKm: s.altMeters / 1000 };
+  return { lonDeg: ll.lonDeg, latDeg: ll.latDeg, altKm: s.altMeters / 1000, mercX: s.mercX, mercY: s.mercY };
 }
 
 /** GeoJSON for the focus ring at a target (single source of truth for the

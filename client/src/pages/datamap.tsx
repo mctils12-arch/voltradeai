@@ -37,10 +37,12 @@ import { mmsiFlag } from "@/lib/mmsiFlag";
 // GPU-instanced points. REAL positions only — deep-space objects need SDP4
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer } from "@/lib/orbital/satLayer";
-import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord, type ObjectType, type RcsSize } from "@/lib/orbital/tle";
-// ORBITAL O5-2: the clicked satellite's 3D rendering (class-representative
-// form, honestly captioned) — small raw-WebGL viewer in the detail card.
-import SatModelView from "@/components/SatModelView";
+import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
+// ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
+// not a side viewer): the followed satellite resolves to a lit, tumbling
+// class-representative form drawn at its live position on the globe.
+import { SatModelLayer } from "@/lib/orbital/modelLayer";
+import { classForm, formLabel } from "@/lib/orbital/model3d";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
 // operator→ticker map turn a clicked point into "small payload, CubeSat-class
 // size, owned by X, launched Y" — formatting lives in lib/orbital/identity
@@ -245,10 +247,6 @@ interface Detail {
   /** FAA-registry identity line (entity spine, exact Mode S hex match) —
    *  arrives async after the card opens; absent for non-US hexes. */
   owner?: string;
-  /** ORBITAL O5-2: class-representative 3D form inputs (SATCAT type + RCS
-   *  bucket). Present only when the identity catalog knows the object —
-   *  the viewer NEVER renders a guessed form for an unknown class. */
-  sat3d?: { objectType: ObjectType | null; rcsSize: RcsSize | null };
   /** Everything Graph R1: 7-day cross-stream events + own-archive traffic
    *  density near a strategic site — arrives async after the card opens. */
   timeline?: {
@@ -558,6 +556,9 @@ export default function DataMapPage() {
   // ORBITAL O5 slice 1: the followed satellite (buffer index is stable —
   // the worker keeps ONE slot per GP record forever). null = not following.
   const satFollowRef = useRef<{ index: number; noradId: number; name: string | null } | null>(null);
+  // O5-2b: the on-map 3D form layer for the followed satellite (one instance,
+  // same lifecycle as satLayerRef).
+  const satModelLayerRef = useRef<SatModelLayer | null>(null);
   // Pillar-6 cross-tie cache: generating capacity near each river gauge, keyed
   // by USGS site, populated when the rivergauges layer loads so the gauge-click
   // detail can surface the exposed plants without a network round-trip on click.
@@ -1634,6 +1635,11 @@ export default function DataMapPage() {
       orbitalGpRef.current = null;
       satFollowRef.current = null;
       try {
+        const model = satModelLayerRef.current;
+        if (model && map.getLayer(model.id)) map.removeLayer(model.id);
+      } catch {}
+      satModelLayerRef.current = null;
+      try {
         if (map.getLayer("sat-focus-ring")) map.removeLayer("sat-focus-ring");
         if (map.getSource("sat-focus")) map.removeSource("sat-focus");
       } catch {}
@@ -1650,6 +1656,10 @@ export default function DataMapPage() {
       const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
       const ringSrc: any = map.getSource("sat-focus");
       if (ringSrc) ringSrc.setData(focusRingFeatureCollection(t));
+      // O5-2b: the on-map 3D form rides the same fresh position (null
+      // sentinel tick = model hidden, never a guessed placement)
+      satModelLayerRef.current?.setAnchor(
+        t ? { mercX: t.mercX, mercY: t.mercY, altMeters: t.altKm * 1000 } : null);
       if (!t) return; // sentinel this tick — ring cleared, camera stays put
       try {
         if (!map.isMoving()) map.easeTo({ center: [t.lonDeg, t.latDeg], duration: 800 });
@@ -1658,6 +1668,7 @@ export default function DataMapPage() {
     const stopFollow = () => {
       if (!satFollowRef.current) return;
       satFollowRef.current = null;
+      satModelLayerRef.current?.setAnchor(null); // model vanishes with the follow
       try {
         const ringSrc: any = map.getSource("sat-focus");
         if (ringSrc) ringSrc.setData(focusRingFeatureCollection(null));
@@ -1739,6 +1750,11 @@ export default function DataMapPage() {
         const layer = new SatLayer({ id: "orbital_sats" });
         satLayerRef.current = layer;
         map.addLayer(layer);
+        // O5-2b: the focused-satellite 3D form layer sits above the points
+        // (draws nothing until a follow sets its anchor + form)
+        const modelLayer = new SatModelLayer({ id: "orbital_sat_model" });
+        satModelLayerRef.current = modelLayer;
+        map.addLayer(modelLayer);
 
         const worker = new Worker(
           new URL("../lib/orbital/satWorker.ts", import.meta.url),
@@ -1878,6 +1894,9 @@ export default function DataMapPage() {
       // fresh position every worker tick and moves the focus ring with it.
       // Drag the map (or click empty ground) to take the camera back. ──
       satFollowRef.current = { index: hit.index, noradId: g.noradId, name: g.name ?? null };
+      // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
+      // (unknown class = honest ring-only follow, never a guessed spacecraft)
+      satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
       try {
         if (!map.getSource("sat-focus")) {
           map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
@@ -1898,8 +1917,6 @@ export default function DataMapPage() {
       } catch { /* ring is chrome — a failure never blocks the card */ }
       setDetail({
         kind: "satellite",
-        // O5-2: the 3D form renders only when the catalog KNOWS the class
-        ...(sc ? { sat3d: { objectType: sc.objectType, rcsSize: sc.rcsSize } } : {}),
         title: g.name || `NORAD ${g.noradId}`,
         subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls} · ${fmtKm(altKm)} altitude`,
         body: [
@@ -1909,6 +1926,7 @@ export default function DataMapPage() {
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
           "FOLLOWING — the camera tracks this object as it moves (updates each second); drag the map or click empty ground to stop.",
+          sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
@@ -5826,9 +5844,6 @@ export default function DataMapPage() {
               <X size={17} />
             </button>
           </div>
-          {detail.sat3d && (
-            <SatModelView objectType={detail.sat3d.objectType} rcsSize={detail.sat3d.rcsSize} />
-          )}
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
           {detail.owner && (
             <p className="vt-site-card-trail">Registered: {detail.owner}</p>

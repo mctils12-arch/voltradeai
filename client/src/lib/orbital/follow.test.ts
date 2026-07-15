@@ -24,6 +24,9 @@ test("followTarget: round-trips a real slot's position, altitude in km", () => {
   const t0 = followTarget(buf, 0)!;
   assert.ok(Math.abs(t0.lonDeg - -100) < 1e-4 && Math.abs(t0.latDeg - 40) < 1e-4);
   assert.ok(Math.abs(t0.altKm - 550) < 1e-6);
+  const m = lonLatToMercator(-100, 40);
+  assert.ok(Math.abs(t0.mercX - m.x) < 1e-7 && Math.abs(t0.mercY - m.y) < 1e-7,
+    "raw mercator coords pass through for the on-map model anchor");
   const t1 = followTarget(buf, 1)!;
   assert.ok(Math.abs(t1.lonDeg - 10) < 1e-4 && Math.abs(t1.latDeg - -30) < 1e-4);
 });
