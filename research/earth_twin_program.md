@@ -625,6 +625,23 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   Hypothesis to judge (stated at E0-1): if E2/E3-class slices still
   need large hand-wired useEffects after the engines land, the spine
   design is wrong — revisit before sweeping.
+- 2026-07-15 (session #2, human clarification of the 4D intent —
+  verbatim intent: "you could zoom in on a satellite and see, if we
+  had a pic, a 3D rendering of it — so if it was a CubeSat or a sat we
+  know of we would have that and it would be moving around, but if you
+  clicked on it, it would remain in focus"): this SHAPES O5's build
+  order. O5-1 SHIPPED same session (v1.0.330): click → live camera
+  FOLLOW (1Hz re-center on the fresh SGP4 position, 800ms ease, amber
+  focus ring; user drag/empty-ground click/LOD-hide all release —
+  the user always wins; sentinel ticks never move the camera). O5-2
+  NEXT: 3D rendering at focus — honest tiers per orbital_program.md:
+  (a) class-REPRESENTATIVE parametric forms (CubeSat box+panels,
+  rocket-body cylinder, generic bus) labeled "representative form,
+  derived from catalog class — not a photo of this unit" (these are
+  the charter's symbolic markers, in 3D); (b) real models ONLY for
+  documented craft with verifiable public assets (ISS via NASA 3D
+  resources public domain; Starlink per published imagery) — loader
+  decision spike first (lazy three.js vs minimal glTF parser).
 - 2026-07-15 (session #2) — E1 SLICE 1 SHIPPED (v1.0.329, after the
   perf pass v1.0.324-328 recorded in scale_program.md): GLOBAL TIME
   AXIS v1 — lib/timeAxis (subscribe-store + gibsDateForAxis honest

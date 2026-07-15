@@ -13,6 +13,23 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PIPELINE] — EARTH TWIN O5-1: satellite click-to-FOLLOW (v1.0.330, T-CLIENT, same branch)
+
+Human clarified the 4D intent (recorded verbatim in the charter):
+zoom to a satellite → 3D rendering of known designs, moving, and a
+click keeps it IN FOCUS. Slice 1 = the focus behavior: click → 1Hz
+camera follow on the fresh SGP4 position (800ms ease under the tick)
++ amber focus ring; releases on user drag / empty-ground click /
+LOD-hide (never silently follows an invisible object); sentinel ticks
+clear the ring and never move the camera (pure followTarget, 3 tests).
+O5-2 (3D at focus: class-representative parametric forms labeled
+derived + real models only for documented craft, loader spike first)
+is the chartered next slice. HYPOTHESIS (prior): follow makes the
+orbital layer's premium moment — users will screenshot a tracked
+satellite; falsifier: reports that the camera fights users (would mean
+the stop conditions are too narrow). Gates: client suites 172/172,
+tsc 66-line baseline, build clean.
+
 ## 2026-07-15 [PIPELINE] — EARTH TWIN E1-1: global time axis (v1.0.329, T-CLIENT, same branch)
 
 Human asked "where is the 4D world" — the honest answer was "in
