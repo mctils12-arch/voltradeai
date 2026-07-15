@@ -13,6 +13,356 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [REPAIR] — PRODUCTION OUTAGE root-caused + hotfixed: secMidas boot-archive OOM crash loop (PR #483; fix also on the feature branch)
+
+Human reported the site down; confirmed live: 502 "Application failed
+to respond" on both domains. DIAGNOSIS (reproduced in-sandbox, not
+guessed): every boot runs bootMidasPoll → refreshMidas; when a
+not-yet-archived SEC MIDAS quarter is available, archiveMidasPeriod
+builds rows.map(JSON.stringify).join() as ONE string — probe-measured
+189.3MB entering gzipSync — and the flatten + Buffer copy blow the
+production --max-old-space-size=512 cap ~8s after listen. The volume
+dedup guard hid the bomb for weeks (boots skipped the write while all
+published quarters were archived); the moment SEC published the next
+quarter, EVERY boot OOM'd = Railway crash loop. Today's deploy (#482,
+client-only, innocent) restarted the app into that state. All three
+recent main commits OOM identically — the bug is calendar-armed, not
+commit-armed. FIX: archiveMidasPeriodStreamed (createGzip +
+createWriteStream, 5k-row batches, backpressure, partial-file unlink
+on error); refreshMidas awaits it. VERIFIED END-TO-END: unfixed main
+dies at ~8s; fixed build boots, downloads + archives the real 2025q4
+(30.8MB gz), serves /api/health at 61s uptime with 130MB heap.
+secMidas 9/9 incl. streamed≡sync byte-equivalence. RATCHET: the
+equivalence test pins the streamed path. DELIVERY: cherry-picked
+hotfix PR #483 (claude/hotfix-midas-oom, version on main's line);
+all CI green; the repo's own Auto-merge-Claude-PRs workflow merged it
+at 15:08:46Z. RECOVERY CONFIRMED 15:11:45Z: /api/health HTTP 200,
+status ok, Alpaca ACTIVE, bot active + liveness not dark, scanner 0
+failures — total outage ~5.5h (first bad boot ~09:35Z deploy),
+resolved ~3min after merge.
+LESSON for the ledger: the 2026-07-15 perf session's finding — sync
+gzipSync of unbounded payloads on the serving process — had ONE more
+instance (secMidas) not caught because it hides behind a
+publish-calendar guard; a staleness-audit sweep for `gzipSync(`/
+`gunzipSync(` on boot/request paths is now warranted (filed in
+scale_program.md queue).
+
+## 2026-07-15 [PIPELINE] — EARTH TWIN O5-2b: the 3D spacecraft moves ONTO the world map (v1.0.332, T-CLIENT, same branch — supersedes v1.0.331's card viewer)
+
+Human corrected course same-day: the 3D rendering must show ON the
+map, not a side viewer. v1.0.331's SatModelView DELETED (no orphaned
+code, dead-code policy); new lib/orbital/modelLayer draws the
+class-representative form at the followed satellite's live SGP4
+position + altitude on the globe — lit, tumbling, constant ~72px
+focused-object size (true scale is meters = invisible; the anchor.w
+clip-offset trick is test-pinned), the satLayer's exact far-side cull
+(pinned vs OCCLUSION_RADIUS²), renderingMode 3d for self-occlusion,
+repaint self-requested ONLY while a model is visible (zero cost
+otherwise — the perf discipline from this session's repair pass
+holds). Honesty unchanged: unknown class = ring-only follow; sentinel
+ticks hide the model; the card carries the derived-not-imagery
+caption. model3d.ts (the mesh source) is unchanged and shared.
+SUPERSESSION NOTE: the v1.0.331 entry below records the intermediate
+card-viewer approach for the timeline; its honest-tier design carried
+forward intact. Gates: client 179/179, tsc 66-line baseline, build
+clean.
+
+## 2026-07-15 [PIPELINE] — EARTH TWIN O5-2: class-representative 3D spacecraft forms in the card (v1.0.331, T-CLIENT, same branch)
+
+Second half of the clarified 4D directive: the clicked (and followed)
+satellite's card now renders a lit, tumbling 3D form chosen from its
+CATALOGUED class — CubeSat+wings (SMALL-RCS payload), small-sat bus,
+large bus+arrays, spent rocket stage, debris shard. Honesty pinned by
+tests: captions always read "derived, not imagery of this unit";
+unknown types stay a neutral fragment; no form until the catalog knows
+the class; deterministic geometry (randomness banned). Zero new deps
+(raw WebGL1 viewer, ~150 lines, full GL cleanup, no-WebGL degrade).
+O5-3 (real models for documented craft only — ISS via NASA public
+domain assets; loader spike) is chartered next. VISUAL HARNESS after
+E1-1+O5-1+O5-2: ALL FIVE CHECKS PASS, 0 hard failures — and perf
+medians BEAT the session-start baseline at every width (33/83/117ms
+vs 50/133/167 at 390/768/1440; TTI ~30% lower), consistent with the
+session's perf fixes landing in the steady-state window. Gates:
+client suites 176/176, tsc 66-line baseline, build clean.
+
+## 2026-07-15 [PIPELINE] — EARTH TWIN O5-1: satellite click-to-FOLLOW (v1.0.330, T-CLIENT, same branch)
+
+Human clarified the 4D intent (recorded verbatim in the charter):
+zoom to a satellite → 3D rendering of known designs, moving, and a
+click keeps it IN FOCUS. Slice 1 = the focus behavior: click → 1Hz
+camera follow on the fresh SGP4 position (800ms ease under the tick)
++ amber focus ring; releases on user drag / empty-ground click /
+LOD-hide (never silently follows an invisible object); sentinel ticks
+clear the ring and never move the camera (pure followTarget, 3 tests).
+O5-2 (3D at focus: class-representative parametric forms labeled
+derived + real models only for documented craft, loader spike first)
+is the chartered next slice. HYPOTHESIS (prior): follow makes the
+orbital layer's premium moment — users will screenshot a tracked
+satellite; falsifier: reports that the camera fights users (would mean
+the stop conditions are too narrow). Gates: client suites 172/172,
+tsc 66-line baseline, build clean.
+
+## 2026-07-15 [PIPELINE] — EARTH TWIN E1-1: global time axis (v1.0.329, T-CLIENT, same branch)
+
+Human asked "where is the 4D world" — the honest answer was "in
+fragments" (per-layer GIBS scrubbers, W3 archive replay, live SGP4),
+so this slice unified it: lib/timeAxis.ts (subscribe-store, 4 tests)
++ TimeScrubber publishes every committed scrub + all five dated GIBS
+layers follow with per-layer honest latency clamping (dailies snap to
+yesterday, SMAP to its ~7-day ceiling, snap reported; LIVE restores
+defaults; close returns the world to live — never silently stuck in
+the past). firetemp deliberately excluded (sub-daily latest-scan-only
+— honest gap). One scrubber now moves the archive replay AND the
+dated imagery to the same instant. HYPOTHESIS (prior): users will
+read the Time Machine as "the world's clock" rather than "a replay
+tool"; falsifier = confusion reports that imagery changed "on its
+own" → add the visible LIVE/HISTORICAL mode chip (already queued in
+the charter E1 remainder) sooner. Gates: client suites 169/169, tsc
+66-line baseline (one new TS2802 caught pre-commit — the repo target
+predates Set iteration), build clean.
+
+## 2026-07-15 [REPAIR] — perf session (human report: "extremely laggy and freezes often"): profile + three shipped fixes (v1.0.324–326, T-CLIENT + T-DATACORE, same branch)
+
+TERRITORY: T-CLIENT (lib/livePoints + lib/orbital/satcatWorker +
+datamap wireLivePoints/ensureSatcat) + T-DATACORE (datacoreArchive
+streamed reads) + SHARED minimal (routes.ts track handlers only,
+package.json bumps, research/*).
+
+DIAGNOSIS (3 parallel profiler agents; full reports in the session
+workflow journal; every claim line-anchored and the key numbers
+MEASURED, not estimated):
+- "Laggy" = (a) steady-state draw volume at default zoom under globe
+  (median 133-167ms frames @768/1440 — the harness's own numbers;
+  2026-07-05 precedent proved the density lever: 10k→3.5k icons took
+  median 117→83ms); (b) the live-points tick pipeline: MB-scale
+  JSON.parse + ~2 full per-record passes (points + velocity vectors —
+  vectors built while INVISIBLE below minzoom 6) + two structured-clone
+  setData per fresh snapshot, re-fired on every pan settle because the
+  0.1°-rounded server cache key treats jitter as a new viewport;
+  (c) whole-page React re-renders per tick (45 useState, no memo
+  boundaries; live counts defeat setStatus's no-op bail).
+- "Freezes" = synchronous event-loop stalls in the ONE Node process
+  shared with the trading bot: /api/data/track ran recentTrack — up to
+  48 hour-files readFileSync+gunzipSync+JSON.parse-per-line per
+  request (hundreds of MB decompressed for vessels), re-fired every
+  30s per open detail card; same class pending in the maintenance
+  timers + W3/W4 sync reads (queued). Client-side: the SATCAT ~300ms-1s
+  parse (fixed) and the GP 6.6MB parse (queued).
+
+SHIPPED (each own commit + tests):
+- v1.0.324 SATCAT off-thread (satcatWorker, 2.33kB own chunk, +
+  chunked buildNoradIndex — no frame carries more than one 10k batch).
+- v1.0.325 track endpoint: recentTrackAsync (streamed gunzip+readline,
+  id substring prefilter — output test-pinned deepEqual-identical to
+  the sync path over raw+gz fixtures) + recentTrackCached (30s TTL —
+  the client's 30s card refresh becomes zero-I/O). Both /api/data and
+  /api/v1 track routes switched.
+- v1.0.326 live-points pipeline: vector build gated to zoom≥5.5 +
+  zoomend lazy build from the kept payload; isMoving tick skip;
+  needsRefetch jitter-pan skip (~20% of served radius); display-
+  quantized counts (exact ≤500, nearest-25 above). New pure lib
+  livePoints.ts, 3 tests.
+
+MEASURED OUTCOME (solo harness, identical widths/protocol): medians
+unchanged 50/133/167ms (expected — they are steady-state draw volume,
+and the harness deliberately stubs the tick path the fixes target);
+p95 improved 200→133ms @768 and 267→183ms @1440; the "upload-hitch
+spikes" warning is GONE at 1440. The freeze-class wins (track stalls,
+SATCAT parse) are server/tick-path effects the harness cannot measure —
+falsifier for the human: with a detail card open, the map should no
+longer hitch every 30s, and clicking entities should not stall other
+tabs/users. Full suites: server 687/687, client 162/162, tsc 66-line
+baseline, builds clean. Known flake: the pre-existing weather
+fields-on locator timed out at 1440 in 2 of 3 harness runs (passed
+clean once on identical code; SwiftShader CPU starvation) — re-verify
+on a normal machine at merge review.
+
+RATCHET: regression tests shipped with each fix (async≡sync archive
+pin incl. gz + decoy-id prefilter case; cache TTL behavior; the three
+livePoints guards; worker protocol). REMAINING QUEUE (evidence-backed,
+ranked) filed in scale_program.md RESUME STATE: maintenance-timer
+gzipSync stalls, vessels delta+cache headers, GP parse worker + 1Hz
+repaint, React memo boundaries, the keepFraction/globe median lever
+(visual tradeoff — flag for human), S2 server aggregation.
+
+SAME SESSION, CONTINUED (queue items 1+3 shipped): v1.0.327
+maintenance timers off the event loop — compressOldHoursAsync
+(streamed read→gzip→write pipeline; failed pipeline drops its partial
+.gz and keeps the raw; in-flight latch) + rollupOldDaysAsync (hour
+files stream through the shared streamJsonlLines reader;
+accumulation/summary extracted into helpers used by BOTH sync and
+async paths — equivalence pinned by directory-copied-fixture tests:
+gz payloads byte-identical, summaries deepEqual). recentTrackAsync
+refactored onto the same shared reader. v1.0.328 GP fetch+parse
+off-thread (gpWorker, 1.5kB chunk, abort-signal → terminate, fallback
+preserved) — the 150-500ms satellite-enable freeze removed; the
+session GP cache + resilient retry flow untouched. Gates: server
+689/689, gpWorker 3/3, tsc 66-line baseline, builds clean with both
+workers as own chunks. All three FREEZE classes from the diagnosis
+are now fixed (SATCAT parse, request-path archive scans, maintenance
+timers) plus the GP enable freeze; remaining queue re-ranked in
+scale_program.md (W3/W4 sync reads next).
+
+## 2026-07-15 [PRODUCT] — EARTH TWIN session #1 verify pass: adversarial review + three fixes (v1.0.321–323, same branch)
+
+3-lens review (correctness / constitution / UX-perf; ~330k tokens of
+skeptical agents) over v1.0.317–320. VERDICTS: no high-severity bugs;
+constitution fully clean (frozen paths untouched, test files
+additions-only, honesty/units/attribution pass, one-logical-change per
+commit holds). FIXES SHIPPED: v1.0.321 SATCAT empty-response cache
+poisoning (the one MEDIUM — an HTTP error page parsed to [] and cached
+as "ready" for 24h; also retry-on-click + honest not-in-catalog
+wording, identity tests updated); v1.0.322 LOD legend copy (review
+computed the fade completes at z≈9.5 — city, not "street"; copy fixed,
+registry envelope untouched; + resize listener); v1.0.323 deterministic
+seafloor-below-hillshade z-order + coastline-bleed honesty note.
+REJECTED SUSPICIONS (all verified dead by the reviewers reading full
+code): move-listener leak, stale retry closures, preset-switch layer
+loss, FIELD opacity mismatch, false operator matches from junk name
+stems. POST-FIX GATES: server 685/685, client libs 155/155, tsc 66-line
+baseline, build clean. NEW QUEUED SLICE (evidence-backed): E4-2 SATCAT
+parse off-thread — measured ~280-340 ms main-thread block at
+layer-enable on desktop (~63k rows, ~1 s+ mobile); worker parse +
+cache-header check. VISUAL HARNESS — FINAL OUTCOME (supersedes the
+earlier could-not-complete note): running it SOLO (no concurrent
+agents/builds) completed fine — the two container restarts happened
+only when the harness ran alongside heavy parallel work, so the
+finding is "never run the harness concurrently in this sandbox", not
+"the harness cannot run". Run 1: 390 PASS / 768 PASS / 1440 one
+fields-on locator timeout; run 2 (identical code): ALL FIVE CHECKS
+PASS, 0 hard failures at 390/768/1440 — the 1440 timeout was first-run
+flakiness, not a defect. Screenshots reviewed against DESIGN.md: the
+new Seafloor row renders design-consistent in BASE (anchor icon, RAW
+chip, off-default, group count 1/7 correct); only the long-documented
+pre-existing touch-target warnings remain. PROMOTION #6 satisfied.
+MERGE NOTE: preserve per-commit attribution — four version-gated
+logical changes + three review-fix commits.
+
+## 2026-07-15 [PRODUCT] — EARTH TWIN continuous-build session #1: E0 spine + first two verticals (v1.0.317–320, T-CLIENT + SHARED, branch claude/4d-earth-digital-twin-5e7nks)
+
+TERRITORY: T-CLIENT (client/src/lib/lod.ts, bathymetry.ts,
+orbital/{satLayer,identity}.ts + tests, datamap.tsx, visual_check.mjs
+fixture) + SHARED serialized-and-minimal (datacore/layers.json,
+server/layersRegistry.test.ts additions-only, package.json bumps,
+research/*). Human directives this session (recorded in the charter):
+(1) architecture update, not a data-overview rewrite; (2) data never
+made up — existing data or new data created by real means; (3)
+CONTINUOUS BUILD MANDATE until the program is finished; (4) NC-license
+question resolved — never wire NC sources even pre-revenue (rip-out at
+billing activation violates compounding-asset), v1 = OSM/ODbL +
+US-gov, accumulation is the moat, paid license = wishlist entry.
+
+FOUR SLICES SHIPPED (one logical change per commit, own version each —
+full detail in earth_twin_program.md RESUME STATE):
+- E0-1 v1.0.317 registry v2 additive schema + 7 validation test blocks
+  incl. the LICENSE RATCHET (commercialOk=false can never ship — the
+  monetization tripwire is now CI-checked, providerCompliance spirit).
+- E0-2 v1.0.318 LOD director: pure camera-altitude math (verified
+  against installed maplibre 5.24.0 internals — 512px worlds,
+  78271.51696 m/px, transform.getCameraAltitude exists and is
+  globe-aware; getFreeCameraOptions does NOT exist in MapLibre, agent
+  claim corrected by verification), SatLayer u_opacity + zero-draw
+  early-out, satellites fade/pause near the ground per the registry
+  envelope, honesty note on-panel, fail-OPEN on broken camera math.
+- E2-1 v1.0.319 seafloor "drain the ocean": ETOPO1 terrarium
+  (verified live: z0 tile x-amz-meta header names ETOPO1_Bed_g.tif),
+  color-relief depth ramp transparent above sea level, one source of
+  truth for ramp + legend (lib/bathymetry.ts), not-for-navigation +
+  interpolation honesty pinned by test.
+- E4-1 v1.0.320 satellite identity: SATCAT-based "small payload,
+  CubeSat-class size (derived), owned by X, launched Y, status
+  operational" + conservative operator→ticker with on-card join
+  provenance; background SATCAT fetch, module-cached, never blocks.
+
+VERIFICATION: per-slice gates all green — layersRegistry+Wiring 24/24;
+client lib suites 155/155 (orbital 108→116 + lod 6 + bathymetry 2 +
+identity 5, zero regressions); full server suite 684/684 (run at
+E0-1); npx tsc --noEmit 66 lines before AND after every slice (single
+pre-existing datamap TS2345, only its line number / union order
+shifts); npm run build clean each slice (satWorker still its own
+chunk). METHOD NOTE (ultracode): 4 parallel read-only spec agents
+surveyed datamap/satLayer/registry/maplibre-capabilities before any
+edit; their line-anchored reports were verified against the actual
+files during implementation (one agent claim — getFreeCameraOptions —
+was wrong and caught by the capability-verification agent; the
+53KB of specs are in the session workflow journal, key facts now
+compiled into the charter + code comments per EDGE DOCTRINE #3).
+VISUAL HARNESS: the sandbox container RESTARTED twice while
+`node scripts/visual_check.mjs --page data` ran concurrently with
+other heavy work (new failure mode beyond the 2026-07-15 PFAS
+session's ~550s-timeout finding — the harness under WebGL load appears
+able to take the whole container down here, not just the renderer). A
+final solo attempt's outcome is appended below if it completed; if
+absent, it did not survive this sandbox — confidence rests on the
+zero-DOM/CSS-structural-diff nature of the changes (new overlay layer
++ legend section follow six existing GIBS-layer patterns verbatim),
+the full test gates, and the byte-stable tsc baseline. Screenshots
+should be re-taken on a normal machine before/at merge review.
+
+BACKTEST: N/A — /data display surface + registry/test infrastructure
+only; zero trading, sizing, scoring, or execution code touched.
+
+HYPOTHESES (REASONING STANDARD #10, priors stated):
+(1) E0 spine bet (from the charter-install entry, now half-testable):
+the registry-v2 + LOD-director spine should let subsequent vertical
+slices ship as registry entries + one adapter with near-zero bespoke
+client code. EARLY EVIDENCE: E2-1 still needed a hand-wired useEffect
+(~50 lines) — the generic raster-field ENGINE (E0's remaining piece)
+is exactly what would have made it ~10 lines of registry config; the
+bet stands, judge after the engines land.
+(2) LOD envelope numbers ({camMinKm:100, fadeBandKm:150} ≈ fade
+starting near z8.6, gone by z9.9 at lat 40 on a 800px canvas): chosen
+so the 16k-point field is gone before street-level detail work
+begins. Prior: users will experience this as "natural"; falsifier: a
+human report that satellites vanish while still wanted (city-scale
+viewing) → loosen camMinKm downward in the registry, no code change.
+(3) Seafloor as a hero showcase (Amendment 5 EXPERIENCE IS THE DOOR):
+prior — the drain-the-ocean toggle becomes a screenshot-worthy premium
+moment at zero data cost; falsifier: ETOPO1's ~2km blur reads as
+low-quality at mid zoom → prioritize the GEBCO 15-arcsec v2 pipeline.
+
+## 2026-07-15 [RESEARCH] — EARTH TWIN program charter installed (human directive: "Infinite 4D Earth Digital Twin"; docs-only, no version bump)
+
+TERRITORY: SHARED research/* + a factual CLAUDE.md KNOWN STATE append
+(both permitted; no code, no registry, no routes touched — docs-only
+PR, so no package.json version bump per the Location-Context-Engine
+roadmap precedent, #430).
+
+CHANGE: research/earth_twin_program.md — the multi-session build
+charter for the human's 4D digital-twin directive (seamless
+space→street zoom, time as the fourth dimension, true-altitude
+aircraft, zoom-gated identifiable satellites, ocean water toggle over
+mapped bathymetry with displayed uncertainty, underground/atmosphere/
+celestial layers, plug-in layer framework, inferred-vs-verified visual
+honesty, graceful degradation). Before writing, a full survey of the
+existing stack was run (agent + direct reads, recorded in the charter's
+inventory section): globe/terrain/GIBS/orbital/archives/registry/
+viewport/3d-tiles-proxy — the twin is ~40% built already; the charter
+sequences only the NEW work and defers to WORLDVIEW/ORBITAL/SCALE/
+CONSOLE where they already govern. Spine: A1 LOD director
+(camera-altitude envelopes — delivers the directive's satellite
+appear/disappear behavior), A2 registry v2 plug-in schema + generic
+render engines (altitudeRef/time/lod/provenance/renderKind), A3 global
+time axis (unifies W3 + GIBS scrubbers; forecast zone only for real
+models), A4 = SCALE consumed not duplicated. Verticals V1–V7 with
+named FREE data sources per EDGE DOCTRINE (GEBCO + TID uncertainty
+grid, AWS terrarium bathymetry v1, USGS 3DEP/faults/aquifers, MSHA,
+EIA/HIFLD pipelines, OSM buildings/tunnels, NOAA GFS/CO-OPS/SWPC/NHC,
+JPL SBDB, city street-tree inventories, WorldPop). Every "impossible"
+ask mapped to an honest approximation tier (interiors capped at
+placeholder — fabrication banned; derived animations labeled tier-4).
+License gates filed: TeleGeography cables CC BY-NC-SA + WDPA NC terms
+(monetization tripwire), GEM faults + Launch Library verify-at-build.
+
+HYPOTHESIS (prior, stated before building anything): E0's registry-v2
++ LOD-director spine will let each subsequent vertical slice ship as
+registry entries + one adapter with near-zero bespoke client code; if
+early slices (E2 ocean, E3 air) still need large hand-wired useEffects,
+the spine design is wrong and gets revisited before the sweep — judge
+after the first two vertical slices land.
+
+NEXT: E0 slice 1 (registry v2 additive schema + validation test) —
+falls to the next session; this session's remit was the charter itself.
 ## 2026-07-15 [PRODUCT] — worldview_globe.md G2h biomass slice: GEDI L4B aboveground biomass density, a genuinely static NASA GIBS raster (v1.0.318, T-CLIENT)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, scripts/visual_check.mjs)

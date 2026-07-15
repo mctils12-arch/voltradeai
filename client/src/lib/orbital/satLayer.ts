@@ -96,11 +96,14 @@ export const VERT_SRC = (prelude: string, define: string): string => `#version 3
 ${prelude}
 ${define}
 in vec4 a_data;            // x=mercX(0..1) y=mercY(0..1) z=altMeters w=classCode
+in float a_shape;          // SYMBOLS NOT DOTS: 0=unidentified(dot) 1=payload 2=rocket body 3=debris
 uniform float u_size;
+uniform float u_opacity;   // LOD envelope fade (EARTH TWIN A1) — 1 = fully visible
 uniform vec4 u_colorLEO;
 uniform vec4 u_colorMEO;
 uniform vec4 u_colorGEO;
 out vec4 v_color;
+out float v_shape;
 void main() {
   float cls = a_data.w;
   if (cls < 0.0) {
@@ -139,19 +142,48 @@ void main() {
   }
 #endif
   gl_Position = projectTileFor3D(a_data.xy, a_data.z);
-  gl_PointSize = u_size;
+  // identified objects draw as type glyphs and need more pixels to read
+  gl_PointSize = a_shape > 0.5 ? u_size * 2.6 : u_size;
   v_color = cls < 0.5 ? u_colorLEO : (cls < 1.5 ? u_colorMEO : u_colorGEO);
+  v_color.a *= u_opacity;
+  v_shape = a_shape;
 }`;
 
+// SYMBOLS NOT DOTS (human-directed 2026-07-15 + the standing 2026-07-12
+// rule): identified objects draw as SDF type glyphs — payload = body with
+// solar wings, rocket body = vertical capsule, debris = shard. A plain dot
+// now MEANS "not yet identified" (SATCAT still loading, or the object is
+// genuinely absent from the catalog) — shape is a catalogued fact, never a
+// guess. Color stays the orbit class (the second dimension).
 const FRAG_SRC = `#version 300 es
 precision mediump float;
 in vec4 v_color;
+in float v_shape;
 out vec4 o;
 void main() {
   vec2 d = gl_PointCoord - 0.5;
-  float r = dot(d, d);
-  if (r > 0.25) discard;              // round point
-  float a = smoothstep(0.25, 0.10, r); // soft edge
+  float a;
+  if (v_shape < 0.5) {
+    // unidentified: the original round dot
+    float r = dot(d, d);
+    if (r > 0.25) discard;
+    a = smoothstep(0.25, 0.10, r);
+  } else if (v_shape < 1.5) {
+    // payload: square bus + horizontal solar wings
+    float mBody = 1.0 - smoothstep(0.11, 0.15, max(abs(d.x), abs(d.y)));
+    float mWing = (1.0 - smoothstep(0.06, 0.09, abs(d.y))) * (1.0 - smoothstep(0.40, 0.46, abs(d.x)));
+    a = max(mBody, mWing);
+    if (a < 0.05) discard;
+  } else if (v_shape < 2.5) {
+    // rocket body: vertical capsule
+    a = (1.0 - smoothstep(0.09, 0.13, abs(d.x))) * (1.0 - smoothstep(0.34, 0.40, abs(d.y)));
+    if (a < 0.05) discard;
+  } else {
+    // debris: diamond shard
+    float m = abs(d.x) + abs(d.y);
+    if (m > 0.32) discard;
+    a = smoothstep(0.32, 0.20, m);
+  }
   o = vec4(v_color.rgb, v_color.a * a);
 }`;
 
@@ -172,7 +204,9 @@ export class SatLayer implements CustomLayerInterface {
 
   // uniform / attribute locations (resolved on compile)
   private aData = -1;
+  private aShape = -1;
   private uSize: WebGLUniformLocation | null = null;
+  private uOpacity: WebGLUniformLocation | null = null;
   private uColorLEO: WebGLUniformLocation | null = null;
   private uColorMEO: WebGLUniformLocation | null = null;
   private uColorGEO: WebGLUniformLocation | null = null;
@@ -186,6 +220,11 @@ export class SatLayer implements CustomLayerInterface {
   private data: Float32Array | null = null;
   private dataDirty = false;
   private uploadedFloats = -1;
+  // SYMBOLS NOT DOTS: one shape code per object, index-aligned to the GP
+  // order like everything else. null = catalog not joined yet → all dots.
+  private shapeBuffer: WebGLBuffer | null = null;
+  private shapeCodes: Float32Array | null = null;
+  private shapeDirty = false;
   private total = 0;
   private renderCap: number | null = null;
   private meta: PositionMeta | null = null;
@@ -196,6 +235,9 @@ export class SatLayer implements CustomLayerInterface {
   private lastTransition = 0;
 
   private pointSize: number;
+  // LOD envelope fade (EARTH TWIN A1): 1 = fully visible. At 0 render()
+  // skips the draw entirely — an out-of-envelope layer costs no GPU work.
+  private globalOpacity = 1;
   private colorLEO: Rgba;
   private colorMEO: Rgba;
   private colorGEO: Rgba;
@@ -230,6 +272,7 @@ export class SatLayer implements CustomLayerInterface {
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
     if (this.renderFailed) return; // disabled after a prior failure — never crash the map
+    if (this.globalOpacity <= 0) return; // fully faded out (LOD envelope) — zero draw calls
     if (!this.data || this.total === 0) return;
     try {
       this.renderInner(gl, args);
@@ -287,6 +330,7 @@ export class SatLayer implements CustomLayerInterface {
 
     // Style uniforms.
     if (this.uSize) gl.uniform1f(this.uSize, this.pointSize);
+    if (this.uOpacity) gl.uniform1f(this.uOpacity, this.globalOpacity);
     if (this.uColorLEO) gl.uniform4f(this.uColorLEO, ...this.colorLEO);
     if (this.uColorMEO) gl.uniform4f(this.uColorMEO, ...this.colorMEO);
     if (this.uColorGEO) gl.uniform4f(this.uColorGEO, ...this.colorGEO);
@@ -308,14 +352,38 @@ export class SatLayer implements CustomLayerInterface {
     gl.enableVertexAttribArray(this.aData);
     gl.vertexAttribPointer(this.aData, 4, gl.FLOAT, false, SAT_STRIDE * 4, 0);
 
+    // Shape codes: only honored when index-aligned to the population —
+    // a mismatched buffer would put the wrong glyph on the wrong object,
+    // so misalignment falls back to honest dots, never a mislabel.
+    const shapesValid = this.shapeCodes != null && this.shapeCodes.length === this.total;
+    if (this.aShape >= 0) {
+      if (shapesValid) {
+        if (!this.shapeBuffer) this.shapeBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.shapeBuffer);
+        if (this.shapeDirty) {
+          gl.bufferData(gl.ARRAY_BUFFER, this.shapeCodes!, gl.STATIC_DRAW);
+          this.shapeDirty = false;
+        }
+        gl.enableVertexAttribArray(this.aShape);
+        gl.vertexAttribPointer(this.aShape, 1, gl.FLOAT, false, 0, 0);
+      } else {
+        gl.disableVertexAttribArray(this.aShape);
+        (gl as WebGL2RenderingContext).vertexAttrib1f?.(this.aShape, 0); // constant 0 = dot
+      }
+    }
+
     const count = this.renderCap != null ? Math.min(this.renderCap, this.total) : this.total;
     gl.drawArrays(gl.POINTS, 0, count);
     gl.disableVertexAttribArray(this.aData);
+    if (this.aShape >= 0) gl.disableVertexAttribArray(this.aShape);
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
+    if (this.shapeBuffer) gl.deleteBuffer(this.shapeBuffer);
+    this.shapeBuffer = null;
+    this.shapeDirty = this.shapeCodes != null; // re-upload if re-added
     this.program = null;
     this.buffer = null;
     this.cachedVariant = null;
@@ -359,6 +427,42 @@ export class SatLayer implements CustomLayerInterface {
     this.colorMEO = rgba;
     this.colorGEO = rgba;
     this.map?.triggerRepaint();
+  }
+
+  /**
+   * LOD envelope fade (EARTH TWIN A1): whole-layer opacity 0..1. At 0 the
+   * layer draws nothing at all (render() early-outs). This is a RENDER
+   * choice, reversible by zoom — the parent must surface the hidden state
+   * on-panel (never a silently vanished layer) and may pause the worker
+   * while fully hidden.
+   */
+  setGlobalOpacity(o: number): void {
+    const clamped = Math.max(0, Math.min(1, o));
+    if (clamped === this.globalOpacity) return;
+    this.globalOpacity = clamped;
+    this.map?.triggerRepaint();
+  }
+
+  /** Current LOD fade (for wiring checks and the honesty panel). */
+  getGlobalOpacity(): number {
+    return this.globalOpacity;
+  }
+
+  /**
+   * SYMBOLS NOT DOTS: one shape code per object (0 dot/unidentified,
+   * 1 payload, 2 rocket body, 3 debris), index-aligned to the worker's GP
+   * order. null clears back to all-dots. A buffer whose length doesn't
+   * match the population is ignored at draw time (dots, never mislabels).
+   */
+  setShapeCodes(codes: Float32Array | null): void {
+    this.shapeCodes = codes;
+    this.shapeDirty = codes != null;
+    this.map?.triggerRepaint();
+  }
+
+  /** The active shape codes (wiring checks). */
+  getShapeCodes(): Float32Array | null {
+    return this.shapeCodes;
   }
 
   /**
@@ -440,7 +544,9 @@ export class SatLayer implements CustomLayerInterface {
     this.program = p;
     this.cachedVariant = variant;
     this.aData = gl.getAttribLocation(p, 'a_data');
+    this.aShape = gl.getAttribLocation(p, 'a_shape');
     this.uSize = gl.getUniformLocation(p, 'u_size');
+    this.uOpacity = gl.getUniformLocation(p, 'u_opacity');
     this.uColorLEO = gl.getUniformLocation(p, 'u_colorLEO');
     this.uColorMEO = gl.getUniformLocation(p, 'u_colorMEO');
     this.uColorGEO = gl.getUniformLocation(p, 'u_colorGEO');

@@ -22,8 +22,8 @@ import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadia
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import { version as pkgVersion } from "../package.json";
 import {
-  archiveAircraft, archiveVessels, archiveTrains, compressOldHours, rollupOldDays,
-  recentTrack, archiveStats,
+  archiveAircraft, archiveVessels, archiveTrains, compressOldHoursAsync, rollupOldDaysAsync,
+  recentTrackCached, archiveStats,
 } from "./datacoreArchive";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
@@ -1095,17 +1095,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       archiveVessels(pts, ARCHIVE_SITES);
     } catch (e: any) { console.error("[archive] vessel tick:", e?.message || e); }
   }, 60_000).unref?.();
-  setInterval(() => { try { compressOldHours(); } catch {} }, 30 * 60_000).unref?.();
-  setInterval(() => { try { rollupOldDays(); } catch {} }, 6 * 3600_000).unref?.();
+  // PERF (session #2, user-reported freezes): the sync maintenance passes
+  // gzipSync'd whole hours / parsed whole days in one event-loop turn every
+  // 30min/6h — periodic multi-second stalls for every response AND the
+  // trading loop with zero user interaction. Streamed variants breathe.
+  setInterval(() => { compressOldHoursAsync().catch(() => {}); }, 30 * 60_000).unref?.();
+  setInterval(() => { rollupOldDaysAsync().catch(() => {}); }, 6 * 3600_000).unref?.();
 
   // Recent trail for one entity (serves the client's track-on-click).
-  app.get("/api/data/track/:kind/:id", (req, res) => {
+  // PERF (session #2, user-reported freezes): was the sync recentTrack —
+  // up to 48 readFileSync+gunzipSync+parse in one event-loop turn, re-fired
+  // every 30s per open card, stalling every response AND the trading loop.
+  // Now the streamed + 30s-cached variant (datacoreArchive.recentTrackCached).
+  app.get("/api/data/track/:kind/:id", async (req, res) => {
     const kind = req.params.kind === "vessels" ? "vessels"
                : req.params.kind === "trains" ? "trains" : "aircraft";
     const id = String(req.params.id || "").slice(0, 24);
     if (!id) return res.status(400).json({ error: "id required" });
     try {
-      const points = recentTrack(kind, id);
+      const points = await recentTrackCached(kind, id);
       res.json({ kind, id, points, count: points.length,
                  note: points.length === 0 ? "no archived positions yet for this id (archive began 2026-07-03)" : undefined });
     } catch (e: any) {
@@ -2915,7 +2923,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   }));
 
-  app.get("/api/v1/tracks/:kind/:id", (req, res) => {
+  app.get("/api/v1/tracks/:kind/:id", async (req, res) => {
     const auth = requireApiKey(req, res);
     if (!auth) return;
     const kind = String(req.params.kind);
@@ -2923,7 +2931,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: "kind must be aircraft|vessels|trains" });
     }
     try {
-      const track = recentTrack(kind as any, String(req.params.id));
+      // PERF: streamed + cached — same freeze fix as /api/data/track above.
+      const track = await recentTrackCached(kind as any, String(req.params.id));
       const mark = (`tracks/${kind}`) as keyof typeof LICENSE_MARKS;
       res.json(v1Envelope(mark, { id: req.params.id, kind, points: track }));
       meterUsage({ key: auth.key, endpoint: `/api/v1/tracks/${kind}`, status: 200, tier: auth.tier });

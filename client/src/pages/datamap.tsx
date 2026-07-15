@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, TreePine } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -37,13 +37,47 @@ import { mmsiFlag } from "@/lib/mmsiFlag";
 // GPU-instanced points. REAL positions only — deep-space objects need SDP4
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer } from "@/lib/orbital/satLayer";
-import { fetchGp, type GpRecord } from "@/lib/orbital/tle";
+import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
+// ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
+// not a side viewer): the followed satellite resolves to a lit, tumbling
+// class-representative form drawn at its live position on the globe.
+import { SatModelLayer } from "@/lib/orbital/modelLayer";
+import { classForm, formLabel } from "@/lib/orbital/model3d";
+// EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
+// operator→ticker map turn a clicked point into "small payload, CubeSat-class
+// size, owned by X, launched Y" — formatting lives in lib/orbital/identity
+// (pure, tested); resolveOperator stays conservative (null = honest unmapped).
+import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/lib/orbital/identity";
+// ORBITAL O5 slice 1 (human directive: click a satellite → it remains in
+// focus): pure follow math + the focus-ring geometry live in lib/orbital/
+// follow; this file owns the camera easing and the stop conditions.
+import { followTarget, focusRingFeatureCollection } from "@/lib/orbital/follow";
+import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
+import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
+import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays } from "@/lib/orbital/propagate";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
+// EARTH TWIN A1 (E0-2, research/earth_twin_program.md): camera-altitude LOD
+// envelopes — the registry (layers.json v2 `lod` block) declares at which
+// camera altitudes a layer exists; the LOD director math lives in @/lib/lod
+// (pure, tested). orbital_sats is the first consumer: the population fades
+// out near the ground and pauses its worker (zero cost), returning on zoom
+// out — a render choice, always reversible, surfaced on-panel, never silent.
+import { cameraAltitudeKmFromMap, lodOpacity, type LodEnvelope } from "@/lib/lod";
+// EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
+// source of truth shared by the map's color-relief ramp and the legend chips.
+import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
+// PERF session #2 (user-reported lag/freezes): pure, tested guards for the
+// live-points tick pipeline — vector-build gating below visibility,
+// count quantization so the render bail engages, redundant-refetch skip.
+import { shouldBuildVectors, quantizeLiveCount, fetchFootprint, needsRefetch, type FetchFootprint } from "@/lib/livePoints";
+// EARTH TWIN E1: the global time axis — the Time Machine publishes, the
+// dated GIBS layers subscribe (one scrubber moves the whole world).
+import { getTimeAxis, subscribeTimeAxis, gibsDateForAxis } from "@/lib/timeAxis";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -67,6 +101,113 @@ import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, 
 // survives the effect's mount/unmount cycles (lost only on a full page reload).
 let orbitalGpCache: { at: number; gp: GpRecord[] } | null = null;
 const ORBITAL_GP_TTL_MS = 2 * 60 * 60_000; // 2h — CelesTrak's GP refresh cadence
+// EARTH TWIN A1: fallback camera-altitude envelope for orbital_sats when the
+// registry entry predates v2 (mid-deploy older registry). The registry's own
+// `lod` block is the source of truth and overrides this.
+const ORBITAL_LOD_FALLBACK = { camMinKm: 100, fadeBandKm: 150 };
+// EARTH TWIN E4-1: SATCAT identity catalog — module cache mirroring
+// orbitalGpCache (survives effect unmounts; one download per day at most —
+// catalog metadata changes slowly and CelesTrak rate-limits). Fetched in the
+// BACKGROUND when the satellites layer enables, never blocking the layer;
+// a click before it lands gets an honest "still downloading" line.
+// E4-2 (perf): the ~6 MB CSV parse measured ~300 ms main-thread block on
+// desktop (~1 s mobile) — fetch+parse now run in a one-shot worker
+// (satcatWorker.ts) and the lookup index builds in frame-sized chunks
+// (buildNoradIndex); the direct fetch remains only as a degrade-safe
+// fallback if Worker construction itself fails.
+let satcatByNorad: Map<number, SatcatRecord> | null = null;
+let satcatFetchedAt = 0;
+let satcatState: "loading" | "ready" | "error" = "error";
+let satcatInflight: Promise<void> | null = null;
+const SATCAT_TTL_MS = 24 * 60 * 60_000;
+// SYMBOLS NOT DOTS (human-directed 2026-07-15): shape code per catalogued
+// object type — a dot now MEANS "not yet identified". Index-aligned to gp.
+function shapeCodesFromSatcat(gp: GpRecord[], byNorad: Map<number, SatcatRecord>): Float32Array {
+  const codes = new Float32Array(gp.length); // default 0 = dot
+  for (let i = 0; i < gp.length; i++) {
+    const t = byNorad.get(gp[i].noradId)?.objectType;
+    codes[i] = t === "PAYLOAD" ? 1 : t === "ROCKET BODY" ? 2 : t === "DEBRIS" ? 3 : 0;
+  }
+  return codes;
+}
+// PERF (SCALE queue item 3): GP fetch+parse off the main thread — the 6.6MB
+// res.json() + parseGp of ~16k records froze the map 150-500ms at satellite
+// enable. Same worker shape as SATCAT below; the resilient-load's abort
+// signal terminates the worker (timeout semantics preserved); Worker
+// construction failure falls back to the main-thread path (degrade, never
+// break).
+function fetchGpOffThread(group: string, signal?: AbortSignal): Promise<GpRecord[]> {
+  return new Promise((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(
+        new URL("../lib/orbital/gpWorker.ts", import.meta.url),
+        { type: "module" },
+      );
+    } catch {
+      fetchGp(group, signal ? ((url: string) => fetch(url, { signal }) as any) : undefined).then(resolve, reject);
+      return;
+    }
+    const done = (fn: () => void) => { try { worker.terminate(); } catch {} fn(); };
+    const onAbort = () => done(() => reject(new DOMException("aborted", "AbortError")));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    worker.onmessage = (ev: MessageEvent<GpWorkerOutbound>) => {
+      signal?.removeEventListener("abort", onAbort);
+      const m = ev.data;
+      if (m.type === "rows") done(() => resolve(m.rows));
+      else done(() => reject(new Error(m.message)));
+    };
+    worker.onerror = () => {
+      signal?.removeEventListener("abort", onAbort);
+      done(() => reject(new Error("GP worker failed")));
+    };
+    worker.postMessage({ type: "fetch", group });
+  });
+}
+
+function fetchSatcatRowsOffThread(): Promise<SatcatRecord[]> {
+  return new Promise((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(
+        new URL("../lib/orbital/satcatWorker.ts", import.meta.url),
+        { type: "module" },
+      );
+    } catch (e) {
+      // No Worker support / bundler edge: fall back to the main-thread path
+      // (slower but functional — degrade, never break).
+      fetchSatcat().then(resolve, reject);
+      return;
+    }
+    const done = (fn: () => void) => { try { worker.terminate(); } catch {} fn(); };
+    worker.onmessage = (ev: MessageEvent<SatcatWorkerOutbound>) => {
+      const m = ev.data;
+      if (m.type === "rows") done(() => resolve(m.rows));
+      else done(() => reject(new Error(m.message)));
+    };
+    worker.onerror = () => done(() => reject(new Error("satcat worker failed")));
+    worker.postMessage({ type: "fetch" });
+  });
+}
+function ensureSatcat(): Promise<void> {
+  if (satcatByNorad && Date.now() - satcatFetchedAt < SATCAT_TTL_MS) return Promise.resolve();
+  if (satcatInflight) return satcatInflight;
+  satcatState = "loading";
+  satcatInflight = fetchSatcatRowsOffThread()
+    .then(async (rows) => {
+      // An HTTP error page (CelesTrak 403/5xx) parses to [] — NEVER cache
+      // that as "ready" or identity stays dead for the whole TTL (review
+      // finding, session #1). Empty = failure; the old cache (if any) keeps
+      // serving clicks.
+      if (!rows.length) throw new Error("empty SATCAT response");
+      satcatByNorad = await buildNoradIndex(rows); // chunked — never blocks a frame
+      satcatFetchedAt = Date.now();
+      satcatState = "ready";
+    })
+    .catch(() => { satcatState = satcatByNorad ? "ready" : "error"; }) // honest absent; stale-but-real cache still counts
+    .finally(() => { satcatInflight = null; });
+  return satcatInflight;
+}
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
@@ -227,7 +368,7 @@ const PANEL_GROUPS = [
 // not). Passed to gibsDefaultDate/gibsIsLatestAvailable as latencyDays.
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
-  imagery: "base", terrain: "base", weather: "base",
+  imagery: "base", terrain: "base", seafloor: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
@@ -419,6 +560,17 @@ export default function DataMapPage() {
   // INDEX ALIGNMENT contract — the picking effect resolves a click to an
   // index into this same array.
   const orbitalGpRef = useRef<GpRecord[] | null>(null);
+  // EARTH TWIN A1: the registry-declared camera-altitude envelope for
+  // orbital_sats, kept in a ref so the O2 effect's move handler always reads
+  // the freshest registry value WITHOUT re-running (and tearing down) the
+  // whole effect when the registry fetch lands.
+  const orbitalLodRef = useRef<LodEnvelope | null>(null);
+  // ORBITAL O5 slice 1: the followed satellite (buffer index is stable —
+  // the worker keeps ONE slot per GP record forever). null = not following.
+  const satFollowRef = useRef<{ index: number; noradId: number; name: string | null } | null>(null);
+  // O5-2b: the on-map 3D form layer for the followed satellite (one instance,
+  // same lifecycle as satLayerRef).
+  const satModelLayerRef = useRef<SatModelLayer | null>(null);
   // Pillar-6 cross-tie cache: generating capacity near each river gauge, keyed
   // by USGS site, populated when the rivergauges layer loads so the gauge-click
   // detail can surface the exposed plants without a network round-trip on click.
@@ -590,6 +742,26 @@ export default function DataMapPage() {
   // lag like the other daily layers — the charter's "genuinely differentiated"
   // layer (industrial/traffic combustion throughput nowcast).
   const [no2Date, setNo2Date] = useState<string>(() => gibsDefaultDate(Date.now()));
+  // ── EARTH TWIN E1: GLOBAL TIME AXIS — one clock moves the whole world.
+  // The Time Machine panel publishes the axis (lib/timeAxis); every dated
+  // GIBS layer above follows it to ITS OWN honest ceiling (latency-aware —
+  // SMAP snaps ~7 days back, dailies to yesterday), and returning to LIVE
+  // restores each layer's default. Per-layer scrubbers still work as manual
+  // overrides afterward. firetemp is deliberately NOT wired: it is sub-daily
+  // latest-scan-only (no dated archive endpoint on this map yet — honest gap,
+  // charter A3 sub-daily work). React bails cheaply on identical dates. ──
+  useEffect(() => {
+    const apply = () => {
+      const axis = getTimeAxis();
+      const now = Date.now();
+      setNightlightsDate(gibsDateForAxis(axis, now).dateISO);
+      setAerosolDate(gibsDateForAxis(axis, now).dateISO);
+      setVegetationDate(gibsDateForAxis(axis, now).dateISO);
+      setNo2Date(gibsDateForAxis(axis, now).dateISO);
+      setSoilmoistureDate(gibsDateForAxis(axis, now, SOIL_LATENCY_DAYS).dateISO);
+    };
+    return subscribeTimeAxis(apply);
+  }, []);
   // worldview_globe.md G2b: GOES-East fire/hotspot brightness temperature.
   // Genuinely sub-daily (~10-min, irregular scan gaps) — no day-granularity
   // scrubber like the layers above; always requests GIBS's own "default"
@@ -614,7 +786,11 @@ export default function DataMapPage() {
     firetemp: "gibs-firetemp",
     biomass: "gibs-biomass",
     floodzones: "fema-floodzones",
+    seafloor: "seafloor-relief",
   };
+  // Most field layers are raster (paint prop "raster-opacity"); layer types
+  // with their own opacity prop override here (seafloor is a color-relief).
+  const FIELD_OPACITY_PROP: Record<string, string> = { seafloor: "color-relief-opacity" };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
   });
@@ -625,7 +801,7 @@ export default function DataMapPage() {
       try { sessionStorage.setItem("vt-field-opacity", JSON.stringify(next)); } catch {}
       return next;
     });
-    try { mapRef.current?.setPaintProperty(FIELD_MAP_LAYER[id], "raster-opacity", v / 100); } catch {}
+    try { mapRef.current?.setPaintProperty(FIELD_MAP_LAYER[id], FIELD_OPACITY_PROP[id] ?? "raster-opacity", v / 100); } catch {}
   };
   // Wind vectors + temperature labels — sampled point grid (HONEST: OWM
   // tiles carry no vector data; numbers come from point samples, arrows
@@ -1043,6 +1219,62 @@ export default function DataMapPage() {
       setStatus("terrain", "error");
     }
   }, [enabled.terrain, mapReady, setStatus]);
+
+  // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
+  // research/earth_twin_program.md V4). NOAA ETOPO1 ocean depths via the open
+  // Terrain Tiles bucket (terrarium raster-dem with bathymetry baked in at
+  // every zoom — verified live: the z0 tile's imagery-sources header names
+  // ETOPO1), drawn as a color-relief depth tint that is TRANSPARENT at and
+  // above sea level: toggling swaps the sea surface for seafloor relief while
+  // land imagery stays untouched. Its OWN raster-dem source — never reuses
+  // terrain-dem (that source is land-only and feeds setTerrain; MapLibre
+  // treats terrain-owned sources specially) and never calls setTerrain.
+  // HONESTY: ~1 arc-minute, soundings + satellite-gravity interpolation —
+  // indicative, not navigational; GEBCO 15-arcsec + per-cell TID confidence
+  // is the charter's E2 v2. Degrade-safe: any failure keeps the base map. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.seafloor) {
+      try {
+        if (map.getLayer("seafloor-relief")) map.removeLayer("seafloor-relief");
+        if (map.getSource("seafloor-dem")) map.removeSource("seafloor-dem");
+      } catch {}
+      setStatus("seafloor", "off");
+      return;
+    }
+    try {
+      if (!map.getSource("seafloor-dem")) {
+        map.addSource("seafloor-dem", {
+          type: "raster-dem",
+          tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+          encoding: "terrarium",
+          tileSize: 256,
+          maxzoom: 15,
+          attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
+        } as any);
+      }
+      if (!map.getLayer("seafloor-relief")) {
+        // under all marker layers, same anchor rule as every raster overlay —
+        // and DETERMINISTICALLY below terrain-hillshade when terrain is on
+        // (both share the firstMarker anchor, so without this the stacking
+        // depended on toggle order; review finding, session #1)
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        const beforeId = map.getLayer("terrain-hillshade") ? "terrain-hillshade" : firstMarker?.id;
+        map.addLayer({
+          id: "seafloor-relief", type: "color-relief", source: "seafloor-dem",
+          paint: {
+            "color-relief-color": bathymetryColorRelief(),
+            "color-relief-opacity": opacityOf("seafloor") / 100,
+          },
+        } as any, beforeId);
+      }
+      setStatus("seafloor", "active", undefined,
+        "ocean drained — ETOPO1 depth relief (~1 arc-min; soundings + gravity interpolation, not navigational)");
+    } catch {
+      setStatus("seafloor", "error");
+    }
+  }, [enabled.seafloor, mapReady, setStatus]);
 
   // ── surface water (RAW; JRC Global Surface Water v2021 — atlas-parity
   // layer 1, licensing per open_questions ATLAS PARITY: free with EC
@@ -1467,7 +1699,49 @@ export default function DataMapPage() {
       } catch {}
       satLayerRef.current = null;
       orbitalGpRef.current = null;
+      satFollowRef.current = null;
+      try {
+        const model = satModelLayerRef.current;
+        if (model && map.getLayer(model.id)) map.removeLayer(model.id);
+      } catch {}
+      satModelLayerRef.current = null;
+      try {
+        if (map.getLayer("sat-focus-ring")) map.removeLayer("sat-focus-ring");
+        if (map.getSource("sat-focus")) map.removeSource("sat-focus");
+      } catch {}
     };
+
+    // ── ORBITAL O5 slice 1: FOLLOW — each worker tick re-centers on the
+    // followed object's fresh SGP4 position and moves the focus ring.
+    // Camera eases 800ms (under the 1s tick) so tracking reads smooth;
+    // easing is skipped while the map is already moving (a user gesture or
+    // a running ease — dragstart below is the explicit hand-back). ──
+    const followTick = () => {
+      const f = satFollowRef.current;
+      if (!f) return;
+      const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+      const ringSrc: any = map.getSource("sat-focus");
+      if (ringSrc) ringSrc.setData(focusRingFeatureCollection(t));
+      // O5-2b: the on-map 3D form rides the same fresh position (null
+      // sentinel tick = model hidden, never a guessed placement)
+      satModelLayerRef.current?.setAnchor(
+        t ? { mercX: t.mercX, mercY: t.mercY, altMeters: t.altKm * 1000 } : null);
+      if (!t) return; // sentinel this tick — ring cleared, camera stays put
+      try {
+        if (!map.isMoving()) map.easeTo({ center: [t.lonDeg, t.latDeg], duration: 800 });
+      } catch {}
+    };
+    const stopFollow = () => {
+      if (!satFollowRef.current) return;
+      satFollowRef.current = null;
+      satModelLayerRef.current?.setAnchor(null); // model vanishes with the follow
+      try {
+        const ringSrc: any = map.getSource("sat-focus");
+        if (ringSrc) ringSrc.setData(focusRingFeatureCollection(null));
+      } catch {}
+    };
+    // user drag = the user takes the camera back; following must yield
+    map.on("dragstart", stopFollow);
 
     if (!enabled["orbital_sats"]) {
       teardown();
@@ -1476,6 +1750,46 @@ export default function DataMapPage() {
     }
 
     setStatus("orbital_sats", "loading", undefined, "fetching orbital elements (CelesTrak)…");
+
+    // ── EARTH TWIN A1 (E0-2): camera-altitude LOD envelope. The satellite
+    // population exists at globe/regional zooms and fades out approaching the
+    // street (the registry's lod block says where); while fully hidden the
+    // worker is STOPPED (zero propagation + zero draw cost) and the panel
+    // says so — LOD is reversible by zoom and never a silent drop. ──
+    let lodPaused = false;
+    let lodLastOpacity = -1; // sentinel: first applyLod() always applies
+    let lastCounts = { shown: 0, skipped: 0 };
+    const publishOrbitalStatus = () => {
+      if (lodPaused) {
+        const minKm = orbitalLodRef.current?.camMinKm ?? ORBITAL_LOD_FALLBACK.camMinKm;
+        setStatus("orbital_sats", "active", lastCounts.shown,
+          `hidden at this zoom (LOD) — returns above ~${fmtKm(minKm)} camera altitude; propagation paused, nothing lost`);
+      } else {
+        setStatus("orbital_sats", "active", lastCounts.shown,
+          `${lastCounts.shown.toLocaleString()} live · ${lastCounts.skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
+      }
+    };
+    const applyLod = () => {
+      const layer = satLayerRef.current;
+      if (!layer) return;
+      const camKm = cameraAltitudeKmFromMap(map); // null → lodOpacity fails OPEN (visible)
+      const op = lodOpacity(orbitalLodRef.current ?? ORBITAL_LOD_FALLBACK, camKm);
+      if (op === lodLastOpacity) return;
+      lodLastOpacity = op;
+      layer.setGlobalOpacity(op);
+      if (op <= 0 && !lodPaused) {
+        lodPaused = true;
+        satWorkerRef.current?.postMessage({ type: "stop" }); // pause: gp stays loaded
+        stopFollow(); // an invisible object is never silently "followed"
+        publishOrbitalStatus();
+      } else if (op > 0 && lodPaused) {
+        lodPaused = false;
+        satWorkerRef.current?.postMessage({ type: "start", hz: 1 }); // resume: ticks immediately
+        publishOrbitalStatus();
+      }
+    };
+    map.on("move", applyLod);
+    map.on("resize", applyLod); // rotate/resize changes camera altitude without a move event
 
     // Resilient fetch+init: a CelesTrak stall/blip now retries automatically with
     // backoff instead of leaving the layer dead until a manual toggle (BUG 1). The
@@ -1489,7 +1803,9 @@ export default function DataMapPage() {
         } else if (orbitalGpCache && Date.now() - orbitalGpCache.at < ORBITAL_GP_TTL_MS) {
           gp = orbitalGpCache.gp; // reuse cached elements — toggling never re-hits CelesTrak
         } else {
-          gp = await fetchGp("active", (url: string) => fetch(url, { signal }) as any);
+          // PERF: fetched + parsed in a one-shot worker (150-500ms main-thread
+          // freeze removed); the resilient-load signal still aborts/times out.
+          gp = await fetchGpOffThread("active", signal);
           if (gp.length) orbitalGpCache = { at: Date.now(), gp }; // cache for the session
         }
         if (signal.aborted) return;
@@ -1500,6 +1816,11 @@ export default function DataMapPage() {
         const layer = new SatLayer({ id: "orbital_sats" });
         satLayerRef.current = layer;
         map.addLayer(layer);
+        // O5-2b: the focused-satellite 3D form layer sits above the points
+        // (draws nothing until a follow sets its anchor + form)
+        const modelLayer = new SatModelLayer({ id: "orbital_sat_model" });
+        satModelLayerRef.current = modelLayer;
+        map.addLayer(modelLayer);
 
         const worker = new Worker(
           new URL("../lib/orbital/satWorker.ts", import.meta.url),
@@ -1514,13 +1835,21 @@ export default function DataMapPage() {
               deepSpaceSkipped: m.deepSpaceSkipped,
               invalidSkipped: m.invalidSkipped,
             });
-            const skipped = m.deepSpaceSkipped + m.invalidSkipped;
-            setStatus("orbital_sats", "active", m.shown,
-              `${m.shown.toLocaleString()} live · ${skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
+            lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
+            publishOrbitalStatus(); // formats the LOD-paused note when applicable
+            followTick(); // O5: keep the followed satellite centered + ringed
           }
         };
         worker.postMessage({ type: "init", gp });
         worker.postMessage({ type: "start", hz: 1 });
+        applyLod(); // a page opened already deep-zoomed pauses immediately
+        // E4-1: identity catalog in the background, non-blocking — and once
+        // it lands, identified objects stop being dots (SYMBOLS NOT DOTS):
+        // shape = catalogued type, color = orbit class, dot = unidentified.
+        ensureSatcat().then(() => {
+          const g = orbitalGpRef.current;
+          if (g && satcatByNorad) satLayerRef.current?.setShapeCodes(shapeCodesFromSatcat(g, satcatByNorad));
+        }).catch(() => {});
       },
       (failures) => setStatus("orbital_sats", "error", undefined,
         failures === 0 ? "could not reach CelesTrak — retrying automatically…" : "still retrying automatically…"),
@@ -1529,8 +1858,15 @@ export default function DataMapPage() {
       { timeoutMs: 45_000 },
     );
 
-    return () => { stopLoad(); teardown(); };
+    return () => { map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", stopFollow); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
+
+  // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched
+  // registry (source of truth; ORBITAL_LOD_FALLBACK covers older registries).
+  useEffect(() => {
+    const entry = layers.find((l) => l.id === "orbital_sats") as any;
+    orbitalLodRef.current = entry?.lod ?? null;
+  }, [layers]);
 
   // ── satellite click-to-identify (ORBITAL O3; research/orbital_program.md's
   // "O3 picking" recipe). SatLayer is a raw custom WebGL layer with no
@@ -1556,6 +1892,11 @@ export default function DataMapPage() {
       const layer = satLayerRef.current;
       const gp = orbitalGpRef.current;
       if (!layer || !gp || !gp.length) return;
+      // EARTH TWIN A1: while the LOD envelope has the layer fully hidden, its
+      // worker is paused and the position buffer is STALE — an invisible
+      // satellite must not be clickable, and a coverage report from stale
+      // positions would be dishonest. The whole handler goes dormant.
+      if (layer.getGlobalOpacity() <= 0) return;
       const positions = layer.getPositions();
       if (!positions) return;
 
@@ -1570,6 +1911,9 @@ export default function DataMapPage() {
         layer.getGlobeCamera(),
       );
       if (!hit) {
+        // clicking empty ground releases any followed satellite (O5)
+        satFollowRef.current = null;
+        try { (map.getSource("sat-focus") as any)?.setData(focusRingFeatureCollection(null)); } catch {}
         // FEATURE CLICKS OWN THEIR POPUPS: only fall through to the coverage
         // report on genuinely empty ground. The basemap is raster-only, so any
         // rendered vector feature under the cursor belongs to a data layer
@@ -1608,16 +1952,54 @@ export default function DataMapPage() {
       const cls = ORBIT_CLASS_NAME[hit.classCode] ?? "unknown";
       const altKm = hit.altMeters / 1000;
       const ageDays = epochAgeDays(g.epoch, Date.now());
+      // E4-1 identity: SATCAT row (may still be downloading — honest line) +
+      // conservative operator resolve (owner code first, then the
+      // constellation name stem; null = honestly unmapped, never guessed).
+      if (satcatState === "error") ensureSatcat(); // failed earlier → retry on demand (this card stays honest, the next click enriches)
+      const sc = satcatByNorad?.get(g.noradId) ?? null;
+      const op = sc
+        ? resolveOperator(sc.owner, sc.country) ??
+          resolveOperator(nameStemForOperator(g.name ?? sc.name), sc.country)
+        : null;
+      // ── ORBITAL O5 slice 1: FOLLOW — the clicked satellite remains in
+      // focus: the O2 effect's followTick re-centers the camera on its
+      // fresh position every worker tick and moves the focus ring with it.
+      // Drag the map (or click empty ground) to take the camera back. ──
+      satFollowRef.current = { index: hit.index, noradId: g.noradId, name: g.name ?? null };
+      // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
+      // (unknown class = honest ring-only follow, never a guessed spacecraft)
+      satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
+      try {
+        if (!map.getSource("sat-focus")) {
+          map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
+          map.addLayer({
+            id: "sat-focus-ring", type: "circle", source: "sat-focus",
+            paint: {
+              "circle-radius": 13,
+              "circle-color": "rgba(0,0,0,0)",
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#ffd166",
+              "circle-pitch-alignment": "map",
+            },
+          });
+        }
+        // seed the ring at the clicked position immediately (the next tick takes over)
+        (map.getSource("sat-focus") as any)?.setData(
+          focusRingFeatureCollection(followTarget(positions, hit.index)));
+      } catch { /* ring is chrome — a failure never blocks the card */ }
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
-        subtitle: `${cls} · ${fmtKm(altKm)} altitude`,
+        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls} · ${fmtKm(altKm)} altitude`,
         body: [
           `NORAD catalog ID: ${g.noradId}`,
+          ...satelliteIdentityLines(sc, op, satcatState),
           g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
-          "RAW orbital element, SGP4-propagated from CelesTrak GP data — real position, no predictive claim.",
+          "FOLLOWING — the camera tracks this object as it moves (updates each second); drag the map or click empty ground to stop.",
+          sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
+          "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
           label: "CelesTrak catalog entry",
@@ -2401,12 +2783,42 @@ export default function DataMapPage() {
       } catch {}
     };
 
+    // PERF session #2: last successful fetch's coverage + payload, for the
+    // redundant-refetch skip and the lazy vector build (see lib/livePoints).
+    let lastFetch: FetchFootprint | null = null;
+    let lastPayload: any = null;
+    let vectorsCurrent = false;
+
+    // add-or-update the velocity-vector source/layer from a payload — shared
+    // by the tick path (zoom high enough) and the zoomend lazy build.
+    const applyVectors = (d: any) => {
+      if (!opts.toVectors) return;
+      const vfc = { type: "FeatureCollection", features: opts.toVectors(d) };
+      const vsrc: any = map.getSource(vecSrc);
+      if (vsrc) {
+        vsrc.setData(vfc);
+      } else {
+        map.addSource(vecSrc, { type: "geojson", data: vfc as any });
+        map.addLayer({
+          id: vecLayer, type: "line", source: vecSrc,
+          minzoom: 6,   // vectors are 2px noise at continent zooms and double
+                        // the draw load — appear once you zoom into a region
+          paint: { "line-color": ["get", "color"], "line-width": 1, "line-opacity": 0.45 },
+        }, layerId);
+      }
+      vectorsCurrent = true;
+    };
+
     const load = async () => {
       // Hidden-tab gate ([REPAIR 2026-07-05] map perf): a backgrounded /data
       // tab kept polling aircraft 4x/min. Skip while hidden; the
       // visibilitychange listener below refreshes immediately on return
       // (stale-with-timestamp already covers the gap honestly).
       if (document.hidden) return;
+      // PERF session #2: never rebuild mid-gesture — a tick landing during a
+      // drag stacked a full parse+setData onto the busiest frames; the
+      // moveend debounce below already reloads at settle.
+      try { if (map.isMoving()) return; } catch {}
       try {
         const b = map.getBounds();
         const since = sinceRef.current[id] || "";
@@ -2424,6 +2836,13 @@ export default function DataMapPage() {
           return;
         }
         if (d.time != null) sinceRef.current[id] = String(d.time);
+        // record what this fetch covered (redundant-refetch skip) + keep the
+        // payload for the lazy vector build on zoom-in
+        try {
+          const c = map.getCenter();
+          lastFetch = fetchFootprint(c.lat, c.lng, map.getZoom(), b.getNorth(), b.getSouth(), b.getEast(), b.getWest());
+        } catch {}
+        lastPayload = d;
 
         // Honest feed states (DESIGN.md): partial coverage + staleness shown.
         let note: string | undefined;
@@ -2458,22 +2877,16 @@ export default function DataMapPage() {
             map.on("mouseleave", l, onLeave);
           }
         }
-        if (opts.toVectors) {
-          const vfc = { type: "FeatureCollection", features: opts.toVectors(d) };
-          const vsrc: any = map.getSource(vecSrc);
-          if (vsrc) {
-            vsrc.setData(vfc);
-          } else {
-            map.addSource(vecSrc, { type: "geojson", data: vfc as any });
-            map.addLayer({
-              id: vecLayer, type: "line", source: vecSrc,
-              minzoom: 6,   // vectors are 2px noise at continent zooms and double
-                            // the draw load — appear once you zoom into a region
-              paint: { "line-color": ["get", "color"], "line-width": 1, "line-opacity": 0.45 },
-            }, layerId);
-          }
-        }
-        setStatus(id, "active", d.count ?? features.length, note);
+        // PERF session #2: the vector pass (a second full iteration + a
+        // second structured-clone setData over up to 10k records) only runs
+        // when the vec layer can actually be seen; below that the payload is
+        // kept and the zoomend handler builds lazily on the way in.
+        if (opts.toVectors && shouldBuildVectors(map.getZoom())) applyVectors(d);
+        else vectorsCurrent = false;
+        // Quantized count (nearest-25 above 500, display-only): the exact
+        // count jiggled ±dozens per tick, defeating setStatus's no-op bail
+        // and re-rendering the entire page component every fresh snapshot.
+        setStatus(id, "active", quantizeLiveCount(d.count ?? features.length), note);
       } catch {
         if (!stop) setStatus(id, "error", undefined, "feed error — backing off, retrying");
       }
@@ -2487,9 +2900,30 @@ export default function DataMapPage() {
     let moveDebounce: number | undefined;
     const onMove = () => {
       window.clearTimeout(moveDebounce);
-      moveDebounce = window.setTimeout(load, 400);
+      moveDebounce = window.setTimeout(() => {
+        // PERF session #2: a jitter pan inside the last fetch's served
+        // coverage re-downloaded the SAME 250nm circle under a new cache
+        // key (full parse + rebuild for nothing). Skip until the camera
+        // meaningfully leaves coverage; the interval still polls (cheap
+        // `unchanged` answers), so data never ages past one interval.
+        try {
+          const c = map.getCenter();
+          const nb = map.getBounds();
+          const next = fetchFootprint(c.lat, c.lng, map.getZoom(), nb.getNorth(), nb.getSouth(), nb.getEast(), nb.getWest());
+          if (!needsRefetch(lastFetch, next)) return;
+        } catch {}
+        void load();
+      }, 400);
     };
     map.on("moveend", onMove);
+    // Lazy vector build: crossing into vector-visible zoom between ticks
+    // builds from the kept payload instead of waiting up to a full interval.
+    const onZoomEnd = () => {
+      if (vectorsCurrent || !lastPayload || !opts.toVectors) return;
+      if (!shouldBuildVectors(map.getZoom())) return;
+      try { applyVectors(lastPayload); } catch {}
+    };
+    map.on("zoomend", onZoomEnd);
     const onVisible = () => { if (!document.hidden) load(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -2498,6 +2932,7 @@ export default function DataMapPage() {
       window.clearTimeout(moveDebounce);
       document.removeEventListener("visibilitychange", onVisible);
       try { map.off("moveend", onMove); } catch {}
+      try { map.off("zoomend", onZoomEnd); } catch {}
     };
   }, [setStatus]);
 
@@ -4572,6 +5007,7 @@ export default function DataMapPage() {
   const layerIcon = (id: string) =>
     id === "imagery" ? <Satellite size={15} /> :
     id === "terrain" ? <Mountain size={15} /> :
+    id === "seafloor" ? <Anchor size={15} /> :
     id === "weather" ? <CloudRain size={15} /> :
     id === "weather_temp" ? <Thermometer size={15} /> :
     id === "weather_wind" ? <Wind size={15} /> :
@@ -5445,10 +5881,26 @@ export default function DataMapPage() {
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Orbital</div>
                       <div className="vt-legend-items">
-                        <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
-                        <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
-                        <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO</span>
+                        <span className="vt-legend-chip">shape = type: ▣ payload · ▮ rocket body · ◆ debris · ● not yet identified</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify + FOLLOW it (the camera tracks it live — drag to stop), click empty ground for Starlink coverage there · fades out by city zoom, once the camera descends below LEO altitudes (LOD) — zoom out to bring the sky back</span>
+                      </div>
+                    </div>
+                  )}
+                  {enabled.seafloor && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Seafloor depth</div>
+                      <div className="vt-legend-items">
+                        {/* chips render from the SAME stops the map ramp uses
+                            (lib/bathymetry — one source of truth), shallow → deep */}
+                        {[...BATHYMETRY_STOPS].reverse().map((s) => (
+                          <span key={s.elevM} className="vt-legend-chip">
+                            <i style={{ background: s.color }} /> {s.label}{s.depthM > 0 ? ` ~${fmtMeters(s.depthM)}` : ""}
+                          </span>
+                        ))}
+                        <span className="vt-legend-note">NOAA ETOPO1 (~1 arc-min) — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · coarse cells can tint slightly past the shoreline (more visible with 3D terrain on)</span>
                       </div>
                     </div>
                   )}

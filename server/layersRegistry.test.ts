@@ -137,3 +137,124 @@ test("buoys layer: NDBC attribution + no-fabricated-zero honesty (map-layer wiri
   assert.ok(b.source.includes("National Data Buoy Center"), "attribution must name the National Data Buoy Center");
   assert.ok(/no.?data|missing/i.test(b.description), "description must state missing sensors are never coerced to zero");
 });
+
+test("seafloor layer: ETOPO1/NOAA attribution + interpolation & not-for-navigation honesty + opacity inheritance (EARTH TWIN E2-1)", () => {
+  const s = registry.layers.find((x: any) => x.id === "seafloor");
+  assert.ok(s, "seafloor layer missing");
+  assert.equal(s.kind, "raw");
+  assert.equal(s.status, "live");
+  assert.ok(/ETOPO1/.test(s.source) && /NOAA/.test(s.source), "attribution must name NOAA ETOPO1");
+  assert.ok(/interpolation/i.test(s.description), "description must state the soundings + satellite-gravity interpolation blend");
+  assert.ok(/never navigational|not.{0,10}navigation/i.test(s.description), "description must carry the not-for-navigation caveat");
+  assert.equal(s.field, true, "depth raster inherits the registry opacity slider");
+  assert.equal(s.altitudeRef, "depth", "v2: z means depth for this layer");
+});
+
+// ── REGISTRY v2 (EARTH TWIN E0-1, research/earth_twin_program.md A2) ──
+// All v2 fields are OPTIONAL and additive: entries that omit them stay valid
+// forever; entries that carry them must carry them WELL-FORMED so the LOD
+// director, global time axis, and license tripwire can trust what they read.
+// Extending a vocabulary below is a deliberate, reviewed act: add the value
+// here and in layers.json's _doc in the same PR.
+
+const V2_ALTITUDE_REFS = new Set(["surface", "agl", "msl", "orbit", "depth", "underground"]);
+const V2_TIME_MODES = new Set(["live", "dated-daily", "dated-subdaily", "archive", "static"]);
+const V2_CONFIDENCES = new Set(["verified", "derived", "estimated", "inferred", "placeholder"]);
+const V2_RENDER_KINDS = new Set(["point-symbol", "raster-field", "vector", "track", "grid", "custom"]);
+
+test("registry v2: altitudeRef, when present, is a known vertical datum", () => {
+  for (const l of registry.layers) {
+    if (!("altitudeRef" in l)) continue;
+    assert.ok(V2_ALTITUDE_REFS.has(l.altitudeRef),
+      `${l.id}: altitudeRef must be one of ${[...V2_ALTITUDE_REFS].join("|")} (got ${l.altitudeRef})`);
+  }
+});
+
+test("registry v2: time block, when present, is well-formed for the global time axis", () => {
+  for (const l of registry.layers) {
+    if (!("time" in l)) continue;
+    const t = l.time;
+    assert.ok(t && typeof t === "object" && !Array.isArray(t), `${l.id}: time must be an object`);
+    assert.ok(V2_TIME_MODES.has(t.mode),
+      `${l.id}: time.mode must be one of ${[...V2_TIME_MODES].join("|")} (got ${t.mode})`);
+    if ("latencyDays" in t) {
+      assert.ok(typeof t.latencyDays === "number" && t.latencyDays >= 0,
+        `${l.id}: time.latencyDays must be a number >= 0`);
+    }
+    if ("historyStart" in t) {
+      assert.ok(typeof t.historyStart === "string" && /^\d{4}-\d{2}(-\d{2})?$/.test(t.historyStart),
+        `${l.id}: time.historyStart must be YYYY-MM or YYYY-MM-DD (the honest archive floor)`);
+    }
+  }
+});
+
+test("registry v2: lod block, when present, is a sane camera-altitude envelope", () => {
+  for (const l of registry.layers) {
+    if (!("lod" in l)) continue;
+    const lod = l.lod;
+    assert.ok(lod && typeof lod === "object" && !Array.isArray(lod), `${l.id}: lod must be an object`);
+    for (const k of ["camMinKm", "camMaxKm", "fadeBandKm"]) {
+      if (k in lod) assert.ok(typeof lod[k] === "number" && lod[k] >= 0,
+        `${l.id}: lod.${k} must be a number >= 0`);
+    }
+    assert.ok(("camMinKm" in lod) || ("camMaxKm" in lod),
+      `${l.id}: an lod block without camMinKm or camMaxKm gates nothing — remove it or bound it`);
+    if ("camMinKm" in lod && "camMaxKm" in lod) {
+      assert.ok(lod.camMinKm < lod.camMaxKm, `${l.id}: lod.camMinKm must be < lod.camMaxKm`);
+    }
+    if ("ramp" in lod) {
+      assert.ok(Array.isArray(lod.ramp) && lod.ramp.every((s: unknown) => typeof s === "string"),
+        `${l.id}: lod.ramp must be an array of stage names`);
+    }
+  }
+});
+
+test("registry v2: provenance block, when present, is well-formed (confidence tier + string facts)", () => {
+  for (const l of registry.layers) {
+    if (!("provenance" in l)) continue;
+    const p = l.provenance;
+    assert.ok(p && typeof p === "object" && !Array.isArray(p), `${l.id}: provenance must be an object`);
+    if ("confidence" in p) {
+      assert.ok(V2_CONFIDENCES.has(p.confidence),
+        `${l.id}: provenance.confidence must be one of ${[...V2_CONFIDENCES].join("|")} (got ${p.confidence})`);
+    }
+    for (const k of ["license", "updateFreq", "resolution", "coverage"]) {
+      if (k in p) assert.equal(typeof p[k], "string", `${l.id}: provenance.${k} must be a string`);
+    }
+    if ("commercialOk" in p) {
+      assert.equal(typeof p.commercialOk, "boolean", `${l.id}: provenance.commercialOk must be boolean`);
+    }
+  }
+});
+
+test("registry v2: renderKind, when present, names a known engine", () => {
+  for (const l of registry.layers) {
+    if (!("renderKind" in l)) continue;
+    assert.ok(V2_RENDER_KINDS.has(l.renderKind),
+      `${l.id}: renderKind must be one of ${[...V2_RENDER_KINDS].join("|")} (got ${l.renderKind})`);
+  }
+});
+
+test("LICENSE RATCHET: no layer ships with a declared non-commercial license (monetization tripwire, machine-checked)", () => {
+  const violations = registry.layers
+    .filter((l: any) => l.provenance && l.provenance.commercialOk === false)
+    .map((l: any) => l.id);
+  assert.deepEqual(violations, [],
+    `layers declaring provenance.commercialOk=false may never ship (EARTH TWIN charter: NC data is a ` +
+    `guaranteed rip-out at billing activation): ${violations.join(", ")} — use the build-first alternative ` +
+    `(OSM/ODbL, US-gov public domain) or file a paid-license wishlist entry instead`);
+});
+
+test("registry v2 exemplars: the five annotated layers keep their contract (E0-1 ships wired, not vacuous)", () => {
+  const byId = new Map(registry.layers.map((l: any) => [l.id, l]));
+  const sats: any = byId.get("orbital_sats");
+  assert.equal(sats?.altitudeRef, "orbit", "orbital_sats must declare altitudeRef=orbit");
+  assert.ok(sats?.lod && typeof sats.lod.camMinKm === "number",
+    "orbital_sats must carry the LOD camera-altitude envelope (the directive's zoom-gated satellites)");
+  assert.equal(byId.get("terrain")?.time?.mode, "static");
+  assert.equal(byId.get("aircraft")?.renderKind, "point-symbol");
+  assert.equal(byId.get("nightlights")?.time?.mode, "dated-daily");
+  const smap: any = byId.get("soilmoisture");
+  assert.ok(smap?.time?.latencyDays >= 5,
+    "soilmoisture must declare its ~6-day processing lag so the time axis defaults honestly");
+});

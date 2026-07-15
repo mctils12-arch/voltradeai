@@ -77,6 +77,7 @@ const FIXTURES = {
     layers: [
       { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", group: "base", costTier: "light", source: "Esri World Imagery", description: "Base imagery." },
       { id: "terrain", name: "Terrain (hillshade)", kind: "raw", status: "live", group: "base", costTier: "moderate", source: "Mapterhorn (© Mapterhorn)", description: "Global hillshade, off by default." },
+      { id: "seafloor", name: "Seafloor (drain the ocean)", kind: "raw", status: "live", field: true, group: "base", costTier: "moderate", source: "NOAA ETOPO1 via Terrain Tiles on AWS", description: "Depth-tinted ocean-floor relief overlay, off by default." },
       { id: "weather", name: "Weather radar (US)", kind: "raw", status: "live", field: true, group: "base", costTier: "heavy", source: "NOAA nowCOAST (public domain)", description: "US radar mosaic, off by default." },
       { id: "weather_temp", name: "Temperature (global)", kind: "raw", status: "live", field: true, group: "base", costTier: "heavy", source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global temp field, off by default." },
       { id: "weather_wind", name: "Wind (global)", kind: "raw", status: "live", field: true, group: "base", costTier: "heavy", source: "OpenWeatherMap (© OpenWeatherMap)", description: "Global wind field, off by default." },

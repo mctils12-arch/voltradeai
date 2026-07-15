@@ -609,6 +609,24 @@ read-before-write review.
   W1 globe-default map, W6 analyst (server tool-loop + chat pane).
   Activates on ANTHROPIC_API_KEY. Remaining: W2 client sat layer, W3
   time scrubber, W5 dossier v2.
+- EARTH TWIN program installed 2026-07-15 (human directive: "Infinite
+  4D Earth Digital Twin"): research/earth_twin_program.md is the
+  multi-session charter — one 4D digital-twin build over the existing
+  stack (WORLDVIEW/ORBITAL/SCALE/CONSOLE keep their charters; EARTH
+  TWIN sequences the NEW work). Spine: A1 LOD director (camera-altitude
+  layer envelopes/fidelity ramps), A2 registry v2 (plug-in schema:
+  altitudeRef/time/lod/provenance/renderKind + generic engines), A3
+  global time axis, A4 consumes SCALE. Verticals: orbit identity/LOD,
+  true-altitude aircraft, ocean bathymetry + water toggle + GEBCO TID
+  uncertainty, underground (honest sparse), atmosphere (GFS wind
+  particles), celestial lighting. Every "impossible" ask mapped to an
+  honest approximation tier in the charter. NOTHING NEW BUILT at
+  install; E0 (registry v2 + LOD director) gates the build. License
+  gates open: TeleGeography cables + WDPA (both NC terms). 2026-07-15
+  human clarification (recorded in the charter): architecture update
+  not a data-overview rewrite; data never made up — existing data or
+  new data created by real means; CONTINUOUS BUILD MANDATE — sessions
+  build the next unblocked slice until the program is finished.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 

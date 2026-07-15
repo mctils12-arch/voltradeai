@@ -1,5 +1,5 @@
 {
-  "_doc": "Registry of /data map layers. Served via /api/data/layers. Every layer is labeled kind: 'raw' (as-is display, source attribution, no predictive claim) or 'signal' (interpreted reading; may not surface before ROOT VALIDATION LADDER gate 2). Status: live | awaiting_key | planned. Layers with field:true are visual FIELD overlays and inherit registry-native display controls (opacity slider, default 60%). group: panel section id (BUILD ORDER 4 #2, GIP Part 4 UI SCALABILITY) — the client's PANEL_GROUPS/LAYER_GROUP map is now a fallback only; a new layer can be slotted into an existing panel group by setting this field alone, no client code change required (a brand-new group id needs one addition to client PANEL_GROUPS to get a label, but defaults collapsed automatically). costTier: 'light'|'moderate'|'heavy' — relative client network/render cost (raster fields and high-frequency live streams are 'heavy'; small polled REST lists are 'light'); feeds the panel's active-cost-budget advisory badge (client datamap.tsx costWeightOf/activeCostWeight) and is available for future admission-control budgets as the registry grows toward hundreds of layers.",
+  "_doc": "Registry of /data map layers. Served via /api/data/layers. Every layer is labeled kind: 'raw' (as-is display, source attribution, no predictive claim) or 'signal' (interpreted reading; may not surface before ROOT VALIDATION LADDER gate 2). Status: live | awaiting_key | planned. Layers with field:true are visual FIELD overlays and inherit registry-native display controls (opacity slider, default 60%). group: panel section id (BUILD ORDER 4 #2, GIP Part 4 UI SCALABILITY) — the client's PANEL_GROUPS/LAYER_GROUP map is now a fallback only; a new layer can be slotted into an existing panel group by setting this field alone, no client code change required (a brand-new group id needs one addition to client PANEL_GROUPS to get a label, but defaults collapsed automatically). costTier: 'light'|'moderate'|'heavy' — relative client network/render cost (raster fields and high-frequency live streams are 'heavy'; small polled REST lists are 'light'); feeds the panel's active-cost-budget advisory badge (client datamap.tsx costWeightOf/activeCostWeight) and is available for future admission-control budgets as the registry grows toward hundreds of layers. REGISTRY v2 (EARTH TWIN A2, 2026-07-15 — all fields OPTIONAL and additive; server/layersRegistry.test.ts is the machine-checked contract): altitudeRef = what z means for the layer (surface|agl|msl|orbit|depth|underground). time = what the global time axis can do with the layer ({mode: live|dated-daily|dated-subdaily|archive|static, latencyDays?, historyStart? — the honest archive floor, YYYY-MM}). lod = camera-altitude visibility envelope in km for the LOD director ({camMinKm?, camMaxKm?, fadeBandKm?, ramp?}) — LOD is a render choice, always reversible by zoom, never a storage choice, and an out-of-envelope layer states so on-panel (never a silent drop). provenance = {license?, commercialOk?, updateFreq?, resolution?, coverage?, confidence: verified|derived|estimated|inferred|placeholder} — commercialOk:false may NEVER ship (license ratchet: the monetization tripwire made machine-checkable; use build-first alternatives or a paid-license wishlist entry). renderKind = which generic engine draws the layer (point-symbol|raster-field|vector|track|grid|custom).",
   "layers": [
     {
       "id": "imagery",
@@ -19,7 +19,41 @@
       "group": "base",
       "costTier": "moderate",
       "source": "Mapterhorn terrain tiles (Copernicus GLO-30 + national open DEMs; © Mapterhorn)",
-      "description": "Real 3D elevation relief: the globe mesh is deformed from the DEM so mountains rise and valleys sink (best with pitch/tilt), plus a hillshade accent under all data layers. Off by default — opt-in premium relief; global elevation from Copernicus GLO-30 + national open DEMs."
+      "description": "Real 3D elevation relief: the globe mesh is deformed from the DEM so mountains rise and valleys sink (best with pitch/tilt), plus a hillshade accent under all data layers. Off by default — opt-in premium relief; global elevation from Copernicus GLO-30 + national open DEMs.",
+      "altitudeRef": "surface",
+      "time": {
+        "mode": "static"
+      },
+      "renderKind": "custom",
+      "provenance": {
+        "license": "Copernicus GLO-30 + national open DEMs; © Mapterhorn tiles (commercial-OK per licensing register 2026-07-04)",
+        "commercialOk": true,
+        "resolution": "~30 m global",
+        "confidence": "verified"
+      }
+    },
+    {
+      "id": "seafloor",
+      "name": "Seafloor (drain the ocean)",
+      "kind": "raw",
+      "status": "live",
+      "group": "base",
+      "costTier": "moderate",
+      "source": "NOAA ETOPO1 bathymetry via Terrain Tiles on AWS (Mapzen/Tilezen, open data)",
+      "description": "Ocean-floor relief as a depth-tinted overlay: toggling drains the ocean — trenches, ridges, and shelves appear where the sea surface was, while land imagery stays untouched (transparent above sea level). HONESTY: ETOPO1 is ~1 arc-minute (~2 km) and blends ship soundings with satellite-gravity interpolation — only ~a quarter of the world's seafloor is direct-measured, so depths are indicative, never navigational. Higher-fidelity GEBCO 15-arc-second relief plus its per-cell measured-vs-interpolated confidence grid is the charter's planned upgrade (research/earth_twin_program.md E2).",
+      "field": true,
+      "altitudeRef": "depth",
+      "time": {
+        "mode": "static"
+      },
+      "renderKind": "raster-field",
+      "provenance": {
+        "license": "Terrain Tiles: open (Mapzen / AWS Open Data); bathymetry: NOAA ETOPO1, public domain",
+        "commercialOk": true,
+        "resolution": "~1 arc-minute (ETOPO1); oversampled beyond z6",
+        "coverage": "global ocean",
+        "confidence": "verified"
+      }
     },
     {
       "id": "weather",
@@ -62,7 +96,19 @@
       "group": "live",
       "costTier": "heavy",
       "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live + adsb.fi (fallbacks)",
-      "description": "Live aircraft positions; updates ~10s. No predictive claim."
+      "description": "Live aircraft positions; updates ~10s. No predictive claim.",
+      "altitudeRef": "msl",
+      "time": {
+        "mode": "archive"
+      },
+      "renderKind": "point-symbol",
+      "provenance": {
+        "license": "adsb.lol ODbL 1.0 (the monetization-lawful provider per the wishlist compliance check)",
+        "commercialOk": true,
+        "updateFreq": "~10 s",
+        "coverage": "community receiver network — coverage varies by region",
+        "confidence": "verified"
+      }
     },
     {
       "id": "vessels",
@@ -92,7 +138,24 @@
       "group": "live",
       "costTier": "heavy",
       "source": "CelesTrak GP element sets (T.S. Kelso; client-fetched in the browser, SGP4 propagated on-device)",
-      "description": "Live positions of the tracked near-earth satellite population (~8,000+ of the ~16,000 catalogued objects), propagated on-device from CelesTrak GP elements with SGP4 and drawn as GPU points colored by orbit class (LEO/MEO/GEO). REAL positions only: deep-space objects (most GEO comms and MEO navigation sats) require SDP4, which the near-earth kernel does not implement — they are skipped and COUNTED in the layer status, never fabricated. No predictive claim."
+      "description": "Live positions of the tracked near-earth satellite population (~8,000+ of the ~16,000 catalogued objects), propagated on-device from CelesTrak GP elements with SGP4 and drawn as GPU points colored by orbit class (LEO/MEO/GEO). REAL positions only: deep-space objects (most GEO comms and MEO navigation sats) require SDP4, which the near-earth kernel does not implement — they are skipped and COUNTED in the layer status, never fabricated. No predictive claim.",
+      "altitudeRef": "orbit",
+      "time": {
+        "mode": "live"
+      },
+      "lod": {
+        "camMinKm": 100,
+        "fadeBandKm": 150
+      },
+      "renderKind": "custom",
+      "provenance": {
+        "license": "CelesTrak GP/SATCAT — freely available, courtesy update limits (licensing record R17)",
+        "commercialOk": true,
+        "updateFreq": "elements ~2h (client-cached); positions 1 Hz on-device",
+        "resolution": "SGP4 near-earth propagation",
+        "coverage": "~16k catalogued objects; deep-space (GEO comms / MEO nav) skipped pending SDP4, counted on-panel",
+        "confidence": "verified"
+      }
     },
     {
       "id": "sites",
@@ -1071,7 +1134,20 @@
       "costTier": "moderate",
       "source": "NASA GIBS/ESDIS — VIIRS/SNPP Day/Night Band, public domain",
       "description": "Daily night-lights radiance imagery, dated (default: yesterday — GIBS never carries same-day data; step back further via the on-panel scrubber). As-is display, no predictive claim — metro/industrial radiance MoM/YoY delta as a regional-economic-activity proxy is an open gate-2 hypothesis (research/open_questions.md), not yet surfaced as a signal. Some dates/areas render blank on the daylight side of the terminator or from sensor gaps — honest, not a bug.",
-      "field": true
+      "field": true,
+      "altitudeRef": "surface",
+      "time": {
+        "mode": "dated-daily",
+        "latencyDays": 1
+      },
+      "renderKind": "raster-field",
+      "provenance": {
+        "license": "NASA public domain",
+        "commercialOk": true,
+        "updateFreq": "daily",
+        "resolution": "~750 m (VIIRS DNB)",
+        "confidence": "verified"
+      }
     },
     {
       "id": "aerosol",
@@ -1104,7 +1180,20 @@
       "costTier": "moderate",
       "source": "NASA GIBS/ESDIS — SMAP L4 root-zone soil moisture, public domain",
       "description": "Root-zone soil moisture from NASA SMAP L4, dated. NOTE the ~6-day processing lag: the scrubber defaults ~7 days back (not yesterday) because SMAP L4 does not carry recent days — defaulting to yesterday would show a guaranteed-blank tile. As-is display, no predictive claim: soil moisture over a named crop belt (with drought/river layers) as an agricultural-supply proxy is an open gate-2 hypothesis (research/open_questions.md), not yet a signal. Ocean is legitimately blank — this is a land soil index.",
-      "field": true
+      "field": true,
+      "altitudeRef": "surface",
+      "time": {
+        "mode": "dated-daily",
+        "latencyDays": 7
+      },
+      "renderKind": "raster-field",
+      "provenance": {
+        "license": "NASA public domain",
+        "commercialOk": true,
+        "updateFreq": "daily (≈6-day processing lag)",
+        "resolution": "~9 km (SMAP L4)",
+        "confidence": "verified"
+      }
     },
     {
       "id": "no2",

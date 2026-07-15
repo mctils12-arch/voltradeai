@@ -10,7 +10,9 @@ import path from "path";
 import zlib from "zlib";
 import {
   archiveAircraft, archiveVessels, compressOldHours, rollupOldDays,
-  recentTrack, archiveStats, aircraftIntervalMs, vesselIntervalMs,
+  compressOldHoursAsync, rollupOldDaysAsync,
+  recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
+  archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS,
 } from "./datacoreArchive";
 
@@ -53,6 +55,85 @@ test("archive append + per-entity cadence + recentTrack round-trip", () => {
   const track = recentTrack("aircraft", "abc123", base, t0 + 6 * 60_000);
   assert.equal(track.length, 2);
   assert.ok(track[0].t < track[1].t, "track sorted by time");
+});
+
+test("PERF: recentTrackAsync returns byte-identical results to the sync path (raw + gzipped hours)", async () => {
+  const base = tmp();
+  const now = Date.now();
+  // Unique ids per test: the archive's per-entity thinning state is
+  // module-level and persists across tests in one process.
+  // An old (gz-eligible) hour + a current raw hour, plus a decoy id whose
+  // lines must survive the substring prefilter without polluting the result.
+  archiveAircraft([cruise("perfid1", 44, -31)], SITES, base, now - 3 * 3600_000);
+  archiveAircraft([cruise("perfid1x", 10, 10)], SITES, base, now - 3 * 3600_000);
+  archiveAircraft([cruise("perfid1", 45, -30)], SITES, base, now);
+  compressOldHours(base, now); // old hour → .jsonl.gz, exercising the gunzip stream
+  const sync = recentTrack("aircraft", "perfid1", base, now);
+  const async_ = await recentTrackAsync("aircraft", "perfid1", base, now);
+  assert.deepEqual(async_, sync, "streamed path must reproduce the sync path exactly");
+  assert.equal(async_.length, 2);
+  assert.ok(async_.every((p) => typeof p.la === "number" && typeof p.lo === "number"));
+});
+
+test("PERF: recentTrackCached serves repeats from cache inside the TTL, rescans after it", async () => {
+  clearTrackCache();
+  const base = tmp();
+  const t0 = Date.now();
+  archiveAircraft([cruise("perfid2")], SITES, base, t0);
+  const first = await recentTrackCached("aircraft", "perfid2", base, t0 + 1000);
+  assert.equal(first.length, 1);
+  // new archive point lands; a re-read INSIDE the 30s TTL must serve the
+  // cached result (this is exactly the client's 30s card refresh)
+  archiveAircraft([cruise("perfid2", 46, -29)], SITES, base, t0 + 6 * 60_000);
+  const cached = await recentTrackCached("aircraft", "perfid2", base, t0 + 1000 + 10_000);
+  assert.equal(cached.length, 1, "inside the TTL the archive is NOT rescanned");
+  // past the TTL the fresh point appears
+  const fresh = await recentTrackCached("aircraft", "perfid2", base, t0 + 6 * 60_000 + 40_000);
+  assert.equal(fresh.length, 2, "after the TTL a rescan picks up new points");
+  clearTrackCache();
+});
+
+test("PERF: compressOldHoursAsync produces the same on-disk outcome as the sync pass", async () => {
+  const now = Date.now();
+  // ONE fixture, then a directory copy: writing the same ids twice would be
+  // thinned away by the archive's module-level per-entity cadence state.
+  const a = tmp();
+  archiveAircraft([cruise("perfgz1")], SITES, a, now - 3 * 3600_000);
+  archiveAircraft([cruise("perfgz2")], SITES, a, now);
+  const b = tmp();
+  fs.cpSync(a, b, { recursive: true });
+  const doneSync = compressOldHours(a, now);
+  const doneAsync = await compressOldHoursAsync(b, now);
+  assert.equal(doneAsync, doneSync, "same number of hours compressed");
+  const list = (base: string) => fs.readdirSync(path.join(base, "aircraft")).sort();
+  assert.deepEqual(list(b), list(a), "same file set (old hour gz, current raw)");
+  const gz = list(a).find((f) => f.endsWith(".gz"))!;
+  const content = (base: string) => zlib.gunzipSync(fs.readFileSync(path.join(base, "aircraft", gz))).toString();
+  assert.equal(content(b), content(a), "gz payloads byte-identical");
+});
+
+test("PERF: rollupOldDaysAsync produces the same daily summaries as the sync pass", async () => {
+  const now = Date.now();
+  const old = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const a = tmp();
+  archiveAircraft([cruise("perfru1", 40, -100)], SITES, a, old);
+  archiveAircraft([cruise("perfru1", 41, -101)], SITES, a, old + 6 * 60_000);
+  archiveAircraft([cruise("perfru2", 10, 10)], SITES, a, old + 60_000);
+  const b = tmp();
+  fs.cpSync(a, b, { recursive: true });
+  const rolledSync = rollupOldDays(a, now);
+  const rolledAsync = await rollupOldDaysAsync(b, now);
+  assert.equal(rolledAsync, rolledSync, "same day count rolled");
+  assert.ok(rolledSync >= 1, "fixture actually exercised a rollup");
+  const read = (base: string) => {
+    const dir = path.join(base, "aircraft_tracks");
+    const f = fs.readdirSync(dir)[0];
+    return zlib.gunzipSync(fs.readFileSync(path.join(dir, f))).toString().trim().split("\n")
+      .map((l) => JSON.parse(l)).sort((x, y) => String(x.i).localeCompare(String(y.i)));
+  };
+  assert.deepEqual(read(b), read(a), "summaries identical (shared accumulation helpers)");
+  assert.equal(fs.readdirSync(path.join(b, "aircraft")).length,
+               fs.readdirSync(path.join(a, "aircraft")).length, "raw files deleted the same way");
 });
 
 test("vessel archive stores static enrichment fields", () => {
