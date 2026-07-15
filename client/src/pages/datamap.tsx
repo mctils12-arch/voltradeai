@@ -1568,6 +1568,7 @@ export default function DataMapPage() {
       }
     };
     map.on("move", applyLod);
+    map.on("resize", applyLod); // rotate/resize changes camera altitude without a move event
 
     // Resilient fetch+init: a CelesTrak stall/blip now retries automatically with
     // backoff instead of leaving the layer dead until a manual toggle (BUG 1). The
@@ -1622,7 +1623,7 @@ export default function DataMapPage() {
       { timeoutMs: 45_000 },
     );
 
-    return () => { map.off("move", applyLod); stopLoad(); teardown(); };
+    return () => { map.off("move", applyLod); map.off("resize", applyLod); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched
@@ -5557,7 +5558,7 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there · fades out near street zoom (LOD) — zoom out to bring the sky back</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there · fades out by city zoom, once the camera descends below LEO altitudes (LOD) — zoom out to bring the sky back</span>
                       </div>
                     </div>
                   )}
