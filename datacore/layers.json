@@ -96,7 +96,7 @@
       "group": "live",
       "costTier": "heavy",
       "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live + adsb.fi (fallbacks)",
-      "description": "Live aircraft positions; updates ~10s. No predictive claim.",
+      "description": "Live aircraft positions; updates ~10s. Icon → 3D ramp (EARTH TWIN E3): class icons at wide zooms; at close zoom (z8+) aircraft render as heading-oriented 3D silhouettes at their REAL barometric altitude — with tilt and 3D terrain on, planes fly above the ground (altitude scaled with the terrain's own exaggeration so the vertical datum matches). Color = altitude band in both representations (ground grey / <3,000 m amber / cruise blue). On-ground aircraft sit at the surface; negative baro readings clamp to 0, never below it. No predictive claim.",
       "altitudeRef": "msl",
       "time": {
         "mode": "archive"
