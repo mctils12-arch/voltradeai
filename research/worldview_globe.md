@@ -190,6 +190,23 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
 - G2h Sea ice `AMSRU2_Sea_Ice_Concentration_12km`; snowpack `MODIS_Terra_NDSI_Snow_Cover`
   + SWE; chlorophyll `MODIS_Aqua_L2_Chlorophyll_A`; biomass `GEDI_..._Biomass..._Mean`
   (STATIC, no slider). Hypotheses per inventory (routing/hydro/seafood/carbon).
+  [SHIPPED v1.0.318] biomass slice: `GEDI_ISS_L4B_Aboveground_Biomass_Density_
+  Mean_201904-202303`, GoogleMapsCompatible_Level7, requested via GIBS's
+  "default" token (no hardcoded date — survives a future mission-life
+  reprocessing rollover). Genuinely static (single 2019-04–2023-03 composite,
+  confirmed via live GetCapabilities: one `Value` entry, not a daily
+  sequence) — no scrubber, unlike every other G2 layer. Access + real field
+  verified live: Amazon basin 95% non-transparent, US Pacific-NW 99%,
+  open ocean ~0.04% (legitimately blank, GEDI ±51.6° land-only). Hypothesis
+  filed in open_questions.md: standing-carbon CONTEXT/baseline, not a
+  standalone signal (a static composite can't show change) — gate 2 blocked
+  on a future repeat/reprocessed GEDI product for change detection. STILL
+  OPEN: sea ice, snowpack, chlorophyll (all three are actually daily
+  products with real dates in GIBS's own capabilities, unlike biomass —
+  a future session adding them should decide fresh whether they get the
+  full G2a-style scrubber or a simpler "always latest" pattern like
+  firetemp, not assume "static" applies to them the way it genuinely does
+  to biomass).
 Every GIBS SIGNAL claim above is a HYPOTHESIS → filed in open_questions.md with a
 ladder path; the raster overlay ships as RAW (labeled, dated), the interpreted
 signal stays gate-2-locked until validated. The backend consumes the same layers
