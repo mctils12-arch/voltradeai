@@ -363,6 +363,308 @@ after the first two vertical slices land.
 
 NEXT: E0 slice 1 (registry v2 additive schema + validation test) —
 falls to the next session; this session's remit was the charter itself.
+## 2026-07-15 [PRODUCT] — worldview_globe.md G2h biomass slice: GEDI L4B aboveground biomass density, a genuinely static NASA GIBS raster (v1.0.318, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, scripts/visual_check.mjs)
+with datacore/layers.json (SHARED, small additive registry entry) and
+research/*.md bookkeeping. No FROZEN paths touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md read in full. research/
+experiments.md read from the TOP (newest-at-top per its own header — no
+repeat of the tail-read mistake the immediately-prior [REPAIR] session
+flagged). research/open_questions.md KNOWN BROKEN section read in full.
+Live `/api/health`: no LIVENESS ALARM (`bot.liveness.dark: false`,
+drawdownPct 0.0, all subsystems ok, scanner 0 consecutive failures). Loop-
+health ratio over the last 10 tagged entries (newest first: PRODUCT[this]/
+REPAIR/PIPELINE/PRODUCT/REPAIR/PRODUCT/REPAIR/PRODUCT/REPAIR/PRODUCT) — 4
+REPAIR of 10, under the 7/10 thrash threshold, no meta-problem override.
+KNOWN BROKEN: #17 just resolved same-day by the immediately-prior session;
+#21 is evidence-gated (needs a full trading day post-v1.0.314, market not
+yet closed at session start) — left untouched per its own stated bar, not
+this session's territory; #10/#18/#20 are dead-config/self-healing/
+evidence-gated, none liveness-critical. This is a [PRODUCT] session per the
+scheduled-routine directive — repair duty stays with the DAILY routines;
+nothing here blocked product work.
+
+PRIMARY ACTION CHOICE: surveyed the standing multi-session product
+programs for the next concrete, self-contained, ripe item: platform_
+program.md (P1-P4 shipped, P5 is HUMAN-GATED — nothing to pick up);
+orbital_program.md (O1-O4/O7/far-side-cull shipped, remaining O5 glTF
+models is a genuinely heavier asset-pipeline slice, not a single-session
+scope fit); console_charter.md (W1-W6 fully shipped, no queue left);
+grid_vision_phaseb.md (blocked on the gate-1 generalization bar not yet
+crossed — a RunPod/GPU research question, not ripe UI work). worldview_
+globe.md's G2 (NASA GIBS layers) had two still-open named items: G2f
+floods and G2h (sea ice/snowpack/chlorophyll/biomass, charter-labeled
+"STATIC, no slider"). Chose G2h's biomass slice specifically: of the four
+G2h candidates, GEDI L4B aboveground biomass density is the ONLY one
+whose GIBS capabilities record actually confirms a single static composite
+(one `Value` entry, `2019-04-18/2019-04-18/P1429D`) rather than a real
+daily-dated product mislabeled "static" by the charter's own grouping —
+verified this session via live GetCapabilities before writing any code
+(sea ice/NDSI-snow/chlorophyll all carry real daily `Value` ranges through
+2025-2026, so they get their own future session's fresh scrubber-vs-latest
+decision rather than inheriting "static" wrongly). This also keeps the PR
+to one clean logical change (one GIBS layer, matching the established
+one-layer-per-PR precedent from G2a-g) rather than bundling four
+dissimilar cadences.
+
+READ BEFORE WRITE: read client/src/lib/gibs.ts (84 lines, the shared
+factory — gibsTileUrl/gibsDefaultDate/gibsStepDate/gibsIsLatestAvailable/
+gibsLatestScanTime) and traced every G2-layer wiring point end to end
+before writing anything: LAYER_GROUP (datamap.tsx ~L229), FIELD_MAP_LAYER
+opacity-slider map (~L603), the per-layer useEffect mount/unmount block
+(vegetation/soilmoisture/no2/firetemp as the four live examples), layerIcon
+(~L4517), the legend group-visibility condition (~L5269) + per-layer legend
+entry, datacore/layers.json's registry entry, AND scripts/visual_check.mjs's
+mirror fixture (required by the R15-precedent comment in that file: "every
+toggleable registry layer must appear in this fixture" — server/
+layersWiring.test.ts pins the LAYER_GROUP half of that ratchet, the visual
+harness fixture is the other half, undocumented as a test but still
+load-bearing for the harness actually rendering the toggle).
+
+GATE-1 DATA VERIFICATION (done BEFORE shipping, per the ROOT VALIDATION
+LADDER — this is a RAW overlay so gate 1 is the only gate that applies):
+fetched GIBS's live WMTSCapabilities.xml (1,267 layers), confirmed the exact
+identifier `GEDI_ISS_L4B_Aboveground_Biomass_Density_Mean_201904-202303`
+(GoogleMapsCompatible_Level7, PNG) and its single-Value time dimension.
+Live-fetched real tiles and pixel-checked with Pillow (installed this
+session — not present by default): Amazon basin (z5) 62,204/65,536 px
+non-transparent (95%) with plausible green biomass-density coloring; US
+Pacific-NW forest (z5) 64,803/65,536 (99%); open mid-Pacific ocean (z5)
+24/65,536 (~0.04%, legitimately blank — GEDI is spaceborne LiDAR, land
+vegetation only, ~±51.6° latitude limit). This is a REAL, non-fabricated
+field, not a guessed color ramp — GIBS serves pre-rendered PNG tiles
+server-side, same as every other G2 layer.
+
+SHIPPED (one logical change): `client/src/pages/datamap.tsx` gained the
+"biomass" layer — LAYER_GROUP entry (environmental), FIELD_MAP_LAYER entry
+(opacity slider via the existing generic `field:true` mechanism, no new
+UI needed), a useEffect mount/unmount block requesting GIBS's own
+"default" token (not a hardcoded 2019-04-18 date) so a future GIBS-side
+reprocessing rollover to a new mission-life composite needs no code
+change (same pattern firetemp already uses for its "always freshest"
+case), a TreePine icon, and a legend entry. Deliberately has NO date
+state and NO refresh interval — unlike every other G2 layer, this one
+genuinely never changes, so the scrubber/polling machinery those layers
+carry would be dishonest theater here. `datacore/layers.json` gained the
+matching registry entry (kind: raw, group: environmental, field: true,
+honest coverage-boundary description). `scripts/visual_check.mjs` gained
+the mirror fixture entry per the R15 precedent.
+
+RESEARCH FILED: open_questions.md gained a new BIOMASS-DENSITY /
+STANDING-CARBON HYPOTHESIS entry (prior stated before any test, per
+REASONING STANDARD #10): a STATIC composite can never show change, so
+this ships as honest CONTEXT/baseline, not a standalone signal — gate 2 is
+genuinely blocked on a future repeat/reprocessed GEDI product existing at
+all (outside our control) rather than on anything buildable this session.
+Cross-tie filed against the existing `forest` (JRC extent) layer (WHERE
+forest exists × HOW MUCH carbon it holds) and noted as a future input to
+the fires/NDVI/soil-moisture cross-ties already on file. worldview_globe.md
+G2h bullet updated with the SHIPPED marker + the still-open sea-ice/snow/
+chlorophyll note above, so a future session doesn't assume "static"
+covers those three without re-checking GetCapabilities itself.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): pure additive display layer,
+default-off (not in DEFAULT_ON), zero-cost-when-off (no fetch, no state,
+no interval fires unless the user toggles it on). Cannot affect any other
+layer, the entity graph, riverPlants.ts, or any trading/scoring/sizing
+code — it doesn't touch server/ at all. The only shared file touched is
+datacore/layers.json (additive JSON array entry) and package.json
+(version bump, read-and-increment at commit time per WORKSTREAM
+PARTITION).
+
+VERIFICATION: this sandbox had zero node_modules (recurring gap every
+recent session logs) — `npm install`, 486 packages, run this session.
+`npx tsx --test server/layersWiring.test.ts` 1/1 (the LAYER_GROUP ratchet
+passes with the new entry). `npx tsx --test server/*.test.ts` 680/680,
+zero regressions (this file touches no server/ code, as expected — ran
+anyway as the standing full-suite gate). `npx tsx --test client/src/lib/
+**/*.test.ts client/src/lib/*.test.ts` 139/139 including gibs.test.ts
+(unaffected — gibs.ts itself wasn't touched, only a new call site).
+`npx tsc --noEmit`: 66 errors before AND after, git-stash A/B-diffed —
+byte-identical except one pre-existing datamap.tsx union-type error's
+line number shifting by this diff's +66 added lines (same file, same
+error, confirmed by content diff not just count — the same pattern every
+recent datamap.tsx session has documented). `npm run build`: clean, both
+client + server bundles, no new warnings.
+`python3 -m pytest` NOT run — this sandbox has no pytest installed and
+zero Python files were touched (client/TS-only change).
+
+VISUAL HARNESS: attempted `node scripts/visual_check.mjs --page data`
+twice (foreground then backgrounded) — reproduced the EXACT sandbox
+limitation the 2026-07-14 HIFLD session already found and filed (distinct
+from the older CDN-firewall limitation): the harness's chromium fallback
+launches fine but the renderer hangs/dies specifically on the real,
+layer-heavy `/data` page under real WebGL+many-layers load, producing zero
+output before needing to be killed after several minutes (ps showed a
+live chromium renderer process still consuming CPU with nothing written
+to the log). Per that session's own conclusion ("worth a STALENESS AUDIT
+or dedicated environment-setup look, not chased further in this PRODUCT
+session"), did not re-diagnose the sandbox itself — this diff touches no
+DOM/CSS/rendering code paths beyond a JS-only addition to an existing,
+already-exercised useEffect/legend pattern (six other GIBS layers in the
+same file follow the identical shape), so confidence rests on the full
+TS suite passing, the byte-identical tsc baseline, and the clean build,
+same as that prior session's stated rationale.
+
+BACKTEST: N/A — /data display-surface addition only; zero trading,
+sizing, scoring, or execution code touched.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before evidence): once
+deployed, toggling "Aboveground biomass density (GEDI, GIBS)" on `/data`
+should render a real, non-blank green-shaded raster over forested land
+(matching the 95%/99%-non-transparent tiles verified live this session)
+and legitimately blank tiles over ocean/poles; a future session should
+confirm this in a real browser (the harness limitation above prevented
+an automated screenshot this session) and, separately, treat the two
+still-open G2h layers (sea ice, snow/chlorophyll — genuinely dated,
+unlike biomass) as their own scoped follow-up rather than assuming this
+PR's static pattern applies to them.
+
+
+
+TERRITORY: T-BOT (server/bot.ts is listed under T-BOT's territory
+alongside bot_engine.py/ml_model_v2.py/etc. per the WORKSTREAM PARTITION)
++ a new root-level-adjacent test (server/mlRetrainReasonVisibility.test.ts,
+mirroring the existing tier3ManipVisibility.test.ts /
+tier2DaemonTimeoutVisibility.test.ts source-inspection convention).
+SHARED touched last and minimally: package.json + package-lock.json
+version bump only.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full; research/
+experiments.md read from the TOP this time (the file is newest-at-top,
+per its own header — an earlier read this session mistakenly started
+from `tail`, which surfaced OLDER entries and briefly produced a stale
+picture; corrected before drawing any conclusion, and noting it here so
+a future session doesn't repeat the same misread). research/
+open_questions.md's KNOWN BROKEN section read in full. research/
+wishlist.md skimmed (DATACORE MAXIMUS resume block) — no blocking
+decision. Live `/api/health`: no LIVENESS ALARM (`bot.liveness.dark:
+false`, drawdownPct 0.0, all subsystems ok, scanner 0 consecutive
+failures). Loop-health ratio over the last 10 tagged entries (newest
+first: PIPELINE/PRODUCT/REPAIR/PRODUCT/PRODUCT/RESEARCH/REPAIR/PRODUCT/
+NO-ACTION-addendum/REPAIR) = 3 REPAIR of 10, well under the 7/10 thrash
+threshold — no meta-problem override.
+
+KNOWN BROKEN #21 status checked first (the item every one of the last
+three sessions has been tracking): its own stated confirmation bar is
+"a full trading day, during market hours, post-v1.0.314" — at this
+session's start (2026-07-15T11:02Z) the market had not yet opened
+(13:30 UTC), so the bar had explicitly not been met, same conclusion the
+immediately-prior [PIPELINE] session reached at 02:35Z. NEW evidence
+gathered anyway, worth recording for whichever session next judges it:
+`/api/diag/scanner?token=$DIAG_TOKEN` returned a NON-EMPTY
+`dataSourceErrors.stock_details` for the first time in this entire saga
+("analyze.py error: 'SKHY' has no options market...") — every single
+prior check across v1.0.310/311/314/316 found this field permanently
+`{}`. A populated field (even an expected, benign one) confirms
+`get_stock_details()` — and therefore `deep_score()` — is now actually
+being reached and executing, which is the entire behavior the #21 fix
+chain was trying to restore. `/api/diag/audit?type=DIAGNOSTIC&limit=50`
+also shows zero new entries since 2026-07-14T19:57:31Z despite 100+
+Tier2 cycles running in that gap (confirmed via `type=TIER2&limit=100`,
+spanning 22:30Z-11:02Z) — DIAGNOSTIC only logs when `problems_summary !=
+"All systems healthy"` (server/bot.ts ~3160), so a 12.5h silent gap
+across >100 Tier2 cycles is itself suggestive, though not yet the
+literal "market-hours" bar #21 requires. Left OPEN, not touched further
+this session — the next session that runs after 2026-07-15 13:30 UTC
+should run `scripts/session_health_check.py` (v1.0.316) against prod and
+either close #21 or, if it recurs, follow RECURRENCE ESCALATES straight
+to the structural wishlist.md proposal per v1.0.314's own instruction
+(no third threshold guess).
+
+PRIMARY ACTION CHOICE: with #21 correctly left un-actionable (evidence-
+gated, bar not yet met), scanned the rest of KNOWN BROKEN for a live,
+currently-reproducing, self-contained item. Found one: item #17
+("TIER3-ML-ERROR: ML retrain failed: failed", found 2026-07-09, never
+repaired, logged low-priority/self-healing) reproduced LIVE this session
+— `/api/diag/audit?limit=100&token=$DIAG_TOKEN` showed a fresh instance
+at 2026-07-15T10:56:22Z, ~6 minutes before this session's health check,
+6 days after the original finding. A currently-reproducing, previously
+un-repaired KNOWN BROKEN item outranks starting fresh research per
+SESSION BUDGET's "fix a bug seen in audit logs" ordering, even though
+it's tagged low-priority (self-healing, not liveness-critical) — the
+mandate is "fix known breaks" before new work, not "fix only the
+highest-severity break."
+
+INVESTIGATION (READ BEFORE WRITE): grepped `server/bot.ts` for
+`TIER3-ML-ERROR` — two call sites, one for the `except`-wrapper catch
+block (~line 4130, already rich: stderr/stdout/code/signal, per KNOWN
+BROKEN #14's R18 fix) and one for the in-band `trainResult.status`
+check (~line 4122) that produced this exact symptom. That branch reads
+only `trainResult.error_location` and `trainResult.traceback_tail`.
+Traced where those two fields are ever set: ONLY inside `ml_model_v2.py`
+`train_model()`'s outer `except Exception as e:` handler (line ~1225) —
+the wrapper around `_train_model_impl`. But `_train_model_impl` itself
+has four EARLY RETURNS shaped `{"status": "failed", "reason": "<cause>"}`
+(lines 1290 "Could not fetch training bars", 1336 "No training data",
+1444 "Model training failed", 2126 "No training data") — these are not
+exceptions, so they never touch the wrapper, and therefore never carry
+`error_location`/`traceback_tail`. `ml_retrain_safe.py` (`safe_retrain()`)
+passes whatever `train_model()` returns straight through as JSON with
+only a `steps` key appended — `reason` survives intact to bot.ts's
+`trainResult`. bot.ts's `_statusStr.startsWith("failed")` branch correctly
+catches this shape but then builds its message from two fields that are
+always empty here, dropping the one field (`reason`) that explains the
+failure — collapsing to the literal, content-free "ML retrain failed:
+failed" the audit log has been showing since at least 2026-07-09.
+
+FIX SHIPPED (own PR, one logical change): `server/bot.ts`'s in-band
+status-check branch now also reads `trainResult.reason` and interpolates
+it (` — <reason>`) before location/traceback when present — e.g. "ML
+retrain failed: failed — Could not fetch training bars" instead of a
+bare "failed". The `except`-wrapper branch (already rich) is untouched;
+this PR only fixes the one branch that was actually broken.
+
+RATCHET: `server/mlRetrainReasonVisibility.test.ts` (NEW, 3 tests) —
+follows this repo's own established convention for pinning fixes inside
+bot.ts's inline, hard-to-unit-test tier logic (source-string inspection,
+matching `tier3ManipVisibility.test.ts` / `tier2DaemonTimeoutVisibility
+.test.ts`): asserts the block reads `trainResult.reason` alongside the
+pre-existing `error_location`/`traceback_tail` reads (regression
+baseline), asserts the audited template interpolates `${_reason}` before
+`${_loc}` so the real cause reads first, and asserts `_reason` is built
+from a guarded ternary (never renders literal "undefined" when reason is
+absent). A/B-verified via `git stash`: all 3 fail on pre-fix code
+(missing `trainResult.reason` reads), pass post-fix.
+
+GATES: this sandbox had NO `node_modules` at all (same recurring gap
+every recent session has logged — `npm install`, 486 packages, run this
+session). `npx tsx --test server/*.test.ts` — 680 passed, 0 failed (677
+baseline + 3 new, zero regressions). `npx tsc --noEmit` — git-stash-
+verified byte-identical to the pre-fix 66-error baseline, only line-
+number shifts from this diff's +8 lines (confirmed by content diff, not
+just count). `npm run build` — clean, both client + server bundles, no
+new warnings. Zero Python files touched (`ml_model_v2.py`/
+`ml_retrain_safe.py` were READ for the root-cause trace but not edited —
+the fix is entirely in how bot.ts consumes their existing, already-
+correct output) — `python3 -m pytest` not re-run.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this changes what STRING gets
+written to the audit log for one failure shape — zero change to
+`_train_model_impl`'s training logic, model selection, retrain cadence,
+or any scoring/sizing/trading decision. The four early-return sites this
+fix makes legible (`Could not fetch training bars` / `No training data`
+×2 / `Model training failed`) are themselves worth a future session's
+attention if they recur often once visible — this PR only makes them
+readable, it does not diagnose or fix why training data might be
+unavailable.
+
+BACKTEST: N/A — pure audit-message visibility fix; does not change what
+`_train_model_impl` computes, selects, or trains on for any input.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before evidence): once this
+deploys, the next `TIER3-ML-ERROR` entry with `status: "failed"` should
+render with a real cause suffix (e.g. "— Could not fetch training bars")
+instead of a bare "failed" — a future session checking
+`/api/diag/audit?type=TIER3-ML-ERROR` (or `scripts/session_health_
+check.py`'s `check_ml_feedback`) should confirm this and, if a specific
+reason recurs often, treat it as its own KNOWN BROKEN item (e.g. if
+"Could not fetch training bars" recurs, that points at the Alpaca bars
+fetch inside `_fetch_training_bars`, not at this audit-visibility layer).
+
+## 2026-07-15 [PIPELINE] — session_health_check.py: compiles the manual KNOWN BROKEN diagnostic dance into a script (EDGE DOCTRINE #3, v1.0.316, T-DATACORE)
 
 TERRITORY: T-DATACORE (scripts/ pipeline tooling per the WORKSTREAM
 PARTITION's explicit inclusion of "scripts/ pipeline tooling" in that

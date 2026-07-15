@@ -727,7 +727,7 @@
     branch (KNOWN BROKEN #8) is actually reached for this order type, or
     whether this path bypasses it entirely.
 
-17. **[FOUND 2026-07-09, not yet repaired, low priority] `TIER3-ML-ERROR:
+17. **[FOUND 2026-07-09, RESOLVED 2026-07-15, v1.0.317] `TIER3-ML-ERROR:
     ML retrain failed: failed` — a real but content-free error message.**
     Observed live via `/api/diag/audit` this session (2026-07-09
     19:01:59Z). The audited detail is the literal string "failed" with no
@@ -739,6 +739,39 @@
     not currently blocking — logged for a future session to trace why
     this one call site's error detail collapsed to a bare "failed" instead
     of a real message.
+
+    UPDATE 2026-07-15 ([REPAIR], v1.0.317) — RESOLVED. Confirmed still
+    recurring live this session (`/api/diag/audit?type=TIER2` /full audit
+    read` showed a fresh `TIER3-ML-ERROR: ML retrain failed: failed` entry
+    at 2026-07-15T10:56:22Z, 6 days after the original finding, so this
+    was a real recurring gap, not a one-off). ROOT CAUSE (read-before-write
+    trace): `ml_model_v2.py`'s `_train_model_impl` has four early-return
+    sites shaped `{"status": "failed", "reason": "<real cause>"}` (lines
+    1290/1336/1444/2126 — e.g. "Could not fetch training bars", "No
+    training data", "Model training failed") that never pass through
+    `train_model()`'s outer `except Exception` wrapper — `error_location`/
+    `traceback_tail` are ONLY ever set inside that wrapper's exception
+    handler, a completely different failure shape. `server/bot.ts`'s
+    audit-message builder (~line 4122) read `trainResult.error_location`
+    and `trainResult.traceback_tail` but never `trainResult.reason` — so
+    every one of these four early returns rendered as the bare
+    `${_statusStr}` with both `_loc` and `_tbTail` empty, i.e. literally
+    "ML retrain failed: failed". FIX (own PR, v1.0.317): `server/bot.ts`
+    now also reads `trainResult.reason` and interpolates it before
+    location/traceback (` — <reason>`) when present, so a future
+    "Could not fetch training bars"-class failure reads as "ML retrain
+    failed: failed — Could not fetch training bars" instead of a bare
+    "failed". RATCHET: `server/mlRetrainReasonVisibility.test.ts` (NEW, 3
+    tests, source-inspection convention matching `tier3ManipVisibility
+    .test.ts`/`tier2DaemonTimeoutVisibility.test.ts`) — A/B-verified via
+    `git stash`: all 3 fail on pre-fix code, pass post-fix. GATES:
+    `npx tsx --test server/*.test.ts` 680/680 (677 baseline + 3 new, zero
+    regressions); `npx tsc --noEmit` byte-identical pre-existing 66-error
+    baseline (git-stash-verified, only line-number shifts from this
+    diff's +8 lines); `npm run build` clean. Zero Python files touched —
+    `python3 -m pytest` not re-run. BACKTEST: N/A — pure audit-message
+    visibility fix, does not change ML training logic, model selection,
+    or any trading/scoring/sizing decision.
 
 18. **[FOUND + PARTIALLY REPAIRED 2026-07-10, v1.0.266] TIER2-ERROR "daemon
     run_full_scan failed: Daemon timeout" recurred 7x in ~95 minutes
@@ -2542,6 +2575,45 @@ R6. **Dashboards from monitoring we already emit (charter directive
   future gate-2 signal would sample this field at our facility coordinates. The
   still-open TEMPO (US hourly) and SO₂ (point-source smelter on/off) layers would
   deepen exactly this cross-tie once the sub-daily factory work lands.
+
+## BIOMASS-DENSITY / STANDING-CARBON HYPOTHESIS (RAW layer shipped 2026-07-15,
+   v1.0.318 — client/src/pages/datamap.tsx "biomass" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2h — NASA GIBS GEDI L4B aboveground biomass
+   density, mission-life mean)
+
+- **Standing forest biomass (aboveground carbon stock) over a NAMED timber
+  region as a substrate for a carbon-credit / forestry-supply hypothesis
+  (Pillar 6, per worldview_globe.md's G2h grouping).** PRIOR stated before any
+  test: this layer is STATIC (a single 2019-04–2023-03 mission-life mean, not
+  a repeat-observation product), so on its own it can never show CHANGE — the
+  one thing a trading or carbon-market signal would need. The honest
+  near-term value is CONTEXT (a real, non-fabricated forest-density basemap)
+  and a BASELINE for a future change-detection build, not a standalone
+  signal. Any tradeable residual would have to come from DIFFERENCING this
+  baseline against a repeat product (e.g. a future GEDI L4B reprocessing
+  covering later years, or JRC GFC2020's existing forest-EXTENT layer's own
+  future updates) — deforestation/afforestation delta over a named timber
+  concession or REDD+ project area is the plausible gate-2 candidate, not the
+  static density level itself.
+- Ladder: gate 1 DATA — NASA-published product; verification mechanical this
+  session (Amazon-basin tile pixel-checked 95% non-transparent with
+  plausible green biomass-density coloring; US Pacific-NW forest tile 99%
+  non-transparent; open-ocean tile ~0.04% non-transparent — legitimately
+  blank, GEDI is a land-vegetation LiDAR product limited to roughly ±51.6°
+  latitude, not a coverage bug). Gate 2 SIGNAL is NOT YET REACHABLE for this
+  static composite alone — it is blocked on a repeat/change-detection product
+  existing at all, which is outside our control (depends on NASA publishing
+  a later GEDI L4B reprocessing) or on pairing with forest.ts's own
+  extent-change tracking over time. RAW, no predictive claim.
+- CROSS-TIE (2026-07-07 integration principle): biomass density joins the
+  existing `forest` (JRC GFC2020 2020 extent) layer into a two-axis view of
+  the same geography — WHERE forest exists (JRC, binary extent) × HOW MUCH
+  standing carbon it holds (GEDI, continuous density) — a substrate for a
+  future carbon/timber hypothesis, not a signal on its own; also a candidate
+  future input to the fires×facilities and NDVI×soil-moisture ag cross-ties
+  already filed, since biomass density constrains how much a given fire or
+  drought event can actually affect (dense old-growth vs. sparse scrub react
+  differently).
 
 ## LOW-WATER / GENERATION-EXPOSURE HYPOTHESIS (RAW cross-tie shipped 2026-07-08,
    v1.0.232 — server/riverPlants.ts + /api/data/plants-near-rivergauges,

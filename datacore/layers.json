@@ -1207,6 +1207,17 @@
       "field": true
     },
     {
+      "id": "biomass",
+      "name": "Aboveground biomass density (GEDI, GIBS)",
+      "kind": "raw",
+      "status": "live",
+      "group": "environmental",
+      "costTier": "moderate",
+      "source": "NASA GIBS/ESDIS — GEDI L4B aboveground biomass density, mission-life mean, public domain",
+      "description": "Aboveground biomass density from NASA's GEDI spaceborne LiDAR (ISS), a single static composite averaged over the mission's 2019-04 through 2023-03 record — not a daily/dated product like the other GIBS layers here, so there is no time scrubber. As-is display, no predictive claim: standing forest carbon stock as a substrate for a future carbon/timber/land-use gate-2 hypothesis (research/open_questions.md), not yet a signal. GEDI is limited to roughly ±51.6° latitude and land vegetation only, so poles, oceans, and non-forested land are legitimately blank — the honest coverage boundary of a spaceborne LiDAR product, not a gap.",
+      "field": true
+    },
+    {
       "id": "firetemp",
       "name": "Fire/hotspot temperature (GOES-East, GIBS)",
       "kind": "raw",

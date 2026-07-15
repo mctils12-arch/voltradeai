@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -385,6 +385,7 @@ const LAYER_GROUP: Record<string, string> = {
   alerts: "environmental",
   earthquakes: "environmental",
   buoys: "environmental",
+  biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
   graph: "graph",
   powergrid: "facilities",
@@ -768,6 +769,9 @@ export default function DataMapPage() {
   // via gibsLatestScanTime for an honest freshness note. null = not yet
   // fetched or fetch failed — rendered as "scan time unknown", never guessed.
   const [firetempScanTime, setFiretempScanTime] = useState<string | null>(null);
+  // worldview_globe.md G2h: GEDI L4B aboveground biomass density — a
+  // genuinely STATIC composite (single 2019-04–2023-03 mission-life mean,
+  // no daily/8-day cadence, no scrubber), unlike every dated layer above.
   // ── weather-upgrade (2026-07-04): registry-native FIELD layer controls ──
   // Field layers (registry flag `field: true`) get a per-layer opacity
   // slider; default 60% so the basemap + live layers stay visible beneath
@@ -780,6 +784,7 @@ export default function DataMapPage() {
     soilmoisture: "gibs-soilmoisture",
     no2: "gibs-no2",
     firetemp: "gibs-firetemp",
+    biomass: "gibs-biomass",
     floodzones: "fema-floodzones",
     seafloor: "seafloor-relief",
   };
@@ -1621,6 +1626,56 @@ export default function DataMapPage() {
       clearInterval(timer);
     };
   }, [enabled.firetemp, mapReady, setStatus]);
+
+  // ── biomass (RAW; worldview_globe.md Phase G2h — NASA GIBS GEDI L4B
+  // aboveground biomass density via the shared gibs.ts factory). Genuinely
+  // STATIC unlike every G2 layer above: GEDI L4B is a single mission-life
+  // mean composite (2019-04 through 2023-03), not a daily/8-day product, so
+  // there is no scrubber and no refresh interval — it mounts once and never
+  // changes. Requests GIBS's own "default" token rather than hardcoding the
+  // 2019-04-18 date the current identifier advertises, so this survives a
+  // future GIBS-side rollover to a newer mission-life composite without a
+  // code change (same "default" pattern as firetemp above). Access + real
+  // (non-fabricated) field verified live this session: Amazon basin tile
+  // 95% non-transparent with plausible biomass-density coloring, Pacific-
+  // NW forest 99% non-transparent, open ocean ~0.04% non-transparent
+  // (legitimately blank — GEDI is a land vegetation-structure product). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.biomass) {
+      try {
+        if (map.getLayer("gibs-biomass")) map.removeLayer("gibs-biomass");
+        if (map.getSource("gibs-biomass")) map.removeSource("gibs-biomass");
+      } catch {}
+      setStatus("biomass", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gibs-biomass")) map.removeLayer("gibs-biomass");
+      if (map.getSource("gibs-biomass")) map.removeSource("gibs-biomass");
+      const url = gibsTileUrl(
+        { layer: "GEDI_ISS_L4B_Aboveground_Biomass_Density_Mean_201904-202303", tileMatrixSet: "GoogleMapsCompatible_Level7", ext: "png" },
+        "default",
+      );
+      map.addSource("gibs-biomass", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 7,
+        attribution: "Aboveground biomass density (GEDI L4B, 2019-04 to 2023-03 mean) · NASA GIBS/ESDIS (public domain)",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gibs-biomass", type: "raster", source: "gibs-biomass",
+        paint: { "raster-opacity": opacityOf("biomass") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("biomass", "active", undefined,
+        "aboveground biomass density · GEDI L4B mission-life mean (2019-04 to 2023-03), static — " +
+        "NASA GIBS/ESDIS — denser/greener shading = more standing forest carbon; GEDI is spaceborne " +
+        "LiDAR limited to roughly ±51.6° latitude and land vegetation only, so poles, ocean, and " +
+        "non-forested areas are legitimately blank, not a gap");
+    } catch {
+      setStatus("biomass", "error");
+    }
+  }, [enabled.biomass, mapReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
@@ -4968,6 +5023,7 @@ export default function DataMapPage() {
     id === "soilmoisture" ? <Droplets size={15} /> :
     id === "no2" ? <Factory size={15} /> :
     id === "firetemp" ? <ThermometerSun size={15} /> :
+    id === "biomass" ? <TreePine size={15} /> :
     id === "earthquakes" ? <Activity size={15} /> :
     id === "buoys" ? <Waves size={15} /> :
     id === "attention" ? <Eye size={15} /> :
@@ -5646,7 +5702,7 @@ export default function DataMapPage() {
                       </div>
                     </div>
                   )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys) && (
+                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys) && (
                     <div className="vt-legend-sec">
                       <div className="vt-legend-sec-head">Environmental</div>
                       <div className="vt-legend-items">
@@ -5724,6 +5780,12 @@ export default function DataMapPage() {
                           <>
                             <span className="vt-legend-chip"><i style={{ background: "#ff7a1a" }} /> Fire/Hotspot Temp (GOES-East)</span>
                             <span className="vt-legend-note">(~10-min, NASA GIBS/ABI — {firetempScanTime ? `${firetempScanTime} UTC` : "latest"})</span>
+                          </>
+                        )}
+                        {enabled.biomass && (
+                          <>
+                            <span className="vt-legend-chip"><i style={{ background: "#6b8e23" }} /> Biomass Density (GEDI)</span>
+                            <span className="vt-legend-note">(static, 2019-04 to 2023-03 mean, NASA GIBS/GEDI L4B)</span>
                           </>
                         )}
                       </div>
