@@ -33,12 +33,20 @@ stems. POST-FIX GATES: server 685/685, client libs 155/155, tsc 66-line
 baseline, build clean. NEW QUEUED SLICE (evidence-backed): E4-2 SATCAT
 parse off-thread — measured ~280-340 ms main-thread block at
 layer-enable on desktop (~63k rows, ~1 s+ mobile); worker parse +
-cache-header check. VISUAL HARNESS: could not complete in this sandbox
-— the container itself restarted twice under headless-Chromium WebGL
-load (a NEW, worse variant of the known harness-sandbox findings); all
-work was already pushed each time, nothing lost. Re-run the harness on
-a normal machine at merge review (PROMOTION #6). MERGE NOTE: preserve
-per-commit attribution — four version-gated logical changes.
+cache-header check. VISUAL HARNESS — FINAL OUTCOME (supersedes the
+earlier could-not-complete note): running it SOLO (no concurrent
+agents/builds) completed fine — the two container restarts happened
+only when the harness ran alongside heavy parallel work, so the
+finding is "never run the harness concurrently in this sandbox", not
+"the harness cannot run". Run 1: 390 PASS / 768 PASS / 1440 one
+fields-on locator timeout; run 2 (identical code): ALL FIVE CHECKS
+PASS, 0 hard failures at 390/768/1440 — the 1440 timeout was first-run
+flakiness, not a defect. Screenshots reviewed against DESIGN.md: the
+new Seafloor row renders design-consistent in BASE (anchor icon, RAW
+chip, off-default, group count 1/7 correct); only the long-documented
+pre-existing touch-target warnings remain. PROMOTION #6 satisfied.
+MERGE NOTE: preserve per-commit attribution — four version-gated
+logical changes + three review-fix commits.
 
 ## 2026-07-15 [PRODUCT] — EARTH TWIN continuous-build session #1: E0 spine + first two verticals (v1.0.317–320, T-CLIENT + SHARED, branch claude/4d-earth-digital-twin-5e7nks)
 

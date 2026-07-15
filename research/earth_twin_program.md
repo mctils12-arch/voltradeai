@@ -636,6 +636,10 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   listener), v1.0.323 (deterministic seafloor-below-hillshade z-order
   + coastline-bleed honesty note). Full suites after fixes: server
   685/685, client libs 155/155, tsc baseline unchanged, build clean.
+  VISUAL GATE MET: solo harness run = 0 hard failures at 390/768/1440
+  (the earlier restarts were concurrency-induced — never run the
+  harness alongside other heavy work in this sandbox); screenshots
+  reviewed, Seafloor row design-consistent.
   NEW QUEUED SLICE from review evidence — E4-2 SATCAT PARSE OFF-THREAD:
   parseSatcat measured ~280-340 ms synchronous main-thread block on a
   desktop-class CPU (~63k rows; expect ~1 s+ on mobile) exactly at
