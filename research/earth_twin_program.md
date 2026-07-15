@@ -33,6 +33,25 @@ not remove it: design an approximation hierarchy (1 verified measured →
 2 public datasets → 3 procedural reconstruction → 4 AI inference with
 confidence labels → 5 placeholder until better data exists).
 
+## HUMAN CLARIFICATION (2026-07-15, second directive — governs execution)
+
+The human clarified the same day the charter was installed:
+1. This program is an UPDATE TO THE SYSTEM ARCHITECTURE — not a rewrite
+   of the system's data overview. VISION.md / GIP.md / CLAUDE.md and the
+   existing data platform (archives, registry, ladder, honesty rules)
+   remain in full force; EARTH TWIN builds ON them.
+2. DATA IS NEVER MADE UP. Every layer is built from data that already
+   exists (our archives, our feeds, named public datasets) or from NEW
+   data we CREATE by real means (recording, accumulation, pipelines,
+   derivation from measured inputs — the BUILD-FIRST precedents). The
+   approximation tiers stand, but tier-3/4 output is derived-and-labeled,
+   never invented.
+3. CONTINUOUS BUILD MANDATE: this program is built CONTINUOUSLY UNTIL
+   FINISHED. Every session that reads this charter and finds unshipped
+   slices treats the next unblocked slice as queued work under the
+   SESSION BUDGET fall-through — the program does not wait for
+   per-slice human prompting. Sessions update RESUME STATE every time.
+
 ## RECONCILIATION WITH THE CONSTITUTION (read this before building)
 
 The directive's approximation hierarchy maps onto our standing honesty

@@ -622,7 +622,11 @@ read-before-write review.
   particles), celestial lighting. Every "impossible" ask mapped to an
   honest approximation tier in the charter. NOTHING NEW BUILT at
   install; E0 (registry v2 + LOD director) gates the build. License
-  gates open: TeleGeography cables + WDPA (both NC terms).
+  gates open: TeleGeography cables + WDPA (both NC terms). 2026-07-15
+  human clarification (recorded in the charter): architecture update
+  not a data-overview rewrite; data never made up — existing data or
+  new data created by real means; CONTINUOUS BUILD MANDATE — sessions
+  build the next unblocked slice until the program is finished.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 
