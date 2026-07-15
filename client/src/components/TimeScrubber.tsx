@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Pause, X, Clock } from "lucide-react";
 import type maplibregl from "maplibre-gl";
+// EARTH TWIN E1: this panel IS the global time axis's UI — every committed
+// scrub publishes the instant so dated layers (GIBS imagery) follow the same
+// moment the archive replay shows. Closing the panel returns the world to
+// LIVE. (lib/timeAxis; datamap subscribes.)
+import { setTimeAxis } from "@/lib/timeAxis";
 
 /**
  * TimeScrubber — ANALYST CONSOLE W3: "pick a window, scrub, watch the world
@@ -106,6 +111,9 @@ export default function TimeScrubber({ map, onClose }: {
     inFlight.current = true;
     setLoading(true);
     setError(null);
+    // E1 global time axis: every committed scrub position moves the WORLD's
+    // clock, not just the replay dots — dated layers follow via lib/timeAxis.
+    setTimeAxis(hb === 0 ? { mode: "live" } : { mode: "historical", atMs: nowRef.current - hb * 3600_000 });
     try {
       const at = new Date(nowRef.current - hb * 3600_000).toISOString();
       const b = map.getBounds();
@@ -145,8 +153,10 @@ export default function TimeScrubber({ map, onClose }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, layer]);
 
-  // Cleanup the map layer when the panel closes (unmounts).
-  useEffect(() => () => clearMapLayer(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Cleanup the map layer when the panel closes (unmounts) — and return the
+  // global time axis to LIVE: the panel is the axis's only UI, so a closed
+  // panel must never leave the world silently stuck in the past.
+  useEffect(() => () => { clearMapLayer(); setTimeAxis({ mode: "live" }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSliderCommit = (hb: number) => {
     setHoursBack(hb);
@@ -204,6 +214,7 @@ export default function TimeScrubber({ map, onClose }: {
       </div>
       <div className="vt-timescrub-note">
         Historical replay from our own archive — not live. Window: last {Math.round(maxHours / 24)} days.
+        Dated imagery layers (night lights, NDVI, soil moisture…) follow this clock to their nearest available day.
       </div>
     </div>
   );

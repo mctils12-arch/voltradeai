@@ -66,6 +66,9 @@ import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
 // live-points tick pipeline — vector-build gating below visibility,
 // count quantization so the render bail engages, redundant-refetch skip.
 import { shouldBuildVectors, quantizeLiveCount, fetchFootprint, needsRefetch, type FetchFootprint } from "@/lib/livePoints";
+// EARTH TWIN E1: the global time axis — the Time Machine publishes, the
+// dated GIBS layers subscribe (one scrubber moves the whole world).
+import { getTimeAxis, subscribeTimeAxis, gibsDateForAxis } from "@/lib/timeAxis";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -712,6 +715,26 @@ export default function DataMapPage() {
   // lag like the other daily layers — the charter's "genuinely differentiated"
   // layer (industrial/traffic combustion throughput nowcast).
   const [no2Date, setNo2Date] = useState<string>(() => gibsDefaultDate(Date.now()));
+  // ── EARTH TWIN E1: GLOBAL TIME AXIS — one clock moves the whole world.
+  // The Time Machine panel publishes the axis (lib/timeAxis); every dated
+  // GIBS layer above follows it to ITS OWN honest ceiling (latency-aware —
+  // SMAP snaps ~7 days back, dailies to yesterday), and returning to LIVE
+  // restores each layer's default. Per-layer scrubbers still work as manual
+  // overrides afterward. firetemp is deliberately NOT wired: it is sub-daily
+  // latest-scan-only (no dated archive endpoint on this map yet — honest gap,
+  // charter A3 sub-daily work). React bails cheaply on identical dates. ──
+  useEffect(() => {
+    const apply = () => {
+      const axis = getTimeAxis();
+      const now = Date.now();
+      setNightlightsDate(gibsDateForAxis(axis, now).dateISO);
+      setAerosolDate(gibsDateForAxis(axis, now).dateISO);
+      setVegetationDate(gibsDateForAxis(axis, now).dateISO);
+      setNo2Date(gibsDateForAxis(axis, now).dateISO);
+      setSoilmoistureDate(gibsDateForAxis(axis, now, SOIL_LATENCY_DAYS).dateISO);
+    };
+    return subscribeTimeAxis(apply);
+  }, []);
   // worldview_globe.md G2b: GOES-East fire/hotspot brightness temperature.
   // Genuinely sub-daily (~10-min, irregular scan gaps) — no day-granularity
   // scrubber like the layers above; always requests GIBS's own "default"
