@@ -656,7 +656,23 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   hide the model, unknown class = ring-only. The full directive arc
   is now LIVE: whole sky → click → follow → the point becomes a
   spacecraft riding its orbit on the globe.
-  O5-3 = the real-model upgrade (ISS/Starlink, loader spike) — next.
+  O5-3a SHIPPED same session (v1.0.333, human: "don't display as a dot
+  if we have the sat info"): SYMBOLS NOT DOTS applied to the sky —
+  identified objects render as SDF type glyphs in the point field
+  (payload = bus+wings, rocket body = capsule, debris = shard, 2.6x
+  size), color keeps orbit class; a dot now MEANS unidentified;
+  misaligned shape buffers fall back to dots (never a mislabel,
+  test-pinned); legend decode line added.
+  O5-3b = the real-model upgrade (ISS/Starlink, loader spike) — next.
+  SITE OUTAGE, same session (2026-07-15 ~09:30+): production 502 crash
+  loop, root-caused + fixed — secMidas boot archive built a ~189MB
+  string into gzipSync under the 512MB cap the first time a new SEC
+  quarter published (dedup guard hid it for weeks; the innocent #482
+  deploy restarted into it). Fix = streamed archive write, verified
+  end-to-end in-sandbox (fixed build boots, archives real 2025q4,
+  serves health at 130MB heap). Hotfix PR #483 (cherry-picked, own
+  branch claude/hotfix-midas-oom, v1.0.319-on-main's-line); merge on
+  green CI restores the site. The same commit is on this branch.
   HARNESS after E1-1+O5-1+O5-2: ALL PASS 0 hard failures; perf
   medians improved vs session start: 33/83/117ms at 390/768/1440
   (were 50/133/167), TTI down ~30% at every width.

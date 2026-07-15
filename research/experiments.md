@@ -13,6 +13,37 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [REPAIR] — PRODUCTION OUTAGE root-caused + hotfixed: secMidas boot-archive OOM crash loop (PR #483; fix also on the feature branch)
+
+Human reported the site down; confirmed live: 502 "Application failed
+to respond" on both domains. DIAGNOSIS (reproduced in-sandbox, not
+guessed): every boot runs bootMidasPoll → refreshMidas; when a
+not-yet-archived SEC MIDAS quarter is available, archiveMidasPeriod
+builds rows.map(JSON.stringify).join() as ONE string — probe-measured
+189.3MB entering gzipSync — and the flatten + Buffer copy blow the
+production --max-old-space-size=512 cap ~8s after listen. The volume
+dedup guard hid the bomb for weeks (boots skipped the write while all
+published quarters were archived); the moment SEC published the next
+quarter, EVERY boot OOM'd = Railway crash loop. Today's deploy (#482,
+client-only, innocent) restarted the app into that state. All three
+recent main commits OOM identically — the bug is calendar-armed, not
+commit-armed. FIX: archiveMidasPeriodStreamed (createGzip +
+createWriteStream, 5k-row batches, backpressure, partial-file unlink
+on error); refreshMidas awaits it. VERIFIED END-TO-END: unfixed main
+dies at ~8s; fixed build boots, downloads + archives the real 2025q4
+(30.8MB gz), serves /api/health at 61s uptime with 130MB heap.
+secMidas 9/9 incl. streamed≡sync byte-equivalence. RATCHET: the
+equivalence test pins the streamed path. DELIVERY: cherry-picked
+hotfix PR #483 (claude/hotfix-midas-oom, version on main's line);
+merged on green CI per the autonomy grant (repair, one change,
+tested; the human was mid-conversation directing "keep working").
+LESSON for the ledger: the 2026-07-15 perf session's finding — sync
+gzipSync of unbounded payloads on the serving process — had ONE more
+instance (secMidas) not caught because it hides behind a
+publish-calendar guard; a staleness-audit sweep for `gzipSync(`/
+`gunzipSync(` on boot/request paths is now warranted (filed in
+scale_program.md queue).
+
 ## 2026-07-15 [PIPELINE] — EARTH TWIN O5-2b: the 3D spacecraft moves ONTO the world map (v1.0.332, T-CLIENT, same branch — supersedes v1.0.331's card viewer)
 
 Human corrected course same-day: the 3D rendering must show ON the
