@@ -44,6 +44,13 @@ import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays } from "@/lib/orbital/propagate";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
+// EARTH TWIN A1 (E0-2, research/earth_twin_program.md): camera-altitude LOD
+// envelopes — the registry (layers.json v2 `lod` block) declares at which
+// camera altitudes a layer exists; the LOD director math lives in @/lib/lod
+// (pure, tested). orbital_sats is the first consumer: the population fades
+// out near the ground and pauses its worker (zero cost), returning on zoom
+// out — a render choice, always reversible, surfaced on-panel, never silent.
+import { cameraAltitudeKmFromMap, lodOpacity, type LodEnvelope } from "@/lib/lod";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -67,6 +74,10 @@ import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, 
 // survives the effect's mount/unmount cycles (lost only on a full page reload).
 let orbitalGpCache: { at: number; gp: GpRecord[] } | null = null;
 const ORBITAL_GP_TTL_MS = 2 * 60 * 60_000; // 2h — CelesTrak's GP refresh cadence
+// EARTH TWIN A1: fallback camera-altitude envelope for orbital_sats when the
+// registry entry predates v2 (mid-deploy older registry). The registry's own
+// `lod` block is the source of truth and overrides this.
+const ORBITAL_LOD_FALLBACK = { camMinKm: 100, fadeBandKm: 150 };
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
@@ -418,6 +429,11 @@ export default function DataMapPage() {
   // INDEX ALIGNMENT contract — the picking effect resolves a click to an
   // index into this same array.
   const orbitalGpRef = useRef<GpRecord[] | null>(null);
+  // EARTH TWIN A1: the registry-declared camera-altitude envelope for
+  // orbital_sats, kept in a ref so the O2 effect's move handler always reads
+  // the freshest registry value WITHOUT re-running (and tearing down) the
+  // whole effect when the registry fetch lands.
+  const orbitalLodRef = useRef<LodEnvelope | null>(null);
   // Pillar-6 cross-tie cache: generating capacity near each river gauge, keyed
   // by USGS site, populated when the rivergauges layer loads so the gauge-click
   // detail can surface the exposed plants without a network round-trip on click.
@@ -1422,6 +1438,44 @@ export default function DataMapPage() {
 
     setStatus("orbital_sats", "loading", undefined, "fetching orbital elements (CelesTrak)…");
 
+    // ── EARTH TWIN A1 (E0-2): camera-altitude LOD envelope. The satellite
+    // population exists at globe/regional zooms and fades out approaching the
+    // street (the registry's lod block says where); while fully hidden the
+    // worker is STOPPED (zero propagation + zero draw cost) and the panel
+    // says so — LOD is reversible by zoom and never a silent drop. ──
+    let lodPaused = false;
+    let lodLastOpacity = -1; // sentinel: first applyLod() always applies
+    let lastCounts = { shown: 0, skipped: 0 };
+    const publishOrbitalStatus = () => {
+      if (lodPaused) {
+        const minKm = orbitalLodRef.current?.camMinKm ?? ORBITAL_LOD_FALLBACK.camMinKm;
+        setStatus("orbital_sats", "active", lastCounts.shown,
+          `hidden at this zoom (LOD) — returns above ~${fmtKm(minKm)} camera altitude; propagation paused, nothing lost`);
+      } else {
+        setStatus("orbital_sats", "active", lastCounts.shown,
+          `${lastCounts.shown.toLocaleString()} live · ${lastCounts.skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
+      }
+    };
+    const applyLod = () => {
+      const layer = satLayerRef.current;
+      if (!layer) return;
+      const camKm = cameraAltitudeKmFromMap(map); // null → lodOpacity fails OPEN (visible)
+      const op = lodOpacity(orbitalLodRef.current ?? ORBITAL_LOD_FALLBACK, camKm);
+      if (op === lodLastOpacity) return;
+      lodLastOpacity = op;
+      layer.setGlobalOpacity(op);
+      if (op <= 0 && !lodPaused) {
+        lodPaused = true;
+        satWorkerRef.current?.postMessage({ type: "stop" }); // pause: gp stays loaded
+        publishOrbitalStatus();
+      } else if (op > 0 && lodPaused) {
+        lodPaused = false;
+        satWorkerRef.current?.postMessage({ type: "start", hz: 1 }); // resume: ticks immediately
+        publishOrbitalStatus();
+      }
+    };
+    map.on("move", applyLod);
+
     // Resilient fetch+init: a CelesTrak stall/blip now retries automatically with
     // backoff instead of leaving the layer dead until a manual toggle (BUG 1). The
     // timeout signal is threaded into fetchGp's fetchImpl so a hung request aborts.
@@ -1459,13 +1513,13 @@ export default function DataMapPage() {
               deepSpaceSkipped: m.deepSpaceSkipped,
               invalidSkipped: m.invalidSkipped,
             });
-            const skipped = m.deepSpaceSkipped + m.invalidSkipped;
-            setStatus("orbital_sats", "active", m.shown,
-              `${m.shown.toLocaleString()} live · ${skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
+            lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
+            publishOrbitalStatus(); // formats the LOD-paused note when applicable
           }
         };
         worker.postMessage({ type: "init", gp });
         worker.postMessage({ type: "start", hz: 1 });
+        applyLod(); // a page opened already deep-zoomed pauses immediately
       },
       (failures) => setStatus("orbital_sats", "error", undefined,
         failures === 0 ? "could not reach CelesTrak — retrying automatically…" : "still retrying automatically…"),
@@ -1474,8 +1528,15 @@ export default function DataMapPage() {
       { timeoutMs: 45_000 },
     );
 
-    return () => { stopLoad(); teardown(); };
+    return () => { map.off("move", applyLod); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
+
+  // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched
+  // registry (source of truth; ORBITAL_LOD_FALLBACK covers older registries).
+  useEffect(() => {
+    const entry = layers.find((l) => l.id === "orbital_sats") as any;
+    orbitalLodRef.current = entry?.lod ?? null;
+  }, [layers]);
 
   // ── satellite click-to-identify (ORBITAL O3; research/orbital_program.md's
   // "O3 picking" recipe). SatLayer is a raw custom WebGL layer with no
@@ -1501,6 +1562,11 @@ export default function DataMapPage() {
       const layer = satLayerRef.current;
       const gp = orbitalGpRef.current;
       if (!layer || !gp || !gp.length) return;
+      // EARTH TWIN A1: while the LOD envelope has the layer fully hidden, its
+      // worker is paused and the position buffer is STALE — an invisible
+      // satellite must not be clickable, and a coverage report from stale
+      // positions would be dishonest. The whole handler goes dormant.
+      if (layer.getGlobalOpacity() <= 0) return;
       const positions = layer.getPositions();
       if (!positions) return;
 
@@ -5386,7 +5452,7 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO satellite</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO satellite</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify it, click empty ground for Starlink coverage there · fades out near street zoom (LOD) — zoom out to bring the sky back</span>
                       </div>
                     </div>
                   )}

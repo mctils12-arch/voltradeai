@@ -64,3 +64,43 @@ test('sentinel slots are still culled before the far-side test', () => {
   const cull = src.indexOf('#ifdef GLOBE');
   assert.ok(sentinel >= 0 && sentinel < cull, 'sentinel check precedes the far-side cull');
 });
+
+// ── LOD envelope fade (EARTH TWIN A1 / E0-2) ──
+
+test('LOD: u_opacity is declared OUTSIDE the GLOBE guard and scales the final alpha', () => {
+  const ifdef = src.indexOf('#ifdef GLOBE');
+  const endif = src.indexOf('#endif');
+  const outside = src.slice(0, ifdef) + src.slice(endif);
+  assert.ok(outside.includes('uniform float u_opacity;'),
+    'u_opacity must compile in BOTH projection variants (declared outside #ifdef GLOBE)');
+  const alphaMul = src.indexOf('v_color.a *= u_opacity;');
+  const classColor = src.indexOf('cls < 0.5 ? u_colorLEO');
+  assert.ok(alphaMul > classColor && classColor >= 0,
+    'the fade multiplies alpha AFTER class-color selection so it composes with class alpha');
+});
+
+test('LOD: setGlobalOpacity clamps to 0..1 and getGlobalOpacity reports it (no-GL smoke)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const layer = new SatLayer();
+  assert.equal(layer.getGlobalOpacity(), 1, 'fully visible by default');
+  layer.setGlobalOpacity(0.4);
+  assert.equal(layer.getGlobalOpacity(), 0.4);
+  layer.setGlobalOpacity(-5);
+  assert.equal(layer.getGlobalOpacity(), 0, 'clamped below');
+  layer.setGlobalOpacity(7);
+  assert.equal(layer.getGlobalOpacity(), 1, 'clamped above');
+});
+
+test('LOD: at opacity 0 render() is a no-op even with data loaded (zero GPU cost when hidden)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  const layer = new SatLayer();
+  layer.updatePositions(new Float32Array(SAT_STRIDE * 2), { shown: 2, deepSpaceSkipped: 0, invalidSkipped: 0 });
+  layer.setGlobalOpacity(0);
+  // a gl stub whose every property THROWS on access: render must return
+  // before touching the context at all
+  const explodingGl = new Proxy({}, { get() { throw new Error('gl touched while fully faded'); } });
+  layer.render(explodingGl as any, {} as any);
+  assert.equal(layer.getRenderFailed(), false,
+    'render() must early-out before any GL work when the LOD fade is 0 (and never trip the failure latch)');
+});

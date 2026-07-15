@@ -97,6 +97,7 @@ ${prelude}
 ${define}
 in vec4 a_data;            // x=mercX(0..1) y=mercY(0..1) z=altMeters w=classCode
 uniform float u_size;
+uniform float u_opacity;   // LOD envelope fade (EARTH TWIN A1) — 1 = fully visible
 uniform vec4 u_colorLEO;
 uniform vec4 u_colorMEO;
 uniform vec4 u_colorGEO;
@@ -141,6 +142,7 @@ void main() {
   gl_Position = projectTileFor3D(a_data.xy, a_data.z);
   gl_PointSize = u_size;
   v_color = cls < 0.5 ? u_colorLEO : (cls < 1.5 ? u_colorMEO : u_colorGEO);
+  v_color.a *= u_opacity;
 }`;
 
 const FRAG_SRC = `#version 300 es
@@ -173,6 +175,7 @@ export class SatLayer implements CustomLayerInterface {
   // uniform / attribute locations (resolved on compile)
   private aData = -1;
   private uSize: WebGLUniformLocation | null = null;
+  private uOpacity: WebGLUniformLocation | null = null;
   private uColorLEO: WebGLUniformLocation | null = null;
   private uColorMEO: WebGLUniformLocation | null = null;
   private uColorGEO: WebGLUniformLocation | null = null;
@@ -196,6 +199,9 @@ export class SatLayer implements CustomLayerInterface {
   private lastTransition = 0;
 
   private pointSize: number;
+  // LOD envelope fade (EARTH TWIN A1): 1 = fully visible. At 0 render()
+  // skips the draw entirely — an out-of-envelope layer costs no GPU work.
+  private globalOpacity = 1;
   private colorLEO: Rgba;
   private colorMEO: Rgba;
   private colorGEO: Rgba;
@@ -230,6 +236,7 @@ export class SatLayer implements CustomLayerInterface {
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
     if (this.renderFailed) return; // disabled after a prior failure — never crash the map
+    if (this.globalOpacity <= 0) return; // fully faded out (LOD envelope) — zero draw calls
     if (!this.data || this.total === 0) return;
     try {
       this.renderInner(gl, args);
@@ -287,6 +294,7 @@ export class SatLayer implements CustomLayerInterface {
 
     // Style uniforms.
     if (this.uSize) gl.uniform1f(this.uSize, this.pointSize);
+    if (this.uOpacity) gl.uniform1f(this.uOpacity, this.globalOpacity);
     if (this.uColorLEO) gl.uniform4f(this.uColorLEO, ...this.colorLEO);
     if (this.uColorMEO) gl.uniform4f(this.uColorMEO, ...this.colorMEO);
     if (this.uColorGEO) gl.uniform4f(this.uColorGEO, ...this.colorGEO);
@@ -359,6 +367,25 @@ export class SatLayer implements CustomLayerInterface {
     this.colorMEO = rgba;
     this.colorGEO = rgba;
     this.map?.triggerRepaint();
+  }
+
+  /**
+   * LOD envelope fade (EARTH TWIN A1): whole-layer opacity 0..1. At 0 the
+   * layer draws nothing at all (render() early-outs). This is a RENDER
+   * choice, reversible by zoom — the parent must surface the hidden state
+   * on-panel (never a silently vanished layer) and may pause the worker
+   * while fully hidden.
+   */
+  setGlobalOpacity(o: number): void {
+    const clamped = Math.max(0, Math.min(1, o));
+    if (clamped === this.globalOpacity) return;
+    this.globalOpacity = clamped;
+    this.map?.triggerRepaint();
+  }
+
+  /** Current LOD fade (for wiring checks and the honesty panel). */
+  getGlobalOpacity(): number {
+    return this.globalOpacity;
   }
 
   /**
@@ -441,6 +468,7 @@ export class SatLayer implements CustomLayerInterface {
     this.cachedVariant = variant;
     this.aData = gl.getAttribLocation(p, 'a_data');
     this.uSize = gl.getUniformLocation(p, 'u_size');
+    this.uOpacity = gl.getUniformLocation(p, 'u_opacity');
     this.uColorLEO = gl.getUniformLocation(p, 'u_colorLEO');
     this.uColorMEO = gl.getUniformLocation(p, 'u_colorMEO');
     this.uColorGEO = gl.getUniformLocation(p, 'u_colorGEO');
