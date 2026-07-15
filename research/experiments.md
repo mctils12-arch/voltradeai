@@ -42,7 +42,17 @@ traffic readable at a glance (the human's symbols-not-dots test);
 falsifier: category coverage too sparse in the live feed to matter —
 measure by counting non-DEFAULT groups in a live tick.
 GATES: server 699/699, client 194/194, tsc 66-line baseline, builds
-clean, harness for the client slice recorded below.
+clean. HARNESS (flake investigation, 5 solo runs): branch runs 1-3
+FAILED at data@1440 fields-on only (run 1 locator timeout, runs 2-3
+the wx-never-rendered triple) → suspicion of v1.0.341; A/B: PURE
+origin/main run PASSED clean; A/A: branch run 4 immediately after
+PASSED clean (0 hard failures, all widths) — same tree that failed
+3x. Verdict: environment-correlated (SwiftShader bad state in that
+~35min window), NOT code-correlated; v1.0.340 additionally exonerated
+by construction (server code never runs under the fixture harness).
+FLAKE FREQUENCY is rising (4 fails across 2 batches) — filed as a
+harness-environment open question; no measurement change shipped
+(no proven mechanism; timeout-guessing is not evidence).
 
 ## 2026-07-15 [PRODUCT] — EARTH TWIN O5-3b: the real ISS on the globe (v1.0.339, T-CLIENT + scripts tool)
 

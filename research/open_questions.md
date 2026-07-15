@@ -4554,3 +4554,21 @@ status; EIA-860M is US-only). ASK: human submits the form once at
 globalenergymonitor.org/projects/global-nuclear-power-tracker/download-data/
 and drops the xlsx in the repo or a volume path; a session wires the
 layer with attribution "Global Energy Monitor (CC BY 4.0)".
+
+## [HARNESS-ENV · filed 2026-07-15] data@1440 fields-on flake frequency rising — environment-correlated, mechanism unknown
+
+Five solo harness runs during EARTH TWIN session #3 (v1.0.340-341
+batch): branch runs 1-3 FAILED at data@1440 fields-on only (one
+locator timeout, twice the wx-never-rendered triple: layers/tiles/
+arrows absent + raster-opacity null + no arrows), then PURE
+origin/main PASSED, then the SAME branch tree PASSED — an A/A proof
+the failures track the ENVIRONMENT window (~35min), not the code.
+Machine was idle (13GB free) during failures, so the earlier
+"concurrent-heavy-work starvation" story is incomplete. Cumulative:
+4 fails across 2 batches, always this one battery/width, always
+SwiftShader. OPEN: what state does headless SwiftShader get into
+where wx raster tiles + symbol layers never mount for ~30 min, and
+what should the harness DO about it (per-battery retry? WebGL
+context probe + honest SKIP-with-reason?). Any harness change is its
+own [RULE-REVIEW] PR with the bias statement (a retry can only mask
+real regressions if unbounded — cap + log both outcomes).
