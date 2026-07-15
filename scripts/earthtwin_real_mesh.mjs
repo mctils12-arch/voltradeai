@@ -1,7 +1,7 @@
-// EARTH TWIN O5-3b — NASA ISS model → compact .vtm mesh asset.
+// EARTH TWIN O5-3b — NASA spacecraft GLB → compact .vtm mesh asset.
 //
 // Regeneration tool (run manually, output is committed):
-//   node scripts/earthtwin_iss_mesh.mjs <ISS_stationary.glb> <out.vtm> [gridRes]
+//   node scripts/earthtwin_real_mesh.mjs <model.glb> <out.vtm> [gridRes]
 //
 // Source asset: NASA's official ISS model (public domain, "ISS_stationary.glb",
 // 42MB, 247k tris) — https://science.nasa.gov/resource/international-space-station-3d-model/
@@ -33,7 +33,7 @@ const { PNG } = pngjs;
 
 const [, , glbPath, outPath, gridResArg] = process.argv;
 if (!glbPath || !outPath) {
-  console.error("usage: node scripts/earthtwin_iss_mesh.mjs <in.glb> <out.vtm> [gridRes=176]");
+  console.error("usage: node scripts/earthtwin_real_mesh.mjs <in.glb> <out.vtm> [gridRes=176]");
   process.exit(1);
 }
 const GRID_RES = Number(gridResArg) || 176;
@@ -129,18 +129,23 @@ function applyMat3(m, x, y, z) {
 
 // world transform per node: {rot, trans}
 const world = new Map();
-function walk(nodeIdx, parentRot, parentTrans) {
+function walk(nodeIdx, parentRot, parentNor, parentTrans) {
   const n = gltf.nodes[nodeIdx];
-  if (n.matrix || n.scale) throw new Error("node matrix/scale not supported (asset verified to have neither)");
+  if (n.matrix) throw new Error("node matrix not supported (verified absent in the supported assets)");
   const localRot = n.rotation ? quatToMat3(n.rotation) : IDENT;
+  const sc = n.scale || [1, 1, 1];
+  // local linear part M = R*S; normal matrix (M^-1)^T = R*diag(1/s)
+  const localM = mulMat3(localRot, [sc[0], 0, 0, 0, sc[1], 0, 0, 0, sc[2]]);
+  const localN = mulMat3(localRot, [1 / sc[0], 0, 0, 0, 1 / sc[1], 0, 0, 0, 1 / sc[2]]);
   const t = n.translation || [0, 0, 0];
   const rt = applyMat3(parentRot, t[0], t[1], t[2]);
-  const rot = mulMat3(parentRot, localRot);
+  const rot = mulMat3(parentRot, localM);
+  const nor = mulMat3(parentNor, localN);
   const trans = [parentTrans[0] + rt[0], parentTrans[1] + rt[1], parentTrans[2] + rt[2]];
-  world.set(nodeIdx, { rot, trans });
-  for (const c of n.children || []) walk(c, rot, trans);
+  world.set(nodeIdx, { rot, nor, trans });
+  for (const c of n.children || []) walk(c, rot, nor, trans);
 }
-for (const root of gltf.scenes[gltf.scene ?? 0].nodes) walk(root, IDENT, [0, 0, 0]);
+for (const root of gltf.scenes[gltf.scene ?? 0].nodes) walk(root, IDENT, IDENT, [0, 0, 0]);
 
 // ---- gather world-space triangles ------------------------------------------
 let srcTris = 0;
@@ -182,7 +187,7 @@ for (const g of groups) {
   const vertCluster = new Int32Array(g.pos.length / 3).fill(-1);
   const norOf = (vi) => {
     if (!g.nor) return [0, 0, 1];
-    return applyMat3(g.xf.rot, g.nor[vi * 3], g.nor[vi * 3 + 1], g.nor[vi * 3 + 2]);
+    return applyMat3(g.xf.nor, g.nor[vi * 3], g.nor[vi * 3 + 1], g.nor[vi * 3 + 2]);
   };
   for (let vi = 0; vi < g.pos.length / 3; vi++) {
     const pw = applyMat3(g.xf.rot, g.pos[vi * 3], g.pos[vi * 3 + 1], g.pos[vi * 3 + 2]);

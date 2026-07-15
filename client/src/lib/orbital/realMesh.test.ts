@@ -63,21 +63,29 @@ test('registry: ISS present, honest label, unknown ids resolve to null', async (
   assert.equal(await loadRealModel(99999), null, 'unregistered id: null without any fetch');
 });
 
-test('committed ISS asset decodes and matches its committed provenance meta', () => {
-  const meta = JSON.parse(readFileSync(join(modelsDir, 'iss-25544.json'), 'utf8'));
-  const raw = readFileSync(join(modelsDir, 'iss-25544.vtm'));
-  const mesh = decodeVtm(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
-  assert.equal(mesh.vertexCount, meta.processing.tris * 3, 'triangle count matches the meta');
-  // model3d contract: forms fit ~[-1.2, 1.2] (modelLayer sizes from this)
-  let maxAbs = 0;
-  for (const v of mesh.positions) maxAbs = Math.max(maxAbs, Math.abs(v));
-  assert.ok(maxAbs <= 1.2 + 1e-3, `fits the MODEL_HALF_EXTENT contract (got ${maxAbs.toFixed(3)})`);
-  assert.ok(maxAbs > 1.1, 'actually spans the extent (not accidentally tiny)');
-  // colors are real texture samples: expect true spread, not one flat gray
-  const seen = new Set<number>();
-  for (let i = 0; i < mesh.colors.length; i += 3) {
-    seen.add((Math.round(mesh.colors[i] * 7) << 6) | (Math.round(mesh.colors[i + 1] * 7) << 3) | Math.round(mesh.colors[i + 2] * 7));
+test('every committed real-model asset decodes and matches its committed provenance meta', () => {
+  const assets = Object.entries(REAL_MODELS);
+  assert.ok(assets.length >= 2, 'ISS + Hubble at minimum');
+  for (const [norad, entry] of assets) {
+    const base = entry.url.split('/').pop()!.replace(/\.vtm$/, '');
+    const meta = JSON.parse(readFileSync(join(modelsDir, `${base}.json`), 'utf8'));
+    assert.equal(String(meta.norad), norad, `${base}: meta names the registry NORAD id`);
+    const raw = readFileSync(join(modelsDir, `${base}.vtm`));
+    const mesh = decodeVtm(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+    assert.equal(mesh.vertexCount, meta.processing.tris * 3, `${base}: triangle count matches the meta`);
+    // model3d contract: forms fit ~[-1.2, 1.2] (modelLayer sizes from this)
+    let maxAbs = 0;
+    for (const v of mesh.positions) maxAbs = Math.max(maxAbs, Math.abs(v));
+    assert.ok(maxAbs <= 1.2 + 1e-3, `${base}: fits the MODEL_HALF_EXTENT contract (got ${maxAbs.toFixed(3)})`);
+    assert.ok(maxAbs > 1.1, `${base}: actually spans the extent (not accidentally tiny)`);
+    // colors are real texture samples: expect true spread, not one flat gray
+    const seen = new Set<number>();
+    for (let i = 0; i < mesh.colors.length; i += 3) {
+      seen.add((Math.round(mesh.colors[i] * 7) << 6) | (Math.round(mesh.colors[i + 1] * 7) << 3) | Math.round(mesh.colors[i + 2] * 7));
+    }
+    assert.ok(seen.size >= 8, `${base}: sampled palette has real spread (got ${seen.size} coarse buckets)`);
+    assert.equal(meta.source.license.toLowerCase().includes('public domain'), true, `${base}: provenance pinned`);
+    assert.ok(/NASA/.test(entry.label) && /public domain/i.test(entry.label) && /simplified/i.test(entry.label),
+      `${base}: label names source + license + admits decimation`);
   }
-  assert.ok(seen.size >= 8, `sampled palette has real spread (got ${seen.size} coarse buckets)`);
-  assert.equal(meta.source.license.toLowerCase().includes('public domain'), true, 'provenance pinned');
 });

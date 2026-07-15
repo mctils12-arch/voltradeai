@@ -9,7 +9,7 @@
     "retrieved": "2026-07-15"
   },
   "processing": {
-    "tool": "scripts/earthtwin_iss_mesh.mjs",
+    "tool": "scripts/earthtwin_real_mesh.mjs",
     "method": "node hierarchy baked; vertex-cluster decimation (grid 64, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
     "verts": 22890,
     "tris": 27411,

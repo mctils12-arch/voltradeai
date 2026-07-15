@@ -32,6 +32,11 @@ export const REAL_MODELS: Record<number, RealModelEntry> = {
     label:
       'NASA model of the International Space Station (public domain source, simplified for display)',
   },
+  20580: {
+    url: '/models/hubble-20580.vtm',
+    label:
+      'NASA model of the Hubble Space Telescope (public domain source, simplified for display)',
+  },
 };
 
 export function realModelLabel(noradId: number): string | null {
