@@ -56,6 +56,29 @@
       }
     },
     {
+      "id": "seafloor_confidence",
+      "name": "Seafloor mapping confidence (GEBCO)",
+      "kind": "raw",
+      "status": "live",
+      "group": "base",
+      "costTier": "moderate",
+      "source": "GEBCO_2024 Grid Source Data Type Identifier (TID) via the GEBCO/BODC public WMS, free with attribution",
+      "description": "Where the seafloor is actually MEASURED (ship/sonar soundings) vs INTERPOLATED (satellite-gravity derived, no direct sounding) — GEBCO's own per-pixel confidence layer, shown as-is, not a metric we computed. Only roughly a quarter of the world's seafloor carries direct measurement; the rest is a statistical estimate. This is the honesty machinery the seafloor layer's depth palette can't show on its own: two cells can render the identical depth color while resting on entirely different evidence. Best paired with the Seafloor (drain the ocean) layer. Not for navigation. Imagery reproduced from the GEBCO_2024 Grid, www.gebco.net.",
+      "field": true,
+      "altitudeRef": "depth",
+      "time": {
+        "mode": "static"
+      },
+      "renderKind": "raster-field",
+      "provenance": {
+        "license": "GEBCO/BODC public WMS — free with attribution, not for navigation",
+        "commercialOk": true,
+        "resolution": "15 arc-second (GEBCO_2024 grid)",
+        "coverage": "global ocean",
+        "confidence": "verified"
+      }
+    },
+    {
       "id": "weather",
       "name": "Weather radar (US)",
       "kind": "raw",

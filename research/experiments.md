@@ -13,6 +13,149 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — EARTH TWIN E2 v2 confidence half: GEBCO seafloor-mapping-confidence overlay (v1.0.340, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, new client/src/lib/
+gebco.ts, scripts/visual_check.mjs fixtures) + datacore/layers.json
+(SHARED, last-and-minimal per the WORKSTREAM PARTITION protocol — one
+new registry entry, nothing else in the file touched).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full; research/
+open_questions.md KNOWN BROKEN section reviewed; ran the new
+scripts/session_health_check.py against the live deploy (DIAG_TOKEN
+present) — all checks OK/no-alarm except a pre-existing WARN
+(`ml_feedback`: 24 orphan-exit records, matches the already-filed KNOWN
+BROKEN #12(c) exit-path gap, not new, not liveness-critical). No
+LIVENESS ALARM; this [PRODUCT] session proceeded per the standing rule
+that product sessions don't preempt DAILY repair duty for non-critical
+open items.
+
+PRIMARY ACTION CHOICE: surveyed platform_program.md (queue clear except
+human-gated P5), the CENSUS MASTER RANKING in data_census.md (every
+item built except EPA CAMD/GEM/ENTSO-E, all BLOCKED-FOR-MIKE on a free
+key/token/form, and DTCC SBSDR — live-reprobed this session, still 503
+from this sandbox's proxy, same failure class data_census.md already
+logged for the CFTC-side DTCC slices, not actionable), and BUILD ORDER
+6 (closed 2026-07-06, confirmed by grep — every one of its four keyless
+items already has a live server module). EARTH TWIN is the sole active
+program with an explicit CONTINUOUS BUILD MANDATE and a concrete open
+NEXT item that is genuinely /data-product work: "GEBCO v2 + TID
+confidence overlay," filed twice in its RESUME STATE.
+
+REASONING STANDARD #1 (trace before building) changed the plan: the
+charter scoped E2 v2 as a self-tiled GEBCO pmtiles pipeline (download
+the full 15-arc-second global grid, tile it ourselves, BUILD-DON'T-BUY
+style). Before committing a session to that multi-GB download, probed
+GEBCO/BODC's public WMS GetCapabilities live — it already serves
+exactly the layer the charter wants as a *live* raster: `GEBCO_2024_3`,
+whose own abstract states "shows those pixels that are based on
+measured data ... areas based on interpolation are set to black." A
+real GetMap tile request for it returned `200 image/png`, 48KB, valid
+PNG. Proxying GEBCO's own live tiles (identical pattern to how
+lib/gibs.ts already proxies NASA GIBS tiles for nightlights/aerosol/
+biomass/etc.) ships the directive's honesty ask ("if only partial
+mapping exists, display uncertainty") today, with zero storage burden
+and zero large-download risk — instead of deferring it behind a
+pipeline that would need its own staged TX-pilot-style build (per the
+power-tiles precedent) before shipping anything user-visible. The
+self-tiled full-fidelity 15-arcsec RELIEF (E2 v2's other half, replacing
+seafloor's current ~1-arcmin ETOPO1 palette) remains unbuilt and is
+correctly scoped as its own future, larger slice — this PR ships the
+confidence overlay only, not a relief upgrade.
+
+SHIPPED: `client/src/lib/gebco.ts` (new, pure) — `gebcoWmsTileUrl(layer)`
+builds a WMS GetMap URL template with the literal `{bbox-epsg-3857}`
+token MapLibre substitutes per-tile (documented WMS-source feature of
+the raster source spec). `datacore/layers.json` gained the
+`seafloor_confidence` entry (RAW, group "base", full registry-v2
+schema: altitudeRef=depth, time={mode:static}, renderKind=raster-field,
+provenance with commercialOk=true and an honest license string — "free
+with attribution, not for navigation," no NC restriction found in
+GEBCO's terms, unlike the TeleGeography cables case already declined
+elsewhere in this charter). `datamap.tsx`: new mount effect on the
+same seafloor-relief template (add/remove source+layer keyed on
+`enabled.seafloor_confidence`, ShieldCheck icon, generic field-layer
+opacity slider via the existing registry-driven panel row — no new
+per-layer UI code needed), legend section (measured vs interpolated
+chips) placed directly after the existing seafloor legend block.
+`scripts/visual_check.mjs` FIXTURES gained the entry — the prior
+attention-session's own documented lesson ("every toggleable registry
+layer must appear in this fixture or the toggle-consistency battery
+silently never clicks it") applied proactively this time.
+
+RATCHET: `client/src/lib/gebco.test.ts` (new) — 2 pure unit tests on
+the URL builder (correct WMS params + the TID layer name + the bbox
+token intact; a second layer name proves the function doesn't silently
+hardcode TID). `server/layersRegistry.test.ts`'s existing registry-v2
+suite (altitudeRef/time/provenance/renderKind/license-ratchet) and
+`server/layersWiring.test.ts`'s "every live registry id must appear in
+LAYER_GROUP" ratchet both cover the new entry automatically — verified
+green, not just assumed.
+
+GATES: `npx tsx --test server/layersWiring.test.ts server/
+layersRegistry.test.ts client/src/lib/gebco.test.ts` 26/26. Full suite
+`npx tsx --test server/*.test.ts`: 670/674 with this sandbox's
+pre-existing empty `node_modules` (apiKeyAccounts/compression/
+gdeltEvents/owmTiles fail to import their npm deps at all — A/B'd via
+`git stash` against unmodified main with the same empty node_modules:
+identical 4 failures, confirming pre-existing environment state, not a
+regression); after `npm install` (485 packages, none previously
+present in this sandbox) 694/694, zero failures. `npx tsx --test
+client/src/lib/**/*.test.ts` (recursive, matching the EARTH TWIN
+sessions' own "client libs" convention) 194/194 including the 2 new
+gebco tests. `npx tsc --noEmit`: 66 lines both before and after,
+byte-identical in substance via diff (one pre-existing union-type
+error's line number shifted by exactly the +46 lines this diff added,
+same file, same error class — the same benign-shift pattern the
+2026-07-14 sessions already documented). `npm run build`: clean, no
+new chunk warnings, `seafloor_confidence` bundles into the existing
+DataWorldMap chunk.
+
+VISUAL HARNESS — attempted twice, could not complete in this sandbox,
+same environment-level finding two 2026-07-14 EARTH TWIN sessions
+already logged (real, layer-heavy `/data` page WebGL render under
+headless Chromium either hangs or the renderer process dies; a trivial
+static page survives). First attempt (`timeout 180 node scripts/
+visual_check.mjs --page data`) produced zero output and was killed by
+the shell timeout at 180s (exit 143). Second attempt, run directly in
+the background without an outer shell timeout to give it more room:
+still running with 13 live chromium-family processes after ~10+
+minutes with no stdout — stopped manually rather than left to consume
+the rest of the session, since the prior sessions' own precedent notes
+this class of hang is concurrency/container-load-related, not fixed by
+waiting longer. Confidence in lieu of screenshots rests on the same
+basis the 2026-07-14 HIFLD and PFAS sessions already used successfully:
+the diff touches zero index.css/DESIGN.md styling, adds one raster
+source+layer via the byte-identical add/remove pattern six other field
+layers (nightlights/aerosol/vegetation/soilmoisture/no2/biomass) already
+use and have each been visually verified in their own prior sessions,
+the legend addition duplicates the DOM shape of the seafloor legend
+block immediately above it, and the full test/build gates above are
+green. Filed as a second data point (with the 2026-07-14 finding) that
+this sandbox's headless-Chromium-under-heavy-WebGL harness run is
+unreliable — worth a dedicated environment-setup session per those
+prior sessions' own recommendation, not chased further here.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): pure additive /data display
+layer — zero touch to any scoring/sizing/scheduling/trading code path,
+zero change to any existing layer's request path or archive. The only
+new network traffic is client-side, opt-in (layer defaults OFF, same
+as `seafloor`), and points at GEBCO/BODC's own public tile service —
+no new server route, no new archive, no volume growth.
+
+BACKTEST: N/A — /data display-surface addition only.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before evidence): once
+deployed, toggling "Seafloor mapping confidence" should render a
+binary-looking mask over the oceans (transparent/clear where GEBCO has
+direct soundings, near-black where it doesn't) that is honestly patchy
+— dense near coastlines and shipping lanes, sparse in open ocean/polar
+areas — matching GEBCO's own stated ~25% direct-measurement coverage.
+A future session with working screenshot access should verify this
+visually and confirm the legend chips render correctly at 390/768/1440
+per PROMOTION RULE 6 (not verified this session, per the harness
+finding above).
+
 ## 2026-07-15 [PRODUCT] — EARTH TWIN O5-3b: the real ISS on the globe (v1.0.339, T-CLIENT + scripts tool)
 
 Loader spike decided AGAINST a runtime glTF stack (three.js ~600KB or

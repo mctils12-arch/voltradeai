@@ -564,6 +564,54 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-15 ([PRODUCT] session, T-CLIENT) — E2 v2 CONFIDENCE HALF SHIPPED
+  (v1.0.340): the seafloor_confidence overlay — GEBCO's own per-pixel
+  Source Data Type Identifier (GEBCO_2024_3: measured/ship-sonar vs
+  interpolated/satellite-gravity), verified live this session
+  (GetCapabilities names the layer's own abstract: "shows those pixels
+  that are based on measured data ... areas based on interpolation are
+  set to black"; a real GetMap tile request returned 200 image/png).
+  PLAN REVISION (recorded so a future session doesn't redo this
+  research): the charter scoped E2 v2 as a self-tiled GEBCO pmtiles
+  pipeline (download the full 15-arc-second global grid, tile it
+  ourselves). Live probing found GEBCO/BODC already serve this exact
+  confidence layer over their own public WMS — proxying it (new
+  client/src/lib/gebco.ts, same pattern gibs.ts already uses for NASA
+  tiles, MapLibre's `{bbox-epsg-3857}` WMS template token) ships the
+  directive's honesty ask ("if only partial mapping exists, display
+  uncertainty") today with zero storage burden and zero large-download
+  risk, instead of deferring it behind a multi-GB pipeline. The
+  self-tiled full-fidelity 15-arcsec RELIEF (replacing seafloor's
+  current ~1-arcmin ETOPO1 depth palette) is the part still not built —
+  that half needs the real pipeline (BUILD-DON'T-BUY: own the tiles,
+  not just proxy them) and is a separate, larger future slice.
+  SHIPPED: datacore/layers.json seafloor_confidence entry (RAW, group
+  "base", full v2 schema — altitudeRef=depth, time=static,
+  renderKind=raster-field, provenance.commercialOk=true, license text
+  states "free with attribution, not for navigation"); datamap.tsx
+  wiring (mount effect on the same seafloor-relief template, ShieldCheck
+  icon, opacity slider via the generic field-layer panel row, legend
+  section with measured-vs-interpolated chips); scripts/visual_check.mjs
+  FIXTURES gained the entry (the attention-session's own documented
+  lesson — every toggleable registry layer must appear there).
+  GATES: server 694/694 (670/674 before `npm install` — the 4 were
+  missing-node_modules in this sandbox, not network or code failures,
+  confirmed by A/B on pre-change code with the same empty node_modules);
+  client libs 194/194 including the new gebco.test.ts (pure URL-builder
+  unit tests, no network); `npx tsc --noEmit` 66 lines, byte-identical
+  in substance to the git-stash baseline (one pre-existing union-type
+  error's line number shifted by the diff's +46 lines, same error
+  class); `npm run build` clean, no new chunk warnings. Visual harness
+  run recorded in experiments.md.
+  NEXT: the self-tiled GEBCO relief pipeline (E2 v2's other, larger
+  half — probe realistic global-grid file size before committing a
+  session to it, likely needs its own TX-pilot-style staged build like
+  the power-tiles precedent); vessels delta (time/since + Cache-Control);
+  React memo boundaries (LayersPanel/Legend/DetailCard); keepFraction
+  density decision (human input); aircraft 3D polish (per-class
+  silhouettes, ground line, altitude label on hover); more real models
+  where public assets verify (Hubble/JWST candidates — NASA 3D
+  resources); gazetteer names (undersea feature labels, still open).
 - 2026-07-15 (session #3 continued) — O5-3b SHIPPED (v1.0.339): the
   REAL ISS on the globe. Loader-spike decision: NO three.js — NASA's
   official public-domain ISS_stationary.glb (42MB, 247k tris) is

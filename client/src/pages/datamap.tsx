@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, ShieldCheck } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -90,6 +90,7 @@ import { runResilientLoad } from "@/lib/resilientLoad";
 // worldview_globe.md Phase G2: shared NASA GIBS raster-layer factory. G2a
 // (night lights) is the first consumer; G2b-h reuse this same helper.
 import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibsLatestScanTime } from "@/lib/gibs";
+import { gebcoWmsTileUrl, GEBCO_TID_LAYER } from "@/lib/gebco";
 // Reliability (BUG 4): six hand-rolled layers stacked click/hover listeners
 // across toggle cycles. attachLayerInteractions binds them with named handlers
 // and returns a detach() the effect cleanup calls — no more stacking.
@@ -372,7 +373,7 @@ const PANEL_GROUPS = [
 // not). Passed to gibsDefaultDate/gibsIsLatestAvailable as latencyDays.
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
-  imagery: "base", terrain: "base", seafloor: "base", weather: "base",
+  imagery: "base", terrain: "base", seafloor: "base", seafloor_confidence: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
@@ -807,6 +808,7 @@ export default function DataMapPage() {
     biomass: "gibs-biomass",
     floodzones: "fema-floodzones",
     seafloor: "seafloor-relief",
+    seafloor_confidence: "gebco-tid",
   };
   // Most field layers are raster (paint prop "raster-opacity"); layer types
   // with their own opacity prop override here (seafloor is a color-relief).
@@ -1295,6 +1297,49 @@ export default function DataMapPage() {
       setStatus("seafloor", "error");
     }
   }, [enabled.seafloor, mapReady, setStatus]);
+
+  // ── seafloor mapping confidence (RAW; EARTH TWIN E2 v2, research/
+  // earth_twin_program.md V4 — "if only partial mapping exists, display
+  // uncertainty"). GEBCO_2024_3 over GEBCO/BODC's own public WMS: their
+  // per-pixel Source Data Type Identifier rendered as measured (ship/sonar)
+  // vs interpolated (satellite-gravity), verified live via GetCapabilities
+  // this session — a real GetMap tile request returned 200 image/png. This
+  // is GEBCO's own confidence layer proxied as-is, not something we derived
+  // or estimated; no self-tiling pipeline needed, so no storage burden and
+  // no large-download risk (the originally-scoped self-tiled 15-arcsec
+  // relief pipeline remains a separate, larger future slice). Static — TID
+  // is a versioned grid product, not a daily feed, so no time scrubber. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.seafloor_confidence) {
+      try {
+        if (map.getLayer("gebco-tid")) map.removeLayer("gebco-tid");
+        if (map.getSource("gebco-tid")) map.removeSource("gebco-tid");
+      } catch {}
+      setStatus("seafloor_confidence", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gebco-tid")) map.removeLayer("gebco-tid");
+      if (map.getSource("gebco-tid")) map.removeSource("gebco-tid");
+      const url = gebcoWmsTileUrl(GEBCO_TID_LAYER);
+      map.addSource("gebco-tid", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 12,
+        attribution: "Imagery reproduced from the GEBCO_2024 Grid, www.gebco.net",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gebco-tid", type: "raster", source: "gebco-tid",
+        paint: { "raster-opacity": opacityOf("seafloor_confidence") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("seafloor_confidence", "active", undefined,
+        "GEBCO_2024 Source Data Type Identifier · dark/opaque = interpolated (no direct sounding), " +
+        "clear = measured (ship/sonar soundings) — GEBCO/BODC public WMS, not for navigation");
+    } catch {
+      setStatus("seafloor_confidence", "error");
+    }
+  }, [enabled.seafloor_confidence, mapReady, setStatus]);
 
   // ── surface water (RAW; JRC Global Surface Water v2021 — atlas-parity
   // layer 1, licensing per open_questions ATLAS PARITY: free with EC
@@ -5105,6 +5150,7 @@ export default function DataMapPage() {
     id === "imagery" ? <Satellite size={15} /> :
     id === "terrain" ? <Mountain size={15} /> :
     id === "seafloor" ? <Anchor size={15} /> :
+    id === "seafloor_confidence" ? <ShieldCheck size={15} /> :
     id === "weather" ? <CloudRain size={15} /> :
     id === "weather_temp" ? <Thermometer size={15} /> :
     id === "weather_wind" ? <Wind size={15} /> :
@@ -6023,6 +6069,16 @@ export default function DataMapPage() {
                           </span>
                         ))}
                         <span className="vt-legend-note">NOAA ETOPO1 (~1 arc-min) — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · coarse cells can tint slightly past the shoreline (more visible with 3D terrain on)</span>
+                      </div>
+                    </div>
+                  )}
+                  {enabled.seafloor_confidence && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Seafloor mapping confidence</div>
+                      <div className="vt-legend-items">
+                        <span className="vt-legend-chip"><i style={{ background: "rgba(0,0,0,0)", border: "1px solid rgba(255,255,255,0.4)" }} /> Measured (ship/sonar)</span>
+                        <span className="vt-legend-chip"><i style={{ background: "#111" }} /> Interpolated (satellite-gravity)</span>
+                        <span className="vt-legend-note">GEBCO_2024 Source Data Type Identifier · GEBCO/BODC public WMS · not for navigation · roughly a quarter of the seafloor is direct-measured</span>
                       </div>
                     </div>
                   )}
