@@ -1,0 +1,19 @@
+{
+  "norad": 20580,
+  "name": "Hubble Space Telescope",
+  "file": "hubble-20580.vtm",
+  "source": {
+    "asset": "Hubble-1.glb (10.9 MB, 21,129 triangles)",
+    "publisher": "NASA Visualization Technology Applications and Development (VTAD) — https://science.nasa.gov/resource/hubble-space-telescope-3d-model-2/",
+    "license": "Public domain (NASA media usage guidelines)",
+    "retrieved": "2026-07-15"
+  },
+  "processing": {
+    "tool": "scripts/earthtwin_real_mesh.mjs",
+    "method": "node hierarchy baked (incl. per-node scale via inverse-transpose normal matrices); vertex-cluster decimation (grid 144, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
+    "verts": 10428,
+    "tris": 12511,
+    "spanMeters": 16.73
+  },
+  "honesty": "Decimated derivative of NASA's official Hubble model for focused-object display (~72–150 px). Geometry and colors are simplified from the source asset; this is a real model of the real telescope, not a class-representative form."
+}

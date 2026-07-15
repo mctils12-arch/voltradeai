@@ -31,6 +31,7 @@ import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL }
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
+import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
@@ -877,6 +878,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/data/aircraft", async (req, res) => {
     complianceAuditTick();
+    // SCALE S1(b): short shared cache — tabs/users on the same (rounded)
+    // bbox within one poll interval reuse the response at the HTTP layer.
+    res.set("Cache-Control", "public, max-age=10");
     const num = (v: any, lo: number, hi: number, dflt: number) => {
       const n = parseFloat(String(v));
       return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
@@ -927,6 +931,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Stale-beats-spinner (DESIGN.md performance budget): serve the last
       // snapshot with its timestamp rather than an empty error.
       if (hit) return res.json(applyViewport(({ ...hit.data, cached: true, stale: true, stale_at: hit.at }), req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
+      res.set("Cache-Control", "no-store"); // never let an edge cache an outage
       res.status(502).json({ error: `aircraft feed unavailable: ${e?.message || e}`, aircraft: [] });
     }
   });
@@ -1021,6 +1026,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // layer (and its archive recording) cold until someone opens the map.
   bootVesselStream(process.env, ensureVesselStream);
 
+  // SCALE S1(b) — vessels delta: short-TTL snapshot per expanded bbox +
+  // the aircraft `time`/`since` protocol (the client's sinceRef machinery
+  // already speaks it — zero client changes). Was: full 15k-vessel scan +
+  // re-serialize per request per tab every poll. Pure logic in liveDelta.ts.
+  const vesselSnapCache: Map<string, { at: number; data: VesselSnapshot }> = new Map();
   app.get("/api/data/vessels", (req, res) => {
     if (!vesselStreamEnabled()) {
       return res.json({
@@ -1034,43 +1044,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const n = parseFloat(String(v));
       return Number.isFinite(n) ? n : dflt;
     };
-    const lamin = num(req.query.lamin, -85), lamax = num(req.query.lamax, 85);
-    const lomin = num(req.query.lomin, -180), lomax = num(req.query.lomax, 180);
-    const cutoff = Date.now() - 20 * 60_000;
-    // Raised 5000→15000: the WebGL symbol layer handles 10k+ (DESIGN.md budget),
-    // so at wide zoom in dense AIS regions the layer no longer SILENTLY drops
-    // ships. total_in_view counts every fresh in-bbox vessel so, when the cap
-    // still bites, we disclose it honestly (coverage_note, surfaced by the
-    // client's existing partial-coverage note path) instead of hiding the drop.
-    const VESSEL_CAP = 15000;
-    const vessels: any[] = [];
-    let totalInView = 0;
-    vesselPositions.forEach((v, mmsi) => {
-      if (v.at < cutoff) return;
-      if (v.lat < lamin || v.lat > lamax || v.lon < lomin || v.lon > lomax) return;
-      totalInView += 1;
-      if (vessels.length >= VESSEL_CAP) return;
-      const st = vesselStatics.get(mmsi);
-      vessels.push({
-        mmsi, name: st?.name || v.name, lat: v.lat, lon: v.lon,
-        sog: v.sog, cog: v.cog,
-        shiptype: st?.shiptype ?? null,
-        destination: st?.destination ?? null,
-      });
-    });
-    const capped = totalInView > vessels.length;
+    const bbox = expandBbox1dp(
+      num(req.query.lamin, -85), num(req.query.lamax, 85),
+      num(req.query.lomin, -180), num(req.query.lomax, 180));
+    const key = `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}`;
+    const now = Date.now();
+    let hit = vesselSnapCache.get(key);
+    if (!hit || now - hit.at >= VESSEL_SNAPSHOT_TTL_MS) {
+      hit = { at: now, data: buildVesselSnapshot(vesselPositions, vesselStatics, bbox, now) };
+      vesselSnapCache.set(key, hit);
+      if (vesselSnapCache.size > 20) {
+        const oldest = Array.from(vesselSnapCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
+        if (oldest) vesselSnapCache.delete(oldest[0]);
+      }
+    }
+    res.set("Cache-Control", "public, max-age=10");
+    if (sinceUnchanged(hit.data, req.query.since)) {
+      return res.json({ unchanged: true, time: hit.data.time, count: hit.data.count });
+    }
     res.json({
       enabled: true,
       source: "aisstream.io (AIS, terrestrial receivers — mid-ocean coverage gaps are inherent)",
       kind: "raw",
-      warming_up: vessels.length === 0 && Date.now() - vesselSocketUp < 30_000,
-      count: vessels.length,
-      total_in_view: totalInView,
-      ...(capped ? {
-        coverage: "partial",
-        coverage_note: `showing ${vessels.length.toLocaleString()} of ${totalInView.toLocaleString()} vessels in view — zoom in to see the rest`,
-      } : {}),
-      vessels,
+      warming_up: hit.data.count === 0 && now - vesselSocketUp < 30_000,
+      ...hit.data,
     });
   });
 
@@ -1394,6 +1391,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     };
   }
   app.get("/api/data/trains", async (_req, res) => {
+    res.set("Cache-Control", "public, max-age=10"); // SCALE S1(b), same as aircraft/vessels
     if (trainsCache && Date.now() - trainsCache.at < 30_000) return res.json(trainsCache.data);
     // [REPAIR 2026-07-05] Production outage: one fetchTrains got stuck past
     // its per-source timeouts; `.finally()` only clears on SETTLE, so every
@@ -1416,6 +1414,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // stale-over-error: fetchTrains itself never throws (per-source
       // status instead) — this path is the route deadline firing.
       if (trainsCache) return res.json({ ...trainsCache.data, stale: true });
+      res.set("Cache-Control", "no-store"); // never let an edge cache an outage
       res.status(503).json({ error: e?.message || "trains fetch failed", trains: [], count: 0 });
     }
   });

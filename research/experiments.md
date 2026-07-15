@@ -13,6 +13,47 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — EARTH TWIN session #3 continued: vessels delta + per-class aircraft 3D (v1.0.340-341, post-#486 branch restart)
+
+#486 MERGED (squash 94f9fdd) and deployed — production verified: health
+ok, fresh uptime, /models/iss-25544.vtm serving 439182 bytes (the real
+ISS is live). Branch restarted from main per the merged-branch rule.
+Two more slices, own commits:
+- v1.0.340 SCALE S1(b) VESSELS DELTA: time/since protocol (client
+  sinceRef machinery already speaks it — zero client changes), 15s
+  snapshot cache per OUTWARD-expanded 0.1° bbox (floor/ceil, never
+  crops — stricter than the aircraft precedent's nearest-rounding),
+  Cache-Control public,max-age=10 on aircraft/vessels/trains success
+  paths with no-store pinned on error paths (an edge must never cache
+  an outage). Pure logic in server/liveDelta.ts, 5 tests. Was: full
+  15k-vessel scan + ~2.4MB re-ship per poll per tab.
+- v1.0.341 E3 POLISH: per-class 3D silhouettes decoded from the
+  broadcast ADS-B emitter category ONLY (A1 light/A5 heavy/A6 delta/
+  A7 rotor; everything else stays the generic airliner — never
+  guessed) + altitude drop-lines to the surface (constant-attribute
+  trick, one LINES pass; fades toward the ground end). Instances
+  stable-sorted by shape → one instanced draw per contiguous class
+  group; rows stay pick-aligned (test-pinned).
+PRIOR (v1.0.340): unchanged-poll answers shrink vessel traffic ~25x
+when the map is idle; falsifier: aisstream updates so continuous that
+since never matches — then the win is only the snapshot cache (still
+kills the per-tab rescan). PRIOR (v1.0.341): class shapes make z8+
+traffic readable at a glance (the human's symbols-not-dots test);
+falsifier: category coverage too sparse in the live feed to matter —
+measure by counting non-DEFAULT groups in a live tick.
+GATES: server 699/699, client 194/194, tsc 66-line baseline, builds
+clean. HARNESS (flake investigation, 5 solo runs): branch runs 1-3
+FAILED at data@1440 fields-on only (run 1 locator timeout, runs 2-3
+the wx-never-rendered triple) → suspicion of v1.0.341; A/B: PURE
+origin/main run PASSED clean; A/A: branch run 4 immediately after
+PASSED clean (0 hard failures, all widths) — same tree that failed
+3x. Verdict: environment-correlated (SwiftShader bad state in that
+~35min window), NOT code-correlated; v1.0.340 additionally exonerated
+by construction (server code never runs under the fixture harness).
+FLAKE FREQUENCY is rising (4 fails across 2 batches) — filed as a
+harness-environment open question; no measurement change shipped
+(no proven mechanism; timeout-guessing is not evidence).
+
 ## 2026-07-15 [PRODUCT] — EARTH TWIN O5-3b: the real ISS on the globe (v1.0.339, T-CLIENT + scripts tool)
 
 Loader spike decided AGAINST a runtime glTF stack (three.js ~600KB or

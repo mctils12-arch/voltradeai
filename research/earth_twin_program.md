@@ -594,6 +594,18 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   (human input), aircraft 3D polish (per-class silhouettes, ground
   line, altitude label on hover), more real models where public
   assets verify (Hubble/JWST candidates — NASA 3D resources).
+- 2026-07-15 (session #3, after the #486 merge + branch restart):
+  #486 DEPLOYED and verified live (health ok, ISS asset serving).
+  SHIPPED since: v1.0.340 vessels delta (SCALE S1(b) — liveDelta.ts,
+  time/since + bbox snapshot cache + Cache-Control w/ no-store error
+  pins) and v1.0.341 E3 polish (per-class silhouettes from the
+  broadcast emitter category only + altitude drop-lines; stable-sort
+  shape groups, rows pick-aligned). Queue after this: GEBCO v2 + TID,
+  React memo boundaries (fresh-session recommended: 5.9k-line
+  component refactor), keepFraction density (HUMAN INPUT), altitude
+  label on hover (deferred from the polish slice — hover DOM
+  machinery is its own change), more real models (Hubble/JWST
+  candidates), SCALE S2 server aggregation, 1Hz orbital repaint.
 - 2026-07-15 (session #3, post-merge — #484 MERGED + DEPLOYED, site
   live at v1.0.334; note: the auto-merge SQUASHED the branch, so the
   40 per-commit versions collapsed into one deploy unit — acceptable
