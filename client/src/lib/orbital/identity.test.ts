@@ -6,6 +6,7 @@ import {
   OPS_STATUS_DECODE,
   nameStemForOperator,
   satelliteIdentityLines,
+  buildNoradIndex,
 } from './identity.js';
 import type { SatcatRecord } from './tle.js';
 
@@ -71,6 +72,20 @@ test('operator line: ticker when public, honest no-equity note when private, pro
     matched_on: 'iridium', asof: '2026-07-07',
   });
   assert.ok(pub.find((l) => l.includes('IRDM') && l.includes('NASDAQ')));
+});
+
+test('buildNoradIndex: chunked insertion yields between batches and indexes every row (E4-2 perf)', async () => {
+  const rows = Array.from({ length: 25_000 }, (_, i) => ({ ...base, noradId: i + 1 }));
+  let yields = 0;
+  const map = await buildNoradIndex(rows, {
+    chunkSize: 10_000,
+    defer: async () => { yields++; },
+  });
+  assert.equal(map.size, 25_000, 'every row indexed');
+  assert.equal(yields, 2, 'yields BETWEEN batches only (3 batches → 2 yields), so no frame carries more than one chunk');
+  assert.equal(map.get(12_345)?.noradId, 12_345);
+  const empty = await buildNoradIndex([], { defer: async () => { throw new Error('must not yield for empty input'); } });
+  assert.equal(empty.size, 0);
 });
 
 test('missing catalog: loading vs not-in-catalog vs unavailable read differently, and never invent identity', () => {

@@ -42,7 +42,8 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // operator→ticker map turn a clicked point into "small payload, CubeSat-class
 // size, owned by X, launched Y" — formatting lives in lib/orbital/identity
 // (pure, tested); resolveOperator stays conservative (null = honest unmapped).
-import { satelliteIdentityLines, nameStemForOperator } from "@/lib/orbital/identity";
+import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/lib/orbital/identity";
+import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
@@ -92,23 +93,52 @@ const ORBITAL_LOD_FALLBACK = { camMinKm: 100, fadeBandKm: 150 };
 // catalog metadata changes slowly and CelesTrak rate-limits). Fetched in the
 // BACKGROUND when the satellites layer enables, never blocking the layer;
 // a click before it lands gets an honest "still downloading" line.
+// E4-2 (perf): the ~6 MB CSV parse measured ~300 ms main-thread block on
+// desktop (~1 s mobile) — fetch+parse now run in a one-shot worker
+// (satcatWorker.ts) and the lookup index builds in frame-sized chunks
+// (buildNoradIndex); the direct fetch remains only as a degrade-safe
+// fallback if Worker construction itself fails.
 let satcatByNorad: Map<number, SatcatRecord> | null = null;
 let satcatFetchedAt = 0;
 let satcatState: "loading" | "ready" | "error" = "error";
 let satcatInflight: Promise<void> | null = null;
 const SATCAT_TTL_MS = 24 * 60 * 60_000;
+function fetchSatcatRowsOffThread(): Promise<SatcatRecord[]> {
+  return new Promise((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(
+        new URL("../lib/orbital/satcatWorker.ts", import.meta.url),
+        { type: "module" },
+      );
+    } catch (e) {
+      // No Worker support / bundler edge: fall back to the main-thread path
+      // (slower but functional — degrade, never break).
+      fetchSatcat().then(resolve, reject);
+      return;
+    }
+    const done = (fn: () => void) => { try { worker.terminate(); } catch {} fn(); };
+    worker.onmessage = (ev: MessageEvent<SatcatWorkerOutbound>) => {
+      const m = ev.data;
+      if (m.type === "rows") done(() => resolve(m.rows));
+      else done(() => reject(new Error(m.message)));
+    };
+    worker.onerror = () => done(() => reject(new Error("satcat worker failed")));
+    worker.postMessage({ type: "fetch" });
+  });
+}
 function ensureSatcat(): void {
   if (satcatByNorad && Date.now() - satcatFetchedAt < SATCAT_TTL_MS) return;
   if (satcatInflight) return;
   satcatState = "loading";
-  satcatInflight = fetchSatcat()
-    .then((rows) => {
+  satcatInflight = fetchSatcatRowsOffThread()
+    .then(async (rows) => {
       // An HTTP error page (CelesTrak 403/5xx) parses to [] — NEVER cache
       // that as "ready" or identity stays dead for the whole TTL (review
       // finding, session #1). Empty = failure; the old cache (if any) keeps
       // serving clicks.
       if (!rows.length) throw new Error("empty SATCAT response");
-      satcatByNorad = new Map(rows.map((r) => [r.noradId, r]));
+      satcatByNorad = await buildNoradIndex(rows); // chunked — never blocks a frame
       satcatFetchedAt = Date.now();
       satcatState = "ready";
     })

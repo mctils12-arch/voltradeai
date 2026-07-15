@@ -13,6 +13,28 @@ import type { SatcatRecord } from './tle.js';
 import type { ResolvedOperator } from './entityJoin.js';
 
 /**
+ * Build the noradId → record index WITHOUT blocking a frame (E4-2 perf):
+ * one synchronous Map() over ~63k entries costs ~34-54 ms on desktop
+ * (measured) and multiples of that on mobile, so insertion runs in
+ * `chunkSize` batches with a yield to the event loop between batches.
+ * `defer` is injectable for hermetic tests (defaults to a macrotask).
+ */
+export async function buildNoradIndex(
+  rows: SatcatRecord[],
+  opts: { chunkSize?: number; defer?: () => Promise<void> } = {},
+): Promise<Map<number, SatcatRecord>> {
+  const chunkSize = Math.max(1, opts.chunkSize ?? 10_000);
+  const defer = opts.defer ?? (() => new Promise<void>((r) => setTimeout(r, 0)));
+  const map = new Map<number, SatcatRecord>();
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const end = Math.min(rows.length, i + chunkSize);
+    for (let j = i; j < end; j++) map.set(rows[j].noradId, rows[j]);
+    if (end < rows.length) await defer(); // yield between batches, never inside one
+  }
+  return map;
+}
+
+/**
  * SATCAT operational-status codes, per CelesTrak's documented legend
  * (celestrak.org/satcat/status.php). Raw code kept alongside the decode —
  * decode tables are documentation, not inference.
