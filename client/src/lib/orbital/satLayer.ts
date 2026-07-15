@@ -43,6 +43,7 @@ import type {
 import { SAT_STRIDE, readSatAt } from './satBuffer.js';
 import { cameraFromClippingPlane, type Vec3 } from './occlusion.js';
 import type { SatPositionsMessage } from './satWorker.js';
+import { metersPerPixel } from '../lod.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -88,6 +89,39 @@ const DEFAULT_COLORS = {
   MEO: [1.0, 0.72, 0.25, 0.9] as Rgba, // amber
   GEO: [0.85, 0.45, 1.0, 0.9] as Rgba, // violet
 };
+
+// PERF (scale_program.md queue item (c), "1Hz orbital repaint"): the worker
+// ticks positions once a second for the WHOLE population, and every tick
+// forced a full-map triggerRepaint — at low zoom (the default globe view)
+// a satellite's per-second ground-track motion is a fraction of a screen
+// pixel, so the map redrew every second for a change nobody could see,
+// keeping a weak GPU from ever idling. MAX_GROUND_TRACK_SPEED_MPS is a
+// conservative worst-case bound (ISS orbital/ground-track speed ~7.66 km/s;
+// no catalogued object exceeds this at LEO, and MEO/GEO move far slower) —
+// used to decide whether the WORST-CASE object in the population could have
+// moved a visible amount, never a per-object check. Displacement
+// ACCUMULATES across skipped ticks (never reset until an actual repaint
+// fires), so staleness is bounded to <1px of worst-case drift at all
+// times — this cannot silently freeze the layer indefinitely. The
+// underlying position buffer is always updated regardless of this decision;
+// only the forced GPU redraw is skipped, and any other repaint trigger
+// (camera move, another layer) picks up the fresh data for free via
+// dataDirty.
+export const MAX_GROUND_TRACK_SPEED_MPS = 8000;
+
+/**
+ * True when the worst-case ground-track displacement over `elapsedSec`
+ * (at the map's current center latitude/zoom) would round to under one
+ * screen pixel — i.e. it is safe to skip forcing a repaint for this tick.
+ * Pure function of camera state; exported for testing without a live map.
+ */
+export function shouldSkipTickRepaint(latDeg: number, zoom: number, elapsedSec: number): boolean {
+  if (!Number.isFinite(latDeg) || !Number.isFinite(zoom) || !Number.isFinite(elapsedSec) || elapsedSec <= 0) {
+    return false; // fail open — never suppress a repaint on broken input
+  }
+  const worstCaseDisplacementM = MAX_GROUND_TRACK_SPEED_MPS * elapsedSec;
+  return metersPerPixel(latDeg, zoom) > worstCaseDisplacementM;
+}
 
 /** Exported for satLayer.test.ts, which pins the far-side-cull block to the
  * CPU mirror in ./occlusion (the shader inlines that module's math — GLSL
@@ -228,6 +262,9 @@ export class SatLayer implements CustomLayerInterface {
   private total = 0;
   private renderCap: number | null = null;
   private meta: PositionMeta | null = null;
+  // PERF: seconds of tick time skipped (no forced repaint) since the last
+  // actual repaint — see shouldSkipTickRepaint / MAX_GROUND_TRACK_SPEED_MPS.
+  private skippedRepaintSec = 0;
 
   // last frame's globe projection state, mirrored for the CPU pick path so
   // picking applies the SAME far-side cull the GPU applied (see ./occlusion).
@@ -397,14 +434,29 @@ export class SatLayer implements CustomLayerInterface {
   /**
    * Feed a freshly propagated population from the worker. `data` is the
    * SAT_STRIDE-packed Float32Array; `meta` (the worker's shown/skipped counts)
-   * is echoed through getCounts() for the honesty panel. Triggers a repaint.
+   * is echoed through getCounts() for the honesty panel. The position buffer
+   * is always updated; the forced repaint is skipped when `tickIntervalSec`
+   * is given and the worst-case ground-track displacement accumulated since
+   * the last repaint is still sub-pixel at the current camera (see
+   * shouldSkipTickRepaint) — pass it for self-driven worker ticks, omit it
+   * (or pass none) for one-off updates that should always redraw.
    */
-  updatePositions(data: Float32Array, meta?: PositionMeta): void {
+  updatePositions(data: Float32Array, meta?: PositionMeta, tickIntervalSec?: number): void {
     this.data = data;
     this.total = Math.floor(data.length / SAT_STRIDE);
     this.meta = meta ?? this.meta;
     this.dataDirty = true;
-    this.map?.triggerRepaint();
+    if (tickIntervalSec == null || !this.map) {
+      this.skippedRepaintSec = 0;
+      this.map?.triggerRepaint();
+      return;
+    }
+    this.skippedRepaintSec += tickIntervalSec;
+    const skip = shouldSkipTickRepaint(this.map.getCenter().lat, this.map.getZoom(), this.skippedRepaintSec);
+    if (!skip) {
+      this.skippedRepaintSec = 0;
+      this.map.triggerRepaint();
+    }
   }
 
   /** Set point diameter in pixels. */

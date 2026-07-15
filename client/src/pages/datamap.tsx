@@ -1948,6 +1948,12 @@ export default function DataMapPage() {
         worker.onmessage = (ev: MessageEvent<SatWorkerOutbound>) => {
           const m = ev.data;
           if (m.type === "positions") {
+            // PERF (scale_program.md item (c)): worker ticks at hz=1 below —
+            // tickIntervalSec=1 lets updatePositions skip the forced repaint
+            // when the accumulated worst-case ground-track motion is still
+            // sub-pixel at the current camera (default globe view is the
+            // common case). If the tick rate here ever changes, this must
+            // change with it.
             // O6-3: an active group filter hides non-members via the layer's
             // own sentinel semantics (copy — the worker buffer stays whole)
             let posBuf = new Float32Array(m.buf);
@@ -1957,7 +1963,7 @@ export default function DataMapPage() {
               shown: m.shown,
               deepSpaceSkipped: m.deepSpaceSkipped,
               invalidSkipped: m.invalidSkipped,
-            });
+            }, 1);
             lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
             publishOrbitalStatus(); // formats the LOD-paused note when applicable
             followTick(); // O5: keep the followed satellite centered + ringed
