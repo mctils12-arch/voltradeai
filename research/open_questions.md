@@ -2576,6 +2576,45 @@ R6. **Dashboards from monitoring we already emit (charter directive
   still-open TEMPO (US hourly) and SO₂ (point-source smelter on/off) layers would
   deepen exactly this cross-tie once the sub-daily factory work lands.
 
+## BIOMASS-DENSITY / STANDING-CARBON HYPOTHESIS (RAW layer shipped 2026-07-15,
+   v1.0.318 — client/src/pages/datamap.tsx "biomass" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2h — NASA GIBS GEDI L4B aboveground biomass
+   density, mission-life mean)
+
+- **Standing forest biomass (aboveground carbon stock) over a NAMED timber
+  region as a substrate for a carbon-credit / forestry-supply hypothesis
+  (Pillar 6, per worldview_globe.md's G2h grouping).** PRIOR stated before any
+  test: this layer is STATIC (a single 2019-04–2023-03 mission-life mean, not
+  a repeat-observation product), so on its own it can never show CHANGE — the
+  one thing a trading or carbon-market signal would need. The honest
+  near-term value is CONTEXT (a real, non-fabricated forest-density basemap)
+  and a BASELINE for a future change-detection build, not a standalone
+  signal. Any tradeable residual would have to come from DIFFERENCING this
+  baseline against a repeat product (e.g. a future GEDI L4B reprocessing
+  covering later years, or JRC GFC2020's existing forest-EXTENT layer's own
+  future updates) — deforestation/afforestation delta over a named timber
+  concession or REDD+ project area is the plausible gate-2 candidate, not the
+  static density level itself.
+- Ladder: gate 1 DATA — NASA-published product; verification mechanical this
+  session (Amazon-basin tile pixel-checked 95% non-transparent with
+  plausible green biomass-density coloring; US Pacific-NW forest tile 99%
+  non-transparent; open-ocean tile ~0.04% non-transparent — legitimately
+  blank, GEDI is a land-vegetation LiDAR product limited to roughly ±51.6°
+  latitude, not a coverage bug). Gate 2 SIGNAL is NOT YET REACHABLE for this
+  static composite alone — it is blocked on a repeat/change-detection product
+  existing at all, which is outside our control (depends on NASA publishing
+  a later GEDI L4B reprocessing) or on pairing with forest.ts's own
+  extent-change tracking over time. RAW, no predictive claim.
+- CROSS-TIE (2026-07-07 integration principle): biomass density joins the
+  existing `forest` (JRC GFC2020 2020 extent) layer into a two-axis view of
+  the same geography — WHERE forest exists (JRC, binary extent) × HOW MUCH
+  standing carbon it holds (GEDI, continuous density) — a substrate for a
+  future carbon/timber hypothesis, not a signal on its own; also a candidate
+  future input to the fires×facilities and NDVI×soil-moisture ag cross-ties
+  already filed, since biomass density constrains how much a given fire or
+  drought event can actually affect (dense old-growth vs. sparse scrub react
+  differently).
+
 ## LOW-WATER / GENERATION-EXPOSURE HYPOTHESIS (RAW cross-tie shipped 2026-07-08,
    v1.0.232 — server/riverPlants.ts + /api/data/plants-near-rivergauges,
    worldview-globe Pillar 6 backend inference)
