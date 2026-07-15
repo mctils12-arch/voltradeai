@@ -1,0 +1,81 @@
+// Satellite find & group panel — EARTH TWIN O6-3. Lives inside the legend's
+// Orbital section (mobile-safe: the panel scrolls). Search jumps focus to a
+// specific object (the "you can't find the ISS" fix); group chips filter the
+// sky to one constellation (name-prefix decode of the catalog's own naming);
+// the orbits toggle plots the group's real SGP4 tracks, RAAN-colored so
+// planes read apart, CAP DISCLOSED when it bites.
+import { memo, useMemo, useState } from "react";
+import { searchSats, SAT_GROUPS, type SatSearchHit } from "@/lib/orbital/satFind";
+import type { GpRecord } from "@/lib/orbital/tle";
+
+export interface SatFinderProps {
+  /** live catalog (null until loaded); gpVersion bumps force re-render. */
+  gp: GpRecord[] | null;
+  gpVersion: number;
+  activeGroup: string | null;
+  groupCount: number | null;
+  orbitsOn: boolean;
+  /** arcs actually plotted vs group size (cap disclosure), null = orbits off. */
+  arcInfo: { shown: number; total: number } | null;
+  onFind: (index: number) => void;
+  onGroup: (key: string | null) => void;
+  onOrbits: (on: boolean) => void;
+}
+
+export const SatFinder = memo(function SatFinder(props: SatFinderProps) {
+  const [q, setQ] = useState("");
+  const hits: SatSearchHit[] = useMemo(
+    () => searchSats(props.gp, q),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.gp, props.gpVersion, q],
+  );
+  return (
+    <div className="vt-satfinder" data-vt-satfinder>
+      <input
+        className="vt-satfinder-input"
+        placeholder="Find a satellite (name or NORAD id)…"
+        value={q}
+        aria-label="Find a satellite"
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {q.trim().length >= 2 && (
+        <div className="vt-satfinder-hits">
+          {hits.length === 0 && <span className="vt-legend-note">no match in the live catalog</span>}
+          {hits.map((h) => (
+            <button key={h.noradId} className="vt-satfinder-hit"
+                    onClick={() => { props.onFind(h.index); setQ(""); }}>
+              {h.name} <span className="vt-satfinder-id">#{h.noradId}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="vt-satfinder-groups">
+        {SAT_GROUPS.map((g) => (
+          <button key={g.key}
+                  className={`vt-satfinder-chip${props.activeGroup === g.key ? " vt-satfinder-chip-on" : ""}`}
+                  onClick={() => props.onGroup(props.activeGroup === g.key ? null : g.key)}>
+            {g.label}
+          </button>
+        ))}
+        {props.activeGroup && (
+          <button className={`vt-satfinder-chip${props.orbitsOn ? " vt-satfinder-chip-on" : ""}`}
+                  onClick={() => props.onOrbits(!props.orbitsOn)}>
+            orbits
+          </button>
+        )}
+      </div>
+      {props.activeGroup && (
+        <span className="vt-legend-note">
+          {`showing only ${SAT_GROUPS.find((g) => g.key === props.activeGroup)?.label ?? props.activeGroup}`}
+          {props.groupCount != null ? ` — ${props.groupCount.toLocaleString()} in the live catalog` : ""}
+          {props.orbitsOn && props.arcInfo
+            ? props.arcInfo.shown < props.arcInfo.total
+              ? ` · orbits: ${props.arcInfo.shown} of ${props.arcInfo.total} plotted (evenly sampled — the full set is unreadable)`
+              : ` · orbits: all ${props.arcInfo.shown} plotted`
+            : ""}
+          {props.orbitsOn ? " · color = orbital plane (RAAN)" : ""}
+        </span>
+      )}
+    </div>
+  );
+});
