@@ -90,8 +90,20 @@ void main() {
 
 /** Constant on-screen model height in pixels (the focused-object size). */
 export const MODEL_PIXELS = 72;
+/** On-screen size of an O6-2 auto-3D mini (browse-zoom form, not focused). */
+export const MINI_PIXELS = 34;
 /** Model-space half-extent the meshes are built to (model3d contract). */
 export const MODEL_HALF_EXTENT = 1.2;
+
+/** One O6-2 mini: a class form at a live buffer position (see miniSelect). */
+export interface MiniModel {
+  mercX: number;
+  mercY: number;
+  altMeters: number;
+  form: FormKind;
+  /** stable per-object index → deterministic static orientation. */
+  index: number;
+}
 
 export class SatModelLayer implements CustomLayerInterface {
   readonly id: string;
@@ -124,6 +136,13 @@ export class SatModelLayer implements CustomLayerInterface {
   private anchor: ModelAnchor | null = null;
   private renderFailed = false; // same self-disable latch as satLayer
 
+  // O6-2 minis: class forms drawn at browse zoom without a click. Static
+  // per-form GPU buffers (uploaded once), one small uniform-anchored draw
+  // per mini, NO self-repaint (minis move only when the worker tick
+  // replaces them — static orientation, no tumble animation).
+  private minis: MiniModel[] = [];
+  private formBuffers = new Map<FormKind, { pos: WebGLBuffer; nor: WebGLBuffer; col: WebGLBuffer; count: number }>();
+
   constructor(opts: { id?: string } = {}) {
     this.id = opts.id ?? 'orbital-sat-model';
   }
@@ -135,10 +154,24 @@ export class SatModelLayer implements CustomLayerInterface {
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
     if (this.program) gl.deleteProgram(this.program);
     for (const b of [this.bufPos, this.bufNor, this.bufCol]) if (b) gl.deleteBuffer(b);
+    for (const fb of Array.from(this.formBuffers.values())) {
+      gl.deleteBuffer(fb.pos); gl.deleteBuffer(fb.nor); gl.deleteBuffer(fb.col);
+    }
+    this.formBuffers.clear();
     this.program = null;
     this.bufPos = this.bufNor = this.bufCol = null;
     this.cachedVariant = null;
     this.map = null;
+  }
+
+  /** O6-2: replace the auto-3D minis (empty/null clears). */
+  setMinis(minis: MiniModel[] | null): void {
+    this.minis = minis ?? [];
+    this.map?.triggerRepaint();
+  }
+
+  getMiniCount(): number {
+    return this.minis.length;
   }
 
   /** The form to draw at focus, or null = draw nothing (unknown class stays
@@ -192,10 +225,13 @@ export class SatModelLayer implements CustomLayerInterface {
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
     if (this.renderFailed) return;
-    if (!this.anchor || !this.getActiveMesh()) return; // not following → zero cost, no repaint
+    const focused = !!(this.anchor && this.getActiveMesh());
+    if (!focused && this.minis.length === 0) return; // nothing to draw → zero cost, no repaint
     try {
-      this.renderInner(gl, args);
-      this.map?.triggerRepaint(); // animate the tumble ONLY while visible
+      this.renderInner(gl, args, focused);
+      // animate the tumble ONLY while a focused model is visible — minis are
+      // static-oriented and must not keep the map awake
+      if (focused) this.map?.triggerRepaint();
     } catch (e) {
       this.renderFailed = true;
       // eslint-disable-next-line no-console
@@ -203,10 +239,7 @@ export class SatModelLayer implements CustomLayerInterface {
     }
   }
 
-  private renderInner(gl: AnyGl, args: CustomRenderMethodInput): void {
-    const mesh = this.getActiveMesh();
-    const anchor = this.anchor;
-    if (!mesh || !anchor) return;
+  private renderInner(gl: AnyGl, args: CustomRenderMethodInput, focused: boolean): void {
     const sd = args.shaderData;
     if (this.program == null || this.cachedVariant !== sd.variantName) {
       this.compile(gl, sd.vertexShaderPrelude, sd.define, sd.variantName);
@@ -229,40 +262,78 @@ export class SatModelLayer implements CustomLayerInterface {
     if (this.uProjTrans) gl.uniform1f(this.uProjTrans, pd.projectionTransition);
     if (this.uProjFallback) gl.uniformMatrix4fv(this.uProjFallback, false, pd.fallbackMatrix);
 
-    if (this.uAnchor) gl.uniform3f(this.uAnchor, anchor.mercX, anchor.mercY, anchor.altMeters);
-    // slow tumble, time-based (display animation only — clearly not telemetry).
-    // A real model turns gently (a stately survey of the actual design);
-    // representative forms keep the quicker symbolic tumble.
-    const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
-    const yawRate = this.realMesh ? 0.15 : 0.5;
-    const pitch = this.realMesh ? 0.3 : 0.4;
-    if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, rotationMat3(t * yawRate, pitch));
     const h = gl.drawingBufferHeight || 1;
     const w = gl.drawingBufferWidth || 1;
-    // clip units per model unit so the form spans ~MODEL_PIXELS on screen
-    const pxPerUnit = MODEL_PIXELS / (2 * MODEL_HALF_EXTENT);
-    if (this.uScale) gl.uniform1f(this.uScale, (pxPerUnit * 2) / h);
     if (this.uAspect) gl.uniform1f(this.uAspect, w / h);
-
-    const bind = (buf: WebGLBuffer | null, loc: number, data: Float32Array) => {
-      if (!buf || loc < 0) return;
-      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-      if (this.meshDirty) gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
-    };
-    if (!this.bufPos) this.bufPos = gl.createBuffer();
-    if (!this.bufNor) this.bufNor = gl.createBuffer();
-    if (!this.bufCol) this.bufCol = gl.createBuffer();
-    bind(this.bufPos, this.aPos, mesh.positions);
-    bind(this.bufNor, this.aNor, mesh.normals);
-    bind(this.bufCol, this.aCol, mesh.colors);
-    this.meshDirty = false;
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
-    gl.disable(gl.BLEND); // opaque mesh
-    gl.drawArrays(gl.TRIANGLES, 0, mesh.vertexCount);
+    gl.disable(gl.BLEND); // opaque meshes
+
+    const enableAttrs = (loc: number) => {
+      if (loc < 0) return;
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+    };
+
+    // ── the FOCUSED model (dynamic mesh: real > form; time-based tumble) ──
+    const mesh = this.getActiveMesh();
+    const anchor = this.anchor;
+    if (focused && mesh && anchor) {
+      if (this.uAnchor) gl.uniform3f(this.uAnchor, anchor.mercX, anchor.mercY, anchor.altMeters);
+      // slow tumble, time-based (display animation only — clearly not telemetry).
+      // A real model turns gently (a stately survey of the actual design);
+      // representative forms keep the quicker symbolic tumble.
+      const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+      const yawRate = this.realMesh ? 0.15 : 0.5;
+      const pitch = this.realMesh ? 0.3 : 0.4;
+      if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, rotationMat3(t * yawRate, pitch));
+      // clip units per model unit so the form spans ~MODEL_PIXELS on screen
+      if (this.uScale) gl.uniform1f(this.uScale, ((MODEL_PIXELS / (2 * MODEL_HALF_EXTENT)) * 2) / h);
+      const bind = (buf: WebGLBuffer | null, loc: number, data: Float32Array) => {
+        if (!buf || loc < 0) return;
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        if (this.meshDirty) gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+      };
+      if (!this.bufPos) this.bufPos = gl.createBuffer();
+      if (!this.bufNor) this.bufNor = gl.createBuffer();
+      if (!this.bufCol) this.bufCol = gl.createBuffer();
+      bind(this.bufPos, this.aPos, mesh.positions);
+      bind(this.bufNor, this.aNor, mesh.normals);
+      bind(this.bufCol, this.aCol, mesh.colors);
+      this.meshDirty = false;
+      gl.drawArrays(gl.TRIANGLES, 0, mesh.vertexCount);
+    }
+
+    // ── O6-2 MINIS: static per-form buffers, one small draw per mini,
+    // deterministic per-object orientation (no animation) ──
+    if (this.minis.length) {
+      if (this.uScale) gl.uniform1f(this.uScale, ((MINI_PIXELS / (2 * MODEL_HALF_EXTENT)) * 2) / h);
+      for (const mini of this.minis) {
+        let fb = this.formBuffers.get(mini.form);
+        if (!fb) {
+          const m = buildFormMesh(mini.form);
+          const mk = (data: Float32Array): WebGLBuffer => {
+            const b = gl.createBuffer();
+            if (!b) throw new Error('SatModelLayer: createBuffer failed');
+            gl.bindBuffer(gl.ARRAY_BUFFER, b);
+            gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+            return b;
+          };
+          fb = { pos: mk(m.positions), nor: mk(m.normals), col: mk(m.colors), count: m.vertexCount };
+          this.formBuffers.set(mini.form, fb);
+        }
+        if (this.uAnchor) gl.uniform3f(this.uAnchor, mini.mercX, mini.mercY, mini.altMeters);
+        if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, rotationMat3(mini.index * 2.399, 0.35));
+        gl.bindBuffer(gl.ARRAY_BUFFER, fb.pos); enableAttrs(this.aPos);
+        gl.bindBuffer(gl.ARRAY_BUFFER, fb.nor); enableAttrs(this.aNor);
+        gl.bindBuffer(gl.ARRAY_BUFFER, fb.col); enableAttrs(this.aCol);
+        gl.drawArrays(gl.TRIANGLES, 0, fb.count);
+      }
+    }
+
     gl.disable(gl.CULL_FACE);
     for (const loc of [this.aPos, this.aNor, this.aCol]) {
       if (loc >= 0) gl.disableVertexAttribArray(loc);

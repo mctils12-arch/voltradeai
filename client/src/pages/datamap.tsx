@@ -42,6 +42,10 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // not a side viewer): the followed satellite resolves to a lit, tumbling
 // class-representative form drawn at its live position on the globe.
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
+import { ArcLayer } from "@/lib/orbital/arcLayer";
+import { sampleOrbitArc } from "@/lib/orbital/orbitArc";
+import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
+import type { FormKind } from "@/lib/orbital/model3d";
 import { classForm, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
@@ -571,7 +575,12 @@ export default function DataMapPage() {
   const orbitalLodRef = useRef<LodEnvelope | null>(null);
   // ORBITAL O5 slice 1: the followed satellite (buffer index is stable —
   // the worker keeps ONE slot per GP record forever). null = not following.
-  const satFollowRef = useRef<{ index: number; noradId: number; name: string | null } | null>(null);
+  // O6-1 follow v2: cameraLock=true → the camera tracks the object each tick;
+  // a user drag releases ONLY the camera — the focus (ring/model/orbit arc)
+  // persists anywhere on the globe until the card's X ends it.
+  const satFollowRef = useRef<{ index: number; noradId: number; name: string | null; cameraLock: boolean } | null>(null);
+  const satArcLayerRef = useRef<ArcLayer | null>(null);
+  const stopSatFocusRef = useRef<(() => void) | null>(null);
   // O5-2b: the on-map 3D form layer for the followed satellite (one instance,
   // same lifecycle as satLayerRef).
   const satModelLayerRef = useRef<SatModelLayer | null>(null);
@@ -1726,6 +1735,12 @@ export default function DataMapPage() {
       } catch {}
       satModelLayerRef.current = null;
       try {
+        const arcs = satArcLayerRef.current;
+        if (arcs && map.getLayer(arcs.id)) map.removeLayer(arcs.id);
+      } catch {}
+      satArcLayerRef.current = null;
+      stopSatFocusRef.current = null;
+      try {
         if (map.getLayer("sat-focus-ring")) map.removeLayer("sat-focus-ring");
         if (map.getSource("sat-focus")) map.removeSource("sat-focus");
       } catch {}
@@ -1747,6 +1762,9 @@ export default function DataMapPage() {
       satModelLayerRef.current?.setAnchor(
         t ? { mercX: t.mercX, mercY: t.mercY, altMeters: t.altKm * 1000 } : null);
       if (!t) return; // sentinel this tick — ring cleared, camera stays put
+      // O6-1: camera tracks only while locked — after a drag the focus
+      // persists (arc + ring + moving model) from anywhere on the globe.
+      if (!f.cameraLock) return;
       try {
         if (!map.isMoving()) map.easeTo({ center: [t.lonDeg, t.latDeg], duration: 800 });
       } catch {}
@@ -1755,13 +1773,20 @@ export default function DataMapPage() {
       if (!satFollowRef.current) return;
       satFollowRef.current = null;
       satModelLayerRef.current?.setAnchor(null); // model vanishes with the follow
+      satArcLayerRef.current?.setArcs(null); // the one-object orbit arc goes with it
       try {
         const ringSrc: any = map.getSource("sat-focus");
         if (ringSrc) ringSrc.setData(focusRingFeatureCollection(null));
       } catch {}
     };
-    // user drag = the user takes the camera back; following must yield
-    map.on("dragstart", stopFollow);
+    // O6-1: the card's X (and layer teardown) end the focus completely
+    stopSatFocusRef.current = stopFollow;
+    // user drag = the user takes the CAMERA back; the focus itself persists
+    // ("you can move away from the sat … until you press the X")
+    const releaseCamera = () => {
+      if (satFollowRef.current) satFollowRef.current.cameraLock = false;
+    };
+    map.on("dragstart", releaseCamera);
 
     if (!enabled["orbital_sats"]) {
       teardown();
@@ -1779,6 +1804,35 @@ export default function DataMapPage() {
     let lodPaused = false;
     let lodLastOpacity = -1; // sentinel: first applyLod() always applies
     let lastCounts = { shown: 0, skipped: 0 };
+    // O6-2: per-index class forms (null until SATCAT lands); minis appear
+    // in the close-zoom band without a click — catalogued classes only.
+    let miniForms: (FormKind | null)[] | null = null;
+    let miniCount = 0;
+    const updateMinis = () => {
+      const modelLayer = satModelLayerRef.current;
+      const layer = satLayerRef.current;
+      if (!modelLayer || !layer) return;
+      const camKm = cameraAltitudeKmFromMap(map);
+      const inBand = camKm != null && camKm <= MINI_MAX_CAM_KM && layer.getGlobalOpacity() > 0 && !!miniForms;
+      if (!inBand) {
+        if (miniCount) { miniCount = 0; modelLayer.setMinis(null); }
+        return;
+      }
+      try {
+        const b = map.getBounds();
+        const sw = lonLatToMercator(b.getWest(), Math.max(-85, b.getSouth()));
+        const ne = lonLatToMercator(b.getEast(), Math.min(85, b.getNorth()));
+        const ctr = map.getCenter();
+        const c = lonLatToMercator(ctr.lng, Math.max(-85, Math.min(85, ctr.lat)));
+        const minis = selectMiniSats(
+          layer.getPositions(), miniForms,
+          { minX: sw.x, maxX: ne.x, minY: ne.y, maxY: sw.y, cx: c.x, cy: c.y },
+          undefined, satFollowRef.current?.index ?? -1,
+        );
+        miniCount = minis.length;
+        modelLayer.setMinis(minis);
+      } catch { /* minis are chrome — never break the tick */ }
+    };
     const publishOrbitalStatus = () => {
       if (lodPaused) {
         const minKm = orbitalLodRef.current?.camMinKm ?? ORBITAL_LOD_FALLBACK.camMinKm;
@@ -1807,6 +1861,7 @@ export default function DataMapPage() {
         satWorkerRef.current?.postMessage({ type: "start", hz: 1 }); // resume: ticks immediately
         publishOrbitalStatus();
       }
+      updateMinis(); // zooming through the band updates minis between ticks
     };
     map.on("move", applyLod);
     map.on("resize", applyLod); // rotate/resize changes camera altitude without a move event
@@ -1841,6 +1896,10 @@ export default function DataMapPage() {
         const modelLayer = new SatModelLayer({ id: "orbital_sat_model" });
         satModelLayerRef.current = modelLayer;
         map.addLayer(modelLayer);
+        // O6-1: the focused object's real orbit track (zero cost until set)
+        const arcLayer = new ArcLayer({ id: "orbital_arcs" });
+        satArcLayerRef.current = arcLayer;
+        map.addLayer(arcLayer);
 
         const worker = new Worker(
           new URL("../lib/orbital/satWorker.ts", import.meta.url),
@@ -1858,6 +1917,7 @@ export default function DataMapPage() {
             lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
             publishOrbitalStatus(); // formats the LOD-paused note when applicable
             followTick(); // O5: keep the followed satellite centered + ringed
+            updateMinis(); // O6-2: auto-3D forms in the close-zoom band
           }
         };
         worker.postMessage({ type: "init", gp });
@@ -1868,7 +1928,10 @@ export default function DataMapPage() {
         // shape = catalogued type, color = orbit class, dot = unidentified.
         ensureSatcat().then(() => {
           const g = orbitalGpRef.current;
-          if (g && satcatByNorad) satLayerRef.current?.setShapeCodes(shapeCodesFromSatcat(g, satcatByNorad));
+          if (g && satcatByNorad) {
+            satLayerRef.current?.setShapeCodes(shapeCodesFromSatcat(g, satcatByNorad));
+            miniForms = formsFromSatcat(g, satcatByNorad); // O6-2 minis unlock
+          }
         }).catch(() => {});
       },
       (failures) => setStatus("orbital_sats", "error", undefined,
@@ -1878,7 +1941,7 @@ export default function DataMapPage() {
       { timeoutMs: 45_000 },
     );
 
-    return () => { map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", stopFollow); stopLoad(); teardown(); };
+    return () => { map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", releaseCamera); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched
@@ -1985,7 +2048,22 @@ export default function DataMapPage() {
       // focus: the O2 effect's followTick re-centers the camera on its
       // fresh position every worker tick and moves the focus ring with it.
       // Drag the map (or click empty ground) to take the camera back. ──
-      satFollowRef.current = { index: hit.index, noradId: g.noradId, name: g.name ?? null };
+      satFollowRef.current = { index: hit.index, noradId: g.noradId, name: g.name ?? null, cameraLock: true };
+      // O6-1: the REAL orbit track for this one object — one full period,
+      // SGP4-propagated from the epoch elements (gaps honest, never bridged).
+      // Amber matches the focus ring; cleared by the card's X / next focus.
+      try {
+        const arcPts = sampleOrbitArc(g, Date.now());
+        satArcLayerRef.current?.setArcs(arcPts ? [{ pts: arcPts, color: [1.0, 0.82, 0.4, 0.85] }] : null);
+      } catch { satArcLayerRef.current?.setArcs(null); }
+      // O6-1: clicking zooms IN on the object (closer than the browse view);
+      // per-class targets keep GEO from slamming to street zoom.
+      try {
+        const targetZoom = hit.classCode === 0 ? 4.3 : hit.classCode === 1 ? 2.9 : 2.4;
+        if ((map.getZoom() ?? 0) < targetZoom) {
+          map.easeTo({ center: [clickLL.lng, clickLL.lat], zoom: targetZoom, duration: 1200 });
+        }
+      } catch {}
       // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
       // (unknown class = honest ring-only follow, never a guessed spacecraft)
       satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
@@ -2031,7 +2109,8 @@ export default function DataMapPage() {
           g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
-          "FOLLOWING — the camera tracks this object as it moves (updates each second); drag the map or click empty ground to stop.",
+          "FOLLOWING — the camera tracks this object as it moves (updates each second). Drag to look elsewhere: the focus and orbit track stay until you close this card (✕).",
+          "Orbit track shown: one full period, SGP4-propagated from the epoch elements — the real path, not a drawn ellipse.",
           realLabel
             ? `On-map 3D: ${realLabel}.`
             : sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
@@ -6007,7 +6086,7 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO</span>
                         <span className="vt-legend-chip">shape = type: ▣ payload · ▮ rocket body · ◆ debris · ● not yet identified</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · click a satellite to identify + FOLLOW it (the camera tracks it live — drag to stop), click empty ground for Starlink coverage there · fades out by city zoom, once the camera descends below LEO altitudes (LOD) — zoom out to bring the sky back</span>
+                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · zoom below ~{fmtKm(MINI_MAX_CAM_KM)} camera altitude: the nearest CATALOGUED satellites render as 3D class forms (unidentified stay dots) · click one to identify + FOLLOW it — it zooms in, shows its full SGP4 orbit track, and keeps flying while you pan anywhere; drag frees the camera, the card's ✕ ends the focus · click empty ground for Starlink coverage there · fades out by city zoom (LOD) — zoom out to bring the sky back</span>
                       </div>
                     </div>
                   )}
@@ -6042,7 +6121,7 @@ export default function DataMapPage() {
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
             <button className="vt-icon-btn" aria-label="Close details"
-                    onClick={() => { setDetail(null); clearTrail(); }}>
+                    onClick={() => { setDetail(null); clearTrail(); stopSatFocusRef.current?.(); }}>
               <X size={17} />
             </button>
           </div>
