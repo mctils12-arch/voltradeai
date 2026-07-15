@@ -572,3 +572,56 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   as its first proof (the directive's satellite zoom behavior).
   License gates open at install: TeleGeography cables (CC BY-NC-SA),
   WDPA (NC terms), GEM faults (verify), Launch Library 2 (verify).
+- 2026-07-15 (same day, CONTINUOUS BUILD session #1) — E0 SPINE + first
+  two vertical slices SHIPPED, four PR-sized commits on
+  claude/4d-earth-digital-twin-5e7nks:
+  - E0-1 (v1.0.317) REGISTRY v2: additive schema in layers.json _doc
+    (altitudeRef/time/lod/provenance/renderKind) + 5 exemplar entries
+    annotated + 7 validation test blocks in server/layersRegistry.test.ts
+    INCLUDING the LICENSE RATCHET (provenance.commercialOk=false may
+    never ship — the monetization tripwire machine-checked; resolution
+    of the cables/WDPA license gates: NC sources NEVER wired, v1 = OSM
+    ODbL + US-gov public domain, own-accumulation is the moat play,
+    paid license = wishlist).
+  - E0-2 (v1.0.318) LOD DIRECTOR: client/src/lib/lod.ts (pure, 6 tests —
+    512px-world camera-altitude math verified against installed
+    maplibre 5.24.0's transform.getCameraAltitude; lodOpacity FAILS
+    OPEN); SatLayer.setGlobalOpacity (u_opacity uniform, zero-draw at
+    0, far-side cull byte-identical); datamap move-handler drives the
+    registry envelope {camMinKm:100, fadeBandKm:150} — satellites fade
+    out near the ground, worker pauses ('stop' keeps gp; 'start' resumes
+    instantly), panel note states the hidden state, click handler goes
+    dormant while hidden (stale buffer honesty). THE DIRECTIVE'S
+    SATELLITE ZOOM BEHAVIOR IS LIVE.
+  - E2-1 (v1.0.319) SEAFLOOR — DRAIN THE OCEAN v1: NOAA ETOPO1 via AWS
+    Terrain Tiles terrarium (verified live; z0 tile header names
+    ETOPO1), MapLibre color-relief (verified present + globe-capable in
+    5.24.0) with lib/bathymetry.ts depth ramp transparent above sea
+    level — one source of truth for map ramp AND legend chips; own
+    raster-dem source, never touches terrain-dem/setTerrain;
+    FIELD_OPACITY_PROP override (color-relief-opacity); honesty pins
+    (interpolation + not-for-navigation) tested. GEBCO 15-arcsec + TID
+    confidence overlay remains the chartered v2.
+  - E4-1 (v1.0.320) SATELLITE IDENTITY: lib/orbital/identity.ts (pure,
+    5 tests) — SATCAT objectType/RCS buckets ('smallsat/CubeSat-class
+    size' ONLY for SMALL-RCS payloads, labeled derived), owner code,
+    launch date, documented opStatus decode, operator→ticker via
+    entityJoin with join provenance on-card; SATCAT fetched in the
+    background on layer enable (module cache, 24h TTL, never blocks,
+    never replaces the index-aligned GP ref).
+  GATES: all suites green per commit (registry 24/24, client libs
+  155/155, server 684/684 at E0-1, tsc 66-line baseline unchanged,
+  builds clean). VISUAL HARNESS CAVEAT: two container restarts occurred
+  in this sandbox while the harness ran alongside heavy parallel work —
+  run recorded in experiments.md with whatever outcome the final
+  attempt produced; confidence otherwise rests on zero-DOM/CSS-diff
+  reasoning + full test gates (the 2026-07-15 PFAS session's precedent).
+  NEXT (in charter order): E0 remainder — generic point-symbol +
+  raster-field ENGINES extracted with 2-3 exemplar migrations (the last
+  E0 piece); then E1 global time axis v1 (unify W3 + GIBS scrubbers);
+  then E2 v2 (GEBCO self-tiled pmtiles pipeline + TID confidence
+  overlay + gazetteer names); E3 true-altitude aircraft (port the
+  orbital 3D path); aircraft LOD ramp consumes the E0-2 director.
+  Hypothesis to judge (stated at E0-1): if E2/E3-class slices still
+  need large hand-wired useEffects after the engines land, the spine
+  design is wrong — revisit before sweeping.

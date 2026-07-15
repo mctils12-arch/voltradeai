@@ -13,6 +13,89 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — EARTH TWIN continuous-build session #1: E0 spine + first two verticals (v1.0.317–320, T-CLIENT + SHARED, branch claude/4d-earth-digital-twin-5e7nks)
+
+TERRITORY: T-CLIENT (client/src/lib/lod.ts, bathymetry.ts,
+orbital/{satLayer,identity}.ts + tests, datamap.tsx, visual_check.mjs
+fixture) + SHARED serialized-and-minimal (datacore/layers.json,
+server/layersRegistry.test.ts additions-only, package.json bumps,
+research/*). Human directives this session (recorded in the charter):
+(1) architecture update, not a data-overview rewrite; (2) data never
+made up — existing data or new data created by real means; (3)
+CONTINUOUS BUILD MANDATE until the program is finished; (4) NC-license
+question resolved — never wire NC sources even pre-revenue (rip-out at
+billing activation violates compounding-asset), v1 = OSM/ODbL +
+US-gov, accumulation is the moat, paid license = wishlist entry.
+
+FOUR SLICES SHIPPED (one logical change per commit, own version each —
+full detail in earth_twin_program.md RESUME STATE):
+- E0-1 v1.0.317 registry v2 additive schema + 7 validation test blocks
+  incl. the LICENSE RATCHET (commercialOk=false can never ship — the
+  monetization tripwire is now CI-checked, providerCompliance spirit).
+- E0-2 v1.0.318 LOD director: pure camera-altitude math (verified
+  against installed maplibre 5.24.0 internals — 512px worlds,
+  78271.51696 m/px, transform.getCameraAltitude exists and is
+  globe-aware; getFreeCameraOptions does NOT exist in MapLibre, agent
+  claim corrected by verification), SatLayer u_opacity + zero-draw
+  early-out, satellites fade/pause near the ground per the registry
+  envelope, honesty note on-panel, fail-OPEN on broken camera math.
+- E2-1 v1.0.319 seafloor "drain the ocean": ETOPO1 terrarium
+  (verified live: z0 tile x-amz-meta header names ETOPO1_Bed_g.tif),
+  color-relief depth ramp transparent above sea level, one source of
+  truth for ramp + legend (lib/bathymetry.ts), not-for-navigation +
+  interpolation honesty pinned by test.
+- E4-1 v1.0.320 satellite identity: SATCAT-based "small payload,
+  CubeSat-class size (derived), owned by X, launched Y, status
+  operational" + conservative operator→ticker with on-card join
+  provenance; background SATCAT fetch, module-cached, never blocks.
+
+VERIFICATION: per-slice gates all green — layersRegistry+Wiring 24/24;
+client lib suites 155/155 (orbital 108→116 + lod 6 + bathymetry 2 +
+identity 5, zero regressions); full server suite 684/684 (run at
+E0-1); npx tsc --noEmit 66 lines before AND after every slice (single
+pre-existing datamap TS2345, only its line number / union order
+shifts); npm run build clean each slice (satWorker still its own
+chunk). METHOD NOTE (ultracode): 4 parallel read-only spec agents
+surveyed datamap/satLayer/registry/maplibre-capabilities before any
+edit; their line-anchored reports were verified against the actual
+files during implementation (one agent claim — getFreeCameraOptions —
+was wrong and caught by the capability-verification agent; the
+53KB of specs are in the session workflow journal, key facts now
+compiled into the charter + code comments per EDGE DOCTRINE #3).
+VISUAL HARNESS: the sandbox container RESTARTED twice while
+`node scripts/visual_check.mjs --page data` ran concurrently with
+other heavy work (new failure mode beyond the 2026-07-15 PFAS
+session's ~550s-timeout finding — the harness under WebGL load appears
+able to take the whole container down here, not just the renderer). A
+final solo attempt's outcome is appended below if it completed; if
+absent, it did not survive this sandbox — confidence rests on the
+zero-DOM/CSS-structural-diff nature of the changes (new overlay layer
++ legend section follow six existing GIBS-layer patterns verbatim),
+the full test gates, and the byte-stable tsc baseline. Screenshots
+should be re-taken on a normal machine before/at merge review.
+
+BACKTEST: N/A — /data display surface + registry/test infrastructure
+only; zero trading, sizing, scoring, or execution code touched.
+
+HYPOTHESES (REASONING STANDARD #10, priors stated):
+(1) E0 spine bet (from the charter-install entry, now half-testable):
+the registry-v2 + LOD-director spine should let subsequent vertical
+slices ship as registry entries + one adapter with near-zero bespoke
+client code. EARLY EVIDENCE: E2-1 still needed a hand-wired useEffect
+(~50 lines) — the generic raster-field ENGINE (E0's remaining piece)
+is exactly what would have made it ~10 lines of registry config; the
+bet stands, judge after the engines land.
+(2) LOD envelope numbers ({camMinKm:100, fadeBandKm:150} ≈ fade
+starting near z8.6, gone by z9.9 at lat 40 on a 800px canvas): chosen
+so the 16k-point field is gone before street-level detail work
+begins. Prior: users will experience this as "natural"; falsifier: a
+human report that satellites vanish while still wanted (city-scale
+viewing) → loosen camMinKm downward in the registry, no code change.
+(3) Seafloor as a hero showcase (Amendment 5 EXPERIENCE IS THE DOOR):
+prior — the drain-the-ocean toggle becomes a screenshot-worthy premium
+moment at zero data cost; falsifier: ETOPO1's ~2km blur reads as
+low-quality at mid zoom → prioritize the GEBCO 15-arcsec v2 pipeline.
+
 ## 2026-07-15 [RESEARCH] — EARTH TWIN program charter installed (human directive: "Infinite 4D Earth Digital Twin"; docs-only, no version bump)
 
 TERRITORY: SHARED research/* + a factual CLAUDE.md KNOWN STATE append
