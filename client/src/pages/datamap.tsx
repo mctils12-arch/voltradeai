@@ -61,6 +61,10 @@ import { cameraAltitudeKmFromMap, lodOpacity, type LodEnvelope } from "@/lib/lod
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
+// PERF session #2 (user-reported lag/freezes): pure, tested guards for the
+// live-points tick pipeline — vector-build gating below visibility,
+// count quantization so the render bail engages, redundant-refetch skip.
+import { shouldBuildVectors, quantizeLiveCount, fetchFootprint, needsRefetch, type FetchFootprint } from "@/lib/livePoints";
 // Reliability (BUG 1): single-shot layers (sites, powerplants, boundaries,
 // orbital_sats) had no fetch timeout and no retry — one stalled/failed request
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
@@ -2551,12 +2555,42 @@ export default function DataMapPage() {
       } catch {}
     };
 
+    // PERF session #2: last successful fetch's coverage + payload, for the
+    // redundant-refetch skip and the lazy vector build (see lib/livePoints).
+    let lastFetch: FetchFootprint | null = null;
+    let lastPayload: any = null;
+    let vectorsCurrent = false;
+
+    // add-or-update the velocity-vector source/layer from a payload — shared
+    // by the tick path (zoom high enough) and the zoomend lazy build.
+    const applyVectors = (d: any) => {
+      if (!opts.toVectors) return;
+      const vfc = { type: "FeatureCollection", features: opts.toVectors(d) };
+      const vsrc: any = map.getSource(vecSrc);
+      if (vsrc) {
+        vsrc.setData(vfc);
+      } else {
+        map.addSource(vecSrc, { type: "geojson", data: vfc as any });
+        map.addLayer({
+          id: vecLayer, type: "line", source: vecSrc,
+          minzoom: 6,   // vectors are 2px noise at continent zooms and double
+                        // the draw load — appear once you zoom into a region
+          paint: { "line-color": ["get", "color"], "line-width": 1, "line-opacity": 0.45 },
+        }, layerId);
+      }
+      vectorsCurrent = true;
+    };
+
     const load = async () => {
       // Hidden-tab gate ([REPAIR 2026-07-05] map perf): a backgrounded /data
       // tab kept polling aircraft 4x/min. Skip while hidden; the
       // visibilitychange listener below refreshes immediately on return
       // (stale-with-timestamp already covers the gap honestly).
       if (document.hidden) return;
+      // PERF session #2: never rebuild mid-gesture — a tick landing during a
+      // drag stacked a full parse+setData onto the busiest frames; the
+      // moveend debounce below already reloads at settle.
+      try { if (map.isMoving()) return; } catch {}
       try {
         const b = map.getBounds();
         const since = sinceRef.current[id] || "";
@@ -2574,6 +2608,13 @@ export default function DataMapPage() {
           return;
         }
         if (d.time != null) sinceRef.current[id] = String(d.time);
+        // record what this fetch covered (redundant-refetch skip) + keep the
+        // payload for the lazy vector build on zoom-in
+        try {
+          const c = map.getCenter();
+          lastFetch = fetchFootprint(c.lat, c.lng, map.getZoom(), b.getNorth(), b.getSouth(), b.getEast(), b.getWest());
+        } catch {}
+        lastPayload = d;
 
         // Honest feed states (DESIGN.md): partial coverage + staleness shown.
         let note: string | undefined;
@@ -2608,22 +2649,16 @@ export default function DataMapPage() {
             map.on("mouseleave", l, onLeave);
           }
         }
-        if (opts.toVectors) {
-          const vfc = { type: "FeatureCollection", features: opts.toVectors(d) };
-          const vsrc: any = map.getSource(vecSrc);
-          if (vsrc) {
-            vsrc.setData(vfc);
-          } else {
-            map.addSource(vecSrc, { type: "geojson", data: vfc as any });
-            map.addLayer({
-              id: vecLayer, type: "line", source: vecSrc,
-              minzoom: 6,   // vectors are 2px noise at continent zooms and double
-                            // the draw load — appear once you zoom into a region
-              paint: { "line-color": ["get", "color"], "line-width": 1, "line-opacity": 0.45 },
-            }, layerId);
-          }
-        }
-        setStatus(id, "active", d.count ?? features.length, note);
+        // PERF session #2: the vector pass (a second full iteration + a
+        // second structured-clone setData over up to 10k records) only runs
+        // when the vec layer can actually be seen; below that the payload is
+        // kept and the zoomend handler builds lazily on the way in.
+        if (opts.toVectors && shouldBuildVectors(map.getZoom())) applyVectors(d);
+        else vectorsCurrent = false;
+        // Quantized count (nearest-25 above 500, display-only): the exact
+        // count jiggled ±dozens per tick, defeating setStatus's no-op bail
+        // and re-rendering the entire page component every fresh snapshot.
+        setStatus(id, "active", quantizeLiveCount(d.count ?? features.length), note);
       } catch {
         if (!stop) setStatus(id, "error", undefined, "feed error — backing off, retrying");
       }
@@ -2637,9 +2672,30 @@ export default function DataMapPage() {
     let moveDebounce: number | undefined;
     const onMove = () => {
       window.clearTimeout(moveDebounce);
-      moveDebounce = window.setTimeout(load, 400);
+      moveDebounce = window.setTimeout(() => {
+        // PERF session #2: a jitter pan inside the last fetch's served
+        // coverage re-downloaded the SAME 250nm circle under a new cache
+        // key (full parse + rebuild for nothing). Skip until the camera
+        // meaningfully leaves coverage; the interval still polls (cheap
+        // `unchanged` answers), so data never ages past one interval.
+        try {
+          const c = map.getCenter();
+          const nb = map.getBounds();
+          const next = fetchFootprint(c.lat, c.lng, map.getZoom(), nb.getNorth(), nb.getSouth(), nb.getEast(), nb.getWest());
+          if (!needsRefetch(lastFetch, next)) return;
+        } catch {}
+        void load();
+      }, 400);
     };
     map.on("moveend", onMove);
+    // Lazy vector build: crossing into vector-visible zoom between ticks
+    // builds from the kept payload instead of waiting up to a full interval.
+    const onZoomEnd = () => {
+      if (vectorsCurrent || !lastPayload || !opts.toVectors) return;
+      if (!shouldBuildVectors(map.getZoom())) return;
+      try { applyVectors(lastPayload); } catch {}
+    };
+    map.on("zoomend", onZoomEnd);
     const onVisible = () => { if (!document.hidden) load(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -2648,6 +2704,7 @@ export default function DataMapPage() {
       window.clearTimeout(moveDebounce);
       document.removeEventListener("visibilitychange", onVisible);
       try { map.off("moveend", onMove); } catch {}
+      try { map.off("zoomend", onZoomEnd); } catch {}
     };
   }, [setStatus]);
 
