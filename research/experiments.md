@@ -13,6 +13,114 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — SCALE S1(c): skip the 1Hz orbital repaint when satellite motion is sub-pixel (v1.0.343, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/satLayer.ts, client/src/pages/
+datamap.tsx) + research/*.md bookkeeping (SHARED, minimized, last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full; experiments.md/
+open_questions.md/wishlist.md read; `scripts/session_health_check.py`
+run against prod — OK across liveness/subsystems/daemon memory (270.1MB,
+well under trim_mb); two pre-existing WARNs, neither new: 3 tier2 daemon
+timeouts (KNOWN BROKEN #18, non-blocking) and 30 orphan_exit ml_feedback
+records (KNOWN BROKEN #12(c)). LOOP-HEALTH RATIO over the last 10 tagged
+entries before this one: [PRODUCT] x3, [PIPELINE] x4, [REPAIR] x2 — 2 of
+10 REPAIR, nowhere near the 7+ thrash threshold; no meta-problem override.
+git was one force-fetch stale on the sandbox's cached origin/main ref
+(harmless, resolved by a plain re-fetch); `npm install` was needed before
+any test/build command worked (node_modules was empty at session start) —
+noted in case a future session hits the same "tsx: not found" symptom.
+
+DOCUMENTATION GAP FOUND AND BACKFILLED (record-keeping only, no code
+changed): PR #487 shipped v1.0.342 (the real Hubble Space Telescope model
++ the generalized earthtwin_real_mesh.mjs tool, per the commit's own
+message) but never got its own experiments.md session-log entry — only
+v1.0.340-341 is logged above. Separately, scale_program.md's REMAINING
+QUEUE still listed item (a) "W3/W4 sync reads" as pending, but
+querySnapshot (both position and event modes) was already converted to
+the async streamed reader in an earlier same-day commit ("OUTAGE-CLASS
+SWEEP 2/2", queryEngine.ts:111-130) — only the small-file scanEventLayer
+multi-day fold stays intentionally sync (already audited low-risk,
+KB-scale daily pulls). Both corrections filed in scale_program.md /
+earth_twin_program.md's RESUME STATE, not here (avoids rewriting past
+entries).
+
+PRIMARY ACTION: no fresh repair was actionable (both health-check WARNs
+are pre-tracked, not new evidence), so per SESSION BUDGET fall-through
+tier 1 the next queued roadmap item was picked up. After the queue
+correction above, scale_program.md's re-ranked REMAINING QUEUE put (c)
+1Hz ORBITAL REPAINT next (items (a)/(b) already shipped; (e) needs human
+input; (d)/(f) are larger and better suited to a dedicated session).
+
+DIAGNOSIS: the orbital satWorker self-ticks the full satellite population
+at hz=1; every tick's onmessage handler called SatLayer.updatePositions(),
+which unconditionally called map.triggerRepaint() — forcing a full-map
+GPU redraw once a second whenever orbital_sats is enabled, even at the
+default globe/world view where a satellite's worst-case per-second
+ground-track motion (LEO <= ~8000 m/s) is a fraction of a screen pixel.
+This is exactly scale_program.md's flagged "map never idles while
+satellites are on — weak-GPU lag" item.
+
+FIX (client/src/lib/orbital/satLayer.ts): new pure `shouldSkipTickRepaint
+(latDeg, zoom, elapsedSec)`, reusing lib/lod.ts's existing, already-tested
+`metersPerPixel` (no new math primitive). `updatePositions()` gained an
+optional `tickIntervalSec` param — when supplied, the layer accumulates
+elapsed tick time since the last ACTUAL repaint and only calls
+triggerRepaint once the ACCUMULATED worst-case displacement would exceed
+one pixel at the map's current center lat/zoom, then resets the
+accumulator to 0. Accumulating rather than checking each tick in
+isolation is the correctness-critical part: it bounds staleness to <1px
+of worst-case drift at all times, so the layer can never silently freeze
+— any repaint from any OTHER source (camera move, another layer) still
+picks up fresh data for free via the pre-existing `dataDirty` flag, and
+the position buffer itself is always updated regardless of the repaint
+decision; only the forced redraw is skipped. Followed-satellite camera
+tracking is unaffected by construction: `followTick()`'s
+`modelLayer.setAnchor()` already calls `triggerRepaint` unconditionally
+on every tick (verified by reading modelLayer.ts), so follow stays fully
+live regardless of this change. datamap.tsx's one call site now passes
+`tickIntervalSec=1`, commented with the coupling to the worker's `hz: 1`
+start message (both already existed as an unnamed magic number; not
+introduced by this change).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): fewer forced repaints -> the
+compositor idles between ticks at low zoom when nothing else is
+animating; other per-frame costs (aircraft/vessel layers, main-thread
+churn) are untouched since they trigger their own repaints independently;
+worker tick cadence, propagated data, and follow behavior are all
+unchanged — this is purely "was a redraw actually necessary," never a
+data or timing change.
+
+HYPOTHESIS (prior, stated before measuring): at the default globe/world
+view (zoom well under the ~3.3 equator threshold implied by the 8000 m/s
+bound) the fix should eliminate nearly all forced 1Hz satellite repaints;
+falsifier: a human report that satellites now visibly "jump" between
+big steps rather than smoothly fading their (already sub-pixel) motion —
+if so the per-tick bound is too loose and either needs tightening or
+scale_program.md's alternative (lower hz + shader-side interpolation)
+should replace this approach.
+
+RATCHET: 5 new tests in satLayer.test.ts — pure `shouldSkipTickRepaint`
+math (matches `metersPerPixel` directly at a clearly-sub-pixel and a
+clearly-visible zoom, plus accumulation crossing the threshold at a fixed
+zoom), fail-open on non-finite/non-positive input (never silently
+suppress on broken data), accumulation-then-forced-repaint behavior via a
+fake-map `updatePositions` harness (repeated sub-pixel ticks at z0 don't
+repaint, but the buffer is always updated, and ~40s of accumulated ticks
+eventually forces one), immediate repaint at a close-in zoom, and the
+omitted-`tickIntervalSec` path (one-off callers) always repaints exactly
+as before — backward compatible.
+
+GATES: server 699/699, client 199/199 (194 baseline + 5 new), tsc
+66-line baseline (byte-identical error set, confirmed before editing),
+build clean. VISUAL HARNESS: 0 hard failures at 390/768/1440; medians
+33/83/100ms vs the prior-session 33/83/117ms baseline (unchanged-to-
+slightly-better, within normal run-to-run noise) — the harness's default
+battery does not enable orbital_sats, so it cannot directly exercise the
+tick path this session touches (same class of measurement gap the
+live-points fixes noted earlier); the live effect needs qualitative
+judgment per the falsifier above.
+
 ## 2026-07-15 [PRODUCT] — EARTH TWIN session #3 continued: vessels delta + per-class aircraft 3D (v1.0.340-341, post-#486 branch restart)
 
 #486 MERGED (squash 94f9fdd) and deployed — production verified: health
