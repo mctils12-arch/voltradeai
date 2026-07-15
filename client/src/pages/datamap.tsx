@@ -37,7 +37,10 @@ import { mmsiFlag } from "@/lib/mmsiFlag";
 // GPU-instanced points. REAL positions only — deep-space objects need SDP4
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer } from "@/lib/orbital/satLayer";
-import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
+import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord, type ObjectType, type RcsSize } from "@/lib/orbital/tle";
+// ORBITAL O5-2: the clicked satellite's 3D rendering (class-representative
+// form, honestly captioned) — small raw-WebGL viewer in the detail card.
+import SatModelView from "@/components/SatModelView";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
 // operator→ticker map turn a clicked point into "small payload, CubeSat-class
 // size, owned by X, launched Y" — formatting lives in lib/orbital/identity
@@ -242,6 +245,10 @@ interface Detail {
   /** FAA-registry identity line (entity spine, exact Mode S hex match) —
    *  arrives async after the card opens; absent for non-US hexes. */
   owner?: string;
+  /** ORBITAL O5-2: class-representative 3D form inputs (SATCAT type + RCS
+   *  bucket). Present only when the identity catalog knows the object —
+   *  the viewer NEVER renders a guessed form for an unknown class. */
+  sat3d?: { objectType: ObjectType | null; rcsSize: RcsSize | null };
   /** Everything Graph R1: 7-day cross-stream events + own-archive traffic
    *  density near a strategic site — arrives async after the card opens. */
   timeline?: {
@@ -1891,6 +1898,8 @@ export default function DataMapPage() {
       } catch { /* ring is chrome — a failure never blocks the card */ }
       setDetail({
         kind: "satellite",
+        // O5-2: the 3D form renders only when the catalog KNOWS the class
+        ...(sc ? { sat3d: { objectType: sc.objectType, rcsSize: sc.rcsSize } } : {}),
         title: g.name || `NORAD ${g.noradId}`,
         subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls} · ${fmtKm(altKm)} altitude`,
         body: [
@@ -5817,6 +5826,9 @@ export default function DataMapPage() {
               <X size={17} />
             </button>
           </div>
+          {detail.sat3d && (
+            <SatModelView objectType={detail.sat3d.objectType} rcsSize={detail.sat3d.rcsSize} />
+          )}
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
           {detail.owner && (
             <p className="vt-site-card-trail">Registered: {detail.owner}</p>
