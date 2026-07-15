@@ -54,7 +54,9 @@ export function satelliteIdentityLines(
     return [
       satcatState === 'loading'
         ? 'Identity (SATCAT) still downloading — reopen this card in a moment for type/owner/launch.'
-        : 'Identity (SATCAT) unavailable right now — orbital data above is unaffected.',
+        : satcatState === 'ready'
+          ? 'Not in the SATCAT catalog (fresh launch or analyst object) — a per-object gap, orbital data above is unaffected.'
+          : 'Identity (SATCAT) unavailable right now — orbital data above is unaffected.',
     ];
   }
   const lines: (string | null)[] = [

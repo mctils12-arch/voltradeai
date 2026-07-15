@@ -73,10 +73,13 @@ test('operator line: ticker when public, honest no-equity note when private, pro
   assert.ok(pub.find((l) => l.includes('IRDM') && l.includes('NASDAQ')));
 });
 
-test('missing catalog: loading vs unavailable read differently, and never invent identity', () => {
+test('missing catalog: loading vs not-in-catalog vs unavailable read differently, and never invent identity', () => {
   const loading = satelliteIdentityLines(null, null, 'loading');
   assert.equal(loading.length, 1);
   assert.ok(loading[0].includes('still downloading'));
+  const absent = satelliteIdentityLines(null, null, 'ready');
+  assert.ok(absent[0].includes('Not in the SATCAT catalog'),
+    'catalog loaded but object absent = a per-object gap, never misdescribed as an outage');
   const err = satelliteIdentityLines(null, null, 'error');
   assert.ok(err[0].includes('unavailable'));
   const sparse = satelliteIdentityLines(

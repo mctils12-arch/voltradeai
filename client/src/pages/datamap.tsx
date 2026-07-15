@@ -103,11 +103,16 @@ function ensureSatcat(): void {
   satcatState = "loading";
   satcatInflight = fetchSatcat()
     .then((rows) => {
+      // An HTTP error page (CelesTrak 403/5xx) parses to [] — NEVER cache
+      // that as "ready" or identity stays dead for the whole TTL (review
+      // finding, session #1). Empty = failure; the old cache (if any) keeps
+      // serving clicks.
+      if (!rows.length) throw new Error("empty SATCAT response");
       satcatByNorad = new Map(rows.map((r) => [r.noradId, r]));
       satcatFetchedAt = Date.now();
       satcatState = "ready";
     })
-    .catch(() => { satcatState = "error"; }) // identity stays honestly absent
+    .catch(() => { satcatState = satcatByNorad ? "ready" : "error"; }) // honest absent; stale-but-real cache still counts
     .finally(() => { satcatInflight = null; });
 }
 // Baked-in build version — compared against the registry's server_version
@@ -1711,6 +1716,7 @@ export default function DataMapPage() {
       // E4-1 identity: SATCAT row (may still be downloading — honest line) +
       // conservative operator resolve (owner code first, then the
       // constellation name stem; null = honestly unmapped, never guessed).
+      if (satcatState === "error") ensureSatcat(); // failed earlier → retry on demand (this card stays honest, the next click enriches)
       const sc = satcatByNorad?.get(g.noradId) ?? null;
       const op = sc
         ? resolveOperator(sc.owner, sc.country) ??
@@ -1722,7 +1728,7 @@ export default function DataMapPage() {
         subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls} · ${fmtKm(altKm)} altitude`,
         body: [
           `NORAD catalog ID: ${g.noradId}`,
-          ...satelliteIdentityLines(sc, op, satcatState === "loading" ? "loading" : sc ? "ready" : "error"),
+          ...satelliteIdentityLines(sc, op, satcatState),
           g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
           g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
