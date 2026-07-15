@@ -727,7 +727,7 @@
     branch (KNOWN BROKEN #8) is actually reached for this order type, or
     whether this path bypasses it entirely.
 
-17. **[FOUND 2026-07-09, not yet repaired, low priority] `TIER3-ML-ERROR:
+17. **[FOUND 2026-07-09, RESOLVED 2026-07-15, v1.0.317] `TIER3-ML-ERROR:
     ML retrain failed: failed` — a real but content-free error message.**
     Observed live via `/api/diag/audit` this session (2026-07-09
     19:01:59Z). The audited detail is the literal string "failed" with no
@@ -739,6 +739,39 @@
     not currently blocking — logged for a future session to trace why
     this one call site's error detail collapsed to a bare "failed" instead
     of a real message.
+
+    UPDATE 2026-07-15 ([REPAIR], v1.0.317) — RESOLVED. Confirmed still
+    recurring live this session (`/api/diag/audit?type=TIER2` /full audit
+    read` showed a fresh `TIER3-ML-ERROR: ML retrain failed: failed` entry
+    at 2026-07-15T10:56:22Z, 6 days after the original finding, so this
+    was a real recurring gap, not a one-off). ROOT CAUSE (read-before-write
+    trace): `ml_model_v2.py`'s `_train_model_impl` has four early-return
+    sites shaped `{"status": "failed", "reason": "<real cause>"}` (lines
+    1290/1336/1444/2126 — e.g. "Could not fetch training bars", "No
+    training data", "Model training failed") that never pass through
+    `train_model()`'s outer `except Exception` wrapper — `error_location`/
+    `traceback_tail` are ONLY ever set inside that wrapper's exception
+    handler, a completely different failure shape. `server/bot.ts`'s
+    audit-message builder (~line 4122) read `trainResult.error_location`
+    and `trainResult.traceback_tail` but never `trainResult.reason` — so
+    every one of these four early returns rendered as the bare
+    `${_statusStr}` with both `_loc` and `_tbTail` empty, i.e. literally
+    "ML retrain failed: failed". FIX (own PR, v1.0.317): `server/bot.ts`
+    now also reads `trainResult.reason` and interpolates it before
+    location/traceback (` — <reason>`) when present, so a future
+    "Could not fetch training bars"-class failure reads as "ML retrain
+    failed: failed — Could not fetch training bars" instead of a bare
+    "failed". RATCHET: `server/mlRetrainReasonVisibility.test.ts` (NEW, 3
+    tests, source-inspection convention matching `tier3ManipVisibility
+    .test.ts`/`tier2DaemonTimeoutVisibility.test.ts`) — A/B-verified via
+    `git stash`: all 3 fail on pre-fix code, pass post-fix. GATES:
+    `npx tsx --test server/*.test.ts` 680/680 (677 baseline + 3 new, zero
+    regressions); `npx tsc --noEmit` byte-identical pre-existing 66-error
+    baseline (git-stash-verified, only line-number shifts from this
+    diff's +8 lines); `npm run build` clean. Zero Python files touched —
+    `python3 -m pytest` not re-run. BACKTEST: N/A — pure audit-message
+    visibility fix, does not change ML training logic, model selection,
+    or any trading/scoring/sizing decision.
 
 18. **[FOUND + PARTIALLY REPAIRED 2026-07-10, v1.0.266] TIER2-ERROR "daemon
     run_full_scan failed: Daemon timeout" recurred 7x in ~95 minutes

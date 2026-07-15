@@ -13,6 +13,148 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [REPAIR] — KNOWN BROKEN #17 RESOLVED: TIER3-ML-ERROR's content-free "ML retrain failed: failed" now surfaces the real cause (v1.0.317, T-BOT)
+
+TERRITORY: T-BOT (server/bot.ts is listed under T-BOT's territory
+alongside bot_engine.py/ml_model_v2.py/etc. per the WORKSTREAM PARTITION)
++ a new root-level-adjacent test (server/mlRetrainReasonVisibility.test.ts,
+mirroring the existing tier3ManipVisibility.test.ts /
+tier2DaemonTimeoutVisibility.test.ts source-inspection convention).
+SHARED touched last and minimally: package.json + package-lock.json
+version bump only.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full; research/
+experiments.md read from the TOP this time (the file is newest-at-top,
+per its own header — an earlier read this session mistakenly started
+from `tail`, which surfaced OLDER entries and briefly produced a stale
+picture; corrected before drawing any conclusion, and noting it here so
+a future session doesn't repeat the same misread). research/
+open_questions.md's KNOWN BROKEN section read in full. research/
+wishlist.md skimmed (DATACORE MAXIMUS resume block) — no blocking
+decision. Live `/api/health`: no LIVENESS ALARM (`bot.liveness.dark:
+false`, drawdownPct 0.0, all subsystems ok, scanner 0 consecutive
+failures). Loop-health ratio over the last 10 tagged entries (newest
+first: PIPELINE/PRODUCT/REPAIR/PRODUCT/PRODUCT/RESEARCH/REPAIR/PRODUCT/
+NO-ACTION-addendum/REPAIR) = 3 REPAIR of 10, well under the 7/10 thrash
+threshold — no meta-problem override.
+
+KNOWN BROKEN #21 status checked first (the item every one of the last
+three sessions has been tracking): its own stated confirmation bar is
+"a full trading day, during market hours, post-v1.0.314" — at this
+session's start (2026-07-15T11:02Z) the market had not yet opened
+(13:30 UTC), so the bar had explicitly not been met, same conclusion the
+immediately-prior [PIPELINE] session reached at 02:35Z. NEW evidence
+gathered anyway, worth recording for whichever session next judges it:
+`/api/diag/scanner?token=$DIAG_TOKEN` returned a NON-EMPTY
+`dataSourceErrors.stock_details` for the first time in this entire saga
+("analyze.py error: 'SKHY' has no options market...") — every single
+prior check across v1.0.310/311/314/316 found this field permanently
+`{}`. A populated field (even an expected, benign one) confirms
+`get_stock_details()` — and therefore `deep_score()` — is now actually
+being reached and executing, which is the entire behavior the #21 fix
+chain was trying to restore. `/api/diag/audit?type=DIAGNOSTIC&limit=50`
+also shows zero new entries since 2026-07-14T19:57:31Z despite 100+
+Tier2 cycles running in that gap (confirmed via `type=TIER2&limit=100`,
+spanning 22:30Z-11:02Z) — DIAGNOSTIC only logs when `problems_summary !=
+"All systems healthy"` (server/bot.ts ~3160), so a 12.5h silent gap
+across >100 Tier2 cycles is itself suggestive, though not yet the
+literal "market-hours" bar #21 requires. Left OPEN, not touched further
+this session — the next session that runs after 2026-07-15 13:30 UTC
+should run `scripts/session_health_check.py` (v1.0.316) against prod and
+either close #21 or, if it recurs, follow RECURRENCE ESCALATES straight
+to the structural wishlist.md proposal per v1.0.314's own instruction
+(no third threshold guess).
+
+PRIMARY ACTION CHOICE: with #21 correctly left un-actionable (evidence-
+gated, bar not yet met), scanned the rest of KNOWN BROKEN for a live,
+currently-reproducing, self-contained item. Found one: item #17
+("TIER3-ML-ERROR: ML retrain failed: failed", found 2026-07-09, never
+repaired, logged low-priority/self-healing) reproduced LIVE this session
+— `/api/diag/audit?limit=100&token=$DIAG_TOKEN` showed a fresh instance
+at 2026-07-15T10:56:22Z, ~6 minutes before this session's health check,
+6 days after the original finding. A currently-reproducing, previously
+un-repaired KNOWN BROKEN item outranks starting fresh research per
+SESSION BUDGET's "fix a bug seen in audit logs" ordering, even though
+it's tagged low-priority (self-healing, not liveness-critical) — the
+mandate is "fix known breaks" before new work, not "fix only the
+highest-severity break."
+
+INVESTIGATION (READ BEFORE WRITE): grepped `server/bot.ts` for
+`TIER3-ML-ERROR` — two call sites, one for the `except`-wrapper catch
+block (~line 4130, already rich: stderr/stdout/code/signal, per KNOWN
+BROKEN #14's R18 fix) and one for the in-band `trainResult.status`
+check (~line 4122) that produced this exact symptom. That branch reads
+only `trainResult.error_location` and `trainResult.traceback_tail`.
+Traced where those two fields are ever set: ONLY inside `ml_model_v2.py`
+`train_model()`'s outer `except Exception as e:` handler (line ~1225) —
+the wrapper around `_train_model_impl`. But `_train_model_impl` itself
+has four EARLY RETURNS shaped `{"status": "failed", "reason": "<cause>"}`
+(lines 1290 "Could not fetch training bars", 1336 "No training data",
+1444 "Model training failed", 2126 "No training data") — these are not
+exceptions, so they never touch the wrapper, and therefore never carry
+`error_location`/`traceback_tail`. `ml_retrain_safe.py` (`safe_retrain()`)
+passes whatever `train_model()` returns straight through as JSON with
+only a `steps` key appended — `reason` survives intact to bot.ts's
+`trainResult`. bot.ts's `_statusStr.startsWith("failed")` branch correctly
+catches this shape but then builds its message from two fields that are
+always empty here, dropping the one field (`reason`) that explains the
+failure — collapsing to the literal, content-free "ML retrain failed:
+failed" the audit log has been showing since at least 2026-07-09.
+
+FIX SHIPPED (own PR, one logical change): `server/bot.ts`'s in-band
+status-check branch now also reads `trainResult.reason` and interpolates
+it (` — <reason>`) before location/traceback when present — e.g. "ML
+retrain failed: failed — Could not fetch training bars" instead of a
+bare "failed". The `except`-wrapper branch (already rich) is untouched;
+this PR only fixes the one branch that was actually broken.
+
+RATCHET: `server/mlRetrainReasonVisibility.test.ts` (NEW, 3 tests) —
+follows this repo's own established convention for pinning fixes inside
+bot.ts's inline, hard-to-unit-test tier logic (source-string inspection,
+matching `tier3ManipVisibility.test.ts` / `tier2DaemonTimeoutVisibility
+.test.ts`): asserts the block reads `trainResult.reason` alongside the
+pre-existing `error_location`/`traceback_tail` reads (regression
+baseline), asserts the audited template interpolates `${_reason}` before
+`${_loc}` so the real cause reads first, and asserts `_reason` is built
+from a guarded ternary (never renders literal "undefined" when reason is
+absent). A/B-verified via `git stash`: all 3 fail on pre-fix code
+(missing `trainResult.reason` reads), pass post-fix.
+
+GATES: this sandbox had NO `node_modules` at all (same recurring gap
+every recent session has logged — `npm install`, 486 packages, run this
+session). `npx tsx --test server/*.test.ts` — 680 passed, 0 failed (677
+baseline + 3 new, zero regressions). `npx tsc --noEmit` — git-stash-
+verified byte-identical to the pre-fix 66-error baseline, only line-
+number shifts from this diff's +8 lines (confirmed by content diff, not
+just count). `npm run build` — clean, both client + server bundles, no
+new warnings. Zero Python files touched (`ml_model_v2.py`/
+`ml_retrain_safe.py` were READ for the root-cause trace but not edited —
+the fix is entirely in how bot.ts consumes their existing, already-
+correct output) — `python3 -m pytest` not re-run.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this changes what STRING gets
+written to the audit log for one failure shape — zero change to
+`_train_model_impl`'s training logic, model selection, retrain cadence,
+or any scoring/sizing/trading decision. The four early-return sites this
+fix makes legible (`Could not fetch training bars` / `No training data`
+×2 / `Model training failed`) are themselves worth a future session's
+attention if they recur often once visible — this PR only makes them
+readable, it does not diagnose or fix why training data might be
+unavailable.
+
+BACKTEST: N/A — pure audit-message visibility fix; does not change what
+`_train_model_impl` computes, selects, or trains on for any input.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before evidence): once this
+deploys, the next `TIER3-ML-ERROR` entry with `status: "failed"` should
+render with a real cause suffix (e.g. "— Could not fetch training bars")
+instead of a bare "failed" — a future session checking
+`/api/diag/audit?type=TIER3-ML-ERROR` (or `scripts/session_health_
+check.py`'s `check_ml_feedback`) should confirm this and, if a specific
+reason recurs often, treat it as its own KNOWN BROKEN item (e.g. if
+"Could not fetch training bars" recurs, that points at the Alpaca bars
+fetch inside `_fetch_training_bars`, not at this audit-visibility layer).
+
 ## 2026-07-15 [PIPELINE] — session_health_check.py: compiles the manual KNOWN BROKEN diagnostic dance into a script (EDGE DOCTRINE #3, v1.0.316, T-DATACORE)
 
 TERRITORY: T-DATACORE (scripts/ pipeline tooling per the WORKSTREAM
