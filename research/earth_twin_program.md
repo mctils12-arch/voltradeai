@@ -564,6 +564,36 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-15 (session #3 continued) — O5-3b SHIPPED (v1.0.339): the
+  REAL ISS on the globe. Loader-spike decision: NO three.js — NASA's
+  official public-domain ISS_stationary.glb (42MB, 247k tris) is
+  preprocessed OFFLINE by scripts/earthtwin_iss_mesh.mjs into a
+  committed 439KB client/public/models/iss-25544.vtm (vertex-cluster
+  decimation keyed by material + normal octant so thin solar panels
+  keep both faces; per-vertex colors SAMPLED from the real textures
+  at each vertex UV — gold wings/white modules are the asset's own
+  colors, nothing invented; provenance JSON ships beside the asset).
+  Client: lib/orbital/realMesh.ts (registry {25544}, .vtm decoder →
+  model3d Mesh soup, cached lazy fetch on follow only, failure falls
+  back to the representative form), modelLayer.setRealMesh precedence
+  (real > form > nothing, gentler rotation for real models), card
+  caption names NASA + admits simplification. Integrity ratchet: the
+  test decodes the COMMITTED asset against the COMMITTED meta (tris,
+  ±1.2 extent, palette spread ≥8 buckets). Extending the registry =
+  drop a new .vtm + one REAL_MODELS entry (same honest pipeline —
+  documented public assets only).
+  MERGE NOTE: concurrent session shipped #485 (E1 LIVE/HISTORICAL
+  badge — REMOVED from our queue, supersession precedent) and took
+  v1.0.335 on main; this branch's numbers 335-338 collide in the log
+  (attribution unaffected: different files), branch continued at
+  .339. origin/main merged into the branch (datamap auto-merged,
+  experiments.md keep-both, version kept highest).
+  NEXT: GEBCO v2 + TID confidence overlay, vessels delta
+  (time/since + Cache-Control), React memo boundaries
+  (LayersPanel/Legend/DetailCard), keepFraction density decision
+  (human input), aircraft 3D polish (per-class silhouettes, ground
+  line, altitude label on hover), more real models where public
+  assets verify (Hubble/JWST candidates — NASA 3D resources).
 - 2026-07-15 (session #3, post-merge — #484 MERGED + DEPLOYED, site
   live at v1.0.334; note: the auto-merge SQUASHED the branch, so the
   40 per-commit versions collapsed into one deploy unit — acceptable
