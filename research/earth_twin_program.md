@@ -562,7 +562,47 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   assesses its dossier/graph join at build time (cables→carriers,
   mines→operators, wrecks→none: honest no-tie).
 
+## O6 — FOCUS, FIND & FOLLOW (human directive 2026-07-15, screenshot-driven; compressed, no intent lost)
+
+The human, looking at the live followed-satellite view on their phone:
+1. AUTO-3D AT ZOOM: zooming toward satellites shows them as 3D
+   renderings WITHOUT clicking, at a certain zoom band; zooming past
+   them (toward the surface) they go away "back to the earth"; with
+   the layer off, zoom behaves normally.
+2. CLICK = DEEPER FOCUS + ORBIT ARC: clicking zooms in closer than
+   the browse view; you watch the satellite fly; its full orbit
+   track pops up around the globe FOR THAT ONE; you can pan anywhere
+   — the other side of the globe still shows the arc while the sat
+   keeps moving elsewhere — until an explicit X closes the focus.
+3. FIND & GROUP: with ~12k objects you cannot find the ISS — need
+   search and grouping (e.g. all Starlink), plus an orbit toggle for
+   a viewed group with orbits distinguishable per object.
+4. SAME LOGIC FOR OTHER LIVE MOVERS: e.g. see all American flights
+   at a moment (operator grouping for aircraft).
+Honesty constraints carried over: 3D forms only for catalogued
+classes (unknown stays a dot); arcs are SGP4-propagated real tracks;
+group filters are name/callsign-prefix decodes of broadcast fields,
+never inferred operators. Slices: O6-1 arc+follow-v2, O6-2 auto-3D
+minis, O6-3 search/groups/group-orbits, O6-4 aircraft operator
+filter.
+
 ## RESUME STATE (update every session that touches this program)
+
+- 2026-07-15 (session #3, O6 wave — same session as v1.0.340-342):
+  O6 SHIPPED COMPLETE (v1.0.343-345): O6-1 orbit arc (ArcLayer +
+  sampleOrbitArc) + follow v2 (drag = camera only, card X ends
+  focus, per-class zoom-in); O6-2 auto-3D minis (<2500km cam,
+  catalogued-only, cap 12); O6-3 SatFinder (search → same focus path
+  as click, constellation chips w/ sentinel-mask filtering, group
+  orbits RAAN-colored, cap disclosed); O6-4 airline callsign-prefix
+  filter via wireLivePoints transformData (feeds every renderer).
+  NEXT (unchanged queue): GEBCO v2 + TID, React memo boundaries
+  (fresh session), keepFraction density (HUMAN INPUT), hover
+  altitude labels, more real models, SCALE S2, 1Hz orbital repaint
+  reconsideration. O6 follow-ups worth a look after live feedback:
+  arc re-sample cadence (arc is epoch-static per focus — fine for
+  one period), group-orbit live refresh (one-shot per toggle),
+  MINI_MAX_CAM_KM tuning.
 
 - 2026-07-15 (session #3 continued) — O5-3b SHIPPED (v1.0.339): the
   REAL ISS on the globe. Loader-spike decision: NO three.js — NASA's

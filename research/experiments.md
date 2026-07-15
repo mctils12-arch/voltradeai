@@ -13,6 +13,35 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — EARTH TWIN O6: focus, find & follow (v1.0.343-345, human directive w/ screenshot)
+
+Human, on the live followed-sat view: auto-3D at zoom without
+clicking; click = deeper zoom + THE orbit arc around the globe,
+persisting anywhere until an explicit X; search/groups (can't find
+the ISS among 12k; all-Starlink + orbit toggle with distinguishable
+orbits); same grouping for aircraft ("all American flights").
+Directive installed as charter section O6. Shipped:
+- v1.0.343 O6-1/2: ArcLayer (GL_LINES at true altitude, fragment-
+  discard far-side fade — a snapped line vertex would streak),
+  sampleOrbitArc (real SGP4 full period; gaps honest; antimeridian
+  split), follow v2 (drag releases only the CAMERA; card X = the one
+  way out; per-class zoom-in LEO 4.3/MEO 2.9/GEO 2.4), auto-3D minis
+  below 2500km camera altitude (catalogued classes only, cap 12,
+  static per-form buffers, no self-repaint).
+- v1.0.344 O6-3 lib+panel: satFind (search, name-prefix constellation
+  groups — deep-space groups deliberately absent, sentinel-mask
+  filtering, GROUP_ARC_CAP=40 even spread), SatFinder panel.
+- v1.0.345 wiring + O6-4: one focus path for click AND search;
+  group sky filter w/ on-panel count; RAAN-colored group orbits w/
+  cap disclosure; wireLivePoints transformData → airline callsign-
+  prefix filter feeding ALL aircraft renderers, disclosed note.
+PRIOR: the focus arc + find are the two biggest UX gaps named by the
+human; falsifier for the mini band (2500km): minis too dense/sparse
+at that ceiling → tune MINI_MAX_CAM_KM one constant. GATES: client
+212/212 (18 new), server untouched, tsc 66 baseline, build clean.
+HARNESS: run 1 hit the documented data@1440 fields-on locator-timeout
+flake (same signature as the filed harness-env question), re-run
+clean — 0 hard failures at 390/768/1440; 390 data screenshot reviewed.
 ## 2026-07-15 [PRODUCT] — SCALE S1(c): skip the 1Hz orbital repaint when satellite motion is sub-pixel (v1.0.343, T-CLIENT)
 
 TERRITORY: T-CLIENT (client/src/lib/orbital/satLayer.ts, client/src/pages/
