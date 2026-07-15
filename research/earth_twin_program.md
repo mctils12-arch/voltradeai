@@ -625,3 +625,26 @@ pipelines are scripts/ + datacore server modules (T-DATACORE).
   Hypothesis to judge (stated at E0-1): if E2/E3-class slices still
   need large hand-wired useEffects after the engines land, the spine
   design is wrong — revisit before sweeping.
+- 2026-07-15 (same session, verify pass) — 3-lens adversarial review
+  (correctness/constitution/UX-perf) over the four slices: NO
+  high-severity findings; constitution clean (frozen paths untouched,
+  test files additions-only, honesty/units/attribution pass). Fixes
+  shipped: v1.0.321 (SATCAT empty-response cache poisoning — the one
+  MEDIUM; + retry-on-click + not-in-catalog wording), v1.0.322 (LOD
+  legend copy said "street zoom", fade actually completes at z≈9.5
+  city scale — copy fixed, envelope numbers untouched; + resize
+  listener), v1.0.323 (deterministic seafloor-below-hillshade z-order
+  + coastline-bleed honesty note). Full suites after fixes: server
+  685/685, client libs 155/155, tsc baseline unchanged, build clean.
+  NEW QUEUED SLICE from review evidence — E4-2 SATCAT PARSE OFF-THREAD:
+  parseSatcat measured ~280-340 ms synchronous main-thread block on a
+  desktop-class CPU (~63k rows; expect ~1 s+ on mobile) exactly at
+  layer-enable; move fetch+parse into a worker (satWorker pattern) and
+  consider HTTP cache headers (the module cache dies per reload → 6 MB
+  re-download per page load with the layer on). Slot it with the E0
+  engines work. MERGE NOTE for the human: the branch carries the four
+  logical changes as four version-gated commits — merge preserving
+  per-commit attribution (or as separate PRs); PROMOTION #6 visual
+  harness could not complete in this sandbox (container-level restarts
+  under headless-Chromium WebGL load, twice) — run `npm run visual --
+  --page data` on a normal machine at review time.

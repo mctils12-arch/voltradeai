@@ -13,6 +13,33 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — EARTH TWIN session #1 verify pass: adversarial review + three fixes (v1.0.321–323, same branch)
+
+3-lens review (correctness / constitution / UX-perf; ~330k tokens of
+skeptical agents) over v1.0.317–320. VERDICTS: no high-severity bugs;
+constitution fully clean (frozen paths untouched, test files
+additions-only, honesty/units/attribution pass, one-logical-change per
+commit holds). FIXES SHIPPED: v1.0.321 SATCAT empty-response cache
+poisoning (the one MEDIUM — an HTTP error page parsed to [] and cached
+as "ready" for 24h; also retry-on-click + honest not-in-catalog
+wording, identity tests updated); v1.0.322 LOD legend copy (review
+computed the fade completes at z≈9.5 — city, not "street"; copy fixed,
+registry envelope untouched; + resize listener); v1.0.323 deterministic
+seafloor-below-hillshade z-order + coastline-bleed honesty note.
+REJECTED SUSPICIONS (all verified dead by the reviewers reading full
+code): move-listener leak, stale retry closures, preset-switch layer
+loss, FIELD opacity mismatch, false operator matches from junk name
+stems. POST-FIX GATES: server 685/685, client libs 155/155, tsc 66-line
+baseline, build clean. NEW QUEUED SLICE (evidence-backed): E4-2 SATCAT
+parse off-thread — measured ~280-340 ms main-thread block at
+layer-enable on desktop (~63k rows, ~1 s+ mobile); worker parse +
+cache-header check. VISUAL HARNESS: could not complete in this sandbox
+— the container itself restarted twice under headless-Chromium WebGL
+load (a NEW, worse variant of the known harness-sandbox findings); all
+work was already pushed each time, nothing lost. Re-run the harness on
+a normal machine at merge review (PROMOTION #6). MERGE NOTE: preserve
+per-commit attribution — four version-gated logical changes.
+
 ## 2026-07-15 [PRODUCT] — EARTH TWIN continuous-build session #1: E0 spine + first two verticals (v1.0.317–320, T-CLIENT + SHARED, branch claude/4d-earth-digital-twin-5e7nks)
 
 TERRITORY: T-CLIENT (client/src/lib/lod.ts, bathymetry.ts,
