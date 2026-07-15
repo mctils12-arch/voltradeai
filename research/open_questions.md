@@ -1647,6 +1647,28 @@
     mechanically — the next session that catches a full post-deploy
     trading day should run it instead of re-deriving this by hand.
 
+    UPDATE 2026-07-15 16:03 UTC (this session, [PRODUCT], not [REPAIR] —
+    window reset, no new evidence to act on) — ran
+    `scripts/session_health_check.py` mid-trading-day (market open since
+    13:30 UTC); it still classifies this item WARN (wikipedia/gdelt/fred
+    down, `dataSourceErrors: {}`). NOT a new recurrence: `/api/diag/daemon`
+    shows `uptime_seconds` in the hundreds-to-low-thousands (two same-day
+    redeploys — the secMidas OOM hotfix, PR #483, and the EARTH TWIN
+    merge, both landing this morning — restarted the daemon), and
+    `/api/diag/audit?type=DIAGNOSTIC`'s newest entry is STILL
+    2026-07-14T19:57:31Z: zero new Tier-3 DIAGNOSTIC entries have fired
+    since either restart. Tier-3 diagnostics run on an hourly cadence
+    (CLAUDE.md CODEBASE MAP), so a daemon only tens of minutes old simply
+    hasn't reached its first post-restart cycle yet — this is the same
+    "absence of evidence in a window too short to judge" shape as the
+    2026-07-15T02:35Z update above, not a fresh data point. rss_mb reads
+    254.8, consistent with the v1.0.314 threshold model (well under the
+    550MB skip_mb line). The "full trading day post-v1.0.314" bar is
+    still not met and is now reset relative to TODAY's redeploys, not
+    2026-07-14 — next session should re-run `session_health_check.py`
+    later in the day once several hourly DIAGNOSTIC entries have
+    accumulated post-restart.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

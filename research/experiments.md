@@ -13,6 +13,147 @@ exception to append-only; the log below it stays append-only)
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
+## 2026-07-15 [PRODUCT] — EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge outside the Time Machine panel (v1.0.335, T-CLIENT, scheduled-routine session)
+
+TERRITORY: T-CLIENT (client/src/lib/timeAxis.ts, client/src/pages/
+datamap.tsx, client/src/index.css) + research/*.md bookkeeping and the
+SHARED package.json version bump (last commit, minimal, per WORKSTREAM
+PARTITION). No FROZEN paths touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full;
+`scripts/session_health_check.py` (the new compiled diagnostic tool from
+the immediately-prior [PIPELINE] session) run against prod: liveness OK,
+subsystems OK, daemon memory OK (254.8MB, under the v1.0.314 550MB
+skip_mb line), 0 Tier2 timeouts. Two WARNs, both investigated, neither
+actionable as a fresh repair this session (details below). LOOP-HEALTH
+RATIO over the last 10 tagged entries (newest first, before this one):
+[REPAIR] secMidas-OOM-outage, [PIPELINE] EARTH-TWIN-O5-2b, [PIPELINE]
+O5-2, [PIPELINE] O5-1, [PIPELINE] E1-1, [REPAIR] perf-session, [PRODUCT]
+EARTH-TWIN-verify-pass, [PRODUCT] EARTH-TWIN-continuous-build-#1,
+[RESEARCH] EARTH-TWIN-charter, [PRODUCT] worldview-biomass — 2 of 10
+REPAIR, nowhere near the 7+ thrash threshold; no meta-problem override.
+
+WARN INVESTIGATION (not this session's primary action, recorded so the
+next session doesn't re-derive it): (1) KNOWN BROKEN #21's own
+confirmation bar ("full trading day post-v1.0.314") is still unmet —
+TODAY's two redeploys (secMidas hotfix PR #483 + the EARTH TWIN merge,
+both landing this morning) restarted the daemon, and Tier-3 diagnostics
+run hourly, so the newest `/api/diag/audit?type=DIAGNOSTIC` entry is
+still 2026-07-14T19:57:31Z with zero post-restart cycles yet — absence of
+evidence in a too-short window, not a recurrence. Full note appended to
+open_questions.md item #21. (2) `ml_feedback` WARN (orphan_exit records)
+exactly matches KNOWN BROKEN #12(c), already filed as an open, gated
+follow-up ("wire path-by-path after (b) resolves") — no new evidence,
+nothing to act on.
+
+PRIMARY ACTION CHOICE: with no fresh repair actionable and KNOWN
+BROKEN's other open items (#10/#17-already-resolved/#18/#20) neither
+liveness-critical nor newly evidenced, fell through to the next queued
+roadmap item per SESSION BUDGET tier 1. research/earth_twin_program.md
+carries an explicit CONTINUOUS BUILD MANDATE (human directive) and its
+own RESUME STATE names the concrete NEXT items. E4-2 (SATCAT parse
+off-thread) and E1 slice 1 (global time axis) turned out to already be
+shipped in the just-merged EARTH TWIN session (v1.0.324, v1.0.329) — the
+program file's queue note predates that merge. Of what's genuinely still
+open, E1's own REMAINDER line explicitly names "a visible LIVE/HISTORICAL
+mode chip outside the panel" as unbuilt: a small, self-contained,
+low-risk UI gap (vs. O5-3b's three.js/glTF loader spike or E0's larger
+generic-engine extraction, both bigger and riskier for one autonomous
+pass) that directly serves the PREMIUM EXPERIENCE STANDARD's honesty
+clause ("every number visibly carries freshness... surfaced beautifully").
+
+WORK DONE: confirmed the gap by reading `client/src/components/
+TimeScrubber.tsx` and its `datamap.tsx` wiring — historical mode is only
+ever visible via the small in-panel date line; the panel can scroll out
+of view (mobile especially per the charter's own concern), and every
+other part of the map (basemap, most feature layers) looks unchanged
+while historical, so a user could easily forget only the dated GIBS
+layers have rewound. Added `formatAxisInstant(atMs)` (pure, `lib/
+timeAxis.ts`) + a `historicalAtMs` state/subscription in `datamap.tsx`
+(mirrors the existing GIBS-follower effect's subscribeTimeAxis pattern,
+kept as its own effect rather than folded into that one, since its
+purpose — a UI indicator — is unrelated to that effect's stated job of
+driving dated layers). Badge renders ONLY when `historicalAtMs !== null`
+(zero cost/zero DOM when live, which is always); "Back to live" prefers
+`setTimescrubOpen(false)` when the panel is open (its existing unmount
+cleanup is the ONE place that already resets both the panel's replay
+state and the axis — reusing it avoids a second reset path that could
+drift out of sync) and falls back to `setTimeAxis({mode:"live"})`
+directly for the (currently unreachable, since historical mode cannot
+outlive the panel today) case of the panel being closed. CSS: amber
+(#f5a524, matching the scrubber's own replay-dot color) top-center badge,
+mobile-narrowed at ≤480px, `pointer-events` normal only on its own
+button so nothing else is intercepted.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `formatAxisInstant` is a pure
+formatter with no callers elsewhere — zero effect on `gibsDateForAxis` or
+any dated-layer date computation. The new effect only READS
+`getTimeAxis()`/subscribes to `subscribeTimeAxis`; it holds no exclusive
+lock and cannot race the existing GIBS-follower effect (both fire on the
+same notify, independently). The "Back to live" button's
+`setTimescrubOpen(false)` branch calls the EXACT SAME setter the panel's
+own close (X) button already calls — no new state-transition path was
+introduced for the common case. Zero Python, zero server, zero
+trading/scoring code touched.
+
+VERIFICATION: this sandbox's `node_modules` was essentially empty
+(`ls node_modules | wc -l` = 1, `du -sh` = 64K) — a fresh `npm install`
+was required before anything could build or test (485 packages, ~2min;
+same recurring environment-tooling gap several prior sessions logged,
+not chased further here). After install: `npx tsx --test client/src/
+lib/*.test.ts client/src/lib/**/*.test.ts` 182/182 (baseline 179 + 3 new
+`formatAxisInstant` tests in `timeAxis.test.ts`, zero regressions);
+`npx tsx --test server/*.test.ts` 693/693 (full green, no network-flake
+exclusions needed this run); `npx tsc --noEmit` 8 lines / 3 distinct
+errors, byte-identical to the pre-existing sandbox-only baseline (missing
+@types/node + vite/client entry points, deprecated `baseUrl` option —
+none reference datamap.tsx or timeAxis.ts); `npm run build` clean (client
++ server bundles, dist/datacore staged, no new warnings beyond the
+pre-existing >500kB maplibre-gl chunk-size notice).
+
+VISUAL HARNESS: attempted (`node scripts/visual_check.mjs --page data`,
+run in background + monitored to completion). Failed with the IDENTICAL
+signature the immediately-prior [PRODUCT] session (2026-07-14, HIFLD
+dossier-parity PR) already root-caused and filed as a sandbox-environment
+limitation, not a regression: `page.evaluate: Target page, context or
+browser has been closed`, thrown from the harness's own perf-pan/
+screenshot phase on the real layer-heavy `/data` page (a trivial static
+page and the full-chromium executablePath fallback both work; the crash
+is specific to real WebGL+many-layers load in this container, per that
+session's isolation work). Not re-chased here — two independent sessions
+now hitting the same signature on unrelated diffs is itself evidence it
+is environmental, not code. Confidence in lieu of screenshots: the diff
+adds one small conditionally-rendered badge (invisible in the default
+LIVE state, i.e. invisible in literally every existing screenshot any
+prior harness run ever took) plus one pure formatter function; zero
+existing DOM/CSS is modified; full test suites green; byte-identical tsc
+baseline. Filed as a THIRD independent hit on the same sandbox limitation
+in open_questions.md-adjacent bookkeeping (see this file's own
+2026-07-14 entry for the first two) — worth a dedicated STALENESS AUDIT
+environment-setup look, still not this session's scope.
+
+BACKTEST: N/A — pure /data display-surface addition; zero trading,
+sizing, scoring, or execution code touched.
+
+PROMOTION LADDER: version bumped 1.0.334 → 1.0.335 (package.json, last
+commit per WORKSTREAM PARTITION's shared-file rule). One logical change:
+the LIVE/HISTORICAL badge only. The KNOWN BROKEN #21 WARN investigation
+above is bookkeeping (open_questions.md update), not a code change, so it
+does not count as a second bundled change.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before evidence): once
+deployed, toggling the Time Machine to a historical hour should show the
+new amber badge at the top of the map immediately, persist while the
+panel is scrolled out of view or the user pans/zooms, and disappear the
+instant either "Back to live" or the panel's own close button is used —
+a future session (or the human) opening `/data`, scrubbing historical,
+and screenshotting should confirm this live, since the harness could not
+this session.
+
+MERGE NOTE: this session ran during market hours (routine directive) —
+PR is prepared but should not be merged until after 4:00 PM ET, since
+this is a UI-honesty addition, not a critical live-break fix.
+
 ## 2026-07-15 [REPAIR] — PRODUCTION OUTAGE root-caused + hotfixed: secMidas boot-archive OOM crash loop (PR #483; fix also on the feature branch)
 
 Human reported the site down; confirmed live: 502 "Application failed

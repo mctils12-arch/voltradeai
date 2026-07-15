@@ -3047,6 +3047,34 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge — top-center,
+   above the map, independent of the Time Machine panel (which anchors
+   top-left and can scroll out of view on mobile). Amber matches the
+   scrubber's own replay-dot color (vt-timescrub, #f5a524) so "you are
+   looking at the past" reads as one consistent honesty signal wherever it
+   appears. Only rendered while the axis is historical — never shown for
+   LIVE, so it costs zero visual attention the rest of the time. */
+.vt-time-axis-badge {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 11;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(38, 25, 4, 0.92); color: #f5a524;
+  border: 1px solid rgba(245, 165, 36, 0.4); border-radius: 8px;
+  padding: 6px 10px; font-family: var(--font-mono); font-size: 11.5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  max-width: calc(100vw - 24px); white-space: nowrap;
+}
+.vt-time-axis-badge span { overflow: hidden; text-overflow: ellipsis; }
+.vt-time-axis-badge-live {
+  flex-shrink: 0; background: rgba(245, 165, 36, 0.16); color: #f5a524;
+  border: 1px solid rgba(245, 165, 36, 0.4); border-radius: 5px;
+  padding: 3px 7px; font-family: var(--font-mono); font-size: 10.5px; cursor: pointer;
+}
+.vt-time-axis-badge-live:hover { background: rgba(245, 165, 36, 0.28); }
+@media (max-width: 480px) {
+  .vt-time-axis-badge { font-size: 10.5px; padding: 5px 8px; gap: 6px; }
+  .vt-time-axis-badge span { max-width: 45vw; }
+}
+
 /* panel launcher row */
 .vt-streams-launch {
   display: flex; align-items: center; gap: 6px; width: 100%;
