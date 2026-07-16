@@ -125,3 +125,16 @@ test('every committed real-model asset decodes and matches its committed provena
       `${base}: label names source + license + admits decimation`);
   }
 });
+
+test("ISS module entries resolve to the station model with the honest module note (live report 2026-07-16)", () => {
+  // "ISS (UNITY)" NORAD 25575 is cataloged separately but is the same complex
+  const viaModule = realModelLabel(25575, "ISS (UNITY)");
+  assert.ok(viaModule && viaModule.includes("International Space Station"), "module entry gets the station model");
+  assert.ok(viaModule!.includes("module of the station"), "label says the entry is a module — never implies a per-module asset");
+  // direct entries carry no module note
+  assert.ok(!realModelLabel(25544, "ISS (ZARYA)")!.includes("module of the station"));
+  // the name gate is exact: non-ISS names and absent names never match
+  assert.equal(realModelLabel(25575, "CSS (TIANHE)"), null);
+  assert.equal(realModelLabel(25575), null);
+  assert.equal(realModelLabel(99999, "STARLINK-1234"), null);
+});

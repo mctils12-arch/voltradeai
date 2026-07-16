@@ -65,8 +65,29 @@ export const REAL_MODELS: Record<number, RealModelEntry> = {
   42915: TDRS_BOEING_601, // TDRS 13 (2017-047A)
 };
 
-export function realModelLabel(noradId: number): string | null {
-  return REAL_MODELS[noradId]?.label ?? null;
+/**
+ * ISS MODULE RESOLUTION (live report 2026-07-16: focusing "ISS (UNITY)"
+ * NORAD 25575 showed the generic box while ZARYA 25544 had the real
+ * station model): the station's modules are cataloged as separate objects
+ * but are physically ONE complex — any catalog entry named "ISS (…)"
+ * honestly resolves to the station model, with the module note appended
+ * so the card never implies a per-module asset exists.
+ */
+const ISS_MODULE_NOTE =
+  ' — this catalog entry is a module of the station; the full ISS complex is shown';
+
+function resolveRealModel(noradId: number, name?: string | null): { entry: RealModelEntry; moduleNote: string } | null {
+  const direct = REAL_MODELS[noradId];
+  if (direct) return { entry: direct, moduleNote: '' };
+  if (name && /^ISS \(/i.test(name.trim())) {
+    return { entry: REAL_MODELS[25544], moduleNote: ISS_MODULE_NOTE };
+  }
+  return null;
+}
+
+export function realModelLabel(noradId: number, name?: string | null): string | null {
+  const r = resolveRealModel(noradId, name);
+  return r ? r.entry.label + r.moduleNote : null;
 }
 
 /** Decode a .vtm buffer into the triangle-soup Mesh SatModelLayer draws.
@@ -107,8 +128,8 @@ export function decodeVtm(buf: ArrayBuffer): Mesh {
 // the six Boeing-601 TDRS — share one fetch.
 const cache = new Map<string, Promise<Mesh | null>>();
 
-export function loadRealModel(noradId: number): Promise<Mesh | null> {
-  const entry = REAL_MODELS[noradId];
+export function loadRealModel(noradId: number, name?: string | null): Promise<Mesh | null> {
+  const entry = resolveRealModel(noradId, name)?.entry;
   if (!entry) return Promise.resolve(null);
   let p = cache.get(entry.url);
   if (!p) {

@@ -2899,9 +2899,11 @@ export default function DataMapPage() {
         // O5-3b: REAL model where a verified public asset exists. Cleared
         // FIRST so the previous target's model never rides this orbit.
         satModelLayerRef.current?.setRealMesh(null);
-        if (realModelLabel(g.noradId)) {
+        // name passed through: ISS MODULE entries (e.g. "ISS (UNITY)"
+        // 25575) resolve to the station model — live report 2026-07-16
+        if (realModelLabel(g.noradId, g.name ?? sc?.name)) {
           const wantNorad = g.noradId;
-          loadRealModel(wantNorad).then((mesh) => {
+          loadRealModel(wantNorad, g.name ?? sc?.name).then((mesh) => {
             if (!mesh) return; // fetch/decode failed → representative form stays
             if (satFollowRef.current?.noradId !== wantNorad) return;
             satModelLayerRef.current?.setRealMesh(mesh);
@@ -2911,7 +2913,7 @@ export default function DataMapPage() {
         // (the next worker tick takes over) — no geojson ground-point ring.
         satModelLayerRef.current?.setAnchor({ mercX: t.mercX, mercY: t.mercY, altMeters: s.altMeters });
       }
-      const realLabel = realModelLabel(g.noradId);
+      const realLabel = realModelLabel(g.noradId, g.name ?? sc?.name);
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
