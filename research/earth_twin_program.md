@@ -637,6 +637,39 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (round 11 queue — human's VeloViewer reference + follow-up
+  reports; ISS-module fix = PR #504):
+  (A) ALTITUDE CURTAIN WALLS — agent-built lib READY in worktree
+      .claude/worktrees/agent-a75f7717697649cf5 (commit fdf60af):
+      arcLayer setWalls(walls,{ramp}) world-space curtain quads
+      (top=altitude, bottom=ground, per-point altitude ramp matching
+      AIR_BAND colors, alpha .55/.25, ~0.49ms rebuild at 2000pts,
+      14/14 tests). PARENT WIRING REMAINING (datamap, mine): call
+      setWalls on the aircraft trail instead of the rib hack, and
+      LIVE-EXTEND it — append the followed plane's new positions
+      each live tick (human: "plot it as the plane moves — right now
+      it stops the second you click"). Keep honest ARC_GAP for
+      missing-altitude points.
+  (B) VIEWPORT AIRCRAFT TILING — agent-built server READY in worktree
+      .claude/worktrees/agent-a67a4547847206c84 (commit c34c9f3):
+      server/aircraftTiling.ts + routes.ts wiring — explicit full
+      bbox opts into ≤8-disc hex/grid tiling of adsb.lol point
+      queries (dedupe by icao24, disc-1-first politeness, tiling
+      metadata in response; legacy behavior bit-identical without
+      full bbox; 18 new tests, server 723/723). PARENT REMAINING:
+      client already sends the bbox (datamap:3776) — verify the
+      opt-in triggers, update the layers-panel coverage note to
+      render from response.tiling ("N of M discs / full viewport"),
+      drive assertion, ship.
+  (C) Wind-position audit agent (Waverly) still out — integrate on
+      return + card-surfacing slice.
+  (D) D3 ground-lock drag-release intermittence investigation (plan
+      in experiments.md v1.0.370 entry).
+  HARNESS-NOISE NOTE: elevated 1440 medians (300-333ms) appeared ONLY
+  on the exhausted container which then OOM-killed itself; fresh box
+  = 50/133/167 baseline. Container age is now a documented harness
+  confounder — prefer verdicts on a fresh/quiet box.
+
 - 2026-07-16 (scheduled-routine session, T-CLIENT): ROUND 10 QUEUE status
   update — (a) MOBILE CARD CONTAINMENT shipped (#501, v1.0.369). (b) LINE
   VISIBILITY shipped (#502, v1.0.370 — a concurrent session's version;
