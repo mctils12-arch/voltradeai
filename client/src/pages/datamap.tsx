@@ -30,7 +30,7 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 // spirit — a closed panel loads no code and issues no requests.
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
-import { DEFAULT_SKY } from "@/lib/globeAtmosphere";
+import { skyForRenderer } from "@/lib/globeAtmosphere";
 import {
   OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
   oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
@@ -1438,8 +1438,16 @@ export default function DataMapPage() {
     // horizon/fog colors only render on the mercator/pitched side, so a
     // single spec covers the hero globe AND tilted terrain with no
     // conditional churn. Presentation, not data: the rim is a physical
-    // render of Earth's atmosphere, not a measurement.
-    try { (map as any).setSky?.(DEFAULT_SKY as any); } catch {}
+    // render of Earth's atmosphere, not a measurement. ADAPTIVE TIER:
+    // software GL (SwiftShader/llvmpipe — VMs, the perf harness) can't
+    // afford the scattering pass (~156ms/frame measured) → those
+    // renderers get the sky with atmosphere-blend pinned 0.
+    try {
+      const glc: any = map.getCanvas().getContext("webgl2") || map.getCanvas().getContext("webgl");
+      const dbg = glc?.getExtension?.("WEBGL_debug_renderer_info");
+      const renderer = glc ? String(glc.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glc.RENDERER) ?? "") : "";
+      (map as any).setSky?.(skyForRenderer(renderer) as any);
+    } catch {}
     if (!enabled.terrain) setStatus("terrain", "off");
     else setStatus("terrain", "active", undefined, enabled.seafloor
       ? "3D relief from the drained-ocean DEM — basins sink for real; land is SRTM-class while the drain is on (© Mapterhorn set resumes when it's off)"

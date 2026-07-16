@@ -11,7 +11,10 @@ import {
   GLOBE_LIMB_SKY,
   TERRAIN_HORIZON_SKY,
   DEFAULT_SKY,
+  SOFTWARE_GL_SKY,
   LIMB_VISIBLE_ZOOM_MAX,
+  isSoftwareRenderer,
+  skyForRenderer,
 } from "./globeAtmosphere.js";
 
 const SPEC_SKY_KEYS = new Set(Object.keys((v8 as unknown as { sky: object }).sky));
@@ -70,4 +73,39 @@ test("combined DEFAULT_SKY: exact union, no field lost or overwritten (disjoint 
   for (const k of limbKeys) assert.ok(!horizonKeys.includes(k),
     "presets must stay disjoint — one setSky call may never silently drop a regime's field");
   assert.equal(Object.keys(DEFAULT_SKY).length, limbKeys.length + horizonKeys.length);
+});
+
+test("software-GL tier: atmosphere pass EXPLICITLY off (spec default is 0.8 — omission is not off)", () => {
+  assert.equal(SOFTWARE_GL_SKY["atmosphere-blend"], 0,
+    "the ~156ms/frame scattering pass must be pinned off, not left to the 0.8 default");
+  // still a full sky otherwise: the cheap horizon/fog gradient stays
+  for (const k of Object.keys(TERRAIN_HORIZON_SKY)) {
+    assert.deepEqual((SOFTWARE_GL_SKY as Record<string, unknown>)[k],
+      (TERRAIN_HORIZON_SKY as Record<string, unknown>)[k], `${k} preserved for software GL`);
+  }
+  for (const k of Object.keys(SOFTWARE_GL_SKY)) {
+    assert.ok(SPEC_SKY_KEYS.has(k), `SOFTWARE_GL_SKY: "${k}" exists in the installed spec`);
+  }
+});
+
+test("renderer detection: known software rasterizers only — hardware and unknown keep the full sky", () => {
+  for (const soft of [
+    "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "llvmpipe (LLVM 15.0.7, 256 bits)",
+    "softpipe",
+    "Microsoft Basic Render Driver",
+  ]) {
+    assert.equal(isSoftwareRenderer(soft), true, soft);
+    assert.deepEqual(skyForRenderer(soft), SOFTWARE_GL_SKY);
+  }
+  for (const hard of [
+    "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "Apple M2",
+    "Mali-G78",
+    "AMD Radeon Pro 5500M OpenGL Engine",
+    "", null, undefined,
+  ]) {
+    assert.equal(isSoftwareRenderer(hard as any), false, String(hard));
+    assert.deepEqual(skyForRenderer(hard as any), DEFAULT_SKY);
+  }
 });

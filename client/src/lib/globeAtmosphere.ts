@@ -91,3 +91,27 @@ export const DEFAULT_SKY: SkySpecification = {
 /** Zoom band where the limb glow is (fully or partially) visible — for the
  *  parent's wiring/tests; mirrors GLOBE_LIMB_SKY's interpolation stops. */
 export const LIMB_VISIBLE_ZOOM_MAX = 7;
+
+/**
+ * ADAPTIVE QUALITY TIER (2026-07-16, measured): on software GL the
+ * scattering pass costs ~156 ms median/frame at 1440px (SwiftShader ABA
+ * probe: 288 → 126 with blend 0 → 276 restored) — unusable, so software
+ * renderers get the sky WITHOUT the atmosphere pass. Hardware GPUs run it
+ * for pennies. "atmosphere-blend": 0 must be EXPLICIT — the spec default
+ * is 0.8, so merely omitting the key still enables the pass.
+ */
+export const SOFTWARE_GL_SKY: SkySpecification = {
+  ...TERRAIN_HORIZON_SKY,
+  "atmosphere-blend": 0,
+};
+
+/** True for the known software rasterizers (VMs, CI, the visual harness). */
+export function isSoftwareRenderer(renderer: string | null | undefined): boolean {
+  if (!renderer) return false;
+  return /swiftshader|llvmpipe|softpipe|swangle|software rasterizer|microsoft basic render/i.test(renderer);
+}
+
+/** Pick the sky for a WebGL renderer string; unknown/hardware → full sky. */
+export function skyForRenderer(renderer: string | null | undefined): SkySpecification {
+  return isSoftwareRenderer(renderer) ? SOFTWARE_GL_SKY : DEFAULT_SKY;
+}
