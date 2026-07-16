@@ -3,6 +3,31 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN O6-7 tier 2 WIRED: solar-system handoff live on /data (v1.0.364)
+
+The spike foundation (v1.0.358) is now user-reachable: at the globe's
+zoom floor, 2-3 more wheel notches (≥240 accumulated deltaY, 400ms
+windows — one stray notch never triggers) or the "☉ Solar system"
+chip (touch/a11y path) hand the viewport to the true-scale view.
+Scale continuity: the drawn Earth starts at the globe's measured
+disc (worldSize/π/cos·lat). Mercator flips to globe first. While
+active: map handlers disabled + controls hidden (chevrons pointing
+at a hidden map are a lie); the TIME AXIS drives the ephemeris (the
+scrubber is now a planetarium) and the units preference repaints
+labels. Exits: zoom-in past 60% viewport, Escape (first meaning),
+"Back to Earth" chip — all land at floor+0.75 (hysteresis). Lazy
+chunk: 11.1KB, loaded only on entry — zero cost until a user
+leaves Earth. VALIDATED: drive 40/40 (S1-S9 new: chip enter, wheel
+enter, both exits, handler restore, headroom; one drive-assertion
+fix — the zoom floor is -2, not 0, asserted relative to
+getMinZoom); screenshots reviewed at entry scale (Earth 51px disc,
+orbit path, provenance caption, imperial scale bar) and inner-
+system scale (real orbits, honest sub-pixel labels). POLISH QUEUE
+(filed, not blocking): co-located body labels collide (Earth/Moon
+at wide scales); edge pointers overlap the time readout under the
+header. GATES: client 265/265, tsc 66 baseline, build clean,
+harness on the PR.
+
 ## 2026-07-16 [REPAIR] — atmosphere pass = real perf regression; adaptive GL tier (v1.0.363) · wave harness VERDICT: 0 hard failures
 
 The solo harness re-run FALSIFIED the contention hypothesis below —
