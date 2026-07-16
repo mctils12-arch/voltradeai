@@ -606,6 +606,34 @@ card minimize). REMAINING DIRECTIVE ITEMS, chartered as next slices:
   the far-out craft are visible first. Representative-form upgrade
   for Starlink (documented flat-bus + single-wing design, labeled
   "documented design, not imagery") as the most-clicked constellation.
+  [O6-6a high-res ISS/Hubble + O6-6b Starlink form SHIPPED v1.0.348-9;
+  remaining: GPS/TDRS real assets, textured-mesh rendering tier if
+  vertex colors ever stop being enough at 480px.]
+
+## O6-7 — CELESTIAL, TWO TIERS (human directive 2026-07-16, refined
+## same day: "when you zoom out far enough … they appear at literally
+## accurate scale")
+
+Reference bar: the Google-Earth startup frame (atmosphere limb glow,
+star field, sun-lit globe). Two honest tiers, both from real
+ephemeris math (Meeus/VSOP-class algorithms — pure computation, no
+data feed, no license):
+1. EARTH-VIEW TIER (all current map zooms): the sun's real position
+   drives globe lighting + the day/night terminator; the moon drawn
+   at its real direction + true angular size + real phase; visual
+   quality pass — atmosphere halo + star backdrop to the reference
+   bar. All labeled "computed ephemeris".
+2. SOLAR-SYSTEM TIER (zoom out past the map's minimum): hand off to
+   a celestial scene at LITERALLY ACCURATE SCALE — Earth shrinks to
+   truth, the Moon a real 30-earth-diameter distance away at true
+   size, Sun/planets at real ephemeris positions; the emptiness IS
+   the honesty (the human explicitly wants true scale on zoom-out).
+   Zooming back toward Earth returns to the map seamlessly. New
+   renderer surface (the map camera can't leave the globe) — spike
+   the handoff first (camera continuity is the hard part), then
+   bodies. Satellites' GEO shell visible at tier boundary once SDP4
+   lands (the shells + moon at scale together is the showcase frame).
+Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
