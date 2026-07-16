@@ -29,7 +29,8 @@ PRIOR (SDP4): the GEO ring + MEO shells visibly populate the sky and
 the O7 GPS-DOP query unlocks; falsifier: worker tick cost grows past
 budget with 800 more (heavier) propagations → profile, consider
 2s cadence for deep-space slots (they move slowly). GATES: client
-224/224, tsc 66 baseline, build clean, harness below.
+224/224, tsc 66 baseline, build clean, harness 0 hard
+failures at 390/768/1440 first run.
 
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6 live-feedback fix pack (v1.0.347, T-CLIENT)
 
