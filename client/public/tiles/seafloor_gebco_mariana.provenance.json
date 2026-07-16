@@ -1,0 +1,52 @@
+{
+  "_doc": "Provenance for the GEBCO v2 seafloor assets (EARTH TWIN E2 v2). Written by scripts/gebco_seafloor_tiles.py \u2014 regenerate, never hand-edit. Any client wiring MUST surface attribution and the not-for-navigation disclaimer.",
+  "dataset": "GEBCO_2026 Grid Type Identifier (TID) grid",
+  "attribution": "GEBCO Bathymetric Compilation Group 2026(2026). The GEBCO_2026 Grid - a continuous terrain model for oceans and land at 15 arc-second intervals. NERC EDS British Oceanographic Data Centre NOC. doi:10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa",
+  "license": "The GEBCO Grid is placed in the public domain and may be used free of charge; users are free to copy, publish, distribute, transmit, adapt and commercially exploit it; users must acknowledge the source and must not mislead others or misrepresent the GEBCO Grid or its source. The GEBCO Grid should NOT be used for navigation or for any other purpose involving safety at sea. (https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use, fetched 2026-07-16)",
+  "documentationUrl": "https://www.gebco.net/data-products-gridded-bathymetry-data/gebco2026-grid",
+  "generated": "2026-07-16T03:50:27Z",
+  "source_service": "https://download.gebco.net grid-subsetting API (Esri ASCII subset)",
+  "coverage": {
+    "bbox": {
+      "west": 138.0,
+      "south": 7.0,
+      "east": 146.00000000064,
+      "north": 15.00000000064
+    },
+    "cells": [
+      1920,
+      1920
+    ],
+    "native_resolution_arcsec": 15.0,
+    "note": "REGIONAL subset \u2014 everywhere outside this bbox has NO v2 data and renders transparent. Honest partial coverage, never fabricated global coverage."
+  },
+  "tiling": {
+    "scheme": "web-mercator 256px PMTiles v3, zooms 0..9",
+    "maxzoom_vs_native": "z9 \u2248 9.9 arc-sec/px vs 15.0 arc-sec native",
+    "depth_sampling": "area-mean of covered cells per pixel (degenerates to containing cell at native zoom); no-coverage pixels encode elevation 0 (renders transparent under the depth ramp)",
+    "tid_sampling": "nearest cell (categorical \u2014 never averaged); no-coverage pixels encode -1 (renders transparent)"
+  },
+  "files": {
+    "bathymetry": "seafloor_gebco_mariana.pmtiles",
+    "tid": "seafloor_tid_mariana.pmtiles"
+  },
+  "tid": {
+    "decode_table": "datacore/gebco/tid_decode.json (verbatim official)",
+    "histogram_by_code": {
+      "0": 2882,
+      "11": 2363861,
+      "14": 12218,
+      "15": 1825,
+      "16": 3821,
+      "17": 45688,
+      "40": 1212002,
+      "44": 44103
+    },
+    "group_share_of_covered_cells": {
+      "direct": 0.6585,
+      "indirect": 0.3407,
+      "land": 0.0008
+    }
+  },
+  "notForNavigation": true
+}

@@ -13,10 +13,12 @@ import {
   shapeForCategory,
   buildAircraftInstances,
   pickNearestAircraft,
+  pickNearestAircraftScreen,
   AIR_VERT_SRC,
   AirLayer,
 } from './airLayer.js';
 import { lonLatToMercator } from '../orbital/satBuffer.js';
+import { mercatorToSphere } from '../orbital/occlusion.js';
 import { OCCLUSION_RADIUS } from '../orbital/occlusion.js';
 
 test('silhouettes: every class shape is whole triangles within the declared extent', () => {
@@ -133,4 +135,23 @@ test('API smoke (no GL): counts, zoom gate semantics, no-instance render is a no
   layer.render(explodingGl as any, {} as any);
   assert.equal(layer.getRenderFailed(), false);
   assert.ok(AIR_3D_MIN_ZOOM >= 6 && AIR_3D_MIN_ZOOM <= 12, 'hand-off in the regional-zoom band');
+});
+
+test('pickNearestAircraftScreen: altitude displacement respected (the 45°-tilt click fix)', () => {
+  const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const { inst } = buildAircraftInstances([
+    { lon: -90, lat: 30, altitude_m: 0, heading: 0, on_ground: true },
+    { lon: -90, lat: 30, altitude_m: 12_000, heading: 0 }, // same ground point, at cruise
+  ]);
+  const W = 1000, H = 1000;
+  const project = (i: number) => {
+    const p = mercatorToSphere(inst[i * AIR_INST_STRIDE], inst[i * AIR_INST_STRIDE + 1], inst[i * AIR_INST_STRIDE + 2]);
+    return [((p[0] + 1) / 2) * W, ((1 - p[1]) / 2) * H];
+  };
+  const sHigh = project(1), sGround = project(0);
+  assert.ok(Math.hypot(sHigh[0] - sGround[0], sHigh[1] - sGround[1]) > 0.5, 'they render apart');
+  assert.equal(pickNearestAircraftScreen(inst, I, sHigh[0], sHigh[1], W, H, 0.4), 1, 'the airborne plane under the cursor wins');
+  assert.equal(pickNearestAircraftScreen(inst, I, sGround[0], sGround[1], W, H, 0.4), 0);
+  assert.equal(pickNearestAircraftScreen(inst, I, 5, 5, W, H, 2), -1, 'far from both = honest miss');
+  assert.equal(pickNearestAircraftScreen(null, I, 0, 0, W, H, 10), -1);
 });

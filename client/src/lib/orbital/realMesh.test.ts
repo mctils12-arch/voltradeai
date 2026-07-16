@@ -63,13 +63,49 @@ test('registry: ISS present, honest label, unknown ids resolve to null', async (
   assert.equal(await loadRealModel(99999), null, 'unregistered id: null without any fetch');
 });
 
+test('TDRS: the Boeing-601 fleet model covers exactly the gen-2/3 units, never gen-1', async () => {
+  // Second/third generation (Boeing BSS-601/601HP, springback antennas):
+  // the SAME committed asset for all six on-orbit units of that design.
+  const gen23 = [26388, 27389, 27566, 39070, 39504, 42915]; // TDRS 8..13
+  const urls = new Set(gen23.map((id) => REAL_MODELS[id]?.url));
+  assert.deepEqual([...urls], ['/models/tdrs-boeing601.vtm'], 'all six share the one fleet-design asset');
+  for (const id of gen23) {
+    const label = realModelLabel(id)!;
+    assert.ok(/second\/third-generation TDRS design/.test(label),
+      `${id}: label claims the DESIGN, not a unit's own imagery`);
+    assert.ok(/NASA/.test(label) && /public domain/i.test(label) && /simplified/i.test(label));
+  }
+  // First-generation TDRS (TRW: hexagonal bus, umbrella antennas) look
+  // different — registering them to this model would be dishonest. Pin it.
+  for (const gen1 of [13969, 19548, 19883, 21639, 22314, 23613]) {
+    assert.equal(realModelLabel(gen1), null, `TDRS gen-1 NORAD ${gen1} must NOT get the Boeing-601 model`);
+  }
+  // ids sharing an asset share one load promise (cache keyed by URL)
+  const a = loadRealModel(26388);
+  const b = loadRealModel(42915);
+  assert.equal(a, b, 'same asset -> same in-flight promise');
+  assert.equal(await a, null, 'no network in the test env: resolves null, never throws');
+});
+
+test('Aqua (NORAD 27424) registered with its own single-unit asset', () => {
+  assert.equal(REAL_MODELS[27424]?.url, '/models/aqua-27424.vtm');
+  const label = realModelLabel(27424)!;
+  assert.ok(/Aqua/.test(label) && /NASA/.test(label) && /public domain/i.test(label) && /simplified/i.test(label));
+});
+
 test('every committed real-model asset decodes and matches its committed provenance meta', () => {
   const assets = Object.entries(REAL_MODELS);
   assert.ok(assets.length >= 2, 'ISS + Hubble at minimum');
   for (const [norad, entry] of assets) {
     const base = entry.url.split('/').pop()!.replace(/\.vtm$/, '');
     const meta = JSON.parse(readFileSync(join(modelsDir, `${base}.json`), 'utf8'));
-    assert.equal(String(meta.norad), norad, `${base}: meta names the registry NORAD id`);
+    // meta.norad is a number for single-unit assets, an array for a
+    // fleet-design asset shared by several units (Boeing-601 TDRS) — every
+    // registered id must still be named by its meta.
+    assert.ok(
+      [meta.norad].flat().map(String).includes(norad),
+      `${base}: meta names the registry NORAD id ${norad}`,
+    );
     const raw = readFileSync(join(modelsDir, `${base}.vtm`));
     const mesh = decodeVtm(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
     assert.equal(mesh.vertexCount, meta.processing.tris * 3, `${base}: triangle count matches the meta`);

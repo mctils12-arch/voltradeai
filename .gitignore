@@ -21,3 +21,6 @@ __pycache__/
 # committed metadata lives in datacore/sentinel2/*chips_index.jsonl)
 datacore/sentinel2/chips/
 datacore/sentinel2/chips_s1/
+
+# Claude Code session worktrees (background agent isolation copies)
+.claude/worktrees/

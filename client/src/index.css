@@ -2313,22 +2313,34 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-legend-chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .vt-legend-note { font-size: 9.5px; color: var(--text-tertiary); display: inline-flex; align-items: center; }
 
-/* O6 follow tools — minimizable cluster shown while a satellite is focused */
+/* O6 follow tools — minimizable cluster shown while a satellite is focused.
+   Round 7: whole cluster drags; default spot bottom-CENTER so it never shares
+   the left column with the detail card (the two were stacking). */
 .vt-sat-tools {
   position: absolute; z-index: 12; /* above the detail card — never buried */
-  left: 12px; top: 50%;
+  left: 50%; transform: translateX(-50%); bottom: 84px;
   display: flex; align-items: center; gap: 4px;
   padding: 4px 6px; border-radius: 10px;
   background: var(--surface-1, rgba(10, 16, 28, 0.86));
   border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
   backdrop-filter: blur(6px);
+  cursor: grab; touch-action: none; user-select: none;
+}
+.vt-sat-tools:active { cursor: grabbing; }
+@media (max-width: 639px) {
+  /* phone: the detail card is a bottom sheet — keep the cluster clear of it */
+  .vt-sat-tools { left: 8px; transform: none; bottom: auto; top: 56px; }
 }
 .vt-sat-tools-min { padding: 2px; }
 .vt-sat-tools-grip {
-  cursor: grab; touch-action: none; user-select: none;
   color: var(--text-tertiary); font-size: 13px; padding: 2px 3px;
 }
-.vt-sat-tools-grip:active { cursor: grabbing; }
+
+/* Round 7: visible drag affordance on the detail card header + minimized pill */
+.vt-card-grip {
+  color: var(--text-tertiary); font-size: 13px; padding: 1px 2px 0 0;
+  user-select: none; flex: none;
+}
 
 /* O6 minimized detail card — a pill; the globe shows through */
 .vt-site-card-min {

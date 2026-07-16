@@ -3,6 +3,196 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [REPAIR] — atmosphere pass = real perf regression; adaptive GL tier (v1.0.363) · wave harness VERDICT: 0 hard failures
+
+The solo harness re-run FALSIFIED the contention hypothesis below —
+data medians were up at every width (390: 50→83, 768: →233, 1440:
+→317ms; scaling with viewport area = fragment-bound). Causal ABA
+probe (SwiftShader @1440, runtime setSky toggle, no rebuild): 288ms
+median with the v1.0.359 always-on atmosphere pass → 126ms at
+atmosphere-blend 0 → 276ms restored. ~156ms/frame. FIX (v1.0.363):
+renderer detection via WEBGL_debug_renderer_info — SwiftShader/
+llvmpipe/softpipe get SOFTWARE_GL_SKY (horizon/fog kept,
+atmosphere-blend PINNED 0 — spec default is 0.8, omission ≠ off);
+real GPUs keep the full limb glow. Verified both directions:
+shipped build auto-detects → 131ms; forcing full sky → 292ms.
+FINAL SOLO HARNESS (the wave's verdict of record): 0 hard failures
+at 390/768/1440; data medians 50/117/150ms (p95 67/183/217) — at or
+better than the pre-wave baseline; the @1440 fields-on driver
+timeout disappeared with the jank (it was a symptom, not a flake).
+LESSON RATCHETED: 'contention' is a hypothesis to falsify, not a
+verdict — the failure was real and the re-run protocol caught it.
+
+## 2026-07-16 [PRODUCT] — EARTH TWIN 4-agent integration wave (v1.0.358-362)
+
+Parent session reviewed + integrated all four worktree agents
+(read-before-write review each; every gate re-run in the main tree):
+- v1.0.358 O6-7 tier 2 FOUNDATION (solar-system ephemeris + true-scale
+  renderer). TRUST CHECK: parent independently re-queried JPL Horizons
+  for 3 of the agent's anchor vectors — DIGIT-FOR-DIGIT match (the
+  validation is genuine, not circular). Unwired, zero runtime cost;
+  datamap handoff is the next T-CLIENT slice (recipe:
+  research/solar_view_spike.md).
+- v1.0.359 atmosphere: lib/globeAtmosphere presets verified against the
+  installed v5.24 SHADERS (limb glow = hardcoded Rayleigh/Mie, only
+  atmosphere-blend scales it; sun follows setLight — future terminator
+  tie); datamap now one always-on setSky(DEFAULT_SKY). Supersedes the
+  v1.0.357 hand-rolled conditional sky.
+- v1.0.360 TDRS 8-13 + Aqua real meshes; agent CAUGHT the generation
+  mismatch (NASA asset = Boeing 601 gen-2/3 design) and excluded
+  first-gen TDRS with an enforcing test; GPS honestly unavailable in
+  NASA-3D-Resources (227 dirs enumerated) — substituted, not faked.
+- v1.0.361 GEBCO WMS drained-ocean presentation (see own commit) +
+  v1.0.362 GEBCO_2026 pipeline/data slice (agent entry below).
+HARNESS PROTOCOL NOTE: the first harness run for this wave executed
+while 4 agent builds shared the container — 5 hard failures, all
+consistent with CPU contention (data@768/1440 perf gates with only 9
+frames sampled vs 51 at the passing 390; the documented fields-on
+locator flake), NOT code (terrain/drain default OFF; 390 median 50ms
+healthy). Re-run SOLO after integration = the verdict of record for
+the PR. Full evidence chain in this entry's PR.
+PRIOR: integrations are additive libs/assets + two datamap wire-ins
+already drive-validated (31/31); expected effect = visual quality
+jump (limb glow, GEBCO ridges) with no perf regression at defaults.
+Falsifier: solo harness disagrees → diagnose before PR, never ship
+on a contended run.
+
+## 2026-07-16 [PIPELINE] — EARTH TWIN E2 v2: GEBCO 15-arcsec seafloor + TID confidence pipeline, real Mariana assets (version bump deferred to merge)
+
+Territory: T-DATACORE primary (scripts/ pipeline + datacore/gebco decode
+table); the paired client lib rides per partition rule 5 (one logical
+change, primary-territory ownership). Constraint honored from the session
+directive: datamap.tsx and package.json untouched — wiring is its own
+next slice; version = read-and-increment at merge.
+
+PRIOR (stated before building): GEBCO's download app should hand us
+subsettable 15-arcsec bathymetry + its TID companion; expected the
+Mariana region to be majority direct-measured (well-surveyed trench
+corridors) over a satellite-gravity-predicted background; expected a
+pure-python PMTiles v3 writer to verify against the real pmtiles JS
+reader.
+
+SHIPPED:
+- scripts/gebco_seafloor_tiles.py — FETCH (GEBCO grid-subsetting API at
+  download.gebco.net, contract read from the app's own JS and VERIFIED
+  LIVE 2026-07-16: POST /api/queue → poll status → zip of Esri ASCII
+  grids + the official GEBCO_Grid_documentation.pdf/terms PDFs) + BUILD
+  (depth: terrarium PNG tiles, area-mean sampling, no-coverage encodes
+  elevation 0 → transparent under the existing bathymetry.ts ramp;
+  TID: RAW code terrarium-encoded as elevation, NEAREST sampled —
+  categorical data never averaged; pure-python PNG + PMTiles v3
+  writers) + ONE provenance sidecar with MEASURED per-group TID shares.
+- datacore/gebco/tid_decode.json — VERBATIM official GEBCO_2026 TID
+  table (21 codes incl. 47 grounded-Argo / 48 animal-borne, NEW vs
+  older grids; grouping = GEBCO's own Land/Direct/Indirect/Unknown;
+  source URL + fetch date + attribution + terms recorded in-file).
+  ONE SOURCE OF TRUTH: the pipeline validates every cell against it
+  (unknown code ABORTS the build); the client derives expression AND
+  legend from it.
+- REAL DATA COMMITTED: Mariana Trench demo region (138–146E / 7–15N,
+  8°x8°, 1920x1920 cells at native 15 arc-sec) fetched from GEBCO and
+  tiled z0–9 (z9 ≈ 9.9″/px, full native fidelity):
+  seafloor_gebco_mariana.pmtiles (22.4MB — inside the committed-asset
+  budget; places 61MB / power_us 26MB), seafloor_tid_mariana.pmtiles
+  (362KB), provenance JSON. Measured: 65.85% direct / 34.07% indirect /
+  0.08% land; min cell −10,931 m (Challenger Deep) — decoded back OUT
+  of the committed archive by test.
+- client/src/lib/seafloorV2.ts (+8 tests) — decode table exports,
+  confidence classes (GEBCO's grouping + display colors), color-relief
+  STEP expression with transparent gaps (cross-group pixel
+  interpolation lands transparent, never a wrong class — the one
+  direct↔unknown fringe path is documented in-file), legend from the
+  same table (map/legend parity test-pinned), region descriptors with
+  the honest bbox.
+- server/seafloorTiles.test.ts (5 tests) — committed-asset ratchet
+  through the REAL pmtiles reader: header/bounds/PNG shape, the
+  Challenger Deep tile decodes < −10,000 m, every TID cell is
+  documented-or-nodata, provenance attribution === decode-table
+  attribution, Hilbert tile-id pins matching the python writer.
+- test_gebco_seafloor_tiles.py (17 tests; no network; synthetic
+  fixtures clearly labeled test-only).
+- datacore/layers.json: seafloor_confidence entry (raw, PLANNED until
+  the datamap wiring slice) + layersRegistry.test.ts pin.
+
+DECISIONS: Esri ASCII subset path (stdlib-parseable) over netCDF for
+regional runs (global netCDF is 7.0GB+3.5GB — documented, not built);
+z9 committed after measuring z8 (6.6MB) vs z9 (22.4MB) — native
+fidelity wins within the existing asset budget; TID tiles carry raw
+codes, styling stays client-side.
+
+LICENSE (verified from the terms page, fetched 2026-07-16): GEBCO Grid
+is public domain, commercial use EXPLICITLY allowed, attribution
+required (verbatim string rides in the decode table + provenance +
+pmtiles metadata), "should NOT be used for navigation" carried as a
+disclaimer everywhere.
+
+GATES: pytest 138 passed / 1 skipped (CI offline set + 17 new); server
+suite 705/705; client libs 233/233 incl. 8 new; tsc 66-line baseline
+unchanged (0 errors in new files); npm run build clean (assets flow to
+dist/public/tiles). Visual harness N/A — no rendered surface changed
+(layer stays planned; datamap.tsx untouched).
+
+BACKTEST: N/A — data/display pipeline; zero trading code touched.
+
+HYPOTHESIS (stated before wiring): when the datamap wiring slice lands,
+the confidence overlay should show multibeam survey corridors (direct,
+teal) crossing predicted background (amber) in the Mariana region — if
+it renders one uniform class, suspect the step expression or GPU
+resampling, NOT the data (the histogram proves both classes present).
+NEXT: datamap wiring slice (recipe in the charter RESUME STATE), more
+regions per pipeline run, global = boot-fetched volume asset per the
+power_us precedent. ENDED: not starved — capacity consumed by the
+slice; next work named.
+
+## 2026-07-16 [PRODUCT] — EARTH TWIN rounds 5-8: 3D flight tracks, movable UI, real 3D terrain + drained ocean (v1.0.354-357)
+
+Territory: T-CLIENT continuation (same session as v1.0.352-353).
+OPS NOTE: PR #494 auto-merged at the v1.0.353 head BEFORE rounds 5-6
+were pushed — the branch carried 4 unmerged commits over merged
+history; per the merged-branch rule they were REBASED onto the new
+main (clean, no conflicts, versions 354-357 unclaimed) and ship as a
+NEW PR. Merge monitors: verify WHICH head merged before assuming.
+- v1.0.354 round 5 (human: 3D line track at altitude + 45° tilt click
+  dead): aircraft 3D trails via the generic ArcLayer at recorded
+  altitudes (honest ARC_GAP where altitude unknown); tilted-view
+  aircraft picking made altitude-aware — airLayer caches the frame
+  matrix + pickNearestAircraftScreen (same screen-space pattern as
+  the satellite pick fix; test pins the altitude-displacement case).
+- v1.0.355 round 6 (human reference images: curtain tracks; terrain;
+  card blocking): curtain ribs every 3rd point (top→ground→GAP),
+  terrain-exaggeration matching (altScale 1.3 when mesh on), detail
+  card draggable by header + reset on new detail.
+- v1.0.356 round 7 (human: "covers things and you cant move them
+  around"): ROOT CAUSE was two-fold — the card drag was built but
+  UNSHIPPED (sat in the open PR), and the shipped tools drag worked
+  only from a 13px grip glyph. Whole-surface drag for the tools
+  cluster (buttons guarded) + full-header card drag with visible
+  grips + draggable minimized pill; default spots de-collided (tools
+  bottom-center desktop / under header phone).
+- v1.0.357 round 8 (human: "real 3d terrain… drains the ocean — use
+  radar-mapped data" + Google Earth reference shots): one effect owns
+  setTerrain (toggle race eliminated); drain ON swaps the mesh to the
+  ETOPO1 bathymetric DEM so basins PHYSICALLY sink (real soundings +
+  satellite-gravity, labeled global estimate — GEBCO 15" + TID is the
+  chartered v2); stylized hillshade restricted to dark bases (over
+  photo imagery it read as a tinted map — realism killer); sky/fog
+  horizon on imagery presets; seafloor ridge-texture hillshade
+  (fixed sun) over the depth tint; maxPitch 60→80.
+PRIOR: the four rounds are UX-debt burndown + realism; expected
+effect is the human's reported frictions disappearing live, no
+signal-path changes. Falsifier: pointer-capture drag misbehaving on
+touch devices → revisit with touch-specific handling.
+GATES: client 230/230, tsc 66-line baseline (datamap line
+pre-existing), build clean; interactive drive 30/30 (new: card/pill/
+cluster body drags with px evidence, reset-on-swap, T1-T8 terrain
+mesh cycle — land DEM ↔ bathymetric DEM ↔ flat, sky on imagery
+preset, no hillshade over photo, maxPitch 80); harness on the PR.
+PARALLEL WAVE (human: "use agent to work on all of this"): 4
+worktree agents launched — GPS/TDRS real models, O6-7 tier-2
+true-scale solar system spike, GEBCO v2+TID pipeline, ocean-basemap/
+atmosphere quality research. Integration = parent-only after
+read-before-write review; none touch datamap.tsx/package.json.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6-7 tier 1: live day/night + sun/moon (v1.0.353)
 
 First celestial slice: 'Day/Night & Moon' base layer — real terminator

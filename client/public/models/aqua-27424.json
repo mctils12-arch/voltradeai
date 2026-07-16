@@ -1,0 +1,22 @@
+{
+  "norad": 27424,
+  "name": "Aqua (EOS PM-1)",
+  "file": "aqua-27424.vtm",
+  "source": {
+    "asset": "Aqua (B).glb (1.05 MB, 49,401 triangles)",
+    "publisher": "NASA — https://science.nasa.gov/3d-resources/aqua-b/ (credit: NASA/Brian E. Kumanchik; NASA/Christian A. Lopez; uploaded 2025-03-21); mirrored at https://github.com/nasa/NASA-3D-Resources under '3D Models/Aqua (B)' (repo README: assets are free and without copyright)",
+    "license": "Public domain (NASA media usage guidelines)",
+    "retrieved": "2026-07-16"
+  },
+  "identity": {
+    "satcat": "CelesTrak SATCAT retrieved 2026-07-16: AQUA = 2002-022A / 27424, on orbit, operational status '+'. NASA publishes this asset as the Aqua mission model; the mesh carries Aqua's published configuration (gold MLI bus, single long deployed solar array, AMSR-E dish at the bus end)."
+  },
+  "processing": {
+    "tool": "scripts/earthtwin_real_mesh.mjs",
+    "method": "KHR_draco_mesh_compression decoded offline via scripts/earthtwin_glb_decompress.mjs (gltf-transform + draco3dgltf; also restores the spec PNG fallback `source` on EXT_texture_webp textures — the PNG twins ship inside the NASA GLB); then vertex-cluster decimation (grid 384, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
+    "verts": 15913,
+    "tris": 23685,
+    "spanMeters": 17.78
+  },
+  "honesty": "Decimated derivative of NASA's official Aqua model for focused-object display (72–480 px with zoom-to-inspect). Geometry and colors are simplified from the source asset; this is a real model of the real satellite, not a class-representative form."
+}

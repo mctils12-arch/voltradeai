@@ -30,6 +30,11 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 // spirit — a closed panel loads no code and issues no requests.
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
+import { skyForRenderer } from "@/lib/globeAtmosphere";
+import {
+  OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
+  oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
+} from "@/lib/oceanBasemap";
 // ORBITAL program O2 (research/orbital_program.md): live satellites on the
 // globe. GP elements are client-fetched from CelesTrak (the browser is NOT
 // firewalled from CelesTrak the way Railway is — charter DATA-PATH SPLIT),
@@ -43,7 +48,7 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // class-representative form drawn at its live position on the globe.
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
 import { ArcLayer } from "@/lib/orbital/arcLayer";
-import { sampleOrbitArc } from "@/lib/orbital/orbitArc";
+import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
 import { raanColor } from "@/lib/orbital/orbitArc";
@@ -66,7 +71,7 @@ import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/
 import { followTarget } from "@/lib/orbital/follow";
 // EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
 // real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
-import { AirLayer, buildAircraftInstances, pickNearestAircraft, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
+import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -593,6 +598,10 @@ export default function DataMapPage() {
   // releases to free camera; null = free camera, focus persists until ✕.
   const satFollowRef = useRef<{ index: number; noradId: number; name: string | null; lockMode: "sat" | "ground" | null } | null>(null);
   const satArcLayerRef = useRef<ArcLayer | null>(null);
+  // O6 aircraft 3D trail (human directive: "see the line from the airport
+  // and how it came up to alt") — reuses the generic ArcLayer; fed from the
+  // ARCHIVED track (real altitudes; unknown-altitude points = honest gaps).
+  const airTrail3dRef = useRef<ArcLayer | null>(null);
   const stopSatFocusRef = useRef<(() => void) | null>(null);
   // O6-3 find & group: search focuses via the same path as a click; a group
   // filters the sky by writing the layer's own sentinel into non-members.
@@ -614,28 +623,32 @@ export default function DataMapPage() {
   const [showNadir, setShowNadir] = useState(false);
   const showNadirRef = useRef(false);
   useEffect(() => { showNadirRef.current = showNadir; }, [showNadir]);
-  // O6 tools drag (human-requested: "the ability to move [it] around the
-  // window"): grip-drag repositions the cluster; direct style mutation so a
-  // drag never re-renders the whole page component.
+  // O6 tools drag (human-requested round 7: "you cant move them around"):
+  // the WHOLE cluster is the drag surface — the tiny grip glyph alone was
+  // undiscoverable. Buttons stay buttons via the closest() guard; pointer
+  // capture goes on the cluster so the drag survives leaving it. Direct
+  // style mutation so a drag never re-renders the whole page component.
   const satToolsRef = useRef<HTMLDivElement | null>(null);
   const satToolsDrag = useRef<{ dx: number; dy: number } | null>(null);
-  const onToolsGripDown = useCallback((e: React.PointerEvent) => {
+  const onToolsDown = useCallback((e: React.PointerEvent) => {
+    if ((e.target as Element).closest("button")) return; // buttons stay buttons
     const el = satToolsRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     satToolsDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    el.setPointerCapture?.(e.pointerId);
     e.preventDefault();
   }, []);
-  const onToolsGripMove = useCallback((e: React.PointerEvent) => {
+  const onToolsMove = useCallback((e: React.PointerEvent) => {
     const el = satToolsRef.current;
     const d = satToolsDrag.current;
     if (!el || !d) return;
     el.style.left = `${Math.max(4, Math.min(window.innerWidth - 70, e.clientX - d.dx))}px`;
-    el.style.top = `${Math.max(56, Math.min(window.innerHeight - 46, e.clientY - d.dy))}px`;
+    el.style.top = `${Math.max(48, Math.min(window.innerHeight - 46, e.clientY - d.dy))}px`;
     el.style.bottom = "auto";
+    el.style.transform = "none"; // resting spot centers via translateX
   }, []);
-  const onToolsGripUp = useCallback(() => { satToolsDrag.current = null; }, []);
+  const onToolsUp = useCallback(() => { satToolsDrag.current = null; }, []);
   const applySatGroup = useCallback((key: string | null) => {
     setSatGroup(key);
     setSatGroupOrbits(false);
@@ -681,7 +694,35 @@ export default function DataMapPage() {
   // O6 minimize: collapse the card to a pill (focus keeps running); a NEW
   // detail always restores the full card so fresh clicks are never hidden.
   const [detailMin, setDetailMin] = useState(false);
-  useEffect(() => { setDetailMin(false); }, [detail?.title, detail?.kind]);
+  // O6 round 6: the card is DRAGGABLE by its header (human: the card must
+  // never block the flight track you're inspecting). Direct style mutation
+  // (tools-cluster precedent); a NEW detail resets to the default spot.
+  const detailCardRef = useRef<HTMLDivElement | null>(null);
+  const detailDrag = useRef<{ dx: number; dy: number } | null>(null);
+  const onCardHeadDown = useCallback((e: React.PointerEvent) => {
+    if ((e.target as Element).closest("button")) return; // buttons stay buttons
+    const el = detailCardRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    detailDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  }, []);
+  const onCardHeadMove = useCallback((e: React.PointerEvent) => {
+    const el = detailCardRef.current;
+    const d = detailDrag.current;
+    if (!el || !d) return;
+    el.style.left = `${Math.max(0, Math.min(window.innerWidth - 80, e.clientX - d.dx))}px`;
+    el.style.top = `${Math.max(0, Math.min(window.innerHeight - 60, e.clientY - d.dy))}px`;
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+  }, []);
+  const onCardHeadUp = useCallback(() => { detailDrag.current = null; }, []);
+  useEffect(() => {
+    setDetailMin(false);
+    const el = detailCardRef.current;
+    if (el) { el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; }
+  }, [detail?.title, detail?.kind]);
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
@@ -886,15 +927,22 @@ export default function DataMapPage() {
     firetemp: "gibs-firetemp",
     biomass: "gibs-biomass",
     floodzones: "fema-floodzones",
-    seafloor: "seafloor-relief",
+    // E2 v2: the slider drives the GEBCO shaded-relief raster (the dominant
+    // visual); the legend-bearing depth tint above it stays at a fixed low
+    // opacity (see the seafloor effect)
+    seafloor: OCEAN_BASEMAP_LAYER_ID,
   };
   // Most field layers are raster (paint prop "raster-opacity"); layer types
-  // with their own opacity prop override here (seafloor is a color-relief).
-  const FIELD_OPACITY_PROP: Record<string, string> = { seafloor: "color-relief-opacity" };
+  // with their own opacity prop override here.
+  const FIELD_OPACITY_PROP: Record<string, string> = {};
+  // Per-layer opacity DEFAULTS: fields default to 60% (context, never a
+  // curtain); the drained ocean is a basemap swap, not a context field —
+  // it defaults to full and the slider still blends it.
+  const FIELD_OPACITY_DEFAULT: Record<string, number> = { seafloor: 100 };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
   });
-  const opacityOf = (id: string) => fieldOpacity[id] ?? 60;
+  const opacityOf = (id: string) => fieldOpacity[id] ?? FIELD_OPACITY_DEFAULT[id] ?? 60;
   const setFieldOpacity = (id: string, v: number) => {
     setFieldOpacityState((s) => {
       const next = { ...s, [id]: v };
@@ -1004,6 +1052,9 @@ export default function DataMapPage() {
         const startGlobe = canGlobe && readGlobePref();
         const map = new maplibregl.Map({
           container: mapContainer.current,
+          // round 8 realism: allow the low Google-Earth-style camera — the
+          // default 60° cap makes real 3D terrain read like a tilted map
+          maxPitch: 80,
           style: {
             version: 8,
             ...(startGlobe ? { projection: { type: "globe" } } : {}),
@@ -1092,6 +1143,7 @@ export default function DataMapPage() {
       if (map.getLayer("trail-line")) map.removeLayer("trail-line");
       if (map.getSource("trail")) map.removeSource("trail");
     } catch {}
+    try { airTrail3dRef.current?.setArcs(null); } catch {}
   };
 
   /** Fetch the archived track and paint/refresh the trail. On refresh the
@@ -1125,6 +1177,49 @@ export default function DataMapPage() {
             paint: { "line-color": "#7cc4ff", "line-width": 2, "line-opacity": 0.8, "line-dasharray": [1, 1.5] },
           });
         }
+      }
+      // O6: the 3D TRACK — the same archived points at their REAL recorded
+      // altitude (climb-out from the airport reads as a rising line). Points
+      // without a broadcast altitude become honest GAPS in the 3D line (the
+      // flat dashed trail above still shows the position). Aircraft only —
+      // vessels/trains live at the surface.
+      if (kind === "aircraft") {
+        try {
+          // terrain match: the DEM mesh is exaggerated 1.3x — the track uses
+          // the SAME factor so it flies over the mountains it really flew
+          // over (the aircraft 3D layer's setAltScale precedent).
+          const altScale = map.getTerrain() ? 1.3 : 1;
+          const p3 = new Float32Array(raw.length * 3);
+          for (let i = 0; i < raw.length; i++) {
+            const m = lonLatToMercator(raw[i].lo, raw[i].la);
+            const al = (raw[i] as any).al;
+            p3[i * 3] = m.x;
+            p3[i * 3 + 1] = m.y;
+            p3[i * 3 + 2] = al == null ? ARC_GAP : Math.max(0, al) * altScale;
+          }
+          // CURTAIN (reference-style): ribbed vertical lines tying the track
+          // to the ground every few points — altitude reads at a glance.
+          const rib: number[] = [];
+          for (let i = 0; i < raw.length; i += 3) {
+            const alt = p3[i * 3 + 2];
+            if (alt === ARC_GAP || alt <= 0) continue;
+            rib.push(p3[i * 3], p3[i * 3 + 1], alt,
+                     p3[i * 3], p3[i * 3 + 1], 0,
+                     p3[i * 3], p3[i * 3 + 1], ARC_GAP); // gap breaks to the next rib
+          }
+          let arcs = airTrail3dRef.current;
+          if (!arcs) {
+            arcs = new ArcLayer({ id: "aircraft-trail-3d" });
+            airTrail3dRef.current = arcs;
+          }
+          if (!map.getLayer("aircraft-trail-3d")) map.addLayer(arcs);
+          arcs.setArcs(raw.length >= 2 ? [
+            { pts: p3, color: [0.49, 0.77, 1.0, 0.9] },
+            { pts: new Float32Array(rib), color: [0.49, 0.77, 1.0, 0.28] },
+          ] : null);
+        } catch { /* the flat trail still works */ }
+      } else {
+        try { airTrail3dRef.current?.setArcs(null); } catch {}
       }
       (window as any).__vtTrailLen = pts.length; // harness ratchet reads this
       return {
@@ -1268,44 +1363,65 @@ export default function DataMapPage() {
     };
   }, [mapReady, enabled.imagery]);
 
-  // ── terrain hillshade (RAW; Mapterhorn terrarium DEM — geospatial Tier-1(a),
-  // licensing register 2026-07-04: commercial-OK, © Mapterhorn attribution via
-  // TileJSON. Also wires the raster-dem source R4's 3D terrain will reuse.
-  // Default OFF: the imagery base already carries visual relief; hillshade is
-  // an opt-in accent inserted UNDER all marker layers.) ──
+  // ── terrain mesh + hillshade + drained-ocean mesh (RAW). ONE effect owns
+  // map.setTerrain so the terrain and seafloor toggles can never race over
+  // the mesh. Sources: Mapterhorn terrarium DEM (land; geospatial Tier-1(a),
+  // licensing register 2026-07-04: commercial-OK, © Mapterhorn attribution
+  // via TileJSON) and the AWS Terrain Tiles terrarium set (ETOPO1 bathymetry
+  // baked in) for the drain — real soundings + satellite-gravity
+  // interpolation, global coverage, labeled as an estimate.
+  // Round 8 realism (human: "real 3d terrain… like the example pic; the
+  // [drain] toggle — use radar-mapped ocean data"):
+  //  · drain ON → the mesh deforms from the bathymetric DEM, so ocean basins
+  //    PHYSICALLY sink instead of only tinting (land relief rides along from
+  //    the same set — SRTM-class there; Mapterhorn resumes when drain is off)
+  //  · the stylized blue-dark hillshade paints ONLY on the dark bases (night/
+  //    minimal) where it is the sole relief cue — over photo imagery it made
+  //    real mountains look like a tinted map, so imagery presets now show
+  //    the photo draped on the true displacement + a sky/fog horizon
+  // exaggeration 1.3 everywhere: the aircraft layer + 3D trails match their
+  // altitudes to this exact constant (setAltScale coupling). Degrade-safe:
+  // any failure keeps the base map alive. ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    if (!enabled.terrain) {
-      try { map.setTerrain(null); } catch {}
-      try {
-        if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade");
-        if (map.getSource("terrain-dem")) map.removeSource("terrain-dem");
-      } catch {}
-      setStatus("terrain", "off");
-      return;
-    }
+    const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
+    const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
     try {
-      if (!map.getSource("terrain-dem")) {
+      if (enabled.terrain && !map.getSource("terrain-dem")) {
         map.addSource("terrain-dem", {
           type: "raster-dem",
           url: "https://tiles.mapterhorn.com/tilejson.json",
           encoding: "terrarium",
         } as any);
       }
-      // REAL 3D relief (worldview-globe upgrade): deform the base mesh from the
-      // same DEM so mountains rise and valleys sink — a physical globe, not a
-      // flat sphere — especially with pitch. exaggeration 1.3 reads premium
-      // without cartoonish spikes. Hillshade below stays for shading detail on
-      // the raised mesh. Guarded: if a device/projection can't do terrain the
-      // catch keeps the base map alive (degrade, never break).
-      map.setTerrain({ source: "terrain-dem", exaggeration: 1.3 } as any);
-      if (!map.getLayer("terrain-hillshade")) {
-        // insert beneath the lowest data layer (symbol/circle/line) so
-        // shading never covers markers or velocity vectors
+      if (enabled.seafloor && !map.getSource("ocean-terrain-dem")) {
+        // own source for the MESH — the seafloor tint keeps its separate
+        // seafloor-dem source (same tiles, shared HTTP cache): a source
+        // consumed by setTerrain is treated specially by MapLibre (session
+        // #1 finding), so mesh and paint never share one
+        map.addSource("ocean-terrain-dem", {
+          type: "raster-dem",
+          tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+          encoding: "terrarium",
+          tileSize: 256,
+          maxzoom: 15,
+          attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
+        } as any);
+      }
+      map.setTerrain(meshSource ? ({ source: meshSource, exaggeration: 1.3 } as any) : null);
+    } catch {
+      if (enabled.terrain) setStatus("terrain", "error");
+    }
+    // hillshade: rebuild each pass (source may swap with the drain) — dark
+    // bases only; inserted beneath the lowest data layer so shading never
+    // covers markers or velocity vectors
+    try { if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade"); } catch {}
+    if (enabled.terrain && !imageryVisible) {
+      try {
         const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
         map.addLayer({
-          id: "terrain-hillshade", type: "hillshade", source: "terrain-dem",
+          id: "terrain-hillshade", type: "hillshade", source: meshSource ?? "terrain-dem",
           paint: {
             "hillshade-exaggeration": 0.45,
             "hillshade-shadow-color": "rgba(5,10,19,0.9)",
@@ -1313,12 +1429,35 @@ export default function DataMapPage() {
             "hillshade-accent-color": "rgba(77,159,255,0.15)",
           },
         } as any, firstMarker?.id);
-      }
-      setStatus("terrain", "active", undefined, "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
-    } catch {
-      setStatus("terrain", "error");
+      } catch {}
     }
-  }, [enabled.terrain, mapReady, setStatus]);
+    // sky/atmosphere — ONE always-on setSky (lib/globeAtmosphere, verified
+    // against the installed v5.24 shaders): the globe limb glow is
+    // hardcoded Rayleigh/Mie physics gated only by atmosphere-blend
+    // (zoom-faded, pass skipped at 0 — free at street zooms), and the
+    // horizon/fog colors only render on the mercator/pitched side, so a
+    // single spec covers the hero globe AND tilted terrain with no
+    // conditional churn. Presentation, not data: the rim is a physical
+    // render of Earth's atmosphere, not a measurement. ADAPTIVE TIER:
+    // software GL (SwiftShader/llvmpipe — VMs, the perf harness) can't
+    // afford the scattering pass (~156ms/frame measured) → those
+    // renderers get the sky with atmosphere-blend pinned 0.
+    try {
+      const glc: any = map.getCanvas().getContext("webgl2") || map.getCanvas().getContext("webgl");
+      const dbg = glc?.getExtension?.("WEBGL_debug_renderer_info");
+      const renderer = glc ? String(glc.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glc.RENDERER) ?? "") : "";
+      (map as any).setSky?.(skyForRenderer(renderer) as any);
+    } catch {}
+    if (!enabled.terrain) setStatus("terrain", "off");
+    else setStatus("terrain", "active", undefined, enabled.seafloor
+      ? "3D relief from the drained-ocean DEM — basins sink for real; land is SRTM-class while the drain is on (© Mapterhorn set resumes when it's off)"
+      : imageryVisible
+        ? "true 3D relief — imagery draped on the Copernicus GLO-30 mesh + sky horizon (© Mapterhorn); tilt the map to see it"
+        : "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
+    // keep the map lean when off (mesh + hillshade already detached above)
+    if (!enabled.terrain) { try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {} }
+    if (!enabled.seafloor) { try { if (map.getSource("ocean-terrain-dem")) map.removeSource("ocean-terrain-dem"); } catch {} }
+  }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
 
   // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
   // research/earth_twin_program.md V4). NOAA ETOPO1 ocean depths via the open
@@ -1329,16 +1468,28 @@ export default function DataMapPage() {
   // land imagery stays untouched. Its OWN raster-dem source — never reuses
   // terrain-dem (that source is land-only and feeds setTerrain; MapLibre
   // treats terrain-owned sources specially) and never calls setTerrain.
-  // HONESTY: ~1 arc-minute, soundings + satellite-gravity interpolation —
-  // indicative, not navigational; GEBCO 15-arcsec + per-cell TID confidence
-  // is the charter's E2 v2. Degrade-safe: any failure keeps the base map. ──
+  // E2 v2 QUALITY (human's Google Earth reference): the ridge texture is the
+  // GEBCO_2024 shaded-relief WMS raster (15 arc-sec — 4x the old ETOPO1
+  // hillshade), drawn UNDER the legend-bearing depth tint (fixed 0.25) so
+  // the legend chips stay the one source of truth for OUR palette; NOAA
+  // ETOPO 2022 hillshade swaps in if the GEBCO WMS errors (degrade, never
+  // break). Licensing + fetch evidence: research/ocean_quality_notes.md.
+  // HONESTY: soundings + satellite-gravity interpolation, indicative, not
+  // navigational; on-screen colors are dominated by GEBCO's own depth
+  // palette; LAND shows GEBCO's hypsometric tint while drained (a raster
+  // cannot be elevation-masked); per-cell TID confidence is the charter's
+  // next E2 slice. ──
+  const oceanBasemapErrRef = useRef<((e: any) => void) | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.seafloor) {
       try {
+        if (oceanBasemapErrRef.current) { map.off("error", oceanBasemapErrRef.current); oceanBasemapErrRef.current = null; }
         if (map.getLayer("seafloor-relief")) map.removeLayer("seafloor-relief");
+        if (map.getLayer(OCEAN_BASEMAP_LAYER_ID)) map.removeLayer(OCEAN_BASEMAP_LAYER_ID);
         if (map.getSource("seafloor-dem")) map.removeSource("seafloor-dem");
+        if (map.getSource(OCEAN_BASEMAP_SOURCE_ID)) map.removeSource(OCEAN_BASEMAP_SOURCE_ID);
       } catch {}
       setStatus("seafloor", "off");
       return;
@@ -1354,6 +1505,9 @@ export default function DataMapPage() {
           attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
         } as any);
       }
+      if (!map.getSource(OCEAN_BASEMAP_SOURCE_ID)) {
+        map.addSource(OCEAN_BASEMAP_SOURCE_ID, oceanBasemapSource() as any);
+      }
       if (!map.getLayer("seafloor-relief")) {
         // under all marker layers, same anchor rule as every raster overlay —
         // and DETERMINISTICALLY below terrain-hillshade when terrain is on
@@ -1365,12 +1519,34 @@ export default function DataMapPage() {
           id: "seafloor-relief", type: "color-relief", source: "seafloor-dem",
           paint: {
             "color-relief-color": bathymetryColorRelief(),
-            "color-relief-opacity": opacityOf("seafloor") / 100,
+            "color-relief-opacity": 0.25,
           },
         } as any, beforeId);
+        // GEBCO shaded relief directly BELOW the tint; the opacity slider
+        // drives this raster (FIELD_MAP_LAYER), default 100
+        map.addLayer(oceanBasemapLayer(opacityOf("seafloor")) as any, "seafloor-relief");
+      }
+      if (!oceanBasemapErrRef.current) {
+        // one-shot degrade to the NOAA public-domain hillshade if the GEBCO
+        // WMS errors — the status note stays honest about which source is live
+        const onErr = (e: any) => {
+          if (e?.sourceId !== OCEAN_BASEMAP_SOURCE_ID) return;
+          try { map.off("error", onErr); } catch {}
+          if (oceanBasemapErrRef.current === onErr) oceanBasemapErrRef.current = null;
+          try {
+            if (map.getLayer(OCEAN_BASEMAP_LAYER_ID)) map.removeLayer(OCEAN_BASEMAP_LAYER_ID);
+            if (map.getSource(OCEAN_BASEMAP_SOURCE_ID)) map.removeSource(OCEAN_BASEMAP_SOURCE_ID);
+            map.addSource(OCEAN_BASEMAP_SOURCE_ID, oceanBasemapFallbackSource() as any);
+            map.addLayer(oceanBasemapLayer(opacityOf("seafloor")) as any, "seafloor-relief");
+            setStatus("seafloor", "active", undefined,
+              "ocean drained — NOAA ETOPO 2022 hillshade (fallback; GEBCO WMS unreachable) + depth tint + 3D basins; soundings + gravity interpolation, not navigational");
+          } catch {}
+        };
+        oceanBasemapErrRef.current = onErr;
+        map.on("error", onErr);
       }
       setStatus("seafloor", "active", undefined,
-        "ocean drained — ETOPO1 depth relief (~1 arc-min; soundings + gravity interpolation, not navigational)");
+        "ocean drained — GEBCO_2024 shaded relief (15 arc-sec; real soundings + satellite-gravity interpolation, not navigational) + depth tint + 3D basins · land shows GEBCO's tint while drained");
     } catch {
       setStatus("seafloor", "error");
     }
@@ -3488,7 +3664,7 @@ export default function DataMapPage() {
           subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
           body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
                 `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
-                `trail below is our own archived feed history.`,
+                `trail is our own archived feed history — the 3D line climbs at the RECORDED altitude (gaps where altitude wasn't broadcast).`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
@@ -3519,15 +3695,29 @@ export default function DataMapPage() {
     // E3 picking above the hand-off zoom: custom layers have no
     // queryRenderedFeatures (the satellite-picking precedent) — CPU nearest
     // over the instance buffer; any real rendered feature keeps priority.
+    // PICK FIX (live bug: at 45° tilt the plane renders displaced by its
+    // altitude — ground-mercator picking never registered the click).
+    // Globe mode projects instances with the frame matrix (screen-space);
+    // mercator mode keeps the ground pick.
+    const pickAir = (e: any, tolPx: number): number => {
+      const matrix = airLayer.getGlobeProjection();
+      if (matrix) {
+        const canvas = map.getCanvas();
+        return pickNearestAircraftScreen(
+          airLayer.getInstances(), matrix, e.point.x, e.point.y,
+          canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx);
+      }
+      const ll = map.unproject(e.point);
+      const merc = lonLatToMercator(ll.lng, ll.lat);
+      return pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, pixelToleranceToMercUnits(tolPx, map.getZoom()));
+    };
     const onAir3dClick = (e: any) => {
       if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
       let atPoint: unknown[] = [];
       try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
       if (atPoint.length > 0) return; // a feature-scoped handler owns this click
       const ll = map.unproject(e.point);
-      const merc = lonLatToMercator(ll.lng, ll.lat);
-      const tol = pixelToleranceToMercUnits(12, map.getZoom());
-      const idx = pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, tol);
+      const idx = pickAir(e, 12);
       if (idx < 0) return;
       const a = airRows[idx];
       if (!a) return;
@@ -3557,10 +3747,7 @@ export default function DataMapPage() {
         let atPoint: unknown[] = [];
         try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
         if (atPoint.length > 0) { hideHoverTip(); return; } // a feature-scoped layer owns this pixel
-        const ll = map.unproject(e.point);
-        const merc = lonLatToMercator(ll.lng, ll.lat);
-        const tol = pixelToleranceToMercUnits(10, map.getZoom());
-        const idx = pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, tol);
+        const idx = pickAir(e, 10);
         const a = idx >= 0 ? airRows[idx] : null;
         if (!a) { hideHoverTip(); return; }
         const alt = a.on_ground ? "on ground" : (a.altitude_m != null ? fmtMeters(a.altitude_m) : "alt unknown");
@@ -6520,7 +6707,7 @@ export default function DataMapPage() {
                             <i style={{ background: s.color }} /> {s.label}{s.depthM > 0 ? ` ~${fmtMeters(s.depthM)}` : ""}
                           </span>
                         ))}
-                        <span className="vt-legend-note">NOAA ETOPO1 (~1 arc-min) — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · coarse cells can tint slightly past the shoreline (more visible with 3D terrain on)</span>
+                        <span className="vt-legend-note">chips decode OUR depth tint (drawn at low opacity); the dominant coloring + ridge texture beneath is GEBCO_2024 shaded relief (15 arc-sec) with its own depth palette — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · land shows GEBCO's hypsometric tint while drained · turn on Terrain (3D relief) to make the basins physically sink</span>
                       </div>
                     </div>
                   )}
@@ -6536,10 +6723,11 @@ export default function DataMapPage() {
         // O6 follow tools (human-requested): minimizable cluster — re-lock
         // the camera on the object, zoom in/out AROUND it, toggle the exact
         // ground spot it's passing over.
-        <div ref={satToolsRef} className={`vt-sat-tools${satToolsMin ? " vt-sat-tools-min" : ""}`}>
-          <span className="vt-sat-tools-grip" title="Drag to move"
-                onPointerDown={onToolsGripDown} onPointerMove={onToolsGripMove}
-                onPointerUp={onToolsGripUp} onPointerCancel={onToolsGripUp}>⠿</span>
+        <div ref={satToolsRef} className={`vt-sat-tools${satToolsMin ? " vt-sat-tools-min" : ""}`}
+             title="Drag anywhere to move"
+             onPointerDown={onToolsDown} onPointerMove={onToolsMove}
+             onPointerUp={onToolsUp} onPointerCancel={onToolsUp}>
+          <span className="vt-sat-tools-grip" aria-hidden>⠿</span>
           <button className="vt-icon-btn" aria-label={satToolsMin ? "Expand satellite tools" : "Minimize satellite tools"}
                   onClick={() => setSatToolsMin(!satToolsMin)}>
             {satToolsMin ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -6595,7 +6783,11 @@ export default function DataMapPage() {
         // O6 minimize (human-requested): the card collapses to a pill so the
         // globe shows through — the focus/follow keeps running underneath;
         // click the pill to restore, ✕ still ends everything.
-        <div className="vt-site-card vt-site-card-min" role="dialog" aria-label={detail.title}>
+        <div ref={detailCardRef} className="vt-site-card vt-site-card-min" role="dialog" aria-label={detail.title}
+             style={{ cursor: "grab", touchAction: "none" }}
+             onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
+             onPointerUp={onCardHeadUp} onPointerCancel={onCardHeadUp}>
+          <span className="vt-card-grip" aria-hidden>⠿</span>
           <button className="vt-site-card-restore" onClick={() => setDetailMin(false)}
                   aria-label="Restore details">
             {detail.title}
@@ -6607,9 +6799,13 @@ export default function DataMapPage() {
         </div>
       )}
       {detail && !detailMin && (
-        <div className="vt-site-card" role="dialog" aria-label={detail.title}>
-          <div className="vt-site-card-head">
-            <div>
+        <div ref={detailCardRef} className="vt-site-card" role="dialog" aria-label={detail.title}>
+          <div className="vt-site-card-head" style={{ cursor: "grab", touchAction: "none" }}
+               title="Drag to move"
+               onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
+               onPointerUp={onCardHeadUp} onPointerCancel={onCardHeadUp}>
+            <span className="vt-card-grip" aria-hidden>⠿</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div className="vt-site-card-title">{detail.title}</div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>

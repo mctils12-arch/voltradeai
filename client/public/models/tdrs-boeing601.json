@@ -1,0 +1,24 @@
+{
+  "norad": [26388, 27389, 27566, 39070, 39504, 42915],
+  "name": "TDRS second/third generation (Boeing 601 design) — TDRS 8, 9, 10, 11, 12, 13",
+  "file": "tdrs-boeing601.vtm",
+  "source": {
+    "asset": "Tracking and Data Relay Satellites (TDRS) (B).glb (953 KB, 20,014 triangles)",
+    "publisher": "NASA — https://science.nasa.gov/3d-resources/tracking-and-data-relay-satellites-tdrs-b/ (credit: NASA/JPL/Eyes on the Solar System; uploaded 2025-04-16); mirrored at https://github.com/nasa/NASA-3D-Resources under '3D Models/Tracking and Data Relay Satellites (TDRS) (B)' (repo README: assets are free and without copyright)",
+    "license": "Public domain (NASA media usage guidelines)",
+    "retrieved": "2026-07-16"
+  },
+  "identity": {
+    "design": "Second/third-generation TDRS, Boeing BSS-601 / BSS-601HP bus: two ~4.5 m flexible 'springback' mesh single-access reflectors (triangular-facet mesh with center feeds), box bus, flat circular-element S-band multiple-access array on the Earth deck, segmented solar wings on open-frame yokes, long boom omni. All features present in the model and absent from the first-generation TRW design (hexagonal bus, rib-and-mast umbrella antennas, protruding helix array) — compared in-session against NASA's published artist's concepts of both generations.",
+    "generationMembership": "TDRS-8/9/10 (H/I/J) built by Boeing on the BSS-601 bus with the 15-ft springback single-access antennas; TDRS-11/12/13 (K/L/M) on the BSS-601HP with the same two steerable antennas (NASA SCaN third-generation TDRS documentation, NTRS 20170010208; Boeing 601 program history). First-generation TDRS 1–7 were TRW-built and are deliberately NOT registered to this model.",
+    "satcat": "CelesTrak SATCAT retrieved 2026-07-16: TDRS 8 = 2000-034A / 26388, TDRS 9 = 2002-011A / 27389, TDRS 10 = 2002-055A / 27566, TDRS 11 = 2013-004A / 39070, TDRS 12 = 2014-004A / 39504, TDRS 13 = 2017-047A / 42915 — all on orbit (no decay date)."
+  },
+  "processing": {
+    "tool": "scripts/earthtwin_real_mesh.mjs",
+    "method": "KHR_draco_mesh_compression decoded offline via scripts/earthtwin_glb_decompress.mjs (gltf-transform + draco3dgltf; also restores the spec PNG fallback `source` on EXT_texture_webp textures — the PNG twins ship inside the NASA GLB); then vertex-cluster decimation (grid 512, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
+    "verts": 13953,
+    "tris": 15705,
+    "spanMeters": 21.12
+  },
+  "honesty": "Decimated derivative of NASA's official TDRS model for focused-object display (72–480 px with zoom-to-inspect). The model depicts the shared second/third-generation Boeing 601 fleet design, not any single unit's exact as-flown configuration; it is registered only for the six on-orbit TDRS of that design. Geometry and colors are simplified from the source asset."
+}

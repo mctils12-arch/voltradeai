@@ -1,0 +1,53 @@
+{
+  "_doc": "GEBCO Type Identifier (TID) decode table — EARTH TWIN E2 v2 (research/earth_twin_program.md V4). ONE SOURCE OF TRUTH shared by the pipeline (scripts/gebco_seafloor_tiles.py validates every cell it tiles against these codes) and the client (client/src/lib/seafloorV2.ts renders the confidence overlay + legend from this same file — the iconDataURL principle applied to a decode table). The codes, definitions, and group names are VERBATIM from the official GEBCO_2026 Grid documentation (https://www.gebco.net/data-products-gridded-bathymetry-data/gebco2026-grid, fetched 2026-07-16; the same table ships as GEBCO_Grid_documentation.pdf inside every download-app basket). NEVER edit a definition, add a code, or collapse a group except to mirror a newer official GEBCO document — and then cite it here. The 'confidence' grouping below IS GEBCO's own documented grouping (Land / Direct measurements / Indirect measurements / Unknown), not our invention.",
+  "dataset": "GEBCO_2026 Grid Type Identifier (TID) grid",
+  "source": {
+    "documentationUrl": "https://www.gebco.net/data-products-gridded-bathymetry-data/gebco2026-grid",
+    "documentationFetched": "2026-07-16",
+    "basketDocument": "GEBCO_Grid_documentation.pdf (included in every https://download.gebco.net basket)",
+    "attribution": "GEBCO Bathymetric Compilation Group 2026(2026). The GEBCO_2026 Grid - a continuous terrain model for oceans and land at 15 arc-second intervals. NERC EDS British Oceanographic Data Centre NOC. doi:10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa",
+    "termsOfUse": "The GEBCO Grid is placed in the public domain and may be used free of charge; users are free to copy, publish, distribute, transmit, adapt and commercially exploit it; users must acknowledge the source and must not mislead others or misrepresent the GEBCO Grid or its source. The GEBCO Grid should NOT be used for navigation or for any other purpose involving safety at sea. (https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use, fetched 2026-07-16)"
+  },
+  "nodataValue": 127,
+  "groups": {
+    "land": {
+      "label": "Land",
+      "meaning": "Land cell — no seafloor reading here."
+    },
+    "direct": {
+      "label": "Direct measurements",
+      "meaning": "Depth measured by an instrument at or near this location (echo-sounder, seismic, lidar, optical, sounding)."
+    },
+    "indirect": {
+      "label": "Indirect measurements",
+      "meaning": "Depth predicted or interpolated (satellite-gravity guided prediction, algorithmic interpolation, chart contours) — not a direct reading at this cell."
+    },
+    "unknown": {
+      "label": "Unknown",
+      "meaning": "Depth from a pre-generated/mixed grid, an unknown source, or grid steering points — source type cannot be stated."
+    }
+  },
+  "codes": {
+    "0": { "group": "land", "definition": "Land" },
+    "10": { "group": "direct", "definition": "Singlebeam - depth value collected by a single beam echo-sounder" },
+    "11": { "group": "direct", "definition": "Multibeam - depth value collected by a multibeam echo-sounder" },
+    "12": { "group": "direct", "definition": "Seismic - depth value collected by seismic methods" },
+    "13": { "group": "direct", "definition": "Isolated sounding - depth value that is not part of a regular survey or trackline" },
+    "14": { "group": "direct", "definition": "ENC sounding - depth value extracted from an Electronic Navigation Chart (ENC)" },
+    "15": { "group": "direct", "definition": "Lidar - depth derived from a bathymetric lidar sensor" },
+    "16": { "group": "direct", "definition": "Depth measured by optical light sensor" },
+    "17": { "group": "direct", "definition": "Combination of direct measurement methods" },
+    "40": { "group": "indirect", "definition": "Predicted based on satellite-derived gravity data - depth value is an interpolated value guided by satellite-derived gravity data" },
+    "41": { "group": "indirect", "definition": "Interpolated based on a computer algorithm - depth value is an interpolated value based on a computer algorithm (e.g. Generic Mapping Tools)" },
+    "42": { "group": "indirect", "definition": "Digital bathymetric contours from charts - depth value taken from a bathymetric contour data set" },
+    "43": { "group": "indirect", "definition": "Digital bathymetric contours from ENCs - depth value taken from bathymetric contours from an Electronic Navigation Chart (ENC)" },
+    "44": { "group": "indirect", "definition": "Depth value at this location is based on bathymetric depths from multiple sources including measured and derived data and included within a gridded data set where interpolation between sounding points is guided by satellite-derived gravity data" },
+    "45": { "group": "indirect", "definition": "Predicted based on helicopter/flight-derived gravity data" },
+    "46": { "group": "indirect", "definition": "Depth estimated by calculating the draft of a grounded iceberg using satellite-derived freeboard measurement." },
+    "47": { "group": "indirect", "definition": "Depth derived from grounded Argo float data" },
+    "48": { "group": "indirect", "definition": "Depth measured by animal-borne data loggers" },
+    "70": { "group": "unknown", "definition": "Pre-generated grid - depth value is taken from a pre-generated grid that is based on mixed source data types, e.g. single beam, multibeam, interpolation etc." },
+    "71": { "group": "unknown", "definition": "Unknown source - depth value from an unknown source" },
+    "72": { "group": "unknown", "definition": "Steering points - depth value used to constrain the grid in areas of poor data coverage" }
+  }
+}

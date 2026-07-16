@@ -39,8 +39,8 @@
       "status": "live",
       "group": "base",
       "costTier": "moderate",
-      "source": "NOAA ETOPO1 bathymetry via Terrain Tiles on AWS (Mapzen/Tilezen, open data)",
-      "description": "Ocean-floor relief as a depth-tinted overlay: toggling drains the ocean — trenches, ridges, and shelves appear where the sea surface was, while land imagery stays untouched (transparent above sea level). HONESTY: ETOPO1 is ~1 arc-minute (~2 km) and blends ship soundings with satellite-gravity interpolation — only ~a quarter of the world's seafloor is direct-measured, so depths are indicative, never navigational. Higher-fidelity GEBCO 15-arc-second relief plus its per-cell measured-vs-interpolated confidence grid is the charter's planned upgrade (research/earth_twin_program.md E2).",
+      "source": "GEBCO_2024 shaded relief via GEBCO WMS (BODC), 15 arc-sec; depth tint + 3D basin mesh from NOAA ETOPO1 via Terrain Tiles on AWS (Mapzen/Tilezen, open data); NOAA ETOPO 2022 hillshade as automatic fallback",
+      "description": "Ocean-floor relief: toggling drains the ocean — GEBCO_2024 shaded relief (mid-ocean ridges, trenches, fracture zones) under a depth tint, and with 3D terrain on the basins physically sink (the globe mesh deforms below sea level). HONESTY: soundings + satellite-gravity interpolation — only ~a quarter of the world's seafloor is direct-measured, so depths are indicative, never navigational; while drained, LAND shows GEBCO's hypsometric tint instead of satellite imagery (a raster cannot be elevation-masked). Per-cell measured-vs-interpolated (TID) confidence is the charter's next E2 slice (research/earth_twin_program.md).",
       "field": true,
       "altitudeRef": "depth",
       "time": {
@@ -48,10 +48,33 @@
       },
       "renderKind": "raster-field",
       "provenance": {
-        "license": "Terrain Tiles: open (Mapzen / AWS Open Data); bathymetry: NOAA ETOPO1, public domain",
+        "license": "GEBCO Grid: public domain, commercial use allowed, attribution requested (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f); Terrain Tiles: open (Mapzen / AWS Open Data); NOAA ETOPO: US-gov public domain",
         "commercialOk": true,
-        "resolution": "~1 arc-minute (ETOPO1); oversampled beyond z6",
+        "resolution": "15 arc-sec (GEBCO_2024 relief, native to z8); mesh/tint ~1 arc-min (ETOPO1)",
         "coverage": "global ocean",
+        "confidence": "verified"
+      }
+    },
+    {
+      "id": "seafloor_confidence",
+      "name": "Seafloor mapping confidence",
+      "kind": "raw",
+      "status": "planned",
+      "group": "base",
+      "costTier": "moderate",
+      "source": "GEBCO_2026 TID grid (GEBCO Bathymetric Compilation Group; public domain, attribution required)",
+      "description": "Measured-vs-predicted seafloor: every cell colored by GEBCO's own documented source type — direct measurements (echo-sounders, lidar, seismic, soundings) vs indirect (satellite-gravity prediction, algorithmic interpolation) vs unknown provenance. The Earth Twin charter's uncertainty display, verbatim from the source: where seafloor mapping is partial we SAY so (the shipped Mariana demo region measures 65.9% direct / 34.1% predicted — computed from the data, never quoted). Data + pipeline shipped (scripts/gebco_seafloor_tiles.py -> seafloor_tid_mariana.pmtiles; decode table datacore/gebco/tid_decode.json; client lib client/src/lib/seafloorV2.ts); planned until the datamap wiring slice lands. Coverage honesty: regional demo (Mariana Trench, 138-146E / 7-15N) — never presented as global; the pipeline scales region by region.",
+      "field": true,
+      "altitudeRef": "depth",
+      "time": {
+        "mode": "static"
+      },
+      "renderKind": "raster-field",
+      "provenance": {
+        "license": "GEBCO Grid: public domain; commercial use explicitly allowed; attribution required; NOT for navigation (terms fetched 2026-07-16)",
+        "commercialOk": true,
+        "resolution": "15 arc-second (native GEBCO_2026)",
+        "coverage": "demo region: Mariana Trench (138-146E, 7-15N); regional subsets by pipeline run",
         "confidence": "verified"
       }
     },
