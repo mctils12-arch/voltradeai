@@ -26,7 +26,7 @@
 // merge, or re-group codes here: mirror official documentation only.
 //
 // RENDER CAVEAT (documented, not hidden): raster upsampling may interpolate
-// between neighboring pixels' code values. The step expression below maps
+// between neighboring pixels' code values. The color expression below maps
 // every gap BETWEEN documented code runs to TRANSPARENT, so cross-group
 // interpolation renders as a transparent seam rather than a wrong class —
 // except the direct(10-17)↔unknown(70-72) adjacency, whose interpolation path
@@ -123,16 +123,34 @@ export function tidCodeRuns(): { start: number; end: number; group: TidGroup }[]
 }
 
 /**
- * MapLibre `color-relief-color` step expression over the TID tiles' decoded
+ * MapLibre `color-relief-color` expression over the TID tiles' decoded
  * "elevation" (= raw TID code): each documented code run gets its group's
  * confidence color; everything else — no-data (-1), gaps between runs,
  * values past the last run — is TRANSPARENT (never a guessed class).
+ *
+ * INTERPOLATE form, not ["step"]: maplibre v5.24 VALIDATES a step
+ * expression here but silently renders NOTHING (root-caused 2026-07-16 —
+ * getPaintProperty returned the step paint verbatim while zero pixels
+ * drew; swapping the identical classes to interpolate form painted
+ * immediately; probe chain in experiments.md). This was exactly the
+ * failure mode the #497 wiring session's own hypothesis predicted ("if
+ * the whole region renders one uniform color, suspect the step
+ * expression"). TID codes are integers, so knife-edge transitions at
+ * ±0.02 around each documented run keep EXACT class semantics — no real
+ * code value can land inside a transition, and land/gaps stay absent.
  */
 export function tidConfidenceColorRelief(): unknown[] {
-  const expr: unknown[] = ["step", ["elevation"], TRANSPARENT];
+  const expr: unknown[] = ["interpolate", ["linear"], ["elevation"]];
   for (const run of tidCodeRuns()) {
-    expr.push(run.start, TID_CONFIDENCE[run.group].color);
-    expr.push(run.end + 1, TRANSPARENT);
+    const color = TID_CONFIDENCE[run.group].color;
+    if (color === TRANSPARENT) continue; // land: absent, exactly as documented
+    expr.push(run.start - 0.02, TRANSPARENT);
+    if (run.end > run.start) {
+      expr.push(run.start, color, run.end, color);
+    } else {
+      expr.push(run.start, color); // single-code run — one stop, no duplicates
+    }
+    expr.push(run.end + 0.02, TRANSPARENT);
   }
   return expr;
 }

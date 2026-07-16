@@ -2023,6 +2023,35 @@ for any future "known endpoint moved" case in this repo.
 
 ## OPS GOTCHAS (avoid re-learning)
 
+- MAPLIBRE IMAGE-POOL STARVATION (root-caused 2026-07-16, probe chain
+  in experiments.md v1.0.366 entry): a HANGING raster tile CDN
+  (requests that never resolve — e.g. a proxy black-hole, unlike a
+  fast 4xx) saturates MapLibre's global ~16-slot image-request pool
+  and silently starves EVERY raster/raster-dem source on the map — no
+  errors, tiles show 'loading' events but zero network. Vector
+  sources use a different queue and keep working, which makes the
+  failure look raster-specific. OPEN RESILIENCE QUESTION: should the
+  imagery source get a client-side timeout/abort so a hanging imagery
+  CDN can't take down fires/weather/seafloor with it? (Prod imagery =
+  Esri, reliable; risk is low but the failure mode is total and
+  invisible.) Sandbox drives must abort blocked CDNs (fail-fast) to
+  stay prod-faithful — the committed drive pattern now does.
+
+- MAPLIBRE color-relief SILENTLY IGNORES ["step"] EXPRESSIONS (v5.24,
+  root-caused 2026-07-16 with pixel evidence): validation accepts the
+  paint, getPaintProperty returns it verbatim, nothing renders. Use
+  interpolate form with knife-edge stops (±0.02 around integer
+  values) for classed rasters — lib/seafloorV2.tidConfidenceColorRelief
+  is the precedent. Presence-only assertions (getLayer/isSourceLoaded)
+  CANNOT catch this class — a paint check needs pixels.
+
+- DEPLOY VERIFICATION MUST BE CONTENT-BASED, never build-hash-based:
+  Railway's build produces different Vite chunk hashes than a local
+  build of the same source (observed 2026-07-16: three distinct
+  solarView-*.js hashes for one content). Verify by fetching a
+  wave-unique asset/route and checking its BYTES (magic numbers,
+  byte-compare against the committed file), not by a hash-pinned URL.
+
 - STOP-HOOK FALSE POSITIVE after every post-merge branch reset: the
   git-check hook flags the branch tip as "Unverified (committer
   noreply@github.com)" — that commit is GitHub's OWN squash-merge

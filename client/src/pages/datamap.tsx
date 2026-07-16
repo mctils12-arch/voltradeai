@@ -1765,7 +1765,9 @@ export default function DataMapPage() {
           const lid = `seafloor-confidence-relief-${r.name}`;
           const sid = `seafloor-tid-${r.name}`;
           if (map.getLayer(lid)) map.removeLayer(lid);
+          if (map.getLayer(`${lid}-extent`)) map.removeLayer(`${lid}-extent`);
           if (map.getSource(sid)) map.removeSource(sid);
+          if (map.getSource(`${sid}-extent`)) map.removeSource(`${sid}-extent`);
         }
       } catch {}
       setStatus("seafloor_confidence", "off");
@@ -1792,6 +1794,29 @@ export default function DataMapPage() {
               "color-relief-opacity": opacityOf("seafloor_confidence") / 100,
             },
           } as any, firstMarker?.id);
+        }
+        // CLOSED COVERAGE BORDER (human-directed 2026-07-16: "just have a
+        // closed border of the area") — the region's true bbox drawn as a
+        // dashed ring, so partial coverage is visible on the map itself,
+        // not only stated in panel/legend text.
+        const [w, s, e, n] = r.bbox;
+        if (!map.getSource(`${sid}-extent`)) {
+          map.addSource(`${sid}-extent`, {
+            type: "geojson",
+            data: {
+              type: "Feature", properties: { region: r.name },
+              geometry: { type: "LineString", coordinates: [[w, s], [e, s], [e, n], [w, n], [w, s]] },
+            },
+          } as any);
+        }
+        if (!map.getLayer(`${lid}-extent`)) {
+          map.addLayer({
+            id: `${lid}-extent`, type: "line", source: `${sid}-extent`,
+            paint: {
+              "line-color": "#8ab8ff", "line-width": 1.4,
+              "line-dasharray": [2, 2], "line-opacity": 0.8,
+            },
+          } as any);
         }
       }
       setStatus("seafloor_confidence", "active", undefined,
@@ -7008,7 +7033,7 @@ export default function DataMapPage() {
                           );
                         })}
                         <span className="vt-legend-note">{GEBCO_ATTRIBUTION}</span>
-                        <span className="vt-legend-note">{GEBCO_NOT_FOR_NAVIGATION} Regional coverage only — everywhere else is transparent (no data), never a guessed class.</span>
+                        <span className="vt-legend-note">{GEBCO_NOT_FOR_NAVIGATION} Regional coverage only — the dashed border draws the data's true extent; everywhere else is transparent (no data), never a guessed class.</span>
                       </div>
                     </div>
                   )}
