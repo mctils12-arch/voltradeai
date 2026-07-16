@@ -650,6 +650,43 @@ Every body: real position or absent — never decorative placement.
   (HUMAN INPUT). Deep-space perf watch: worker tick with ~800 SDP4
   objects — profile if lag reports return.
 
+- 2026-07-16 (E2 v2 session, T-DATACORE): GEBCO v2 + TID CONFIDENCE
+  SHIPPED as the data/pipeline half — datamap wiring deliberately
+  excluded (session constraint; it is its own next slice). Built:
+  scripts/gebco_seafloor_tiles.py (GEBCO download-app subsetting API
+  client — contract read from the app's own JS, VERIFIED LIVE
+  2026-07-16 through the proxy — plus pure-python terrarium-PNG and
+  PMTiles v3 writers, proven against the real pmtiles JS reader in
+  server/seafloorTiles.test.ts); datacore/gebco/tid_decode.json
+  (VERBATIM GEBCO_2026 TID table — note codes 47 grounded-Argo and
+  48 animal-borne are NEW vs older grids; attribution + terms
+  in-file); REAL committed demo assets: Mariana Trench 138–146E/
+  7–15N at native 15 arc-sec, tiled z0–9 → client/public/tiles/
+  seafloor_gebco_mariana.pmtiles (22.4MB) + seafloor_tid_mariana
+  .pmtiles (362KB) + provenance JSON carrying MEASURED shares
+  (65.85% direct / 34.07% indirect / 0.08% land; min cell −10,931 m
+  at the Challenger Deep, decoded back out of the committed archive
+  by test); client/src/lib/seafloorV2.ts (decode + confidence
+  classes from GEBCO's own grouping + tidConfidenceColorRelief step
+  expression with transparent gaps + legend from the same table);
+  layers.json seafloor_confidence entry (PLANNED). Tests: 17 pytest
+  + 8 client + 5 server; all suites green, tsc baseline unchanged,
+  build clean. WIRING RECIPE (next session, T-CLIENT): v2 dem as a
+  second raster-dem source (pmtiles protocol, tileSize 256,
+  encoding terrarium; v1 ETOPO1 stays the global fallback beneath —
+  v2 covers only its bbox and renders transparent elsewhere);
+  depth ramp = existing bathymetryColorRelief() unchanged; TID
+  overlay = raster-dem source + color-relief using
+  tidConfidenceColorRelief(); legend rows from
+  tidConfidenceLegend(); surface GEBCO_ATTRIBUTION +
+  GEBCO_NOT_FOR_NAVIGATION + the provenance's measured shares on
+  the panel (the honesty-as-hero moment); prefer raster-resampling
+  "nearest" if the layer type supports it (cross-group fringe
+  caveat documented in seafloorV2.ts). SCALE PATH (documented, not
+  built): more regions = more pipeline runs (14,400 deg² per basket
+  item cap); full-planet z0–9 is tens of GB → boot-fetched volume
+  asset per the power_us precedent, never a repo commit; global
+  netCDF (7.0GB + 3.5GB TID) path documented in the script header.
 
 - 2026-07-15 (session #3, O6 wave — same session as v1.0.340-342):
   O6 SHIPPED COMPLETE (v1.0.343-345): O6-1 orbit arc (ArcLayer +

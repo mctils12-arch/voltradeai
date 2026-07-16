@@ -3,6 +3,93 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PIPELINE] — EARTH TWIN E2 v2: GEBCO 15-arcsec seafloor + TID confidence pipeline, real Mariana assets (version bump deferred to merge)
+
+Territory: T-DATACORE primary (scripts/ pipeline + datacore/gebco decode
+table); the paired client lib rides per partition rule 5 (one logical
+change, primary-territory ownership). Constraint honored from the session
+directive: datamap.tsx and package.json untouched — wiring is its own
+next slice; version = read-and-increment at merge.
+
+PRIOR (stated before building): GEBCO's download app should hand us
+subsettable 15-arcsec bathymetry + its TID companion; expected the
+Mariana region to be majority direct-measured (well-surveyed trench
+corridors) over a satellite-gravity-predicted background; expected a
+pure-python PMTiles v3 writer to verify against the real pmtiles JS
+reader.
+
+SHIPPED:
+- scripts/gebco_seafloor_tiles.py — FETCH (GEBCO grid-subsetting API at
+  download.gebco.net, contract read from the app's own JS and VERIFIED
+  LIVE 2026-07-16: POST /api/queue → poll status → zip of Esri ASCII
+  grids + the official GEBCO_Grid_documentation.pdf/terms PDFs) + BUILD
+  (depth: terrarium PNG tiles, area-mean sampling, no-coverage encodes
+  elevation 0 → transparent under the existing bathymetry.ts ramp;
+  TID: RAW code terrarium-encoded as elevation, NEAREST sampled —
+  categorical data never averaged; pure-python PNG + PMTiles v3
+  writers) + ONE provenance sidecar with MEASURED per-group TID shares.
+- datacore/gebco/tid_decode.json — VERBATIM official GEBCO_2026 TID
+  table (21 codes incl. 47 grounded-Argo / 48 animal-borne, NEW vs
+  older grids; grouping = GEBCO's own Land/Direct/Indirect/Unknown;
+  source URL + fetch date + attribution + terms recorded in-file).
+  ONE SOURCE OF TRUTH: the pipeline validates every cell against it
+  (unknown code ABORTS the build); the client derives expression AND
+  legend from it.
+- REAL DATA COMMITTED: Mariana Trench demo region (138–146E / 7–15N,
+  8°x8°, 1920x1920 cells at native 15 arc-sec) fetched from GEBCO and
+  tiled z0–9 (z9 ≈ 9.9″/px, full native fidelity):
+  seafloor_gebco_mariana.pmtiles (22.4MB — inside the committed-asset
+  budget; places 61MB / power_us 26MB), seafloor_tid_mariana.pmtiles
+  (362KB), provenance JSON. Measured: 65.85% direct / 34.07% indirect /
+  0.08% land; min cell −10,931 m (Challenger Deep) — decoded back OUT
+  of the committed archive by test.
+- client/src/lib/seafloorV2.ts (+8 tests) — decode table exports,
+  confidence classes (GEBCO's grouping + display colors), color-relief
+  STEP expression with transparent gaps (cross-group pixel
+  interpolation lands transparent, never a wrong class — the one
+  direct↔unknown fringe path is documented in-file), legend from the
+  same table (map/legend parity test-pinned), region descriptors with
+  the honest bbox.
+- server/seafloorTiles.test.ts (5 tests) — committed-asset ratchet
+  through the REAL pmtiles reader: header/bounds/PNG shape, the
+  Challenger Deep tile decodes < −10,000 m, every TID cell is
+  documented-or-nodata, provenance attribution === decode-table
+  attribution, Hilbert tile-id pins matching the python writer.
+- test_gebco_seafloor_tiles.py (17 tests; no network; synthetic
+  fixtures clearly labeled test-only).
+- datacore/layers.json: seafloor_confidence entry (raw, PLANNED until
+  the datamap wiring slice) + layersRegistry.test.ts pin.
+
+DECISIONS: Esri ASCII subset path (stdlib-parseable) over netCDF for
+regional runs (global netCDF is 7.0GB+3.5GB — documented, not built);
+z9 committed after measuring z8 (6.6MB) vs z9 (22.4MB) — native
+fidelity wins within the existing asset budget; TID tiles carry raw
+codes, styling stays client-side.
+
+LICENSE (verified from the terms page, fetched 2026-07-16): GEBCO Grid
+is public domain, commercial use EXPLICITLY allowed, attribution
+required (verbatim string rides in the decode table + provenance +
+pmtiles metadata), "should NOT be used for navigation" carried as a
+disclaimer everywhere.
+
+GATES: pytest 138 passed / 1 skipped (CI offline set + 17 new); server
+suite 705/705; client libs 233/233 incl. 8 new; tsc 66-line baseline
+unchanged (0 errors in new files); npm run build clean (assets flow to
+dist/public/tiles). Visual harness N/A — no rendered surface changed
+(layer stays planned; datamap.tsx untouched).
+
+BACKTEST: N/A — data/display pipeline; zero trading code touched.
+
+HYPOTHESIS (stated before wiring): when the datamap wiring slice lands,
+the confidence overlay should show multibeam survey corridors (direct,
+teal) crossing predicted background (amber) in the Mariana region — if
+it renders one uniform class, suspect the step expression or GPU
+resampling, NOT the data (the histogram proves both classes present).
+NEXT: datamap wiring slice (recipe in the charter RESUME STATE), more
+regions per pipeline run, global = boot-fetched volume asset per the
+power_us precedent. ENDED: not starved — capacity consumed by the
+slice; next work named.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN rounds 5-8: 3D flight tracks, movable UI, real 3D terrain + drained ocean (v1.0.354-357)
 
 Territory: T-CLIENT continuation (same session as v1.0.352-353).

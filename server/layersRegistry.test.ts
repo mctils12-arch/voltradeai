@@ -150,6 +150,20 @@ test("seafloor layer: ETOPO1/NOAA attribution + interpolation & not-for-navigati
   assert.equal(s.altitudeRef, "depth", "v2: z means depth for this layer");
 });
 
+test("seafloor_confidence layer: GEBCO TID attribution + measured-vs-predicted honesty + regional-coverage statement (EARTH TWIN E2 v2)", () => {
+  const s = registry.layers.find((x: any) => x.id === "seafloor_confidence");
+  assert.ok(s, "seafloor_confidence layer missing");
+  assert.equal(s.kind, "raw");
+  assert.equal(s.status, "planned", "planned until the datamap wiring slice ships");
+  assert.ok(/GEBCO/.test(s.source) && /TID/.test(s.source), "attribution must name the GEBCO TID grid");
+  assert.ok(/direct measurements/i.test(s.description), "description must name GEBCO's direct-measurement class");
+  assert.ok(/predict|indirect/i.test(s.description), "description must name the predicted/indirect class");
+  assert.ok(/regional|region/i.test(s.provenance.coverage), "coverage must state the regional demo honestly");
+  assert.equal(s.altitudeRef, "depth");
+  assert.equal(s.provenance.commercialOk, true, "GEBCO terms: public domain, commercial use allowed");
+  assert.equal(s.field, true, "confidence raster inherits the registry opacity slider");
+});
+
 // ── REGISTRY v2 (EARTH TWIN E0-1, research/earth_twin_program.md A2) ──
 // All v2 fields are OPTIONAL and additive: entries that omit them stay valid
 // forever; entries that carry them must carry them WELL-FORMED so the LOD
