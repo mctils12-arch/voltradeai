@@ -1040,6 +1040,9 @@ export default function DataMapPage() {
         const startGlobe = canGlobe && readGlobePref();
         const map = new maplibregl.Map({
           container: mapContainer.current,
+          // round 8 realism: allow the low Google-Earth-style camera — the
+          // default 60° cap makes real 3D terrain read like a tilted map
+          maxPitch: 80,
           style: {
             version: 8,
             ...(startGlobe ? { projection: { type: "globe" } } : {}),
@@ -1348,44 +1351,65 @@ export default function DataMapPage() {
     };
   }, [mapReady, enabled.imagery]);
 
-  // ── terrain hillshade (RAW; Mapterhorn terrarium DEM — geospatial Tier-1(a),
-  // licensing register 2026-07-04: commercial-OK, © Mapterhorn attribution via
-  // TileJSON. Also wires the raster-dem source R4's 3D terrain will reuse.
-  // Default OFF: the imagery base already carries visual relief; hillshade is
-  // an opt-in accent inserted UNDER all marker layers.) ──
+  // ── terrain mesh + hillshade + drained-ocean mesh (RAW). ONE effect owns
+  // map.setTerrain so the terrain and seafloor toggles can never race over
+  // the mesh. Sources: Mapterhorn terrarium DEM (land; geospatial Tier-1(a),
+  // licensing register 2026-07-04: commercial-OK, © Mapterhorn attribution
+  // via TileJSON) and the AWS Terrain Tiles terrarium set (ETOPO1 bathymetry
+  // baked in) for the drain — real soundings + satellite-gravity
+  // interpolation, global coverage, labeled as an estimate.
+  // Round 8 realism (human: "real 3d terrain… like the example pic; the
+  // [drain] toggle — use radar-mapped ocean data"):
+  //  · drain ON → the mesh deforms from the bathymetric DEM, so ocean basins
+  //    PHYSICALLY sink instead of only tinting (land relief rides along from
+  //    the same set — SRTM-class there; Mapterhorn resumes when drain is off)
+  //  · the stylized blue-dark hillshade paints ONLY on the dark bases (night/
+  //    minimal) where it is the sole relief cue — over photo imagery it made
+  //    real mountains look like a tinted map, so imagery presets now show
+  //    the photo draped on the true displacement + a sky/fog horizon
+  // exaggeration 1.3 everywhere: the aircraft layer + 3D trails match their
+  // altitudes to this exact constant (setAltScale coupling). Degrade-safe:
+  // any failure keeps the base map alive. ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    if (!enabled.terrain) {
-      try { map.setTerrain(null); } catch {}
-      try {
-        if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade");
-        if (map.getSource("terrain-dem")) map.removeSource("terrain-dem");
-      } catch {}
-      setStatus("terrain", "off");
-      return;
-    }
+    const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
+    const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
     try {
-      if (!map.getSource("terrain-dem")) {
+      if (enabled.terrain && !map.getSource("terrain-dem")) {
         map.addSource("terrain-dem", {
           type: "raster-dem",
           url: "https://tiles.mapterhorn.com/tilejson.json",
           encoding: "terrarium",
         } as any);
       }
-      // REAL 3D relief (worldview-globe upgrade): deform the base mesh from the
-      // same DEM so mountains rise and valleys sink — a physical globe, not a
-      // flat sphere — especially with pitch. exaggeration 1.3 reads premium
-      // without cartoonish spikes. Hillshade below stays for shading detail on
-      // the raised mesh. Guarded: if a device/projection can't do terrain the
-      // catch keeps the base map alive (degrade, never break).
-      map.setTerrain({ source: "terrain-dem", exaggeration: 1.3 } as any);
-      if (!map.getLayer("terrain-hillshade")) {
-        // insert beneath the lowest data layer (symbol/circle/line) so
-        // shading never covers markers or velocity vectors
+      if (enabled.seafloor && !map.getSource("ocean-terrain-dem")) {
+        // own source for the MESH — the seafloor tint keeps its separate
+        // seafloor-dem source (same tiles, shared HTTP cache): a source
+        // consumed by setTerrain is treated specially by MapLibre (session
+        // #1 finding), so mesh and paint never share one
+        map.addSource("ocean-terrain-dem", {
+          type: "raster-dem",
+          tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+          encoding: "terrarium",
+          tileSize: 256,
+          maxzoom: 15,
+          attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
+        } as any);
+      }
+      map.setTerrain(meshSource ? ({ source: meshSource, exaggeration: 1.3 } as any) : null);
+    } catch {
+      if (enabled.terrain) setStatus("terrain", "error");
+    }
+    // hillshade: rebuild each pass (source may swap with the drain) — dark
+    // bases only; inserted beneath the lowest data layer so shading never
+    // covers markers or velocity vectors
+    try { if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade"); } catch {}
+    if (enabled.terrain && !imageryVisible) {
+      try {
         const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
         map.addLayer({
-          id: "terrain-hillshade", type: "hillshade", source: "terrain-dem",
+          id: "terrain-hillshade", type: "hillshade", source: meshSource ?? "terrain-dem",
           paint: {
             "hillshade-exaggeration": 0.45,
             "hillshade-shadow-color": "rgba(5,10,19,0.9)",
@@ -1393,12 +1417,30 @@ export default function DataMapPage() {
             "hillshade-accent-color": "rgba(77,159,255,0.15)",
           },
         } as any, firstMarker?.id);
-      }
-      setStatus("terrain", "active", undefined, "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
-    } catch {
-      setStatus("terrain", "error");
+      } catch {}
     }
-  }, [enabled.terrain, mapReady, setStatus]);
+    // sky/fog horizon — the depth cue that makes tilted 3D read real; only
+    // with a mesh on a photo preset (dark bases keep the space backdrop)
+    try {
+      (map as any).setSky?.(meshSource && imageryVisible ? {
+        "sky-color": "#6ea8dc",
+        "horizon-color": "#eaf2fa",
+        "fog-color": "#e6eef7",
+        "sky-horizon-blend": 0.6,
+        "horizon-fog-blend": 0.6,
+        "fog-ground-blend": 0.7,
+      } : (null as any));
+    } catch { try { (map as any).setSky?.({} as any); } catch {} }
+    if (!enabled.terrain) setStatus("terrain", "off");
+    else setStatus("terrain", "active", undefined, enabled.seafloor
+      ? "3D relief from the drained-ocean DEM — basins sink for real; land is SRTM-class while the drain is on (© Mapterhorn set resumes when it's off)"
+      : imageryVisible
+        ? "true 3D relief — imagery draped on the Copernicus GLO-30 mesh + sky horizon (© Mapterhorn); tilt the map to see it"
+        : "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
+    // keep the map lean when off (mesh + hillshade already detached above)
+    if (!enabled.terrain) { try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {} }
+    if (!enabled.seafloor) { try { if (map.getSource("ocean-terrain-dem")) map.removeSource("ocean-terrain-dem"); } catch {} }
+  }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
 
   // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
   // research/earth_twin_program.md V4). NOAA ETOPO1 ocean depths via the open
@@ -1448,9 +1490,23 @@ export default function DataMapPage() {
             "color-relief-opacity": opacityOf("seafloor") / 100,
           },
         } as any, beforeId);
+        // round 8 (human's Google-Earth reference): shaded RIDGE TEXTURE over
+        // the depth tint — mid-ocean ridges, trenches and fracture zones read
+        // as terrain, not flat color. Same real DEM (ETOPO1), fixed sun so
+        // the relief doesn't swim when the map rotates.
+        map.addLayer({
+          id: "seafloor-hillshade", type: "hillshade", source: "seafloor-dem",
+          paint: {
+            "hillshade-exaggeration": 0.6,
+            "hillshade-illumination-anchor": "map",
+            "hillshade-shadow-color": "rgba(4, 16, 36, 0.55)",
+            "hillshade-highlight-color": "rgba(210, 230, 250, 0.18)",
+            "hillshade-accent-color": "rgba(0, 0, 0, 0)",
+          },
+        } as any, beforeId);
       }
       setStatus("seafloor", "active", undefined,
-        "ocean drained — ETOPO1 depth relief (~1 arc-min; soundings + gravity interpolation, not navigational)");
+        "ocean drained — 3D basins + shaded ridge relief, ETOPO1 (~1 arc-min; real soundings + satellite-gravity interpolation, global estimate — not navigational)");
     } catch {
       setStatus("seafloor", "error");
     }
