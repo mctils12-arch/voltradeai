@@ -637,6 +637,32 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (session #4 continuation, ROUND 10 QUEUE — from the human's
+  6-screenshot report; PR #500 = the re-opened repairs after #498
+  auto-closed unmerged, see ops gotcha):
+  (a) MOBILE CARD CONTAINMENT — STAGED UNCOMMITTED in index.css on the
+      session branch (phone bottom sheet: max-height 52dvh + scroll +
+      sticky header so ✕/− never scroll away). Commit AFTER #500 merges
+      + branch restarts; needs the usual gates + harness.
+  (b) LINE VISIBILITY (human: "line of objects need to be more clear…
+      the plane 3d path looks to not be built" — it renders but is a
+      1px GL hairline): upgrade lib/orbital/arcLayer.ts from GL_LINES
+      to EXTRUDED SCREEN-SPACE RIBBONS (quad per segment, per-vertex
+      direction+normal, width ~3px scaled by anchor.w, keep the
+      far-side fragment discard + ARC_GAP splits). All consumers gain
+      it free: orbit arcs, group orbits, aircraft 3D trails + curtain
+      ribs. Consider a dark 1px rim for contrast on bright imagery.
+      Tests: vertex-layout pins + width uniform contract.
+  (c) WIND-FARM POSITION VERIFICATION agent running (worktree,
+      background): GPPD/EIA wind coords vs OSM turbines → committed
+      verdict artifact + audit charter research/layer_verification_
+      audit.md. INTEGRATION = parent review, then the card-surfacing
+      slice ("position verified/approximate/unverified" on plant
+      cards + maybe a small map badge). Waverly Wind Farm (KS) is the
+      human's reference case.
+  (d) After (a)-(c): solar label polish, GEBCO region expansion,
+      React memo boundaries (fresh session), SCALE S2.
+
 - 2026-07-16 (scheduled-routine session, T-CLIENT): E2 v2 REMAINDER SHIPPED
   (v1.0.366) — the depth-blend half of the WIRING RECIPE left unclaimed
   below: each SEAFLOOR_V2_REGIONS region's native-15-arc-sec `demUrl` now
