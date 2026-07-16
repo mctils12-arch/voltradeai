@@ -84,6 +84,24 @@ what keeps "no added latency" true when the archive is 10x bigger.
   stated (existing silent-cap ratchet extends here).
 
 ## RESUME STATE (update every session that touches this program)
+- 2026-07-16 (scheduled-routine session, T-CLIENT, PR #505): S1(d) React
+  memo boundary — PARTIALLY shipped (v1.0.373). datamap.tsx's Legend
+  section (~330 lines, 24 well-scoped dependencies, zero live-tick
+  coupling) extracted into `LegendPanel`, wrapped in `React.memo`, so it
+  stops re-rendering on the satellite/aircraft/vessel position ticks
+  that dominate DataMapPage's render volume once any live layer is on.
+  LayersPanel and DetailCard (the other two named in the original S1(d)
+  item) remain unextracted — each carries materially more entangled
+  interactive state (opacity sliders/date scrubbers/description toggles;
+  ~15-way branch on entity kind with fetch/trail side effects) and needs
+  its own scoped session. Full reasoning + verification in
+  experiments.md and earth_twin_program.md's RESUME STATE. No perf-
+  harness assertion added — this sandbox's visual harness crashes on the
+  real /data page (pre-existing, documented 2026-07-14) before it can
+  exercise the live-tick path; substituted an ad hoc Playwright
+  reactivity check instead. REMAINING QUEUE (unchanged otherwise): (d)
+  LayersPanel + DetailCard memo boundaries, (e) median lever (human
+  input), (f) S2 server aggregation.
 - 2026-07-07: charter installed. NOTHING BUILT YET. Next action: S1
   step (a) — add bbox+zoom params to the shared datacore serving
   helper + a harness perf fixture that scales feature count and
