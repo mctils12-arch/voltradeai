@@ -35,8 +35,15 @@ test('sampleOrbitArc: full-period real track — plausible LEO altitudes, no inv
 
 test('sampleOrbitArc: refuses what SGP4 refuses', () => {
   assert.equal(sampleOrbitArc({ ...ISS, meanMotion: null } as any, Date.now()), null, 'no elements = no arc');
-  assert.equal(sampleOrbitArc({ ...ISS, meanMotion: 1.0 } as any, Date.parse('2026-07-15T13:00:00Z')), null,
-    'deep-space (needs SDP4) = no arc, never faked');
+  // Deep-space objects propagate for real since the SDP4 port (2026-07) —
+  // this arc must be a genuine ~24h-period track, not a refusal.
+  const deep = sampleOrbitArc({ ...ISS, meanMotion: 1.0 } as any, Date.parse('2026-07-15T13:00:00Z'));
+  assert.ok(deep, 'deep-space now samples via SDP4');
+  for (let k = 0; k < ARC_SAMPLES; k++) {
+    const altM = deep![k * 3 + 2];
+    if (altM === ARC_GAP) continue; // honest gap, never bridged
+    assert.ok(altM > 30_000_000 && altM < 40_000_000, `deep-space altitude real (${altM} m)`);
+  }
 });
 
 test('buildArcVertices: GL_LINES pairs; gaps and antimeridian jumps break the line', () => {

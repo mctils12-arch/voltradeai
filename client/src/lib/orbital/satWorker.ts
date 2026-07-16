@@ -9,12 +9,13 @@
 // spike) must not block the main thread. The worker keeps the render loop at
 // 60fps while positions refresh at a low rate.
 //
-// HONESTY (charter): REAL POSITIONS ONLY. Deep-space objects (GEO comms,
-// GPS/GLONASS/Galileo MEO, Molniya) need SDP4, which the inline near-earth
-// kernel does not implement — propagate() returns null for them. We NEVER
-// fabricate a position: skipped objects are written as a SENTINEL and COUNTED
-// (deepSpaceSkipped vs invalidSkipped) so the caller can surface
-// "N objects not rendered (deep-space, needs SDP4)". No silent drops.
+// HONESTY (charter): REAL POSITIONS ONLY. Since the SDP4 port (O6-5,
+// 2026-07-16) deep-space objects (GEO comms, GPS/GLONASS/Galileo MEO,
+// Molniya) propagate for real alongside the near-earth population. Objects
+// the kernel still refuses (incomplete/decayed elements) are written as a
+// SENTINEL and COUNTED (deepSpaceSkipped now counts only deep-space objects
+// that FAILED, not a skipped class) — we NEVER fabricate a position. No
+// silent drops.
 //
 // INDEX ALIGNMENT (load-bearing for picking): the output buffer keeps ONE
 // slot per input GP record, in input order, INCLUDING skipped objects (their
