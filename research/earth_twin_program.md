@@ -637,6 +637,55 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (scheduled-routine [PRODUCT] session, T-DATACORE): (c) WIND-FARM
+  POSITION VERIFICATION — the fresh multi-source build the prior session's
+  reclaimed worktree agent never landed — SHIPPED as a gate-1 DATA pipeline
+  (scripts/verify_wind_positions.py + datacore/powerplants/
+  wind_position_verification.json). Cross-checks every wind plant in
+  us_power_plants.json (WRI GPPD + EIA-860) against real OpenStreetMap wind-
+  turbine positions via Overpass, bbox-binned (2deg grid, padded past the
+  15km search radius) so ~1,139 plants cost ~138 requests instead of 1,139.
+  Waverly Wind Farm LLC (the human's named reference case) confirmed
+  non-trivially off: nearest real OSM turbine cluster is 9.0km away — classed
+  "approximate", not "verified" — matching the live-feedback report that
+  triggered this build. RUN WAS PARTIAL (stop-hook forced commit mid-run,
+  not a design choice): 288/1,139 plants processed (25.3% by count, 35.9% by
+  installed MW — capacity-weighted coverage is meaningfully higher because
+  the highest-MW wind corridors were queried first) before this session
+  killed the background job to ship a clean commit. Of the 288: 254 verified,
+  5 approximate (concrete registry-drift examples: Post Oak Wind 8.4km,
+  Scurry County Wind 4.6km, Gunsight Mountain Wind 3.5km off), 1 unverified
+  (Ranchero Wind Farm LLC, 300MW — no OSM turbine within 15km at all), 28
+  error (Overpass HTTP 429 rate-limiting on a handful of large-turbine-count
+  bins — NOT a finding, see the file's own "error" bucket semantics).
+  RESUME (next session, same territory): `python3 scripts/
+  verify_wind_positions.py` (no `--fresh`) picks up exactly where this left
+  off — already-resolved bins skip, "error" bins retry automatically
+  (`bin_is_resolved()`, pinned by 3 new tests). REQUEST_SLEEP_S widened
+  1.2s -> 3.0s and MAX_RETRIES 3 -> 4 this session specifically to cut the
+  429 rate on resume. Tests: 16 pure-logic unit tests (haversine, classify
+  thresholds incl. the Waverly-shaped case, bin_key floor semantics, pad_deg
+  geometry, resume/error-retry contract) — no network in the test suite by
+  this codebase's established convention (mirrors test_gridvision_geo.py).
+  NOT done this session (deliberately, one logical change per PR — mirrors
+  the GEBCO v2 pipeline-then-wiring split earlier in this program): the
+  CARD-SURFACING slice. WIRING RECIPE for that next slice: add
+  `import datacoreWindVerification from "../datacore/powerplants/
+  wind_position_verification.json"` to server/routes.ts (same pattern as
+  `datacorePowerplants` at line 15) + a day-cached `GET /api/data/
+  wind_position_verification` route (mirrors the existing `/api/data/
+  powerplants` handler at routes.ts:1316 — whole-file response, `Cache-
+  Control: public, max-age=86400`); client joins by the file's `key` field
+  (`${name}|${lat}|${lon}`, exact string match against the plant record
+  already rendered from `us_power_plants.json` — no numeric-id join exists
+  in that compiled file, this key IS the join) to show "position
+  verified/approximate/unverified" on the plant dossier card, wind fuel
+  rows only; a plant absent from the results (not yet processed, or not
+  wind) shows no badge — never a false "unverified". NEXT (unchanged
+  otherwise): resume this run to full coverage, then the card-surfacing
+  slice above, GEBCO region expansion, React memo boundaries, SCALE S2,
+  keepFraction (HUMAN INPUT still pending).
+
 - 2026-07-16 (scheduled-routine session, T-CLIENT): ROUND 10 QUEUE status
   update — (a) MOBILE CARD CONTAINMENT shipped (#501, v1.0.369). (b) LINE
   VISIBILITY shipped (#502, v1.0.370 — a concurrent session's version;

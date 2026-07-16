@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PIPELINE] — wind-farm position verification: gate-1 DATA cross-check of 288/1,139 GPPD wind plants against real OSM turbine positions (v1.0.372, T-DATACORE, scheduled-routine [PRODUCT] session)
+
+TERRITORY: T-DATACORE (scripts/verify_wind_positions.py, datacore/
+powerplants/wind_position_verification.json, + its test file), with
+research/earth_twin_program.md RESUME STATE bookkeeping. No FROZEN paths
+touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full; `/api/health`
+clean (status ok, bot active, drawdownPct "0.0", `liveness.dark: false` —
+no LIVENESS ALARM); KNOWN BROKEN reviewed — #10 (dead SCORE_BAND_MAX
+config) and #20 (master_kill_switch CSP-exemption judgment call) remain
+open but neither is liveness-critical nor blocks product work, consistent
+with every recent PRODUCT session's own note that this program doesn't
+preempt the DAILY routines' repair duty. Loop-health ratio over the last
+10 tagged entries at session start: 2 REPAIR / 8 PRODUCT-or-PIPELINE —
+well under the 7/10 thrash threshold, no meta-problem to diagnose.
+
+PRIMARY ACTION CHOICE: `research/earth_twin_program.md` RESUME STATE's own
+top entry named an explicitly UNCLAIMED item — "(c) wind-farm position
+verification (needs a fresh multi-source build, not a resume)" — because a
+prior session's background worktree agent was reclaimed before landing
+anything (`research/layer_verification_audit.md` never got created). This
+is a textbook fit for this session's mandate: option (a), "advance a
+datacore/ pipeline through its next ladder gate — gate 1 ground-truth
+validation... IS product work" (ROOT VALIDATION LADDER, CLAUDE.md). Human
+directive named a concrete reference case (Waverly Wind Farm LLC, KS) to
+validate the method against before trusting it at scale.
+
+METHOD: `datacore/powerplants/us_power_plants.json` (WRI GPPD + EIA-860,
+built by scripts/build_powerplants.py) has 1,139 US wind-fuel rows but no
+independent ground truth for POSITION — the file's own `verified` flag
+(row[6]) only covers a hand-picked top-100-by-MW imagery check
+(`imagery_verified.json`) and only 1 of those 100 is wind. OpenStreetMap
+tags individual wind turbines directly (`power=generator` +
+`generator:source=wind` nodes, plus `power=plant` + `plant:source=wind`
+ways/relations for farm-boundary features) — a real, independently
+crowdsourced ground truth this codebase had not yet cross-referenced
+against GPPD's registry-reported coordinates.
+
+REFERENCE CASE VERIFIED FIRST (per the human directive, before trusting
+the method at scale): queried Overpass live for Waverly Wind Farm LLC
+(199MW, GPPD point 38.2569,-95.8142). Found 52 EDP-Renewables-operated
+turbines in the area; nearest is 9.0km from the reported point, cluster
+centroid at [38.2655,-95.6883]. This CONFIRMS the human's live-feedback
+suspicion with a number: the registry point is real (the farm exists,
+turbines are there) but sits ~9km from where the farm's own turbines
+actually are — exactly the "approximate, not verified" case this pipeline
+is built to surface, not a false positive or a methodology artifact.
+
+ENGINEERING CHOICE — bbox-binned, not per-plant: a naive per-plant
+Overpass query would be 1,139 requests. Wind plants cluster heavily in a
+few corridors (TX panhandle, KS, IA, western OK...) — grouping into a
+coarse 2deg lat/lon grid and querying ONE padded bbox per POPULATED bin
+cut this to 138 requests (`bin_key()`/`group_bins()`), an ~8x reduction in
+Overpass load. Padding (`pad_deg()`) is computed per-bin from
+SEARCH_RADIUS_KM with a 1.3x safety margin and latitude-corrected
+longitude spacing (`radius_km / (111 * cos(bin_center_lat))`) — this is
+what guarantees correctness regardless of where a plant sits inside its
+bin, not the bin size itself; pinned by `test_pad_deg_exceeds_search_
+radius_with_margin` and `test_pad_deg_widens_toward_poles`.
+
+CLASSIFICATION (`classify()`, pure, no network): verified (nearest OSM
+turbine <= 3km — the point sits inside the farm's own footprint),
+approximate (turbine(s) found within the 15km search radius but farther
+than 3km), unverified (nothing found within 15km), error (the bin's
+Overpass query itself failed — kept in ITS OWN bucket, deliberately never
+conflated with "unverified"; a network failure is not a negative finding
+about the plant). HONESTY note carried into the file's own `_doc`:
+"unverified" means OSM has no nearby turbine TODAY, never "this plant
+doesn't exist" — OSM coverage is incomplete, especially for smaller/older
+farms.
+
+RUN OUTCOME — PARTIAL, not a design choice: the session's own stop-hook
+forced a commit while the background run was still in progress. Killed it
+cleanly (checkpoints after every bin mean the file on disk was always
+consistent) at 288/1,139 plants processed across the first ~13 (of 138)
+bins — 25.3% by plant count, but 35.9% by installed MW (37,525/104,477),
+because bins were visited in descending-capacity order (the source array's
+own sort), so the highest-value wind corridors were covered first. Counts
+at kill time: 254 verified, 5 approximate (concrete drift examples worth
+naming: Post Oak Wind LLC 8.4km off, Scurry County Wind LP 4.6km, Gunsight
+Mountain Wind Energy LLC 3.5km, Tuolumne Wind Project 14.2km, Windom Wind
+Project 4.9km), 1 unverified (Ranchero Wind Farm LLC, 300MW — zero OSM
+turbines within 15km, the largest true gap found so far), 28 error (HTTP
+429 rate-limiting from Overpass on a few large-turbine-count bins, e.g. the
+TX panhandle bins returning 3,000-6,000 elements each — NOT findings).
+
+RATE-LIMIT FIX FOR THE RESUME (same PR, since it's a one-line tuning of
+the exact mechanism that just failed 28 times): `REQUEST_SLEEP_S` widened
+1.2s -> 3.0s, `MAX_RETRIES` 3 -> 4. Also fixed a real resume-correctness
+gap found while writing this up: the original resume check only asked "is
+every key in this bin present in the results file" — an `error` status
+counted as present, so a resumed run would have silently treated Overpass
+failures as permanently resolved instead of retrying them. Extracted the
+check into `bin_is_resolved(keys, results)` (pure function) which now also
+requires no member be in `error` status; pinned by 3 new tests
+(`test_bin_is_resolved_true_when_all_keys_present_and_no_errors`,
+`..._false_when_key_missing`, `..._false_when_any_member_errored`).
+
+RESUME (next session, same territory, T-DATACORE): `python3 scripts/
+verify_wind_positions.py` with NO `--fresh` flag continues from the
+committed checkpoint — already-resolved bins skip instantly, the 28 error
+plants' bins retry automatically under the new 3.0s pacing. ~125 bins and
+~850 plants remain.
+
+RATCHET: `test_verify_wind_positions.py` (NEW, 16 tests) — haversine known-
+distance + zero-distance, classify() at all four status boundaries
+(no-points, close-verified, far-but-in-range-approximate, beyond-radius-
+unverified, centroid-averages-only-in-range-points), a Waverly-shaped
+synthetic case pinning the "approximate" outcome at the real ~9km distance
+this session measured live, bin_key floor-not-round semantics (incl. the
+negative-coordinate edge case), pad_deg margin + pole-widening properties,
+turbine_points() Overpass-shape parsing (node lat/lon + way/relation
+center, tolerating a geometry-less element without crashing), group_bins()
+partitioning, and the 3 bin_is_resolved() resume/retry-contract tests
+above. No network in the test suite — mirrors this codebase's established
+convention for OSM ground-truth logic (test_gridvision_geo.py's own
+"no network" header comment).
+
+GATES: `python3 -m pytest -q` — 757 passed, 2 skipped (baseline 741 + 16
+new; zero regressions; pandas/numpy/lightgbm/openpyxl/scikit-learn/pytest
+installed fresh into this sandbox this session, the same recurring
+environment-tooling gap prior sessions have logged — still worth a
+STALENESS AUDIT look at session-start tooling, not chased further here).
+TypeScript/client suites not re-run — zero .ts/.tsx files touched this
+session (pure Python pipeline + docs). VISUAL HARNESS: N/A, no client
+change.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this PR writes ONE new file
+(`wind_position_verification.json`) and touches zero existing runtime code
+— `us_power_plants.json` is read-only input, never modified;
+`server/routes.ts`, `datamap.tsx`, `entityGraph.ts`, `riverPlants.ts` are
+all untouched, so every existing power-plant consumer (map rendering,
+dossier clicks, the Pillar-6 low-water cross-tie) is byte-for-byte
+unaffected. Zero effect on trading/scoring/sizing — this is a /data-side
+RAW cross-reference artifact, not wired to any endpoint yet (deliberately
+— see the WIRING RECIPE in earth_twin_program.md RESUME STATE, its own
+follow-up slice per the one-logical-change-per-PR rule, mirroring the
+GEBCO v2 pipeline-then-wiring split earlier in this same program).
+
+BACKTEST: N/A — datacore pipeline artifact, zero trading code touched.
+
+HYPOTHESIS (per REASONING STANDARD #10, stated before the resume run's
+evidence comes in): completing the remaining ~850 plants will find the
+approximate/unverified rate holds roughly steady around the ~2% seen so
+far (6/288 non-verified, non-error) rather than concentrating in specific
+regions — if a future session's completed run instead shows one region or
+one data source (EIA-located vs. GPPD-only coordinates) disproportionately
+driving the non-verified bucket, that would be a more actionable, specific
+finding than "some registry points are approximate" and worth its own
+follow-up. NEXT STEP for whichever session resumes this: check whether the
+non-verified rate holds, is region-clustered, or correlates with
+`us_power_plants.json`'s own EIA-vs-GPPD coordinate-source split (the
+`build_powerplants.py` `eia_used` counter) before drawing that conclusion.
+
+---
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN round 10c: solar-view label collision fix + a caught duplicate-build near-miss (v1.0.371, T-CLIENT, scheduled-routine session)
 
 WORKSTREAM PARTITION: T-CLIENT (client/src/lib/celestial/solarView.ts +
