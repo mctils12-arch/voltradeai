@@ -88,10 +88,15 @@ void main() {
   o = vec4(v_color * (0.35 + 0.75 * diff), 1.0);
 }`;
 
-/** Constant on-screen model height in pixels (the focused-object size). */
+/** Base on-screen model height in pixels (the focused-object size). */
 export const MODEL_PIXELS = 72;
+/** Zoom-to-inspect ceiling — the model grows past the focus zoom (2^Δzoom)
+ *  up to this, so "get really close" actually gets close. */
+export const MODEL_MAX_PIXELS = 480;
 /** On-screen size of an O6-2 auto-3D mini (browse-zoom form, not focused). */
 export const MINI_PIXELS = 34;
+/** Focus ring RADIUS in px — drawn at the anchor's rendered altitude. */
+export const RING_PIXELS = 17;
 /** Model-space half-extent the meshes are built to (model3d contract). */
 export const MODEL_HALF_EXTENT = 1.2;
 
@@ -142,6 +147,11 @@ export class SatModelLayer implements CustomLayerInterface {
   // replaces them — static orientation, no tumble animation).
   private minis: MiniModel[] = [];
   private formBuffers = new Map<FormKind, { pos: WebGLBuffer; nor: WebGLBuffer; col: WebGLBuffer; count: number }>();
+  // O6 ring fix: the focus ring is drawn HERE, at the anchor's rendered
+  // (altitude-projected) position — the old geojson circle sat at the
+  // GROUND point, so it visibly detached from the satellite whenever the
+  // camera tilted or panned away (parallax between nadir and object).
+  private ringBuffer: WebGLBuffer | null = null;
 
   constructor(opts: { id?: string } = {}) {
     this.id = opts.id ?? 'orbital-sat-model';
@@ -158,6 +168,8 @@ export class SatModelLayer implements CustomLayerInterface {
       gl.deleteBuffer(fb.pos); gl.deleteBuffer(fb.nor); gl.deleteBuffer(fb.col);
     }
     this.formBuffers.clear();
+    if (this.ringBuffer) gl.deleteBuffer(this.ringBuffer);
+    this.ringBuffer = null;
     this.program = null;
     this.bufPos = this.bufNor = this.bufCol = null;
     this.cachedVariant = null;
@@ -226,12 +238,12 @@ export class SatModelLayer implements CustomLayerInterface {
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
     if (this.renderFailed) return;
     const focused = !!(this.anchor && this.getActiveMesh());
-    if (!focused && this.minis.length === 0) return; // nothing to draw → zero cost, no repaint
+    // an anchor with NO mesh (unknown class) still draws the focus RING
+    if (!this.anchor && this.minis.length === 0) return; // nothing to draw → zero cost, no repaint
     try {
       this.renderInner(gl, args, focused);
-      // animate the tumble ONLY while a focused model is visible — minis are
-      // static-oriented and must not keep the map awake
-      if (focused) this.map?.triggerRepaint();
+      // NO self-repaint: the attitude is camera-driven (gestures repaint the
+      // map themselves) and position updates arrive via setAnchor each tick.
     } catch (e) {
       this.renderFailed = true;
       // eslint-disable-next-line no-console
@@ -276,20 +288,25 @@ export class SatModelLayer implements CustomLayerInterface {
       gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
     };
 
-    // ── the FOCUSED model (dynamic mesh: real > form; time-based tumble) ──
+    // ── the FOCUSED model (dynamic mesh: real > form) — CAMERA-DRIVEN
+    // attitude (human directive: "stop the rotating … it's like YOU'RE
+    // doing the rotating"): the model holds still in space; rotating/
+    // pitching the MAP views it from a different side. No animation, no
+    // self-repaint — the map repaints during gestures anyway. ──
     const mesh = this.getActiveMesh();
     const anchor = this.anchor;
     if (focused && mesh && anchor) {
       if (this.uAnchor) gl.uniform3f(this.uAnchor, anchor.mercX, anchor.mercY, anchor.altMeters);
-      // slow tumble, time-based (display animation only — clearly not telemetry).
-      // A real model turns gently (a stately survey of the actual design);
-      // representative forms keep the quicker symbolic tumble.
-      const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
-      const yawRate = this.realMesh ? 0.15 : 0.5;
-      const pitch = this.realMesh ? 0.3 : 0.4;
-      if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, rotationMat3(t * yawRate, pitch));
-      // clip units per model unit so the form spans ~MODEL_PIXELS on screen
-      if (this.uScale) gl.uniform1f(this.uScale, ((MODEL_PIXELS / (2 * MODEL_HALF_EXTENT)) * 2) / h);
+      const bearingRad = ((this.map?.getBearing() ?? 0) * Math.PI) / 180;
+      const pitchRad = ((this.map?.getPitch() ?? 0) * Math.PI) / 180;
+      // base 3/4 attitude + the camera's own bearing/pitch — drag-rotate
+      // orbits the craft, tilt looks over/under it
+      if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, rotationMat3(0.6 - bearingRad, 0.3 + pitchRad * 0.7));
+      // zoom-to-inspect (human directive: "get really close and see it"):
+      // past the focus zoom the model grows with the camera, up to a cap
+      const zoom = this.map?.getZoom() ?? 0;
+      const px = Math.min(MODEL_MAX_PIXELS, Math.max(MODEL_PIXELS, MODEL_PIXELS * Math.pow(2, zoom - 4.3)));
+      if (this.uScale) gl.uniform1f(this.uScale, ((px / (2 * MODEL_HALF_EXTENT)) * 2) / h);
       const bind = (buf: WebGLBuffer | null, loc: number, data: Float32Array) => {
         if (!buf || loc < 0) return;
         gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -332,6 +349,37 @@ export class SatModelLayer implements CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, fb.col); enableAttrs(this.aCol);
         gl.drawArrays(gl.TRIANGLES, 0, fb.count);
       }
+    }
+
+    // ── FOCUS RING at the anchor's rendered altitude (O6 ring fix) —
+    // draws whenever something is followed, even with no known class ──
+    if (this.anchor) {
+      if (!this.ringBuffer) {
+        const segs = 36;
+        const ring = new Float32Array(segs * 3);
+        for (let i = 0; i < segs; i++) {
+          const a = (i / segs) * Math.PI * 2;
+          ring[i * 3] = Math.cos(a) * MODEL_HALF_EXTENT;
+          ring[i * 3 + 1] = Math.sin(a) * MODEL_HALF_EXTENT;
+          ring[i * 3 + 2] = 0;
+        }
+        this.ringBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, ring, gl.STATIC_DRAW);
+      }
+      if (this.uAnchor) gl.uniform3f(this.uAnchor, this.anchor.mercX, this.anchor.mercY, this.anchor.altMeters);
+      if (this.uRot) gl.uniformMatrix3fv(this.uRot, false, new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]));
+      if (this.uScale) gl.uniform1f(this.uScale, ((RING_PIXELS / MODEL_HALF_EXTENT) * 2) / h);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
+      if (this.aPos >= 0) {
+        gl.enableVertexAttribArray(this.aPos);
+        gl.vertexAttribPointer(this.aPos, 3, gl.FLOAT, false, 0, 0);
+      }
+      // constant-attribute trick (airLayer precedent): flat normal + the
+      // focus amber, no per-vertex buffers needed for a chrome ring
+      if (this.aNor >= 0) { gl.disableVertexAttribArray(this.aNor); gl.vertexAttrib3f(this.aNor, 0, 0, 1); }
+      if (this.aCol >= 0) { gl.disableVertexAttribArray(this.aCol); gl.vertexAttrib3f(this.aCol, 1.0, 0.82, 0.4); }
+      gl.drawArrays(gl.LINE_LOOP, 0, 36);
     }
 
     gl.disable(gl.CULL_FACE);

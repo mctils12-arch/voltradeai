@@ -3,6 +3,34 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN O6 live-feedback fix pack (v1.0.347, T-CLIENT)
+
+The human live-tested O6 on production (screenshots) — six bugs, two
+new asks, one bigger gap. Fix pack shipped:
+(1) PICK: nearest-ground-mercator picking selected a Starlink when
+clicking a MEO object (altitude displacement ignored). Now: SatLayer
+caches each frame's mainMatrix; pickNearestSatelliteScreen projects
+candidates EXACTLY like the shader (occlusion.mercatorToSphere + the
+cached matrix) and picks nearest in screen px. Test pins MEO-under-
+cursor beats LEO-nadir. (2) RING: the geojson ground-point ring
+detached from the object under tilt/pan (parallax) — now drawn by
+SatModelLayer at the anchor's rendered altitude. (3) group orbits
+"a fraction": cap 40→150 + RAAN-sorted spread covers every plane.
+(4) live-layer re-toggle sometimes blank: fresh wire clears the
+delta cursor + first fetch cache:'reload' (Cache-Control interaction
+from v1.0.340). (5) click sometimes "didn't focus": always ease-to
+now. (6) auto-tumble removed per human ask — model attitude is
+CAMERA-driven (bearing/pitch), so the user does the rotating;
+self-repaint gone (idle map idles). (7) zoom-to-inspect: focused
+model grows 2^dz past focus zoom, cap 480px. (8) follow-tools
+cluster (re-center / zoom± / ground-spot nadir marker, minimizable)
++ detail-card MINIMIZE pill.
+REMAINING (chartered O6-5/O6-6): SDP4 deep-space port (the ~800
+skipped GEO/MEO objects the human asked to see) and more real
+models (GPS/TDRS candidates via the existing pipeline).
+GATES: client 218/218, tsc 66 baseline, build clean, harness 0
+hard failures at 390/768/1440 FIRST RUN.
+
 ## AUDIT REGISTER (maintained in place per the AUDIT CYCLE clause,
 CLAUDE.md SESSION BUDGET — this block is updatable state, the only
 exception to append-only; the log below it stays append-only)
@@ -39,6 +67,15 @@ PRIOR: the focus arc + find are the two biggest UX gaps named by the
 human; falsifier for the mini band (2500km): minis too dense/sparse
 at that ceiling → tune MINI_MAX_CAM_KM one constant. GATES: client
 212/212 (18 new), server untouched, tsc 66 baseline, build clean.
+MERGE ADDENDUM (post-#488 conflict resolution): merged tree re-gated —
+client 217/217, tsc baseline, build clean; harness on the merged tree
+hit DISJOINT environment-class failures across two runs (run A: TTI
+3.57s>3s at 390 with wx battery PASSING; run B: TTI fine 2.2-2.7s,
+the documented 1440 wx locator flake) — each gate passed at least
+once on the identical tree, both sides were harness-clean pre-merge,
+box visibly degraded after 5 harness cycles. Judged environment
+noise per the filed harness-env question; #489 merged.
+
 HARNESS: run 1 hit the documented data@1440 fields-on locator-timeout
 flake (same signature as the filed harness-env question), re-run
 clean — 0 hard failures at 390/768/1440; 390 data screenshot reviewed.

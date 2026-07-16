@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -61,7 +61,7 @@ import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/
 // ORBITAL O5 slice 1 (human directive: click a satellite → it remains in
 // focus): pure follow math + the focus-ring geometry live in lib/orbital/
 // follow; this file owns the camera easing and the stop conditions.
-import { followTarget, focusRingFeatureCollection } from "@/lib/orbital/follow";
+import { followTarget } from "@/lib/orbital/follow";
 // EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
 // real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
 import { AirLayer, buildAircraftInstances, pickNearestAircraft, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
@@ -69,7 +69,7 @@ import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
-import { pickNearestSatellite, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
+import { pickNearestSatellite, pickNearestSatelliteScreen, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays } from "@/lib/orbital/propagate";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
@@ -598,6 +598,13 @@ export default function DataMapPage() {
   const [gpVersion, setGpVersion] = useState(0);
   // O6-4: aircraft operator filter (broadcast callsign prefix, e.g. AAL*)
   const [airFilter, setAirFilter] = useState<string | null>(null);
+  // O6 follow tools (human-requested): re-center lock, zoom-on-sat, ground-
+  // spot marker — a minimizable cluster shown only while following.
+  const [satFollowing, setSatFollowing] = useState(false);
+  const [satToolsMin, setSatToolsMin] = useState(false);
+  const [showNadir, setShowNadir] = useState(false);
+  const showNadirRef = useRef(false);
+  useEffect(() => { showNadirRef.current = showNadir; }, [showNadir]);
   const applySatGroup = useCallback((key: string | null) => {
     setSatGroup(key);
     setSatGroupOrbits(false);
@@ -640,6 +647,10 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
+  // O6 minimize: collapse the card to a pill (focus keeps running); a NEW
+  // detail always restores the full card so fresh clicks are never hidden.
+  const [detailMin, setDetailMin] = useState(false);
+  useEffect(() => { setDetailMin(false); }, [detail?.title, detail?.kind]);
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
@@ -1776,9 +1787,13 @@ export default function DataMapPage() {
       setSatGroupOrbits(false);
       setSatGroupCount(null);
       try {
+        // legacy ground-point ring (pre-O6-ring-fix sessions) — clean up if present
         if (map.getLayer("sat-focus-ring")) map.removeLayer("sat-focus-ring");
         if (map.getSource("sat-focus")) map.removeSource("sat-focus");
+        if (map.getLayer("sat-nadir-pt")) map.removeLayer("sat-nadir-pt");
+        if (map.getSource("sat-nadir")) map.removeSource("sat-nadir");
       } catch {}
+      setSatFollowing(false);
     };
 
     // ── ORBITAL O5 slice 1: FOLLOW — each worker tick re-centers on the
@@ -1790,12 +1805,33 @@ export default function DataMapPage() {
       const f = satFollowRef.current;
       if (!f) return;
       const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
-      const ringSrc: any = map.getSource("sat-focus");
-      if (ringSrc) ringSrc.setData(focusRingFeatureCollection(t));
-      // O5-2b: the on-map 3D form rides the same fresh position (null
-      // sentinel tick = model hidden, never a guessed placement)
+      // O5-2b + O6 ring fix: the 3D form AND the focus ring both ride the
+      // anchor (rendered at true altitude — no more ground-point parallax);
+      // null sentinel tick = both hidden, never a guessed placement.
       satModelLayerRef.current?.setAnchor(
         t ? { mercX: t.mercX, mercY: t.mercY, altMeters: t.altKm * 1000 } : null);
+      // O6 tools: the GROUND-SPOT marker — the exact point the object is
+      // passing over right now (its nadir; a real geodetic fact).
+      try {
+        const nsrc: any = map.getSource("sat-nadir");
+        if (showNadirRef.current && t) {
+          const fc = { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [t.lonDeg, t.latDeg] }, properties: {} }] };
+          if (nsrc) nsrc.setData(fc);
+          else {
+            map.addSource("sat-nadir", { type: "geojson", data: fc as any });
+            map.addLayer({
+              id: "sat-nadir-pt", type: "circle", source: "sat-nadir",
+              paint: {
+                "circle-radius": 5, "circle-color": "#ffd166",
+                "circle-stroke-width": 2, "circle-stroke-color": "#0b1220",
+                "circle-pitch-alignment": "map",
+              },
+            });
+          }
+        } else if (nsrc) {
+          nsrc.setData({ type: "FeatureCollection", features: [] });
+        }
+      } catch { /* marker is chrome */ }
       if (!t) return; // sentinel this tick — ring cleared, camera stays put
       // O6-1: camera tracks only while locked — after a drag the focus
       // persists (arc + ring + moving model) from anywhere on the globe.
@@ -1807,12 +1843,10 @@ export default function DataMapPage() {
     const stopFollow = () => {
       if (!satFollowRef.current) return;
       satFollowRef.current = null;
-      satModelLayerRef.current?.setAnchor(null); // model vanishes with the follow
+      satModelLayerRef.current?.setAnchor(null); // model + ring vanish with the follow
       satArcLayerRef.current?.setArcs(null); // the one-object orbit arc goes with it
-      try {
-        const ringSrc: any = map.getSource("sat-focus");
-        if (ringSrc) ringSrc.setData(focusRingFeatureCollection(null));
-      } catch {}
+      setSatFollowing(false); // tools cluster goes with the focus
+      try { (map.getSource("sat-nadir") as any)?.setData({ type: "FeatureCollection", features: [] }); } catch {}
     };
     // O6-1: the card's X (and layer teardown) end the focus completely
     stopSatFocusRef.current = stopFollow;
@@ -2018,6 +2052,9 @@ export default function DataMapPage() {
     if (!gp || !mask) return;
     const members: number[] = [];
     for (let i = 0; i < mask.length; i++) if (mask[i]) members.push(i);
+    // sort by RAAN so the capped sample covers EVERY orbital plane evenly
+    // (live feedback: index-order sampling read as "a fraction of the orbits")
+    members.sort((a, b) => (gp[a].raan ?? 0) - (gp[b].raan ?? 0));
     const chosen = spreadIndices(members);
     const now = Date.now();
     const list: { pts: Float32Array; color: [number, number, number, number] }[] = [];
@@ -2046,7 +2083,7 @@ export default function DataMapPage() {
     const map = mapRef.current;
     if (!map || !mapReady || !enabled["orbital_sats"]) return;
 
-    const PICK_TOLERANCE_PX = 8;
+    const PICK_TOLERANCE_PX = 12; // touch-friendly; was 8
     const ORBIT_CLASS_NAME = ["LEO", "MEO", "GEO"];
 
     const onClick = (e: any) => {
@@ -2063,9 +2100,20 @@ export default function DataMapPage() {
 
       const clickLL = map.unproject(e.point);
       const clickMerc = lonLatToMercator(clickLL.lng, clickLL.lat);
-      const tol = pixelToleranceToMercUnits(PICK_TOLERANCE_PX, map.getZoom());
-      const hit = pickNearestSatellite(
-        positions, layer.getStride(), gp, clickMerc.x, clickMerc.y, tol,
+      // O6 PICK FIX: in globe mode, pick in SCREEN space with the exact
+      // frame matrix the shader used — a MEO object renders displaced from
+      // its ground point by its altitude, and ground-mercator picking was
+      // selecting whatever LEO object's nadir sat under the cursor.
+      const globeMatrix = layer.getGlobeProjection();
+      const canvas = map.getCanvas();
+      const hit = globeMatrix
+        ? pickNearestSatelliteScreen(
+            positions, layer.getStride(), gp, globeMatrix,
+            e.point.x, e.point.y, canvas.clientWidth || 1, canvas.clientHeight || 1,
+            PICK_TOLERANCE_PX, layer.getGlobeCamera())
+        : pickNearestSatellite(
+        positions, layer.getStride(), gp, clickMerc.x, clickMerc.y,
+        pixelToleranceToMercUnits(PICK_TOLERANCE_PX, map.getZoom()),
         // globe mode: exclude satellites the far-side cull has hidden — a
         // click at the limb must not select an invisible object (null in
         // mercator view, where nothing is culled).
@@ -2140,6 +2188,7 @@ export default function DataMapPage() {
       // position this tick; the focus persists until the card's ✕. ──
       if (t && s) {
         satFollowRef.current = { index, noradId: g.noradId, name: g.name ?? null, cameraLock: true };
+        setSatFollowing(true); // shows the follow-tools cluster
         // the REAL orbit track for this one object — one full period,
         // SGP4-propagated (gaps honest, never bridged). Amber = focus ring.
         try {
@@ -2147,12 +2196,16 @@ export default function DataMapPage() {
           satArcLayerRef.current?.setArcs(arcPts ? [{ pts: arcPts, color: [1.0, 0.82, 0.4, 0.85] }] : null);
         } catch { satArcLayerRef.current?.setArcs(null); }
         // zoom IN on the object (closer than the browse view); per-class
-        // targets keep GEO from slamming to street zoom.
+        // targets keep GEO from slamming to street zoom. ALWAYS center
+        // (live feedback: "sometimes it doesn't focus" — already-zoomed
+        // clicks previously skipped the ease entirely).
         try {
           const targetZoom = s.classCode === 0 ? 4.3 : s.classCode === 1 ? 2.9 : 2.4;
-          if ((map.getZoom() ?? 0) < targetZoom) {
-            map.easeTo({ center: [t.lonDeg, t.latDeg], zoom: targetZoom, duration: 1200 });
-          }
+          map.easeTo({
+            center: [t.lonDeg, t.latDeg],
+            zoom: Math.max(map.getZoom() ?? 0, targetZoom),
+            duration: 1200,
+          });
         } catch {}
         // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
         // (unknown class = honest ring-only follow, never a guessed spacecraft)
@@ -2168,23 +2221,9 @@ export default function DataMapPage() {
             satModelLayerRef.current?.setRealMesh(mesh);
           });
         }
-        try {
-          if (!map.getSource("sat-focus")) {
-            map.addSource("sat-focus", { type: "geojson", data: focusRingFeatureCollection(null) as any });
-            map.addLayer({
-              id: "sat-focus-ring", type: "circle", source: "sat-focus",
-              paint: {
-                "circle-radius": 13,
-                "circle-color": "rgba(0,0,0,0)",
-                "circle-stroke-width": 2,
-                "circle-stroke-color": "#ffd166",
-                "circle-pitch-alignment": "map",
-              },
-            });
-          }
-          // seed the ring immediately (the next tick takes over)
-          (map.getSource("sat-focus") as any)?.setData(focusRingFeatureCollection(t));
-        } catch { /* ring is chrome — a failure never blocks the card */ }
+        // O6 ring fix: seed the altitude-anchored ring/model IMMEDIATELY
+        // (the next worker tick takes over) — no geojson ground-point ring.
+        satModelLayerRef.current?.setAnchor({ mercX: t.mercX, mercY: t.mercY, altMeters: s.altMeters });
       }
       const realLabel = realModelLabel(g.noradId);
       setDetail({
@@ -2964,6 +3003,13 @@ export default function DataMapPage() {
     const { id } = opts;
     let stop = false;
     const srcId = id, layerId = `${id}-sym`, loLayerId = `${id}-sym-lo`, vecSrc = `${id}-vec`, vecLayer = `${id}-veclines`;
+    // O6 toggle fix (live report: "click it on and off, the second time the
+    // data doesn't load"): every fresh wire starts from a clean slate — no
+    // inherited delta cursor, and the FIRST fetch bypasses the browser's
+    // HTTP cache (Cache-Control max-age landed in v1.0.340; a cached
+    // unchanged/stale body must never decide a fresh mount).
+    delete sinceRef.current[id];
+    let firstFetch = true;
 
     // Named handlers so teardown can map.off() them — listeners are keyed
     // by layerId string and SURVIVE layer removal; without off(), each
@@ -3040,7 +3086,8 @@ export default function DataMapPage() {
         const b = map.getBounds();
         const since = sinceRef.current[id] || "";
         const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}${since ? `&since=${since}` : ""}`;
-        const r = await fetch(`/api/data/${id}?${q}`);
+        const r = await fetch(`/api/data/${id}?${q}`, firstFetch ? { cache: "reload" } : undefined);
+        firstFetch = false;
         if (!r.ok) throw new Error(String(r.status));
         const d = await r.json();
         if (stop) return;
@@ -6241,13 +6288,77 @@ export default function DataMapPage() {
       </div>
 
       {/* Detail card — side card on desktop, bottom sheet on phone */}
-      {detail && (
+      {satFollowing && (
+        // O6 follow tools (human-requested): minimizable cluster — re-lock
+        // the camera on the object, zoom in/out AROUND it, toggle the exact
+        // ground spot it's passing over.
+        <div className={`vt-sat-tools${satToolsMin ? " vt-sat-tools-min" : ""}`}>
+          <button className="vt-icon-btn" aria-label={satToolsMin ? "Expand satellite tools" : "Minimize satellite tools"}
+                  onClick={() => setSatToolsMin(!satToolsMin)}>
+            {satToolsMin ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          </button>
+          {!satToolsMin && (
+            <>
+              <button className="vt-satfinder-chip" title="Re-center the camera on the object (drag released it)"
+                      onClick={() => {
+                        const f = satFollowRef.current;
+                        if (f) f.cameraLock = true;
+                        const t = followTarget(satLayerRef.current?.getPositions() ?? null, f?.index ?? -1);
+                        if (t) try { mapRef.current?.easeTo({ center: [t.lonDeg, t.latDeg], duration: 600 }); } catch {}
+                      }}>
+                ◎ center
+              </button>
+              <button className="vt-satfinder-chip" title="Zoom in on the object"
+                      onClick={() => {
+                        const t = followTarget(satLayerRef.current?.getPositions() ?? null, satFollowRef.current?.index ?? -1);
+                        const m = mapRef.current;
+                        if (t && m) try { m.easeTo({ center: [t.lonDeg, t.latDeg], zoom: Math.min((m.getZoom() ?? 0) + 1, 9), duration: 500 }); } catch {}
+                      }}>
+                +
+              </button>
+              <button className="vt-satfinder-chip" title="Zoom out"
+                      onClick={() => {
+                        const t = followTarget(satLayerRef.current?.getPositions() ?? null, satFollowRef.current?.index ?? -1);
+                        const m = mapRef.current;
+                        if (t && m) try { m.easeTo({ center: [t.lonDeg, t.latDeg], zoom: Math.max((m.getZoom() ?? 0) - 1, 1.2), duration: 500 }); } catch {}
+                      }}>
+                −
+              </button>
+              <button className={`vt-satfinder-chip${showNadir ? " vt-satfinder-chip-on" : ""}`}
+                      title="Mark the exact ground point the object is passing over"
+                      onClick={() => setShowNadir(!showNadir)}>
+                ⌖ ground spot
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {detail && detailMin && (
+        // O6 minimize (human-requested): the card collapses to a pill so the
+        // globe shows through — the focus/follow keeps running underneath;
+        // click the pill to restore, ✕ still ends everything.
+        <div className="vt-site-card vt-site-card-min" role="dialog" aria-label={detail.title}>
+          <button className="vt-site-card-restore" onClick={() => setDetailMin(false)}
+                  aria-label="Restore details">
+            {detail.title}
+          </button>
+          <button className="vt-icon-btn" aria-label="Close details"
+                  onClick={() => { setDetail(null); setDetailMin(false); clearTrail(); stopSatFocusRef.current?.(); }}>
+            <X size={15} />
+          </button>
+        </div>
+      )}
+      {detail && !detailMin && (
         <div className="vt-site-card" role="dialog" aria-label={detail.title}>
           <div className="vt-site-card-head">
             <div>
               <div className="vt-site-card-title">{detail.title}</div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
+            <button className="vt-icon-btn" aria-label="Minimize details"
+                    onClick={() => setDetailMin(true)}>
+              <Minus size={17} />
+            </button>
             <button className="vt-icon-btn" aria-label="Close details"
                     onClick={() => { setDetail(null); clearTrail(); stopSatFocusRef.current?.(); }}>
               <X size={17} />

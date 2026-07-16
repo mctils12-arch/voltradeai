@@ -85,10 +85,12 @@ export function applyGroupSentinel(buf: Float32Array, mask: Uint8Array | null): 
   return out;
 }
 
-/** Max simultaneous group orbit arcs — beyond this the sky is unreadable
- *  and the one-shot SGP4 sampling cost climbs; the UI must SAY when the
- *  cap bites (sampled evenly across the group, never silently). */
-export const GROUP_ARC_CAP = 40;
+/** Max simultaneous group orbit arcs — beyond this the one-shot SGP4
+ *  sampling cost climbs and the sky saturates; the UI must SAY when the
+ *  cap bites (sampled evenly ACROSS ORBITAL PLANES, never silently).
+ *  Raised 40→150 after live feedback ("a fraction of the orbits"):
+ *  callers sort members by RAAN first, so the sample covers every plane. */
+export const GROUP_ARC_CAP = 150;
 
 /** Evenly-spread member indices under the cap (deterministic). */
 export function spreadIndices(members: number[], cap: number = GROUP_ARC_CAP): number[] {
