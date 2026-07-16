@@ -56,6 +56,17 @@
       }
     },
     {
+      "id": "daynight",
+      "name": "Day/Night & Moon",
+      "kind": "raw",
+      "status": "live",
+      "group": "base",
+      "costTier": "light",
+      "source": "Computed ephemeris (Meeus low-precision solar/lunar series) — pure computation, no external feed",
+      "description": "The live day/night terminator shading the night side of the globe, with the subsolar point (where the sun is directly overhead right now) and the sublunar point (where the moon is overhead) carrying its real phase. HONESTY: display-grade ephemeris — subsolar good to ~0.01°, sublunar to ~1° (truncated lunar series); shading clamps at ±85° latitude (web-mercator limit). Computed, labeled as such — never presented as survey ephemeris.",
+      "field": false
+    },
+    {
       "id": "weather",
       "name": "Weather radar (US)",
       "kind": "raw",
