@@ -34,6 +34,7 @@ import type {
   Map as MapLibreMap,
 } from 'maplibre-gl';
 import { lonLatToMercator } from '../orbital/satBuffer.js';
+import { mercatorToSphere } from '../orbital/occlusion.js';
 
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above. */
 export const AIR_3D_MIN_ZOOM = 8;
@@ -215,6 +216,41 @@ export function pickNearestAircraft(
   return best;
 }
 
+/**
+ * SCREEN-SPACE picking for full globe mode (live bug: at 45° tilt a plane
+ * renders displaced from its ground point by altitude — ground-mercator
+ * picking missed it entirely). Projects each instance with the SAME frame
+ * matrix the shader used (AirLayer.getGlobeProjection) — the pick agrees
+ * with the pixels. Mirrors pick.ts's satellite fix.
+ */
+export function pickNearestAircraftScreen(
+  inst: Float32Array | null,
+  matrix: ArrayLike<number>,
+  clickX: number,
+  clickY: number,
+  width: number,
+  height: number,
+  tolerancePx: number,
+): number {
+  if (!inst || inst.length < AIR_INST_STRIDE) return -1;
+  const n = Math.floor(inst.length / AIR_INST_STRIDE);
+  let best = -1;
+  let bestD2 = tolerancePx * tolerancePx;
+  for (let i = 0; i < n; i++) {
+    const base = i * AIR_INST_STRIDE;
+    const p = mercatorToSphere(inst[base], inst[base + 1], inst[base + 2]);
+    const w = matrix[3] * p[0] + matrix[7] * p[1] + matrix[11] * p[2] + matrix[15];
+    if (!(w > 0)) continue;
+    const cx = (matrix[0] * p[0] + matrix[4] * p[1] + matrix[8] * p[2] + matrix[12]) / w;
+    const cy = (matrix[1] * p[0] + matrix[5] * p[1] + matrix[9] * p[2] + matrix[13]) / w;
+    const dx = ((cx + 1) / 2) * width - clickX;
+    const dy = ((1 - cy) / 2) * height - clickY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD2) { bestD2 = d2; best = i; }
+  }
+  return best;
+}
+
 /** Silhouette length on screen in px (the focused-traffic size at z8+). */
 export const AIR_PIXELS = 30;
 const LOCAL_EXTENT = 1.24; // silhouette spans ~[-0.62, 0.62]
@@ -315,6 +351,8 @@ export class AirLayer implements CustomLayerInterface {
   private count = 0;
   private altScale = 1;
   private renderFailed = false;
+  private lastMainMatrix: Float32Array | null = null;
+  private lastTransition = 0;
 
   constructor(opts: { id?: string } = {}) {
     this.id = opts.id ?? 'aircraft-3d';
@@ -369,6 +407,13 @@ export class AirLayer implements CustomLayerInterface {
     return this.renderFailed;
   }
 
+  /** Last frame's projection matrix — non-null only in full globe mode
+   *  (the CPU sphere math mirrors the GPU there). Null = mercator pick. */
+  getGlobeProjection(): Float32Array | null {
+    if (!this.lastMainMatrix || this.lastTransition <= 0.999) return null;
+    return this.lastMainMatrix;
+  }
+
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
     if (this.renderFailed) return;
     if (!this.inst || this.count === 0) return;
@@ -395,6 +440,11 @@ export class AirLayer implements CustomLayerInterface {
     gl.useProgram(this.program);
 
     const pd = args.defaultProjectionData;
+    // pick fix: cache this frame's projection so CPU picking projects
+    // instances EXACTLY like the shader (altitude included)
+    if (!this.lastMainMatrix) this.lastMainMatrix = new Float32Array(16);
+    this.lastMainMatrix.set(pd.mainMatrix as ArrayLike<number>);
+    this.lastTransition = pd.projectionTransition;
     if (this.uProjMatrix) gl.uniformMatrix4fv(this.uProjMatrix, false, pd.mainMatrix);
     if (this.uProjTile) {
       gl.uniform4f(this.uProjTile,

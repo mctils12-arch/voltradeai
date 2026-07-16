@@ -43,7 +43,7 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // class-representative form drawn at its live position on the globe.
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
 import { ArcLayer } from "@/lib/orbital/arcLayer";
-import { sampleOrbitArc } from "@/lib/orbital/orbitArc";
+import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
 import { raanColor } from "@/lib/orbital/orbitArc";
@@ -66,7 +66,7 @@ import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/
 import { followTarget } from "@/lib/orbital/follow";
 // EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
 // real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
-import { AirLayer, buildAircraftInstances, pickNearestAircraft, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
+import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -593,6 +593,10 @@ export default function DataMapPage() {
   // releases to free camera; null = free camera, focus persists until ✕.
   const satFollowRef = useRef<{ index: number; noradId: number; name: string | null; lockMode: "sat" | "ground" | null } | null>(null);
   const satArcLayerRef = useRef<ArcLayer | null>(null);
+  // O6 aircraft 3D trail (human directive: "see the line from the airport
+  // and how it came up to alt") — reuses the generic ArcLayer; fed from the
+  // ARCHIVED track (real altitudes; unknown-altitude points = honest gaps).
+  const airTrail3dRef = useRef<ArcLayer | null>(null);
   const stopSatFocusRef = useRef<(() => void) | null>(null);
   // O6-3 find & group: search focuses via the same path as a click; a group
   // filters the sky by writing the layer's own sentinel into non-members.
@@ -1092,6 +1096,7 @@ export default function DataMapPage() {
       if (map.getLayer("trail-line")) map.removeLayer("trail-line");
       if (map.getSource("trail")) map.removeSource("trail");
     } catch {}
+    try { airTrail3dRef.current?.setArcs(null); } catch {}
   };
 
   /** Fetch the archived track and paint/refresh the trail. On refresh the
@@ -1125,6 +1130,32 @@ export default function DataMapPage() {
             paint: { "line-color": "#7cc4ff", "line-width": 2, "line-opacity": 0.8, "line-dasharray": [1, 1.5] },
           });
         }
+      }
+      // O6: the 3D TRACK — the same archived points at their REAL recorded
+      // altitude (climb-out from the airport reads as a rising line). Points
+      // without a broadcast altitude become honest GAPS in the 3D line (the
+      // flat dashed trail above still shows the position). Aircraft only —
+      // vessels/trains live at the surface.
+      if (kind === "aircraft") {
+        try {
+          const p3 = new Float32Array(raw.length * 3);
+          for (let i = 0; i < raw.length; i++) {
+            const m = lonLatToMercator(raw[i].lo, raw[i].la);
+            const al = (raw[i] as any).al;
+            p3[i * 3] = m.x;
+            p3[i * 3 + 1] = m.y;
+            p3[i * 3 + 2] = al == null ? ARC_GAP : Math.max(0, al);
+          }
+          let arcs = airTrail3dRef.current;
+          if (!arcs) {
+            arcs = new ArcLayer({ id: "aircraft-trail-3d" });
+            airTrail3dRef.current = arcs;
+          }
+          if (!map.getLayer("aircraft-trail-3d")) map.addLayer(arcs);
+          arcs.setArcs(raw.length >= 2 ? [{ pts: p3, color: [0.49, 0.77, 1.0, 0.9] }] : null);
+        } catch { /* the flat trail still works */ }
+      } else {
+        try { airTrail3dRef.current?.setArcs(null); } catch {}
       }
       (window as any).__vtTrailLen = pts.length; // harness ratchet reads this
       return {
@@ -3488,7 +3519,7 @@ export default function DataMapPage() {
           subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
           body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
                 `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
-                `trail below is our own archived feed history.`,
+                `trail is our own archived feed history — the 3D line climbs at the RECORDED altitude (gaps where altitude wasn't broadcast).`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
@@ -3519,15 +3550,29 @@ export default function DataMapPage() {
     // E3 picking above the hand-off zoom: custom layers have no
     // queryRenderedFeatures (the satellite-picking precedent) — CPU nearest
     // over the instance buffer; any real rendered feature keeps priority.
+    // PICK FIX (live bug: at 45° tilt the plane renders displaced by its
+    // altitude — ground-mercator picking never registered the click).
+    // Globe mode projects instances with the frame matrix (screen-space);
+    // mercator mode keeps the ground pick.
+    const pickAir = (e: any, tolPx: number): number => {
+      const matrix = airLayer.getGlobeProjection();
+      if (matrix) {
+        const canvas = map.getCanvas();
+        return pickNearestAircraftScreen(
+          airLayer.getInstances(), matrix, e.point.x, e.point.y,
+          canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx);
+      }
+      const ll = map.unproject(e.point);
+      const merc = lonLatToMercator(ll.lng, ll.lat);
+      return pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, pixelToleranceToMercUnits(tolPx, map.getZoom()));
+    };
     const onAir3dClick = (e: any) => {
       if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
       let atPoint: unknown[] = [];
       try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
       if (atPoint.length > 0) return; // a feature-scoped handler owns this click
       const ll = map.unproject(e.point);
-      const merc = lonLatToMercator(ll.lng, ll.lat);
-      const tol = pixelToleranceToMercUnits(12, map.getZoom());
-      const idx = pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, tol);
+      const idx = pickAir(e, 12);
       if (idx < 0) return;
       const a = airRows[idx];
       if (!a) return;
@@ -3557,10 +3602,7 @@ export default function DataMapPage() {
         let atPoint: unknown[] = [];
         try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
         if (atPoint.length > 0) { hideHoverTip(); return; } // a feature-scoped layer owns this pixel
-        const ll = map.unproject(e.point);
-        const merc = lonLatToMercator(ll.lng, ll.lat);
-        const tol = pixelToleranceToMercUnits(10, map.getZoom());
-        const idx = pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, tol);
+        const idx = pickAir(e, 10);
         const a = idx >= 0 ? airRows[idx] : null;
         if (!a) { hideHoverTip(); return; }
         const alt = a.on_ground ? "on ground" : (a.altitude_m != null ? fmtMeters(a.altitude_m) : "alt unknown");
