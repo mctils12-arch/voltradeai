@@ -3,6 +3,26 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [REPAIR] — atmosphere pass = real perf regression; adaptive GL tier (v1.0.363) · wave harness VERDICT: 0 hard failures
+
+The solo harness re-run FALSIFIED the contention hypothesis below —
+data medians were up at every width (390: 50→83, 768: →233, 1440:
+→317ms; scaling with viewport area = fragment-bound). Causal ABA
+probe (SwiftShader @1440, runtime setSky toggle, no rebuild): 288ms
+median with the v1.0.359 always-on atmosphere pass → 126ms at
+atmosphere-blend 0 → 276ms restored. ~156ms/frame. FIX (v1.0.363):
+renderer detection via WEBGL_debug_renderer_info — SwiftShader/
+llvmpipe/softpipe get SOFTWARE_GL_SKY (horizon/fog kept,
+atmosphere-blend PINNED 0 — spec default is 0.8, omission ≠ off);
+real GPUs keep the full limb glow. Verified both directions:
+shipped build auto-detects → 131ms; forcing full sky → 292ms.
+FINAL SOLO HARNESS (the wave's verdict of record): 0 hard failures
+at 390/768/1440; data medians 50/117/150ms (p95 67/183/217) — at or
+better than the pre-wave baseline; the @1440 fields-on driver
+timeout disappeared with the jank (it was a symptom, not a flake).
+LESSON RATCHETED: 'contention' is a hypothesis to falsify, not a
+verdict — the failure was real and the re-run protocol caught it.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN 4-agent integration wave (v1.0.358-362)
 
 Parent session reviewed + integrated all four worktree agents
