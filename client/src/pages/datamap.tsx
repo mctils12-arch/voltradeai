@@ -50,7 +50,7 @@ import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
 import { SatFinder } from "@/components/SatFinder";
-import { classForm, formLabel } from "@/lib/orbital/model3d";
+import { classFormNamed, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
 import { AIRLINE_PRESETS, applyAirlineFilter } from "@/lib/air/airFilter";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
@@ -2209,7 +2209,7 @@ export default function DataMapPage() {
         } catch {}
         // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
         // (unknown class = honest ring-only follow, never a guessed spacecraft)
-        satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
+        satModelLayerRef.current?.setForm(sc ? classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name) : null);
         // O5-3b: REAL model where a verified public asset exists. Cleared
         // FIRST so the previous target's model never rides this orbit.
         satModelLayerRef.current?.setRealMesh(null);
@@ -2242,7 +2242,7 @@ export default function DataMapPage() {
           t ? "Orbit track shown: one full period, SGP4-propagated from the epoch elements — the real path, not a drawn ellipse." : null,
           t && realLabel
             ? `On-map 3D: ${realLabel}.`
-            : t && sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
+            : t && sc ? `On-map 3D: ${formLabel(classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name))}.` : null,
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{

@@ -8,7 +8,7 @@
 // bounds draw calls; the count is surfaced by the caller, never silent.
 
 import { SAT_STRIDE } from './satBuffer.js';
-import { classForm, type FormKind } from './model3d.js';
+import { classFormNamed, type FormKind } from './model3d.js';
 import type { GpRecord, SatcatRecord } from './tle.js';
 
 /** Band ceiling: minis appear when the camera is below this altitude (and
@@ -34,7 +34,7 @@ export function formsFromSatcat(
 ): (FormKind | null)[] {
   return gp.map((g) => {
     const sc = byNorad.get(g.noradId);
-    return sc ? classForm(sc.objectType, sc.rcsSize) : null;
+    return sc ? classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name) : null;
   });
 }
 
