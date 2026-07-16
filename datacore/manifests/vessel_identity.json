@@ -1,0 +1,23 @@
+{
+ "stream": "vessel_identity",
+ "storage": "volume JSONL <archive>/vessel_identity/registry.jsonl (single append-only file, NOT hour-bucketed — a slowly-changing identity table, not a position firehose; deduped in-process so only a genuinely new (mmsi, imo) pairing is ever appended)",
+ "written_by": "server/vesselIdentity.ts recordIdentityObservation, called from server/routes.ts's ShipStaticData handler",
+ "source": "aisstream.io websocket ShipStaticData messages (ImoNumber/CallSign/Name fields, previously parsed nowhere — GIP BUILD QUEUE item 3, research/open_questions.md ~line 4105)",
+ "license": "aisstream.io free API terms (same as vessels.json)",
+ "attribution": "aisstream.io",
+ "schema_version": 1,
+ "field_map": {
+  "t": "unix sec UTC — first time this exact (mmsi, imo) pair was observed",
+  "mmsi": "MMSI at time of observation",
+  "imo": "IMO number (checksum-validated per IMO Res. A.600(15) before being recorded — invalid/absent IMOs are never written)",
+  "callsign": "as-broadcast call sign, optional",
+  "name": "as-broadcast vessel name at time of observation, optional"
+ },
+ "confidence_model": "IMO is a hull-lifetime identifier (unlike MMSI, which can be legally reflagged or illegally spoofed); a checksum-valid IMO co-occurring with >=2 distinct MMSIs in this registry is the published GFW/Park et al. 2023 hull-identity-change signal — a RAW observed fact from our own archive, not an interpreted shadow-fleet claim (ladder gate 1 still open, see open_questions.md)",
+ "geo_fields": [],
+ "entity_key": "imo (grouping key for reuse detection); mmsi (per-observation key)",
+ "sentiment": null,
+ "started": "2026-07-16",
+ "cadence": "event-driven — one new line per newly-observed (mmsi, imo) pair, not per message; registry stays trivially small indefinitely by construction",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Companion to vessels.json — same source stream, different message type (ShipStaticData vs PositionReport), no position fields since ShipStaticData carries none."
+}

@@ -35,6 +35,7 @@ import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, VESSEL_SNAPSHOT_TTL
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
+import { recordIdentityObservation } from "./vesselIdentity";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { buildDossier } from "./dossier";
@@ -978,12 +979,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (!mmsi) return;
           if (m.MessageType === "ShipStaticData") {
             const s = m.Message?.ShipStaticData || {};
+            const name = (s.Name || meta.ShipName || "").trim() || null;
             vesselStatics.set(mmsi, {
               shiptype: s.Type ?? null,
               destination: (s.Destination || "").trim() || null,
-              name: (s.Name || meta.ShipName || "").trim() || null,
+              name,
             });
             if (vesselStatics.size > 30_000) vesselStatics.clear();
+            // IMO/CallSign were previously parsed nowhere (GIP BUILD QUEUE
+            // item 3, research/open_questions.md ~line 4105) — checksum-
+            // valid pairings feed the vessel-identity registry that
+            // shadowFleet.ts's imo_confirmed_identity_changes reads.
+            recordIdentityObservation({ mmsi, imo: s.ImoNumber, callsign: s.CallSign, name });
             return;
           }
           if (m.MessageType !== "PositionReport") return;

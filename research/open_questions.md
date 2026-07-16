@@ -4111,6 +4111,40 @@ territory in their first commit)
      replace guessed nearKm/withinHours with published thresholds,
      emit envelope-carrying confidence-scored inferences.
      Zero licence exposure; survives monetization.
+     **BUILT 2026-07-16, v1.0.353 [PIPELINE], T-DATACORE.** `server/
+     vesselIdentity.ts` (NEW): `isValidImo()` (IMO Res. A.600(15)
+     checksum), a deduped append-only `vessel_identity/registry.jsonl`
+     registry (one line per NEW (mmsi, imo) pair ever observed — stays
+     trivially small forever, unlike the position firehose), and
+     `detectImoReuse()`/`imoIdentityStats()` (checksum-valid IMO under
+     >=2 distinct MMSIs = hull-identity-change candidate, the exact
+     GFW/Park et al. method this item asked for). Wired: `server/
+     routes.ts`'s `ShipStaticData` handler now parses `ImoNumber`/
+     `CallSign` (previously discarded — only shiptype/destination/name
+     were kept) and calls `recordIdentityObservation()`.
+     `server/shadowFleet.ts`'s `ShadowStats` gained
+     `imo_confirmed_identity_changes`/`imo_confirmed_examples`,
+     computed identically in both the sync (`statsFromTracks`) and
+     async (`ShadowAggregator.finish`) paths via a shared
+     `imoIdentityStats(baseDir)` call so the existing sync/async
+     byte-identical ratchet test stays intact — verified passing, not
+     just left unbroken by omission. RAW STATISTIC per the Map v2.2
+     boundary (extended `STATS_CAVEAT`): a checksum-verified
+     co-occurrence is an observed fact, not a shadow-fleet claim;
+     ladder gate 1 (validating against a documented reflag case) is
+     still open. New manifest `datacore/manifests/vessel_identity.json`
+     (UNIVERSAL ARCHIVE ENVELOPE — `server/manifests.test.ts`'s FORWARD
+     ENFORCEMENT test caught the missing manifest on first run, exactly
+     as designed). Zero new external data source — pure processing over
+     a message type already streaming in
+     (EDGE DOCTRINE #1/#3). STILL OPEN: this session shipped the
+     capture+detection pipeline only; the registry starts empty on
+     deploy; ladder gate 1 validation and any client-side surfacing of
+     `imo_confirmed_examples` are follow-ups once real reuse candidates
+     accumulate (most vessels' IMO never gets reused — this is a rare-
+     event detector by design, so "zero candidates for a while" is the
+     expected honest state, not a bug). Full trace in experiments.md's
+     2026-07-16 [PIPELINE] entry.
   4. MULTI-DATE IMAGERY — architecture decided: weekly OFFLINE chip
      pipeline (STAC per AOI, lowest-cloud scene per ISO week, TCI COG
      window read from s3://sentinel-cogs, WebP chip + metadata JSON

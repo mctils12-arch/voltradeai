@@ -23,6 +23,7 @@ import path from "path";
 import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
+import { imoIdentityStats, ImoReuseCandidate } from "./vesselIdentity";
 
 export interface ShadowZone { id: string; name: string; lat: number; lon: number; radius_km: number }
 
@@ -40,10 +41,22 @@ export interface ShadowStats {
   gap_events: number;
   gap_examples: GapEvent[];
   identity_candidates: number;
+  imo_confirmed_identity_changes: number;
+  imo_confirmed_examples: ImoReuseCandidate[];
   loiter_events: number;
   loiter_by_zone: Record<string, number>;
   caveat: string;
 }
+
+const STATS_CAVEAT =
+  "RAW statistics from our own terrestrial-AIS archive. A gap can be " +
+  "coverage loss, not dark sailing — per-vessel claims are SIGNAL-class " +
+  "and gated until validated against documented shadow-fleet vessels " +
+  "(ladder gate 1; see research/open_questions.md). imo_confirmed_* is a " +
+  "checksum-verified hull-continuity fact (a valid IMO number observed " +
+  "under >=2 distinct MMSIs) — a stronger, deterministic signal than the " +
+  "proximity/name-reappearance guess in identity_candidates, but still a " +
+  "RAW observed fact, not a shadow-fleet claim.";
 
 const kmBetween = (aLat: number, aLon: number, bLat: number, bLon: number) => {
   const R = 6371, dLat = ((bLat - aLat) * Math.PI) / 180, dLon = ((bLon - aLon) * Math.PI) / 180;
@@ -353,7 +366,8 @@ export class ShadowAggregator {
   private byName = new Map<string, Set<string>>();
   private inZone = new Map<string, { t0: number; t1: number; speeds: number[] }>(); // key mmsi|zone
   private gaps: GapEvent[] = [];
-  constructor(zones: ShadowZone[], private minGapHours = 6, private minDistanceKm = 100) {
+  constructor(zones: ShadowZone[], private minGapHours = 6, private minDistanceKm = 100,
+              private baseDir?: string) {
     this.zones = zones;
   }
   push(mmsi: string, p: Pt): void {
@@ -414,12 +428,10 @@ export class ShadowAggregator {
       gap_events: gaps.length,
       gap_examples: gaps.slice(0, 5),
       identity_candidates: identity,
+      ...imoIdentityStats(this.baseDir),
       loiter_events: Object.values(loiter).reduce((s, n) => s + n, 0),
       loiter_by_zone: loiter,
-      caveat: "RAW statistics from our own terrestrial-AIS archive. A gap can be " +
-              "coverage loss, not dark sailing — per-vessel claims are SIGNAL-class " +
-              "and gated until validated against documented shadow-fleet vessels " +
-              "(ladder gate 1; see research/open_questions.md).",
+      caveat: STATS_CAVEAT,
     };
   }
 }
@@ -429,7 +441,7 @@ export class ShadowAggregator {
  *  ratchet test. */
 export async function computeShadowStatsAsync(zones: ShadowZone[], windowHours = 72,
                                               baseDir?: string, nowMs?: number): Promise<ShadowStats> {
-  const agg = new ShadowAggregator(zones);
+  const agg = new ShadowAggregator(zones, undefined, undefined, baseDir);
   await foldVesselArchiveAsync(windowHours, (mmsi, p) => agg.push(mmsi, p), baseDir, nowMs);
   return agg.finish(windowHours);
 }
@@ -437,10 +449,11 @@ export async function computeShadowStatsAsync(zones: ShadowZone[], windowHours =
 export function computeShadowStats(zones: ShadowZone[], windowHours = 72,
                                    baseDir?: string, nowMs?: number): ShadowStats {
   const tracks = readVesselTracks(windowHours, baseDir, nowMs);
-  return statsFromTracks(tracks, zones, windowHours);
+  return statsFromTracks(tracks, zones, windowHours, baseDir);
 }
 
-function statsFromTracks(tracks: Map<string, Pt[]>, zones: ShadowZone[], windowHours: number): ShadowStats {
+function statsFromTracks(tracks: Map<string, Pt[]>, zones: ShadowZone[], windowHours: number,
+                         baseDir?: string): ShadowStats {
   let points = 0;
   for (const arr of tracks.values()) points += arr.length;
   const gaps = detectGapEvents(tracks);
@@ -452,11 +465,9 @@ function statsFromTracks(tracks: Map<string, Pt[]>, zones: ShadowZone[], windowH
     gap_events: gaps.length,
     gap_examples: gaps.slice(0, 5),
     identity_candidates: detectIdentityCandidates(tracks),
+    ...imoIdentityStats(baseDir),
     loiter_events: Object.values(loiter).reduce((s, n) => s + n, 0),
     loiter_by_zone: loiter,
-    caveat: "RAW statistics from our own terrestrial-AIS archive. A gap can be " +
-            "coverage loss, not dark sailing — per-vessel claims are SIGNAL-class " +
-            "and gated until validated against documented shadow-fleet vessels " +
-            "(ladder gate 1; see research/open_questions.md).",
+    caveat: STATS_CAVEAT,
   };
 }

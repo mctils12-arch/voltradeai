@@ -3,6 +3,195 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PIPELINE] — Vessel identity resolution: IMO checksum validation over our own AIS archive, replacing the proximity guess with a published method (v1.0.353, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/vesselIdentity.ts new, server/shadowFleet.ts,
+datacore/manifests/vessel_identity.json) + SHARED, minimal, last commit
+(server/routes.ts's ShipStaticData handler, 6 lines) + SHARED (package.json
+version bump, research/*.md bookkeeping). No FROZEN paths touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md read in full, all of
+research/ scanned. `scripts/session_health_check.py` run against prod
+(DIAG_TOKEN present in env): liveness OK, subsystems OK, daemon memory OK
+(165.6MB, well under trim_mb=400); two WARNs, both pre-existing and
+already-tracked, neither actionable with fresh evidence — `tier2_daemon_
+timeouts` (3 in window, KNOWN BROKEN #18, explicitly non-blocking per its
+own text) and `ml_feedback` (30 live records, all `orphan_exit`, KNOWN
+BROKEN #12(c) — and per the 2026-07-06 entry at experiments.md line
+~16324, this exact signature was already traced to `_manage_spy_floor()`'s
+entries structurally never calling `track_fill()`, with `orphan_exit`
+records correctly EXCLUDED from ML training by
+`test_fills_slippage_stats.py::test_orphan_exit_records_excluded` — not
+corrupting learning, just confirming the floor basket doesn't feed it,
+which is expected). No LIVENESS ALARM; alt-data enrichment (KNOWN BROKEN
+#21) had zero DIAGNOSTIC entries in the checked window (too early in the
+UTC day / thin cadence) — too few to judge either way, consistent with the
+2026-07-15 sessions' own "genuinely open, correctly left open" read, not a
+new signal. LOOP-HEALTH RATIO over the last 10 tagged entries (all dated
+2026-07-15/16, `grep -oE` count): 0 REPAIR / 8 PRODUCT / 2 PIPELINE — the
+opposite extreme from the 7+/10 REPAIR thrash threshold (a long EARTH TWIN
+PRODUCT/PIPELINE run, not a break-generation problem); no [RESEARCH]/
+[PIPELINE] starvation either (2 PIPELINE entries inside the window). No
+meta-problem override. Conclusion: no critical unfixed KNOWN BROKEN item
+blocks this session — proceeded per the REPAIR MANDATE's "otherwise" branch
+to EDGE DOCTRINE work.
+
+PRIMARY ACTION CHOICE: delegated a research pass (general-purpose agent,
+foreground) to find the single highest-value, immediately-actionable free-
+data pipeline given how much of EDGE DOCTRINE #1's own example list
+(EDGAR Form 4, USAspending, FDA calendar, CFTC COT, Sentinel-2 tank
+shadows, pytrends) is already built or already deliberately shelved
+(pytrends: upstream archived read-only 2025-04-17, see wishlist.md #4 and
+this file's own prior entries; tank-fill v2/v3: already FAILED ladder gate
+1, r~-0.06, do not resurrect without new evidence). The agent scanned
+wishlist.md, every BUILD ORDER/GIP BUILD QUEUE/DATA STREAM EXPANSION
+section in open_questions.md, and data_census.md/platform_program.md,
+cross-checking each nominally-open candidate against actual repo state
+(several "queued" items turned out already shipped). Its top pick, which
+I independently verified before writing any code (READ BEFORE WRITE):
+GIP BUILD QUEUE item 3, "VESSEL IDENTITY" (filed 2026-07-04, never built)
+— `server/routes.ts`'s aisstream.io `ShipStaticData` handler (confirmed at
+line 979) parses ONLY `Type`/`Destination`/`Name` out of a message that
+also carries `ImoNumber`/`CallSign`/`Dimension`, discarding the rest every
+single message. Confirmed via grep that no IMO field is captured or read
+anywhere in the repo — this is genuinely unbuilt, not already-done. EDGE
+DOCTRINE #1/#3 fit: zero new external data source, zero new key/signup —
+pure processing over a message type already streaming into a websocket
+connection this system pays for and keeps open regardless. Runner-up
+candidates (DTCC SBSDR equity swaps — needs a volume-budget ingestion
+design first; STB weekly rail carloads — smaller, format-unverified) were
+logged but not built this session, one-logical-change-per-PR.
+
+HYPOTHESIS (stated before building, per REASONING STANDARD #10): IMO
+numbers are assigned to a hull for its operating life (unlike MMSI, which
+can be legally reflagged or illegally reassigned/spoofed) — Global Fishing
+Watch / Park et al. 2023's published method holds that a checksum-valid
+IMO number observed under >=2 distinct MMSIs in an AIS archive is strong,
+deterministic evidence of a hull-identity change. This should be a
+STRICTLY rarer, stronger-evidence signal than `shadowFleet.ts`'s existing
+`identity_candidates` heuristic (name reappearing under a new MMSI, or a
+proximity/time-window guess) — most vessels' IMO is never reused, so near-
+zero candidates in the early weeks is the EXPECTED honest state, not a
+failure of the detector. This is unfalsifiable within a single session
+(the registry starts empty on deploy and needs real reflag events to
+accumulate) — logged as a prediction for a future session to check once
+weeks/months of registry history exist, same discipline as the tank-fill
+and CFTC gate-2 hypotheses already in this file.
+
+WORK SHIPPED (own PR, v1.0.353):
+1. `server/vesselIdentity.ts` (NEW, T-DATACORE): `isValidImo()` — the IMO
+   Res. A.600(15) check-digit algorithm (7th digit = sum(digit_i*(7-i)
+   for i in 1..6) mod 10); rejects non-7-digit values and the AIS
+   "no IMO assigned" sentinel `0000000`. `recordIdentityObservation()` —
+   records a NEW (mmsi, imo) pair only if the IMO passes checksum
+   validation AND this exact pairing has never been recorded before (an
+   in-process `Set` dedupe, lazily hydrated from disk on first use so a
+   restart doesn't re-scan history but also doesn't re-append it) —
+   appends one line to `vessel_identity/registry.jsonl`. This design
+   choice (dedupe by pair, not hour-bucketed like the position archive)
+   is deliberate: ShipStaticData messages repeat constantly per vessel,
+   but a hull's IMO essentially never changes, so the registry converges
+   to "one line per hull ever seen" and stays trivially small forever —
+   no compression/rollup machinery needed, unlike the position archive.
+   `detectImoReuse()` — groups registry records by IMO, returns every IMO
+   observed under >=2 distinct MMSIs (oldest-first ordering, sorted by
+   most-recently-seen). `imoIdentityStats()` — the single call both the
+   sync and async ShadowStats builders use, so they can never drift.
+2. `server/routes.ts` (SHARED, 6-line addition): the `ShipStaticData`
+   branch now also calls `recordIdentityObservation({mmsi, imo:
+   s.ImoNumber, callsign: s.CallSign, name})` — additive only, the
+   existing `vesselStatics` map and its 30k-entry cap are untouched.
+3. `server/shadowFleet.ts` (T-DATACORE): `ShadowStats` gained
+   `imo_confirmed_identity_changes`/`imo_confirmed_examples`. Both
+   `statsFromTracks()` (sync path) and `ShadowAggregator.finish()`
+   (async/live path, via a `baseDir` now threaded through the
+   constructor) call the identical `imoIdentityStats(baseDir)` helper —
+   the pre-existing sync/async byte-identical ratchet test
+   (`assert.deepEqual(a, s)`) still passes with zero special-casing,
+   confirming the new field can't silently diverge between the two
+   computation paths. Extended `STATS_CAVEAT` (deduped into a shared
+   constant used by both paths, was previously copy-pasted) to state the
+   new field is a checksum-verified RAW fact, stronger evidence than the
+   existing heuristic but still not a shadow-fleet claim (RAW/SIGNAL
+   boundary, Map v2.2 directive).
+4. `datacore/manifests/vessel_identity.json` (NEW) — UNIVERSAL ARCHIVE
+   ENVELOPE manifest, all 13 required fields. Caught for real: the first
+   test run failed `server/manifests.test.ts`'s FORWARD ENFORCEMENT check
+   (mechanically scrapes every `archiveBaseDir()`-relative directory
+   literal in server/*.ts and requires a matching manifest) exactly as
+   that test is designed to — filed the manifest, second run passed. Also
+   caught a filename mismatch on the first attempt (manifest keyed by
+   filename minus `.json`, which must equal the scraped directory string
+   `vessel_identity` verbatim, underscore included) — fixed before it
+   could have been a false negative.
+
+RATCHET: `server/vesselIdentity.test.ts` (NEW, 11 tests) — checksum
+validation against two real, independently-verifiable IMO numbers (Ever
+Given 9074729, MSC Oscar 9319466) plus bad-checksum/wrong-length/zero/null
+rejections; dedupe (same pair twice → one line); dedupe survives a
+simulated process restart (cache cleared, reloads from disk, still
+doesn't re-append); same MMSI + different valid IMO is correctly a NEW
+pair; `detectImoReuse` groups correctly and does NOT flag a single-MMSI
+IMO; multi-candidate sort order; `imoIdentityStats` on an empty registry
+reports zero, not an error (the expected steady state early on, per the
+hypothesis above — pinned explicitly so a future session doesn't mistake
+"zero" for "broken"). All 11 pass; the pre-existing shadowFleet.ts
+sync/async ratchet (`assert.deepEqual(a, s)`) and the "computeShadowStats
+aggregates with the honest caveat" wiring-pin test both still pass
+unchanged.
+
+GATES: `python3 -m pytest -q` — 727 passed, 1 skipped, unchanged (zero
+Python files touched; this sandbox needed a fresh `pip install -r
+requirements.txt -r requirements-dev.txt`, same recurring environment-
+tooling gap prior sessions have noted, not chased further here). `npx tsx
+--test server/*.test.ts` — 685 passed, 4 failed (the same pre-existing
+network-dependent failures documented in every recent session:
+apiKeyAccounts/compression/gdeltEvents/owmTiles — confirmed unrelated,
+this PR touches none of those files); `server/manifests.test.ts` and
+`server/shadowFleet.test.ts` specifically re-run standalone and green.
+`npx tsc --noEmit` — only the same 3 pre-existing sandbox-environment
+errors (missing @types/node/vite entry points, deprecated tsconfig
+baseUrl option) documented in every recent session, unrelated to this
+change. `npm run build` could not run (`tsx` binary absent from
+`node_modules/.bin` in this sandbox, then a further missing `esbuild`
+package once invoked via `npx tsx` directly — same recurring environment
+gap noted by the 2026-07-14/15 sessions, still not chased further here;
+worth a STALENESS AUDIT look at whether session-start tooling setup
+belongs in a setup script).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `recordIdentityObservation` is
+called from the live `ShipStaticData` handler on every message but does
+real work (a disk write) only on a genuinely new pairing — the common
+case is an in-memory `Set.has()` lookup, so this adds no meaningful
+per-message cost to the websocket handler (unlike the KNOWN BROKEN #18
+O(n²) precedent, this is O(1) per message by construction, no accumulator
+that grows unboundedly with archive size). `imoIdentityStats()` reads the
+WHOLE registry file fresh on every `/api/data/shadowstats` refresh
+(10-min poller) — currently trivial (near-empty), but as a rare-event-only
+registry it stays small by design even at scale (bounded by distinct
+hulls ever observed, not message volume or archive window), unlike the
+now-fixed O(n²) `identity_candidates` bug this shares a file with — worth
+re-checking if the registry ever unexpectedly grows past a few hundred KB
+(would indicate a bug in the dedupe, not organic growth). Zero effect on
+any trading, scoring, or sizing code — this is a `server/`-side datacore
+module with no import path into `bot_engine.py`/`system_config.py`
+(datacore boundary rule, SPINOUT-READY DATA LAYER).
+
+BACKTEST: N/A — RAW datacore statistic, zero trading/scoring/sizing
+logic touched.
+
+STILL OPEN / NEXT: the registry starts empty on deploy — a future session
+should check `/api/data/shadowstats`'s `imo_confirmed_identity_changes`
+after weeks of live accumulation (not sooner; per the hypothesis above,
+near-zero for a while is expected, not a signal of breakage) and, once a
+real candidate appears, spot-check it against Equasis/GISIS's free-to-view
+(if not programmatically usable) registry pages as the ladder-gate-1
+validation step this item's own filing asked for. Client-side surfacing
+of `imo_confirmed_examples` (a dossier/shadowstats-panel UI addition) is a
+natural T-CLIENT follow-up once real examples exist to show, not built
+this session — nothing to display yet would make it a checkbox with no
+content.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6 live-feedback round 3: lock modes + validated-by-driving (v1.0.352)
 
 Human live-tested rounds continued (screenshots + refinements
