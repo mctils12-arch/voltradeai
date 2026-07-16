@@ -3,12 +3,14 @@
 // verifiable public assets exist", model3d.ts header).
 //
 // The registry below maps a NORAD id to a committed .vtm asset produced by
-// scripts/earthtwin_iss_mesh.mjs from an official public-domain source model
-// (provenance JSON sits next to each asset in client/public/models/). The
-// mesh is lazy-fetched ONLY when that satellite is followed; a fetch failure
-// falls back to the class-representative form — the honest tier below.
+// scripts/earthtwin_real_mesh.mjs from an official public-domain source model
+// (Draco-compressed NASA GLBs are first decoded offline by
+// scripts/earthtwin_glb_decompress.mjs; provenance JSON sits next to each
+// asset in client/public/models/). The mesh is lazy-fetched ONLY when that
+// satellite is followed; a fetch failure falls back to the
+// class-representative form — the honest tier below.
 //
-// .vtm v1 (little-endian; writer: scripts/earthtwin_iss_mesh.mjs):
+// .vtm v1 (little-endian; writer: scripts/earthtwin_real_mesh.mjs):
 //   0  "VTM1"
 //   4  u32 vertexCount V (<= 65535)   8  u32 triCount T
 //   12 f32x3 bbox min   24 f32x3 bbox max      (model space, +-1.2 extent)
@@ -26,6 +28,19 @@ export interface RealModelEntry {
   label: string;
 }
 
+// TDRS second/third generation — ONE NASA fleet-design model (Boeing
+// BSS-601/601HP: two springback mesh single-access antennas) honestly covers
+// the six on-orbit units built to that design, so all six NORAD ids share the
+// asset. The first-generation TDRS 1–7 (TRW: hexagonal bus, umbrella
+// antennas) look different and are deliberately NOT registered — they keep
+// the class-representative form. Evidence chain (design match, generation
+// membership, SATCAT rows) lives in client/public/models/tdrs-boeing601.json.
+const TDRS_BOEING_601: RealModelEntry = {
+  url: '/models/tdrs-boeing601.vtm',
+  label:
+    'NASA model of the second/third-generation TDRS design shared by TDRS 8–13 (public domain source, simplified for display)',
+};
+
 export const REAL_MODELS: Record<number, RealModelEntry> = {
   25544: {
     url: '/models/iss-25544.vtm',
@@ -37,6 +52,17 @@ export const REAL_MODELS: Record<number, RealModelEntry> = {
     label:
       'NASA model of the Hubble Space Telescope (public domain source, simplified for display)',
   },
+  27424: {
+    url: '/models/aqua-27424.vtm',
+    label:
+      'NASA model of the Aqua Earth-observing satellite (public domain source, simplified for display)',
+  },
+  26388: TDRS_BOEING_601, // TDRS 8  (2000-034A)
+  27389: TDRS_BOEING_601, // TDRS 9  (2002-011A)
+  27566: TDRS_BOEING_601, // TDRS 10 (2002-055A)
+  39070: TDRS_BOEING_601, // TDRS 11 (2013-004A)
+  39504: TDRS_BOEING_601, // TDRS 12 (2014-004A)
+  42915: TDRS_BOEING_601, // TDRS 13 (2017-047A)
 };
 
 export function realModelLabel(noradId: number): string | null {
@@ -77,12 +103,14 @@ export function decodeVtm(buf: ArrayBuffer): Mesh {
 
 // One in-flight/settled promise per asset: repeated follows never refetch a
 // success; a FAILURE clears the slot so the next follow retries the network.
-const cache = new Map<number, Promise<Mesh | null>>();
+// Keyed by asset URL (not NORAD id) so ids sharing a fleet-design asset —
+// the six Boeing-601 TDRS — share one fetch.
+const cache = new Map<string, Promise<Mesh | null>>();
 
 export function loadRealModel(noradId: number): Promise<Mesh | null> {
   const entry = REAL_MODELS[noradId];
   if (!entry) return Promise.resolve(null);
-  let p = cache.get(noradId);
+  let p = cache.get(entry.url);
   if (!p) {
     p = fetch(entry.url)
       .then((r) => {
@@ -91,10 +119,10 @@ export function loadRealModel(noradId: number): Promise<Mesh | null> {
       })
       .then(decodeVtm)
       .catch(() => {
-        cache.delete(noradId); // retry on the next follow
+        cache.delete(entry.url); // retry on the next follow
         return null;
       });
-    cache.set(noradId, p);
+    cache.set(entry.url, p);
   }
   return p;
 }
