@@ -3,6 +3,145 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN E3 follow-up: altitude-on-hover for the 3D aircraft silhouettes (v1.0.348, T-CLIENT, scheduled-routine session)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, client/src/index.css),
+no FROZEN paths, no server/datacore touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then
+research/experiments.md tail, open_questions.md KNOWN BROKEN (items #10
+dead-config and #18 TIER2-ERROR root-cause remain open, neither liveness-
+critical nor blocking — per this program's own standing instruction,
+product sessions note KNOWN BROKEN and don't preempt DAILY's repair
+duty), `/api/health` on production (status ok, no LIVENESS ALARM: bot
+active, drawdown 0.0%, scanner healthy), and loop-health ratio (last 10
+tagged entries: 8 PRODUCT/PIPELINE, 2 REPAIR — well under the 7/10 thrash
+threshold). Also checked open PRs on the repo: #449/#420/#415/#399/#77
+are all stale drafts far behind current main (pre-dating this session's
+base by 60+ versions) — left untouched, not this session's scope.
+
+PRIMARY ACTION CHOICE: surveyed platform_program.md (queue clear except
+P5, human-gated), the data census build order (FINRA/SEC-FTD/MIDAS
+pipelines already shipped; the one remaining gate-1-ready item —
+settlement-stress composite — is explicitly not-yet-ripe: its three
+ingredient streams have only ~9 days of live-archived history since
+their 07-07/07-08 builds, not the multi-quarter depth its own filed
+design needs), and grid_vision.md/grid_vision_products.md (RunPod launch
+BLOCKED-FOR-MIKE, gate-2 v3 computation deliberately deferred to a later
+session per its own anti-fishing stopping rule, kill-date 2026-08-15 —
+not ripe today either). Also spent real effort tracing a path to the
+filed PRODUCT-DEBT item (HIFLD-vs-WRI power-plant layer consolidation,
+open_questions.md 2026-07-09/07-14): confirmed no HIFLD build script was
+ever committed (only the compiled .pmtiles binary), and the most
+plausible live ArcGIS re-fetch candidate I could locate
+(Power_Plants_in_the_US, Federal_User_Community, services2.arcgis.com)
+returns 13,446 records against fields that don't include VAL_METHOD —
+NOT a confirmed match for the exact source the shipped tiles were built
+from. Abandoned that path deliberately rather than build a migration on
+an unverified source (a wrong plant-id remap would silently corrupt
+entityGraph.ts's facility nodes and riverPlants.ts's PlantTuple consumer
+— too high a blast radius to guess at); left the open_questions.md entry
+exactly as filed for a future session with a confirmed source.
+
+Fell through to earth_twin_program.md's own authoritative NEXT queue
+(RESUME STATE, updated by the O5/O6 sessions): "hover altitude labels
+(deferred from the polish slice — hover DOM machinery is its own
+change)" was the one item that was (a) unclaimed, (b) needed no external
+data/keys/GPU, (c) had every primitive it needs already built and
+tested (pickNearestAircraft, pixelToleranceToMercUnits, fmtMeters), and
+(d) was explicitly deferred rather than abandoned by name.
+
+SHIPPED: hovering the cursor over a 3D aircraft silhouette (at/above
+AIR_3D_MIN_ZOOM, z8+) now shows a small floating tooltip with callsign +
+altitude (via the existing `fmtMeters` units-preference formatter — UNITS
+PREFERENCE standing directive: never a hardcoded km/m string). Mirrors
+the already-shipped click handler exactly: same `pickNearestAircraft`
+CPU-nearest pick over the instance buffer, same `queryRenderedFeatures`
+precedence check (a real maplibre-rendered feature under the cursor
+wins), same tolerance conversion. New pieces: `onAir3dMove` (rAF-
+throttled so a fast mousemove stream never re-picks more than once per
+paint) writes text/position/display DIRECTLY onto a ref'd DOM node
+(`airHoverTipRef`) — no `setState`, so cursor movement never triggers a
+re-render of this 6,400-line component; `mouseout` hides it; the
+aircraft-disable branch and the effect's cleanup both hide it too, so it
+can never survive past its own layer being torn down. Desktop-hover-only
+by construction (mousemove never fires from touch) — zero mobile cost,
+no separate touch path needed. New `.vt-air-hover-tip` CSS rule reuses
+the same dark/mono/accent-border tokens the existing `.vt-popup` and
+`.vt-imagery-date-chip` overlays use (DESIGN.md consistency).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the tooltip element is always
+mounted but `display:none` by default and `pointer-events:none` always —
+it can never intercept a click, drag, or the mousemove it's reacting to.
+The new `mousemove`/`mouseout` map listeners are additive (existing
+`click` listener untouched) and are removed in the same effect cleanup
+that already tears down the `click` listener and the `aircraft-3d`
+layer. No change to `buildAircraftInstances`, `AirLayer`, the instance
+buffer layout, or any other layer's picking/click path. Zero server,
+datacore, or trading-path code touched.
+
+MERGED-BRANCH RESTART (per this session's own protocol): this branch's
+prior history (through v1.0.343-345, PR #489) was already merged to
+main, and main had advanced one more PR (#490, v1.0.347 — a concurrent
+session's satellite-picking fix pack, EARTH TWIN O6 live-feedback) past
+that point. Restarted the branch from `origin/main` (`git checkout -B
+claude/quirky-hopper-335pdr origin/main`) and reapplied this session's
+working-tree diff on top (clean auto-merge, zero conflicts — disjoint
+code: #490 touches only the satellite/orbital picking path, this touches
+only the aircraft path). Version bumped 1.0.347 -> 1.0.348 (read-and-
+increment at commit time, immediately after this rebase).
+
+GATES: `npx tsc --noEmit` — 66 errors before and after, diffed line-by-
+line: the single line-number shift (+50, matching this diff's line
+count) on the SAME pre-existing `datamap.tsx` union-type error, same
+pattern documented by multiple prior sessions (2026-07-13 units.ts,
+2026-07-14 HIFLD) — a genuine byte-identical baseline, not just a count
+match. `npx tsx --test server/*.test.ts`: 699/699. `npx tsx --test
+client/src/lib/*.test.ts client/src/lib/orbital/*.test.ts
+client/src/lib/air/*.test.ts`: 218/218 (includes the 10 pre-existing
+airLayer tests, unaffected — `pickNearestAircraft` itself wasn't
+touched, only a new caller was added). `npm run build`: clean, both
+bundles. No new test was added FOR the hover feature itself deliberately
+— the feature is a thin, DOM-only recombination of three already-tested
+pure functions (`pickNearestAircraft`, `pixelToleranceToMercUnits`,
+`fmtMeters`); the actual novel surface (rAF-throttled DOM writes wired
+to MapLibre mouse events) is imperative browser-only glue that unit
+tests can't meaningfully isolate from the DOM/map — the real check for
+that is the harness run below, run twice.
+
+VISUAL HARNESS: `node scripts/visual_check.mjs --page data` run in full
+(not the touch-target/clip warnings that pre-date this diff) — **0 hard
+failures** at 390/768/1440, aircraft actually rendering (1,592 / 3,034 /
+3,507 aircraft respectively across the three widths, all real live ADS-B
+data through the mock feed), perf medians 33/83/100ms — matching or
+beating the pre-session baseline this program's own RESUME STATE has
+recorded, so no perf regression from the two new per-frame map-event
+listeners. The harness does not simulate a synthetic mousemove-over-an-
+instance event, so it does not directly exercise the new tooltip's
+show/hide path — that specific gap is stated honestly rather than
+implied-covered; confidence in lieu of a targeted interaction screenshot
+rests on: the harness proving the underlying picking data (instance
+buffer, zoom gating) renders correctly at all three widths, the fact
+that `onAir3dMove` is a structural mirror of the already-interaction-
+tested `onAir3dClick` (same pick call, same precedence gate, same
+tolerance function — only the DOM write differs), and the CSS-only/DOM-
+additive nature of the change (nothing existing was restyled or moved).
+
+BACKTEST: N/A — pure /data display-surface polish (raw overlay hover
+label only), zero trading, sizing, scoring, or execution code touched.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before evidence): once
+deployed, hovering a 3D aircraft silhouette in production should show
+altitude immediately (no fetch — the label reads the already-live
+instance buffer) and disappear the instant the cursor leaves it or the
+zoom drops below z8; a future session doing a live spot-check should
+confirm both, and should also check whether users actually zoom in far
+enough (z8+) to encounter 3D mode often enough for this to matter — the
+EARTH TWIN charter's own hand-off-zoom choice, not something this
+session second-guessed.
+
+---
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6 live-feedback fix pack (v1.0.347, T-CLIENT)
 
 The human live-tested O6 on production (screenshots) — six bugs, two
