@@ -62,3 +62,17 @@ test('band constants: minis live INSIDE the visible envelope', () => {
   assert.ok(MINI_MAX_CAM_KM <= 5000, 'band is a close-zoom feature, not the whole-globe view');
   assert.ok(MINI_CAP >= 4 && MINI_CAP <= 32, 'draw-call budget stays sane');
 });
+
+test('co-location thinning: docked/co-orbiting craft collapse to one mini; the focused spot is owned by the big model', () => {
+  const positions = buf([
+    [0.500, 0.500, 420_000, 0],   // the "ISS" (focused — excluded by pos)
+    [0.5001, 0.5001, 419_000, 0], // docked craft at the station → dropped near excludePos
+    [0.520, 0.520, 500_000, 0],   // separate object → kept
+    [0.5201, 0.5201, 501_000, 0], // co-located with the previous → thinned
+  ]);
+  const forms = ['bus', 'smallsat', 'bus', 'smallsat'] as any;
+  const minis = selectMiniSats(positions, forms, VIEW, 12, 0, 0.001, { x: 0.5, y: 0.5 });
+  assert.deepEqual(minis.map((m) => m.index), [2], 'one survivor: away from focus, first of its pair');
+  // without thinning, all three non-excluded would draw (the old bug)
+  assert.equal(selectMiniSats(positions, forms, VIEW, 12, 0).length, 3);
+});

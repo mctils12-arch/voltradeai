@@ -351,9 +351,11 @@ export class SatModelLayer implements CustomLayerInterface {
       }
     }
 
-    // ── FOCUS RING at the anchor's rendered altitude (O6 ring fix) —
-    // draws whenever something is followed, even with no known class ──
-    if (this.anchor) {
+    // ── FOCUS RING at the anchor's rendered altitude — ONLY when there is
+    // no model to see (unknown class): the human was clear that a circle
+    // around a visible spacecraft is clutter ("i don't want a circle
+    // around the sat"); with a mesh drawn, the model IS the focus marker ──
+    if (this.anchor && !(focused && mesh)) {
       if (!this.ringBuffer) {
         const segs = 36;
         const ring = new Float32Array(segs * 3);

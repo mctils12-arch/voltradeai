@@ -49,6 +49,7 @@ import type { FormKind } from "@/lib/orbital/model3d";
 import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
+import { mercatorToSphere } from "@/lib/orbital/occlusion";
 import { SatFinder } from "@/components/SatFinder";
 import { classFormNamed, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
@@ -585,10 +586,11 @@ export default function DataMapPage() {
   const orbitalLodRef = useRef<LodEnvelope | null>(null);
   // ORBITAL O5 slice 1: the followed satellite (buffer index is stable —
   // the worker keeps ONE slot per GP record forever). null = not following.
-  // O6-1 follow v2: cameraLock=true → the camera tracks the object each tick;
-  // a user drag releases ONLY the camera — the focus (ring/model/orbit arc)
-  // persists anywhere on the globe until the card's X ends it.
-  const satFollowRef = useRef<{ index: number; noradId: number; name: string | null; cameraLock: boolean } | null>(null);
+  // O6-1 follow v2 + lock modes (human-refined): 'sat' pins the camera to
+  // the CRAFT — rotate/tilt/zoom freely around it, it stays centered until
+  // unpressed (drag never releases it); 'ground' pins the nadir and a drag
+  // releases to free camera; null = free camera, focus persists until ✕.
+  const satFollowRef = useRef<{ index: number; noradId: number; name: string | null; lockMode: "sat" | "ground" | null } | null>(null);
   const satArcLayerRef = useRef<ArcLayer | null>(null);
   const stopSatFocusRef = useRef<(() => void) | null>(null);
   // O6-3 find & group: search focuses via the same path as a click; a group
@@ -606,10 +608,33 @@ export default function DataMapPage() {
   // O6 follow tools (human-requested): re-center lock, zoom-on-sat, ground-
   // spot marker — a minimizable cluster shown only while following.
   const [satFollowing, setSatFollowing] = useState(false);
+  const [satLockMode, setSatLockMode] = useState<"sat" | "ground" | null>(null);
   const [satToolsMin, setSatToolsMin] = useState(false);
   const [showNadir, setShowNadir] = useState(false);
   const showNadirRef = useRef(false);
   useEffect(() => { showNadirRef.current = showNadir; }, [showNadir]);
+  // O6 tools drag (human-requested: "the ability to move [it] around the
+  // window"): grip-drag repositions the cluster; direct style mutation so a
+  // drag never re-renders the whole page component.
+  const satToolsRef = useRef<HTMLDivElement | null>(null);
+  const satToolsDrag = useRef<{ dx: number; dy: number } | null>(null);
+  const onToolsGripDown = useCallback((e: React.PointerEvent) => {
+    const el = satToolsRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    satToolsDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  }, []);
+  const onToolsGripMove = useCallback((e: React.PointerEvent) => {
+    const el = satToolsRef.current;
+    const d = satToolsDrag.current;
+    if (!el || !d) return;
+    el.style.left = `${Math.max(4, Math.min(window.innerWidth - 70, e.clientX - d.dx))}px`;
+    el.style.top = `${Math.max(56, Math.min(window.innerHeight - 46, e.clientY - d.dy))}px`;
+    el.style.bottom = "auto";
+  }, []);
+  const onToolsGripUp = useCallback(() => { satToolsDrag.current = null; }, []);
   const applySatGroup = useCallback((key: string | null) => {
     setSatGroup(key);
     setSatGroupOrbits(false);
@@ -1840,10 +1865,34 @@ export default function DataMapPage() {
       } catch { /* marker is chrome */ }
       if (!t) return; // sentinel this tick — ring cleared, camera stays put
       // O6-1: camera tracks only while locked — after a drag the focus
-      // persists (arc + ring + moving model) from anywhere on the globe.
-      if (!f.cameraLock) return;
+      // persists (arc + moving model) from anywhere on the globe.
+      if (!f.lockMode) return;
       try {
-        if (!map.isMoving()) map.easeTo({ center: [t.lonDeg, t.latDeg], duration: 800 });
+        if (!map.isMoving()) {
+          // LOCK-ON FIX (live feedback: "it needs to lock on … look at it
+          // very closely"): in 'sat' mode the MODEL is pinned to screen
+          // centre — it renders displaced from its ground point by
+          // altitude, so project the craft with the frame matrix and
+          // offset the ease. Bearing/pitch/zoom are untouched: rotating
+          // and tilting ORBITS the craft while it stays centered.
+          // 'ground' mode pins the nadir instead (watch the ground track).
+          let offset: [number, number] = [0, 0];
+          const matrix = f.lockMode === "sat" ? satLayerRef.current?.getGlobeProjection() : null;
+          if (matrix) {
+            const p = mercatorToSphere(t.mercX, t.mercY, t.altKm * 1000);
+            const w = matrix[3] * p[0] + matrix[7] * p[1] + matrix[11] * p[2] + matrix[15];
+            if (w > 0) {
+              const cx = (matrix[0] * p[0] + matrix[4] * p[1] + matrix[8] * p[2] + matrix[12]) / w;
+              const cy = (matrix[1] * p[0] + matrix[5] * p[1] + matrix[9] * p[2] + matrix[13]) / w;
+              const canvas = map.getCanvas();
+              const sx = ((cx + 1) / 2) * (canvas.clientWidth || 1);
+              const sy = ((1 - cy) / 2) * (canvas.clientHeight || 1);
+              const nadir = map.project([t.lonDeg, t.latDeg]);
+              offset = [nadir.x - sx, nadir.y - sy];
+            }
+          }
+          map.easeTo({ center: [t.lonDeg, t.latDeg], offset, duration: 450 });
+        }
       } catch {}
     };
     const stopFollow = () => {
@@ -1852,6 +1901,7 @@ export default function DataMapPage() {
       satModelLayerRef.current?.setAnchor(null); // model + ring vanish with the follow
       satArcLayerRef.current?.setArcs(null); // the one-object orbit arc goes with it
       setSatFollowing(false); // tools cluster goes with the focus
+      setSatLockMode(null);
       try { (map.getSource("sat-nadir") as any)?.setData({ type: "FeatureCollection", features: [] }); } catch {}
     };
     // O6-1: the card's X (and layer teardown) end the focus completely
@@ -1859,7 +1909,10 @@ export default function DataMapPage() {
     // user drag = the user takes the CAMERA back; the focus itself persists
     // ("you can move away from the sat … until you press the X")
     const releaseCamera = () => {
-      if (satFollowRef.current) satFollowRef.current.cameraLock = false;
+      const f = satFollowRef.current;
+      // 'sat' lock survives drags by design ("stay centered … until
+      // unpressed"); only the ground lock hands the camera back on drag.
+      if (f && f.lockMode === "ground") { f.lockMode = null; setSatLockMode(null); }
     };
     map.on("dragstart", releaseCamera);
 
@@ -1899,10 +1952,17 @@ export default function DataMapPage() {
         const ne = lonLatToMercator(b.getEast(), Math.min(85, b.getNorth()));
         const ctr = map.getCenter();
         const c = lonLatToMercator(ctr.lng, Math.max(-85, Math.min(85, ctr.lat)));
+        // co-location thinning at ~34px (a mini's own size); the FOCUSED
+        // object's spot is owned by the big model (docked craft bug)
+        const followT = satFollowRef.current
+          ? followTarget(layer.getPositions(), satFollowRef.current.index)
+          : null;
         const minis = selectMiniSats(
           layer.getPositions(), miniForms,
           { minX: sw.x, maxX: ne.x, minY: ne.y, maxY: sw.y, cx: c.x, cy: c.y },
           undefined, satFollowRef.current?.index ?? -1,
+          pixelToleranceToMercUnits(34, map.getZoom() ?? 0),
+          followT ? { x: followT.mercX, y: followT.mercY } : null,
         );
         miniCount = minis.length;
         modelLayer.setMinis(minis);
@@ -2138,6 +2198,20 @@ export default function DataMapPage() {
         let atPoint: unknown[] = [];
         try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch { /* style mid-swap */ }
         if (!coverageQueryAllowed(atPoint)) return;
+        // O6-3 honesty guard: with a constellation filter active the live
+        // buffer only CONTAINS that group — a coverage query over it would
+        // report "no Starlink elements had a valid position", which reads
+        // as an outage instead of a filter (live bug, screenshot-confirmed).
+        const grpInfo = satGroupInfoRef.current;
+        if (grpInfo && grpInfo.label !== "Starlink") {
+          setDetail({
+            kind: "coverage",
+            title: "Starlink coverage",
+            subtitle: `${clickLL.lat.toFixed(2)}°, ${clickLL.lng.toFixed(2)}°`,
+            body: `Coverage query unavailable while the sky is filtered to ${grpInfo.label} — the live buffer only holds that constellation. Clear the group chip to query Starlink coverage here.`,
+          });
+          return;
+        }
         // O7 STARLINK COVERAGE: reuse this tick's already-propagated buffer
         // to answer "does Starlink cover this ground point right now" rather
         // than leaving the click a pure no-op.
@@ -2193,8 +2267,9 @@ export default function DataMapPage() {
       // ── ORBITAL O5 slice 1 + O6-1: FOLLOW — only with an honest live
       // position this tick; the focus persists until the card's ✕. ──
       if (t && s) {
-        satFollowRef.current = { index, noradId: g.noradId, name: g.name ?? null, cameraLock: true };
+        satFollowRef.current = { index, noradId: g.noradId, name: g.name ?? null, lockMode: "sat" };
         setSatFollowing(true); // shows the follow-tools cluster
+        setSatLockMode("sat");
         // the REAL orbit track for this one object — one full period,
         // SGP4-propagated (gaps honest, never bridged). Amber = focus ring.
         try {
@@ -6303,7 +6378,14 @@ export default function DataMapPage() {
                         groupCount={satGroupCount}
                         orbitsOn={satGroupOrbits}
                         arcInfo={satArcInfo}
-                        onFind={(i) => focusSatByIndexRef.current?.(i)}
+                        onFind={(i) => {
+                          // live bug: searching while an old focus card was
+                          // open left the STALE card up — hard-swap: end the
+                          // old focus, drop the old card, then focus fresh.
+                          stopSatFocusRef.current?.();
+                          setDetail(null);
+                          focusSatByIndexRef.current?.(i);
+                        }}
                         onGroup={applySatGroup}
                         onOrbits={setSatGroupOrbits}
                       />
@@ -6343,21 +6425,35 @@ export default function DataMapPage() {
         // O6 follow tools (human-requested): minimizable cluster — re-lock
         // the camera on the object, zoom in/out AROUND it, toggle the exact
         // ground spot it's passing over.
-        <div className={`vt-sat-tools${satToolsMin ? " vt-sat-tools-min" : ""}`}>
+        <div ref={satToolsRef} className={`vt-sat-tools${satToolsMin ? " vt-sat-tools-min" : ""}`}>
+          <span className="vt-sat-tools-grip" title="Drag to move"
+                onPointerDown={onToolsGripDown} onPointerMove={onToolsGripMove}
+                onPointerUp={onToolsGripUp} onPointerCancel={onToolsGripUp}>⠿</span>
           <button className="vt-icon-btn" aria-label={satToolsMin ? "Expand satellite tools" : "Minimize satellite tools"}
                   onClick={() => setSatToolsMin(!satToolsMin)}>
             {satToolsMin ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
           </button>
           {!satToolsMin && (
             <>
-              <button className="vt-satfinder-chip" title="Re-center the camera on the object (drag released it)"
+              <button className={`vt-satfinder-chip${satLockMode === "sat" ? " vt-satfinder-chip-on" : ""}`}
+                      title="Pin the camera to the CRAFT — rotate/tilt/zoom orbit it while it stays centered, until unpressed"
                       onClick={() => {
                         const f = satFollowRef.current;
-                        if (f) f.cameraLock = true;
-                        const t = followTarget(satLayerRef.current?.getPositions() ?? null, f?.index ?? -1);
-                        if (t) try { mapRef.current?.easeTo({ center: [t.lonDeg, t.latDeg], duration: 600 }); } catch {}
+                        const next = satLockMode === "sat" ? null : "sat";
+                        if (f) f.lockMode = next;
+                        setSatLockMode(next);
                       }}>
-                ◎ center
+                ◉ sat lock
+              </button>
+              <button className={`vt-satfinder-chip${satLockMode === "ground" ? " vt-satfinder-chip-on" : ""}`}
+                      title="Pin the camera to the point on the ground below it (a drag releases)"
+                      onClick={() => {
+                        const f = satFollowRef.current;
+                        const next = satLockMode === "ground" ? null : "ground";
+                        if (f) f.lockMode = next;
+                        setSatLockMode(next);
+                      }}>
+                ⌖ ground lock
               </button>
               <button className="vt-satfinder-chip" title="Zoom in on the object"
                       onClick={() => {

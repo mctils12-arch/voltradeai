@@ -2315,8 +2315,8 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 
 /* O6 follow tools — minimizable cluster shown while a satellite is focused */
 .vt-sat-tools {
-  position: absolute; z-index: 10;
-  left: 12px; bottom: 118px;
+  position: absolute; z-index: 12; /* above the detail card — never buried */
+  left: 12px; top: 50%;
   display: flex; align-items: center; gap: 4px;
   padding: 4px 6px; border-radius: 10px;
   background: var(--surface-1, rgba(10, 16, 28, 0.86));
@@ -2324,9 +2324,11 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   backdrop-filter: blur(6px);
 }
 .vt-sat-tools-min { padding: 2px; }
-@media (max-width: 640px) {
-  .vt-sat-tools { bottom: 170px; }
+.vt-sat-tools-grip {
+  cursor: grab; touch-action: none; user-select: none;
+  color: var(--text-tertiary); font-size: 13px; padding: 2px 3px;
 }
+.vt-sat-tools-grip:active { cursor: grabbing; }
 
 /* O6 minimized detail card — a pill; the globe shows through */
 .vt-site-card-min {

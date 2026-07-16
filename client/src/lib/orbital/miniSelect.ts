@@ -61,6 +61,13 @@ export function selectMiniSats(
   view: { minX: number; maxX: number; minY: number; maxY: number; cx: number; cy: number },
   cap: number = MINI_CAP,
   excludeIndex = -1,
+  /** CO-LOCATION THINNING (live bug: Progress/Dragon/modules are catalogued
+   *  separately but orbit AT the ISS — a mini rendered on top of the
+   *  focused model). Two minis closer than this (mercator units) collapse
+   *  to the nearest-to-centre one; anything this close to excludePos (the
+   *  FOCUSED object) is dropped — the big model owns that spot. */
+  minSepMerc = 0,
+  excludePos: { x: number; y: number } | null = null,
 ): MiniSat[] {
   if (!buffer || !forms) return [];
   const n = Math.min(Math.floor(buffer.length / SAT_STRIDE), forms.length);
@@ -77,5 +84,19 @@ export function selectMiniSats(
     candidates.push({ index: i, mercX: x, mercY: y, altMeters: buffer[base + 2], form, d2: dx * dx + dy * dy });
   }
   candidates.sort((a, b) => a.d2 - b.d2);
-  return candidates.slice(0, cap).map(({ d2: _d2, ...m }) => m);
+  if (minSepMerc <= 0) return candidates.slice(0, cap).map(({ d2: _d2, ...m }) => m);
+  const sep2 = minSepMerc * minSepMerc;
+  const near = (ax: number, ay: number, bx: number, by: number) => {
+    const dx = wrapDx(ax - bx), dy = ay - by;
+    return dx * dx + dy * dy < sep2;
+  };
+  const out: MiniSat[] = [];
+  for (const c of candidates) {
+    if (out.length >= cap) break;
+    if (excludePos && near(c.mercX, c.mercY, excludePos.x, excludePos.y)) continue;
+    if (out.some((m) => near(c.mercX, c.mercY, m.mercX, m.mercY))) continue;
+    const { d2: _d2, ...m } = c;
+    out.push(m);
+  }
+  return out;
 }
