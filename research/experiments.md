@@ -28,7 +28,8 @@ cluster (re-center / zoom± / ground-spot nadir marker, minimizable)
 REMAINING (chartered O6-5/O6-6): SDP4 deep-space port (the ~800
 skipped GEO/MEO objects the human asked to see) and more real
 models (GPS/TDRS candidates via the existing pipeline).
-GATES: client 218/218, tsc 66 baseline, build clean, harness below.
+GATES: client 218/218, tsc 66 baseline, build clean, harness 0
+hard failures at 390/768/1440 FIRST RUN.
 
 ## AUDIT REGISTER (maintained in place per the AUDIT CYCLE clause,
 CLAUDE.md SESSION BUDGET — this block is updatable state, the only
