@@ -3,6 +3,55 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN rounds 5-8: 3D flight tracks, movable UI, real 3D terrain + drained ocean (v1.0.354-357)
+
+Territory: T-CLIENT continuation (same session as v1.0.352-353).
+OPS NOTE: PR #494 auto-merged at the v1.0.353 head BEFORE rounds 5-6
+were pushed — the branch carried 4 unmerged commits over merged
+history; per the merged-branch rule they were REBASED onto the new
+main (clean, no conflicts, versions 354-357 unclaimed) and ship as a
+NEW PR. Merge monitors: verify WHICH head merged before assuming.
+- v1.0.354 round 5 (human: 3D line track at altitude + 45° tilt click
+  dead): aircraft 3D trails via the generic ArcLayer at recorded
+  altitudes (honest ARC_GAP where altitude unknown); tilted-view
+  aircraft picking made altitude-aware — airLayer caches the frame
+  matrix + pickNearestAircraftScreen (same screen-space pattern as
+  the satellite pick fix; test pins the altitude-displacement case).
+- v1.0.355 round 6 (human reference images: curtain tracks; terrain;
+  card blocking): curtain ribs every 3rd point (top→ground→GAP),
+  terrain-exaggeration matching (altScale 1.3 when mesh on), detail
+  card draggable by header + reset on new detail.
+- v1.0.356 round 7 (human: "covers things and you cant move them
+  around"): ROOT CAUSE was two-fold — the card drag was built but
+  UNSHIPPED (sat in the open PR), and the shipped tools drag worked
+  only from a 13px grip glyph. Whole-surface drag for the tools
+  cluster (buttons guarded) + full-header card drag with visible
+  grips + draggable minimized pill; default spots de-collided (tools
+  bottom-center desktop / under header phone).
+- v1.0.357 round 8 (human: "real 3d terrain… drains the ocean — use
+  radar-mapped data" + Google Earth reference shots): one effect owns
+  setTerrain (toggle race eliminated); drain ON swaps the mesh to the
+  ETOPO1 bathymetric DEM so basins PHYSICALLY sink (real soundings +
+  satellite-gravity, labeled global estimate — GEBCO 15" + TID is the
+  chartered v2); stylized hillshade restricted to dark bases (over
+  photo imagery it read as a tinted map — realism killer); sky/fog
+  horizon on imagery presets; seafloor ridge-texture hillshade
+  (fixed sun) over the depth tint; maxPitch 60→80.
+PRIOR: the four rounds are UX-debt burndown + realism; expected
+effect is the human's reported frictions disappearing live, no
+signal-path changes. Falsifier: pointer-capture drag misbehaving on
+touch devices → revisit with touch-specific handling.
+GATES: client 230/230, tsc 66-line baseline (datamap line
+pre-existing), build clean; interactive drive 30/30 (new: card/pill/
+cluster body drags with px evidence, reset-on-swap, T1-T8 terrain
+mesh cycle — land DEM ↔ bathymetric DEM ↔ flat, sky on imagery
+preset, no hillshade over photo, maxPitch 80); harness on the PR.
+PARALLEL WAVE (human: "use agent to work on all of this"): 4
+worktree agents launched — GPS/TDRS real models, O6-7 tier-2
+true-scale solar system spike, GEBCO v2+TID pipeline, ocean-basemap/
+atmosphere quality research. Integration = parent-only after
+read-before-write review; none touch datamap.tsx/package.json.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6-7 tier 1: live day/night + sun/moon (v1.0.353)
 
 First celestial slice: 'Day/Night & Moon' base layer — real terminator
