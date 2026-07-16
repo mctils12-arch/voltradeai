@@ -12,6 +12,8 @@ import {
   clampScale,
   pickScaleBarMeters,
   fmtDistanceFromEarth,
+  layoutLabelOffsets,
+  LABEL_COLLIDE_PX,
   type ViewCamera,
 } from "./solarView.js";
 import { AU_M, BODY_RADIUS_M } from "./solarSystem.js";
@@ -80,4 +82,31 @@ test("distance labels: units-preference formatter below 0.01 AU, AU above", () =
   // Mars-range distance is AU (fixed domain convention in both systems).
   assert.equal(fmtDistanceFromEarth(1.5 * AU_M), "1.500 AU");
   assert.equal(fmtDistanceFromEarth(30 * AU_M), "30.00 AU");
+});
+
+test("layoutLabelOffsets: markers never move — only colliding LABELS stack (round 10 report: Earth/Moon collide)", () => {
+  // far apart (e.g. Earth vs Jupiter on screen) → no offset needed
+  assert.deepEqual(layoutLabelOffsets([{ x: 100, y: 100 }, { x: 300, y: 100 }]), [0, 0]);
+  // co-located (e.g. Earth/Moon at solar-system-wide scale) → the LATER
+  // body in draw order stacks below the earlier one
+  assert.deepEqual(layoutLabelOffsets([{ x: 100, y: 100 }, { x: 101, y: 100 }]), [0, LABEL_COLLIDE_PX]);
+  // three mutually close bodies stack in a clean descending column
+  assert.deepEqual(
+    layoutLabelOffsets([{ x: 50, y: 50 }, { x: 51, y: 50 }, { x: 49, y: 51 }]),
+    [0, LABEL_COLLIDE_PX, 2 * LABEL_COLLIDE_PX],
+  );
+  // order-dependent by design (draw order): the same cluster in reverse
+  // input order still produces a valid non-overlapping descending stack
+  assert.deepEqual(
+    layoutLabelOffsets([{ x: 49, y: 51 }, { x: 51, y: 50 }, { x: 50, y: 50 }]),
+    [0, LABEL_COLLIDE_PX, 2 * LABEL_COLLIDE_PX],
+  );
+  // exactly at the collide threshold does NOT count as colliding (< not <=)
+  assert.deepEqual(
+    layoutLabelOffsets([{ x: 0, y: 0 }, { x: LABEL_COLLIDE_PX, y: 0 }]),
+    [0, 0],
+  );
+  // empty / single input never throws
+  assert.deepEqual(layoutLabelOffsets([]), []);
+  assert.deepEqual(layoutLabelOffsets([{ x: 5, y: 5 }]), [0]);
 });

@@ -637,6 +637,29 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (scheduled-routine session, T-CLIENT): ROUND 10 QUEUE status
+  update — (a) MOBILE CARD CONTAINMENT shipped (#501, v1.0.369). (b) LINE
+  VISIBILITY shipped (#502, v1.0.370 — a concurrent session's version;
+  this session independently built the same upgrade, caught the collision
+  via `git fetch origin main` before pushing, and salvaged zero delta
+  since #502 is a strict superset — see experiments.md for the full
+  near-miss writeup and an ad hoc live-WebGL pixel-verification technique
+  worth reusing on future screen-space-extrusion shaders). Fell through
+  to "solar label polish" (v1.0.371): lib/celestial/solarView.ts's
+  Canvas2D annotation labels now stack via a pure `layoutLabelOffsets()`
+  instead of overlapping when two bodies land within 14px on screen
+  (Earth/Moon at wide solar-system-view scales — the human's exact
+  report). (c) WIND-FARM POSITION VERIFICATION: the prior session's
+  "background worktree agent" left NO committed artifact
+  (research/layer_verification_audit.md does not exist) — its ephemeral
+  container was reclaimed before landing anything. OPS LESSON: a
+  background agent's work is lost unless the parent session stays
+  attached long enough to commit+push it, or the RESUME STATE note says
+  explicitly whether a commit already landed. NEXT (unclaimed): (c)
+  wind-farm verification (needs a fresh multi-source build, not a
+  resume), GEBCO region expansion, React memo boundaries, SCALE S2,
+  keepFraction (HUMAN INPUT still pending).
+
 - 2026-07-16 (session #4 continuation, ROUND 10 QUEUE — from the human's
   6-screenshot report; PR #500 = the re-opened repairs after #498
   auto-closed unmerged, see ops gotcha):

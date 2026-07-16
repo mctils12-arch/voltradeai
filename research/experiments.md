@@ -3,6 +3,94 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN round 10c: solar-view label collision fix + a caught duplicate-build near-miss (v1.0.371, T-CLIENT, scheduled-routine session)
+
+WORKSTREAM PARTITION: T-CLIENT (client/src/lib/celestial/solarView.ts +
+its test). SESSION-START CHECKS: read CLAUDE.md in full; `/api/health`
+clean (status ok, bot active, drawdownPct 0.0, liveness.dark false — no
+alarm); open_questions.md KNOWN BROKEN reviewed, nothing newly
+actionable without owner-gated audit-log access; wishlist.md nothing
+newly blocking. LOOP-HEALTH RATIO: last 10 tagged entries at session
+start were 2 REPAIR / 8 PRODUCT-or-PIPELINE — well under the 7/10
+thrash threshold.
+
+NEAR-MISS (logged per the MERGE-ORDER PROTOCOL's claim-before-building
+lesson from earlier today's #497/#498 collision): this session's
+PRIMARY pick was earth_twin_program.md's ROUND 10 QUEUE item (b) — the
+arcLayer.ts GL_LINES→ribbon upgrade. Fully implemented (own quad/side
+vertex layout, aspect-corrected screen-space extrusion scaled by
+own.w, 7 pinned unit tests, PLUS an ad hoc real-WebGL2 pixel drive —
+scratch-only, not committed — compiling the actual exported
+ARC_VERT_SRC against a mock projection prelude and confirming the
+ribbon renders identical non-zero pixel coverage at two simulated
+camera distances, proving the *w scaling claim empirically rather than
+by string-content assertion alone). Before pushing, `git fetch origin
+main` surfaced PR #502 (v1.0.370), merged minutes earlier by a
+concurrent session — a strict superset (index-buffer quads, per-arc
+width override, GL1 UNSIGNED_INT-extension fallback, edge-rim shading)
+of the same item. Per first-merged-wins: branch reset to origin/main,
+zero unique delta salvaged (their version subsumes mine), no PR
+opened for the duplicate. Time was not wasted — the shader math and
+live-pixel verification technique are recorded here for the next
+person who touches a screen-space-extrusion shader in this codebase.
+
+FELL THROUGH to the queue's next independent item — "solar label
+polish" — after confirming (b) was actually done and (a) MOBILE CARD
+CONTAINMENT already merged (#501). Item (c) WIND-FARM POSITION
+VERIFICATION's background worktree agent left no committed artifact
+(research/layer_verification_audit.md does not exist) — its ephemeral
+container was reclaimed before landing anything, so there was no
+in-flight work to continue; flagged below as a lesson, not resumed
+this session (a multi-source position-verification build is its own
+scoped session, not a fall-through-budget add-on).
+
+SHIPPED: lib/celestial/solarView.ts's Canvas2D annotation labels
+collided when two bodies land within `LABEL_COLLIDE_PX` (14px) of each
+other on screen — exactly the human's round-10 report ("co-located
+body labels collide"), concretely Earth/Moon (real 30-Earth-diameter
+separation, sub-pixel apart once zoomed out past ~Mars orbit). New
+pure `layoutLabelOffsets(positions)` (greedy in draw order: a body's
+vertical label offset is one `LABEL_COLLIDE_PX` step per EARLIER body
+already within collide range) computed ONCE per frame over only the
+on-screen bodies, after all markers are drawn — markers/positions
+never move, only where each name+distance string anchors. A colliding
+label gets a short leader tick (`ring→ring+6` diagonal) so a stacked
+label still visually traces back to its own marker. Off-screen edge-
+pointer labels (viewport-edge direction markers) were left unchanged —
+out of scope; the human's report was specifically about on-screen
+co-located bodies.
+
+VERIFICATION: `npx tsx --test client/src/lib/celestial/solarView.test.ts`
+7/7 (1 new: 7-assertion collision-layout test — far-apart no-op,
+co-located stacks, three-mutual cluster stacks in order regardless of
+input order, exact-threshold boundary is exclusive, empty/singleton
+inputs never throw). Full `npx tsx --test client/src/lib/*.test.ts
+client/src/lib/orbital/*.test.ts client/src/lib/air/*.test.ts
+client/src/lib/celestial/*.test.ts` 273/273 (zero regressions; this
+also confirmed the two globeAtmosphere/oceanBasemap failures seen
+earlier in the session were a missing-`npm install` artifact of this
+fresh container, not a real baseline gap — resolved by installing
+deps, unrelated to this change). `npx tsx --test server/*.test.ts`
+705/705. `npx tsc --noEmit` 64 errors, byte-identical (sorted) to the
+pre-change baseline. `npm run build` clean. VISUAL HARNESS (`npm run
+visual -- --page data`): 0 hard failures at 390/768/1440 twice in this
+session (once before this change, once after) — same touch-target/
+clipped-control warnings both times, perf medians 50/133/167ms both
+runs (the solar view isn't in the default map render path, so this
+harness mainly reconfirms nothing else broke).
+
+NOT done this session (deliberately, one logical change per PR): item
+(c)'s wind-farm verification rebuild, GEBCO region expansion, React
+memo boundaries, SCALE S2 — all remain queued.
+
+OPS LESSON for the charter (filed here + earth_twin_program.md RESUME
+STATE): a background worktree agent's work is LOST if its parent
+session ends before the delta is committed and pushed — "agent
+running in worktree, background" in a RESUME STATE note is not itself
+a durable claim. Future sessions should either stay attached long
+enough to commit the agent's output, or explicitly note in RESUME
+STATE whether the background work already landed a commit.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN round 10b: arc RIBBONS — every track visible (v1.0.370)
 
 Human: "line of objects need to be more clear… the plane 3d path looks
