@@ -649,6 +649,88 @@ export default function DataMapPage() {
     el.style.transform = "none"; // resting spot centers via translateX
   }, []);
   const onToolsUp = useCallback(() => { satToolsDrag.current = null; }, []);
+  // O6-7 tier 2 (charter: "zoom out far enough … literally accurate scale"):
+  // past the globe's zoom floor the viewport hands off to the true-scale
+  // solar-system view (lib/celestial/solarView — real ephemeris, every body
+  // at its true size and position). Recipe: research/solar_view_spike.md.
+  const solarActiveRef = useRef(false);
+  const solarHandleRef = useRef<import("@/lib/celestial/solarView").SolarViewHandle | null>(null);
+  const solarCleanupRef = useRef<(() => void) | null>(null);
+  const [solarActive, setSolarActive] = useState(false);
+  const [atZoomFloor, setAtZoomFloor] = useState(false);
+  const exitSolarRef = useRef<() => void>(() => {});
+  const exitSolar = useCallback(() => {
+    if (!solarActiveRef.current) return;
+    solarActiveRef.current = false;
+    setSolarActive(false);
+    const container = mapContainer.current;
+    const canvas = container?.querySelector(".vt-solar-view") as HTMLCanvasElement | null;
+    if (canvas) canvas.style.opacity = "0"; // CSS transition — fade out
+    const handle = solarHandleRef.current;
+    solarHandleRef.current = null;
+    solarCleanupRef.current?.();
+    solarCleanupRef.current = null;
+    window.setTimeout(() => { try { handle?.dispose(); } catch {} }, 260);
+    container?.classList.remove("vt-solar-active");
+    const map = mapRef.current;
+    if (map) {
+      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
+        try { (map as any)[h]?.enable(); } catch {}
+      }
+      // +0.75 zoom headroom: the next wheel notch can't instantly re-enter
+      try { map.easeTo({ zoom: map.getMinZoom() + 0.75, duration: 400 }); } catch {}
+    }
+  }, []);
+  useEffect(() => { exitSolarRef.current = exitSolar; }, [exitSolar]);
+  const enterSolar = useCallback(async () => {
+    const map = mapRef.current;
+    const container = mapContainer.current;
+    if (!map || !container || solarActiveRef.current) return;
+    solarActiveRef.current = true;
+    try {
+      // lazy: the map bundle grows by nothing until a user actually leaves Earth
+      const { mount, entryScaleForEarthDisc } = await import("@/lib/celestial/solarView");
+      // the handoff reads Earth's disc from the GLOBE — flip mercator first
+      try {
+        if (((map as any).getProjection?.() || {}).type !== "globe" && typeof (map as any).setProjection === "function") {
+          (map as any).setProjection({ type: "globe" });
+        }
+      } catch {}
+      // scale continuity: the drawn Earth starts pixel-for-pixel the size the
+      // globe was (worldSize/π/cos(lat) — verified against maplibre 5.24)
+      const worldSize = 512 * Math.pow(2, map.getZoom());
+      const discPx = worldSize / Math.PI / Math.cos((map.getCenter().lat * Math.PI) / 180);
+      const axis = getTimeAxis();
+      const handle = mount(container, {
+        metersPerPixel: entryScaleForEarthDisc(discPx),
+        timeMs: axis.mode === "historical" ? axis.atMs : Date.now(),
+        onZoomIntoEarth: () => exitSolarRef.current(),
+      });
+      solarHandleRef.current = handle;
+      // while active: the time axis + units preference drive the view (the
+      // scrubber becomes a planetarium); live mode ticks 60s (Moon ≈ 0.5'/min)
+      const offAxis = subscribeTimeAxis(() => {
+        const a = getTimeAxis();
+        try { handle.setTime(a.mode === "historical" ? a.atMs : Date.now()); } catch {}
+      });
+      const offUnits = subscribeUnits(() => { try { handle.render(); } catch {} });
+      const iv = window.setInterval(() => {
+        if (getTimeAxis().mode === "live") { try { handle.setTime(Date.now()); } catch {} }
+      }, 60_000);
+      solarCleanupRef.current = () => { offAxis(); offUnits(); window.clearInterval(iv); };
+      container.classList.add("vt-solar-active");
+      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
+        try { (map as any)[h]?.disable(); } catch {}
+      }
+      setSolarActive(true);
+    } catch {
+      // degrade, never break: the map stays fully usable
+      solarActiveRef.current = false;
+      solarCleanupRef.current?.();
+      solarCleanupRef.current = null;
+      try { container.classList.remove("vt-solar-active"); } catch {}
+    }
+  }, []);
   const applySatGroup = useCallback((key: string | null) => {
     setSatGroup(key);
     setSatGroupOrbits(false);
@@ -1125,6 +1207,8 @@ export default function DataMapPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // O6-7 tier 2: leaving the solar system is the FIRST Escape meaning
+      if (solarActiveRef.current) { exitSolarRef.current(); return; }
       setDetail(null);
       clearTrail();
       setShowRawInfo(false);
@@ -1135,6 +1219,37 @@ export default function DataMapPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // O6-7 tier 2 enter detection: at the zoom floor further wheel-out is
+  // inert to MapLibre — read the raw gesture (≥240 accumulated deltaY inside
+  // 400ms windows ≈ 2-3 notches; one stray notch never triggers). The
+  // "Solar system" chip (shown while atZoomFloor) is the touch/a11y path.
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    const el = mapContainer.current;
+    if (!map || !el) return;
+    const updFloor = () => { try { setAtZoomFloor(map.getZoom() <= map.getMinZoom() + 0.05); } catch {} };
+    updFloor();
+    map.on("zoom", updFloor);
+    map.on("zoomend", updFloor);
+    let acc = 0;
+    let timer: number | null = null;
+    const onWheel = (e: WheelEvent) => {
+      if (solarActiveRef.current || e.deltaY <= 0) return;
+      try { if (map.getZoom() > map.getMinZoom() + 0.05) { acc = 0; return; } } catch { return; }
+      acc += e.deltaY;
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => { acc = 0; }, 400);
+      if (acc >= 240) { acc = 0; void enterSolar(); }
+    };
+    el.addEventListener("wheel", onWheel, { capture: true, passive: true });
+    return () => {
+      try { map.off("zoom", updFloor); map.off("zoomend", updFloor); } catch {}
+      el.removeEventListener("wheel", onWheel, { capture: true } as any);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [mapReady, enterSolar]);
 
   const clearTrail = () => {
     const map = mapRef.current;
@@ -6299,6 +6414,18 @@ export default function DataMapPage() {
       </div>
 
       <div ref={mapContainer} className="vt-map-canvas" />
+      {atZoomFloor && !solarActive && mapReady && (
+        <button className="vt-solar-chip" onClick={() => void enterSolar()}
+                title="Hand off to the true-scale solar system — real ephemeris, literal sizes and distances">
+          ☉ Solar system
+        </button>
+      )}
+      {solarActive && (
+        <button className="vt-solar-chip vt-solar-chip-back" onClick={exitSolar}
+                title="Return to the globe (Escape works too)">
+          ⬤ Back to Earth
+        </button>
+      )}
 
       {!mapReady && !mapError && (
         <div className="vt-map-skeleton" aria-label="Map loading">

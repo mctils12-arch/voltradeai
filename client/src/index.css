@@ -2342,6 +2342,28 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   user-select: none; flex: none;
 }
 
+/* O6-7 tier 2 — true-scale solar-system handoff (lib/celestial/solarView) */
+.vt-solar-view {
+  z-index: 30; opacity: 1;
+  transition: opacity 0.25s ease;
+  animation: vt-solar-in 0.25s ease;
+}
+@keyframes vt-solar-in { from { opacity: 0; } to { opacity: 1; } }
+/* zoom chevrons pointing at a hidden map are a lie */
+.vt-solar-active .maplibregl-ctrl { display: none; }
+.vt-solar-chip {
+  position: absolute; z-index: 31;
+  left: 50%; transform: translateX(-50%); bottom: 118px;
+  padding: 6px 14px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--text-primary);
+  background: var(--surface-1, rgba(10, 16, 28, 0.9));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
+  backdrop-filter: blur(6px);
+}
+.vt-solar-chip:hover { border-color: var(--accent, #4d9fff); color: var(--accent, #4d9fff); }
+.vt-solar-chip-back { bottom: auto; top: 64px; }
+
 /* O6 minimized detail card — a pill; the globe shows through */
 .vt-site-card-min {
   display: flex; align-items: center; gap: 2px;
