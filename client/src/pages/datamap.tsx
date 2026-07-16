@@ -618,28 +618,32 @@ export default function DataMapPage() {
   const [showNadir, setShowNadir] = useState(false);
   const showNadirRef = useRef(false);
   useEffect(() => { showNadirRef.current = showNadir; }, [showNadir]);
-  // O6 tools drag (human-requested: "the ability to move [it] around the
-  // window"): grip-drag repositions the cluster; direct style mutation so a
-  // drag never re-renders the whole page component.
+  // O6 tools drag (human-requested round 7: "you cant move them around"):
+  // the WHOLE cluster is the drag surface — the tiny grip glyph alone was
+  // undiscoverable. Buttons stay buttons via the closest() guard; pointer
+  // capture goes on the cluster so the drag survives leaving it. Direct
+  // style mutation so a drag never re-renders the whole page component.
   const satToolsRef = useRef<HTMLDivElement | null>(null);
   const satToolsDrag = useRef<{ dx: number; dy: number } | null>(null);
-  const onToolsGripDown = useCallback((e: React.PointerEvent) => {
+  const onToolsDown = useCallback((e: React.PointerEvent) => {
+    if ((e.target as Element).closest("button")) return; // buttons stay buttons
     const el = satToolsRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     satToolsDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    el.setPointerCapture?.(e.pointerId);
     e.preventDefault();
   }, []);
-  const onToolsGripMove = useCallback((e: React.PointerEvent) => {
+  const onToolsMove = useCallback((e: React.PointerEvent) => {
     const el = satToolsRef.current;
     const d = satToolsDrag.current;
     if (!el || !d) return;
     el.style.left = `${Math.max(4, Math.min(window.innerWidth - 70, e.clientX - d.dx))}px`;
-    el.style.top = `${Math.max(56, Math.min(window.innerHeight - 46, e.clientY - d.dy))}px`;
+    el.style.top = `${Math.max(48, Math.min(window.innerHeight - 46, e.clientY - d.dy))}px`;
     el.style.bottom = "auto";
+    el.style.transform = "none"; // resting spot centers via translateX
   }, []);
-  const onToolsGripUp = useCallback(() => { satToolsDrag.current = null; }, []);
+  const onToolsUp = useCallback(() => { satToolsDrag.current = null; }, []);
   const applySatGroup = useCallback((key: string | null) => {
     setSatGroup(key);
     setSatGroupOrbits(false);
@@ -6623,10 +6627,11 @@ export default function DataMapPage() {
         // O6 follow tools (human-requested): minimizable cluster — re-lock
         // the camera on the object, zoom in/out AROUND it, toggle the exact
         // ground spot it's passing over.
-        <div ref={satToolsRef} className={`vt-sat-tools${satToolsMin ? " vt-sat-tools-min" : ""}`}>
-          <span className="vt-sat-tools-grip" title="Drag to move"
-                onPointerDown={onToolsGripDown} onPointerMove={onToolsGripMove}
-                onPointerUp={onToolsGripUp} onPointerCancel={onToolsGripUp}>⠿</span>
+        <div ref={satToolsRef} className={`vt-sat-tools${satToolsMin ? " vt-sat-tools-min" : ""}`}
+             title="Drag anywhere to move"
+             onPointerDown={onToolsDown} onPointerMove={onToolsMove}
+             onPointerUp={onToolsUp} onPointerCancel={onToolsUp}>
+          <span className="vt-sat-tools-grip" aria-hidden>⠿</span>
           <button className="vt-icon-btn" aria-label={satToolsMin ? "Expand satellite tools" : "Minimize satellite tools"}
                   onClick={() => setSatToolsMin(!satToolsMin)}>
             {satToolsMin ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -6682,7 +6687,11 @@ export default function DataMapPage() {
         // O6 minimize (human-requested): the card collapses to a pill so the
         // globe shows through — the focus/follow keeps running underneath;
         // click the pill to restore, ✕ still ends everything.
-        <div className="vt-site-card vt-site-card-min" role="dialog" aria-label={detail.title}>
+        <div ref={detailCardRef} className="vt-site-card vt-site-card-min" role="dialog" aria-label={detail.title}
+             style={{ cursor: "grab", touchAction: "none" }}
+             onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
+             onPointerUp={onCardHeadUp} onPointerCancel={onCardHeadUp}>
+          <span className="vt-card-grip" aria-hidden>⠿</span>
           <button className="vt-site-card-restore" onClick={() => setDetailMin(false)}
                   aria-label="Restore details">
             {detail.title}
@@ -6696,9 +6705,11 @@ export default function DataMapPage() {
       {detail && !detailMin && (
         <div ref={detailCardRef} className="vt-site-card" role="dialog" aria-label={detail.title}>
           <div className="vt-site-card-head" style={{ cursor: "grab", touchAction: "none" }}
+               title="Drag to move"
                onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
                onPointerUp={onCardHeadUp} onPointerCancel={onCardHeadUp}>
-            <div>
+            <span className="vt-card-grip" aria-hidden>⠿</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div className="vt-site-card-title">{detail.title}</div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
