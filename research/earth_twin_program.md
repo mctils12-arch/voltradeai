@@ -586,6 +586,27 @@ never inferred operators. Slices: O6-1 arc+follow-v2, O6-2 auto-3D
 minis, O6-3 search/groups/group-orbits, O6-4 aircraft operator
 filter.
 
+LIVE-FEEDBACK ROUND 2 (2026-07-15/16, screenshots): fixed in the
+v1.0.347 fix pack (screen-space picking, altitude-anchored ring,
+RAAN-spread orbit cap 150, toggle-reload robustness, always-center,
+camera-driven model attitude, zoom-to-inspect, follow tools cluster,
+card minimize). REMAINING DIRECTIVE ITEMS, chartered as next slices:
+- O6-5 SDP4 DEEP SPACE (the "i don't see the geo sats" ask): port the
+  deep-space corrections (dscom/dpper/dsinit/dspace, Vallado
+  reference) into propagate.ts so the ~800 skipped MEO/GEO objects
+  (GPS, GLONASS, Galileo, GEO comms) get REAL positions; validate
+  against published SDP4 test vectors before rendering; then unlock
+  GPS/GLONASS/Galileo/GEO group chips and O7 GPS-DOP queries. BIG
+  slice — own session recommended, worker + arc + minis inherit it
+  for free once propagate() handles deep space.
+- O6-6 MORE REAL MODELS (the "very accurate for the far out ones"
+  ask): NASA 3D resources verified public-domain candidates through
+  the existing earthtwin_real_mesh.mjs pipeline — GPS (Block IIR/IIF
+  models exist), TDRS, Aqua/Terra/Landsat EO birds; pair with SDP4 so
+  the far-out craft are visible first. Representative-form upgrade
+  for Starlink (documented flat-bus + single-wing design, labeled
+  "documented design, not imagery") as the most-clicked constellation.
+
 ## RESUME STATE (update every session that touches this program)
 
 - 2026-07-15 (session #3, O6 wave — same session as v1.0.340-342):

@@ -3,6 +3,33 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN O6 live-feedback fix pack (v1.0.347, T-CLIENT)
+
+The human live-tested O6 on production (screenshots) — six bugs, two
+new asks, one bigger gap. Fix pack shipped:
+(1) PICK: nearest-ground-mercator picking selected a Starlink when
+clicking a MEO object (altitude displacement ignored). Now: SatLayer
+caches each frame's mainMatrix; pickNearestSatelliteScreen projects
+candidates EXACTLY like the shader (occlusion.mercatorToSphere + the
+cached matrix) and picks nearest in screen px. Test pins MEO-under-
+cursor beats LEO-nadir. (2) RING: the geojson ground-point ring
+detached from the object under tilt/pan (parallax) — now drawn by
+SatModelLayer at the anchor's rendered altitude. (3) group orbits
+"a fraction": cap 40→150 + RAAN-sorted spread covers every plane.
+(4) live-layer re-toggle sometimes blank: fresh wire clears the
+delta cursor + first fetch cache:'reload' (Cache-Control interaction
+from v1.0.340). (5) click sometimes "didn't focus": always ease-to
+now. (6) auto-tumble removed per human ask — model attitude is
+CAMERA-driven (bearing/pitch), so the user does the rotating;
+self-repaint gone (idle map idles). (7) zoom-to-inspect: focused
+model grows 2^dz past focus zoom, cap 480px. (8) follow-tools
+cluster (re-center / zoom± / ground-spot nadir marker, minimizable)
++ detail-card MINIMIZE pill.
+REMAINING (chartered O6-5/O6-6): SDP4 deep-space port (the ~800
+skipped GEO/MEO objects the human asked to see) and more real
+models (GPS/TDRS candidates via the existing pipeline).
+GATES: client 218/218, tsc 66 baseline, build clean, harness below.
+
 ## AUDIT REGISTER (maintained in place per the AUDIT CYCLE clause,
 CLAUDE.md SESSION BUDGET — this block is updatable state, the only
 exception to append-only; the log below it stays append-only)
