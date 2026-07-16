@@ -105,6 +105,76 @@ NOT done this session (deliberately, one logical change per PR): the
 program's other still-open items — GPS/TDRS real models, React memo
 boundaries, SCALE S2, keepFraction (HUMAN INPUT still pending) — remain
 queued in earth_twin_program.md RESUME STATE, updated below.
+## 2026-07-16 [PRODUCT] — EARTH TWIN round 9: PITCH-PROOF sat lock (v1.0.367)
+
+Human live report (phone screenshots, tilted views): "the features to
+follow sat or ground track dont work to follow, and zoomed way in to
+the sat it moves all around trying to center." ROOT CAUSE: 'sat' lock
+centered the NADIR and trimmed with a screen-space feedback offset
+clamped to 30% of the viewport — at high pitch a LEO craft's screen
+displacement from its nadir EXCEEDS the whole viewport (centering
+mathematically impossible inside the clamp; the craft sat pinned near
+the horizon, screenshot #2), and the feedback loop chasing a
+stale-frame matrix each tick oscillated (the wander). FIX: solve the
+camera pose ANALYTICALLY — at pitch p, a craft at altitude h sits on
+the center view-ray exactly when the ground center is h·tan(p) meters
+AHEAD of its nadir along the view bearing (great-circle destination;
+pitch 0 degenerates to the nadir). Feed-forward, no chasing. The old
+matrix trim MEASURABLY made it worse on the normal path (256km/2.2s
+wander with it vs 11-16km ≈ pure ISS ground speed without — mixing
+the last rendered frame's matrix with the current mid-ease transform
+injects up to the full clamp of noise per tick); it now runs ONLY in
+the capped extreme-apogee fallback (d > 5,000km — GEO+ at steep
+pitch, where approximate beats nothing). Ease: linear 800ms (chase
+reads continuous, not hop-pause-hop). PHONE: locking on closes the
+layers panel under 768px — a correctly-centered craft was hiding
+behind it (~half the viewport). DRIVE (52 assertions, ALL PASS): new
+V-block proves the GEOMETRY — at pitch 70 the center leads the ISS
+nadir by 1186km (h·tan70° band 1044-1264km = craft on the center
+ray) and tracks at 15.7km/2.2s (pure ground speed, no wander); D3
+drag hardened after 3 same-day flakes (SwiftShader can swallow a
+3-step flick inside one frame; now a slow 2-stage drag + release
+poll — test-side only, no assertion weakened). GATES: tsc 66
+baseline, build clean, client suite unchanged, harness on the PR.
+
+## 2026-07-16 [REPAIR] — E2 v2 confidence layer renders NOTHING on live main; salvage of the superseded duplicate slice (v1.0.366)
+
+SUPERSESSION (MERGE-ORDER PROTOCOL §6): this session and a concurrent
+scheduled-routine session both built the E2 v2 confidence wiring; #497
+(theirs) merged first and wins — my duplicate PR #498's branch was
+reset to main and only the UNIQUE delta salvaged. THE CRITICAL DELTA
+IS A REPAIR OF LIVE MAIN: #497 wired the layer with the lib's
+["step"] color-relief expression, which maplibre v5.24 accepts at
+validation but SILENTLY RENDERS NOTHING (their own logged hypothesis
+predicted exactly this — "if the whole region renders one uniform
+color, suspect the step expression" — but their drive asserted only
+isSourceLoaded, which passes while zero pixels draw; my session had
+independently root-caused it WITH pixel evidence before #497 merged:
+getPaintProperty returns the step paint verbatim, interpolate form
+with identical classes paints immediately). So production's
+'Seafloor mapping confidence' toggle currently loads real data and
+shows nothing. SALVAGED INTO THIS SLICE: (1) lib/seafloorV2
+expression → knife-edge interpolate stops (±0.02 around the integer
+code runs — exact class semantics, land/gaps stay absent; test
+evaluator evolved, every semantic assertion unchanged); (2) the
+dashed TRUE-EXTENT border per region ("just have a closed border of
+the area" — verbatim human directive #497 lacked), wired into
+#497's own effect/ids, cleanup symmetrical; (3) legend note names
+the border; (4) ops gotchas + resilience open question filed
+(image-pool starvation by a hanging CDN; step-silently-ignored;
+content-based deploy verification). DROPPED from my duplicate, per
+first-merged-wins: my parallel datamap effect/legend (theirs is
+richer — live measured shares from the provenance sidecar), my
+/api/rastertile server route + tests (their pmtiles:// wiring is
+correct in production — the 'raster pmtiles is broken' reading was
+MY sandbox's image-pool starvation, fully probe-chained; the route
+pattern is preserved here in the log if an API-product need revives
+it). RATCHET FOR THE BUG CLASS: the committed drive's confidence
+block now includes a PIXEL assertion (screenshot clip decoded,
+class-color pixels counted) — presence-only checks provably cannot
+catch render-silent failures. LESSON: two sessions independently
+hitting one queue item cost a duplicate build; the charter RESUME
+STATE claim discipline exists for this — claim BEFORE building.
 
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6-7 tier 2 WIRED: solar-system handoff live on /data (v1.0.364)
 

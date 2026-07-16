@@ -19,15 +19,30 @@ import {
   SEAFLOOR_V2_REGIONS,
 } from "./seafloorV2.js";
 
-/** Evaluate a MapLibre step expression at a scalar input. */
-function evalStep(expr: unknown[], v: number): string {
-  assert.deepEqual(expr.slice(0, 2), ["step", ["elevation"]]);
-  let out = expr[2] as string;
-  for (let i = 3; i < expr.length; i += 2) {
-    if (v >= (expr[i] as number)) out = expr[i + 1] as string;
-    else break;
+/**
+ * Evaluate the MapLibre interpolate expression at a scalar input.
+ * (Interpolate form, not step: maplibre v5.24 validates ["step"] for
+ * color-relief-color but silently renders nothing — the lib emits
+ * knife-edge interpolate stops instead; root-caused 2026-07-16.)
+ * Returns the exact color when the value sits on a stop or between two
+ * stops of the same color; "MIXED(...)" otherwise — the assertions below
+ * prove no real TID code can ever land in a mixed zone.
+ */
+function evalInterp(expr: unknown[], v: number): string {
+  assert.deepEqual(expr.slice(0, 3), ["interpolate", ["linear"], ["elevation"]]);
+  const stops: Array<[number, string]> = [];
+  for (let i = 3; i < expr.length; i += 2) stops.push([expr[i] as number, expr[i + 1] as string]);
+  if (v <= stops[0][0]) return stops[0][1];
+  if (v >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (v >= stops[i][0] && v <= stops[i + 1][0]) {
+      if (stops[i][1] === stops[i + 1][1]) return stops[i][1];
+      if (v === stops[i][0]) return stops[i][1];
+      if (v === stops[i + 1][0]) return stops[i + 1][1];
+      return `MIXED(${stops[i][1]}|${stops[i + 1][1]})`;
+    }
   }
-  return out;
+  return "UNREACHABLE";
 }
 
 test("decode table is EXACTLY the documented GEBCO_2026 set — no invented or collapsed codes", () => {
@@ -79,19 +94,19 @@ test("confidence expression: every documented code gets its group color; gaps, n
   const expr = tidConfidenceColorRelief();
   const transparent = "rgba(0,0,0,0)";
   for (const [c, info] of TID_DECODE) {
-    assert.equal(evalStep(expr, c), TID_CONFIDENCE[info.group].color, `code ${c}`);
+    assert.equal(evalInterp(expr, c), TID_CONFIDENCE[info.group].color, `code ${c}`);
   }
-  assert.equal(evalStep(expr, TID_NO_DATA), transparent, "out-of-coverage marker");
-  assert.equal(evalStep(expr, -1000), transparent);
-  assert.equal(evalStep(expr, 5), transparent, "gap 1..9");
-  assert.equal(evalStep(expr, 25), transparent, "gap 18..39 (cross-group interpolation lands here, never a wrong class)");
-  assert.equal(evalStep(expr, 60), transparent, "gap 49..69");
-  assert.equal(evalStep(expr, 100), transparent, "beyond the last run");
+  assert.equal(evalInterp(expr, TID_NO_DATA), transparent, "out-of-coverage marker");
+  assert.equal(evalInterp(expr, -1000), transparent);
+  assert.equal(evalInterp(expr, 5), transparent, "gap 1..9");
+  assert.equal(evalInterp(expr, 25), transparent, "gap 18..39 (cross-group interpolation lands here, never a wrong class)");
+  assert.equal(evalInterp(expr, 60), transparent, "gap 49..69");
+  assert.equal(evalInterp(expr, 100), transparent, "beyond the last run");
   // land is transparent: the overlay never paints a reading over land
-  assert.equal(evalStep(expr, 0), "rgba(0,0,0,0)");
-  // stops strictly ascend (MapLibre step requirement)
+  assert.equal(evalInterp(expr, 0), "rgba(0,0,0,0)");
+  // stops strictly ascend (MapLibre interpolate requirement)
   for (let i = 5; i < expr.length; i += 2) {
-    assert.ok((expr[i] as number) > (expr[i - 2] as number), "step stops must strictly ascend");
+    assert.ok((expr[i] as number) > (expr[i - 2] as number), "interpolate stops must strictly ascend");
   }
 });
 
@@ -104,7 +119,7 @@ test("legend renders from the SAME table + colors as the map expression (one sou
     assert.ok(row.label.length > 2 && row.meaning.length > 10, "label + meaning from the shared table");
     // the color the legend shows is exactly what the map paints for that group
     const someCode = [...TID_DECODE.entries()].find(([, i]) => i.group === row.group)![0];
-    assert.equal(evalStep(expr, someCode), row.color, "legend/map parity");
+    assert.equal(evalInterp(expr, someCode), row.color, "legend/map parity");
   }
   assert.ok(!legend.some((r) => r.group === "land"), "land is transparent on the map, so it is absent from the legend");
 });
