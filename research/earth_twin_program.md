@@ -637,6 +637,31 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (scheduled-routine session, T-CLIENT, PR #505): SCALE S1(d)
+  "React memo boundaries" partially shipped (v1.0.373) — Legend panel
+  extracted into a standalone `LegendPanel` component wrapped in
+  `React.memo` (24 props, all stable identities; verified live via
+  Playwright that toggling a layer still correctly adds/removes its
+  legend section — not a stale closure). Full detail + reasoning for why
+  only Legend (not LayersPanel/DetailCard) in experiments.md. This item
+  had been listed as queued-but-deferred in nearly every RESUME STATE
+  entry since 2026-07-15 ("fresh-session recommended") — now PARTIALLY
+  done. REMAINING: LayersPanel (many interactive controls: opacity
+  sliders, date scrubbers, per-layer description toggles — more
+  entangled local state, its own scoped PR) and DetailCard (branches on
+  `detail.kind` across ~15 entity types with per-kind fetch/trail-
+  tracking side effects — also its own scoped PR). Neither attempted
+  this session; each is a materially bigger lift than Legend was.
+  Also confirmed this session: items (A)/(B) below (curtain walls,
+  viewport aircraft tiling) reference worktrees
+  (`.claude/worktrees/agent-a75f7717697649cf5` /
+  `agent-a67a4547847206c84`) that do not exist in this session's
+  container — same OPS LESSON already on file (a background agent's
+  work is lost unless the parent session stays attached long enough to
+  commit+push it). Whoever picks up (A)/(B) next needs a fresh build,
+  not a resume, unless a still-live container with those worktrees can
+  be reattached.
+
 - 2026-07-16 (round 11 queue — human's VeloViewer reference + follow-up
   reports; ISS-module fix = PR #504):
   (A) ALTITUDE CURTAIN WALLS — agent-built lib READY in worktree

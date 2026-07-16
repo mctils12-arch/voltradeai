@@ -3,6 +3,177 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PIPELINE] — SCALE S1(d) React memo boundary: Legend panel extracted + memoized (v1.0.373, T-CLIENT, PR #505, scheduled-routine session)
+
+WORKSTREAM PARTITION: T-CLIENT (client/src/pages/datamap.tsx only).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): CLAUDE.md in full; `/api/health`
+clean on production (status ok, bot active, drawdownPct 0.0, no LIVENESS
+ALARM, scanner consecutiveFailures 0); `/api/diag/scanner` and
+`/api/diag/audit` showed nothing broken — the one `dataSourceErrors` entry
+was the expected "sub-$5 ticker has no options chain" case, not a fault.
+Loop-health ratio over the last 10 tagged entries (all 2026-07-16, EARTH
+TWIN wave): 7 [PRODUCT] / 2 [REPAIR] / 1 [PIPELINE] — well under the 7/10
+thrash threshold, no meta-problem override. KNOWN BROKEN: nothing new:
+item #20 (master_kill_switch shadow logging) still has zero
+`rejected_masterkill` shadow data to judge (not re-checked this session —
+out of T-CLIENT territory); no other open KNOWN BROKEN item is
+liveness-critical.
+
+PRIMARY ACTION CHOICE: no bug in the audit log to fix (SESSION BUDGET
+tier 1) and no matured experiment ripe to judge in this territory (tier
+2), so fell to the next queued, self-contained item. `research/
+earth_twin_program.md`'s RESUME STATE has named "React memo boundaries
+(LayersPanel/Legend/DetailCard)" as queued-but-deferred in essentially
+every session since 2026-07-15 (explicitly flagged "fresh-session
+recommended: 5.9k-line component refactor" at v1.0.340's entry) — this
+is a fresh session with no in-progress worktree state to resume (checked:
+`.claude/worktrees/` empty, RESUME STATE's items (A)/(B) referenced
+worktrees from a prior session's container that no longer exist in this
+one — OPS LESSON already on file for that). CONTINUOUS BUILD MANDATE
+(earth_twin_program.md) treats an unshipped queued slice as the default
+next action for a session with no higher-priority repair/research to do.
+
+WHY SCOPED TO LEGEND ONLY: `DataMapPage` (datamap.tsx) is one ~7.4k-line
+function component with NO sub-component boundaries at all — every piece
+of UI chrome (layers panel, legend, detail/dossier card) is inline JSX
+in the same render tree as ~40 useState hooks, several of which update on
+high-frequency ticks (1Hz satellite worker repaints, per-second aircraft/
+vessel WebSocket position updates, pointer-move drag handlers). Every one
+of those ticks currently forces React to re-render and diff the ENTIRE
+tree, including sections that depend on none of that live-position state.
+Read-before-write review of all three named targets found Legend to be
+the only one cleanly self-contained: it is pure display (no event
+handlers beyond toggling its own collapse state, forwarding an existing
+stable `setState`/`useCallback`/ref to `SatFinder`), with a fully
+enumerable, traceable prop surface (grepped every identifier referenced
+inside the block — 24 distinct dependencies, all either primitive state,
+already-stable setState functions, an already-`useCallback`'d handler
+(`applySatGroup`), or ref objects — React refs are stable across renders
+by contract, so passing them as props doesn't defeat memoization).
+LayersPanel and DetailCard are NOT this simple: LayersPanel owns dozens
+of per-layer interactive controls (opacity sliders, date scrubbers,
+description toggles) with more entangled local closures, and DetailCard
+branches on `detail.kind` across ~15 entity types with per-kind fetch/
+trail-tracking side effects — extracting either safely is a materially
+bigger, riskier task than one session should attempt in a single PR
+alongside everything else already queued. Doing the full three-component
+"boundaries" work in one shot is exactly the failure mode this repeatedly-
+deferred item has been avoiding for two days; shipping the smallest safe
+slice breaks the deadlock without the risk.
+
+SHIPPED (v1.0.373): the ~330-line inline Legend JSX block (previously
+embedded directly in `DataMapPage`'s return, right after the layers
+panel) is now a standalone `LegendPanel` component defined at module
+scope, wrapped in `React.memo`. All 24 dependencies (enabled-layer map,
+collapse-open bool + setter, airline filter + setter, 5 imagery-refresh
+date strings, wind/temp-unit toggles, the orbital GP ref + version
+counter, 4 satellite-selector state values + 2 stable callbacks, 2 more
+refs, the shared `setDetail` setter, seafloor-confidence share map) are
+passed as explicit typed props — no prop is itself a freshly-constructed
+object/array/function on every parent render (verified by inspection:
+every one is either `useState` primitive/object state, a `useState`
+setter, `applySatGroup` which is already wrapped in `useCallback`
+upstream, or a `useRef` object). This means `React.memo`'s default
+shallow-equality comparator correctly skips re-rendering Legend on every
+parent render that doesn't touch one of those 24 values — including every
+satellite-tick, aircraft-tick, and vessel-tick re-render, which is the
+overwhelming majority of `DataMapPage`'s render volume once any live
+layer is on. Pure extraction: same JSX, same conditions, same handlers,
+same className/data-attribute hooks the visual harness and any future
+click-parity check key off — zero behavior change intended or found.
+
+VERIFICATION: `npx tsc --noEmit` — 66-line baseline; the file's single
+pre-existing union-type error (the `renderPanelGroup` orphans self-see
+block, unrelated to this diff) moved from line 6745 to 7133 purely
+because ~388 net lines were added above it — confirmed via `git stash`
+A/B that the error text and count are otherwise byte-identical, so this
+is the same documented baseline every recent T-CLIENT session has logged,
+not a new error. `npx tsx --test server/*.test.ts` — 705/705 (datamap.tsx
+is client-only; ran anyway as the full-repo regression gate). `npx tsx
+--test` over every `client/src/**/*.test.ts(x)` (40 files) — 274/274,
+zero regressions; note there is no existing React-component-render test
+infrastructure in this repo (all client tests are pure-logic/helper
+tests, no jsdom/RTL) — adding one was out of scope for a pure refactor
+with no new logic to pin, and would be its own infra PR. `npm run build`
+— clean, both client and server bundles, no new warnings.
+`python3 -m pytest -q` not run — zero Python files touched.
+
+VISUAL HARNESS: `node scripts/visual_check.mjs --page data` hit the
+IDENTICAL crash the 2026-07-14 HIFLD session already filed as a sandbox-
+environment finding ("Target page, context or browser has been closed"
+partway through the real, layer-heavy `/data` page's WebGL render under
+this container's Chromium) — reproduced on a clean run, confirming it is
+an environment property, not something this diff triggered or worsened.
+SUBSTITUTED (matching the pattern several EARTH TWIN sessions have used
+for this same gap — "ad hoc Playwright, not committed"): built `npm run
+build` + `node dist/index.cjs` locally (ALPACA keys absent in this
+sandbox → `/api/health` reports `status: degraded` on the Alpaca check
+only, expected and unrelated), then drove a Playwright session
+(executablePath `/opt/pw-browsers/chromium`, the harness's own SwiftShader
+GL_ARGS, `waitUntil: "load"` per the harness's established pattern since
+`networkidle` never fires on this page's live polling) against
+`/app#/data`. Confirmed: Legend head renders and reports
+`aria-expanded="true"` at the default desktop (1440px) viewport per its
+existing `window.innerWidth >= 768` default; legend body present with 20
+items/chips at default layer state (imagery/places/aircraft/sites/
+powerplants/trains/graph on by default); most importantly, REACTIVITY —
+toggling the `trains` layer switch off removed the `vt-train` legend icon
+and toggling it back on restored it, proving `LegendPanel` reads live
+`enabled` prop updates through the memo boundary rather than stale-
+closing on its first render (the exact bug class a careless memo
+extraction risks). Zero new console/page errors versus a baseline
+landing-page smoke check (`ERR_CONNECTION_RESET` appeared in both — an
+outbound-network sandbox restriction unrelated to this diff, not a
+React/rendering error).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `LegendPanel` reads `enabled`
+by reference (the same `Record<string, boolean>` state object
+`DataMapPage` already owns) — no new state, no new source of truth, no
+change to how layers get toggled. `SatFinder`'s props are forwarded
+unchanged (same object identities it always received). Zero effect on
+map rendering (maplibre/deck-style custom layers are imperative, outside
+React's tree, untouched), zero effect on any data-fetch/WebSocket/tick
+logic, zero effect on trading/scoring/sizing/execution code. The
+addressable perf win is React reconciliation cost only (fewer virtual-DOM
+nodes to diff per high-frequency tick) — this does NOT reduce network
+calls, WebGL draw calls, or the underlying tick rate itself; SCALE S1's
+other levers (S2 server-tiling, viewport-bounded serving) remain the
+larger wins for those. No perf-harness assertion was added because the
+existing harness cannot currently exercise the live-tick path on this
+sandbox (documented gap above, same one satLayer.test.ts's 1Hz-repaint
+session noted for its own default-battery limitation) — a future session
+with a working harness in this environment should add a render-count
+assertion here.
+
+BACKTEST: N/A — client-only rendering-boundary change; zero trading,
+sizing, scoring, or execution code touched.
+
+HYPOTHESIS (per REASONING STANDARD #10, stated before evidence): once
+deployed, this should have NO user-visible effect whatsoever (that's the
+point of a pure perf refactor) — a future session should watch for zero
+new bug reports tied to the Legend section specifically. The perf benefit
+(fewer React re-renders during live-layer sessions) is currently
+unmeasured in this sandbox; if/when the visual harness's sandbox crash
+gets root-caused and fixed, a future session should add a render-count or
+frame-time assertion here to make the SCALE program's "flat frame/query
+time as feature count rises" guarantee mechanically checked rather than
+argued from code inspection.
+
+NEXT (RESUME STATE updated in earth_twin_program.md and scale_program.md):
+LayersPanel and DetailCard remain the two harder, larger slices of the
+same queued item — each is its own scoped PR per the reasoning above, not
+attempted here. Also still queued and untouched this session: GEBCO
+region expansion, wind-farm position verification card-surfacing (prior
+session's background-worktree agent produced no committed artifact —
+still needs a fresh build per that session's own OPS LESSON), altitude
+curtain walls + viewport aircraft tiling (RESUME STATE items A/B — also
+orphaned worktrees from a different session's container, same fate),
+SCALE S2 server aggregation, keepFraction density (blocked on human
+input).
+
+---
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN round 10c: solar-view label collision fix + a caught duplicate-build near-miss (v1.0.371, T-CLIENT, scheduled-routine session)
 
 WORKSTREAM PARTITION: T-CLIENT (client/src/lib/celestial/solarView.ts +
