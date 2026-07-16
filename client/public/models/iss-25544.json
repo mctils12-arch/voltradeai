@@ -10,10 +10,10 @@
   },
   "processing": {
     "tool": "scripts/earthtwin_real_mesh.mjs",
-    "method": "node hierarchy baked; vertex-cluster decimation (grid 64, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
-    "verts": 22890,
-    "tris": 27411,
+    "method": "node hierarchy baked; vertex-cluster decimation (grid 128, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
+    "verts": 45973,
+    "tris": 47235,
     "spanMeters": 111.99
   },
-  "honesty": "Decimated derivative of NASA's official ISS model for focused-object display (~72–150 px). Geometry and colors are simplified from the source asset; this is a real model of the real station, not a class-representative form."
+  "honesty": "Decimated derivative of NASA's official ISS model for focused-object display (72–480 px with zoom-to-inspect). Geometry and colors are simplified from the source asset; this is a real model of the real station, not a class-representative form."
 }

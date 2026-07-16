@@ -10,10 +10,10 @@
   },
   "processing": {
     "tool": "scripts/earthtwin_real_mesh.mjs",
-    "method": "node hierarchy baked (incl. per-node scale via inverse-transpose normal matrices); vertex-cluster decimation (grid 144, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
-    "verts": 10428,
-    "tris": 12511,
+    "method": "node hierarchy baked (incl. per-node scale via inverse-transpose normal matrices); vertex-cluster decimation (grid 256, material+normal-octant keyed); per-vertex colors sampled from the real base-color textures (nearest texel at each vertex UV × baseColorFactor) — derived from the NASA asset, nothing invented",
+    "verts": 13165,
+    "tris": 16163,
     "spanMeters": 16.73
   },
-  "honesty": "Decimated derivative of NASA's official Hubble model for focused-object display (~72–150 px). Geometry and colors are simplified from the source asset; this is a real model of the real telescope, not a class-representative form."
+  "honesty": "Decimated derivative of NASA's official Hubble model for focused-object display (72–480 px with zoom-to-inspect). Geometry and colors are simplified from the source asset; this is a real model of the real telescope, not a class-representative form."
 }
