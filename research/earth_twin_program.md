@@ -637,6 +637,20 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (session #4 wave): O6-5 SDP4 SHIPPED+CROSS-CHECKED
+  (#492); O6-6a/b high-res ISS/Hubble + Starlink documented form;
+  three live-feedback fix rounds (#490 #493 + v1.0.353 rider), each
+  validated by the interactive Playwright drive (drive_follow
+  pattern — real server + fixture sats; 15/15). O6-7 TIER 1 SHIPPED
+  (v1.0.353): day/night terminator + sun/moon overhead markers,
+  computed ephemeris (lib/celestial/ephemeris.ts), anchor-validated.
+  NEXT: O6-7 tier 2 spike (true-scale solar-system zoom-out — camera
+  handoff is the hard part), GPS/TDRS real models, GEBCO v2 + TID,
+  React memo boundaries (fresh session), SCALE S2, keepFraction
+  (HUMAN INPUT). Deep-space perf watch: worker tick with ~800 SDP4
+  objects — profile if lag reports return.
+
+
 - 2026-07-15 (session #3, O6 wave — same session as v1.0.340-342):
   O6 SHIPPED COMPLETE (v1.0.343-345): O6-1 orbit arc (ArcLayer +
   sampleOrbitArc) + follow v2 (drag = camera only, card X ends

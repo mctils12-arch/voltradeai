@@ -3,6 +3,29 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN O6-7 tier 1: live day/night + sun/moon (v1.0.353)
+
+First celestial slice: 'Day/Night & Moon' base layer — real terminator
+shading the night side NOW, subsolar ☀ + sublunar moon markers (real
+phase glyph, % lit, distance, apparent size; DOM markers so color
+emoji render). Pure Meeus low-precision computation (lib/celestial/
+ephemeris.ts) — no feed, no license; display-grade accuracy stated
+everywhere (sun ~0.01°, moon ~1°, ±85° mercator clamp). VALIDATED
+against astronomical anchors: solstice/equinox declinations,
+noon/midnight subsolar lon, documented 2000-01-06 new + 2000-01-21
+full (eclipse-night) moons, distance/size bands, terminator vertices
+90°±1 from subsolar. The layersWiring RATCHET caught the missing
+LAYER_GROUP entry — the R15 machinery worked exactly as designed.
+RIDER: HEO framing fix (live screenshot: CLUSTER II-FM8 ~119,000 km
+apogee slewed the camera) — lock-on chase offset clamped to 30%
+viewport; focus zoom now derives from ALTITUDE (extreme apogee backs
+out to ~1.4 so the craft frames above the globe).
+PRIOR: the terminator + phase-true moon is the cheapest Google-Earth-
+startup-feel win and plugs into tier 2 (true-scale solar system)
+later; falsifier: users read the night shade as a data outage →
+lighten opacity / label harder. GATES: client 229/229, server
+699/699, tsc 66, build clean, harness below.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6 live-feedback round 3: lock modes + validated-by-driving (v1.0.352)
 
 Human live-tested rounds continued (screenshots + refinements
