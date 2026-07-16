@@ -3090,6 +3090,20 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 /* Phase 3a imagery capture-date chip — bottom-left inside the map page
    (the page already clears the mobile tab bar), left of the compact
    maplibre attribution. Never intercepts map gestures. */
+/* EARTH TWIN E3 follow-up: 3D-aircraft hover tooltip (altitude on hover).
+   position:fixed + cursor clientX/clientY (set inline by the effect) so it
+   tracks the pointer regardless of the map container's own offset;
+   pointer-events:none so it can never intercept the mousemove/click it is
+   reacting to. Desktop-hover-only by construction (mousemove never fires
+   from touch), so it costs nothing on mobile — no separate touch path. */
+.vt-air-hover-tip {
+  position: fixed; z-index: 12; pointer-events: none;
+  background: rgba(8, 16, 30, 0.94); color: var(--text-primary);
+  border: 1px solid rgba(77, 159, 255, 0.3); border-radius: 6px;
+  padding: 4px 8px; font-family: var(--font-mono); font-size: 11px;
+  white-space: nowrap; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
 .vt-imagery-date-chip {
   /* left: 52px clears the maplibre zoom column (~40px); bottom: 32px
      clears the attribution line (a LICENSING surface — © Esri must stay

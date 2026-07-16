@@ -563,6 +563,11 @@ export default function DataMapPage() {
   const mapRef = useRef<any>(null);
   const glRef = useRef<any>(null);
   const sinceRef = useRef<Record<string, string>>({});
+  // EARTH TWIN E3 follow-up: hover tooltip for the 3D aircraft silhouettes
+  // (altitude label on hover — deferred from the E3 polish slice). Updated
+  // imperatively (direct style/text writes, no setState) so cursor movement
+  // never triggers a React re-render of this large component.
+  const airHoverTipRef = useRef<HTMLDivElement | null>(null);
   // ORBITAL O2: the satellite worker + GPU layer live across renders so the
   // enable/disable effect can tear both down cleanly (zero-cost-when-off).
   const satWorkerRef = useRef<Worker | null>(null);
@@ -3214,6 +3219,7 @@ export default function DataMapPage() {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.aircraft) {
+      if (airHoverTipRef.current) airHoverTipRef.current.style.display = "none";
       try {
         if (map.getLayer("aircraft-sym")) map.removeLayer("aircraft-sym");
         if (map.getLayer("aircraft-sym-lo")) map.removeLayer("aircraft-sym-lo");
@@ -3358,9 +3364,46 @@ export default function DataMapPage() {
       }, ll);
     };
     map.on("click", onAir3dClick);
+    // altitude-on-hover (E3 follow-up, deferred from the original polish
+    // slice): same CPU-nearest pick + precedence rule as the click handler
+    // above, rAF-throttled so a fast mousemove stream never re-picks more
+    // than once per frame. Writes the tooltip DOM node directly (no
+    // setState) — see airHoverTipRef's declaration for why.
+    let hoverFrame: number | null = null;
+    const hideHoverTip = () => { if (airHoverTipRef.current) airHoverTipRef.current.style.display = "none"; };
+    const onAir3dMove = (e: any) => {
+      if (hoverFrame != null) return;
+      hoverFrame = requestAnimationFrame(() => {
+        hoverFrame = null;
+        const tip = airHoverTipRef.current;
+        if (!tip) return;
+        if (map.getZoom() < AIR_3D_MIN_ZOOM) { hideHoverTip(); return; }
+        let atPoint: unknown[] = [];
+        try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
+        if (atPoint.length > 0) { hideHoverTip(); return; } // a feature-scoped layer owns this pixel
+        const ll = map.unproject(e.point);
+        const merc = lonLatToMercator(ll.lng, ll.lat);
+        const tol = pixelToleranceToMercUnits(10, map.getZoom());
+        const idx = pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, tol);
+        const a = idx >= 0 ? airRows[idx] : null;
+        if (!a) { hideHoverTip(); return; }
+        const alt = a.on_ground ? "on ground" : (a.altitude_m != null ? fmtMeters(a.altitude_m) : "alt unknown");
+        tip.textContent = `${a.callsign || a.icao24 || "aircraft"} · ${alt}`;
+        const oe = e.originalEvent as MouseEvent | undefined;
+        tip.style.left = `${(oe?.clientX ?? e.point.x) + 14}px`;
+        tip.style.top = `${(oe?.clientY ?? e.point.y) + 14}px`;
+        tip.style.display = "block";
+      });
+    };
+    map.on("mousemove", onAir3dMove);
+    map.on("mouseout", hideHoverTip);
     return () => {
       stopWire();
       try { map.off("click", onAir3dClick); } catch {}
+      try { map.off("mousemove", onAir3dMove); } catch {}
+      try { map.off("mouseout", hideHoverTip); } catch {}
+      if (hoverFrame != null) cancelAnimationFrame(hoverFrame);
+      hideHoverTip();
       try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
     };
   }, [enabled.aircraft, mapReady, wireLivePoints, setStatus, airFilter]);
@@ -5772,6 +5815,13 @@ export default function DataMapPage() {
           </button>
         </div>
       )}
+
+      {/* EARTH TWIN E3 follow-up: 3D aircraft hover tooltip (altitude on
+          hover). Always mounted (so the ref is live before the aircraft
+          effect ever fires) but hidden by default; the aircraft effect
+          below writes text/position/display directly, never via setState —
+          pointer-events:none keeps it from stealing map interaction. */}
+      <div ref={airHoverTipRef} className="vt-air-hover-tip" style={{ display: "none" }} />
 
       {/* Phase 3a imagery capture-date chip (DESIGN.md imagery-honesty
           rule: display dates where available; unknown states stay loud) */}
