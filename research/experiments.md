@@ -28,6 +28,167 @@ at wide scales); edge pointers overlap the time readout under the
 header. GATES: client 265/265, tsc 66 baseline, build clean,
 harness on the PR.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN E2 v2: seafloor mapping confidence datamap wiring (v1.0.365, PR #497, T-CLIENT, scheduled-routine session)
+
+MERGE COLLISION NOTE (MERGE-ORDER PROTOCOL): this entry originally
+claimed v1.0.364, the same version this session read-and-incremented to
+at commit time — PR #496 (O6-7 tier 2 solar-system handoff, entry
+directly above) merged to main first and independently claimed the same
+number. First-merged wins (supersession precedent): rebased onto the
+new main, re-incremented to v1.0.365 at rebase-commit time, and this
+line updated to match. #496 and this PR both touched
+`client/src/pages/datamap.tsx` but at disjoint locations (solar-system
+zoom-out vs. the seafloor_confidence layer) — the rebase applied
+without a single code conflict; only this append-only log file
+collided, resolved keep-both-sides per the standing protocol.
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then this
+file's tail, open_questions.md KNOWN BROKEN (unresolved items remaining:
+#10 dead config gated on shadow_portfolio depth, #12(b)/(c) gated
+follow-ups, #18 TIER2-ERROR root cause still open behind a real-time-
+correlation lead — none liveness-critical or newly actionable this
+session), wishlist.md (STREET-VIEW ML decision still awaiting human
+input; nothing else blocking). LOOP-HEALTH RATIO: last 10 tagged entries
+— 1 REPAIR (today's atmosphere-perf fix), 9 PRODUCT/PIPELINE — well
+under the 7/10 thrash threshold, no meta-problem to address.
+`/api/health` on production: status ok, bot active, drawdownPct 0.0,
+scanner healthy, no LIVENESS ALARM. `/api/diag/audit?limit=200` (DIAG_TOKEN
+present in env): zero ERROR/COMPLIANCE/KILL/WARN-type entries — only
+routine TIER2/T2-FAIL(no-options-contracts)/TIERS/RULES/MANIPULATION/
+SCHEDULE/STREAM traffic. No repair-worthy bug surfaced in the audit log,
+so per SESSION BUDGET the primary action fell through past "fix a bug"
+to the next queued item.
+
+PRIMARY ACTION CHOICE: earth_twin_program.md's own RESUME STATE (updated
+by today's earlier GEBCO v2 pipeline session) named the datamap wiring
+slice as the explicit next step, with a full recipe already written
+(v2 raster-dem source, `tidConfidenceColorRelief()` paint expression,
+legend from `tidConfidenceLegend()`, attribution + not-for-navigation
+surfaced). It was (a) unclaimed, (b) fully unblocked — pipeline, decode
+table, and client lib were all already shipped and committed, (c) one
+logical change with a natural test boundary (the registry's own
+`layersRegistry.test.ts` pin already asserted "planned until wiring
+ships" — a ready-made ratchet to flip). Scoped deliberately to ONLY the
+`seafloor_confidence` TID layer named in the registry entry; left the
+recipe's separate idea (blending the v2 regional DEM into the *existing*
+"Seafloor (drain the ocean)" depth layer) as an unclaimed follow-up
+below — bundling it would touch a second, already-shipped layer's
+sources and violate the one-logical-change rule.
+
+SHIPPED: `client/src/pages/datamap.tsx` gained a new effect that, per
+`SEAFLOOR_V2_REGIONS` entry (today: Mariana Trench only), adds a
+`raster-dem` source over the region's `tidUrl` pmtiles archive (pmtiles://
+protocol, already registered at map bootstrap) and a `color-relief` layer
+painted with `tidConfidenceColorRelief()` — the exact same GEBCO_2026 TID
+decode table (`datacore/gebco/tid_decode.json`) the pipeline validated
+every cell against, so map colors can never drift from the documented
+codes (no re-grouping in datamap.tsx). Own source/layer ids
+(`seafloor-tid-<region>` / `seafloor-confidence-relief-<region>`) —
+never touches the pre-existing "seafloor" depth layer's sources, so the
+two toggles can't race over shared map state (same isolation pattern the
+terrain/seafloor mesh effect already established). LAYER_GROUP +
+layerIcon (new `Gauge` icon) wired so the layersWiring ratchet
+(`server/layersWiring.test.ts`) passes instead of flagging a permanent
+"reload to enable". Opacity slider (registry `field: true` → automatic)
+defaults to 85%, not the standard 60% "context" fade — commented why:
+the confidence classes ARE the content here, not a backdrop; `setFieldOpacity`
+special-cases the id to loop every committed region's layer (so
+`SEAFLOOR_V2_REGIONS` growing past one entry needs zero further code
+here, only a new array entry + a pipeline run). Legend section added
+(mirrors the existing "Seafloor depth" section's placement/pattern):
+rows from `tidConfidenceLegend()`, GEBCO_ATTRIBUTION, and — honoring the
+registry description's own promise ("computed from the data, never
+quoted") — the measured group shares fetched LIVE from each region's
+`provenanceUrl` sidecar into new `seafloorConfShares` state, never
+hardcoded. `layers.json`: `seafloor_confidence` status `planned` → `live`,
+description's "planned until wiring lands" clause updated to say it
+shipped. `layersRegistry.test.ts`'s existing pin
+(`assert.equal(s.status, "planned", ...)`) updated to `"live"` — this is
+the ratchet the pipeline session deliberately left in place for this
+exact moment, not a weakened test.
+
+VERIFICATION: `npx tsx --test server/*.test.ts` 705/705 (was 704/705
+before updating the status pin — the ONE failure was exactly that
+pre-planted "still planned" assertion, confirming the ratchet worked as
+designed); `npx tsx --test client/src/lib/*.test.ts
+client/src/lib/orbital/*.test.ts client/src/lib/air/*.test.ts` 248/248;
+`python3 -m pytest -q` 741 passed / 2 skipped (zero Python touched —
+this session's environment needed a fresh `pip install -r
+requirements.txt` + `openpyxl` to collect cleanly, an environment-setup
+gap unrelated to this diff, not logged as a repair since nothing in the
+repo was broken); `npx tsc --noEmit` 66 errors, same total as the
+documented baseline (the one datamap.tsx union-type error shifted lines,
+same pattern multiple prior sessions have already established as the
+genuine unchanged baseline, not a new error); `npm run build` clean,
+`dist/public/tiles/seafloor_{gebco,tid}_mariana.*` confirmed staged
+(R14 packaging lesson still respected). VISUAL HARNESS (`node
+scripts/visual_check.mjs --page data`): **0 hard failures** at
+390/768/1440, perf medians 33/83/117ms — at or better than the
+pre-session baseline recorded in today's earlier REPAIR entry (50/117/
+150ms), so no regression from an off-by-default new layer.
+
+COVERAGE GAP STATED HONESTLY: the static harness only screenshots the
+DEFAULT-OFF layer state at the US-centered default camera — structurally
+outside this layer's regional (Mariana) coverage — so it cannot see the
+layer actually painting. Closed that gap the same way the 2026-07-16
+aircraft-hover PRODUCT session did: an ad hoc interactive Playwright
+drive (not committed — scratch-only, matches the `drive_follow` pattern
+other EARTH TWIN sessions used for click/toggle interactions) against
+the real built `dist/` app served by a local static+fixture server: flew
+the camera to the Mariana bbox, clicked the panel switch, and confirmed
+via `window.__vtMap` — `getSource`/`getLayer` both present,
+`isSourceLoaded("seafloor-tid-mariana") === true` (a REAL fetch+parse of
+the committed pmtiles archive succeeded, not just a source spec being
+registered), the panel's status line read "active" with the exact legend
+copy this PR wrote, and toggling the switch back off removed both the
+source and the layer cleanly (no orphaned map state). The console errors
+seen during the drive were exclusively `ERR_CONNECTION_RESET` on the
+external imagery basemap host (a sandbox network-egress limitation this
+session independently confirmed also affects the OFFICIAL harness's own
+saved screenshots — data-1440.png's canvas is black there too, aircraft/
+vessel markers still render because those come from the fixture JSON
+server, not an external tile host) — unrelated to this layer, and not a
+regression this PR introduced.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): new map sources/layers are
+additive only — no existing layer's paint properties, z-order anchor, or
+source were touched; the effect's cleanup branch removes exactly what
+its "on" branch adds, so toggling never leaks map state across repeated
+on/off cycles (drive-tested above). `setFieldOpacity`'s new branch only
+fires for `id === "seafloor_confidence"`; every other field layer's
+opacity path is byte-identical to before. Zero server, datacore ingest,
+Python, or trading-path code touched.
+
+BACKTEST: N/A — pure `/data` display-surface feature (RAW overlay, no
+predictive claim per the RAW OVERLAYS vs SIGNALS standing rule), zero
+trading, sizing, scoring, or execution code touched.
+
+HYPOTHESIS (stated before evidence, REASONING STANDARD #10): once
+deployed, toggling "Seafloor mapping confidence" while viewing the
+Mariana Trench should show a visible teal (direct-measurement) corridor
+crossing amber (predicted/indirect) background matching the pipeline's
+own measured 65.85%/34.07%/0.08% split — if the whole region renders one
+uniform color, suspect the step expression or a raster-resampling
+artifact at the direct↔unknown fringe (documented caveat in
+seafloorV2.ts), NOT the underlying data (the provenance histogram proves
+multiple classes present). A future session with live production access
+should confirm this visually post-deploy.
+
+NEXT (left explicitly unclaimed, not starved): (1) blend the v2 regional
+DEM into the existing depth "seafloor" layer per the original wiring
+recipe's other half (a SEPARATE logical change — stacking a second
+color-relief layer sourced from the same region's `demUrl` above the
+global ETOPO1 depth tint, transparent outside the Mariana bbox); (2)
+more committed regions via more `scripts/gebco_seafloor_tiles.py` runs
+(SEAFLOOR_V2_REGIONS is already structured to need zero datamap.tsx
+changes for each new entry — confirmed by this session's design, not
+just claimed); (3) earth_twin_program.md's other RESUME STATE queue
+items remain open (O6-7 tier 2 solar-system zoom-out spike, GPS/TDRS
+real models, React memo boundaries, SCALE S2; `keepFraction` density
+stays HUMAN-INPUT-gated). ENDED: not starved — capacity was consumed by
+this slice; the PR (#497) is open against `claude/busy-fermi-wriuds` and
+subscribed for CI/review follow-up.
+
 ## 2026-07-16 [REPAIR] — atmosphere pass = real perf regression; adaptive GL tier (v1.0.363) · wave harness VERDICT: 0 hard failures
 
 The solo harness re-run FALSIFIED the contention hypothesis below —

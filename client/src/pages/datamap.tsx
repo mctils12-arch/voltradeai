@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -112,6 +112,12 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits } from "@/lib/units";
+// EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
+// 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
+// decode table, color expression, and legend all derive from the SAME
+// datacore/gebco/tid_decode.json (one source of truth, see the module's
+// own header for the render caveat on cross-group interpolation).
+import { SEAFLOOR_V2_REGIONS, tidConfidenceColorRelief, tidConfidenceLegend, GEBCO_ATTRIBUTION, GEBCO_NOT_FOR_NAVIGATION } from "@/lib/seafloorV2";
 
 // Satellite GP element cache (live-tracking stability). CelesTrak's `active`
 // group is ~6.6 MB / ~16k objects and CelesTrak RATE-LIMITS repeated pulls, so
@@ -388,7 +394,7 @@ const PANEL_GROUPS = [
 // not). Passed to gibsDefaultDate/gibsIsLatestAvailable as latencyDays.
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
-  imagery: "base", terrain: "base", seafloor: "base", daynight: "base", weather: "base",
+  imagery: "base", terrain: "base", seafloor: "base", seafloor_confidence: "base", daynight: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
@@ -1020,7 +1026,10 @@ export default function DataMapPage() {
   // Per-layer opacity DEFAULTS: fields default to 60% (context, never a
   // curtain); the drained ocean is a basemap swap, not a context field —
   // it defaults to full and the slider still blends it.
-  const FIELD_OPACITY_DEFAULT: Record<string, number> = { seafloor: 100 };
+  // seafloor_confidence defaults high (not the standard 60% "context" fade):
+  // the confidence classes ARE the content, not a backdrop — a faint tint
+  // would defeat the honesty-display purpose of the layer.
+  const FIELD_OPACITY_DEFAULT: Record<string, number> = { seafloor: 100, seafloor_confidence: 85 };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
   });
@@ -1031,7 +1040,18 @@ export default function DataMapPage() {
       try { sessionStorage.setItem("vt-field-opacity", JSON.stringify(next)); } catch {}
       return next;
     });
-    try { mapRef.current?.setPaintProperty(FIELD_MAP_LAYER[id], FIELD_OPACITY_PROP[id] ?? "raster-opacity", v / 100); } catch {}
+    try {
+      if (id === "seafloor_confidence") {
+        // multi-region layer (today: Mariana only) — apply to every committed
+        // region's TID layer so SEAFLOOR_V2_REGIONS growing needs no new code
+        // here, only a new array entry + pipeline run.
+        for (const r of SEAFLOOR_V2_REGIONS) {
+          mapRef.current?.setPaintProperty(`seafloor-confidence-relief-${r.name}`, "color-relief-opacity", v / 100);
+        }
+      } else {
+        mapRef.current?.setPaintProperty(FIELD_MAP_LAYER[id], FIELD_OPACITY_PROP[id] ?? "raster-opacity", v / 100);
+      }
+    } catch {}
   };
   // Wind vectors + temperature labels — sampled point grid (HONEST: OWM
   // tiles carry no vector data; numbers come from point samples, arrows
@@ -1666,6 +1686,83 @@ export default function DataMapPage() {
       setStatus("seafloor", "error");
     }
   }, [enabled.seafloor, mapReady, setStatus]);
+
+  // Measured TID group shares per region — read from each region's own
+  // provenance sidecar (never a hardcoded quote): "the shipped Mariana demo
+  // region measures 65.9% direct / 34.1% predicted — computed from the
+  // data, never quoted" (layers.json's own description of this layer).
+  const [seafloorConfShares, setSeafloorConfShares] = useState<Record<string, Record<string, number>>>({});
+
+  // ── seafloor mapping confidence (RAW; EARTH TWIN E2 v2 wiring —
+  // research/earth_twin_program.md RESUME STATE 2026-07-16: "the honesty-as-
+  // hero moment"). GEBCO_2026 TID grid, per-cell measured (direct soundings/
+  // lidar/seismic) vs predicted (satellite-gravity/interpolated) vs unknown —
+  // colors + legend come from the ONE decode table (lib/seafloorV2, mirrors
+  // datacore/gebco/tid_decode.json verbatim; no re-grouping here). Own
+  // raster-dem source per committed region (today: Mariana Trench only —
+  // SEAFLOOR_V2_REGIONS is the pipeline's scale-by-region list; looping it
+  // means a future region needs zero code here, only a new array entry + a
+  // pipeline run) — never touches the depth "seafloor" layer's sources, so
+  // the two toggles can never race over shared state. Coverage is regional
+  // and said so on the panel + legend; nothing outside a committed bbox
+  // renders (pmtiles returns no tile there — absence, never a guessed
+  // class). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.seafloor_confidence) {
+      try {
+        for (const r of SEAFLOOR_V2_REGIONS) {
+          const lid = `seafloor-confidence-relief-${r.name}`;
+          const sid = `seafloor-tid-${r.name}`;
+          if (map.getLayer(lid)) map.removeLayer(lid);
+          if (map.getSource(sid)) map.removeSource(sid);
+        }
+      } catch {}
+      setStatus("seafloor_confidence", "off");
+      return;
+    }
+    try {
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      for (const r of SEAFLOOR_V2_REGIONS) {
+        const lid = `seafloor-confidence-relief-${r.name}`;
+        const sid = `seafloor-tid-${r.name}`;
+        if (!map.getSource(sid)) {
+          map.addSource(sid, {
+            type: "raster-dem",
+            url: `pmtiles://${window.location.origin}${r.tidUrl}`,
+            encoding: r.encoding,
+            tileSize: r.tileSize,
+          } as any);
+        }
+        if (!map.getLayer(lid)) {
+          map.addLayer({
+            id: lid, type: "color-relief", source: sid,
+            paint: {
+              "color-relief-color": tidConfidenceColorRelief(),
+              "color-relief-opacity": opacityOf("seafloor_confidence") / 100,
+            },
+          } as any, firstMarker?.id);
+        }
+      }
+      setStatus("seafloor_confidence", "active", undefined,
+        `regional coverage only (${SEAFLOOR_V2_REGIONS.map((r) => r.name).join(", ")}) — everywhere else renders transparent, never a guessed reading · ${GEBCO_NOT_FOR_NAVIGATION}`);
+    } catch {
+      setStatus("seafloor_confidence", "error");
+    }
+    // measured shares for the legend — fetched from the pipeline's own
+    // provenance sidecar, one per region, never hardcoded (see the state
+    // declaration above)
+    let gone = false;
+    for (const r of SEAFLOOR_V2_REGIONS) {
+      fetch(r.provenanceUrl).then((res) => res.json()).then((p) => {
+        if (gone) return;
+        const shares = p?.tid?.group_share_of_covered_cells;
+        if (shares) setSeafloorConfShares((s) => ({ ...s, [r.name]: shares }));
+      }).catch(() => {});
+    }
+    return () => { gone = true; };
+  }, [enabled.seafloor_confidence, mapReady, setStatus]);
 
   // ── surface water (RAW; JRC Global Surface Water v2021 — atlas-parity
   // layer 1, licensing per open_questions ATLAS PARITY: free with EC
@@ -5855,6 +5952,7 @@ export default function DataMapPage() {
     id === "imagery" ? <Satellite size={15} /> :
     id === "terrain" ? <Mountain size={15} /> :
     id === "seafloor" ? <Anchor size={15} /> :
+    id === "seafloor_confidence" ? <Gauge size={15} /> :
     id === "weather" ? <CloudRain size={15} /> :
     id === "weather_temp" ? <Thermometer size={15} /> :
     id === "weather_wind" ? <Wind size={15} /> :
@@ -6835,6 +6933,33 @@ export default function DataMapPage() {
                           </span>
                         ))}
                         <span className="vt-legend-note">chips decode OUR depth tint (drawn at low opacity); the dominant coloring + ridge texture beneath is GEBCO_2024 shaded relief (15 arc-sec) with its own depth palette — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · land shows GEBCO's hypsometric tint while drained · turn on Terrain (3D relief) to make the basins physically sink</span>
+                      </div>
+                    </div>
+                  )}
+                  {enabled.seafloor_confidence && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Seafloor mapping confidence</div>
+                      <div className="vt-legend-items">
+                        {/* rows + colors from the SAME GEBCO TID decode table the
+                            map's color-relief expression uses (lib/seafloorV2) —
+                            they can never drift apart */}
+                        {tidConfidenceLegend().map((row) => (
+                          <span key={row.group} className="vt-legend-chip">
+                            <i style={{ background: row.color }} /> {row.label}
+                          </span>
+                        ))}
+                        {SEAFLOOR_V2_REGIONS.map((r) => {
+                          const shares = seafloorConfShares[r.name];
+                          return (
+                            <span key={r.name} className="vt-legend-note">
+                              {r.name}: {shares
+                                ? Object.entries(shares).map(([g, v]) => `${Math.round(v * 1000) / 10}% ${g}`).join(" · ")
+                                : "measured shares loading…"}
+                            </span>
+                          );
+                        })}
+                        <span className="vt-legend-note">{GEBCO_ATTRIBUTION}</span>
+                        <span className="vt-legend-note">{GEBCO_NOT_FOR_NAVIGATION} Regional coverage only — everywhere else is transparent (no data), never a guessed class.</span>
                       </div>
                     </div>
                   )}

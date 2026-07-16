@@ -154,7 +154,7 @@ test("seafloor_confidence layer: GEBCO TID attribution + measured-vs-predicted h
   const s = registry.layers.find((x: any) => x.id === "seafloor_confidence");
   assert.ok(s, "seafloor_confidence layer missing");
   assert.equal(s.kind, "raw");
-  assert.equal(s.status, "planned", "planned until the datamap wiring slice ships");
+  assert.equal(s.status, "live", "datamap wiring slice shipped (EARTH TWIN E2 v2 wiring session)");
   assert.ok(/GEBCO/.test(s.source) && /TID/.test(s.source), "attribution must name the GEBCO TID grid");
   assert.ok(/direct measurements/i.test(s.description), "description must name GEBCO's direct-measurement class");
   assert.ok(/predict|indirect/i.test(s.description), "description must name the predicted/indirect class");

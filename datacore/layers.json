@@ -59,11 +59,11 @@
       "id": "seafloor_confidence",
       "name": "Seafloor mapping confidence",
       "kind": "raw",
-      "status": "planned",
+      "status": "live",
       "group": "base",
       "costTier": "moderate",
       "source": "GEBCO_2026 TID grid (GEBCO Bathymetric Compilation Group; public domain, attribution required)",
-      "description": "Measured-vs-predicted seafloor: every cell colored by GEBCO's own documented source type — direct measurements (echo-sounders, lidar, seismic, soundings) vs indirect (satellite-gravity prediction, algorithmic interpolation) vs unknown provenance. The Earth Twin charter's uncertainty display, verbatim from the source: where seafloor mapping is partial we SAY so (the shipped Mariana demo region measures 65.9% direct / 34.1% predicted — computed from the data, never quoted). Data + pipeline shipped (scripts/gebco_seafloor_tiles.py -> seafloor_tid_mariana.pmtiles; decode table datacore/gebco/tid_decode.json; client lib client/src/lib/seafloorV2.ts); planned until the datamap wiring slice lands. Coverage honesty: regional demo (Mariana Trench, 138-146E / 7-15N) — never presented as global; the pipeline scales region by region.",
+      "description": "Measured-vs-predicted seafloor: every cell colored by GEBCO's own documented source type — direct measurements (echo-sounders, lidar, seismic, soundings) vs indirect (satellite-gravity prediction, algorithmic interpolation) vs unknown provenance. The Earth Twin charter's uncertainty display, verbatim from the source: where seafloor mapping is partial we SAY so (the shipped Mariana demo region measures 65.9% direct / 34.1% predicted — computed from the data, never quoted). Data + pipeline (scripts/gebco_seafloor_tiles.py -> seafloor_tid_mariana.pmtiles; decode table datacore/gebco/tid_decode.json; client lib client/src/lib/seafloorV2.ts) + datamap wiring shipped. Coverage honesty: regional demo (Mariana Trench, 138-146E / 7-15N) — never presented as global; the pipeline scales region by region, and the map renders nothing (not a guessed class) outside a committed region's bbox.",
       "field": true,
       "altitudeRef": "depth",
       "time": {

@@ -637,6 +637,23 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (scheduled-routine session, T-CLIENT): E2 v2 DATAMAP WIRING
+  SHIPPED (v1.0.365, PR #497 — re-based/re-versioned after #496 claimed
+  1.0.364 first) — the "seafloor_confidence" TID layer named
+  in the E2 v2 pipeline session's own WIRING RECIPE below is now live:
+  own raster-dem source + color-relief layer per SEAFLOOR_V2_REGIONS
+  entry, legend + measured shares fetched live from the provenance
+  sidecar, registry status planned -> live, layersWiring/layersRegistry
+  ratchets updated. Drive-verified (ad hoc Playwright, not committed):
+  toggling the switch at the Mariana bbox loads real pmtiles data
+  (isSourceLoaded === true) and paints; toggle-off cleans up fully. Full
+  detail in experiments.md. NOT done this session (deliberately, one
+  logical change per PR): the recipe's OTHER half — blending the v2
+  regional DEM into the existing depth "seafloor" layer — is now the
+  next unclaimed E2 item. NEXT (unchanged otherwise): O6-7 tier 2 spike,
+  GPS/TDRS real models, React memo boundaries, SCALE S2, keepFraction
+  (HUMAN INPUT).
+
 - 2026-07-16 (session #4 wave): O6-5 SDP4 SHIPPED+CROSS-CHECKED
   (#492); O6-6a/b high-res ISS/Hubble + Starlink documented form;
   three live-feedback fix rounds (#490 #493 + v1.0.353 rider), each
