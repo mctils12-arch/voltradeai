@@ -117,6 +117,34 @@ export function fmtDistanceFromEarth(meters: number): string {
   return `${au.toFixed(au < 10 ? 3 : 2)} AU`;
 }
 
+/** Vertical pixel step between stacked labels once two markers sit close
+ * enough on screen for their labels to overlap (e.g. Earth/Moon at
+ * solar-system-wide scales — 30 Earth-diameters apart in reality but
+ * sub-pixel apart on screen once zoomed out past ~Mars orbit). */
+export const LABEL_COLLIDE_PX = 14;
+
+/**
+ * Per-body vertical label offset so colliding labels STACK instead of
+ * drawing on top of each other — never moves the body's own marker, only
+ * where its name/distance text anchors. Greedy in draw order: a body's
+ * offset is one step per EARLIER body already within collide range, so
+ * a cluster reads as a clean descending stack (round 10 human report:
+ * "co-located body labels collide").
+ */
+export function layoutLabelOffsets(positions: { x: number; y: number }[]): number[] {
+  const offsets = new Array(positions.length).fill(0);
+  for (let i = 0; i < positions.length; i++) {
+    let stack = 0;
+    for (let j = 0; j < i; j++) {
+      const dx = positions[i].x - positions[j].x;
+      const dy = positions[i].y - positions[j].y;
+      if (Math.hypot(dx, dy) < LABEL_COLLIDE_PX) stack++;
+    }
+    offsets[i] = stack * LABEL_COLLIDE_PX;
+  }
+  return offsets;
+}
+
 // ── presentation constants ───────────────────────────────────────────────────
 
 /** Approximate naked-eye display colors — presentation only, not data. */
@@ -303,6 +331,7 @@ export function mount(container: HTMLElement, opts: SolarViewOptions = {}): Sola
 
     // Bodies at TRUE scale and TRUE position.
     const margin = 40;
+    const onScreen: { s: { x: number; y: number }; r: number; body: BodyState }[] = [];
     for (const body of state) {
       const s = worldToScreen(body.helioAu.x * AU_M, body.helioAu.y * AU_M, camHelio, w, h);
       if (s.x < -margin || s.x > w + margin || s.y < -margin || s.y > h + margin) {
@@ -322,7 +351,14 @@ export function mount(container: HTMLElement, opts: SolarViewOptions = {}): Sola
         ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1);
         ctx.globalAlpha = 1;
       }
-      if (annotate) drawAnnotation(ctx, s.x, s.y, r, body);
+      onScreen.push({ s, r, body });
+    }
+    if (annotate) {
+      // labels laid out AFTER every marker is drawn (markers never move —
+      // only the text stacks apart when bodies sit too close to read,
+      // e.g. Earth/Moon zoomed out past ~Mars orbit).
+      const labelDy = layoutLabelOffsets(onScreen.map((o) => o.s));
+      onScreen.forEach((o, i) => drawAnnotation(ctx, o.s.x, o.s.y, o.r, o.body, labelDy[i]));
     }
 
     drawChrome(ctx, w, h, state);
@@ -334,6 +370,7 @@ export function mount(container: HTMLElement, opts: SolarViewOptions = {}): Sola
     y: number,
     truePx: number,
     body: BodyState,
+    labelDy = 0,
   ): void {
     // Ring OUTSIDE the true disc — an annotation, never the body itself.
     const ring = Math.max(truePx + 6, 9);
@@ -342,12 +379,22 @@ export function mount(container: HTMLElement, opts: SolarViewOptions = {}): Sola
     c.beginPath();
     c.arc(x, y, ring, 0, Math.PI * 2);
     c.stroke();
+    const ly = y + labelDy;
+    if (labelDy > 0) {
+      // a stacked label sits away from its own marker — a short leader tick
+      // keeps the "whose label is this" link honest at a glance.
+      c.strokeStyle = "rgba(190,205,225,0.35)";
+      c.beginPath();
+      c.moveTo(x + ring, y);
+      c.lineTo(x + ring + 6, ly);
+      c.stroke();
+    }
     c.fillStyle = "rgba(210,222,238,0.92)";
     c.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
     c.textBaseline = "middle";
     const dist = body.id === "earth" ? "" : ` · ${fmtDistanceFromEarth(body.rEarthM)}`;
     const sub = truePx < 0.5 ? " · sub-pixel at this scale" : "";
-    c.fillText(`${body.name}${dist}${sub}`, x + ring + 6, y);
+    c.fillText(`${body.name}${dist}${sub}`, x + ring + 6, ly);
   }
 
   function drawEdgePointer(
