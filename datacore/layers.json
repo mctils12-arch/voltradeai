@@ -39,8 +39,8 @@
       "status": "live",
       "group": "base",
       "costTier": "moderate",
-      "source": "GEBCO_2024 shaded relief via GEBCO WMS (BODC), 15 arc-sec; depth tint + 3D basin mesh from NOAA ETOPO1 via Terrain Tiles on AWS (Mapzen/Tilezen, open data); NOAA ETOPO 2022 hillshade as automatic fallback",
-      "description": "Ocean-floor relief: toggling drains the ocean — GEBCO_2024 shaded relief (mid-ocean ridges, trenches, fracture zones) under a depth tint, and with 3D terrain on the basins physically sink (the globe mesh deforms below sea level). HONESTY: soundings + satellite-gravity interpolation — only ~a quarter of the world's seafloor is direct-measured, so depths are indicative, never navigational; while drained, LAND shows GEBCO's hypsometric tint instead of satellite imagery (a raster cannot be elevation-masked). Per-cell measured-vs-interpolated (TID) confidence is the charter's next E2 slice (research/earth_twin_program.md).",
+      "source": "GEBCO_2024 shaded relief via GEBCO WMS (BODC), 15 arc-sec; depth tint + 3D basin mesh from NOAA ETOPO1 via Terrain Tiles on AWS (Mapzen/Tilezen, open data); NOAA ETOPO 2022 hillshade as automatic fallback; native-resolution GEBCO_2026 15 arc-sec depth grid self-tiled per region (see seafloor_confidence's committed regions) blended on top where available",
+      "description": "Ocean-floor relief: toggling drains the ocean — GEBCO_2024 shaded relief (mid-ocean ridges, trenches, fracture zones) under a depth tint, and with 3D terrain on the basins physically sink (the globe mesh deforms below sea level). HONESTY: soundings + satellite-gravity interpolation — only ~a quarter of the world's seafloor is direct-measured, so depths are indicative, never navigational; while drained, LAND shows GEBCO's hypsometric tint instead of satellite imagery (a raster cannot be elevation-masked). Per-cell measured-vs-interpolated (TID) confidence ships as its own toggleable overlay, seafloor_confidence. Inside that layer's committed regions (Mariana Trench today), this layer additionally blends in the SAME native-15-arc-sec GEBCO_2026 grid the confidence overlay was built from — same depth palette, sharper relief — and falls back to the global ~1 arc-min ETOPO1 tint everywhere else; regions grow by pipeline run, no code change (research/earth_twin_program.md).",
       "field": true,
       "altitudeRef": "depth",
       "time": {
@@ -50,7 +50,7 @@
       "provenance": {
         "license": "GEBCO Grid: public domain, commercial use allowed, attribution requested (doi:10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f); Terrain Tiles: open (Mapzen / AWS Open Data); NOAA ETOPO: US-gov public domain",
         "commercialOk": true,
-        "resolution": "15 arc-sec (GEBCO_2024 relief, native to z8); mesh/tint ~1 arc-min (ETOPO1)",
+        "resolution": "15 arc-sec (GEBCO_2024 relief, native to z8; GEBCO_2026 depth blend inside committed regions); mesh/tint ~1 arc-min (ETOPO1) elsewhere",
         "coverage": "global ocean",
         "confidence": "verified"
       }
