@@ -105,6 +105,38 @@ NOT done this session (deliberately, one logical change per PR): the
 program's other still-open items — GPS/TDRS real models, React memo
 boundaries, SCALE S2, keepFraction (HUMAN INPUT still pending) — remain
 queued in earth_twin_program.md RESUME STATE, updated below.
+## 2026-07-16 [PRODUCT] — EARTH TWIN round 9: PITCH-PROOF sat lock (v1.0.367)
+
+Human live report (phone screenshots, tilted views): "the features to
+follow sat or ground track dont work to follow, and zoomed way in to
+the sat it moves all around trying to center." ROOT CAUSE: 'sat' lock
+centered the NADIR and trimmed with a screen-space feedback offset
+clamped to 30% of the viewport — at high pitch a LEO craft's screen
+displacement from its nadir EXCEEDS the whole viewport (centering
+mathematically impossible inside the clamp; the craft sat pinned near
+the horizon, screenshot #2), and the feedback loop chasing a
+stale-frame matrix each tick oscillated (the wander). FIX: solve the
+camera pose ANALYTICALLY — at pitch p, a craft at altitude h sits on
+the center view-ray exactly when the ground center is h·tan(p) meters
+AHEAD of its nadir along the view bearing (great-circle destination;
+pitch 0 degenerates to the nadir). Feed-forward, no chasing. The old
+matrix trim MEASURABLY made it worse on the normal path (256km/2.2s
+wander with it vs 11-16km ≈ pure ISS ground speed without — mixing
+the last rendered frame's matrix with the current mid-ease transform
+injects up to the full clamp of noise per tick); it now runs ONLY in
+the capped extreme-apogee fallback (d > 5,000km — GEO+ at steep
+pitch, where approximate beats nothing). Ease: linear 800ms (chase
+reads continuous, not hop-pause-hop). PHONE: locking on closes the
+layers panel under 768px — a correctly-centered craft was hiding
+behind it (~half the viewport). DRIVE (52 assertions, ALL PASS): new
+V-block proves the GEOMETRY — at pitch 70 the center leads the ISS
+nadir by 1186km (h·tan70° band 1044-1264km = craft on the center
+ray) and tracks at 15.7km/2.2s (pure ground speed, no wander); D3
+drag hardened after 3 same-day flakes (SwiftShader can swallow a
+3-step flick inside one frame; now a slow 2-stage drag + release
+poll — test-side only, no assertion weakened). GATES: tsc 66
+baseline, build clean, client suite unchanged, harness on the PR.
+
 ## 2026-07-16 [REPAIR] — E2 v2 confidence layer renders NOTHING on live main; salvage of the superseded duplicate slice (v1.0.366)
 
 SUPERSESSION (MERGE-ORDER PROTOCOL §6): this session and a concurrent

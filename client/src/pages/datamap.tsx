@@ -2424,36 +2424,74 @@ export default function DataMapPage() {
       if (!f.lockMode) return;
       try {
         if (!map.isMoving()) {
-          // LOCK-ON FIX (live feedback: "it needs to lock on … look at it
-          // very closely"): in 'sat' mode the MODEL is pinned to screen
-          // centre — it renders displaced from its ground point by
-          // altitude, so project the craft with the frame matrix and
-          // offset the ease. Bearing/pitch/zoom are untouched: rotating
-          // and tilting ORBITS the craft while it stays centered.
-          // 'ground' mode pins the nadir instead (watch the ground track).
+          // PITCH-PROOF LOCK-ON (live report round 9: "the features to
+          // follow sat or ground track dont work [at tilted] views …
+          // zoomed way in it moves all around trying to center"): the old
+          // approach centered the NADIR and trimmed with a screen-space
+          // feedback offset clamped to 30% of the viewport — at high
+          // pitch a LEO craft's displacement from its nadir EXCEEDS the
+          // whole viewport, so the clamp made centering impossible and
+          // the feedback loop (stale frame each tick) oscillated. Now the
+          // camera center is solved ANALYTICALLY: at pitch p the center
+          // view-ray passes through height h exactly where the ground
+          // center sits h·tan(p) meters AHEAD of the craft's nadir along
+          // the view bearing (great-circle destination; pitch 0 → the
+          // nadir itself). Feed-forward — no chasing. The frame-matrix
+          // trim below only corrects the small spherical/projection
+          // residual (tight 10% clamp; also what extreme-apogee objects
+          // fall back to when the capped formula can't reach — the
+          // Cluster-II slew guard lives on in the cap + tight clamp).
+          // Bearing/pitch/zoom are untouched: rotating and tilting still
+          // ORBITS the craft while it stays centered. 'ground' mode pins
+          // the nadir instead (watch the ground track).
+          let centerLon = t.lonDeg;
+          let centerLat = t.latDeg;
           let offset: [number, number] = [0, 0];
-          const matrix = f.lockMode === "sat" ? satLayerRef.current?.getGlobeProjection() : null;
-          if (matrix) {
-            const p = mercatorToSphere(t.mercX, t.mercY, t.altKm * 1000);
-            const w = matrix[3] * p[0] + matrix[7] * p[1] + matrix[11] * p[2] + matrix[15];
-            if (w > 0) {
-              const cx = (matrix[0] * p[0] + matrix[4] * p[1] + matrix[8] * p[2] + matrix[12]) / w;
-              const cy = (matrix[1] * p[0] + matrix[5] * p[1] + matrix[9] * p[2] + matrix[13]) / w;
-              const canvas = map.getCanvas();
-              const W = canvas.clientWidth || 1;
-              const H = canvas.clientHeight || 1;
-              const sx = ((cx + 1) / 2) * W;
-              const sy = ((1 - cy) / 2) * H;
-              const nadir = map.project([t.lonDeg, t.latDeg]);
-              // CLAMP (live bug: Cluster II at ~119,000 km apogee → an
-              // unbounded offset slewed the camera wildly) — never chase a
-              // craft further than ~30% of the viewport per tick; extreme-
-              // apogee objects are framed by the zoom choice instead.
-              const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v));
-              offset = [clamp(nadir.x - sx, W * 0.3), clamp(nadir.y - sy, H * 0.3)];
+          if (f.lockMode === "sat") {
+            const pitchRad = (map.getPitch() * Math.PI) / 180;
+            const dWant = t.altKm * 1000 * Math.tan(pitchRad);
+            const d = Math.min(dWant, 5_000_000);
+            if (d > 1) {
+              const R = 6371008.8;
+              const br = (map.getBearing() * Math.PI) / 180;
+              const dr = d / R;
+              const la1 = (t.latDeg * Math.PI) / 180;
+              const lo1 = (t.lonDeg * Math.PI) / 180;
+              const la2 = Math.asin(Math.sin(la1) * Math.cos(dr) + Math.cos(la1) * Math.sin(dr) * Math.cos(br));
+              const lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(dr) * Math.cos(la1), Math.cos(dr) - Math.sin(la1) * Math.sin(la2));
+              centerLat = Math.max(-85, Math.min(85, (la2 * 180) / Math.PI));
+              centerLon = (lo2 * 180) / Math.PI;
+            }
+            // NO screen-space trim on the analytic path: mixing the last
+            // RENDERED frame's matrix with the current transform mid-ease
+            // injected up to the whole clamp of noise per tick — measured
+            // 256km/2.2s wander at pitch 70 with the trim vs. smooth
+            // nadir-speed tracking without it. The trim earns its keep
+            // ONLY when the formula capped out (extreme apogee — GEO+ at
+            // steep pitch), where an approximate nudge beats nothing.
+            if (dWant > 5_000_000) {
+              const matrix = satLayerRef.current?.getGlobeProjection();
+              if (matrix) {
+                const p = mercatorToSphere(t.mercX, t.mercY, t.altKm * 1000);
+                const w = matrix[3] * p[0] + matrix[7] * p[1] + matrix[11] * p[2] + matrix[15];
+                if (w > 0) {
+                  const cx = (matrix[0] * p[0] + matrix[4] * p[1] + matrix[8] * p[2] + matrix[12]) / w;
+                  const cy = (matrix[1] * p[0] + matrix[5] * p[1] + matrix[9] * p[2] + matrix[13]) / w;
+                  const canvas = map.getCanvas();
+                  const W = canvas.clientWidth || 1;
+                  const H = canvas.clientHeight || 1;
+                  const sx = ((cx + 1) / 2) * W;
+                  const sy = ((1 - cy) / 2) * H;
+                  const cs = map.project([centerLon, centerLat]);
+                  const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v));
+                  offset = [clamp(cs.x - sx, W * 0.1), clamp(cs.y - sy, H * 0.1)];
+                }
+              }
             }
           }
-          map.easeTo({ center: [t.lonDeg, t.latDeg], offset, duration: 450 });
+          // linear + near-tick duration: the chase reads as one continuous
+          // motion instead of hop-pause-hop (the "moves all around" feel)
+          map.easeTo({ center: [centerLon, centerLat], offset, duration: 800, easing: (x: number) => x });
         }
       } catch {}
     };
@@ -2832,6 +2870,11 @@ export default function DataMapPage() {
         satFollowRef.current = { index, noradId: g.noradId, name: g.name ?? null, lockMode: "sat" };
         setSatFollowing(true); // shows the follow-tools cluster
         setSatLockMode("sat");
+        // phone (live report round 9): the layers panel covers ~half the
+        // viewport — a correctly-centered craft hides behind it. Locking
+        // on closes the panel so the real center is visible (same gesture
+        // Escape already uses on phones).
+        if (window.innerWidth < 768) setPanelOpen(false);
         // the REAL orbit track for this one object — one full period,
         // SGP4-propagated (gaps honest, never bridged). Amber = focus ring.
         try {
