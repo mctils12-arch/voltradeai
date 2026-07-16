@@ -3,6 +3,40 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN 4-agent integration wave (v1.0.358-362)
+
+Parent session reviewed + integrated all four worktree agents
+(read-before-write review each; every gate re-run in the main tree):
+- v1.0.358 O6-7 tier 2 FOUNDATION (solar-system ephemeris + true-scale
+  renderer). TRUST CHECK: parent independently re-queried JPL Horizons
+  for 3 of the agent's anchor vectors — DIGIT-FOR-DIGIT match (the
+  validation is genuine, not circular). Unwired, zero runtime cost;
+  datamap handoff is the next T-CLIENT slice (recipe:
+  research/solar_view_spike.md).
+- v1.0.359 atmosphere: lib/globeAtmosphere presets verified against the
+  installed v5.24 SHADERS (limb glow = hardcoded Rayleigh/Mie, only
+  atmosphere-blend scales it; sun follows setLight — future terminator
+  tie); datamap now one always-on setSky(DEFAULT_SKY). Supersedes the
+  v1.0.357 hand-rolled conditional sky.
+- v1.0.360 TDRS 8-13 + Aqua real meshes; agent CAUGHT the generation
+  mismatch (NASA asset = Boeing 601 gen-2/3 design) and excluded
+  first-gen TDRS with an enforcing test; GPS honestly unavailable in
+  NASA-3D-Resources (227 dirs enumerated) — substituted, not faked.
+- v1.0.361 GEBCO WMS drained-ocean presentation (see own commit) +
+  v1.0.362 GEBCO_2026 pipeline/data slice (agent entry below).
+HARNESS PROTOCOL NOTE: the first harness run for this wave executed
+while 4 agent builds shared the container — 5 hard failures, all
+consistent with CPU contention (data@768/1440 perf gates with only 9
+frames sampled vs 51 at the passing 390; the documented fields-on
+locator flake), NOT code (terrain/drain default OFF; 390 median 50ms
+healthy). Re-run SOLO after integration = the verdict of record for
+the PR. Full evidence chain in this entry's PR.
+PRIOR: integrations are additive libs/assets + two datamap wire-ins
+already drive-validated (31/31); expected effect = visual quality
+jump (limb glow, GEBCO ridges) with no perf regression at defaults.
+Falsifier: solo harness disagrees → diagnose before PR, never ship
+on a contended run.
+
 ## 2026-07-16 [PIPELINE] — EARTH TWIN E2 v2: GEBCO 15-arcsec seafloor + TID confidence pipeline, real Mariana assets (version bump deferred to merge)
 
 Territory: T-DATACORE primary (scripts/ pipeline + datacore/gebco decode
