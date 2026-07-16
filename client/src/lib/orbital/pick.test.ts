@@ -2,9 +2,10 @@
 // DOM/WebGL/map). Run: npx tsx --test client/src/lib/orbital/pick.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickNearestSatellite, pixelToleranceToMercUnits } from './pick.ts';
+import { pickNearestSatellite, pickNearestSatelliteScreen, pixelToleranceToMercUnits } from './pick.ts';
 import { SENTINEL_SKIP, CLASS_CODE } from './satBuffer.ts';
 import type { GpRecord } from './tle.ts';
+import { mercatorToSphere } from './occlusion.ts';
 
 function gp(noradId: number): GpRecord {
   return {
@@ -125,4 +126,33 @@ test('pixelToleranceToMercUnits: halves per zoom level (slippy-map relation)', (
   assert.ok(Math.abs(z6 - z5 / 2) < 1e-12);
   // zoom 0: whole world is 256px, so 256px tolerance == the full [0,1] unit span.
   assert.ok(Math.abs(pixelToleranceToMercUnits(256, 0) - 1) < 1e-12);
+});
+
+test('pickNearestSatelliteScreen: altitude displacement respected — the MEO object under the cursor wins over the LEO whose nadir is there', () => {
+  // Identity-like projection: clip = position (orthographic stand-in). Two
+  // objects share the SAME ground point; the high one renders displaced
+  // along the sphere normal — in screen space they are far apart.
+  const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const gp = [{ noradId: 1, name: 'LEO' }, { noradId: 2, name: 'MEO' }] as any[];
+  // same mercator ground point, wildly different altitudes
+  const positions = new Float32Array([
+    0.25, 0.5, 400_000, CLASS_CODE.LEO,
+    0.25, 0.5, 20_000_000, CLASS_CODE.MEO,
+  ]);
+  const W = 1000, H = 1000;
+  const toScreen = (p: number[]) => [((p[0] + 1) / 2) * W, ((1 - p[1]) / 2) * H];
+  const sMeo = toScreen(mercatorToSphere(0.25, 0.5, 20_000_000));
+  const sLeo = toScreen(mercatorToSphere(0.25, 0.5, 400_000));
+  assert.ok(Math.hypot(sMeo[0] - sLeo[0], sMeo[1] - sLeo[1]) > 50,
+    'the two RENDER far apart on screen (the whole point of the fix)');
+  // click exactly on the MEO's rendered position → MEO, not the LEO
+  const hit = pickNearestSatelliteScreen(positions, 4, gp, I, sMeo[0], sMeo[1], W, H, 12);
+  assert.equal(hit?.gp.name, 'MEO', 'the object under the cursor wins');
+  const hit2 = pickNearestSatelliteScreen(positions, 4, gp, I, sLeo[0], sLeo[1], W, H, 12);
+  assert.equal(hit2?.gp.name, 'LEO');
+  // far from both = honest miss; sentinel slots stay unpickable
+  assert.equal(pickNearestSatelliteScreen(positions, 4, gp, I, 5, 5, W, H, 12), null);
+  const masked = positions.slice(); masked[7] = SENTINEL_SKIP;
+  assert.equal(pickNearestSatelliteScreen(masked, 4, gp, I, sMeo[0], sMeo[1], W, H, 12), null,
+    'sentinel (filtered/unrendered) slots are never pickable');
 });

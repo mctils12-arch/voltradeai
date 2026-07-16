@@ -46,14 +46,16 @@ test('API smoke (no GL): form/anchor setters, unknown class = no mesh, no-anchor
   assert.equal(layer.getForm(), null);
   layer.setAnchor({ mercX: 0.3, mercY: 0.4, altMeters: 550_000 });
   assert.deepEqual(layer.getAnchor(), { mercX: 0.3, mercY: 0.4, altMeters: 550_000 });
-  // with an anchor but NO mesh (form null), render must return before touching GL
-  const explodingGl = new Proxy({}, { get() { throw new Error('gl touched with no mesh'); } });
+  // O6 ring fix: an anchor with NO mesh now DRAWS (the focus ring rides the
+  // anchor at true altitude) — with a broken GL the failure latch must trip
+  // gracefully instead of crashing the map.
+  const explodingGl = new Proxy({}, { get() { throw new Error('gl touched'); } });
   layer.render(explodingGl as any, {} as any);
-  assert.equal(layer.getRenderFailed(), false);
-  // and with neither anchor nor mesh, same no-op
-  layer.setAnchor(null);
-  layer.render(explodingGl as any, {} as any);
-  assert.equal(layer.getRenderFailed(), false);
+  assert.equal(layer.getRenderFailed(), true, 'ring draw attempted → latch trips on a broken GL');
+  // with neither anchor nor mesh nor minis, render is a pure no-op (fresh layer)
+  const idle = new SatModelLayer();
+  idle.render(explodingGl as any, {} as any);
+  assert.equal(idle.getRenderFailed(), false, 'nothing to draw → GL never touched');
   assert.equal(MODEL_PIXELS >= 48 && MODEL_PIXELS <= 160, true, 'focused-object size stays sane');
 });
 

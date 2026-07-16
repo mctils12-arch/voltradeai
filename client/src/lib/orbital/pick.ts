@@ -93,3 +93,62 @@ export function pickNearestSatellite(
 export function pixelToleranceToMercUnits(pixels: number, zoom: number): number {
   return pixels / (256 * Math.pow(2, zoom));
 }
+
+/**
+ * O6 pick fix — SCREEN-SPACE picking for full globe mode. A satellite
+ * renders displaced from its ground point along the sphere normal by its
+ * altitude (projectTileFor3D); at MEO that displacement is enormous, so
+ * ground-mercator picking selected whatever LEO object's nadir happened to
+ * sit under the cursor. Here every candidate is projected with the SAME
+ * matrix the shader used this frame (SatLayer.getGlobeProjection) via the
+ * same CPU sphere math the far-side cull uses (occlusion.mercatorToSphere)
+ * — the pick agrees with the pixels.
+ *
+ * clickX/clickY and width/height are CSS pixels (map event .point + canvas
+ * client size — the projection is resolution-independent in NDC).
+ */
+export function pickNearestSatelliteScreen(
+  positions: ArrayLike<number>,
+  stride: number,
+  gp: GpRecord[],
+  matrix: ArrayLike<number>, // column-major mat4, the frame's mainMatrix
+  clickX: number,
+  clickY: number,
+  width: number,
+  height: number,
+  tolerancePx: number,
+  cameraSphere?: Vec3 | null,
+): PickResult | null {
+  const total = Math.min(gp.length, Math.floor(positions.length / stride));
+  const tol2 = tolerancePx * tolerancePx;
+  let bestI = -1;
+  let bestD2 = tol2;
+  for (let i = 0; i < total; i++) {
+    const base = i * stride;
+    if (positions[base + 3] === SENTINEL_SKIP) continue; // not rendered
+    const p = mercatorToSphere(positions[base], positions[base + 1], positions[base + 2]);
+    // clip = M * (p, 1)  (column-major)
+    const w = matrix[3] * p[0] + matrix[7] * p[1] + matrix[11] * p[2] + matrix[15];
+    if (!(w > 0)) continue; // behind the camera
+    const cx = (matrix[0] * p[0] + matrix[4] * p[1] + matrix[8] * p[2] + matrix[12]) / w;
+    const cy = (matrix[1] * p[0] + matrix[5] * p[1] + matrix[9] * p[2] + matrix[13]) / w;
+    const sx = ((cx + 1) / 2) * width;
+    const sy = ((1 - cy) / 2) * height;
+    const dx = sx - clickX;
+    const dy = sy - clickY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD2) {
+      if (cameraSphere && earthOccludes(cameraSphere, p)) continue; // hidden — not pickable
+      bestD2 = d2;
+      bestI = i;
+    }
+  }
+  if (bestI < 0) return null;
+  const base = bestI * stride;
+  return {
+    index: bestI,
+    gp: gp[bestI],
+    altMeters: positions[base + 2],
+    classCode: positions[base + 3],
+  };
+}

@@ -270,6 +270,7 @@ export class SatLayer implements CustomLayerInterface {
   // picking applies the SAME far-side cull the GPU applied (see ./occlusion).
   private lastClippingPlane: [number, number, number, number] | null = null;
   private lastTransition = 0;
+  private lastMainMatrix: Float32Array | null = null;
 
   private pointSize: number;
   // LOD envelope fade (EARTH TWIN A1): 1 = fully visible. At 0 render()
@@ -343,6 +344,12 @@ export class SatLayer implements CustomLayerInterface {
       pd.clippingPlane[0], pd.clippingPlane[1], pd.clippingPlane[2], pd.clippingPlane[3],
     ];
     this.lastTransition = pd.projectionTransition;
+    // O6 pick fix: cache this frame's projection matrix so CPU picking can
+    // project candidates EXACTLY like the shader (including altitude — a
+    // MEO object renders far from its ground point; ground-mercator picking
+    // selected whatever LEO object's nadir sat under the cursor).
+    if (!this.lastMainMatrix) this.lastMainMatrix = new Float32Array(16);
+    this.lastMainMatrix.set(pd.mainMatrix as ArrayLike<number>);
     if (this.uProjMatrix) gl.uniformMatrix4fv(this.uProjMatrix, false, pd.mainMatrix);
     if (this.uProjTile) {
       gl.uniform4f(
@@ -556,6 +563,15 @@ export class SatLayer implements CustomLayerInterface {
   getGlobeCamera(): Vec3 | null {
     if (!this.lastClippingPlane || this.lastTransition <= 0.999) return null;
     return cameraFromClippingPlane(this.lastClippingPlane);
+  }
+
+  /** O6 pick fix: last frame's projection matrix (column-major, the exact
+   *  matrix the shader used) — non-null only in full globe mode, where the
+   *  CPU sphere math (occlusion.mercatorToSphere) mirrors the GPU. Null =
+   *  caller falls back to ground-mercator picking. */
+  getGlobeProjection(): Float32Array | null {
+    if (!this.lastMainMatrix || this.lastTransition <= 0.999) return null;
+    return this.lastMainMatrix;
   }
 
   /** Floats per object in the position buffer. */
