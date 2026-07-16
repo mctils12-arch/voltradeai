@@ -30,6 +30,7 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 // spirit — a closed panel loads no code and issues no requests.
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
+import { DEFAULT_SKY } from "@/lib/globeAtmosphere";
 // ORBITAL program O2 (research/orbital_program.md): live satellites on the
 // globe. GP elements are client-fetched from CelesTrak (the browser is NOT
 // firewalled from CelesTrak the way Railway is — charter DATA-PATH SPLIT),
@@ -1419,18 +1420,15 @@ export default function DataMapPage() {
         } as any, firstMarker?.id);
       } catch {}
     }
-    // sky/fog horizon — the depth cue that makes tilted 3D read real; only
-    // with a mesh on a photo preset (dark bases keep the space backdrop)
-    try {
-      (map as any).setSky?.(meshSource && imageryVisible ? {
-        "sky-color": "#6ea8dc",
-        "horizon-color": "#eaf2fa",
-        "fog-color": "#e6eef7",
-        "sky-horizon-blend": 0.6,
-        "horizon-fog-blend": 0.6,
-        "fog-ground-blend": 0.7,
-      } : (null as any));
-    } catch { try { (map as any).setSky?.({} as any); } catch {} }
+    // sky/atmosphere — ONE always-on setSky (lib/globeAtmosphere, verified
+    // against the installed v5.24 shaders): the globe limb glow is
+    // hardcoded Rayleigh/Mie physics gated only by atmosphere-blend
+    // (zoom-faded, pass skipped at 0 — free at street zooms), and the
+    // horizon/fog colors only render on the mercator/pitched side, so a
+    // single spec covers the hero globe AND tilted terrain with no
+    // conditional churn. Presentation, not data: the rim is a physical
+    // render of Earth's atmosphere, not a measurement.
+    try { (map as any).setSky?.(DEFAULT_SKY as any); } catch {}
     if (!enabled.terrain) setStatus("terrain", "off");
     else setStatus("terrain", "active", undefined, enabled.seafloor
       ? "3D relief from the drained-ocean DEM — basins sink for real; land is SRTM-class while the drain is on (© Mapterhorn set resumes when it's off)"
