@@ -685,7 +685,35 @@ export default function DataMapPage() {
   // O6 minimize: collapse the card to a pill (focus keeps running); a NEW
   // detail always restores the full card so fresh clicks are never hidden.
   const [detailMin, setDetailMin] = useState(false);
-  useEffect(() => { setDetailMin(false); }, [detail?.title, detail?.kind]);
+  // O6 round 6: the card is DRAGGABLE by its header (human: the card must
+  // never block the flight track you're inspecting). Direct style mutation
+  // (tools-cluster precedent); a NEW detail resets to the default spot.
+  const detailCardRef = useRef<HTMLDivElement | null>(null);
+  const detailDrag = useRef<{ dx: number; dy: number } | null>(null);
+  const onCardHeadDown = useCallback((e: React.PointerEvent) => {
+    if ((e.target as Element).closest("button")) return; // buttons stay buttons
+    const el = detailCardRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    detailDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  }, []);
+  const onCardHeadMove = useCallback((e: React.PointerEvent) => {
+    const el = detailCardRef.current;
+    const d = detailDrag.current;
+    if (!el || !d) return;
+    el.style.left = `${Math.max(0, Math.min(window.innerWidth - 80, e.clientX - d.dx))}px`;
+    el.style.top = `${Math.max(0, Math.min(window.innerHeight - 60, e.clientY - d.dy))}px`;
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+  }, []);
+  const onCardHeadUp = useCallback(() => { detailDrag.current = null; }, []);
+  useEffect(() => {
+    setDetailMin(false);
+    const el = detailCardRef.current;
+    if (el) { el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; }
+  }, [detail?.title, detail?.kind]);
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
@@ -1138,13 +1166,27 @@ export default function DataMapPage() {
       // vessels/trains live at the surface.
       if (kind === "aircraft") {
         try {
+          // terrain match: the DEM mesh is exaggerated 1.3x — the track uses
+          // the SAME factor so it flies over the mountains it really flew
+          // over (the aircraft 3D layer's setAltScale precedent).
+          const altScale = map.getTerrain() ? 1.3 : 1;
           const p3 = new Float32Array(raw.length * 3);
           for (let i = 0; i < raw.length; i++) {
             const m = lonLatToMercator(raw[i].lo, raw[i].la);
             const al = (raw[i] as any).al;
             p3[i * 3] = m.x;
             p3[i * 3 + 1] = m.y;
-            p3[i * 3 + 2] = al == null ? ARC_GAP : Math.max(0, al);
+            p3[i * 3 + 2] = al == null ? ARC_GAP : Math.max(0, al) * altScale;
+          }
+          // CURTAIN (reference-style): ribbed vertical lines tying the track
+          // to the ground every few points — altitude reads at a glance.
+          const rib: number[] = [];
+          for (let i = 0; i < raw.length; i += 3) {
+            const alt = p3[i * 3 + 2];
+            if (alt === ARC_GAP || alt <= 0) continue;
+            rib.push(p3[i * 3], p3[i * 3 + 1], alt,
+                     p3[i * 3], p3[i * 3 + 1], 0,
+                     p3[i * 3], p3[i * 3 + 1], ARC_GAP); // gap breaks to the next rib
           }
           let arcs = airTrail3dRef.current;
           if (!arcs) {
@@ -1152,7 +1194,10 @@ export default function DataMapPage() {
             airTrail3dRef.current = arcs;
           }
           if (!map.getLayer("aircraft-trail-3d")) map.addLayer(arcs);
-          arcs.setArcs(raw.length >= 2 ? [{ pts: p3, color: [0.49, 0.77, 1.0, 0.9] }] : null);
+          arcs.setArcs(raw.length >= 2 ? [
+            { pts: p3, color: [0.49, 0.77, 1.0, 0.9] },
+            { pts: new Float32Array(rib), color: [0.49, 0.77, 1.0, 0.28] },
+          ] : null);
         } catch { /* the flat trail still works */ }
       } else {
         try { airTrail3dRef.current?.setArcs(null); } catch {}
@@ -6649,8 +6694,10 @@ export default function DataMapPage() {
         </div>
       )}
       {detail && !detailMin && (
-        <div className="vt-site-card" role="dialog" aria-label={detail.title}>
-          <div className="vt-site-card-head">
+        <div ref={detailCardRef} className="vt-site-card" role="dialog" aria-label={detail.title}>
+          <div className="vt-site-card-head" style={{ cursor: "grab", touchAction: "none" }}
+               onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
+               onPointerUp={onCardHeadUp} onPointerCancel={onCardHeadUp}>
             <div>
               <div className="vt-site-card-title">{detail.title}</div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
