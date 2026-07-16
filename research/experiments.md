@@ -3,6 +3,32 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN round 10b: arc RIBBONS — every track visible (v1.0.370)
+
+Human: "line of objects need to be more clear… the plane 3d path looks
+to not be built" — it rendered as a 1px GL hairline (WebGL line-width
+clamp). arcLayer.ts rewritten GL_LINES → extruded screen-space ribbons
+(agent-built in worktree, parent-reviewed): quad/segment, stride-13
+verts [pos|otherEnd|side,dirSign,widthPx|rgba], shader derives the
+screen normal and extrudes (widthPx/2)·2/viewport·w — constant px width
+at any zoom/tilt; default 3px + per-arc override; edge rim alpha 1→0.55
+for contrast on bright imagery; SAME fragment v_cull far-side discard
+(verts never snapped); ARC_GAP/antimeridian splits unchanged; public
+setArcs API identical (datamap untouched). ~4.1× buffer growth,
+documented; built once in setArcs. Consumers upgraded free: orbit arcs,
+group orbits, aircraft 3D trails, curtain ribs. GATES: client 272/272
+(7 new ribbon-contract tests; orbitArc pins evolved with dated
+comments), tsc 66 baseline, build clean; drive ALL PASS; ribbon
+screenshot reviewed + harness on the PR.
+FILED — D3 GROUND-LOCK RELEASE INTERMITTENCE (4 fails/many passes
+today, survives the hardened slow-drag test): plausible mechanism =
+the round-9 800ms linear ease occupies most of each follow tick, so
+user drags usually begin mid-ease; if the drag under that timing
+sometimes fails to fire dragstart, ground lock misses its release —
+would be a REAL UX bug, not just test noise. Next session: instrument
+dragstart vs pointer events under an active ease; if real, release
+the lock on pointerdown instead of dragstart. Queued in the charter.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN E2 v2 remainder: v2 GEBCO_2026 depth blend layered into the existing "seafloor" toggle (v1.0.366, T-CLIENT, scheduled-routine session)
 
 WORKSTREAM PARTITION: T-CLIENT (client/src/pages/datamap.tsx, datacore/layers.json

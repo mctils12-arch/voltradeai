@@ -46,7 +46,7 @@ test('sampleOrbitArc: refuses what SGP4 refuses', () => {
   }
 });
 
-test('buildArcVertices: GL_LINES pairs; gaps and antimeridian jumps break the line', () => {
+test('buildArcVertices: ribbon quads; gaps and antimeridian jumps break the line', () => {
   const pts = new Float32Array([
     0.10, 0.5, 400_000,
     0.11, 0.5, 401_000,
@@ -56,11 +56,14 @@ test('buildArcVertices: GL_LINES pairs; gaps and antimeridian jumps break the li
     0.96, 0.5, 404_000,
   ]);
   const v = buildArcVertices([{ pts, color: [1, 0.8, 0.4, 0.9] }]);
-  // surviving segments: (0→1) and (4→5) = 2 segments = 4 vertices
-  assert.equal(v.length, 4 * ARC_VERT_STRIDE);
+  // LAYOUT EVOLVED 2026-07-16 (GL_LINES → extruded ribbons): a surviving
+  // segment is now a QUAD (4 vertices, ARC_VERT_STRIDE=13) instead of a
+  // 2-vertex line pair. Split semantics are UNCHANGED: the same two
+  // segments survive — (0→1) and (4→5) — now 2 quads = 8 vertices.
+  assert.equal(v.length, 8 * ARC_VERT_STRIDE);
   assert.ok(Math.abs(v[0] - 0.10) < 1e-6, 'first segment start (float32 storage)');
-  assert.equal(v[3], 1, 'color r packed per vertex');
-  assert.ok(Math.abs(v[2 * ARC_VERT_STRIDE] - 0.95) < 1e-6, 'second surviving segment starts after the jump');
+  assert.equal(v[9], 1, 'color r packed per vertex (after pos+other+ext)');
+  assert.ok(Math.abs(v[4 * ARC_VERT_STRIDE] - 0.95) < 1e-6, 'second surviving segment starts after the jump');
 });
 
 test('shader contract: true-altitude projection, GLOBE-guarded fragment-discard cull', () => {
@@ -90,7 +93,8 @@ test('API smoke (no GL): empty arcs render is a no-op', () => {
   layer.render(explodingGl as any, {} as any);
   assert.equal(layer.getRenderFailed(), false);
   layer.setArcs([{ pts: new Float32Array([0.1, 0.5, 400_000, 0.11, 0.5, 400_000]), color: [1, 1, 1, 1] }]);
-  assert.equal(layer.getVertexCount(), 2, 'one segment packed');
+  // LAYOUT EVOLVED 2026-07-16 (GL_LINES → ribbons): one segment = one quad = 4 verts.
+  assert.equal(layer.getVertexCount(), 4, 'one segment packed as a quad');
   layer.setArcs(null);
   assert.equal(layer.getVertexCount(), 0);
 });
