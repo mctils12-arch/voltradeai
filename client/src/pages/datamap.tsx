@@ -50,6 +50,7 @@ import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
 import { mercatorToSphere } from "@/lib/orbital/occlusion";
+import { subsolarPoint, moonState, moonPhaseGlyph, nightPolygon } from "@/lib/celestial/ephemeris";
 import { SatFinder } from "@/components/SatFinder";
 import { classFormNamed, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
@@ -258,7 +259,7 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial";
   title: string;
   subtitle: string;
   body: string;
@@ -382,7 +383,7 @@ const PANEL_GROUPS = [
 // not). Passed to gibsDefaultDate/gibsIsLatestAvailable as latencyDays.
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
-  imagery: "base", terrain: "base", seafloor: "base", weather: "base",
+  imagery: "base", terrain: "base", seafloor: "base", daynight: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
@@ -1776,6 +1777,98 @@ export default function DataMapPage() {
     }
   }, [enabled.biomass, mapReady, setStatus]);
 
+  // ── day/night terminator + sun/moon overhead points (RAW; EARTH TWIN
+  // O6-7 tier 1 — COMPUTED EPHEMERIS, no feed: Meeus low-precision series,
+  // display-grade accuracy stated on the layer. The shade recomputes every
+  // minute; ☀/moon are DOM markers (color emoji) at the exact overhead
+  // points, click → the numbers + honesty note. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.daynight) {
+      setStatus("daynight", "off");
+      return;
+    }
+    let stop = false;
+    let sunMarker: any = null;
+    let moonMarker: any = null;
+    let moonEl: HTMLDivElement | null = null;
+    let timer: number | undefined;
+    (async () => {
+      const maplibregl = (await import("maplibre-gl")).default;
+      if (stop) return;
+      const update = () => {
+        const now = Date.now();
+        try {
+          const feat = nightPolygon(now);
+          const src: any = map.getSource("daynight");
+          if (src) src.setData(feat as any);
+          else {
+            map.addSource("daynight", { type: "geojson", data: feat as any });
+            const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+            map.addLayer({
+              id: "daynight-shade", type: "fill", source: "daynight",
+              paint: { "fill-color": "#020617", "fill-opacity": 0.38 },
+            } as any, firstMarker?.id);
+          }
+        } catch { /* style mid-swap — next tick retries */ }
+        const sun = subsolarPoint(now);
+        const moon = moonState(now);
+        try {
+          if (!sunMarker) {
+            const el = document.createElement("div");
+            el.className = "vt-celestial-marker";
+            el.textContent = "☀️";
+            el.title = "Subsolar point — the sun is directly overhead here right now";
+            el.onclick = () => {
+              const s2 = subsolarPoint(Date.now());
+              setDetail({
+                kind: "celestial", title: "Sun — subsolar point",
+                subtitle: `${s2.latDeg.toFixed(2)}°, ${s2.lonDeg.toFixed(2)}°`,
+                body: "The point on Earth where the sun is directly overhead at this moment; the shaded hemisphere is in night right now.\nComputed ephemeris (Meeus low-precision) — display-grade (~0.01°), recomputed each minute. No feed, pure computation.",
+              });
+            };
+            sunMarker = new maplibregl.Marker({ element: el }).setLngLat([sun.lonDeg, sun.latDeg]).addTo(map);
+          } else {
+            sunMarker.setLngLat([sun.lonDeg, sun.latDeg]);
+          }
+          const glyph = moonPhaseGlyph(moon.illuminatedFraction, moon.waxing);
+          if (!moonMarker) {
+            moonEl = document.createElement("div");
+            moonEl.className = "vt-celestial-marker";
+            moonEl.textContent = glyph;
+            moonEl.title = "Sublunar point — the moon is directly overhead here (real phase shown)";
+            moonEl.onclick = () => {
+              const m2 = moonState(Date.now());
+              setDetail({
+                kind: "celestial", title: "Moon — sublunar point",
+                subtitle: `${m2.latDeg.toFixed(2)}°, ${m2.lonDeg.toFixed(2)}° · ${Math.round(m2.illuminatedFraction * 100)}% lit (${m2.waxing ? "waxing" : "waning"})`,
+                body: `The point on Earth where the moon is directly overhead at this moment.\nDistance: ${fmtKm(m2.distanceKm)} · apparent size: ${m2.angularSizeArcmin.toFixed(1)} arcmin.\nComputed ephemeris (Meeus low-precision, truncated lunar series) — display-grade (~1°), recomputed each minute. No feed, pure computation.`,
+              });
+            };
+            moonMarker = new maplibregl.Marker({ element: moonEl }).setLngLat([moon.lonDeg, moon.latDeg]).addTo(map);
+          } else {
+            moonMarker.setLngLat([moon.lonDeg, moon.latDeg]);
+            if (moonEl) moonEl.textContent = glyph;
+          }
+          setStatus("daynight", "active", undefined,
+            `computed ephemeris (display-grade) — shaded side is night NOW · ☀ overhead point · ${glyph} ${Math.round(moon.illuminatedFraction * 100)}% lit`);
+        } catch { /* markers are chrome */ }
+      };
+      update();
+      timer = window.setInterval(update, 60_000);
+    })();
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+      try { sunMarker?.remove(); moonMarker?.remove(); } catch {}
+      try {
+        if (map.getLayer("daynight-shade")) map.removeLayer("daynight-shade");
+        if (map.getSource("daynight")) map.removeSource("daynight");
+      } catch {}
+    };
+  }, [enabled.daynight, mapReady, setStatus, setDetail]);
+
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
   // GPU-instanced points on the globe with LEO/MEO/GEO altitude shells. HEAVY
@@ -1885,10 +1978,17 @@ export default function DataMapPage() {
               const cx = (matrix[0] * p[0] + matrix[4] * p[1] + matrix[8] * p[2] + matrix[12]) / w;
               const cy = (matrix[1] * p[0] + matrix[5] * p[1] + matrix[9] * p[2] + matrix[13]) / w;
               const canvas = map.getCanvas();
-              const sx = ((cx + 1) / 2) * (canvas.clientWidth || 1);
-              const sy = ((1 - cy) / 2) * (canvas.clientHeight || 1);
+              const W = canvas.clientWidth || 1;
+              const H = canvas.clientHeight || 1;
+              const sx = ((cx + 1) / 2) * W;
+              const sy = ((1 - cy) / 2) * H;
               const nadir = map.project([t.lonDeg, t.latDeg]);
-              offset = [nadir.x - sx, nadir.y - sy];
+              // CLAMP (live bug: Cluster II at ~119,000 km apogee → an
+              // unbounded offset slewed the camera wildly) — never chase a
+              // craft further than ~30% of the viewport per tick; extreme-
+              // apogee objects are framed by the zoom choice instead.
+              const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v));
+              offset = [clamp(nadir.x - sx, W * 0.3), clamp(nadir.y - sy, H * 0.3)];
             }
           }
           map.easeTo({ center: [t.lonDeg, t.latDeg], offset, duration: 450 });
@@ -2276,17 +2376,17 @@ export default function DataMapPage() {
           const arcPts = sampleOrbitArc(g, Date.now());
           satArcLayerRef.current?.setArcs(arcPts ? [{ pts: arcPts, color: [1.0, 0.82, 0.4, 0.85] }] : null);
         } catch { satArcLayerRef.current?.setArcs(null); }
-        // zoom IN on the object (closer than the browse view); per-class
-        // targets keep GEO from slamming to street zoom. ALWAYS center
-        // (live feedback: "sometimes it doesn't focus" — already-zoomed
-        // clicks previously skipped the ease entirely).
+        // zoom to FRAME the object — by its ALTITUDE, not just class (live
+        // bug: Cluster II's ~119,000 km apogee is unframeable at the GEO
+        // zoom; super-high objects need the camera to back OUT so the
+        // craft appears above the globe). ALWAYS center.
         try {
-          const targetZoom = s.classCode === 0 ? 4.3 : s.classCode === 1 ? 2.9 : 2.4;
-          map.easeTo({
-            center: [t.lonDeg, t.latDeg],
-            zoom: Math.max(map.getZoom() ?? 0, targetZoom),
-            duration: 1200,
-          });
+          const altKmNow = s.altMeters / 1000;
+          const cur = map.getZoom() ?? 0;
+          const zoom = altKmNow < 3000 ? Math.max(cur, 4.3)     // LEO: get close
+            : altKmNow < 45000 ? Math.max(Math.min(cur, 2.4), 2.2) // MEO/GEO band
+            : Math.min(cur, 1.4);                                // extreme apogee: back out to frame it
+          map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, duration: 1200 });
         } catch {}
         // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
         // (unknown class = honest ring-only follow, never a guessed spacecraft)
@@ -6395,6 +6495,17 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO</span>
                         <span className="vt-legend-chip">shape = type: ▣ payload · ▮ rocket body · ◆ debris · ● not yet identified</span>
                         <span className="vt-legend-note">the FULL catalog live — near-earth SGP4 + deep-space SDP4 (GPS/GLONASS/Galileo/GEO comms included) · zoom below ~{fmtKm(MINI_MAX_CAM_KM)} camera altitude: the nearest CATALOGUED satellites render as 3D class forms (unidentified stay dots) · click one to identify + FOLLOW it — it zooms in, shows its full SGP4 orbit track, and keeps flying while you pan anywhere; drag frees the camera, the card's ✕ ends the focus · click empty ground for Starlink coverage there · fades out by city zoom (LOD) — zoom out to bring the sky back</span>
+                      </div>
+                    </div>
+                  )}
+                  {enabled.daynight && (
+                    <div className="vt-legend-sec">
+                      <div className="vt-legend-sec-head">Day/Night & Moon</div>
+                      <div className="vt-legend-items">
+                        <span className="vt-legend-chip"><i style={{ background: "#020617" }} /> night side (right now)</span>
+                        <span className="vt-legend-chip">☀️ sun overhead point</span>
+                        <span className="vt-legend-chip">🌗 moon overhead point (real phase)</span>
+                        <span className="vt-legend-note">computed ephemeris (Meeus low-precision) — display-grade, recomputed each minute; no feed</span>
                       </div>
                     </div>
                   )}
