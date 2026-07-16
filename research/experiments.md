@@ -3,6 +3,28 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN O6 live-feedback round 3: lock modes + validated-by-driving (v1.0.352)
+
+Human live-tested rounds continued (screenshots + refinements
+mid-build). Shipped: focus ring only when no model; SAT/GROUND lock
+modes (sat lock pins the CRAFT to centre with bearing/pitch/zoom
+preserved — orbit-the-craft; drags never release it, unpressing
+does; ground lock pins the nadir, drag releases); LOCK-ON fix (the
+recenter projects the craft with the frame matrix and offsets the
+ease — the MODEL lands at centre, not the nadir; close-zoom
+inspection works); draggable tools cluster (grip drag, z above the
+card); search hard-swaps focus+card (stale-card bug); co-location
+thinning (docked Progress/Dragon/modules collapsed near the focused
+ISS — real catalog objects at the same spot, test-pinned); coverage-
+under-filter honesty card. NEW VALIDATION PRACTICE (human: "use the
+features and validate"): an interactive Playwright drive against
+the REAL built app+server with fixture satellites — 15/15
+assertions including an in-browser GEO focus at 22,232 mi (SDP4
+end-to-end in the app), sat-lock drag survival, ground-lock drag
+release, card swap, minimize/restore, tools drag, X teardown, zero
+page errors. GATES: client 225/225, tsc 66 baseline, build clean,
+harness 0 hard failures first run.
+
 ## 2026-07-16 [PIPELINE] — EARTH TWIN O6-5/O6-6: SDP4 deep space + model fidelity (v1.0.348-350)
 
 Human: "can we get this built?" (SDP4) + reference renders for model
