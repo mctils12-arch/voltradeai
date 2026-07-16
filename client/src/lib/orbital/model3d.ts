@@ -19,7 +19,7 @@
 
 import type { ObjectType, RcsSize } from './tle.js';
 
-export type FormKind = 'cubesat' | 'smallsat' | 'bus' | 'rocket-body' | 'fragment';
+export type FormKind = 'cubesat' | 'smallsat' | 'bus' | 'rocket-body' | 'fragment' | 'starlink';
 
 /** Catalog class → representative form. Unknowns stay a neutral fragment —
  *  never dressed up as a spacecraft we can't substantiate. */
@@ -34,6 +34,21 @@ export function classForm(objectType: ObjectType | null, rcsSize: RcsSize | null
   return 'fragment'; // UNKNOWN / uncatalogued type
 }
 
+/** Name-aware form: DOCUMENTED-DESIGN tier (charter O6-6) — a constellation
+ *  whose bus design is publicly documented gets a design-specific form,
+ *  keyed on the catalog NAME (a broadcastable fact). Currently: Starlink
+ *  (flat bus + single deployed solar wing — SpaceX's published design).
+ *  Everything else falls through to the class form; a name alone never
+ *  upgrades a non-payload. */
+export function classFormNamed(
+  objectType: ObjectType | null,
+  rcsSize: RcsSize | null,
+  name: string | null | undefined,
+): FormKind {
+  if (objectType === 'PAYLOAD' && (name || '').toUpperCase().startsWith('STARLINK')) return 'starlink';
+  return classForm(objectType, rcsSize);
+}
+
 /** Honest caption for the viewer — ALWAYS states derivation + not-imagery. */
 export function formLabel(kind: FormKind): string {
   const base =
@@ -41,6 +56,7 @@ export function formLabel(kind: FormKind): string {
     : kind === 'smallsat' ? 'Representative small-satellite form (catalog class)'
     : kind === 'bus' ? 'Representative large-satellite form — bus + solar arrays (catalog class)'
     : kind === 'rocket-body' ? 'Representative spent rocket stage (catalog type)'
+    : kind === 'starlink' ? 'Documented Starlink design — flat bus + single solar wing (public specifications)'
     : 'Representative fragment form (catalog type)';
   return `${base} — derived, not imagery of this unit`;
 }
@@ -142,6 +158,14 @@ export function buildFormMesh(kind: FormKind): Mesh {
     m.box(-1.35, 0, 0, 1.7, 0.7, 0.05, PANEL);           // large arrays
     m.box(1.35, 0, 0, 1.7, 0.7, 0.05, PANEL);
     m.cylinder(0.65, 1.0, 0.28, 0.28, SILVER, 12);       // antenna platform
+  } else if (kind === 'starlink') {
+    // documented design (public specs/renders): flat rectangular bus flying
+    // "table-top", ONE long solar wing deployed upward from an edge hinge
+    m.box(0, -0.55, 0, 1.05, 0.5, 0.07, DARK);            // flat bus panel (dark chassis)
+    m.box(0, -0.55, 0.05, 0.95, 0.4, 0.02, SILVER);       // dish/antenna face
+    m.box(0, -0.28, 0, 0.16, 0.06, 0.05, SILVER);         // wing hinge
+    m.box(0, 0.475, 0, 0.6, 1.45, 0.03, PANEL);           // single solar wing, deployed up
+    m.box(0, 0.475, 0.02, 0.05, 1.45, 0.015, SILVER);     // wing spine
   } else if (kind === 'rocket-body') {
     m.cylinder(-1.0, 0.8, 0.42, 0.42, SILVER, 14);       // stage
     m.cylinder(-1.35, -1.0, 0.28, 0.42, DARK, 14);       // nozzle skirt

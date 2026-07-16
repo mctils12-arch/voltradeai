@@ -3,6 +3,34 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PIPELINE] — EARTH TWIN O6-5/O6-6: SDP4 deep space + model fidelity (v1.0.348-350)
+
+Human: "can we get this built?" (SDP4) + reference renders for model
+quality + celestial zoom-out refinement (literal scale on zoom-out —
+chartered O6-7 two-tier). Shipped:
+- v1.0.348 O6-6a HIGH-RES ASSETS: ISS grid 64→128 (47k tris, 835KB),
+  Hubble 144→256 (16k tris, 255KB) — zoom-to-inspect (480px) made the
+  old decimation visible; integrity sweep re-verifies.
+- v1.0.349 O6-6b STARLINK documented-design form: name-keyed
+  classFormNamed (PAYLOAD + STARLINK* only), flat bus + single wing
+  from public specs, label discloses derivation.
+- v1.0.350 O6-5 SDP4: dscom/dpper/dsinit/dspace ported (subagent
+  fan-out, parent review + independent re-gating). VALIDATION:
+  near-earth BIT-FOR-BIT (worst diff 0.0 over 1,646 geodetic + 1,441
+  ECI samples); physics-invariant tests (GEO band+drift, GPS period
+  repeat, Molniya e=0.72, determinism, decayed→null); cross-check vs
+  satellite.js 6.0.2 on identical GEO/Molniya/GPS elements to
+  epoch+3d: ~1e-7 deg, sub-meter — faithful transcription CONFIRMED.
+  ~800 deep-space objects (GPS/GLONASS/Galileo/BeiDou/GEO/Molniya)
+  now live; worker/arcs/minis/pick inherit via propagate(); obsolete
+  'needs SDP4' notes replaced; GPS/Galileo/BeiDou chips added
+  (GLONASS out honestly — bare COSMOS names decode nothing).
+PRIOR (SDP4): the GEO ring + MEO shells visibly populate the sky and
+the O7 GPS-DOP query unlocks; falsifier: worker tick cost grows past
+budget with 800 more (heavier) propagations → profile, consider
+2s cadence for deep-space slots (they move slowly). GATES: client
+224/224, tsc 66 baseline, build clean, harness 0 hard
+failures at 390/768/1440 first run.
 ## 2026-07-16 [PRODUCT] — EARTH TWIN E3 follow-up: altitude-on-hover for the 3D aircraft silhouettes (v1.0.348, T-CLIENT, scheduled-routine session)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, client/src/index.css),

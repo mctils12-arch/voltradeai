@@ -96,26 +96,175 @@ test('sgp4: NORAD 88888 ECI matches the Spacetrack #3 verification vector', () =
   assert.ok(r > 6600 && r < 7200, `radius ${r} km`);
 });
 
-// --- Deep-space handling (honest null, never faked) -----------------------
+// --- Deep-space handling (SDP4) --------------------------------------------
+// (Until 2026-07: deep-space returned null. The SDP4 port now propagates
+// these objects for real, so the old "returns null" expectation is replaced
+// by physics-invariant assertions — a strictly stronger check.)
 
-test('propagate: deep-space (GEO) returns null and isDeepSpace is true', () => {
-  const geo: GpRecord = {
-    noradId: 40000,
-    name: 'GEO-COMM',
-    epoch: '2026-07-07T00:00:00.000000',
-    inclination: 0.05,
-    raan: 95.0,
-    ecc: 0.0002,
-    argp: 270.0,
-    meanAnomaly: 12.0,
-    meanMotion: 1.00271, // geostationary -> period ~1436 min -> deep space
-    bstar: 0,
-  };
-  assert.equal(isDeepSpace(geo), true);
-  assert.equal(propagate(geo, Date.parse('2026-07-07T06:00:00.000Z')), null);
+const GEO: GpRecord = {
+  noradId: 40000,
+  name: 'GEO-COMM',
+  epoch: '2026-07-07T00:00:00.000000',
+  inclination: 0.05,
+  raan: 95.0,
+  ecc: 0.0002,
+  argp: 270.0,
+  meanAnomaly: 12.0,
+  meanMotion: 1.00271, // geostationary -> period ~1436 min -> deep space
+  bstar: 0,
+};
+const GEO_EPOCH_MS = Date.parse('2026-07-07T00:00:00.000Z');
+
+test('propagate: deep-space (GEO) resolves via SDP4; isDeepSpace still labels it', () => {
+  assert.equal(isDeepSpace(GEO), true);
+  const p = propagate(GEO, Date.parse('2026-07-07T06:00:00.000Z'));
+  assert.ok(p, 'deep-space propagation returns a real position');
+  assert.ok(Math.abs(p!.altKm - 35786) < 500, `alt ${p!.altKm} km ~ GEO band`);
+  assert.equal(orbitClassFromAltKm(p!.altKm), 'GEO');
 
   // A LEO set is not deep-space.
   assert.equal(isDeepSpace(ISS), false);
+});
+
+// --- SDP4 physics invariants (hermetic — fixed epochs, no network) ---------
+
+test('SDP4 GEO: geostationary band, latitude, and longitude hold across 24h', () => {
+  const p0 = propagate(GEO, GEO_EPOCH_MS);
+  assert.ok(p0, 'position at epoch');
+  for (let h = 0; h <= 24; h++) {
+    const p = propagate(GEO, GEO_EPOCH_MS + h * 3600000);
+    assert.ok(p, `position at +${h}h`);
+    // Geostationary altitude ~35786 km, held across the day.
+    assert.ok(Math.abs(p!.altKm - 35786) < 500, `alt ${p!.altKm} km at +${h}h`);
+    // Latitude bounded by the (tiny) inclination + lunar-solar periodics.
+    assert.ok(Math.abs(p!.latDeg) < 1.0, `lat ${p!.latDeg} at +${h}h (incl 0.05°)`);
+    // Geostationary: sub-satellite longitude must not drift.
+    let dLon = p!.lonDeg - p0!.lonDeg;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    assert.ok(Math.abs(dLon) < 3.0, `lon drift ${dLon}° at +${h}h`);
+  }
+});
+
+const GPS: GpRecord = {
+  noradId: 41019,
+  name: 'GPS-LIKE MEO',
+  epoch: '2026-07-07T00:00:00.000000',
+  inclination: 55.0,
+  raan: 120.0,
+  ecc: 0.01,
+  argp: 40.0,
+  meanAnomaly: 300.0,
+  meanMotion: 2.00565, // semi-synchronous -> period ~717.97 min
+  bstar: 0,
+};
+
+test('SDP4 GPS-like MEO: altitude band across 12h + period matches meanMotion', () => {
+  const epochMs = GEO_EPOCH_MS;
+  for (let m = 0; m <= 720; m += 30) {
+    const p = propagate(GPS, epochMs + m * 60000);
+    assert.ok(p, `position at +${m}min`);
+    assert.ok(Math.abs(p!.altKm - 20200) < 1500, `alt ${p!.altKm} km at +${m}min`);
+    assert.ok(Math.abs(p!.latDeg) <= 56.0, `lat ${p!.latDeg} within inclination`);
+  }
+
+  // Period consistency, checked in ECI (independent of earth rotation):
+  // after one mean period the satellite must be back near its start point,
+  // and far from it at half a period.
+  const s = sgp4init(epochMs, {
+    inclo: 55.0 * DEG2RAD,
+    nodeo: 120.0 * DEG2RAD,
+    argpo: 40.0 * DEG2RAD,
+    mo: 300.0 * DEG2RAD,
+    ecco: 0.01,
+    noKozai: 2.00565 / XPDOTP,
+    bstar: 0,
+  });
+  const periodMin = 1440 / 2.00565;
+  assert.ok(Math.abs(periodMin - 717.97) < 0.1, `period ${periodMin} min`);
+  const angleDeg = (
+    a: { x: number; y: number; z: number },
+    b: { x: number; y: number; z: number },
+  ) => {
+    const dot = a.x * b.x + a.y * b.y + a.z * b.z;
+    const na = Math.hypot(a.x, a.y, a.z);
+    const nb = Math.hypot(b.x, b.y, b.z);
+    return (Math.acos(Math.max(-1, Math.min(1, dot / (na * nb)))) * 180) / Math.PI;
+  };
+  const r0 = sgp4(s, 0)!.position;
+  const rFull = sgp4(s, periodMin)!.position;
+  const rHalf = sgp4(s, periodMin / 2)!.position;
+  assert.ok(angleDeg(r0, rFull) < 3.0, `returns to start after one period (${angleDeg(r0, rFull)}°)`);
+  assert.ok(angleDeg(r0, rHalf) > 90.0, `far away at half period (${angleDeg(r0, rHalf)}°)`);
+});
+
+const MOLNIYA: GpRecord = {
+  noradId: 21118,
+  name: 'MOLNIYA-LIKE HEO',
+  epoch: '2026-07-07T00:00:00.000000',
+  inclination: 63.4,
+  raan: 80.0,
+  ecc: 0.72,
+  argp: 270.0,
+  meanAnomaly: 0.0, // at perigee at epoch
+  meanMotion: 2.006, // 12h resonance with e >= 0.5 -> irez=2 path exercised
+  bstar: 0,
+};
+
+test('SDP4 Molniya: eccentric geometry survives dpper/dspace (perigee<4000, apogee>35000)', () => {
+  let minAlt = Infinity;
+  let maxAlt = -Infinity;
+  let maxLat = -Infinity;
+  for (let m = 0; m <= 720; m += 10) {
+    const p = propagate(MOLNIYA, GEO_EPOCH_MS + m * 60000);
+    assert.ok(p, `position at +${m}min`);
+    minAlt = Math.min(minAlt, p!.altKm);
+    maxAlt = Math.max(maxAlt, p!.altKm);
+    maxLat = Math.max(maxLat, p!.latDeg);
+  }
+  assert.ok(minAlt < 4000, `perigee region reached (min alt ${minAlt} km)`);
+  assert.ok(minAlt > 200, `perigee stays above the atmosphere (min alt ${minAlt} km)`);
+  assert.ok(maxAlt > 35000, `apogee region reached (max alt ${maxAlt} km)`);
+  assert.ok(maxLat > 30, `apogee dwells in the north (argp 270°): max lat ${maxLat}°`);
+});
+
+test('SDP4: deterministic — repeated and out-of-order calls agree exactly', () => {
+  // Public API: identical inputs -> identical outputs.
+  const t1 = GEO_EPOCH_MS + 24 * 3600000;
+  assert.deepEqual(propagate(GEO, t1), propagate(GEO, t1));
+  const t2 = GEO_EPOCH_MS + 123 * 60000;
+  assert.deepEqual(propagate(MOLNIYA, t2), propagate(MOLNIYA, t2));
+
+  // Kernel level: the resonance integrator must not leak state between
+  // calls on the SAME satrec — out-of-order times reproduce exactly.
+  const mk = () =>
+    sgp4init(GEO_EPOCH_MS, {
+      inclo: 0.05 * DEG2RAD,
+      nodeo: 95.0 * DEG2RAD,
+      argpo: 270.0 * DEG2RAD,
+      mo: 12.0 * DEG2RAD,
+      ecco: 0.0002,
+      noKozai: 1.00271 / XPDOTP,
+      bstar: 0,
+    });
+  const sA = mk();
+  const first = sgp4(sA, 3000)!; // > 720 min: forces integrator stepping
+  assert.ok(first);
+  sgp4(sA, 60); // interleaved earlier time
+  const again = sgp4(sA, 3000)!;
+  assert.deepEqual(again.position, first.position);
+  assert.deepEqual(again.velocity, first.velocity);
+  // Fresh satrec at the same t matches the reused one.
+  const fresh = sgp4(mk(), 3000)!;
+  assert.deepEqual(fresh.position, first.position);
+});
+
+test('SDP4: subterranean perigee -> honest null (decay error path, never junk)', () => {
+  // e=0.80 at n=2.006 rev/day puts perigee ~5300 km from the geocenter —
+  // inside the earth. At epoch (mean anomaly 0 = perigee) SDP4 must refuse.
+  const doomed: GpRecord = { ...MOLNIYA, ecc: 0.8 };
+  assert.equal(isDeepSpace(doomed), true);
+  assert.equal(propagate(doomed, GEO_EPOCH_MS), null);
 });
 
 // --- orbitClassFromAltKm boundaries ---------------------------------------

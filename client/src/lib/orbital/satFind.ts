@@ -4,9 +4,10 @@
 //
 // Pure helpers. GROUPS are NAME-PREFIX decodes of the catalog's own naming
 // (CelesTrak GP names) — a broadcastable, checkable fact, never an inferred
-// operator. Groups whose constellations live in deep space (GPS/GLONASS…)
-// are deliberately absent: the near-earth SGP4 kernel gives them no live
-// position, so a "group" of them would show an empty sky and read as a bug.
+// operator. Deep-space constellations (GPS/Galileo/BeiDou) joined the list
+// with the SDP4 port (O6-5) — they have real live positions now. GLONASS
+// stays absent HONESTLY: its catalog names are bare "COSMOS NNNN", a prefix
+// shared with many non-GLONASS objects — a name decode would lie.
 
 import type { GpRecord } from './tle.js';
 import { SAT_STRIDE } from './satBuffer.js';
@@ -49,6 +50,10 @@ export const SAT_GROUPS: SatGroup[] = [
   { key: 'globalstar', label: 'Globalstar', test: (n) => n.startsWith('GLOBALSTAR') },
   { key: 'planet', label: 'Planet (Flock/SkySat)', test: (n) => n.startsWith('FLOCK') || n.startsWith('SKYSAT') },
   { key: 'spire', label: 'Spire (Lemur)', test: (n) => n.startsWith('LEMUR') },
+  // deep-space constellations — live since the SDP4 port (O6-5)
+  { key: 'gps', label: 'GPS', test: (n) => n.startsWith('NAVSTAR') || n.startsWith('GPS ') },
+  { key: 'galileo', label: 'Galileo', test: (n) => n.includes('GALILEO') },
+  { key: 'beidou', label: 'BeiDou', test: (n) => n.startsWith('BEIDOU') },
 ];
 
 /** 1 = member, index-aligned with gp (and therefore the worker buffer). */

@@ -32,7 +32,11 @@ test('groups: name-prefix decodes; ISS chip finds the station; unknown key = nul
   assert.equal(maskCount(starlink), 2);
   const iss = groupMask(GP as any, 'iss')!;
   assert.deepEqual([...iss], [1, 0, 0, 0, 0, 0]);
-  assert.equal(groupMask(GP as any, 'gps'), null, 'deep-space constellations deliberately absent (no live position — an empty sky would read as a bug)');
+  // deep-space groups exist since the SDP4 port (O6-5); GLONASS stays out
+  // honestly (bare "COSMOS NNNN" names — a prefix decode would lie)
+  const gps = groupMask([{ noradId: 1, name: 'NAVSTAR 82 (USA 343)' }, ...GP] as any, 'gps')!;
+  assert.equal(gps[0], 1, 'GPS group decodes NAVSTAR names');
+  assert.equal(groupMask(GP as any, 'glonass'), null, 'GLONASS absent — no honest name decode');
   for (const g of SAT_GROUPS) assert.ok(g.label && g.test('X') === false, `${g.key}: honest negative on arbitrary names`);
 });
 

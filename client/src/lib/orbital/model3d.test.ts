@@ -3,7 +3,7 @@
 // invariants, and the deterministic builds.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classForm, formLabel, buildFormMesh, rotationMat3 } from './model3d.js';
+import { classForm, classFormNamed, formLabel, buildFormMesh, rotationMat3 } from './model3d.js';
 
 test('classForm: catalog class maps honestly; unknowns are NEVER dressed as spacecraft', () => {
   assert.equal(classForm('PAYLOAD', 'SMALL'), 'cubesat');
@@ -61,4 +61,24 @@ test('rotationMat3: rotates unit vectors correctly (column-major, Rx·Ry)', () =
   const pitch = rotationMat3(0, Math.PI / 2);
   const p = apply(pitch, [0, 1, 0]);
   assert.ok(Math.abs(p[0]) < 1e-6 && Math.abs(p[1]) < 1e-6 && Math.abs(p[2] - 1) < 1e-6);
+});
+
+test('O6-6 starlink documented-design form: name-keyed, payload-only, honest label, valid mesh', () => {
+  assert.equal(classFormNamed('PAYLOAD', 'MEDIUM', 'STARLINK-34089'), 'starlink');
+  assert.equal(classFormNamed('PAYLOAD', 'LARGE', 'starlink-1'), 'starlink', 'case-insensitive');
+  assert.equal(classFormNamed('DEBRIS', 'SMALL', 'STARLINK-1 DEB'), 'fragment',
+    'a name never upgrades a non-payload — debris stays debris');
+  assert.equal(classFormNamed('PAYLOAD', 'MEDIUM', 'ONEWEB-0012'), 'smallsat', 'others fall through to class');
+  assert.equal(classFormNamed('PAYLOAD', 'MEDIUM', null), 'smallsat');
+  const label = formLabel('starlink');
+  assert.ok(/[Dd]ocumented/.test(label) && /public specifications/.test(label) && /not imagery/.test(label),
+    'label names the derivation and disclaims imagery');
+  const mesh = buildFormMesh('starlink');
+  assert.ok(mesh.vertexCount >= 36, 'a real mesh');
+  assert.equal(mesh.positions.length, mesh.vertexCount * 3);
+  let maxAbs = 0;
+  for (const v of mesh.positions) maxAbs = Math.max(maxAbs, Math.abs(v));
+  assert.ok(maxAbs <= 1.21, 'fits the form envelope');
+  // deterministic (rebuild identical)
+  assert.deepEqual([...buildFormMesh('starlink').positions], [...mesh.positions]);
 });

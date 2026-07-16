@@ -34,7 +34,7 @@ import { mmsiFlag } from "@/lib/mmsiFlag";
 // globe. GP elements are client-fetched from CelesTrak (the browser is NOT
 // firewalled from CelesTrak the way Railway is — charter DATA-PATH SPLIT),
 // SGP4 runs off-thread in a Web Worker, and the population draws as
-// GPU-instanced points. REAL positions only — deep-space objects need SDP4
+// GPU-instanced points. REAL positions only — SGP4 near-earth + SDP4 deep space
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer } from "@/lib/orbital/satLayer";
 import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
@@ -50,7 +50,7 @@ import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
 import { SatFinder } from "@/components/SatFinder";
-import { classForm, formLabel } from "@/lib/orbital/model3d";
+import { classFormNamed, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
 import { AIRLINE_PRESETS, applyAirlineFilter } from "@/lib/air/airFilter";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
@@ -1755,7 +1755,8 @@ export default function DataMapPage() {
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
   // GPU-instanced points on the globe with LEO/MEO/GEO altitude shells. HEAVY
   // + off by default → zero-cost-when-off: the worker + layer only exist while
-  // the toggle is on. REAL positions only — deep-space objects (GEO comms,
+  // the toggle is on. REAL positions only — since the SDP4 port (O6-5) the
+// deep-space population (GEO comms,
   // MEO nav) need SDP4 the near-earth kernel lacks, so they are skipped and
   // COUNTED in the status note, never faked. __vtOrbitalGpFixture is a
   // prod-inert test seam so the render path is verifiable offline. ──
@@ -1917,7 +1918,7 @@ export default function DataMapPage() {
         setStatus("orbital_sats", "active", grp ? grp.count : lastCounts.shown,
           grp
             ? `filtered to ${grp.label} — ${grp.count.toLocaleString()} of ${lastCounts.shown.toLocaleString()} live shown (clear the chip to see the whole sky)`
-            : `${lastCounts.shown.toLocaleString()} live · ${lastCounts.skipped.toLocaleString()} not rendered (deep-space, needs SDP4)`);
+            : `${lastCounts.shown.toLocaleString()} live (near-earth SGP4 + deep-space SDP4)${lastCounts.skipped ? ` · ${lastCounts.skipped.toLocaleString()} not rendered (incomplete/decayed elements)` : ""}`);
       }
     };
     const applyLod = () => {
@@ -2214,7 +2215,7 @@ export default function DataMapPage() {
         } catch {}
         // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
         // (unknown class = honest ring-only follow, never a guessed spacecraft)
-        satModelLayerRef.current?.setForm(sc ? classForm(sc.objectType, sc.rcsSize) : null);
+        satModelLayerRef.current?.setForm(sc ? classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name) : null);
         // O5-3b: REAL model where a verified public asset exists. Cleared
         // FIRST so the previous target's model never rides this orbit.
         satModelLayerRef.current?.setRealMesh(null);
@@ -2243,11 +2244,11 @@ export default function DataMapPage() {
           ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
           t
             ? "FOLLOWING — the camera tracks this object as it moves (updates each second). Drag to look elsewhere: the focus and orbit track stay until you close this card (✕)."
-            : "No live position this tick (deep-space object needs SDP4, or it is filtered out) — identity only, nothing followed.",
+            : "No live position this tick (incomplete or decayed elements, or filtered out by a group chip) — identity only, nothing followed.",
           t ? "Orbit track shown: one full period, SGP4-propagated from the epoch elements — the real path, not a drawn ellipse." : null,
           t && realLabel
             ? `On-map 3D: ${realLabel}.`
-            : t && sc ? `On-map 3D: ${formLabel(classForm(sc.objectType, sc.rcsSize))}.` : null,
+            : t && sc ? `On-map 3D: ${formLabel(classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name))}.` : null,
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
@@ -6311,7 +6312,7 @@ export default function DataMapPage() {
                         <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO</span>
                         <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO</span>
                         <span className="vt-legend-chip">shape = type: ▣ payload · ▮ rocket body · ◆ debris · ● not yet identified</span>
-                        <span className="vt-legend-note">live SGP4 · deep-space (GEO/MEO nav) needs SDP4 — counted, not drawn · zoom below ~{fmtKm(MINI_MAX_CAM_KM)} camera altitude: the nearest CATALOGUED satellites render as 3D class forms (unidentified stay dots) · click one to identify + FOLLOW it — it zooms in, shows its full SGP4 orbit track, and keeps flying while you pan anywhere; drag frees the camera, the card's ✕ ends the focus · click empty ground for Starlink coverage there · fades out by city zoom (LOD) — zoom out to bring the sky back</span>
+                        <span className="vt-legend-note">the FULL catalog live — near-earth SGP4 + deep-space SDP4 (GPS/GLONASS/Galileo/GEO comms included) · zoom below ~{fmtKm(MINI_MAX_CAM_KM)} camera altitude: the nearest CATALOGUED satellites render as 3D class forms (unidentified stay dots) · click one to identify + FOLLOW it — it zooms in, shows its full SGP4 orbit track, and keeps flying while you pan anywhere; drag frees the camera, the card's ✕ ends the focus · click empty ground for Starlink coverage there · fades out by city zoom (LOD) — zoom out to bring the sky back</span>
                       </div>
                     </div>
                   )}
