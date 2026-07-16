@@ -31,6 +31,10 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 import { DEFAULT_SKY } from "@/lib/globeAtmosphere";
+import {
+  OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
+  oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
+} from "@/lib/oceanBasemap";
 // ORBITAL program O2 (research/orbital_program.md): live satellites on the
 // globe. GP elements are client-fetched from CelesTrak (the browser is NOT
 // firewalled from CelesTrak the way Railway is — charter DATA-PATH SPLIT),
@@ -923,15 +927,22 @@ export default function DataMapPage() {
     firetemp: "gibs-firetemp",
     biomass: "gibs-biomass",
     floodzones: "fema-floodzones",
-    seafloor: "seafloor-relief",
+    // E2 v2: the slider drives the GEBCO shaded-relief raster (the dominant
+    // visual); the legend-bearing depth tint above it stays at a fixed low
+    // opacity (see the seafloor effect)
+    seafloor: OCEAN_BASEMAP_LAYER_ID,
   };
   // Most field layers are raster (paint prop "raster-opacity"); layer types
-  // with their own opacity prop override here (seafloor is a color-relief).
-  const FIELD_OPACITY_PROP: Record<string, string> = { seafloor: "color-relief-opacity" };
+  // with their own opacity prop override here.
+  const FIELD_OPACITY_PROP: Record<string, string> = {};
+  // Per-layer opacity DEFAULTS: fields default to 60% (context, never a
+  // curtain); the drained ocean is a basemap swap, not a context field —
+  // it defaults to full and the slider still blends it.
+  const FIELD_OPACITY_DEFAULT: Record<string, number> = { seafloor: 100 };
   const [fieldOpacity, setFieldOpacityState] = useState<Record<string, number>>(() => {
     try { return JSON.parse(sessionStorage.getItem("vt-field-opacity") || "{}"); } catch { return {}; }
   });
-  const opacityOf = (id: string) => fieldOpacity[id] ?? 60;
+  const opacityOf = (id: string) => fieldOpacity[id] ?? FIELD_OPACITY_DEFAULT[id] ?? 60;
   const setFieldOpacity = (id: string, v: number) => {
     setFieldOpacityState((s) => {
       const next = { ...s, [id]: v };
@@ -1449,16 +1460,28 @@ export default function DataMapPage() {
   // land imagery stays untouched. Its OWN raster-dem source — never reuses
   // terrain-dem (that source is land-only and feeds setTerrain; MapLibre
   // treats terrain-owned sources specially) and never calls setTerrain.
-  // HONESTY: ~1 arc-minute, soundings + satellite-gravity interpolation —
-  // indicative, not navigational; GEBCO 15-arcsec + per-cell TID confidence
-  // is the charter's E2 v2. Degrade-safe: any failure keeps the base map. ──
+  // E2 v2 QUALITY (human's Google Earth reference): the ridge texture is the
+  // GEBCO_2024 shaded-relief WMS raster (15 arc-sec — 4x the old ETOPO1
+  // hillshade), drawn UNDER the legend-bearing depth tint (fixed 0.25) so
+  // the legend chips stay the one source of truth for OUR palette; NOAA
+  // ETOPO 2022 hillshade swaps in if the GEBCO WMS errors (degrade, never
+  // break). Licensing + fetch evidence: research/ocean_quality_notes.md.
+  // HONESTY: soundings + satellite-gravity interpolation, indicative, not
+  // navigational; on-screen colors are dominated by GEBCO's own depth
+  // palette; LAND shows GEBCO's hypsometric tint while drained (a raster
+  // cannot be elevation-masked); per-cell TID confidence is the charter's
+  // next E2 slice. ──
+  const oceanBasemapErrRef = useRef<((e: any) => void) | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.seafloor) {
       try {
+        if (oceanBasemapErrRef.current) { map.off("error", oceanBasemapErrRef.current); oceanBasemapErrRef.current = null; }
         if (map.getLayer("seafloor-relief")) map.removeLayer("seafloor-relief");
+        if (map.getLayer(OCEAN_BASEMAP_LAYER_ID)) map.removeLayer(OCEAN_BASEMAP_LAYER_ID);
         if (map.getSource("seafloor-dem")) map.removeSource("seafloor-dem");
+        if (map.getSource(OCEAN_BASEMAP_SOURCE_ID)) map.removeSource(OCEAN_BASEMAP_SOURCE_ID);
       } catch {}
       setStatus("seafloor", "off");
       return;
@@ -1474,6 +1497,9 @@ export default function DataMapPage() {
           attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
         } as any);
       }
+      if (!map.getSource(OCEAN_BASEMAP_SOURCE_ID)) {
+        map.addSource(OCEAN_BASEMAP_SOURCE_ID, oceanBasemapSource() as any);
+      }
       if (!map.getLayer("seafloor-relief")) {
         // under all marker layers, same anchor rule as every raster overlay —
         // and DETERMINISTICALLY below terrain-hillshade when terrain is on
@@ -1485,26 +1511,34 @@ export default function DataMapPage() {
           id: "seafloor-relief", type: "color-relief", source: "seafloor-dem",
           paint: {
             "color-relief-color": bathymetryColorRelief(),
-            "color-relief-opacity": opacityOf("seafloor") / 100,
+            "color-relief-opacity": 0.25,
           },
         } as any, beforeId);
-        // round 8 (human's Google-Earth reference): shaded RIDGE TEXTURE over
-        // the depth tint — mid-ocean ridges, trenches and fracture zones read
-        // as terrain, not flat color. Same real DEM (ETOPO1), fixed sun so
-        // the relief doesn't swim when the map rotates.
-        map.addLayer({
-          id: "seafloor-hillshade", type: "hillshade", source: "seafloor-dem",
-          paint: {
-            "hillshade-exaggeration": 0.6,
-            "hillshade-illumination-anchor": "map",
-            "hillshade-shadow-color": "rgba(4, 16, 36, 0.55)",
-            "hillshade-highlight-color": "rgba(210, 230, 250, 0.18)",
-            "hillshade-accent-color": "rgba(0, 0, 0, 0)",
-          },
-        } as any, beforeId);
+        // GEBCO shaded relief directly BELOW the tint; the opacity slider
+        // drives this raster (FIELD_MAP_LAYER), default 100
+        map.addLayer(oceanBasemapLayer(opacityOf("seafloor")) as any, "seafloor-relief");
+      }
+      if (!oceanBasemapErrRef.current) {
+        // one-shot degrade to the NOAA public-domain hillshade if the GEBCO
+        // WMS errors — the status note stays honest about which source is live
+        const onErr = (e: any) => {
+          if (e?.sourceId !== OCEAN_BASEMAP_SOURCE_ID) return;
+          try { map.off("error", onErr); } catch {}
+          if (oceanBasemapErrRef.current === onErr) oceanBasemapErrRef.current = null;
+          try {
+            if (map.getLayer(OCEAN_BASEMAP_LAYER_ID)) map.removeLayer(OCEAN_BASEMAP_LAYER_ID);
+            if (map.getSource(OCEAN_BASEMAP_SOURCE_ID)) map.removeSource(OCEAN_BASEMAP_SOURCE_ID);
+            map.addSource(OCEAN_BASEMAP_SOURCE_ID, oceanBasemapFallbackSource() as any);
+            map.addLayer(oceanBasemapLayer(opacityOf("seafloor")) as any, "seafloor-relief");
+            setStatus("seafloor", "active", undefined,
+              "ocean drained — NOAA ETOPO 2022 hillshade (fallback; GEBCO WMS unreachable) + depth tint + 3D basins; soundings + gravity interpolation, not navigational");
+          } catch {}
+        };
+        oceanBasemapErrRef.current = onErr;
+        map.on("error", onErr);
       }
       setStatus("seafloor", "active", undefined,
-        "ocean drained — 3D basins + shaded ridge relief, ETOPO1 (~1 arc-min; real soundings + satellite-gravity interpolation, global estimate — not navigational)");
+        "ocean drained — GEBCO_2024 shaded relief (15 arc-sec; real soundings + satellite-gravity interpolation, not navigational) + depth tint + 3D basins · land shows GEBCO's tint while drained");
     } catch {
       setStatus("seafloor", "error");
     }
@@ -6665,7 +6699,7 @@ export default function DataMapPage() {
                             <i style={{ background: s.color }} /> {s.label}{s.depthM > 0 ? ` ~${fmtMeters(s.depthM)}` : ""}
                           </span>
                         ))}
-                        <span className="vt-legend-note">NOAA ETOPO1 (~1 arc-min) — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · coarse cells can tint slightly past the shoreline (more visible with 3D terrain on)</span>
+                        <span className="vt-legend-note">chips decode OUR depth tint (drawn at low opacity); the dominant coloring + ridge texture beneath is GEBCO_2024 shaded relief (15 arc-sec) with its own depth palette — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · land shows GEBCO's hypsometric tint while drained · turn on Terrain (3D relief) to make the basins physically sink</span>
                       </div>
                     </div>
                   )}
