@@ -2023,6 +2023,17 @@ for any future "known endpoint moved" case in this repo.
 
 ## OPS GOTCHAS (avoid re-learning)
 
+- BRANCH RESET AUTO-CLOSES OPEN PRs (bit us 2026-07-16: the two live
+  repairs in PR #498 silently stranded): force-pushing the branch to
+  EQUAL main (the supersession reset step) makes an open PR's diff
+  empty and GitHub CLOSES it within minutes; later pushes do NOT
+  reopen it, and body edits still succeed on the closed PR — nothing
+  looks wrong. RULE: during a supersession reset, close the duplicate
+  PR YOURSELF first (with a comment), reset, push the salvage, then
+  open a FRESH PR. And merge watchers must check the PR's merged
+  field (or scan main's recent log), never just main's HEAD line —
+  a concurrent PR landing after yours hides your merge from -1.
+
 - MAPLIBRE IMAGE-POOL STARVATION (root-caused 2026-07-16, probe chain
   in experiments.md v1.0.366 entry): a HANGING raster tile CDN
   (requests that never resolve — e.g. a proxy black-hole, unlike a
