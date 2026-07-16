@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
@@ -570,6 +570,394 @@ function LegendIcon({ icon, color, label }: { icon: string; color: string; label
     </span>
   );
 }
+
+// LEGEND v3 (legend directive 2026-07-04): symbol entries render the SAME
+// registry shapes the map draws (iconDataURL — one shared icon source;
+// DESIGN.md legend rule). Sections mirror the panel groups, entries appear
+// ONLY while their layer is on, and the block collapses as one unit so it
+// never fights the panel for space. Color-only chips are color MEANINGS
+// (altitude tints, raster ramps), not symbols — chips by design.
+//
+// React memo boundary (SCALE program S1(d), queued since 2026-07-15): this
+// section depends only on layer-toggle/date/sat-selector state, never on
+// live position ticks (aircraft/vessel/satellite WebSocket updates repaint
+// the map every second-ish but never touch these props) — wrapped in
+// React.memo so those high-frequency parent re-renders no longer force this
+// ~330-line JSX tree to re-diff. All props below are either primitive state,
+// stable useCallback/useState-setter identities, or stable ref objects, so
+// memo's default shallow comparison is correct without a custom comparator.
+interface LegendPanelProps {
+  legendOpen: boolean;
+  setLegendOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  enabled: Record<string, boolean>;
+  airFilter: string | null;
+  setAirFilter: React.Dispatch<React.SetStateAction<string | null>>;
+  nightlightsDate: string;
+  aerosolDate: string;
+  vegetationDate: string;
+  soilmoistureDate: string;
+  no2Date: string;
+  firetempScanTime: string | null;
+  tempUnitF: boolean;
+  windArrows: boolean;
+  orbitalGpRef: React.RefObject<GpRecord[] | null>;
+  gpVersion: number;
+  satGroup: string | null;
+  satGroupCount: number | null;
+  satGroupOrbits: boolean;
+  satArcInfo: { shown: number; total: number } | null;
+  applySatGroup: (key: string | null) => void;
+  setSatGroupOrbits: React.Dispatch<React.SetStateAction<boolean>>;
+  stopSatFocusRef: React.RefObject<(() => void) | null>;
+  focusSatByIndexRef: React.RefObject<((index: number) => void) | null>;
+  setDetail: React.Dispatch<React.SetStateAction<Detail | null>>;
+  seafloorConfShares: Record<string, Record<string, number>>;
+}
+
+const LegendPanel = memo(function LegendPanel({
+  legendOpen, setLegendOpen, enabled, airFilter, setAirFilter,
+  nightlightsDate, aerosolDate, vegetationDate, soilmoistureDate, no2Date,
+  firetempScanTime, tempUnitF, windArrows, orbitalGpRef, gpVersion,
+  satGroup, satGroupCount, satGroupOrbits, satArcInfo, applySatGroup,
+  setSatGroupOrbits, stopSatFocusRef, focusSatByIndexRef, setDetail,
+  seafloorConfShares,
+}: LegendPanelProps) {
+  return (
+    <div className="vt-legend" data-vt-legend>
+      <button className="vt-legend-head" aria-expanded={legendOpen}
+              onClick={() => setLegendOpen((v) => !v)}>
+        <span className={`vt-layer-group-chev${legendOpen ? "" : " closed"}`}>▾</span>
+        <span>Legend</span>
+      </button>
+      {legendOpen && (
+        <div className="vt-legend-body">
+          {(enabled.aircraft || enabled.vessels || enabled.trains) && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Live Tracking</div>
+              <div className="vt-legend-items">
+                {enabled.aircraft && (
+                  <>
+                    <LegendIcon icon={AIRCRAFT_ICON.jet} color="#4d9fff" label="Jet" />
+                    <LegendIcon icon={AIRCRAFT_ICON.turboprop} color="#4d9fff" label="Turboprop / Piston" />
+                    <LegendIcon icon={AIRCRAFT_ICON.helicopter} color="#4d9fff" label="Helicopter" />
+                    <LegendIcon icon={AIRCRAFT_ICON.unknown} color="#4d9fff" label="Unclassified Aircraft" />
+                    <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> Cruise</span>
+                    <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
+                    <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
+                    <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain</span>
+                    {/* O6-4: operator filter — broadcast callsign prefixes (ICAO
+                        telephony codes), one airline's sky at a time */}
+                    <div className="vt-satfinder-groups" style={{ width: "100%", marginTop: 4 }}>
+                      {AIRLINE_PRESETS.map((p) => (
+                        <button key={p.key}
+                                className={`vt-satfinder-chip${airFilter === p.prefix ? " vt-satfinder-chip-on" : ""}`}
+                                onClick={() => setAirFilter(airFilter === p.prefix ? null : p.prefix)}>
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    {airFilter && (
+                      <span className="vt-legend-note">showing only callsigns {airFilter}* (broadcast flight IDs — the operator's ICAO code; charters/GA under other callsigns won't match)</span>
+                    )}
+                  </>
+                )}
+                {enabled.vessels && (
+                  <>
+                    <LegendIcon icon={VESSEL_ICON.tanker} color={VESSEL_COLOR.tanker} label="Tanker" />
+                    <LegendIcon icon={VESSEL_ICON.cargo} color={VESSEL_COLOR.cargo} label="Cargo" />
+                    <LegendIcon icon={VESSEL_ICON.passenger} color={VESSEL_COLOR.passenger} label="Passenger" />
+                    <LegendIcon icon={VESSEL_ICON.fishing} color={VESSEL_COLOR.fishing} label="Fishing / Tug / Small" />
+                  </>
+                )}
+                {enabled.trains && <LegendIcon icon="vt-train" color="#2dd4bf" label="Train" />}
+              </div>
+            </div>
+          )}
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub) && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Facilities</div>
+              <div className="vt-legend-items">
+                {enabled.sites && (
+                  <>
+                    <LegendIcon icon={SITE_ICON.port} color="#4ade80" label="Port" />
+                    <LegendIcon icon={SITE_ICON.tank_farm} color="#fbb24c" label="Tank Farm" />
+                    <LegendIcon icon={SITE_ICON.steel_mill} color="#ff5a6e" label="Steel Mill" />
+                  </>
+                )}
+                {(enabled.powerplants || enabled.powergrid_hifld_plants) && Object.keys(POWER_FUEL_ICON).map((fuel) => (
+                  <LegendIcon key={fuel} icon={POWER_FUEL_ICON[fuel]}
+                              color={POWER_FUEL_COLOR[fuel]}
+                              label={`${POWER_FUEL_LABEL[fuel]} Plant`} />
+                ))}
+                {enabled.powergrid_hifld_sub && (
+                  <LegendIcon icon="vt-substation" color="#fbbf24" label="Substation" />
+                )}
+              </div>
+            </div>
+          )}
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys) && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Environmental</div>
+              <div className="vt-legend-items">
+                {enabled.fires && (
+                  <>
+                    <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.high} label="Fire — High Confidence" />
+                    <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.nominal} label="Fire — Nominal" />
+                    <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.low} label="Fire — Low Confidence" />
+                  </>
+                )}
+                {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
+                {enabled.earthquakes && (
+                  <>
+                    <LegendIcon icon="vt-quake" color="#8bc34a" label="Quake M2.5-4" />
+                    <LegendIcon icon="vt-quake" color="#ffd23f" label="Quake M4-5" />
+                    <LegendIcon icon="vt-quake" color="#ff8c42" label="Quake M5-6" />
+                    <LegendIcon icon="vt-quake" color="#ff3b3b" label="Quake M6+" />
+                  </>
+                )}
+                {enabled.buoys && <LegendIcon icon="vt-buoy" color="#22d3ee" label="Ocean Buoy (NDBC)" />}
+                {enabled.alerts && (
+                  <>
+                    {([["Extreme", "#ff3b3b"], ["Severe", "#ff8c42"], ["Moderate", "#ffd23f"], ["Minor", "#4d9fff"]] as const)
+                      .map(([t, c]) => (
+                        <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t} Alert</span>
+                      ))}
+                  </>
+                )}
+                {enabled.surfacewater && (
+                  <>
+                    {([["Rare", "#ffcccc"], ["Seasonal", "#8683ff"], ["Permanent", "#0000ff"]] as const)
+                      .map(([t, c]) => (
+                        <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t} Water</span>
+                      ))}
+                    <span className="vt-legend-note">(1984–2021, JRC GSW)</span>
+                  </>
+                )}
+                {enabled.forest && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#2e7d32" }} /> Forest Extent</span>
+                    <span className="vt-legend-note">(2020 10m, JRC GFC2020)</span>
+                  </>
+                )}
+                {enabled.nightlights && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#ffe873" }} /> Night Lights Radiance</span>
+                    <span className="vt-legend-note">(daily, NASA GIBS/VIIRS — {nightlightsDate})</span>
+                  </>
+                )}
+                {enabled.aerosol && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#c8842a" }} /> Aerosol Optical Depth</span>
+                    <span className="vt-legend-note">(daily, NASA GIBS/MODIS — {aerosolDate})</span>
+                  </>
+                )}
+                {enabled.vegetation && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#2e9e4a" }} /> Vegetation (NDVI)</span>
+                    <span className="vt-legend-note">(8-day, NASA GIBS/VIIRS — {vegetationDate})</span>
+                  </>
+                )}
+                {enabled.soilmoisture && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#2b6cb0" }} /> Soil Moisture (SMAP)</span>
+                    <span className="vt-legend-note">(~6-day lag, NASA GIBS/SMAP — {soilmoistureDate})</span>
+                  </>
+                )}
+                {enabled.no2 && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#e53e3e" }} /> NO₂ (TROPOMI)</span>
+                    <span className="vt-legend-note">(daily, NASA GIBS/Sentinel-5P — {no2Date})</span>
+                  </>
+                )}
+                {enabled.firetemp && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#ff7a1a" }} /> Fire/Hotspot Temp (GOES-East)</span>
+                    <span className="vt-legend-note">(~10-min, NASA GIBS/ABI — {firetempScanTime ? `${firetempScanTime} UTC` : "latest"})</span>
+                  </>
+                )}
+                {enabled.biomass && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#6b8e23" }} /> Biomass Density (GEDI)</span>
+                    <span className="vt-legend-note">(static, 2019-04 to 2023-03 mean, NASA GIBS/GEDI L4B)</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {enabled.radiation && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Ambient Radiation</div>
+              <div className="vt-legend-items">
+                <LegendIcon icon="vt-radiation" color="#eef3fb" label="Gamma Monitor (exact location)" />
+                <span className="vt-legend-chip"><i style={{ background: "rgba(74,222,128,0.35)", borderRadius: "50%" }} /> US Monitor — City-Area Circle</span>
+                {RADIATION_BANDS.map((b) => (
+                  <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
+                ))}
+                <span className="vt-legend-chip"><i style={{ background: RADIATION_CPM_COLOR }} /> CPM-only Station</span>
+                <span className="vt-legend-note">(bands = display buckets, not thresholds; US circles span roughly the city's area — exact addresses not public)</span>
+              </div>
+            </div>
+          )}
+          {enabled.pfas && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">PFAS Drinking-Water Detections</div>
+              <div className="vt-legend-items">
+                <LegendIcon icon="vt-pfas" color="#eef3fb" label="Water System (service-area centroid)" />
+                {PFAS_COUNT_BANDS.map((b) => (
+                  <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
+                ))}
+                <span className="vt-legend-note">(color = count of distinct PFAS compounds detected, a fact — not a concentration or health-risk tier; EPA UCMR 5, 2023-2025 monitoring)</span>
+              </div>
+            </div>
+          )}
+          {enabled.nukefacilities && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Nuclear Facilities</div>
+              <div className="vt-legend-items">
+                <LegendIcon icon="vt-nukefacility" color="#eef3fb" label="Fuel-cycle / Production Site" />
+                {Object.entries(NUKE_FACILITY_COLOR).map(([cat, col]) => (
+                  <span key={cat} className="vt-legend-chip"><i style={{ background: col }} /> {cat}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {enabled.nukeaccidents && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Nuclear Accidents</div>
+              <div className="vt-legend-items">
+                <LegendIcon icon="vt-meltdown" color="#eef3fb" label="Accident / Incident Site" />
+                <span className="vt-legend-chip"><i style={{ background: inesColor(7) }} /> INES 6–7 Major/Serious</span>
+                <span className="vt-legend-chip"><i style={{ background: inesColor(4) }} /> INES 4–5 Accident</span>
+                <span className="vt-legend-chip"><i style={{ background: inesColor(2) }} /> INES 1–3 Incident</span>
+                <span className="vt-legend-chip"><i style={{ background: inesColor(null) }} /> Unrated (no INES catalogued)</span>
+              </div>
+            </div>
+          )}
+          {enabled.nucleartests && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Nuclear Tests</div>
+              <div className="vt-legend-items">
+                {(Object.keys(NUKE_CLASS_ICON) as Array<keyof typeof NUKE_CLASS_ICON>).map((k) => (
+                  <LegendIcon key={k} icon={NUKE_CLASS_ICON[k]} color="#eef3fb" label={NUKE_CLASS_LABEL[k]} />
+                ))}
+                {Object.entries(NUKE_COUNTRY_COLOR).map(([c, col]) => (
+                  <span key={c} className="vt-legend-chip"><i style={{ background: col }} /> {
+                    ({ USA: "USA", USSR: "USSR", FRANCE: "France", UK: "UK", CHINA: "China", INDIA: "India", PAKIST: "Pakistan" } as Record<string, string>)[c] || c
+                  }</span>
+                ))}
+                <span className="vt-legend-chip"><i style={{ background: "rgba(253,224,71,0.6)" }} /> 5-psi Blast Estimate Ring</span>
+                <span className="vt-legend-note">(ring = Glasstone–Dolan blast estimate, not fallout)</span>
+              </div>
+            </div>
+          )}
+          {(enabled.weather_temp || (enabled.weather_wind && windArrows)) && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Fields</div>
+              <div className="vt-legend-items">
+                {enabled.weather_wind && windArrows && (
+                  <LegendIcon icon="vt-wind-arrow" color="#eef3fb" label="Wind (Direction + kt)" />
+                )}
+                {enabled.weather_temp && (
+                  <>
+                    {([["-40", "#821692"], ["-20", "#208CEC"], ["0", "#23DDDD"],
+                       ["10", "#C2FF28"], ["20", "#FFF028"], ["30+", "#FC8014"]] as const)
+                      .map(([t, c]) => (
+                        <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {tempUnitF ? `${Math.round(Number(t.replace("+", "")) * 9 / 5 + 32)}${t.includes("+") ? "+" : ""}°F` : `${t}°C`}</span>
+                      ))}
+                    <span className="vt-legend-note">(approx — amplified for dark basemap)</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {enabled["orbital_sats"] && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Orbital</div>
+              <SatFinder
+                gp={orbitalGpRef.current}
+                gpVersion={gpVersion}
+                activeGroup={satGroup}
+                groupCount={satGroupCount}
+                orbitsOn={satGroupOrbits}
+                arcInfo={satArcInfo}
+                onFind={(i) => {
+                  // live bug: searching while an old focus card was
+                  // open left the STALE card up — hard-swap: end the
+                  // old focus, drop the old card, then focus fresh.
+                  stopSatFocusRef.current?.();
+                  setDetail(null);
+                  focusSatByIndexRef.current?.(i);
+                }}
+                onGroup={applySatGroup}
+                onOrbits={setSatGroupOrbits}
+              />
+              <div className="vt-legend-items">
+                <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO</span>
+                <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO</span>
+                <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO</span>
+                <span className="vt-legend-chip">shape = type: ▣ payload · ▮ rocket body · ◆ debris · ● not yet identified</span>
+                <span className="vt-legend-note">the FULL catalog live — near-earth SGP4 + deep-space SDP4 (GPS/GLONASS/Galileo/GEO comms included) · zoom below ~{fmtKm(MINI_MAX_CAM_KM)} camera altitude: the nearest CATALOGUED satellites render as 3D class forms (unidentified stay dots) · click one to identify + FOLLOW it — it zooms in, shows its full SGP4 orbit track, and keeps flying while you pan anywhere; drag frees the camera, the card's ✕ ends the focus · click empty ground for Starlink coverage there · fades out by city zoom (LOD) — zoom out to bring the sky back</span>
+              </div>
+            </div>
+          )}
+          {enabled.daynight && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Day/Night & Moon</div>
+              <div className="vt-legend-items">
+                <span className="vt-legend-chip"><i style={{ background: "#020617" }} /> night side (right now)</span>
+                <span className="vt-legend-chip">☀️ sun overhead point</span>
+                <span className="vt-legend-chip">🌗 moon overhead point (real phase)</span>
+                <span className="vt-legend-note">computed ephemeris (Meeus low-precision) — display-grade, recomputed each minute; no feed</span>
+              </div>
+            </div>
+          )}
+          {enabled.seafloor && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Seafloor depth</div>
+              <div className="vt-legend-items">
+                {/* chips render from the SAME stops the map ramp uses
+                    (lib/bathymetry — one source of truth), shallow → deep */}
+                {[...BATHYMETRY_STOPS].reverse().map((s) => (
+                  <span key={s.elevM} className="vt-legend-chip">
+                    <i style={{ background: s.color }} /> {s.label}{s.depthM > 0 ? ` ~${fmtMeters(s.depthM)}` : ""}
+                  </span>
+                ))}
+                <span className="vt-legend-note">chips decode OUR depth tint (drawn at low opacity); the dominant coloring + ridge texture beneath is GEBCO_2024 shaded relief (15 arc-sec) with its own depth palette — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · land shows GEBCO's hypsometric tint while drained · turn on Terrain (3D relief) to make the basins physically sink</span>
+              </div>
+            </div>
+          )}
+          {enabled.seafloor_confidence && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Seafloor mapping confidence</div>
+              <div className="vt-legend-items">
+                {/* rows + colors from the SAME GEBCO TID decode table the
+                    map's color-relief expression uses (lib/seafloorV2) —
+                    they can never drift apart */}
+                {tidConfidenceLegend().map((row) => (
+                  <span key={row.group} className="vt-legend-chip">
+                    <i style={{ background: row.color }} /> {row.label}
+                  </span>
+                ))}
+                {SEAFLOOR_V2_REGIONS.map((r) => {
+                  const shares = seafloorConfShares[r.name];
+                  return (
+                    <span key={r.name} className="vt-legend-note">
+                      {r.name}: {shares
+                        ? Object.entries(shares).map(([g, v]) => `${Math.round(v * 1000) / 10}% ${g}`).join(" · ")
+                        : "measured shares loading…"}
+                    </span>
+                  );
+                })}
+                <span className="vt-legend-note">{GEBCO_ATTRIBUTION}</span>
+                <span className="vt-legend-note">{GEBCO_NOT_FOR_NAVIGATION} Regional coverage only — the dashed border draws the data's true extent; everywhere else is transparent (no data), never a guessed class.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
 
 export default function DataMapPage() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -6745,346 +7133,20 @@ export default function DataMapPage() {
               const orphans = layers.filter((l) => !known.has(groupOf(l)));
               return orphans.length ? renderPanelGroup("_more", "More", orphans) : null;
             })()}
-            {/* LEGEND v3 (legend directive 2026-07-04): symbol entries render
-                the SAME registry shapes the map draws (iconDataURL — one
-                shared icon source; DESIGN.md legend rule). Sections mirror
-                the panel groups, entries appear ONLY while their layer is on,
-                and the block collapses as one unit so it never fights the
-                panel for space. Color-only chips are color MEANINGS (altitude
-                tints, raster ramps), not symbols — chips by design. */}
-            <div className="vt-legend" data-vt-legend>
-              <button className="vt-legend-head" aria-expanded={legendOpen}
-                      onClick={() => setLegendOpen((v) => !v)}>
-                <span className={`vt-layer-group-chev${legendOpen ? "" : " closed"}`}>▾</span>
-                <span>Legend</span>
-              </button>
-              {legendOpen && (
-                <div className="vt-legend-body">
-                  {(enabled.aircraft || enabled.vessels || enabled.trains) && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Live Tracking</div>
-                      <div className="vt-legend-items">
-                        {enabled.aircraft && (
-                          <>
-                            <LegendIcon icon={AIRCRAFT_ICON.jet} color="#4d9fff" label="Jet" />
-                            <LegendIcon icon={AIRCRAFT_ICON.turboprop} color="#4d9fff" label="Turboprop / Piston" />
-                            <LegendIcon icon={AIRCRAFT_ICON.helicopter} color="#4d9fff" label="Helicopter" />
-                            <LegendIcon icon={AIRCRAFT_ICON.unknown} color="#4d9fff" label="Unclassified Aircraft" />
-                            <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> Cruise</span>
-                            <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
-                            <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
-                            <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain</span>
-                            {/* O6-4: operator filter — broadcast callsign prefixes (ICAO
-                                telephony codes), one airline's sky at a time */}
-                            <div className="vt-satfinder-groups" style={{ width: "100%", marginTop: 4 }}>
-                              {AIRLINE_PRESETS.map((p) => (
-                                <button key={p.key}
-                                        className={`vt-satfinder-chip${airFilter === p.prefix ? " vt-satfinder-chip-on" : ""}`}
-                                        onClick={() => setAirFilter(airFilter === p.prefix ? null : p.prefix)}>
-                                  {p.label}
-                                </button>
-                              ))}
-                            </div>
-                            {airFilter && (
-                              <span className="vt-legend-note">showing only callsigns {airFilter}* (broadcast flight IDs — the operator's ICAO code; charters/GA under other callsigns won't match)</span>
-                            )}
-                          </>
-                        )}
-                        {enabled.vessels && (
-                          <>
-                            <LegendIcon icon={VESSEL_ICON.tanker} color={VESSEL_COLOR.tanker} label="Tanker" />
-                            <LegendIcon icon={VESSEL_ICON.cargo} color={VESSEL_COLOR.cargo} label="Cargo" />
-                            <LegendIcon icon={VESSEL_ICON.passenger} color={VESSEL_COLOR.passenger} label="Passenger" />
-                            <LegendIcon icon={VESSEL_ICON.fishing} color={VESSEL_COLOR.fishing} label="Fishing / Tug / Small" />
-                          </>
-                        )}
-                        {enabled.trains && <LegendIcon icon="vt-train" color="#2dd4bf" label="Train" />}
-                      </div>
-                    </div>
-                  )}
-                  {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub) && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Facilities</div>
-                      <div className="vt-legend-items">
-                        {enabled.sites && (
-                          <>
-                            <LegendIcon icon={SITE_ICON.port} color="#4ade80" label="Port" />
-                            <LegendIcon icon={SITE_ICON.tank_farm} color="#fbb24c" label="Tank Farm" />
-                            <LegendIcon icon={SITE_ICON.steel_mill} color="#ff5a6e" label="Steel Mill" />
-                          </>
-                        )}
-                        {(enabled.powerplants || enabled.powergrid_hifld_plants) && Object.keys(POWER_FUEL_ICON).map((fuel) => (
-                          <LegendIcon key={fuel} icon={POWER_FUEL_ICON[fuel]}
-                                      color={POWER_FUEL_COLOR[fuel]}
-                                      label={`${POWER_FUEL_LABEL[fuel]} Plant`} />
-                        ))}
-                        {enabled.powergrid_hifld_sub && (
-                          <LegendIcon icon="vt-substation" color="#fbbf24" label="Substation" />
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys) && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Environmental</div>
-                      <div className="vt-legend-items">
-                        {enabled.fires && (
-                          <>
-                            <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.high} label="Fire — High Confidence" />
-                            <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.nominal} label="Fire — Nominal" />
-                            <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.low} label="Fire — Low Confidence" />
-                          </>
-                        )}
-                        {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
-                        {enabled.earthquakes && (
-                          <>
-                            <LegendIcon icon="vt-quake" color="#8bc34a" label="Quake M2.5-4" />
-                            <LegendIcon icon="vt-quake" color="#ffd23f" label="Quake M4-5" />
-                            <LegendIcon icon="vt-quake" color="#ff8c42" label="Quake M5-6" />
-                            <LegendIcon icon="vt-quake" color="#ff3b3b" label="Quake M6+" />
-                          </>
-                        )}
-                        {enabled.buoys && <LegendIcon icon="vt-buoy" color="#22d3ee" label="Ocean Buoy (NDBC)" />}
-                        {enabled.alerts && (
-                          <>
-                            {([["Extreme", "#ff3b3b"], ["Severe", "#ff8c42"], ["Moderate", "#ffd23f"], ["Minor", "#4d9fff"]] as const)
-                              .map(([t, c]) => (
-                                <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t} Alert</span>
-                              ))}
-                          </>
-                        )}
-                        {enabled.surfacewater && (
-                          <>
-                            {([["Rare", "#ffcccc"], ["Seasonal", "#8683ff"], ["Permanent", "#0000ff"]] as const)
-                              .map(([t, c]) => (
-                                <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t} Water</span>
-                              ))}
-                            <span className="vt-legend-note">(1984–2021, JRC GSW)</span>
-                          </>
-                        )}
-                        {enabled.forest && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#2e7d32" }} /> Forest Extent</span>
-                            <span className="vt-legend-note">(2020 10m, JRC GFC2020)</span>
-                          </>
-                        )}
-                        {enabled.nightlights && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#ffe873" }} /> Night Lights Radiance</span>
-                            <span className="vt-legend-note">(daily, NASA GIBS/VIIRS — {nightlightsDate})</span>
-                          </>
-                        )}
-                        {enabled.aerosol && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#c8842a" }} /> Aerosol Optical Depth</span>
-                            <span className="vt-legend-note">(daily, NASA GIBS/MODIS — {aerosolDate})</span>
-                          </>
-                        )}
-                        {enabled.vegetation && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#2e9e4a" }} /> Vegetation (NDVI)</span>
-                            <span className="vt-legend-note">(8-day, NASA GIBS/VIIRS — {vegetationDate})</span>
-                          </>
-                        )}
-                        {enabled.soilmoisture && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#2b6cb0" }} /> Soil Moisture (SMAP)</span>
-                            <span className="vt-legend-note">(~6-day lag, NASA GIBS/SMAP — {soilmoistureDate})</span>
-                          </>
-                        )}
-                        {enabled.no2 && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#e53e3e" }} /> NO₂ (TROPOMI)</span>
-                            <span className="vt-legend-note">(daily, NASA GIBS/Sentinel-5P — {no2Date})</span>
-                          </>
-                        )}
-                        {enabled.firetemp && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#ff7a1a" }} /> Fire/Hotspot Temp (GOES-East)</span>
-                            <span className="vt-legend-note">(~10-min, NASA GIBS/ABI — {firetempScanTime ? `${firetempScanTime} UTC` : "latest"})</span>
-                          </>
-                        )}
-                        {enabled.biomass && (
-                          <>
-                            <span className="vt-legend-chip"><i style={{ background: "#6b8e23" }} /> Biomass Density (GEDI)</span>
-                            <span className="vt-legend-note">(static, 2019-04 to 2023-03 mean, NASA GIBS/GEDI L4B)</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {enabled.radiation && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Ambient Radiation</div>
-                      <div className="vt-legend-items">
-                        <LegendIcon icon="vt-radiation" color="#eef3fb" label="Gamma Monitor (exact location)" />
-                        <span className="vt-legend-chip"><i style={{ background: "rgba(74,222,128,0.35)", borderRadius: "50%" }} /> US Monitor — City-Area Circle</span>
-                        {RADIATION_BANDS.map((b) => (
-                          <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
-                        ))}
-                        <span className="vt-legend-chip"><i style={{ background: RADIATION_CPM_COLOR }} /> CPM-only Station</span>
-                        <span className="vt-legend-note">(bands = display buckets, not thresholds; US circles span roughly the city's area — exact addresses not public)</span>
-                      </div>
-                    </div>
-                  )}
-                  {enabled.pfas && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">PFAS Drinking-Water Detections</div>
-                      <div className="vt-legend-items">
-                        <LegendIcon icon="vt-pfas" color="#eef3fb" label="Water System (service-area centroid)" />
-                        {PFAS_COUNT_BANDS.map((b) => (
-                          <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
-                        ))}
-                        <span className="vt-legend-note">(color = count of distinct PFAS compounds detected, a fact — not a concentration or health-risk tier; EPA UCMR 5, 2023-2025 monitoring)</span>
-                      </div>
-                    </div>
-                  )}
-                  {enabled.nukefacilities && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Nuclear Facilities</div>
-                      <div className="vt-legend-items">
-                        <LegendIcon icon="vt-nukefacility" color="#eef3fb" label="Fuel-cycle / Production Site" />
-                        {Object.entries(NUKE_FACILITY_COLOR).map(([cat, col]) => (
-                          <span key={cat} className="vt-legend-chip"><i style={{ background: col }} /> {cat}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {enabled.nukeaccidents && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Nuclear Accidents</div>
-                      <div className="vt-legend-items">
-                        <LegendIcon icon="vt-meltdown" color="#eef3fb" label="Accident / Incident Site" />
-                        <span className="vt-legend-chip"><i style={{ background: inesColor(7) }} /> INES 6–7 Major/Serious</span>
-                        <span className="vt-legend-chip"><i style={{ background: inesColor(4) }} /> INES 4–5 Accident</span>
-                        <span className="vt-legend-chip"><i style={{ background: inesColor(2) }} /> INES 1–3 Incident</span>
-                        <span className="vt-legend-chip"><i style={{ background: inesColor(null) }} /> Unrated (no INES catalogued)</span>
-                      </div>
-                    </div>
-                  )}
-                  {enabled.nucleartests && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Nuclear Tests</div>
-                      <div className="vt-legend-items">
-                        {(Object.keys(NUKE_CLASS_ICON) as Array<keyof typeof NUKE_CLASS_ICON>).map((k) => (
-                          <LegendIcon key={k} icon={NUKE_CLASS_ICON[k]} color="#eef3fb" label={NUKE_CLASS_LABEL[k]} />
-                        ))}
-                        {Object.entries(NUKE_COUNTRY_COLOR).map(([c, col]) => (
-                          <span key={c} className="vt-legend-chip"><i style={{ background: col }} /> {
-                            ({ USA: "USA", USSR: "USSR", FRANCE: "France", UK: "UK", CHINA: "China", INDIA: "India", PAKIST: "Pakistan" } as Record<string, string>)[c] || c
-                          }</span>
-                        ))}
-                        <span className="vt-legend-chip"><i style={{ background: "rgba(253,224,71,0.6)" }} /> 5-psi Blast Estimate Ring</span>
-                        <span className="vt-legend-note">(ring = Glasstone–Dolan blast estimate, not fallout)</span>
-                      </div>
-                    </div>
-                  )}
-                  {(enabled.weather_temp || (enabled.weather_wind && windArrows)) && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Fields</div>
-                      <div className="vt-legend-items">
-                        {enabled.weather_wind && windArrows && (
-                          <LegendIcon icon="vt-wind-arrow" color="#eef3fb" label="Wind (Direction + kt)" />
-                        )}
-                        {enabled.weather_temp && (
-                          <>
-                            {([["-40", "#821692"], ["-20", "#208CEC"], ["0", "#23DDDD"],
-                               ["10", "#C2FF28"], ["20", "#FFF028"], ["30+", "#FC8014"]] as const)
-                              .map(([t, c]) => (
-                                <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {tempUnitF ? `${Math.round(Number(t.replace("+", "")) * 9 / 5 + 32)}${t.includes("+") ? "+" : ""}°F` : `${t}°C`}</span>
-                              ))}
-                            <span className="vt-legend-note">(approx — amplified for dark basemap)</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {enabled["orbital_sats"] && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Orbital</div>
-                      <SatFinder
-                        gp={orbitalGpRef.current}
-                        gpVersion={gpVersion}
-                        activeGroup={satGroup}
-                        groupCount={satGroupCount}
-                        orbitsOn={satGroupOrbits}
-                        arcInfo={satArcInfo}
-                        onFind={(i) => {
-                          // live bug: searching while an old focus card was
-                          // open left the STALE card up — hard-swap: end the
-                          // old focus, drop the old card, then focus fresh.
-                          stopSatFocusRef.current?.();
-                          setDetail(null);
-                          focusSatByIndexRef.current?.(i);
-                        }}
-                        onGroup={applySatGroup}
-                        onOrbits={setSatGroupOrbits}
-                      />
-                      <div className="vt-legend-items">
-                        <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> LEO</span>
-                        <span className="vt-legend-chip"><i style={{ background: "#ffb840" }} /> MEO</span>
-                        <span className="vt-legend-chip"><i style={{ background: "#d973ff" }} /> GEO</span>
-                        <span className="vt-legend-chip">shape = type: ▣ payload · ▮ rocket body · ◆ debris · ● not yet identified</span>
-                        <span className="vt-legend-note">the FULL catalog live — near-earth SGP4 + deep-space SDP4 (GPS/GLONASS/Galileo/GEO comms included) · zoom below ~{fmtKm(MINI_MAX_CAM_KM)} camera altitude: the nearest CATALOGUED satellites render as 3D class forms (unidentified stay dots) · click one to identify + FOLLOW it — it zooms in, shows its full SGP4 orbit track, and keeps flying while you pan anywhere; drag frees the camera, the card's ✕ ends the focus · click empty ground for Starlink coverage there · fades out by city zoom (LOD) — zoom out to bring the sky back</span>
-                      </div>
-                    </div>
-                  )}
-                  {enabled.daynight && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Day/Night & Moon</div>
-                      <div className="vt-legend-items">
-                        <span className="vt-legend-chip"><i style={{ background: "#020617" }} /> night side (right now)</span>
-                        <span className="vt-legend-chip">☀️ sun overhead point</span>
-                        <span className="vt-legend-chip">🌗 moon overhead point (real phase)</span>
-                        <span className="vt-legend-note">computed ephemeris (Meeus low-precision) — display-grade, recomputed each minute; no feed</span>
-                      </div>
-                    </div>
-                  )}
-                  {enabled.seafloor && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Seafloor depth</div>
-                      <div className="vt-legend-items">
-                        {/* chips render from the SAME stops the map ramp uses
-                            (lib/bathymetry — one source of truth), shallow → deep */}
-                        {[...BATHYMETRY_STOPS].reverse().map((s) => (
-                          <span key={s.elevM} className="vt-legend-chip">
-                            <i style={{ background: s.color }} /> {s.label}{s.depthM > 0 ? ` ~${fmtMeters(s.depthM)}` : ""}
-                          </span>
-                        ))}
-                        <span className="vt-legend-note">chips decode OUR depth tint (drawn at low opacity); the dominant coloring + ridge texture beneath is GEBCO_2024 shaded relief (15 arc-sec) with its own depth palette — ship soundings + satellite-gravity interpolation; indicative depths, not for navigation · land shows GEBCO's hypsometric tint while drained · turn on Terrain (3D relief) to make the basins physically sink</span>
-                      </div>
-                    </div>
-                  )}
-                  {enabled.seafloor_confidence && (
-                    <div className="vt-legend-sec">
-                      <div className="vt-legend-sec-head">Seafloor mapping confidence</div>
-                      <div className="vt-legend-items">
-                        {/* rows + colors from the SAME GEBCO TID decode table the
-                            map's color-relief expression uses (lib/seafloorV2) —
-                            they can never drift apart */}
-                        {tidConfidenceLegend().map((row) => (
-                          <span key={row.group} className="vt-legend-chip">
-                            <i style={{ background: row.color }} /> {row.label}
-                          </span>
-                        ))}
-                        {SEAFLOOR_V2_REGIONS.map((r) => {
-                          const shares = seafloorConfShares[r.name];
-                          return (
-                            <span key={r.name} className="vt-legend-note">
-                              {r.name}: {shares
-                                ? Object.entries(shares).map(([g, v]) => `${Math.round(v * 1000) / 10}% ${g}`).join(" · ")
-                                : "measured shares loading…"}
-                            </span>
-                          );
-                        })}
-                        <span className="vt-legend-note">{GEBCO_ATTRIBUTION}</span>
-                        <span className="vt-legend-note">{GEBCO_NOT_FOR_NAVIGATION} Regional coverage only — the dashed border draws the data's true extent; everywhere else is transparent (no data), never a guessed class.</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <LegendPanel
+              legendOpen={legendOpen} setLegendOpen={setLegendOpen}
+              enabled={enabled} airFilter={airFilter} setAirFilter={setAirFilter}
+              nightlightsDate={nightlightsDate} aerosolDate={aerosolDate}
+              vegetationDate={vegetationDate} soilmoistureDate={soilmoistureDate}
+              no2Date={no2Date} firetempScanTime={firetempScanTime}
+              tempUnitF={tempUnitF} windArrows={windArrows}
+              orbitalGpRef={orbitalGpRef} gpVersion={gpVersion}
+              satGroup={satGroup} satGroupCount={satGroupCount}
+              satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
+              applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
+              stopSatFocusRef={stopSatFocusRef} focusSatByIndexRef={focusSatByIndexRef}
+              setDetail={setDetail} seafloorConfShares={seafloorConfShares}
+            />
           </div>
         )}
       </div>
