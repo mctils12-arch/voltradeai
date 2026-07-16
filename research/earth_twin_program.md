@@ -637,6 +637,26 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 (scheduled-routine session, T-CLIENT): E2 v2 REMAINDER SHIPPED
+  (v1.0.366) — the depth-blend half of the WIRING RECIPE left unclaimed
+  below: each SEAFLOOR_V2_REGIONS region's native-15-arc-sec `demUrl` now
+  layers a second raster-dem source + color-relief layer (same
+  bathymetryColorRelief() ramp) ON TOP of the existing v1 global ETOPO1
+  "seafloor" depth tint, stacked above it, transparent outside the
+  committed bbox so the v1 relief shows through unchanged everywhere else.
+  No new registry id (folded into the existing "seafloor" toggle per the
+  recipe) — only its description/source/resolution fields updated to state
+  the blend honestly. Drive-verified (ad hoc Playwright, not committed):
+  both v1 and v2 sources/layers present after toggling on at the Mariana
+  bbox, v2 `isSourceLoaded === true` (real pmtiles fetch+parse), toggle-off
+  cleans up both. Full detail in experiments.md. NOTE: O6-7 tier 2
+  (solar-system handoff) was ALREADY SHIPPED in a concurrent session (#496,
+  v1.0.364) before this one started — the previous RESUME STATE entry
+  below still listed it as NEXT because it was written before that PR
+  merged; removed from the queue here. NEXT (corrected): GPS/TDRS real
+  models, React memo boundaries, SCALE S2, keepFraction (HUMAN INPUT still
+  pending human decision).
+
 - 2026-07-16 (scheduled-routine session, T-CLIENT): E2 v2 DATAMAP WIRING
   SHIPPED (v1.0.365, PR #497 — re-based/re-versioned after #496 claimed
   1.0.364 first) — the "seafloor_confidence" TID layer named

@@ -1613,7 +1613,20 @@ export default function DataMapPage() {
   // navigational; on-screen colors are dominated by GEBCO's own depth
   // palette; LAND shows GEBCO's hypsometric tint while drained (a raster
   // cannot be elevation-masked); per-cell TID confidence is the charter's
-  // next E2 slice. ──
+  // next E2 slice. E2 v2 DEPTH BLEND (2026-07-16, the WIRING RECIPE's other
+  // half, left unclaimed by the seafloor_confidence PR): each
+  // SEAFLOOR_V2_REGIONS entry's OWN native-15-arc-sec `demUrl` is layered
+  // ON TOP of the v1 global ETOPO1 tint using the SAME bathymetryColorRelief()
+  // ramp (one legend, two resolutions) — the pmtiles archive only carries
+  // tiles inside its committed bbox, so outside the region there is no tile
+  // to draw and the v1 relief beneath shows through unchanged (never a
+  // guessed blend, never a visible seam beyond the bbox edge). Own
+  // source/layer ids per region so toggling "seafloor" adds/removes both
+  // resolutions atomically; nothing here touches seafloor_confidence's TID
+  // sources. raster-resampling "nearest" is deliberately NOT set — this is a
+  // depth-color ramp already smoothed by bathymetryColorRelief()'s stops
+  // (unlike the TID class raster, cross-pixel interpolation here can't
+  // produce a wrong discrete class, only a slightly softer gradient). ──
   const oceanBasemapErrRef = useRef<((e: any) => void) | null>(null);
   useEffect(() => {
     const map = mapRef.current;
@@ -1621,6 +1634,10 @@ export default function DataMapPage() {
     if (!enabled.seafloor) {
       try {
         if (oceanBasemapErrRef.current) { map.off("error", oceanBasemapErrRef.current); oceanBasemapErrRef.current = null; }
+        for (const r of SEAFLOOR_V2_REGIONS) {
+          if (map.getLayer(`seafloor-relief-v2-${r.name}`)) map.removeLayer(`seafloor-relief-v2-${r.name}`);
+          if (map.getSource(`seafloor-dem-v2-${r.name}`)) map.removeSource(`seafloor-dem-v2-${r.name}`);
+        }
         if (map.getLayer("seafloor-relief")) map.removeLayer("seafloor-relief");
         if (map.getLayer(OCEAN_BASEMAP_LAYER_ID)) map.removeLayer(OCEAN_BASEMAP_LAYER_ID);
         if (map.getSource("seafloor-dem")) map.removeSource("seafloor-dem");
@@ -1661,6 +1678,38 @@ export default function DataMapPage() {
         // drives this raster (FIELD_MAP_LAYER), default 100
         map.addLayer(oceanBasemapLayer(opacityOf("seafloor")) as any, "seafloor-relief");
       }
+      // v2 regional depth blend: native-resolution GEBCO DEM per committed
+      // region, stacked ABOVE the v1 global tint (same anchor rule, added
+      // after so it lands on top) — same ramp, so the only visible change
+      // inside a region's bbox is sharper relief, never a different palette.
+      {
+        const firstMarkerV2 = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        const beforeIdV2 = map.getLayer("terrain-hillshade") ? "terrain-hillshade" : firstMarkerV2?.id;
+        for (const r of SEAFLOOR_V2_REGIONS) {
+          const sid = `seafloor-dem-v2-${r.name}`;
+          const lid = `seafloor-relief-v2-${r.name}`;
+          if (!map.getSource(sid)) {
+            map.addSource(sid, {
+              type: "raster-dem",
+              url: `pmtiles://${window.location.origin}${r.demUrl}`,
+              encoding: r.encoding,
+              tileSize: r.tileSize,
+              minzoom: r.minzoom,
+              maxzoom: r.maxzoom,
+              attribution: GEBCO_ATTRIBUTION,
+            } as any);
+          }
+          if (!map.getLayer(lid)) {
+            map.addLayer({
+              id: lid, type: "color-relief", source: sid,
+              paint: {
+                "color-relief-color": bathymetryColorRelief(),
+                "color-relief-opacity": 0.25,
+              },
+            } as any, beforeIdV2);
+          }
+        }
+      }
       if (!oceanBasemapErrRef.current) {
         // one-shot degrade to the NOAA public-domain hillshade if the GEBCO
         // WMS errors — the status note stays honest about which source is live
@@ -1681,7 +1730,7 @@ export default function DataMapPage() {
         map.on("error", onErr);
       }
       setStatus("seafloor", "active", undefined,
-        "ocean drained — GEBCO_2024 shaded relief (15 arc-sec; real soundings + satellite-gravity interpolation, not navigational) + depth tint + 3D basins · land shows GEBCO's tint while drained");
+        `ocean drained — GEBCO_2024 shaded relief (15 arc-sec; real soundings + satellite-gravity interpolation, not navigational) + depth tint + 3D basins · land shows GEBCO's tint while drained · native-resolution GEBCO_2026 depth blend over ${SEAFLOOR_V2_REGIONS.map((r) => r.name).join(", ")} (elsewhere the global ETOPO1 relief above applies)`);
     } catch {
       setStatus("seafloor", "error");
     }

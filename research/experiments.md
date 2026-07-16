@@ -3,6 +3,109 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-16 [PRODUCT] — EARTH TWIN E2 v2 remainder: v2 GEBCO_2026 depth blend layered into the existing "seafloor" toggle (v1.0.366, T-CLIENT, scheduled-routine session)
+
+WORKSTREAM PARTITION: T-CLIENT (client/src/pages/datamap.tsx, datacore/layers.json
+description-only — no new registry id).
+
+SESSION-START CHECKS: read CLAUDE.md in full; `git status`/`git log` showed this
+branch already at parity with origin/main (b8fd4d5, v1.0.365, PR #497 —
+nothing unmerged to pick up). Read open_questions.md KNOWN BROKEN in full:
+remaining open items (#10 dead config gated on shadow_portfolio depth,
+#12(b)/(c) gated follow-ups, #18 TIER2-ERROR root cause behind a real-time-
+correlation lead, #20 master_kill_switch threshold judgment call, #21
+underlying gap) — none newly actionable or liveness-critical this session
+(no live `/api/health`/audit-log access from this container; nothing in the
+log suggests a fresh break). Per this session's own instructions, product
+work proceeds since no break blocks it. wishlist.md: STREET-VIEW ML decision
+still awaiting human input, nothing else blocking. LOOP-HEALTH RATIO: last
+10 tagged entries before this one are 1 REPAIR / 9 PRODUCT-or-PIPELINE — well
+under the 7/10 thrash threshold.
+
+PRIMARY ACTION CHOICE: earth_twin_program.md RESUME STATE named this exact
+slice as the deliberately-left-unclaimed half of the prior E2 v2 session's
+WIRING RECIPE: "blending the v2 regional DEM into the *existing* 'Seafloor
+(drain the ocean)' depth layer" — scoped, unblocked (pipeline + demUrl +
+bathymetryColorRelief all already shipped/committed), and a natural one-
+logical-change boundary distinct from the seafloor_confidence TID overlay
+PR that shipped alongside it.
+
+SHIPPED: `client/src/pages/datamap.tsx`'s existing `enabled.seafloor` effect
+gained, per `SEAFLOOR_V2_REGIONS` entry (today: Mariana only), a SECOND
+raster-dem source (`seafloor-dem-v2-<region>`, pmtiles://, using the
+region's own `demUrl` — the native-15-arc-sec GEBCO_2026 grid, the SAME
+archive the seafloor_confidence TID overlay derives its confidence classes
+from) and a color-relief layer (`seafloor-relief-v2-<region>`) painted with
+the UNCHANGED `bathymetryColorRelief()` ramp — one palette, one legend,
+two resolutions. Added with the v1 global layer's own `beforeId` anchor
+(terrain-hillshade / firstMarker) AFTER the v1 layer, so it stacks visually
+on top; because the pmtiles archive only serves tiles inside its committed
+bbox, everywhere else there is no tile to draw and the v1 ETOPO1 relief
+beneath remains visible unchanged — never a guessed blend, never a seam
+outside the bbox. Cleanup branch (`!enabled.seafloor`) now also removes the
+v2 source/layer per region, so toggling off leaves zero orphaned map state
+(mirrors the v1 cleanup exactly). `datacore/layers.json`'s "seafloor" entry
+description/source/resolution updated to state the blend honestly (names
+seafloor_confidence's committed regions, states the ETOPO1 fallback
+elsewhere) — no new registry id, so `layersWiring.test.ts`'s LAYER_GROUP
+ratchet needed no change. Deliberately did NOT touch `raster-resampling`
+(unlike the TID confidence layer, which documents a "nearest" preference to
+avoid cross-class interpolation artifacts) — a continuous depth ramp has no
+discrete-class boundary to protect, so default linear resampling is correct
+and simpler; stated the reasoning inline rather than copying the TID
+caveat verbatim.
+
+VERIFICATION: `npx tsx --test server/layersRegistry.test.ts
+server/layersWiring.test.ts server/seafloorTiles.test.ts` 28/28 (unchanged —
+this PR added no new registry id or test, since the recipe's honesty
+surface is already covered by the existing "seafloor" pins); full
+`npx tsx --test server/*.test.ts` 705/705, `client/src/lib/*.test.ts
+client/src/lib/orbital/*.test.ts client/src/lib/air/*.test.ts` 248/248 (both
+match the documented baselines exactly — zero regressions); `npx tsc
+--noEmit` 66 errors, byte-identical set to the documented baseline (only
+pre-existing datamap.tsx union-type error at its usual line); `npm run
+build` clean, `dist/public/tiles/seafloor_{gebco,tid}_mariana.*` confirmed
+staged. VISUAL HARNESS (`npm run visual -- --page data`): **0 hard
+failures** at 390/768/1440 (touch-target/clipped-control warnings are the
+same pre-existing set prior sessions already logged as non-regressions);
+perf medians 50/133/167ms — the new v2 source is OFF by default (seafloor
+toggle defaults off) so this session's primary change carries zero
+default-path cost; the modest rise from the immediately-prior session's
+33/83/117ms reading is attributed to shared-runner variance (same class of
+noise noted across multiple prior sessions), not a code-path regression,
+since nothing on the default-rendered path changed.
+
+DRIVE-VERIFY (ad hoc Playwright, scratch-only per the established pattern —
+not committed): served the real built `dist/` app + a minimal fixture
+server (this session's own script, matching `scripts/visual_check.mjs`'s
+approach: `/app#/data` route, `/api/data/layers` served from the REAL
+`datacore/layers.json` so the actual layer-panel toggle renders, all other
+`/api/*` stubbed, external hosts aborted). Flew the camera to the Mariana
+bbox (`center:[142,11] zoom:6`), clicked the real `[data-vt-layer="seafloor"]
+[role="switch"]` toggle (first attempt caught the wrong button — `button`
+alone in a CSS selector list matches the "About" info button before the
+`role="switch"` element in DOM order; fixed by selecting `[role="switch"]`
+directly). Confirmed via `window.__vtMap`: BOTH `seafloor-dem`/
+`seafloor-relief` (v1) AND `seafloor-dem-v2-mariana`/`seafloor-relief-v2-
+mariana` (v2) sources+layers present; `isSourceLoaded("seafloor-dem-v2-
+mariana") === true` after polling — a REAL fetch+parse of the committed
+pmtiles archive, not just a registered source spec; a `canvas.toDataURL()`
+readback confirmed a non-trivial composited frame (screenshot reviewed:
+Mariana-region tiles render, GEBCO WMS hillshade correctly degrades to the
+"NOAA ETOPO 2022 hillshade (fallback; GEBCO WMS unreachable)" status
+message — the same sandbox external-host limitation independently
+confirmed by the prior seafloor_confidence session, not a defect in this
+change). Toggling off removed both v1 and v2 sources/layers cleanly (no
+orphaned state). The only console errors were the generic aborted-external-
+request message from the drive script's own deliberate non-localhost
+route.abort() (basemap imagery/GEBCO WMS) — expected, matches the prior
+session's independently-confirmed sandbox finding.
+
+NOT done this session (deliberately, one logical change per PR): the
+program's other still-open items — GPS/TDRS real models, React memo
+boundaries, SCALE S2, keepFraction (HUMAN INPUT still pending) — remain
+queued in earth_twin_program.md RESUME STATE, updated below.
+
 ## 2026-07-16 [PRODUCT] — EARTH TWIN O6-7 tier 2 WIRED: solar-system handoff live on /data (v1.0.364)
 
 The spike foundation (v1.0.358) is now user-reachable: at the globe's
