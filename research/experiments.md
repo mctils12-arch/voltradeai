@@ -3,6 +3,151 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-17 [PIPELINE] — Everything Graph: `owns` broadened to any CIK-anchored edge via a new `institution` node type (v1.0.375, T-DATACORE, scheduled-routine session)
+
+TERRITORY: T-DATACORE (server/entityGraph.ts + its own client display in
+graph.tsx, same pattern PR #506 used for the edge-type addition).
+
+SESSION START: read CLAUDE.md, ran `scripts/session_health_check.py`
+(all OK except one WARN matching already-filed KNOWN BROKEN #12(c) —
+orphan_exit ML feedback records, no new action), checked git status
+against origin/main (clean, no stranded unmerged commits despite an
+initially-stale local fetch making it look otherwise), reviewed the last
+10 experiments.md entries (2 REPAIR / 8 non-REPAIR — healthy, no thrash
+threshold hit). No unresolved KNOWN BROKEN item was actionable today —
+every open one is gated on evidence not yet available (item #10 needs 90
+days of shadow_portfolio history, filed 13 days ago; #12(b)/#18/#20 are
+each gated on a live occurrence or a RULE-REVIEW evidence gate). This is
+therefore NOT a [REPAIR] session.
+
+PRIMARY ACTION SELECTION: dispatched a research subagent to survey
+research/wishlist.md's BLOCKED-FOR-MIKE lists, open_questions.md's BUILD
+ORDER 6/GRID BUILD ORDER/NEW DATA ROOTS backlogs, and each active
+program's RESUME STATE block, live-grepping server/+datacore/ to confirm
+claims rather than trusting filing text. Result: every EDGE DOCTRINE
+example pipeline named in this session's own prompt (Sentinel-2 tank
+shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar) is already
+built; Google Trends/pytrends already failed its gate-1 stability probe
+2026-07-05 (upstream archived) and was replaced by the Wikimedia
+pageviews attention proxy (shipped 2026-07-14); BUILD ORDER 6 items 1-4
+(CFTC TFF, Treasury DTS, FDIC banks, NHTSA complaints) are all already
+built, items 6-7 need Mike's API keys; GRID VISION's next GPU step is
+blocked on the RunPod launch-path decision. The highest-confidence
+unblocked, one-PR candidate was the follow-up this session's own
+predecessor filed same-day in open_questions.md's EVERYTHING-GRAPH entry
+(2026-07-17, PR #506): 1,010 of GEM's ownership `entity_edges` have
+exactly one CIK-mapped end and were being dropped as "honest gaps," even
+though the filing itself had already argued the correct fix (a new
+`institution` GraphNodeType) and only deferred it for one-logical-
+change-per-PR scope discipline.
+
+PRIOR (stated before building, per REASONING STANDARD #10): broadening
+to "at least one CIK end" would roughly quadruple `owns` edges (393 ->
+~1,400, since 393+1,010=1,403 was already computed and filed by the
+prior session) and add several hundred institution nodes, mostly foreign/
+private corporate parents rather than literal government entities (the
+filing's own "Sonatrach owned by Government of Algeria" framing implied
+direct state edges would show up — I expected that to be roughly true
+but did not verify it before building).
+
+WHAT SHIPPED: `server/entityGraph.ts` — `GraphNodeType` gained
+`"institution"`; `buildOwnershipEdges` now keeps an edge whenever EITHER
+end resolves to a real CIK (previously required both), typing the non-
+CIK side as `institution` with `attrs: {gem_entity_id, gem_entity_type,
+headquarters_country, cik_verified: false}` sourced from GEM's own
+`Entity Type`/`Headquarters Country` fields — never mistyped as
+`company`. `client/src/pages/graph.tsx` + `index.css`: `NodeType`/
+`Counts` gained `institution`, new `Landmark` icon + `--accent-red`
+badge color, counts row gets an "institutions" chip, center-card gets an
+institution-specific sub-line stating the entity type + "not a US SEC-
+reporting company" (never let a reader mistake an unverified foreign/
+state owner for an SEC filer). `server/dossier.test.ts`'s `graphFixture`
+helper updated for the new required `counts` field (was already also
+missing `owns` from before #506 — left as-is, not this PR's scope, since
+it doesn't newly break from this change).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `/api/data/graph` and `/api/
+data/dossier` both walk the graph generically by node/edge type already
+— zero route code changes needed, confirmed by booting the real server
+and hitting both. No trading/scoring/sizing code touched (RAW connective
+tissue only, per EVERYTHING_GRAPH.md ground rule 2 — no predictive
+claim). The only reachable UI surface is the Everything Graph panel
+itself.
+
+HONEST CORRECTION found while building (logged in open_questions.md's
+EVERYTHING-GRAPH entry, not just here): live-queried the real `Entity
+Type` breakdown of the 1,010 one-CIK-end edges before assuming the prior
+session's government-ownership framing was literal. Result: ZERO
+`state`/`state body` entities appear in that pool — 753 `legal entity`
+(foreign/private companies with no SEC CIK), 7 `arrangement`, 2 `unknown
+entity`, 2 `person`. Direct state ownership sits one hop further out
+(a government owns a private holdco, which owns the CIK-mapped ticker)
+and this session's single-hop join does not reach it — filed as an open
+follow-up (2-hop walk via the existing `neighborhood()` helper) rather
+than silently shipping a narrower result than the filing implied.
+
+VERIFICATION:
+- `npx tsx --test server/entityGraph.test.ts`: 14/14 (2 owns-edge tests
+  rewritten for the broadened at-least-one-CIK behavior with a real
+  neither-end-CIK exclusion case kept as a regression pin — a genuine
+  behavior change, not a weakened assertion; 2 new tests pin institution-
+  node typing/attrs and the "never mistyped as company" invariant).
+- `npx tsx --test server/dossier.test.ts`: 20/20.
+- `npx tsx --test server/*.test.ts`: 709/709 (`npm install` run first —
+  sandbox `node_modules` was absent at session start, ~485 packages).
+- `npx tsc --noEmit`: 66 errors, byte-identical to a `git stash`-verified
+  baseline (one pre-existing cosmetic union-ordering diff in an unrelated
+  file, same nondeterminism pattern the 2026-07-13 units.ts session
+  documented); zero errors in any file this PR touches.
+- `npm run build`: clean — confirms `Landmark` is a real lucide-react
+  export (would have been a build error otherwise, not caught by tsc
+  alone in some configs).
+- Live dry-run against the REAL archive (not just the fixture): booted
+  `node dist/index.cjs`, hit `/api/data/graph` — `owns` 393 -> 1,403,
+  `institution` 764 unique nodes, matching the fixture-test predictions
+  exactly (not just plausible-looking). Hit `/api/data/graph?entity=STLD`
+  and `?entity=BLK` — real neighborhoods resolve correctly.
+- Ad hoc Playwright drive-verify (scratch-only, not committed) against
+  the real built app at `/app#/data/graph`: searched BLK, confirmed 100+
+  real institution-typed connections render (BHP Group, Siemens,
+  TotalEnergies, Deutsche Bank, HSBC Holdings, etc.) with the Landmark
+  icon, correct HIGH/MEDIUM confidence coloring and share_pct display,
+  zero page/console errors — the one console error observed
+  (`net::ERR_CONNECTION_RESET` on a Google Fonts request) was isolated
+  via `requestfailed` capture to a pre-existing sandbox CDN block
+  unrelated to this change (same URL fails identically with zero of this
+  session's changes present).
+- `npm run visual -- --page data`: hit the same pre-existing sandbox
+  crash documented in the 2026-07-14 HIFLD session and PR #505 ("Target
+  page, context or browser has been closed" partway through the real
+  WebGL-heavy `/data` render) — not a regression, same known environment
+  gap, ~3min into the run before crashing. Not chased further (PR #506
+  already isolated this to a container-level renderer restriction and
+  confirmed `--no-sandbox`/`--disable-dev-shm-usage` don't fix it).
+  Confidence in lieu of the harness screenshot: this session's CSS change
+  is a single new attribute-selector rule scoped to
+  `.vt-graph-typebadge[data-type="institution"]`, not reachable from the
+  default `/data` map render path the harness screenshots (the Everything
+  Graph subview only mounts at `#/data/graph`) — and the ad hoc Playwright
+  drive above already exercises that exact subview end-to-end against the
+  real built app, the established substitution pattern for this gap
+  (same one PR #505 used).
+- `python3 -m pytest` not re-run — zero Python files touched.
+
+BACKTEST: N/A — RAW connective-tissue data, no trading/scoring/sizing/
+execution path touched (per EVERYTHING_GRAPH.md ground rule 2, same as
+every prior entityGraph.ts entry).
+
+HYPOTHESIS (stated before evidence, per REASONING STANDARD #10): the
+new institution-anchored joins surface real foreign/private corporate
+ownership of US-listed companies that no SEC-only source captures (e.g.
+BlackRock's disclosed stakes in Siemens/TotalEnergies/BHP now visible
+from the BLK node) — this is RAW connective tissue, not a claim, so no
+ladder gate applies to the join itself; the CROSS-TIE HYPOTHESIS filed in
+open_questions.md (foreign institutional ownership × that owner's home-
+country macro activity) is the first testable SIGNAL-class idea it
+enables, not yet tested.
+
 ## 2026-07-17 [PIPELINE] — Everything Graph: GEM Global Energy Ownership Tracker CIK join, new `owns` edge type (v1.0.374, T-DATACORE, scheduled-routine [PRODUCT] session)
 
 WORKSTREAM PARTITION: T-DATACORE primary (server/entityGraph.ts, its

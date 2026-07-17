@@ -40,7 +40,7 @@ import { foldPortVisitsAsync, portsFromSites, type PortDef, type PortVisit } fro
 import { repoDataPath } from "./repoFiles";
 import { getCikTickerMap } from "./sec8kEarnings";
 
-export type GraphNodeType = "company" | "person" | "facility" | "vessel";
+export type GraphNodeType = "company" | "person" | "facility" | "vessel" | "institution";
 export type GraphEdgeType = "insider_of" | "operates" | "calls_at" | "owns";
 
 export interface GraphNode {
@@ -66,7 +66,7 @@ export interface EverythingGraph {
   built_at: number;
   counts: {
     nodes: number; edges: number;
-    company: number; person: number; facility: number; vessel: number;
+    company: number; person: number; facility: number; vessel: number; institution: number;
     insider_of: number; operates: number; calls_at: number; owns: number;
   };
   nodes: GraphNode[];
@@ -89,6 +89,7 @@ const personId = (cik: string) => `person:${cik}`;
 const siteFacilityId = (id: string) => `facility:site:${id}`;
 const plantFacilityId = (idx: number) => `facility:plant:${idx}`;
 const vesselId = (mmsi: string) => `vessel:${mmsi}`;
+const institutionId = (gemEntityId: string) => `institution:${gemEntityId}`;
 
 /** Facility nodes from the sites + plants registries (no time dimension —
  *  these are git-versioned reference data, not archived observations). */
@@ -274,6 +275,8 @@ interface GemOwnershipEntity {
   "Entity ID": string;
   "Full Name": string;
   "US SEC Central Index Key"?: string;
+  "Entity Type"?: string;
+  "Headquarters Country"?: string;
 }
 interface GemOwnershipEdgeRow {
   "Subject Entity ID": string; "Subject Entity Name": string;
@@ -301,49 +304,78 @@ function loadGemOwnership(fp: string = repoDataPath("datacore/gem/ownership.json
   }
 }
 
-/** owns edges: company(owner) -> company(owned), from GEM's Global Energy
- *  Ownership Tracker entity_edges. Only pairs where BOTH the subject
- *  (owned) and interested party (owner) resolve to a real US SEC CIK are
- *  included — GEM also tracks governments, private holders, and foreign
- *  entities with no CIK, which this v1 slice honestly excludes rather than
- *  mistype them as `company` nodes (that broader join is a documented
- *  follow-up, see research/open_questions.md). Node ids reuse the exact
- *  same ticker-preferred / `company:cik:<CIK>` fallback scheme
- *  buildInsiderEdges uses (via the same `getCikTickerMap` resolver), so a
+/** owns edges: (company|institution)(owner) -> (company|institution)(owned),
+ *  from GEM's Global Energy Ownership Tracker entity_edges. An edge is kept
+ *  whenever AT LEAST ONE end resolves to a real US SEC CIK — that CIK-mapped
+ *  side anchors the edge into a node our EDGAR/insider pipeline already
+ *  knows, so it is never a join between two entities we have zero context
+ *  for (the far larger neither-end-CIK pool, ~93% of GEM's edges, stays
+ *  excluded — it would explode node count with entities this platform
+ *  cannot otherwise place). The non-CIK side — a government, state body,
+ *  private/foreign parent, or unincorporated arrangement — is NOT mistyped
+ *  as a `company` node (v1 CIK-only-both-ends behavior, superseded here):
+ *  it becomes a distinct `institution` node, typed honestly from GEM's own
+ *  `Entity Type` field (state / state body / legal entity / arrangement /
+ *  person / unknown entity), so a reader can never mistake an unverified
+ *  foreign or state owner for an SEC-reporting company. (Design decided in
+ *  research/open_questions.md's 2026-07-17 EVERYTHING-GRAPH filing: a new
+ *  node type over a looser `cik_verified` flag on `company`.) CIK-mapped
+ *  node ids reuse the exact same ticker-preferred / `company:cik:<CIK>`
+ *  fallback scheme buildInsiderEdges uses (via `getCikTickerMap`), so a
  *  GEM-tracked company lands on the SAME node the EDGAR pipeline already
  *  populates rather than a duplicate. */
 function buildOwnershipEdges(
   gem: GemOwnershipFile | null, cikTicker: Map<string, string>,
-): { edges: GraphEdge[]; companyNodes: Map<string, GraphNode> } {
+): { edges: GraphEdge[]; companyNodes: Map<string, GraphNode>; institutionNodes: Map<string, GraphNode> } {
   const edges: GraphEdge[] = [];
   const companyNodes = new Map<string, GraphNode>();
-  if (!gem) return { edges, companyNodes };
+  const institutionNodes = new Map<string, GraphNode>();
+  if (!gem) return { edges, companyNodes, institutionNodes };
   // GEM's own release date, not entity_map.json's builtDate (a different
   // registry with its own vintage) — first_seen/last_seen must reflect
   // the actual source this edge came from.
   const builtDate: string = gem.provenance?.built_at ?? "unknown";
 
   const cikByEntity = new Map<string, string>();
+  const typeByEntity = new Map<string, string>();
+  const hqByEntity = new Map<string, string>();
   for (const e of gem.entities) {
     const cik = e["US SEC Central Index Key"];
     if (cik && cik !== "not found") cikByEntity.set(e["Entity ID"], cik);
+    typeByEntity.set(e["Entity ID"], e["Entity Type"] || "unknown entity");
+    if (e["Headquarters Country"]) hqByEntity.set(e["Entity ID"], e["Headquarters Country"]);
   }
 
-  const ensureCompany = (entityId: string, name: string): string => {
-    const cik = cikByEntity.get(entityId)!;
-    const ticker = cikTicker.get(String(Number(cik)));
-    const id = ticker ? companyId(ticker) : `company:cik:${cik}`;
-    if (!companyNodes.has(id)) {
-      companyNodes.set(id, { id, type: "company", label: ticker || name, attrs: { cik, name, ticker_known: Boolean(ticker) } });
+  const ensureNode = (entityId: string, name: string): string => {
+    const cik = cikByEntity.get(entityId);
+    if (cik) {
+      const ticker = cikTicker.get(String(Number(cik)));
+      const id = ticker ? companyId(ticker) : `company:cik:${cik}`;
+      if (!companyNodes.has(id)) {
+        companyNodes.set(id, { id, type: "company", label: ticker || name, attrs: { cik, name, ticker_known: Boolean(ticker) } });
+      }
+      return id;
+    }
+    const id = institutionId(entityId);
+    if (!institutionNodes.has(id)) {
+      institutionNodes.set(id, {
+        id, type: "institution", label: name,
+        attrs: {
+          gem_entity_id: entityId, gem_entity_type: typeByEntity.get(entityId) ?? "unknown entity",
+          headquarters_country: hqByEntity.get(entityId) ?? null, cik_verified: false,
+        },
+      });
     }
     return id;
   };
 
   const seen = new Set<string>();
   for (const row of gem.entity_edges) {
-    if (!cikByEntity.has(row["Subject Entity ID"]) || !cikByEntity.has(row["Interested Party ID"])) continue;
-    const fromId = ensureCompany(row["Interested Party ID"], row["Interested Party Name"]);
-    const toId = ensureCompany(row["Subject Entity ID"], row["Subject Entity Name"]);
+    const subjectId = row["Subject Entity ID"];
+    const ownerId = row["Interested Party ID"];
+    if (!cikByEntity.has(subjectId) && !cikByEntity.has(ownerId)) continue; // no CIK anchor at all -> honest gap
+    const fromId = ensureNode(ownerId, row["Interested Party Name"]);
+    const toId = ensureNode(subjectId, row["Subject Entity Name"]);
     if (fromId === toId) continue;
     const key = `${fromId}|${toId}`;
     if (seen.has(key)) continue;
@@ -357,7 +389,7 @@ function buildOwnershipEdges(
       attrs: { share_pct: typeof share === "number" ? share : null, imputed: row["Share Imputed?"] ?? null, source_url: row["Data Source URL"] ?? null },
     });
   }
-  return { edges, companyNodes };
+  return { edges, companyNodes, institutionNodes };
 }
 
 export interface BuildGraphOpts {
@@ -397,7 +429,7 @@ export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingG
   const { edges: callsAtEdges, vesselNodes } = buildCallsAtEdges(portVisitsByPort, ports);
   const gemOwnership = opts.gemOwnership !== undefined ? opts.gemOwnership : loadGemOwnership();
   const cikTickerMap = opts.cikTickerMap ?? (gemOwnership ? await getCikTickerMap() : new Map<string, string>());
-  const { edges: ownsEdges, companyNodes: ownsCompanies } = buildOwnershipEdges(gemOwnership, cikTickerMap);
+  const { edges: ownsEdges, companyNodes: ownsCompanies, institutionNodes } = buildOwnershipEdges(gemOwnership, cikTickerMap);
 
   const companyNodes = new Map<string, GraphNode>(operatesCompanies);
   insiderCompanies.forEach((n, id) => { if (!companyNodes.has(id)) companyNodes.set(id, n); });
@@ -405,7 +437,7 @@ export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingG
 
   const nodes: GraphNode[] = [
     ...Array.from(companyNodes.values()), ...Array.from(personNodes.values()),
-    ...facilityNodes, ...Array.from(vesselNodes.values()),
+    ...facilityNodes, ...Array.from(vesselNodes.values()), ...Array.from(institutionNodes.values()),
   ];
   const edges: GraphEdge[] = [...operatesEdges, ...insiderEdges, ...callsAtEdges, ...ownsEdges];
 
@@ -415,6 +447,7 @@ export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingG
     counts: {
       nodes: nodes.length, edges: edges.length,
       company: companyNodes.size, person: personNodes.size, facility: facilityNodes.length, vessel: vesselNodes.size,
+      institution: institutionNodes.size,
       insider_of: insiderEdges.length, operates: operatesEdges.length, calls_at: callsAtEdges.length, owns: ownsEdges.length,
     },
     nodes, edges,
@@ -426,9 +459,11 @@ export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingG
       "filings. calls_at reflects our own terrestrial-AIS archive only " +
       "(coverage gaps and archive age both understate true call counts). " +
       "owns reflects Global Energy Monitor's Global Energy Ownership Tracker " +
-      "(CC BY 4.0) restricted to pairs where BOTH ends resolve to a real US " +
-      "SEC CIK — government/private/foreign owners without a CIK are an " +
-      "honest gap, not a guessed identifier.",
+      "(CC BY 4.0) restricted to edges with AT LEAST ONE end resolving to a " +
+      "real US SEC CIK; the other end is a `company` node when it is also " +
+      "CIK-verified, or an honestly-typed `institution` node (state, state " +
+      "body, private/foreign entity, arrangement) when it is not — never a " +
+      "guessed ticker or a company node with an unverified identity.",
   };
 }
 

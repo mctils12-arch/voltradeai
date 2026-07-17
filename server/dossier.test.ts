@@ -23,7 +23,7 @@ const edge = (over: Partial<GraphEdge>): GraphEdge => ({
 function graphFixture(nodes: GraphNode[], edges: GraphEdge[]): EverythingGraph {
   return {
     kind: "raw", built_at: 12345,
-    counts: { nodes: nodes.length, edges: edges.length, company: 0, person: 0, facility: 0, vessel: 0, insider_of: 0, operates: 0, calls_at: 0 },
+    counts: { nodes: nodes.length, edges: edges.length, company: 0, person: 0, facility: 0, vessel: 0, institution: 0, insider_of: 0, operates: 0, calls_at: 0, owns: 0 },
     nodes, edges, caveat: "test graph",
   };
 }

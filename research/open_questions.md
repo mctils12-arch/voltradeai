@@ -4656,3 +4656,71 @@ BUILD ORDER item 4 (line ~3192) says "GEM REGISTRY JOIN (blocked on
 wishlist 9b form-fill)" — 9b resolved 2026-07-07 (Mike enabled Drive
 access, full GEM suite ingested), so that blocking note is stale text; a
 future session touching that section should update it to point here.
+
+UPDATE 2026-07-17 (same-day follow-up session, v1.0.375, [PIPELINE],
+T-DATACORE) — THE GAP ABOVE IS CLOSED, per option (a) as prioritized.
+`GraphNodeType` gained `"institution"` (server/entityGraph.ts); an `owns`
+edge now ships whenever AT LEAST ONE end resolves to a real US SEC
+CIK — the CIK-mapped side anchors the edge into a node the EDGAR/insider
+pipeline already knows, the other side becomes an `institution` node
+typed from GEM's own `Entity Type` field (`gem_entity_type` attr) plus
+`headquarters_country` and an explicit `cik_verified: false`, never
+mistyped as `company`. Live-verified against the real archive (not just
+the fixture): `owns` count 393 -> 1,403 (the full CIK-anchored pool
+predicted here), 764 unique institution nodes. `client/src/pages/graph.tsx`
+updated in the same PR (NodeType union, TYPE_ICON/TYPE_LABEL, counts row,
+CSS badge color) — the exact client-crash class PR #506 fixed for a new
+EDGE type applies equally to a new NODE type, so this shipped together,
+not as an afterthought.
+
+HONEST CORRECTION to this filing's own example: "Sonatrach owned 100% by
+Government of Algeria" was illustrative, not literal — live query of the
+actual `Entity Type` breakdown among the 1,010 one-CIK-end edges shows
+ZERO `state`/`state body` entities in that pool (753 `legal entity`
+foreign/private parents, 7 `arrangement`, 2 `unknown entity`, 2 `person`).
+Direct state/government ownership never appears adjacent to a CIK-mapped
+company in GEM's edge list — it sits one hop further out (a government
+owns a private holdco, which owns the CIK-mapped ticker). This session's
+single-hop-anchored join therefore captures the foreign/private-parent
+joins in full but NOT direct state ownership chains; a 2-hop transitive
+walk (already possible via `neighborhood(graph, id, 2)`) is the next step
+if the state-ownership cross-tie hypothesis below is picked up. Filed
+here rather than left implicit, per REASONING STANDARD #4 (state the
+result, don't let the original filing's example stand uncorrected).
+
+CROSS-TIE HYPOTHESIS (per ACTIVE ANGLE-HUNTING, testable form, not yet
+tested — this is DATA-gate connective tissue only, no ladder gate
+applies to the join itself, but any downstream claim from it would need
+gate 2): now that `institution` nodes carry `headquarters_country`, a
+future session can test whether US small-caps with a foreign
+institutional owner (2-hop from that owner's home-country peers) show
+correlated moves around that owner's home-market macro events (e.g. a
+Chinese/German owner's domestic activity leading a US small-cap's price)
+— testable via `neighborhood(graph, tickerId, 1)` filtered to
+`type: "institution"`, joined against the existing macro_data.py feeds
+for that country. PRIOR: low-to-moderate (indirect/thin channel; the
+existing insider Form-4 and USAspending joins are more direct), worth a
+cheap first look given the join now exists for free.
+
+VERIFICATION: `npx tsx --test server/entityGraph.test.ts` 14/14 (2 tests
+rewritten to assert the broadened at-least-one-CIK behavior + a true
+neither-end-CIK exclusion case kept as a regression pin; 2 new tests for
+institution-node typing/attrs); `npx tsx --test server/dossier.test.ts`
+20/20 (fixture's `counts` shape updated for the new field);
+`npx tsx --test server/*.test.ts` 709/709; `npx tsc --noEmit` 66 errors,
+byte-identical set to the `git stash`-verified baseline (one pre-existing
+cosmetic union-ordering diff, unrelated file); `npm run build` clean —
+confirms `Landmark` (new institution icon) is a real lucide-react export.
+Live boot (`node dist/index.cjs`) + `/api/data/graph` + `/api/data/graph?
+entity=BLK`: real counts (owns 1,403, institution 764) match the
+fixture-test predictions exactly; ad hoc Playwright drive against the
+built app (`/app#/data/graph`, searching BLK) confirmed 100+ real
+institution-typed connections render (BHP Group, Siemens, TotalEnergies,
+Deutsche Bank, HSBC, etc.) with the Landmark icon and correct share_pct/
+confidence, zero page or console errors beyond a pre-existing sandbox
+Google-Fonts CDN block (confirmed unrelated via `requestfailed` capture
+against this same URL before this session's changes existed in the
+built bundle). `npm run visual -- --page data` run this session (see
+experiments.md for the full result) — the CSS-only addition is one new
+attribute-selector rule scoped to `.vt-graph-typebadge[data-type=
+"institution"]`, not reachable from the default `/data` map render path.
