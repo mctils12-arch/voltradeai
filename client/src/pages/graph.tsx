@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Search, Share2, Building2, User, Factory, Ship } from "lucide-react";
 
 type NodeType = "company" | "person" | "facility" | "vessel";
-type EdgeType = "insider_of" | "operates" | "calls_at";
+type EdgeType = "insider_of" | "operates" | "calls_at" | "owns";
 
 interface GNode { id: string; type: NodeType; label: string; attrs: Record<string, any>; }
 interface GEdge {
@@ -27,7 +27,7 @@ interface GEdge {
 interface Counts {
   nodes: number; edges: number;
   company: number; person: number; facility: number; vessel: number;
-  insider_of: number; operates: number; calls_at: number;
+  insider_of: number; operates: number; calls_at: number; owns: number;
 }
 interface Summary { kind: string; counts?: Counts; caveat?: string; warming_up?: boolean; }
 interface Neighborhood {
@@ -41,6 +41,7 @@ const REL_LABEL: Record<EdgeType, { fwd: string; rev: string }> = {
   insider_of: { fwd: "insider of", rev: "has insider" },
   operates: { fwd: "operates", rev: "operated by" },
   calls_at: { fwd: "calls at", rev: "visited by" },
+  owns: { fwd: "owns", rev: "owned by" },
 };
 const CONF_COLOR: Record<string, string> = {
   high: "var(--accent-green)", medium: "var(--accent-orange)",
@@ -203,6 +204,7 @@ export default function GraphView({ onBack }: { onBack: () => void }) {
                         <span className="vt-graph-conf" style={{ color: CONF_COLOR[edge.confidence] }}>{edge.confidence}</span>
                         {edge.attrs?.filing_count != null && <span>{edge.attrs.filing_count} filings</span>}
                         {edge.attrs?.visit_count != null && <span>{edge.attrs.visit_count} calls</span>}
+                        {edge.attrs?.share_pct != null && <span>{edge.attrs.share_pct}% owned</span>}
                         {Array.isArray(edge.attrs?.roles) && edge.attrs.roles.length > 0 && (
                           <span>{edge.attrs.roles.join(", ")}</span>
                         )}

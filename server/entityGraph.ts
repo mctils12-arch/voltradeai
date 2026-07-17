@@ -4,10 +4,10 @@
  *
  * Joins entities we already collect, keyed by whatever identifier each
  * source speaks natively (Form 4 -> CIK, market -> ticker, sites/plants ->
- * facility id, AIS -> MMSI) into one node/edge graph. This module performs
- * NO new collection and NO trading-logic import (datacore boundary, per
- * CLAUDE.md SPINOUT-READY DATA LAYER) — it is a pure join over archives and
- * git-versioned registries the platform already has.
+ * facility id, AIS -> MMSI, GEM ownership -> CIK) into one node/edge graph.
+ * This module performs NO new collection and NO trading-logic import
+ * (datacore boundary, per CLAUDE.md SPINOUT-READY DATA LAYER) — it is a pure
+ * join over archives and git-versioned registries the platform already has.
  *
  * RAW vs SIGNAL: the graph asserts relationships with provenance
  * (RAW, per the design doc's ground rule 2). No edge here is a predictive
@@ -30,14 +30,18 @@
  * Every edge carries {source, confidence, first_seen, last_seen} per the
  * design doc's envelope-alignment note.
  */
+import fs from "fs";
+import zlib from "zlib";
 import sitesJson from "../datacore/sites/strategic_sites.json";
 import plantsJson from "../datacore/powerplants/us_power_plants.json";
 import entityMapJson from "../datacore/entity_map.json";
 import { readFilingHistory, type Form4Filing } from "./edgarForm4";
 import { foldPortVisitsAsync, portsFromSites, type PortDef, type PortVisit } from "./portDwell";
+import { repoDataPath } from "./repoFiles";
+import { getCikTickerMap } from "./sec8kEarnings";
 
 export type GraphNodeType = "company" | "person" | "facility" | "vessel";
-export type GraphEdgeType = "insider_of" | "operates" | "calls_at";
+export type GraphEdgeType = "insider_of" | "operates" | "calls_at" | "owns";
 
 export interface GraphNode {
   id: string;
@@ -63,7 +67,7 @@ export interface EverythingGraph {
   counts: {
     nodes: number; edges: number;
     company: number; person: number; facility: number; vessel: number;
-    insider_of: number; operates: number; calls_at: number;
+    insider_of: number; operates: number; calls_at: number; owns: number;
   };
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -266,11 +270,107 @@ function buildCallsAtEdges(visitsByPort: Map<string, PortVisit[]>, ports: PortDe
   return { edges, vesselNodes };
 }
 
+interface GemOwnershipEntity {
+  "Entity ID": string;
+  "Full Name": string;
+  "US SEC Central Index Key"?: string;
+}
+interface GemOwnershipEdgeRow {
+  "Subject Entity ID": string; "Subject Entity Name": string;
+  "Interested Party ID": string; "Interested Party Name": string;
+  "% Share of Ownership"?: number;
+  "Data Source URL"?: string;
+  "Share Imputed?"?: string;
+}
+export interface GemOwnershipFile {
+  provenance: { attribution: string; license: string; release: string; built_at?: string };
+  entities: GemOwnershipEntity[];
+  entity_edges: GemOwnershipEdgeRow[];
+}
+
+/** Reads datacore/gem/ownership.json.gz (Global Energy Monitor Global Energy
+ *  Ownership Tracker, CC BY 4.0 — scripts/gem_suite_ingest.py). Never throws:
+ *  a missing/corrupt file degrades to null (no owns edges), matching the
+ *  fetch-failure-degrades pattern getCikTickerMap already uses below, since
+ *  a graph rebuild must never fail wholesale over one optional join source. */
+function loadGemOwnership(fp: string = repoDataPath("datacore/gem/ownership.json.gz")): GemOwnershipFile | null {
+  try {
+    return JSON.parse(zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** owns edges: company(owner) -> company(owned), from GEM's Global Energy
+ *  Ownership Tracker entity_edges. Only pairs where BOTH the subject
+ *  (owned) and interested party (owner) resolve to a real US SEC CIK are
+ *  included — GEM also tracks governments, private holders, and foreign
+ *  entities with no CIK, which this v1 slice honestly excludes rather than
+ *  mistype them as `company` nodes (that broader join is a documented
+ *  follow-up, see research/open_questions.md). Node ids reuse the exact
+ *  same ticker-preferred / `company:cik:<CIK>` fallback scheme
+ *  buildInsiderEdges uses (via the same `getCikTickerMap` resolver), so a
+ *  GEM-tracked company lands on the SAME node the EDGAR pipeline already
+ *  populates rather than a duplicate. */
+function buildOwnershipEdges(
+  gem: GemOwnershipFile | null, cikTicker: Map<string, string>,
+): { edges: GraphEdge[]; companyNodes: Map<string, GraphNode> } {
+  const edges: GraphEdge[] = [];
+  const companyNodes = new Map<string, GraphNode>();
+  if (!gem) return { edges, companyNodes };
+  // GEM's own release date, not entity_map.json's builtDate (a different
+  // registry with its own vintage) — first_seen/last_seen must reflect
+  // the actual source this edge came from.
+  const builtDate: string = gem.provenance?.built_at ?? "unknown";
+
+  const cikByEntity = new Map<string, string>();
+  for (const e of gem.entities) {
+    const cik = e["US SEC Central Index Key"];
+    if (cik && cik !== "not found") cikByEntity.set(e["Entity ID"], cik);
+  }
+
+  const ensureCompany = (entityId: string, name: string): string => {
+    const cik = cikByEntity.get(entityId)!;
+    const ticker = cikTicker.get(String(Number(cik)));
+    const id = ticker ? companyId(ticker) : `company:cik:${cik}`;
+    if (!companyNodes.has(id)) {
+      companyNodes.set(id, { id, type: "company", label: ticker || name, attrs: { cik, name, ticker_known: Boolean(ticker) } });
+    }
+    return id;
+  };
+
+  const seen = new Set<string>();
+  for (const row of gem.entity_edges) {
+    if (!cikByEntity.has(row["Subject Entity ID"]) || !cikByEntity.has(row["Interested Party ID"])) continue;
+    const fromId = ensureCompany(row["Interested Party ID"], row["Interested Party Name"]);
+    const toId = ensureCompany(row["Subject Entity ID"], row["Subject Entity Name"]);
+    if (fromId === toId) continue;
+    const key = `${fromId}|${toId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const share = row["% Share of Ownership"];
+    edges.push({
+      type: "owns", from: fromId, to: toId,
+      source: "Global Energy Monitor Global Energy Ownership Tracker (CC BY 4.0)",
+      confidence: row["Share Imputed?"] === "known value, not imputed" ? "high" : "medium",
+      first_seen: builtDate, last_seen: builtDate,
+      attrs: { share_pct: typeof share === "number" ? share : null, imputed: row["Share Imputed?"] ?? null, source_url: row["Data Source URL"] ?? null },
+    });
+  }
+  return { edges, companyNodes };
+}
+
 export interface BuildGraphOpts {
   baseDir?: string; nowMs?: number; portWindowHours?: number;
   sites?: SiteRow[]; plants?: PlantRow[]; entities?: EntityMapEntry[];
   form4Filings?: Form4Filing[];
   portVisitsByPort?: Map<string, PortVisit[]>;
+  /** GEM ownership file; explicit null/object overrides the disk read
+   *  (tests never hit disk or network). Omit to load the real file. */
+  gemOwnership?: GemOwnershipFile | null;
+  /** CIK -> ticker map; overrides the live SEC company_tickers.json fetch
+   *  (tests never hit the network). Omit to use getCikTickerMap(). */
+  cikTickerMap?: Map<string, string>;
 }
 
 /** Builds the full v1 graph. Every IO source is overridable so tests run
@@ -295,15 +395,19 @@ export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingG
   const { edges: operatesEdges, companyNodes: operatesCompanies } = buildOperatesEdges(sites, plants, entities, builtDate);
   const { edges: insiderEdges, personNodes, companyNodes: insiderCompanies } = buildInsiderEdges(form4Filings);
   const { edges: callsAtEdges, vesselNodes } = buildCallsAtEdges(portVisitsByPort, ports);
+  const gemOwnership = opts.gemOwnership !== undefined ? opts.gemOwnership : loadGemOwnership();
+  const cikTickerMap = opts.cikTickerMap ?? (gemOwnership ? await getCikTickerMap() : new Map<string, string>());
+  const { edges: ownsEdges, companyNodes: ownsCompanies } = buildOwnershipEdges(gemOwnership, cikTickerMap);
 
   const companyNodes = new Map<string, GraphNode>(operatesCompanies);
   insiderCompanies.forEach((n, id) => { if (!companyNodes.has(id)) companyNodes.set(id, n); });
+  ownsCompanies.forEach((n, id) => { if (!companyNodes.has(id)) companyNodes.set(id, n); });
 
   const nodes: GraphNode[] = [
     ...Array.from(companyNodes.values()), ...Array.from(personNodes.values()),
     ...facilityNodes, ...Array.from(vesselNodes.values()),
   ];
-  const edges: GraphEdge[] = [...operatesEdges, ...insiderEdges, ...callsAtEdges];
+  const edges: GraphEdge[] = [...operatesEdges, ...insiderEdges, ...callsAtEdges, ...ownsEdges];
 
   return {
     kind: "raw",
@@ -311,7 +415,7 @@ export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingG
     counts: {
       nodes: nodes.length, edges: edges.length,
       company: companyNodes.size, person: personNodes.size, facility: facilityNodes.length, vessel: vesselNodes.size,
-      insider_of: insiderEdges.length, operates: operatesEdges.length, calls_at: callsAtEdges.length,
+      insider_of: insiderEdges.length, operates: operatesEdges.length, calls_at: callsAtEdges.length, owns: ownsEdges.length,
     },
     nodes, edges,
     caveat: "RAW graph — every edge asserts a relationship with provenance " +
@@ -320,7 +424,11 @@ export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingG
       `built ${builtDate}); unmapped operators are honest gaps, never guessed ` +
       "tickers. insider_of reflects only the last 30 days of archived Form 4 " +
       "filings. calls_at reflects our own terrestrial-AIS archive only " +
-      "(coverage gaps and archive age both understate true call counts).",
+      "(coverage gaps and archive age both understate true call counts). " +
+      "owns reflects Global Energy Monitor's Global Energy Ownership Tracker " +
+      "(CC BY 4.0) restricted to pairs where BOTH ends resolve to a real US " +
+      "SEC CIK — government/private/foreign owners without a CIK are an " +
+      "honest gap, not a guessed identifier.",
   };
 }
 

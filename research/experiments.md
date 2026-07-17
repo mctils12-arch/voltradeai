@@ -3,6 +3,137 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-17 [PIPELINE] — Everything Graph: GEM Global Energy Ownership Tracker CIK join, new `owns` edge type (v1.0.374, T-DATACORE, scheduled-routine [PRODUCT] session)
+
+WORKSTREAM PARTITION: T-DATACORE primary (server/entityGraph.ts, its
+test, datacore/EVERYTHING_GRAPH.md); small T-CLIENT-adjacent addition in
+the same PR (client/src/pages/graph.tsx edge-type label completeness —
+required, see below) and one SHARED touch (package.json version bump,
+last-and-minimal per protocol).
+
+SESSION-START CHECKS: CLAUDE.md in full; `/api/health` clean on
+production (status ok, bot active, drawdownPct 0.0, no LIVENESS ALARM,
+scanner consecutiveFailures 0) — no repair-mandate item blocked this
+session. Delegated a research agent to survey research/experiments.md's
+last 15+ tagged entries plus open_questions.md's DATACORE DEFECT QUEUE,
+BUILD ORDER 2-6, and GIP BUILD QUEUE sections for the highest-value
+ready-to-execute T-DATACORE item (avoiding another T-CLIENT-only session
+after 2026-07-16's Legend memo work). No PROGRESS FLOOR/STARVATION
+SIGNAL triggered (wishlist.md carries no stall banner; recent entries all
+log STARVED: no).
+
+PRIMARY ACTION CHOICE: wishlist.md's CENSUS #5 GEM entry (line ~133) and
+research/experiments.md's 2026-07-07 GEM suite ingest part 2 entry both
+named "the entity-graph CIK join" as a queued follow-up, unclaimed for
+10 days while other T-DATACORE sessions built FINRA/EU-macro/SEC-FTD/
+JODI/aircraft-spine/PFAS instead. Uniquely ready vs. the other 3 queued
+GEM follow-ups (pipelines PMTiles layer, LNG-carrier IMO join, GMET
+plumes layer — all need re-pulling large files from Mike's Drive):
+`datacore/gem/ownership.json.gz` was already on disk (verified this
+session: 26,250 entities, 24,351 entity_edges), no new data pull, no
+license question, no human dependency.
+
+READ BEFORE WRITE: read server/entityGraph.ts in full this session
+(insider_of/operates/calls_at builders, the companyId/personId helper
+scheme, buildGraph's node/edge assembly) before touching it — confirmed
+the ticker-preferred / `company:cik:<CIK>` fallback id scheme
+buildInsiderEdges already uses, and that sec8kEarnings.ts's
+`getCikTickerMap()` (CIK -> ticker, 24h-cached, network-failure-degrades-
+never-throws) was the right existing resolver to reuse rather than
+inventing a second one. Inspected the real ownership.json.gz structure
+directly (python3/gzip) before writing any join code: entities carry a
+`US SEC Central Index Key` field (277 of 26,250 populated, 10-digit
+zero-padded — confirmed to match Form4's `issuerCik` format exactly, so
+no normalization mismatch); of 24,351 entity_edges, 393 resolve BOTH
+Subject and Interested Party to a real CIK (0 duplicate pairs, 0 self-
+loops, share values always numeric — verified before coding, not
+assumed). Also discovered (READ BEFORE WRITE catching a latent
+production bug): the repo's `datacore/` tree is NOT shipped in the
+production image (frozen Dockerfile ships `dist/` only); `script/
+build.ts` has a targeted copy-list into `dist/datacore/` for exactly
+this reason (2026-07-07 repair, documented in server/repoFiles.ts) — a
+new datacore file read at runtime that isn't added to that list works in
+dev and silently returns nothing in production. Added the missing line
+before this could recreate that bug class.
+
+SHIPPED (v1.0.374): `server/entityGraph.ts` gains a fourth edge type,
+`owns` (company(owner) -> company(owned)), built by a new
+`buildOwnershipEdges()` reading `datacore/gem/ownership.json.gz` (gunzip
++ JSON.parse via the same zlib.gunzipSync pattern every other datacore
+gz consumer uses) via `repoDataPath` (dev/dist resolution). Restricted to
+entity_edges where BOTH ends resolve to a real CIK — GEM also tracks
+governments/private/foreign holders with no CIK, which stay an honest
+gap (documented follow-up filed in open_questions.md, EVERYTHING-GRAPH
+2026-07-17 — broadening needs a new node type to avoid mistyping a
+government as a `company`, not attempted this PR, scope discipline).
+Node ids resolve through `getCikTickerMap()` so a GEM-tracked company
+lands on the SAME node the EDGAR/Form-4 pipeline already populates
+(ticker-preferred, `company:cik:<CIK>` fallback) rather than a duplicate
+— live-verified against the real file (not just the test fixture):
+`gemOwnership: undefined` (disk load) + `cikTickerMap: new Map()`
+(network skipped) produced 393 owns edges / 190 company nodes with
+sensible real-world pairs (Air Products <- BlackRock 6.8%, Alliant
+Energy <- Vanguard 12.6%, etc.). Caught and fixed one accuracy bug via
+this live dry-run before shipping: owns edges' first_seen/last_seen
+initially reused entity_map.json's builtDate (wrong registry's vintage)
+instead of GEM's own `provenance.built_at` — fixed to read the correct
+source. `datacore/EVERYTHING_GRAPH.md`'s relationship table updated
+(owns is the graph's first company->company edge). Test coverage: 4 new
+tests in server/entityGraph.test.ts (CIK-both-ends-required honest-gap
+behavior, ticker-resolution landing on the same node id, null-
+gemOwnership degrades to zero edges never throws, GEM's own provenance
+date used) — all 10 PRE-EXISTING buildGraph() calls in that file updated
+to pass `gemOwnership: null` explicitly so they stay hermetic (no
+disk/network IO), a correctness fix this change required (the new
+opt defaults to loading the REAL file from disk when omitted).
+
+CLIENT PARITY (same PR, per CLAUDE.md "add the corresponding UI... in
+the same PR"): found while reading client/src/pages/graph.tsx that its
+`REL_LABEL[edge.type]` lookup is an unguarded object index with no
+fallback — an `owns` edge reaching that page before this fix would have
+thrown `Cannot read properties of undefined` on `rel.fwd`/`rel.rev`, a
+live crash risk on /data/graph the moment a user's neighborhood query
+touched a company with an owns edge. Added `owns` to the EdgeType union,
+Counts interface, and REL_LABEL map ("owns"/"owned by"), plus a
+share_pct display span matching the existing filing_count/visit_count
+pattern. scripts/visual_check.mjs's /api/data/graph fixture updated to
+include `owns` in its counts object for consistency (no visual/behavior
+impact — the summary panel only renders node-type counts, not per-edge-
+type breakdown, confirmed by reading the render code first).
+
+GATES: `npx tsx --test server/entityGraph.test.ts` 13/13 pass (4 new).
+`npx tsx --test server/*.test.ts` 708/708 pass (this sandbox's
+node_modules was a fresh/incomplete checkout at session start — ran
+`npm install` first per read-before-write diligence rather than trusting
+a stale prior report; reverted the incidental package-lock.json version-
+field sync npm install produced, since it wasn't part of this logical
+change). `npx tsc --noEmit` 64 errors, confirmed byte-identical to a
+`git stash`-verified baseline (one cosmetic union-type-ordering diff in
+an unrelated datamap.tsx error, not a real regression) — zero errors in
+any file this PR touches. `npm run build` clean, and verified the new
+`script/build.ts` copy line actually lands the file at
+`dist/datacore/gem/ownership.json.gz` (3.66MB) post-build, not just that
+the build didn't error. VISUAL VERIFICATION (client/ touched): `npm run
+visual -- --page data` at 390/768/1440 — 0 hard failures; all warnings
+pre-existing (touch-target sizing on nav/map-style buttons, one clipped
+tooltip) and unrelated to this change. `python3 -m pytest` could not run
+in this sandbox (voltrade_daemon.py fails to import — confirmed via git
+stash to be an environment-only issue present on baseline too, not
+introduced by this change, which touches zero Python files).
+
+Backtest: N/A — RAW connective-tissue data join (per EVERYTHING_GRAPH.md
+ground rule 2: the graph itself is RAW, asserts filed relationships with
+provenance, no predictive claim); no scoring/sizing/threshold touched,
+PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply. HYPOTHESIS
+for the natural next SIGNAL layer on top (not built, logged for a future
+session): state/foreign ownership (once the non-CIK broadening ships) ×
+USAspending contract awards to the same ticker — does government
+ownership correlate with government contract flow? A second-order,
+testable question, not assumed.
+
+STARVED: no — this was the queue's highest-value ready item; no higher-
+value T-DATACORE work was left idle.
+
 ## 2026-07-16 [PIPELINE] — SCALE S1(d) React memo boundary: Legend panel extracted + memoized (v1.0.373, T-CLIENT, PR #505, scheduled-routine session)
 
 WORKSTREAM PARTITION: T-CLIENT (client/src/pages/datamap.tsx only).

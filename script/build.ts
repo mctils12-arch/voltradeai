@@ -69,6 +69,7 @@ async function buildAll() {
   console.log("copying runtime datacore files into dist/ ...");
   await cp("datacore/manifests", "dist/datacore/manifests", { recursive: true });
   await cp("datacore/sentinel2/readings.jsonl", "dist/datacore/sentinel2/readings.jsonl");
+  await cp("datacore/gem/ownership.json.gz", "dist/datacore/gem/ownership.json.gz");
 }
 
 buildAll().catch((err) => {

@@ -4612,3 +4612,47 @@ what should the harness DO about it (per-battery retry? WebGL
 context probe + honest SKIP-with-reason?). Any harness change is its
 own [RULE-REVIEW] PR with the bias statement (a retry can only mask
 real regressions if unbounded — cap + log both outcomes).
+
+## [EVERYTHING-GRAPH · filed 2026-07-17, GEM ownership CIK join SHIPPED] Broaden `owns` beyond CIK-to-CIK pairs — the more novel joins are state/foreign ownership, which this slice deliberately excludes
+
+SHIPPED this session (v1.0.374, T-DATACORE): `server/entityGraph.ts` gained
+an `owns` edge type (company(owner) → company(owned)) sourced from
+`datacore/gem/ownership.json.gz` (GEM Global Energy Ownership Tracker,
+CC BY 4.0, ingested 2026-07-07 per wishlist.md CENSUS #5). Restricted to
+`entity_edges` where BOTH the subject (owned) and interested party
+(owner) resolve to a real US SEC CIK via GEM's own crosswalk field —
+node ids reuse the same ticker-preferred/`company:cik:<CIK>` fallback
+scheme `insider_of` already uses (via the shared `getCikTickerMap`
+resolver from sec8kEarnings.ts), so a GEM-tracked company lands on the
+SAME node the EDGAR pipeline populates, not a duplicate. Of GEM's 24,351
+total `entity_edges`, 393 resolve both ends to a CIK today (live-verified
+against the real file) — mostly institutional 13F-style holders
+(BlackRock/Vanguard/State Street), which is real signal but overlaps
+what `edgar13f.ts` likely already surfaces from a different source.
+
+THE MORE INTERESTING GAP (not built this session, deliberately — scope
+discipline, one logical change per PR): 1,403 `entity_edges` have AT
+LEAST ONE CIK-mapped end — the other 1,010 are edges to governments,
+private holders, or foreign parents with NO CIK (e.g. "Sonatrach owned
+100% by Government of Algeria"). These are the genuinely novel joins
+(state ownership of US-adjacent energy assets, foreign conglomerate
+control chains) invisible to any SEC-only source, but they can't honestly
+be typed as `company` nodes (per the design doc's v1 entity-type table:
+company/person/facility/vessel only — no "government"/"institution"
+type exists). LADDER: this is still DATA-gate connective tissue (RAW, no
+predictive claim), not a new gate; the real work is either (a) a new
+`GraphNodeType` (e.g. `institution`) honestly distinguishing
+state/private owners from SEC-reporting companies, sourced from GEM's own
+`Entity Type` field, or (b) accepting looser typing with an explicit
+`cik_verified: false` attribute flag. PRIOR: (a) is more correct and only
+moderately more work (the entity list is already loaded); do that, not
+(b), when this is picked up. Cross-tie candidate once built: state/
+foreign ownership × USAspending contract awards to the same ticker
+(does government ownership correlate with government contract flow?) —
+a testable SECOND-ORDER hypothesis, not assumed.
+
+Also STILL STALE (found, not touched this session — out of scope): GRID
+BUILD ORDER item 4 (line ~3192) says "GEM REGISTRY JOIN (blocked on
+wishlist 9b form-fill)" — 9b resolved 2026-07-07 (Mike enabled Drive
+access, full GEM suite ingested), so that blocking note is stale text; a
+future session touching that section should update it to point here.
