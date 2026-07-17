@@ -773,6 +773,28 @@
     visibility fix, does not change ML training logic, model selection,
     or any trading/scoring/sizing decision.
 
+    UPDATE 2026-07-17 (session 4, [REPAIR], v1.0.384) — the "Could not
+    fetch training bars" cause this item anticipated recurred live (5x
+    in ~90min, model stuck 26.1h stale) and was root-caused + fixed: full
+    trace in experiments.md's 2026-07-17 session-4 entry.
+    `ml_retrain_safe.py` runs as a fresh subprocess every retrain and
+    never imports `bot_engine` — the only place `install_global_
+    throttle()` was called — so `_fetch_training_bars()` made completely
+    unthrottled Alpaca calls, and a bare `except: continue` silently
+    discarded whatever error resulted. Fixed: throttle now installs from
+    `ml_model_v2.py` itself (idempotent); `_fetch_training_bars()`
+    surfaces the real HTTP status/exception instead of discarding it.
+    RESIDUAL RISK, not fixed (deliberately scoped out, own future item if
+    it recurs): the daemon and the subprocess each throttle to 180/min
+    independently with no cross-process coordination — if Alpaca's real
+    200/min account-wide limit is still exceeded by their combined load,
+    a future occurrence will now at least carry a diagnosable cause
+    (e.g. "HTTP 429: ...") instead of the bare message; if that specific
+    signature recurs, the next step is a cross-process shared limiter
+    (file-lock token bucket, or routing the subprocess's fetch through
+    the daemon's RPC instead of a raw HTTP burst) — real architectural
+    work, not a threshold tune.
+
 18. **[FOUND 2026-07-10, RESOLVED 2026-07-17, v1.0.307 — confirmed live]**
     ~~TIER2-ERROR "daemon run_full_scan failed: Daemon timeout" recurred 7x
     in ~95 minutes (18:22-19:57 UTC) with zero diagnostic detail~~ — visibility fixed,
