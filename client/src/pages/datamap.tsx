@@ -52,7 +52,7 @@ import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
 import { raanColor } from "@/lib/orbital/orbitArc";
-import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS } from "@/lib/orbital/satFind";
+import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
 import { mercatorToSphere } from "@/lib/orbital/occlusion";
 import { subsolarPoint, moonState, moonPhaseGlyph, nightPolygon } from "@/lib/celestial/ephemeris";
@@ -3011,6 +3011,10 @@ export default function DataMapPage() {
         }
         if (signal.aborted) return;
         if (!gp.length) throw new Error("no orbital elements returned");
+        // one physical station = ONE object (human-directed 2026-07-16):
+        // ISS/CSS module entries collapse to the core-module keeper BEFORE
+        // the worker/ref split, so buffer indices stay aligned everywhere
+        gp = collapseStationComplexes(gp);
         orbitalGpRef.current = gp; // index-aligned to the worker's buffer — picking reads this
         setGpVersion((v) => v + 1); // O6-3: SatFinder can search now
         if (satWorkerRef.current) return; // already initialized — don't double-add
@@ -3319,6 +3323,9 @@ export default function DataMapPage() {
           t && realLabel
             ? `On-map 3D: ${realLabel}.`
             : t && sc ? `On-map 3D: ${formLabel(classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name))}.` : null,
+          isStationComplex(g.name)
+            ? "One station, one object: modules cataloged separately (e.g. UNITY, NAUKA) are collapsed into this single entry — visiting vehicles stay separate."
+            : null,
           "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
         ].filter(Boolean).join("\n"),
         links: [{
