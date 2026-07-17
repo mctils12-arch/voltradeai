@@ -10,7 +10,15 @@
 // projection transition.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { VERT_SRC, shouldSkipTickRepaint, MAX_GROUND_TRACK_SPEED_MPS } from './satLayer.js';
+import {
+  VERT_SRC,
+  shouldSkipTickRepaint,
+  MAX_GROUND_TRACK_SPEED_MPS,
+  MAX_GLIDE_SEC,
+  GLIDE_FRAME_SEC,
+  glideDtSec,
+  shouldRequestGlideFrame,
+} from './satLayer.js';
 import { metersPerPixel } from '../lod.js';
 import { OCCLUSION_RADIUS } from './occlusion.js';
 
@@ -54,9 +62,11 @@ test('cull is disabled mid globe↔mercator transition and on a degenerate plane
 });
 
 test('altitude enters the sphere position (GEO must cull differently from LEO)', () => {
+  // Since the glide (2026-07-17) the cull runs on the GLIDED position
+  // (g_xy/g_alt) — it must hide the point where it is DRAWN.
   assert.ok(
-    src.includes('projectToSphere(a_data.xy) * (1.0 + a_data.z / GLOBE_RADIUS)'),
-    'satellite sphere position includes altitude, matching mercatorToSphere',
+    src.includes('projectToSphere(g_xy) * (1.0 + g_alt / GLOBE_RADIUS)'),
+    'satellite sphere position includes (glided) altitude, matching mercatorToSphere',
   );
 });
 
@@ -127,6 +137,62 @@ test('LOD: at opacity 0 render() is a no-op even with data loaded (zero GPU cost
   layer.render(explodingGl as any, {} as any);
   assert.equal(layer.getRenderFailed(), false,
     'render() must early-out before any GL work when the LOD fade is 0 (and never trip the failure latch)');
+});
+
+// ── PER-FRAME VELOCITY GLIDE (human directive 2026-07-17) ──
+
+test('GLIDE shader contract: a_vel + u_dtSec exist OUTSIDE the GLOBE guard; position and cull use the glided coords', () => {
+  const ifdef = src.indexOf('#ifdef GLOBE');
+  const endif = src.indexOf('#endif');
+  const outside = src.slice(0, ifdef) + src.slice(endif);
+  assert.ok(outside.includes('in vec3 a_vel;'), 'a_vel compiles in BOTH projection variants');
+  assert.ok(outside.includes('uniform float u_dtSec;'), 'u_dtSec compiles in BOTH projection variants');
+  // glided position: base + velocity × dt, antimeridian-wrapped X, pole-clamped Y
+  assert.ok(src.includes('fract(a_data.x + a_vel.x * u_dtSec)'), 'X glides and wraps via fract');
+  assert.ok(src.includes('clamp(a_data.y + a_vel.y * u_dtSec, 0.0, 1.0)'), 'Y glides and clamps at the poles');
+  assert.ok(src.includes('float g_alt = a_data.z + a_vel.z * u_dtSec;'), 'altitude glides too');
+  assert.ok(src.includes('projectTileFor3D(g_xy, g_alt)'), 'the DRAWN position is the glided one');
+  assert.ok(!src.includes('projectTileFor3D(a_data.xy'), 'no path draws the un-glided position anymore');
+});
+
+test('GLIDE: sentinel slots exit before any glide math (no gliding of fabricated zeros)', () => {
+  const sentinel = src.indexOf('cls < 0.0');
+  const glide = src.indexOf('a_vel.x * u_dtSec');
+  assert.ok(sentinel >= 0 && glide > sentinel, 'sentinel early-return precedes the glide computation');
+});
+
+test('glideDtSec: elapsed seconds, clamped to the honesty cap; broken/absent clock glides zero', () => {
+  assert.equal(MAX_GLIDE_SEC, 2.5, 'cap constant pinned — beyond this the first-order glide would be fiction');
+  assert.equal(glideDtSec(1000, 1000), 0, 'same instant = no glide');
+  assert.equal(glideDtSec(1400, 1000), 0.4, 'sub-cap elapsed passes through');
+  assert.equal(glideDtSec(1000 + MAX_GLIDE_SEC * 1000, 1000), MAX_GLIDE_SEC, 'exactly at the cap');
+  assert.equal(glideDtSec(1000 + 60_000, 1000), MAX_GLIDE_SEC, 'a stale worker HOLDS at the cap, never runs away');
+  assert.equal(glideDtSec(500, 1000), 0, 'clock behind the anchor = no glide (never negative)');
+  assert.equal(glideDtSec(NaN, 1000), 0, 'broken clock = raw tick positions (pre-glide behavior)');
+});
+
+test('shouldRequestGlideFrame: frame-visible motion gates the continuous repaint (perf lever intact)', () => {
+  // zoomed way out: one frame of worst-case motion is sub-pixel — no
+  // continuous repaint; the 1Hz tick path still repaints on accumulation.
+  assert.equal(shouldRequestGlideFrame(0, 0), false);
+  // zoomed in: per-frame motion is visible — glide frames must flow.
+  assert.equal(shouldRequestGlideFrame(0, 15), true);
+  // consistency with the underlying displacement math
+  assert.equal(shouldRequestGlideFrame(0, 8), !shouldSkipTickRepaint(0, 8, GLIDE_FRAME_SEC));
+});
+
+test('setTickTime: stores the anchor (defaulting to the injected clock) and requests a frame', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  let repaints = 0;
+  const fakeMap = { getZoom: () => 0, getCenter: () => ({ lat: 0 }), triggerRepaint: () => { repaints++; } };
+  const layer = new SatLayer({ now: () => 5000 });
+  assert.equal(layer.getTickTime(), null, 'glide unwired by default — layer renders raw tick positions');
+  layer.onAdd(fakeMap as any, { createBuffer: () => ({}) } as any);
+  layer.setTickTime();
+  assert.equal(layer.getTickTime(), 5000, 'no-arg anchors at the injected clock');
+  assert.equal(repaints, 1, 'anchoring (re)starts the glide frame loop');
+  layer.setTickTime(6250);
+  assert.equal(layer.getTickTime(), 6250, 'explicit anchor honored');
 });
 
 // ── PERF: 1Hz orbital repaint (scale_program.md queue item (c)) ──

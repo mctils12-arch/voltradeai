@@ -17,9 +17,21 @@
  *   [3] classCode  orbit-class code, ALSO the validity sentinel:
  *                    0 = LEO, 1 = MEO, 2 = GEO  (rendered)
  *                    SENTINEL_SKIP (-1) = not rendered (deep-space / invalid)
+ *   [4] velX       d(mercX)/dt in normalized-mercator UNITS PER SECOND
+ *                  (antimeridian-wrapped finite difference of two REAL
+ *                  propagations — see satWorker.packPositions)
+ *   [5] velY       d(mercY)/dt in normalized-mercator units per second
+ *   [6] velAlt     d(altMeters)/dt in METERS PER SECOND (radial glide —
+ *                  matters for eccentric orbits, e.g. Molniya)
  * The layer's vertex shader treats classCode < 0 as "skip" (gl_PointSize = 0).
+ * Velocity fields are DISPLAY-ONLY glide inputs for the shader's between-tick
+ * extrapolation (satLayer u_dtSec); every CPU consumer (pick / follow /
+ * miniSelect / siteQuery) keeps reading the exact-tick position at [0..2] —
+ * the physics truth stays the worker's tick, the glide never enters analysis.
+ * Fields [0..3] keep their pre-glide offsets on purpose: stride-agnostic
+ * readers (base + 0..3) survive the extension unchanged.
  */
-export const SAT_STRIDE = 4;
+export const SAT_STRIDE = 7;
 
 /** classCode value marking a slot that must NOT be rendered (no real position). */
 export const SENTINEL_SKIP = -1;
@@ -51,11 +63,38 @@ export function mercatorToLonLat(x: number, y: number): { lonDeg: number; latDeg
   return { lonDeg, latDeg };
 }
 
-/** Read one satellite slot out of a packed buffer (round-trip / CPU-picking helper). */
+/**
+ * Shortest signed delta between two normalized-mercator X values, wrapping
+ * the antimeridian (x is periodic with period 1). Without this, a finite
+ * difference across lon ±180 (x 0.999 -> 0.001) would read as a near-full
+ * westward world traverse instead of a tiny eastward step.
+ */
+export function wrapMercDelta(dx: number): number {
+  if (dx > 0.5) return dx - 1;
+  if (dx < -0.5) return dx + 1;
+  return dx;
+}
+
+/**
+ * Read one satellite slot out of a packed buffer (round-trip / CPU-picking
+ * helper). mercX/mercY/altMeters are the EXACT-TICK propagated position (the
+ * physics truth consumers analyze against); vel* are the display-glide rates
+ * (see the SAT_STRIDE layout doc) — exposed for round-trip verification, not
+ * for repositioning: the shader owns the glide.
+ */
 export function readSatAt(
   buffer: ArrayLike<number>,
   i: number,
-): { mercX: number; mercY: number; altMeters: number; classCode: number; valid: boolean } {
+): {
+  mercX: number;
+  mercY: number;
+  altMeters: number;
+  classCode: number;
+  valid: boolean;
+  velX: number;
+  velY: number;
+  velAlt: number;
+} {
   const base = i * SAT_STRIDE;
   const classCode = buffer[base + 3];
   return {
@@ -64,5 +103,8 @@ export function readSatAt(
     altMeters: buffer[base + 2],
     classCode,
     valid: classCode >= 0,
+    velX: buffer[base + 4],
+    velY: buffer[base + 5],
+    velAlt: buffer[base + 6],
   };
 }

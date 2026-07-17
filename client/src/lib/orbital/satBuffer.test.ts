@@ -10,6 +10,7 @@ import {
   lonLatToMercator,
   mercatorToLonLat,
   readSatAt,
+  wrapMercDelta,
 } from './satBuffer.ts';
 
 // --------------------------------------------------------------------------
@@ -17,7 +18,9 @@ import {
 // --------------------------------------------------------------------------
 
 test('layout constants are the locked contract', () => {
-  assert.equal(SAT_STRIDE, 4);
+  // 7 since the glide extension (2026-07-17): [0..3] position+class keep
+  // their historical offsets; [4..6] are the display-glide velocity.
+  assert.equal(SAT_STRIDE, 7);
   assert.equal(SENTINEL_SKIP, -1);
   assert.deepEqual(CLASS_CODE, { LEO: 0, MEO: 1, GEO: 2 });
 });
@@ -61,9 +64,10 @@ test('mercator: Y clamps at the poles (no infinity)', () => {
 
 test('readSatAt: reads the right stride slot and validity flag', () => {
   const buf = new Float32Array([
-    0.25, 0.5, 550000, CLASS_CODE.LEO, // i=0 valid LEO
-    0, 0, 0, SENTINEL_SKIP, // i=1 skipped
-    0.75, 0.4, 20000000, CLASS_CODE.MEO, // i=2 valid MEO
+    // mercX, mercY, altMeters, classCode, velX, velY, velAlt
+    0.25, 0.5, 550000, CLASS_CODE.LEO, 1e-4, -2e-4, 12.5, // i=0 valid LEO
+    0, 0, 0, SENTINEL_SKIP, 0, 0, 0, // i=1 skipped
+    0.75, 0.4, 20000000, CLASS_CODE.MEO, -5e-5, 3e-5, -1.25, // i=2 valid MEO
   ]);
   const a = readSatAt(buf, 0);
   assert.deepEqual(
@@ -76,4 +80,30 @@ test('readSatAt: reads the right stride slot and validity flag', () => {
   const c = readSatAt(buf, 2);
   assert.equal(c.valid, true);
   assert.equal(c.classCode, CLASS_CODE.MEO);
+});
+
+test('readSatAt: velocity fields round-trip (float32 exactness for exact values)', () => {
+  const buf = new Float32Array(2 * SAT_STRIDE);
+  buf.set([0.5, 0.5, 400_000, CLASS_CODE.LEO, 0.0001220703125, -0.25, 12.5], 0);
+  buf.set([0.1, 0.9, 35_786_000, CLASS_CODE.GEO, 0, 0, 0], SAT_STRIDE);
+  const a = readSatAt(buf, 0);
+  assert.equal(a.velX, 0.0001220703125, 'velX at [4]');
+  assert.equal(a.velY, -0.25, 'velY at [5]');
+  assert.equal(a.velAlt, 12.5, 'velAlt at [6]');
+  const b = readSatAt(buf, 1);
+  assert.deepEqual([b.velX, b.velY, b.velAlt], [0, 0, 0], 'zero velocity = honest hold');
+});
+
+// --------------------------------------------------------------------------
+// wrapMercDelta — antimeridian-aware finite-difference delta
+// --------------------------------------------------------------------------
+
+test('wrapMercDelta: passes small deltas through, wraps antimeridian crossings', () => {
+  assert.equal(wrapMercDelta(0.001), 0.001);
+  assert.equal(wrapMercDelta(-0.001), -0.001);
+  assert.equal(wrapMercDelta(0.5), 0.5, 'exactly half stays (boundary is exclusive)');
+  // eastward crossing: x 0.999 -> 0.001 reads as +0.002, not -0.998
+  assert.ok(Math.abs(wrapMercDelta(0.001 - 0.999) - 0.002) < 1e-12);
+  // westward crossing: x 0.001 -> 0.999 reads as -0.002, not +0.998
+  assert.ok(Math.abs(wrapMercDelta(0.999 - 0.001) - -0.002) < 1e-12);
 });

@@ -8,6 +8,10 @@
 //   - color-by-orbit-class (packed classCode field)
 //   - a validity sentinel: slots with NO real position (deep-space / invalid)
 //     render at size 0 — NEVER a fabricated point (charter honesty rule)
+//   - PER-FRAME VELOCITY GLIDE: between 1 Hz worker ticks the vertex shader
+//     extrapolates each point along its packed real finite-difference
+//     velocity (see MAX_GLIDE_SEC / setTickTime) — smooth 60 fps motion from
+//     honest physics, display-only (CPU consumers keep tick positions)
 //   - FAR-SIDE CULL (globe mode): satellites occluded by the earth are hidden
 //     — projectTileFor3D itself applies no clipping, so without this the far
 //     hemisphere's objects draw on top of the globe. Exact segment–sphere
@@ -60,6 +64,9 @@ export interface SatLayerOptions {
   colorMEO?: Rgba;
   /** color for GEO-class objects. */
   colorGEO?: Rgba;
+  /** injectable monotonic clock for the glide (ms) — defaults to
+   *  performance.now(); tests inject a fake to run without a browser. */
+  now?: () => number;
 }
 
 /** Subset of the worker positions message the layer echoes for the honesty panel. */
@@ -123,6 +130,54 @@ export function shouldSkipTickRepaint(latDeg: number, zoom: number, elapsedSec: 
   return metersPerPixel(latDeg, zoom) > worstCaseDisplacementM;
 }
 
+// ── PER-FRAME VELOCITY GLIDE (human directive 2026-07-17: "make them move
+// smoothly … interpret where they would go … but still use the data we get").
+// The worker still ticks REAL SGP4/SDP4 positions at ~1 Hz; between ticks the
+// vertex shader extrapolates each point along its packed per-second velocity
+// (a finite difference of two real propagations — satWorker.VEL_SAMPLE_MS):
+// position = tick position + velocity · u_dtSec. First-order honest motion,
+// never a made-up path.
+//
+// HONESTY CAP: past MAX_GLIDE_SEC of extrapolation the first-order glide
+// stops being physics and starts being fiction (a stale worker would send
+// points sailing off their orbits), so u_dtSec clamps there — a stale layer
+// HOLDS at the cap rather than running away, and the next real tick snaps
+// everything back to truth.
+export const MAX_GLIDE_SEC = 2.5;
+
+/** Conservative frame interval (seconds) used to decide whether ONE frame of
+ *  glide motion could even be visible at the current camera (~30fps bound —
+ *  a longer interval than real 60fps frames, so the test errs toward
+ *  repainting). */
+export const GLIDE_FRAME_SEC = 1 / 30;
+
+/**
+ * Seconds of glide to apply this frame: elapsed time since the tick anchor,
+ * clamped to [0, MAX_GLIDE_SEC] (see the cap note above). Non-finite input
+ * (no anchor yet, broken clock) glides zero — the raw tick positions render,
+ * which is exactly the pre-glide behavior.
+ */
+export function glideDtSec(nowMs: number, tickAnchorMs: number): number {
+  const dt = (nowMs - tickAnchorMs) / 1000;
+  if (!Number.isFinite(dt) || dt <= 0) return 0;
+  return dt < MAX_GLIDE_SEC ? dt : MAX_GLIDE_SEC;
+}
+
+/**
+ * PERF (resolves scale_program.md's "1Hz orbital repaint reconsideration"):
+ * gliding needs continuous repaint, but ONLY while a frame's worth of motion
+ * is actually visible at the current camera — zoomed out on the default
+ * globe, per-frame satellite motion is sub-pixel and the map may idle
+ * exactly as the 1Hz tick-skip logic already allows (the 1 Hz buffer swap
+ * still repaints via updatePositions when its ACCUMULATED drift becomes
+ * visible). So the continuous-repaint cost is paid only when the orbital
+ * layer is on AND the camera is close enough for glide to be seen.
+ * Pure function of camera state, exported for hermetic tests.
+ */
+export function shouldRequestGlideFrame(latDeg: number, zoom: number): boolean {
+  return !shouldSkipTickRepaint(latDeg, zoom, GLIDE_FRAME_SEC);
+}
+
 /** Exported for satLayer.test.ts, which pins the far-side-cull block to the
  * CPU mirror in ./occlusion (the shader inlines that module's math — GLSL
  * can't import TS, so the test is the sync mechanism). */
@@ -130,8 +185,10 @@ export const VERT_SRC = (prelude: string, define: string): string => `#version 3
 ${prelude}
 ${define}
 in vec4 a_data;            // x=mercX(0..1) y=mercY(0..1) z=altMeters w=classCode
+in vec3 a_vel;             // GLIDE: d/dt of (mercX, mercY, altMeters) per second
 in float a_shape;          // SYMBOLS NOT DOTS: 0=unidentified(dot) 1=payload 2=rocket body 3=debris
 uniform float u_size;
+uniform float u_dtSec;     // seconds since the worker tick, CPU-clamped to MAX_GLIDE_SEC
 uniform float u_opacity;   // LOD envelope fade (EARTH TWIN A1) — 1 = fully visible
 uniform vec4 u_colorLEO;
 uniform vec4 u_colorMEO;
@@ -148,6 +205,15 @@ void main() {
     v_color = vec4(0.0);
     return;
   }
+  // PER-FRAME GLIDE: first-order motion between real physics ticks —
+  // tick position + real finite-difference velocity × capped elapsed time
+  // (u_dtSec; beyond the cap the extrapolation would be fiction, so the CPU
+  // clamps it — see MAX_GLIDE_SEC). fract() wraps X across the antimeridian
+  // (mercator X is periodic, and GLSL fract of a negative wraps correctly);
+  // Y clamps at the poles like the worker's own pack does.
+  vec2 g_xy = vec2(fract(a_data.x + a_vel.x * u_dtSec),
+                   clamp(a_data.y + a_vel.y * u_dtSec, 0.0, 1.0));
+  float g_alt = a_data.z + a_vel.z * u_dtSec;
 #ifdef GLOBE
   // FAR-SIDE CULL (globe only): MapLibre's projectTileFor3D applies NO
   // occlusion (interpolateProjectionFor3D skips globeComputeClippingZ), so
@@ -158,9 +224,11 @@ void main() {
   // limb. Mirrors ./occlusion.ts (earthOccludes / cameraFromClippingPlane);
   // 0.998001 = OCCLUSION_RADIUS² (0.999², limb anti-flicker bias). Skipped
   // mid globe↔mercator transition (positions blend toward flat; there is no
-  // far side to hide) and on a degenerate plane (w must be < 0).
+  // far side to hide) and on a degenerate plane (w must be < 0). Uses the
+  // GLIDED position (g_xy/g_alt) — the cull must hide the point where it is
+  // DRAWN, or objects would pop at the limb mid-glide.
   if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
-    vec3 satPos = projectToSphere(a_data.xy) * (1.0 + a_data.z / GLOBE_RADIUS);
+    vec3 satPos = projectToSphere(g_xy) * (1.0 + g_alt / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;
     float t = -dot(cam, v) / dot(v, v);
@@ -175,7 +243,7 @@ void main() {
     }
   }
 #endif
-  gl_Position = projectTileFor3D(a_data.xy, a_data.z);
+  gl_Position = projectTileFor3D(g_xy, g_alt);
   // identified objects draw as type glyphs and need more pixels to read
   gl_PointSize = a_shape > 0.5 ? u_size * 2.6 : u_size;
   v_color = cls < 0.5 ? u_colorLEO : (cls < 1.5 ? u_colorMEO : u_colorGEO);
@@ -238,8 +306,10 @@ export class SatLayer implements CustomLayerInterface {
 
   // uniform / attribute locations (resolved on compile)
   private aData = -1;
+  private aVel = -1;
   private aShape = -1;
   private uSize: WebGLUniformLocation | null = null;
+  private uDtSec: WebGLUniformLocation | null = null;
   private uOpacity: WebGLUniformLocation | null = null;
   private uColorLEO: WebGLUniformLocation | null = null;
   private uColorMEO: WebGLUniformLocation | null = null;
@@ -265,6 +335,12 @@ export class SatLayer implements CustomLayerInterface {
   // PERF: seconds of tick time skipped (no forced repaint) since the last
   // actual repaint — see shouldSkipTickRepaint / MAX_GROUND_TRACK_SPEED_MPS.
   private skippedRepaintSec = 0;
+  // GLIDE: clock reading (this.now domain, ms) at which the current position
+  // buffer was CURRENT — set by the parent via setTickTime() on each worker
+  // positions message. null = glide not wired (parent never called it):
+  // u_dtSec stays 0 and rendering is bit-identical to the pre-glide layer.
+  private tickAnchorMs: number | null = null;
+  private now: () => number;
 
   // last frame's globe projection state, mirrored for the CPU pick path so
   // picking applies the SAME far-side cull the GPU applied (see ./occlusion).
@@ -294,6 +370,7 @@ export class SatLayer implements CustomLayerInterface {
     this.colorLEO = opts.colorLEO ?? DEFAULT_COLORS.LEO;
     this.colorMEO = opts.colorMEO ?? DEFAULT_COLORS.MEO;
     this.colorGEO = opts.colorGEO ?? DEFAULT_COLORS.GEO;
+    this.now = opts.now ?? (() => performance.now());
   }
 
   // --- CustomLayerInterface ------------------------------------------------
@@ -374,6 +451,10 @@ export class SatLayer implements CustomLayerInterface {
 
     // Style uniforms.
     if (this.uSize) gl.uniform1f(this.uSize, this.pointSize);
+    // GLIDE: capped seconds since the worker tick (0 when the parent hasn't
+    // wired setTickTime — renders the raw tick positions, pre-glide behavior).
+    const dtSec = this.tickAnchorMs != null ? glideDtSec(this.now(), this.tickAnchorMs) : 0;
+    if (this.uDtSec) gl.uniform1f(this.uDtSec, dtSec);
     if (this.uOpacity) gl.uniform1f(this.uOpacity, this.globalOpacity);
     if (this.uColorLEO) gl.uniform4f(this.uColorLEO, ...this.colorLEO);
     if (this.uColorMEO) gl.uniform4f(this.uColorMEO, ...this.colorMEO);
@@ -395,6 +476,13 @@ export class SatLayer implements CustomLayerInterface {
     }
     gl.enableVertexAttribArray(this.aData);
     gl.vertexAttribPointer(this.aData, 4, gl.FLOAT, false, SAT_STRIDE * 4, 0);
+    // GLIDE velocity: floats [4..6] of the same interleaved buffer (byte
+    // offset 16). Location can be -1 if the driver dead-strips it (u_dtSec
+    // permanently 0 would allow that) — guard like a_shape.
+    if (this.aVel >= 0) {
+      gl.enableVertexAttribArray(this.aVel);
+      gl.vertexAttribPointer(this.aVel, 3, gl.FLOAT, false, SAT_STRIDE * 4, 16);
+    }
 
     // Shape codes: only honored when index-aligned to the population —
     // a mismatched buffer would put the wrong glyph on the wrong object,
@@ -419,7 +507,32 @@ export class SatLayer implements CustomLayerInterface {
     const count = this.renderCap != null ? Math.min(this.renderCap, this.total) : this.total;
     gl.drawArrays(gl.POINTS, 0, count);
     gl.disableVertexAttribArray(this.aData);
+    if (this.aVel >= 0) gl.disableVertexAttribArray(this.aVel);
     if (this.aShape >= 0) gl.disableVertexAttribArray(this.aShape);
+
+    // GLIDE self-repaint ("needsGlide"): while satellites are present, glide
+    // is wired (tick anchor set), and per-frame motion is visible at this
+    // camera, request the next frame — the established self-animating
+    // custom-layer pattern (triggerRepaint from render schedules exactly one
+    // more frame; MapLibre coalesces). Two deliberate stop conditions keep
+    // the perf win of the 1Hz repaint-skip work:
+    //   - zoomed out where one frame's motion is sub-pixel
+    //     (shouldRequestGlideFrame) — the 1 Hz tick path still repaints when
+    //     its accumulated drift becomes visible;
+    //   - dtSec at MAX_GLIDE_SEC (stale worker): the glide is frozen at the
+    //     honesty cap, so repainting would redraw an identical frame; the
+    //     next real tick's updatePositions restarts the loop.
+    // Cost note (charter '1Hz orbital repaint reconsideration' — resolved):
+    // continuous repaint is paid ONLY while this layer has data, i.e. while
+    // the orbital toggle is on; layer off/empty = zero repaint pressure.
+    if (
+      this.map &&
+      this.tickAnchorMs != null &&
+      dtSec < MAX_GLIDE_SEC &&
+      shouldRequestGlideFrame(this.map.getCenter().lat, this.map.getZoom())
+    ) {
+      this.map.triggerRepaint();
+    }
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
@@ -464,6 +577,29 @@ export class SatLayer implements CustomLayerInterface {
       this.skippedRepaintSec = 0;
       this.map.triggerRepaint();
     }
+  }
+
+  /**
+   * GLIDE anchor: tell the layer WHEN (in this layer's clock — performance
+   * .now() unless injected) the current position buffer was true. The parent
+   * calls this on every worker `positions` message, right beside
+   * updatePositions; each frame then renders tick position + velocity ×
+   * elapsed-since-anchor (capped at MAX_GLIDE_SEC — see glideDtSec).
+   * Omit the argument to anchor "now" (the normal case: message latency from
+   * the worker is ~ms, negligible against a 1 s tick).
+   *
+   * DISPLAY-ONLY: the glide exists purely in the vertex shader. getPositions
+   * / readSat / every CPU consumer (pick, follow, miniSelect, siteQuery)
+   * keeps returning the exact-tick physics positions.
+   */
+  setTickTime(tMs?: number): void {
+    this.tickAnchorMs = tMs ?? this.now();
+    this.map?.triggerRepaint(); // (re)start the glide frame loop
+  }
+
+  /** Current glide anchor (ms in the layer clock) — wiring checks/tests. */
+  getTickTime(): number | null {
+    return this.tickAnchorMs;
   }
 
   /** Set point diameter in pixels. */
@@ -612,8 +748,10 @@ export class SatLayer implements CustomLayerInterface {
     this.program = p;
     this.cachedVariant = variant;
     this.aData = gl.getAttribLocation(p, 'a_data');
+    this.aVel = gl.getAttribLocation(p, 'a_vel');
     this.aShape = gl.getAttribLocation(p, 'a_shape');
     this.uSize = gl.getUniformLocation(p, 'u_size');
+    this.uDtSec = gl.getUniformLocation(p, 'u_dtSec');
     this.uOpacity = gl.getUniformLocation(p, 'u_opacity');
     this.uColorLEO = gl.getUniformLocation(p, 'u_colorLEO');
     this.uColorMEO = gl.getUniformLocation(p, 'u_colorMEO');

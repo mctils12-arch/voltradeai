@@ -7,7 +7,11 @@
 //
 // WHY A WORKER: 10k+ SGP4 propagations per tick (~29ms for 10k in V8, O1
 // spike) must not block the main thread. The worker keeps the render loop at
-// 60fps while positions refresh at a low rate.
+// 60fps while positions refresh at a low rate. NOTE (glide, 2026-07-17):
+// packing now propagates each object TWICE per tick (the second sample feeds
+// the finite-difference glide velocity — see VEL_SAMPLE_MS), roughly doubling
+// tick cost to ~60ms/10k — still far inside the 1 Hz budget, and entirely
+// off the main thread.
 //
 // HONESTY (charter): REAL POSITIONS ONLY. Since the SDP4 port (O6-5,
 // 2026-07-16) deep-space objects (GEO comms, GPS/GLONASS/Galileo MEO,
@@ -41,12 +45,13 @@ import {
   SENTINEL_SKIP,
   CLASS_CODE,
   lonLatToMercator,
+  wrapMercDelta,
   type OrbitClassCode,
 } from './satBuffer.js';
 
 // Re-export the buffer-layout contract so the worker's message stride and the
 // layer stay provably in sync (single source of truth in ./satBuffer).
-export { SAT_STRIDE, SENTINEL_SKIP, CLASS_CODE, lonLatToMercator, mercatorToLonLat, readSatAt } from './satBuffer.js';
+export { SAT_STRIDE, SENTINEL_SKIP, CLASS_CODE, lonLatToMercator, mercatorToLonLat, readSatAt, wrapMercDelta } from './satBuffer.js';
 export type { OrbitClassCode } from './satBuffer.js';
 
 /** Altitude (km) -> packed orbit-class code (0 LEO / 1 MEO / 2 GEO). */
@@ -172,12 +177,36 @@ export interface PackResult {
 }
 
 /**
+ * VELOCITY SOURCE (per-frame glide, human directive 2026-07-17): velocity is
+ * a FINITE DIFFERENCE of two REAL propagations VEL_SAMPLE_MS apart — real
+ * physics on both samples, never a guessed rate. The SGP4/SDP4 kernel does
+ * produce a native TEME velocity internally (propagate.ts sgp4()), but the
+ * public propagate() returns geodetic position only, and turning a TEME km/s
+ * vector into normalized-mercator units/sec would require the full
+ * ECI->ECEF->geodetic->mercator Jacobian INCLUDING the earth-rotation (GMST
+ * rate) term. The finite difference of the exact same pipeline yields
+ * precisely that composite rate for free, with truncation error well under
+ * the glide budget (measured <100 m over a 1 s extrapolation for ISS-class
+ * elements — pinned in satWorker.test.ts's propagation-consistency test).
+ */
+export const VEL_SAMPLE_MS = 500;
+
+/**
  * Propagate every GP record to `timeMs` and pack render-ready positions into a
- * fresh Float32Array (SAT_STRIDE floats each, index-aligned to `gp`). Skipped
+ * fresh Float32Array (SAT_STRIDE floats each, index-aligned to `gp`), plus the
+ * per-second mercator glide velocity (finite difference against a second real
+ * propagation at timeMs + VEL_SAMPLE_MS — see VEL_SAMPLE_MS doc). Skipped
  * objects (null propagation) get the SENTINEL_SKIP classCode and are counted:
- * deep-space -> deepSpaceSkipped, everything else -> invalidSkipped. Pure and
+ * deep-space -> deepSpaceSkipped, everything else -> invalidSkipped. If the
+ * SECOND sample fails (decay boundary), velocity is zero — the point holds at
+ * its real tick position rather than gliding on a fabricated rate. Pure and
  * deterministic (time injected; propagate/isDeepSpace injectable). NEVER writes
  * a fabricated position.
+ *
+ * Known small honesty caveat, accepted: mercY is pole-clamped by
+ * lonLatToMercator, so a finite difference straddling the clamp damps velY —
+ * only affects objects within rounding distance of the poles, where the map's
+ * own projection is already degenerate.
  */
 export function packPositions(
   gp: GpRecord[],
@@ -191,6 +220,7 @@ export function packPositions(
   let shown = 0;
   let deepSpaceSkipped = 0;
   let invalidSkipped = 0;
+  const perSec = 1000 / VEL_SAMPLE_MS; // sample delta -> per-second rate
 
   for (let i = 0; i < n; i++) {
     const base = i * SAT_STRIDE;
@@ -201,6 +231,15 @@ export function packPositions(
       buffer[base + 1] = m.y;
       buffer[base + 2] = pos.altKm * 1000; // km -> meters (projectTileFor3D)
       buffer[base + 3] = orbitClassCode(pos.altKm);
+      // Glide velocity: second REAL propagation VEL_SAMPLE_MS ahead.
+      const pos2 = propagate(gp[i], timeMs + VEL_SAMPLE_MS);
+      if (pos2) {
+        const m2 = lonLatToMercator(pos2.lonDeg, pos2.latDeg);
+        buffer[base + 4] = wrapMercDelta(m2.x - m.x) * perSec;
+        buffer[base + 5] = (m2.y - m.y) * perSec;
+        buffer[base + 6] = (pos2.altKm - pos.altKm) * 1000 * perSec;
+      }
+      // else: velocity stays 0 (fresh Float32Array) — hold, never fabricate.
       shown++;
     } else {
       // No real position -> sentinel slot, keep index alignment, count honestly.

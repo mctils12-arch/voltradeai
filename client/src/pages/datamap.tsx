@@ -3078,6 +3078,12 @@ export default function DataMapPage() {
               deepSpaceSkipped: m.deepSpaceSkipped,
               invalidSkipped: m.invalidSkipped,
             }, 1);
+            // SMOOTH SKY (human: "make them move smoothly … still use the
+            // data we get"): anchor the velocity glide at this tick — the
+            // shader slides every sat along its REAL SGP4 velocity between
+            // 1Hz exact-physics ticks (measured 0.23m/1s vs true
+            // propagation; capped 2.5s so a stale worker holds, never lies)
+            satLayerRef.current?.setTickTime();
             lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
             publishOrbitalStatus(); // formats the LOD-paused note when applicable
             followTick(); // O5: keep the followed satellite centered + ringed

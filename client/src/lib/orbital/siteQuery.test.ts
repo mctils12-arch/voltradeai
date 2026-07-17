@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { siteCoverageReport, isStarlinkName } from './siteQuery.ts';
-import { lonLatToMercator, CLASS_CODE, SENTINEL_SKIP } from './satBuffer.ts';
+import { SAT_STRIDE, lonLatToMercator, CLASS_CODE, SENTINEL_SKIP } from './satBuffer.ts';
 import type { GpRecord } from './tle.ts';
 
 function gp(noradId: number, name: string): GpRecord {
@@ -13,10 +13,14 @@ function gp(noradId: number, name: string): GpRecord {
   };
 }
 
-/** Pack one satellite slot at a given geodetic position + altitude (km). */
+/** Pack one full-stride satellite slot at a given geodetic position +
+ *  altitude (km). Glide-velocity fields stay zero — coverage reads only the
+ *  exact-tick position. */
 function slot(latDeg: number, lonDeg: number, altKm: number, classCode: number): number[] {
   const { x, y } = lonLatToMercator(lonDeg, latDeg);
-  return [x, y, altKm * 1000, classCode];
+  const row = new Array<number>(SAT_STRIDE).fill(0);
+  row[0] = x; row[1] = y; row[2] = altKm * 1000; row[3] = classCode;
+  return row;
 }
 
 test('isStarlinkName: matches the CelesTrak naming convention, not substrings elsewhere in a name', () => {
@@ -35,7 +39,7 @@ test('siteCoverageReport: a Starlink directly overhead the site is visible; a no
     ...slot(30, -95, 550, CLASS_CODE.LEO), // i=1 non-Starlink, overhead — must be excluded by name filter
   ]);
   const gps = [gp(1, 'STARLINK-4201'), gp(2, 'ONEWEB-0123')];
-  const report = siteCoverageReport(positions, 4, gps, siteLat, siteLon);
+  const report = siteCoverageReport(positions, SAT_STRIDE, gps, siteLat, siteLon);
   assert.equal(report.totalModeled, 1);
   assert.equal(report.visible.length, 1);
   assert.equal(report.visible[0].noradId, 1);
@@ -48,7 +52,7 @@ test('siteCoverageReport: a Starlink far below the horizon does not count as cov
     ...slot(-30, 85, 550, CLASS_CODE.LEO), // antipodal-ish — well below horizon
   ]);
   const gps = [gp(1, 'STARLINK-1000')];
-  const report = siteCoverageReport(positions, 4, gps, siteLat, siteLon);
+  const report = siteCoverageReport(positions, SAT_STRIDE, gps, siteLat, siteLon);
   assert.equal(report.totalModeled, 1); // modeled (valid position) but not visible
   assert.equal(report.visible.length, 0); // a genuine blackout, not "nothing matched"
 });
@@ -59,7 +63,7 @@ test('siteCoverageReport: deep-space/invalid (SENTINEL_SKIP) Starlink slots are 
     ...slot(30, -95, 550, SENTINEL_SKIP), // this tick's propagation failed for this member
   ]);
   const gps = [gp(1, 'STARLINK-9999')];
-  const report = siteCoverageReport(positions, 4, gps, siteLat, siteLon);
+  const report = siteCoverageReport(positions, SAT_STRIDE, gps, siteLat, siteLon);
   assert.equal(report.totalModeled, 0);
   assert.equal(report.visible.length, 0);
 });
@@ -76,13 +80,13 @@ test('siteCoverageReport: respects a custom elevation mask and name predicate', 
   const gps = [gp(7, 'GPS BIIF-3')];
   const namePredicate = (n: string | null) => typeof n === 'string' && n.startsWith('GPS');
 
-  const strict = siteCoverageReport(positions, 4, gps, siteLat, siteLon, {
+  const strict = siteCoverageReport(positions, SAT_STRIDE, gps, siteLat, siteLon, {
     namePredicate, minElevDeg: 70,
   });
   assert.equal(strict.totalModeled, 1);
   assert.equal(strict.visible.length, 0); // present, but doesn't clear the strict mask
 
-  const lenient = siteCoverageReport(positions, 4, gps, siteLat, siteLon, {
+  const lenient = siteCoverageReport(positions, SAT_STRIDE, gps, siteLat, siteLon, {
     namePredicate, minElevDeg: 5,
   });
   assert.equal(lenient.visible.length, 1);
@@ -95,7 +99,7 @@ test('siteCoverageReport: sorts visible members by elevation descending (most-ov
     ...slot(40, -75, 550, CLASS_CODE.LEO), // directly overhead — highest elevation
   ]);
   const gps = [gp(1, 'STARLINK-1'), gp(2, 'STARLINK-2')];
-  const report = siteCoverageReport(positions, 4, gps, siteLat, siteLon);
+  const report = siteCoverageReport(positions, SAT_STRIDE, gps, siteLat, siteLon);
   assert.equal(report.visible.length, 2);
   assert.equal(report.visible[0].noradId, 2); // overhead one ranks first
   assert.ok(report.visible[0].elevationDeg > report.visible[1].elevationDeg);
@@ -107,7 +111,7 @@ test('siteCoverageReport: caps the search at min(gp.length, buffer slots) and sk
     ...slot(0, 0, 550, CLASS_CODE.LEO),
   ]);
   const gps = [gp(1, 'STARLINK-1')]; // buffer has 2 slots, gp only has 1 — must not throw
-  const report = siteCoverageReport(positions, 4, gps, 0, 0);
+  const report = siteCoverageReport(positions, SAT_STRIDE, gps, 0, 0);
   assert.equal(report.totalModeled, 1);
   assert.equal(report.visible.length, 1);
 });
