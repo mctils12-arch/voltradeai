@@ -2581,6 +2581,14 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   border: 1px solid rgba(77, 159, 255, 0.2);
 }
 .vt-site-card-links a:hover { background: rgba(77, 159, 255, 0.16); }
+/* single source link (military installations + any citable-provenance card) */
+.vt-site-card-link {
+  display: inline-flex; align-items: center; min-height: 30px; margin-top: 8px;
+  padding: 0 10px; border-radius: 7px; font-size: 11.5px; text-decoration: none;
+  color: var(--accent-bright); background: rgba(77, 159, 255, 0.08);
+  border: 1px solid rgba(77, 159, 255, 0.2);
+}
+.vt-site-card-link:hover { background: rgba(77, 159, 255, 0.16); }
 
 /* Layer panel v2: collapsible groups + per-layer descriptions */
 .vt-layer-group { border-top: 1px solid rgba(77, 159, 255, 0.08); }

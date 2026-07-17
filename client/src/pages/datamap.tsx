@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -270,10 +270,13 @@ interface LayerMeta {
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation";
   title: string;
   subtitle: string;
   body: string;
+  /** Optional external source link shown in the card footer (e.g. the
+   *  military-installations source_url — its citable provenance). */
+  sourceUrl?: string;
   trailId?: string;      // archive id for the trail (aircraft icao24 / mmsi)
   trailKind?: "aircraft" | "vessels" | "trains";
   trailNote?: string;
@@ -397,7 +400,7 @@ const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", seafloor: "base", seafloor_confidence: "base", daynight: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
-  sites: "facilities", powerplants: "facilities", nukefacilities: "facilities",
+  sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -433,6 +436,31 @@ const LAYER_GROUP: Record<string, string> = {
   powergrid_ca_yt: "grid_ca",
   orbital_sats: "live",
 };
+
+// Military-installations operator-nation palette (human directive: colour by
+// operator nation, ONE MUTED reference palette — NO red / threat styling,
+// this is reference geography not a threat board). Named nations get a fixed
+// muted hue; everything else hashes into the same muted ramp so the map reads
+// as an atlas, never an ops board. Unattributed (offshore/unresolved) = grey.
+const MILITARY_NATION_PALETTE: Record<string, string> = {
+  "United States of America": "#6f8fb0", // muted steel blue
+  "China": "#9a8bb0",                    // muted mauve
+  "Russia": "#8a9aa8",                   // muted slate
+  "United Kingdom": "#7fa08f",           // muted sage
+  "Taiwan": "#b0a074",                   // muted ochre
+  "India": "#a68f7a",                    // muted tan
+  "France": "#7d94ad",                   // muted blue-grey
+  "Germany": "#8fa9a0",                  // muted teal-grey
+  "Japan": "#a89bab",                    // muted lilac-grey
+};
+const MILITARY_NATION_RAMP = ["#8a94a0", "#8f9c88", "#9a8f9c", "#94a0a6", "#a09488", "#889aa0", "#9c9488"];
+function militaryNationTint(nation?: string | null): string {
+  if (!nation) return "#7c8794"; // unattributed — neutral grey
+  if (MILITARY_NATION_PALETTE[nation]) return MILITARY_NATION_PALETTE[nation];
+  let h = 0;
+  for (let i = 0; i < nation.length; i++) h = (h * 31 + nation.charCodeAt(i)) & 0xffff;
+  return MILITARY_NATION_RAMP[h % MILITARY_NATION_RAMP.length];
+}
 
 // GRID VISION national rollout — one OSM-derived PMTiles per state (built by
 // scripts/build_power_tiles.sh, committed under client/public/tiles/). The
@@ -818,6 +846,20 @@ const LegendPanel = memo(function LegendPanel({
                 {Object.entries(NUKE_FACILITY_COLOR).map(([cat, col]) => (
                   <span key={cat} className="vt-legend-chip"><i style={{ background: col }} /> {cat}</span>
                 ))}
+              </div>
+            </div>
+          )}
+          {enabled.military_installations && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Military installations</div>
+              <div className="vt-legend-items">
+                {["United States of America", "China", "Russia", "United Kingdom", "France", "India", "Other"].map((n) => (
+                  <span key={n} className="vt-legend-chip">
+                    <i style={{ background: n === "Other" ? militaryNationTint("zzz-other") : militaryNationTint(n) }} />
+                    {n === "United States of America" ? "United States" : n}
+                  </span>
+                ))}
+                <span className="vt-legend-note">colour = operator nation (reference palette, not a threat board) · centroid dots at low zoom, boundaries at high zoom · Officially published installation locations. Sources: US DoD open data, OpenStreetMap contributors (© OpenStreetMap contributors), and cited government publications. Reference geography only — current as of retrieval date; not operational information.</span>
               </div>
             </div>
           )}
@@ -5411,6 +5453,102 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.nukefacilities, mapReady, mapSettled, setStatus]);
 
+  // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
+  // 2026-07-17). Officially published installation locations only — ~3,024
+  // named OSM military=base sites (US bases included) + any cited government
+  // publications; DoD authoritative overlay pending. Rendered polygons at
+  // high zoom, centroid markers at low zoom (declutter). Colour by operator
+  // nation, ONE MUTED reference palette — deliberately NO red / threat
+  // styling: this is reference geography, not a threat board. DEFAULT OFF
+  // (heavy). NO CROSS-TIES: this layer is NEVER joined to the live aircraft/
+  // vessel layers or any correlation feature — the popup carries name/nation/
+  // branch/type/source only, no timeline block (human's standing rule). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        for (const l of ["mil-inst-fill", "mil-inst-outline", "mil-inst-pt"]) if (map.getLayer(l)) map.removeLayer(l);
+        for (const s of ["mil-inst-poly", "mil-inst-centroid"]) if (map.getSource(s)) map.removeSource(s);
+      } catch {}
+    };
+    if (!enabled.military_installations) { clear(); setStatus("military_installations", "off"); return; }
+    if (!mapSettled) { setStatus("military_installations", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("military_installations", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/military_installations", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.installations)) throw new Error("no installations");
+        if (map.getSource("mil-inst-poly") || map.getSource("mil-inst-centroid")) return;
+        const withTint = (f: any) => ({ ...f, tint: militaryNationTint(f.operator_nation) });
+        // polygons — high-zoom boundaries
+        const polys = d.installations.filter((f: any) => f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon");
+        map.addSource("mil-inst-poly", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: polys.map((f: any) => ({
+            type: "Feature", geometry: f.geometry, properties: withTint(f),
+          })) } as any,
+          attribution: "© OpenStreetMap contributors",
+        } as any);
+        // centroids — low-zoom markers for EVERY installation (declutter)
+        map.addSource("mil-inst-centroid", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: d.installations
+            .filter((f: any) => Array.isArray(f.centroid))
+            .map((f: any) => ({ type: "Feature", geometry: { type: "Point", coordinates: f.centroid }, properties: withTint(f) })) } as any,
+          attribution: "© OpenStreetMap contributors",
+        } as any);
+        map.addLayer({
+          id: "mil-inst-fill", type: "fill", source: "mil-inst-poly", minzoom: 7,
+          paint: { "fill-color": ["get", "tint"], "fill-opacity": 0.22 },
+        } as any);
+        map.addLayer({
+          id: "mil-inst-outline", type: "line", source: "mil-inst-poly", minzoom: 7,
+          paint: { "line-color": ["get", "tint"], "line-width": 1.1, "line-opacity": 0.7 },
+        } as any);
+        map.addLayer({
+          id: "mil-inst-pt", type: "circle", source: "mil-inst-centroid",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 2.2, 6, 4, 10, 5],
+            "circle-color": ["get", "tint"],
+            "circle-stroke-width": 1, "circle-stroke-color": "rgba(8,12,20,0.85)",
+            // fade the low-zoom dots out as the polygons take over at high zoom
+            "circle-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0.9, 9, 0.35],
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          setDetail({
+            kind: "military_installation",
+            title: p.name || "Military installation",
+            subtitle: `${p.operator_nation || "nation unattributed"}${p.type && p.type !== "other" ? ` · ${p.type}` : ""}`,
+            // NO timeline / cross-tie block — this layer is static reference
+            // geography and is NEVER correlated with live tracking (human rule).
+            body: `Military installation (reference geography).\n` +
+                  `Nation: ${p.operator_nation || "unattributed (offshore / unresolved at source resolution)"}\n` +
+                  `Branch/service: ${p.branch || "not specified in source"}\n` +
+                  `Type: ${p.type}\n` +
+                  `Status: ${p.status}\n\n` +
+                  `Officially published installation location — reference geography only, current as of ${p.source_retrieved_date}; ` +
+                  `not operational information. Source: ${p.source}.`,
+            sourceUrl: p.source_url,
+          } as any);
+        };
+        const d1 = attachLayerInteractions(map, "mil-inst-pt", onClick);
+        const d2 = attachLayerInteractions(map, "mil-inst-fill", onClick);
+        detach = () => { d1(); d2(); };
+        setStatus("military_installations", "active", d.count,
+          `${d.count} named installations — © OpenStreetMap contributors + US DoD open data + cited government publications · colour = operator nation (reference palette, not a threat board) · reference geography, not operational information`);
+      },
+      (failures) => setStatus("military_installations", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.military_installations, mapReady, mapSettled, setStatus]);
+
   // ── nuclear accidents & radiological incidents (RAW/FACTUAL; Wikidata CC0,
   // 46 curated events through a quality gate. Hazard-triangle-trefoil symbols
   // tinted by official INES level where catalogued (never inferred; unrated =
@@ -6511,6 +6649,7 @@ export default function DataMapPage() {
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> :
     id === "powerplants" ? <Zap size={15} /> :
+    id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
     id === "nightlights" ? <Moon size={15} /> :
@@ -7310,6 +7449,11 @@ export default function DataMapPage() {
             </button>
           </div>
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
+          {detail.sourceUrl && (
+            <a className="vt-site-card-link" href={detail.sourceUrl} target="_blank" rel="noopener noreferrer">
+              Source ↗
+            </a>
+          )}
           {detail.owner && (
             <p className="vt-site-card-trail">Registered: {detail.owner}</p>
           )}

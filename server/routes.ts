@@ -16,6 +16,7 @@ import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
 import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
+import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
@@ -2413,6 +2414,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Nuclear fuel-cycle & production facilities (RAW/FACTUAL; Wikidata CC0,
   // curated — enrichment/reprocessing/waste/test-site/weapons-complex tiers;
   // power plants & reactors excluded, covered by the plant layers.)
+  // Military installations — STATIC REFERENCE GEOGRAPHY (human-specced
+  // 2026-07-17; seeded pattern, quarterly manual refresh via
+  // scripts/military_installations_build.py). Officially published
+  // installation locations only; NEVER correlated with the live aircraft/
+  // vessel layers (no_cross_ties enforced in the artifact + registry + client).
+  app.get("/api/data/military_installations", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const d: any = datacoreMilitaryInstallations;
+    res.json({
+      kind: "raw", predictive: false,
+      source: "US DoD open data, OpenStreetMap contributors (ODbL), and cited government publications",
+      attribution: d.provenance?.attribution,
+      banner: d.provenance?.banner,
+      no_cross_ties: true,
+      count: d.count,
+      installations: d.installations,
+      provenance: d.provenance,
+    });
+  });
+
   app.get("/api/data/nukefacilities", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     const d: any = datacoreNuclearFacilities;
