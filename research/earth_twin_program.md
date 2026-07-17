@@ -637,6 +637,23 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 SMOOTH SKY (human: "for all satellites can we make them
+  move smoothly … interpret where they would go … still use the data
+  we get"): agent building per-frame VELOCITY GLIDE in the worktree —
+  worker ticks stay 1Hz exact SGP4/SDP4 anchors; each record gains
+  real velocity; the satLayer shader extrapolates base + vel·dt per
+  frame (capped 2.5s — beyond that the glide would be fiction),
+  continuous repaint ONLY while the orbital layer is on (this
+  RESOLVES the charter's 1Hz-repaint reconsideration). Honesty: the
+  glide is first-order real physics between real samples (agent must
+  measure and pin the 1s error <100m vs true propagation); pick/
+  follow consumers keep exact-tick truth. INTEGRATION (parent):
+  setTickTime call in datamap onmessage per agent report, gates,
+  drive smoothness assertion, harness (perf note: repaint only with
+  layer on — defaults unaffected), PR. Then consider the same glide
+  for the FOLLOWED craft model + aircraft points (same pattern).
+
+
 - 2026-07-16 O7 SEAMLESS CONTINUUM (human, verbatim: "I want it not as
   a separate feature just part of the whole system"): replace the
   inspect CHIP-as-mode with zoom-driven auto-handoff — while sat-locked,
