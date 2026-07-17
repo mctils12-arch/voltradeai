@@ -637,6 +637,22 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 O7 SEAMLESS CONTINUUM (human, verbatim: "I want it not as
+  a separate feature just part of the whole system"): replace the
+  inspect CHIP-as-mode with zoom-driven auto-handoff — while sat-locked,
+  zooming IN past the point where the map camera fails (roughly where
+  the old snap-back began: map camera altitude approaching the craft's;
+  compute from zoom + pitch) AUTO-enters inspectScene at a matched
+  apparent craft size (scale continuity like the solar handoff); in the
+  scene, dollying OUT to the max bound for >600ms AUTO-exits back to
+  the map at the matched zoom. The chip stays as a shortcut. Hysteresis
+  both sides. Same continuum family as the solar zoom-out — one camera
+  system: solar system <- globe <- terrain <- craft. Drive assertions:
+  wheel-in past threshold enters (no chip), dolly-out exits, no
+  flip-flop at the seam. PREREQ SHIPPED: v1.0.379 shader-precision
+  repair (scene was black on real GL; pixel ratchet X1b added).
+
+
 - 2026-07-16 (scheduled-routine session, T-CLIENT, PR #505): SCALE S1(d)
   "React memo boundaries" partially shipped (v1.0.373) — Legend panel
   extracted into a standalone `LegendPanel` component wrapped in
