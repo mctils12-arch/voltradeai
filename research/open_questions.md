@@ -773,9 +773,9 @@
     visibility fix, does not change ML training logic, model selection,
     or any trading/scoring/sizing decision.
 
-18. **[FOUND + PARTIALLY REPAIRED 2026-07-10, v1.0.266] TIER2-ERROR "daemon
-    run_full_scan failed: Daemon timeout" recurred 7x in ~95 minutes
-    (18:22-19:57 UTC) with zero diagnostic detail — visibility fixed,
+18. **[FOUND 2026-07-10, RESOLVED 2026-07-17, v1.0.307 — confirmed live]**
+    ~~TIER2-ERROR "daemon run_full_scan failed: Daemon timeout" recurred 7x
+    in ~95 minutes (18:22-19:57 UTC) with zero diagnostic detail~~ — visibility fixed,
     ROOT CAUSE STILL OPEN.** Full trace in experiments.md's 2026-07-10
     entry. `run_full_scan` is `HEAVY_DAEMON_ONLY` (never falls back to
     subprocess); a daemon-path failure reached the tier2 catch block as a
@@ -1251,6 +1251,34 @@
     all 6. Not yet the ≥24h bar; next session should re-check and, if the
     pattern holds (zero TIER2-ERROR/STREAM-DISCONNECT, only occasional
     sub-2s EVENTLOOP-LAG blips), mark RESOLVED.
+
+    UPDATE 2026-07-17, this session ([REPAIR], read-only close-out check
+    per the 2026-07-14 update's own NEXT STEP — no code touched): **CLOSING
+    THE ≥24H BAR — RESOLVED.** ~4 days post-deploy (v1.0.307 merged/live
+    2026-07-13 16:33:50 UTC). Live checks against production
+    (`/api/diag/audit?type=...&token=$DIAG_TOKEN`, each queried at
+    `limit=200` to confirm the type-filtered scan reaches well past the
+    deploy boundary rather than just the most-recent window — verified by
+    the EVENTLOOP-LAG query below actually surfacing entries from
+    2026-07-16, i.e. the endpoint does filter across real history, not
+    just a shallow recent-N slice): `type=TIER2-ERROR` — **zero** entries
+    of any kind since the deploy (previously a ~100% recurrence rate on a
+    ~10min/~30min cadence). `type=STREAM-DISCONNECT` — **zero** entries
+    since the deploy. `type=DB-SLOW-WRITE` and `type=TMP-CLEANUP` — still
+    zero, consistent with both refuted theories staying refuted.
+    `type=EVENTLOOP-LAG` — only the same 3 small entries the prior update
+    already discounted as ordinary GC noise (506-614ms, 2026-07-16
+    20:32/22:30 and 2026-07-17 00:23), nothing since, nothing at the
+    ~600s cadence, nothing near the pre-fix 60-98 SECOND magnitude. Four
+    days clean on the two symptoms that actually mattered
+    (TIER2-ERROR/STREAM-DISCONNECT) is well past the "several days clean"
+    bar this item set for itself. KNOWN BROKEN #18 is RESOLVED: the
+    root cause was `server/shadowFleet.ts`'s O(n²) all-pairs hull-swap
+    identity-candidate scan (v1.0.307's spatial-grid fix), not the two
+    earlier refuted theories (tmpCleanup sync fs, SQLite sync writes).
+    No further action needed on this item; a future recurrence would be a
+    new, fourth mechanism, not a reopening of the O(n²) theory (per this
+    item's own 2026-07-13 note).
 
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
