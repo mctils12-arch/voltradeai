@@ -33,10 +33,10 @@ Seeds are labeled provenance = 'osm-weak-label' so nothing downstream mistakes
 them for verified ground truth.
 
 INPUT: either the GeoJSONSeq from scripts/build_power_tiles.sh (RS-delimited,
-same as scripts/grid_capacity_tx.py) EXTENDED to include n/power=tower, or a
-raw Overpass API JSON response. NOTE build_power_tiles.sh's default filter omits
-power=tower — add `n/power=tower` to its osmium tags-filter (or run the Overpass
-query documented below) to get tower seeds.
+same as scripts/grid_capacity_tx.py) — its osmium tags-filter includes
+n/power=tower as of 2026-07-17, so tower seeds fall out of the normal PBF
+pipeline — or a raw Overpass API JSON response (still useful for a quick
+small-bbox freshness diff without a full regional PBF download).
 
   Overpass (session-side): POST https://overpass-api.de/api/interpreter with
     [out:json];(node["power"="tower"]({S},{W},{N},{E});
