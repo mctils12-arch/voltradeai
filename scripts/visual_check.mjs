@@ -277,7 +277,7 @@ const FIXTURES = {
   },
   "/api/data/graph": {
     kind: "raw", built_at: 1,
-    counts: { nodes: 42, edges: 61, company: 9, person: 14, facility: 16, vessel: 3, insider_of: 18, operates: 12, calls_at: 31 },
+    counts: { nodes: 42, edges: 65, company: 9, person: 14, facility: 16, vessel: 3, insider_of: 18, operates: 12, calls_at: 31, owns: 4 },
     caveat: "RAW graph — every edge asserts a relationship with provenance (fixture).",
     note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query",
   },

@@ -43,7 +43,7 @@ const visit = (over: Partial<PortVisit>): PortVisit => ({
 });
 
 test("facility nodes: every site + plant becomes a node, lat/lon intrinsic (no separate located_at edge)", async () => {
-  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map() });
+  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map(), gemOwnership: null });
   assert.equal(g.counts.facility, sites.length + plants.length);
   const cushing = g.nodes.find((n) => n.id === "facility:site:cushing_hub");
   assert.ok(cushing);
@@ -56,7 +56,7 @@ test("facility nodes: every site + plant becomes a node, lat/lon intrinsic (no s
 });
 
 test("operates edges: only entity_map entries with a ticker produce an edge; unmapped/absent operators are honest gaps", async () => {
-  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map() });
+  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map(), gemOwnership: null });
   assert.equal(g.counts.operates, 2); // Enbridge->cushing_hub, Georgia Power->plant:0
   const enbridgeEdge = g.edges.find((e) => e.type === "operates" && e.to === "facility:site:cushing_hub");
   assert.ok(enbridgeEdge);
@@ -77,7 +77,7 @@ test("insider_of edges aggregate across multiple filings for the same person/com
     form4({ filedAt: "2026-06-01T00:00:00Z", transactions: [{ table: "nonDerivative", securityTitle: "Common", transactionDate: "2026-06-01", transactionCode: "P", kind: "open_market_buy", shares: 10, pricePerShare: 40, acquiredDisposedCode: "A", sharesOwnedAfter: 100 }] }),
     form4({ filedAt: "2026-07-01T00:00:00Z", transactions: [{ table: "nonDerivative", securityTitle: "Common", transactionDate: "2026-07-01", transactionCode: "S", kind: "open_market_sale", shares: 5, pricePerShare: 55, acquiredDisposedCode: "D", sharesOwnedAfter: 95 }] }),
   ];
-  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: filings, portVisitsByPort: new Map() });
+  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: filings, portVisitsByPort: new Map(), gemOwnership: null });
   assert.equal(g.counts.insider_of, 1); // one person, one company, two filings -> one aggregated edge
   const edge = g.edges.find((e) => e.type === "insider_of")!;
   assert.equal(edge.from, "person:0000123");
@@ -92,7 +92,7 @@ test("insider_of edges aggregate across multiple filings for the same person/com
 
 test("insider_of falls back to a CIK-keyed company id when no ticker is filed, and never collides with a real ticker id", async () => {
   const filings = [form4({ issuerTradingSymbol: null, issuerCik: "0000999", issuerName: "No Ticker Co" })];
-  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: filings, portVisitsByPort: new Map() });
+  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: filings, portVisitsByPort: new Map(), gemOwnership: null });
   const company = g.nodes.find((n) => n.type === "company" && n.attrs.cik === "0000999");
   assert.ok(company);
   assert.equal(company!.id, "company:cik:0000999");
@@ -103,7 +103,7 @@ test("calls_at edges: only ports (site category 'port') get vessel edges; visit_
   const visitsByPort = new Map<string, PortVisit[]>([
     ["la_port", [visit({ dwellHours: 4, lastSeen: 5000 }), visit({ dwellHours: 12, lastSeen: 9000 }), visit({ dwellHours: 8, lastSeen: 7000 })]],
   ]);
-  const g = await buildGraph({ sites, plants: [], entities: [], form4Filings: [], portVisitsByPort: visitsByPort });
+  const g = await buildGraph({ sites, plants: [], entities: [], form4Filings: [], portVisitsByPort: visitsByPort, gemOwnership: null });
   assert.equal(g.counts.calls_at, 1); // one vessel, one port -> one aggregated edge
   const edge = g.edges.find((e) => e.type === "calls_at")!;
   assert.equal(edge.to, "facility:site:la_port");
@@ -117,12 +117,12 @@ test("calls_at edges: only ports (site category 'port') get vessel edges; visit_
 
 test("calls_at ignores visits assigned to a portId that isn't a real port site (defensive — should never happen upstream)", async () => {
   const visitsByPort = new Map<string, PortVisit[]>([["not_a_real_port", [visit({ portId: "not_a_real_port" })]]]);
-  const g = await buildGraph({ sites, plants: [], entities: [], form4Filings: [], portVisitsByPort: visitsByPort });
+  const g = await buildGraph({ sites, plants: [], entities: [], form4Filings: [], portVisitsByPort: visitsByPort, gemOwnership: null });
   assert.equal(g.counts.calls_at, 0);
 });
 
 test("resolveEntityId + neighborhood: bare ticker resolves, hops=1 returns direct neighbors only", async () => {
-  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map() });
+  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map(), gemOwnership: null });
   const id = resolveEntityId(g, "ENB");
   assert.equal(id, "company:ENB");
   const nbhd = neighborhood(g, id!, 1);
@@ -132,23 +132,66 @@ test("resolveEntityId + neighborhood: bare ticker resolves, hops=1 returns direc
 });
 
 test("resolveEntityId returns null for an unknown entity", async () => {
-  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map() });
+  const g = await buildGraph({ sites, plants, entities, form4Filings: [], portVisitsByPort: new Map(), gemOwnership: null });
   assert.equal(resolveEntityId(g, "NOPE_NOT_A_REAL_ENTITY"), null);
 });
 
 test("counts block is internally consistent with the emitted node/edge arrays", async () => {
   const filings = [form4({})];
   const visitsByPort = new Map<string, PortVisit[]>([["la_port", [visit({})]]]);
-  const g = await buildGraph({ sites, plants, entities, form4Filings: filings, portVisitsByPort: visitsByPort });
+  const g = await buildGraph({ sites, plants, entities, form4Filings: filings, portVisitsByPort: visitsByPort, gemOwnership: null });
   assert.equal(g.counts.nodes, g.nodes.length);
   assert.equal(g.counts.edges, g.edges.length);
   assert.equal(g.counts.company + g.counts.person + g.counts.facility + g.counts.vessel, g.nodes.length);
-  assert.equal(g.counts.insider_of + g.counts.operates + g.counts.calls_at, g.edges.length);
+  assert.equal(g.counts.insider_of + g.counts.operates + g.counts.calls_at + g.counts.owns, g.edges.length);
 });
 
 test("graph is marked RAW with a caveat naming provenance/staleness caveats", () => {
-  return buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map() }).then((g) => {
+  return buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: null }).then((g) => {
     assert.equal(g.kind, "raw");
     assert.ok(g.caveat.toLowerCase().includes("no predictive claim"));
   });
+});
+
+// ── owns edges (GEM Global Energy Ownership Tracker CIK join) ──────────────
+const gemEntities = [
+  { "Entity ID": "E1", "Full Name": "Big Utility Corp", "US SEC Central Index Key": "0000001305" },
+  { "Entity ID": "E2", "Full Name": "Mega Holdings Inc", "US SEC Central Index Key": "0001432290" },
+  { "Entity ID": "E3", "Full Name": "No CIK Government Fund" }, // no CIK field at all
+  { "Entity ID": "E4", "Full Name": "Not Found Co", "US SEC Central Index Key": "not found" },
+];
+const gemEdges = [
+  { "Subject Entity ID": "E1", "Subject Entity Name": "Big Utility Corp", "Interested Party ID": "E2", "Interested Party Name": "Mega Holdings Inc", "% Share of Ownership": 12.6, "Share Imputed?": "known value, not imputed", "Data Source URL": "https://example.test/src" },
+  { "Subject Entity ID": "E1", "Subject Entity Name": "Big Utility Corp", "Interested Party ID": "E3", "Interested Party Name": "No CIK Government Fund", "% Share of Ownership": 40 }, // owner has no CIK -> honest gap, skipped
+  { "Subject Entity ID": "E4", "Subject Entity Name": "Not Found Co", "Interested Party ID": "E2", "Interested Party Name": "Mega Holdings Inc", "% Share of Ownership": 5 }, // subject CIK is the literal "not found" sentinel -> skipped
+];
+const gemFixture = { provenance: { attribution: "Global Energy Monitor", license: "CC BY 4.0", release: "test", built_at: "2026-07-07T03:06:32Z" }, entities: gemEntities, entity_edges: gemEdges };
+
+test("owns edges: only pairs where BOTH ends resolve to a real CIK are included; the rest are honest gaps", async () => {
+  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: gemFixture, cikTickerMap: new Map() });
+  assert.equal(g.counts.owns, 1); // only E2->E1 has both ends CIK-resolved
+  const edge = g.edges.find((e) => e.type === "owns")!;
+  assert.equal(edge.from, "company:cik:0001432290"); // owner (Interested Party) -> Subject
+  assert.equal(edge.to, "company:cik:0000001305");
+  assert.equal(edge.attrs.share_pct, 12.6);
+  assert.equal(edge.confidence, "high");
+  assert.equal(edge.source.includes("Global Energy Monitor"), true);
+  assert.equal(edge.first_seen, "2026-07-07T03:06:32Z"); // GEM's own release date, not entity_map.json's
+  assert.equal(edge.last_seen, "2026-07-07T03:06:32Z");
+});
+
+test("owns edges: a resolvable CIK->ticker mapping lands the node on the SAME id the EDGAR/insider join would use", async () => {
+  const cikTickerMap = new Map([["1432290", "MEGA"]]); // getCikTickerMap keys are un-padded, per sec8kEarnings.ts
+  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: gemFixture, cikTickerMap });
+  const edge = g.edges.find((e) => e.type === "owns")!;
+  assert.equal(edge.from, "company:MEGA");
+  const node = g.nodes.find((n) => n.id === "company:MEGA");
+  assert.ok(node);
+  assert.equal(node!.attrs.ticker_known, true);
+});
+
+test("owns edges: null gemOwnership (disk read unavailable/skipped) yields zero owns edges, never throws", async () => {
+  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: null });
+  assert.equal(g.counts.owns, 0);
+  assert.equal(g.edges.some((e) => e.type === "owns"), false);
 });

@@ -47,13 +47,28 @@ everything the platform knows about STLD" is a graph query.
 | operates | company → facility | sites `operator` + plants `owner` via entity_map | confidence, provenance (registry string), verified flag |
 | located_at | facility → geo | registries | lat/lon, imagery-verified flag |
 | calls_at | vessel → facility(port) | portDwell visits (v1.0.60) | visit count, last call, median dwell — the graph's first MOVING edges |
+| owns | company(owner) → company(owned) | GEM Global Energy Ownership Tracker (CC BY 4.0, datacore/gem/ownership.json.gz) | share_pct, imputed flag, source URL — the graph's first company→company edge |
+
+**[SHIPPED — GEM ownership CIK join]**: `owns` is restricted to pairs
+where BOTH the owned and owner entity resolve to a real US SEC CIK
+(via GEM's own SEC-CIK crosswalk field) — GEM also tracks governments,
+private holders, and foreign parents with no CIK, which stay an honest
+gap for now (24,351 total entity_edges in the source file; 393 resolve
+both ends to a CIK today, mostly institutional 13F-style holders).
+Node ids reuse the same ticker-preferred / `company:cik:<CIK>`
+fallback scheme `insider_of` already uses (via the shared
+`getCikTickerMap` resolver), so a GEM-tracked company lands on the
+SAME node the EDGAR pipeline populates. Broadening this to the
+1,403 edges with at least one CIK-mapped end (the more novel joins —
+state ownership, foreign conglomerate parents) needs a non-`company`
+node type or a documented type relaxation and is a follow-up, not
+this slice (see research/open_questions.md).
 
 Deliberately excluded from v1 (need sources we don't have yet):
 `supplies` (company→company supply chains — no free authoritative
 source; NOT blocked-by-access, derivable later from 10-K/8-K text at
 low confidence, but that is an extraction project, not a join),
-`banks_with`, `audited_by`, ownership trees (13F/13D — queued EDGAR
-expansion).
+`banks_with`, `audited_by`.
 
 ## The hard part: entity resolution (operator strings → tickers)
 

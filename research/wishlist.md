@@ -136,9 +136,14 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   coal/oil/gas/LNG/steel/cement/chemicals registries; every skip
   stated in suite_skips.json). QUEUED FOLLOW-UPS: (a) pipelines
   PMTiles map layer from the GIS zips (68-72MB geojsons in Mike's
-  Drive copy + scratchpad); (b) entity-graph CIK join (GEOT <->
-  EDGAR); (c) LNG-carrier IMO join to AIS archive; (d) GMET plumes
-  as a dated map/event layer.
+  Drive copy + scratchpad); (b) **SHIPPED 2026-07-17 (v1.0.374,
+  server/entityGraph.ts `owns` edge type)** entity-graph CIK join
+  (GEOT <-> EDGAR) — restricted to pairs where both ends resolve to a
+  real CIK (393 of 24,351 entity_edges today); broadening to the
+  1,010 government/private/foreign-owner edges with no CIK is filed
+  as its own follow-up in open_questions.md (EVERYTHING-GRAPH,
+  2026-07-17); (c) LNG-carrier IMO join to AIS archive; (d) GMET
+  plumes as a dated map/event layer.
 - CENSUS BUILD #4 FINRA PART 2: SHIPPED v1.0.208 — server/finraQuery.ts
   extended (not a new file — same module, same contract family) with
   weeklySummary + monthlySummary (composite-key partitions
