@@ -407,7 +407,7 @@ void main() {
 // strength (u_fillK, CPU-computed) is ~max(sunUp, 0): the Earth face below
 // the craft reflects only when it is actually sunlit.
 const MESH_FS = `#version 300 es
-precision mediump float;
+precision highp float;
 in vec3 v_normal;
 in vec3 v_color;
 uniform vec3 u_sun;    // scene-frame unit sun direction (real ephemeris)
@@ -441,7 +441,7 @@ void main() {
 // imagery, and the provenance string says so); night near-black; thin
 // atmosphere rim at the limb, brighter toward the day side.
 const EARTH_FS = `#version 300 es
-precision mediump float;
+precision highp float;
 in vec3 v_normal;
 in vec3 v_world;
 uniform vec3 u_sun;
@@ -479,7 +479,7 @@ void main() {
 // fraction AND lit-side orientation fall out of the real geometry instead
 // of being painted on.
 const DISC_FS = `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 v_uv;
 uniform int u_mode;
 uniform vec3 u_right;
@@ -509,7 +509,7 @@ uniform mat4 u_mvp;
 void main() { gl_Position = u_mvp * vec4(a_pos, 1.0); }`;
 
 const LINE_FS = `#version 300 es
-precision mediump float;
+precision highp float;
 uniform vec4 u_color;
 out vec4 o;
 void main() { o = u_color; }`;
