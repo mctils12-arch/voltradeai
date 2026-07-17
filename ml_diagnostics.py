@@ -359,10 +359,11 @@ def smoke_test_section():
     try:
         import ml_model_v2
         t0 = time.time()
-        bars = ml_model_v2._fetch_training_bars(days=30, max_tickers=3)
+        bars, bars_fetch_error = ml_model_v2._fetch_training_bars(days=30, max_tickers=3)
         steps.append({"step": "fetch_training_bars_tiny", "ok": True,
                       "time_sec": round(time.time() - t0, 3),
                       "tickers_returned": len(bars) if isinstance(bars, dict) else None,
+                      "fetch_error": bars_fetch_error,
                       "info": "fetched 30 days × 3 tickers as a smoke test"})
     except Exception as e:
         steps.append({"step": "fetch_training_bars_tiny", "ok": False,

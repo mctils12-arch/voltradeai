@@ -41,6 +41,22 @@ from typing import Optional, List, Tuple, Dict
 
 import requests
 from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
+
+# [REPAIR 2026-07-17] ml_model_v2 is imported both by the long-running daemon
+# (where bot_engine.py already calls install_global_throttle()) AND by
+# ml_retrain_safe.py — a FRESH subprocess spawned every hourly/4am retrain
+# that never imports bot_engine. Without this, _fetch_training_bars() made
+# completely unthrottled bursts of Alpaca calls concurrently with the
+# daemon's own throttled Tier-2 scan traffic, plausibly tripping 429s that
+# were then swallowed by a bare `except: continue` (see _fetch_training_bars
+# below). install_global_throttle() is idempotent (alpaca_rate_limiter's own
+# _patched guard), so calling it again from the daemon path is a no-op.
+try:
+    from alpaca_rate_limiter import install_global_throttle
+    install_global_throttle()
+except ImportError:
+    pass  # Rate limiter optional — system works without it
+
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("ml_model_v3")
@@ -187,8 +203,16 @@ _model_cache_lock = _threading_ml.Lock()
 # DATA FETCHING
 # ══════════════════════════════════════════════════════════════════
 
-def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: bool = False) -> dict:
+def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: bool = False) -> Tuple[dict, Optional[str]]:
     """Fetch daily bars for training universe.
+
+    Returns (bars_by_symbol, last_error_detail). last_error_detail is None
+    when at least one batch succeeded; otherwise it carries the real cause
+    of the LAST failed batch (HTTP status + body snippet, or exception
+    repr) so an empty result is diagnosable instead of a bare "Could not
+    fetch training bars" [REPAIR 2026-07-17 — see KNOWN BROKEN #17 in
+    open_questions.md, which made this failure message legible but not
+    diagnosable].
 
     OOM FIX 2026-05-22 (audit log 2026-05-21):
       Production snapshot showed daemon RSS 449/1024 MB cap (NOT 8GB as a
@@ -250,6 +274,7 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: boo
         start_date = "2020-01-01"
 
     all_bars: dict = {}
+    last_error: Optional[str] = None
     for i in range(0, len(tickers), 10):
         batch = tickers[i:i+10]
         try:
@@ -258,10 +283,15 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: boo
                         "start": start_date, "limit": 10000,
                         "adjustment": "all", "feed": data_feed()},
                 headers=_h(), timeout=20)
+            if r.status_code != 200:
+                last_error = f"HTTP {r.status_code}: {r.text[:180]}"
+                continue
             for sym, bars in r.json().get("bars", {}).items():
                 all_bars[sym] = bars
-        except Exception: continue
-    return all_bars
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            continue
+    return all_bars, (None if all_bars else last_error)
 
 
 def _fetch_earnings_surprises(tickers: list) -> Dict[str, float]:
@@ -1284,10 +1314,13 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
     # ~575 MB headroom. Full-history training still available via fast_mode=False.
     _ml_days = BASE_CONFIG.get("ML_LOOKBACK_DAYS", 365)
     _ml_max_tickers = BASE_CONFIG.get("ML_MAX_TICKERS", 200)
-    all_bars = _fetch_training_bars(days=_ml_days, max_tickers=_ml_max_tickers,
+    all_bars, _bars_fetch_error = _fetch_training_bars(days=_ml_days, max_tickers=_ml_max_tickers,
                                      fast_mode=fast_mode)
     if not all_bars:
-        return {"status": "failed", "reason": "Could not fetch training bars"}
+        _reason = "Could not fetch training bars"
+        if _bars_fetch_error:
+            _reason += f" ({_bars_fetch_error})"
+        return {"status": "failed", "reason": _reason}
 
     # Fetch earnings surprises for the tickers we're training on
     ticker_list = [k for k in all_bars if k not in ("SPY","QQQ","IWM","VXX","GLD","TLT")]

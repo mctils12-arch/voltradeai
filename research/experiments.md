@@ -19475,3 +19475,189 @@ path, which uses distinct order-submission code, not the WS `checkPositionOnTick
 path) — a future session should re-query this after a few days of live
 data and close this item if confirmed, per KNOWN BROKEN #18's own
 "re-check and mark RESOLVED" precedent.
+
+## 2026-07-17 (session 4) [REPAIR] — ml_retrain subprocess made unthrottled Alpaca calls, masked by a silent except; TIER3-ML-ERROR "Could not fetch training bars" recurring live (v1.0.384, T-BOT)
+
+TERRITORY: T-BOT (`ml_model_v2.py`, `ml_diagnostics.py`,
+`server/bot.ts` outside frozen paths — no `server/bot.ts` edit needed
+this session) per WORKSTREAM PARTITION.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in full;
+`research/experiments.md` tail (last entry: session 3's floor-basket
+fix, merged as #514/v1.0.380) + `research/open_questions.md` KNOWN
+BROKEN section (read in full, items 1-21+) + `research/wishlist.md`.
+Loop-health ratio, last 10 tagged entries (2026-07-13 through this
+session): PRODUCT, PRODUCT, REPAIR, PRODUCT, REPAIR, REPAIR, PRODUCT,
+REPAIR, PIPELINE, REPAIR — 5/10 REPAIR, under the 7/10 thrash
+threshold, no meta-problem override.
+
+BRANCH STATE: `claude/funny-fermat-sr5bca`'s prior HEAD (5ee770c, #504)
+was already an ancestor of `main` (confirmed via `git merge-base` ==
+branch HEAD) — i.e. fully merged, main had moved 11 commits ahead
+since. Per this session's own branch-reuse protocol, reset the branch
+to `origin/main` (`git checkout -B claude/funny-fermat-sr5bca
+origin/main`) before starting new work rather than stacking on stale
+history.
+
+`/api/health`: `status: ok`, `bot.liveness.dark: false`, `drawdownPct:
+"0.0"`, `scanner.consecutiveFailures: 0` — no LIVENESS ALARM.
+
+PROBLEM FOUND IN THE LIVE AUDIT LOG (SESSION BUDGET's "fix a bug seen
+in audit logs" — the first live check pulled): `/api/diag/audit?
+limit=80` showed `TIER3-ML-ERROR: ML retrain failed: failed — Could
+not fetch training bars` recurring 5x in the last ~90 minutes
+(19:01:25, 19:03:06, 19:36:35, 20:07:45, 20:11:50 UTC, all
+2026-07-17). `/api/diag/ml` confirmed the live effect: `model_age_
+hours: 26.1` despite hourly Tier-3 retrain triggers firing throughout
+that window — the model has not actually refreshed in over a day.
+`/api/diag/scanner` showed zero `dataSourceErrors` (a different,
+unrelated diagnostic path) and `/api/diag/daemon` showed a healthy
+daemon (rss 224.8/1024MB) — ruling out the obvious OOM/daemon-crash
+explanations.
+
+THIS IS A DIRECT CONTINUATION OF KNOWN BROKEN #17, not a duplicate
+(RECURRENCE ESCALATES only forbids re-patching an already-fixed
+symptom — #17 fixed message VISIBILITY, explicitly leaving the cause
+open): the 2026-07-15 fix made `bot.ts` read `trainResult.reason` so
+this failure shape stopped rendering as a bare "failed" — but that
+session's own closing note said "if 'Could not fetch training bars'
+recurs, that points at the Alpaca bars fetch inside
+_fetch_training_bars, not at this audit-visibility layer" and
+explicitly did not investigate further. It has now recurred, with the
+real cause visible for the first time — this session is that planned
+follow-up.
+
+ROOT CAUSE (READ BEFORE WRITE — traced the actual current code):
+`ml_model_v2.py`'s `_fetch_training_bars()` (the sole call site,
+confirmed via grep for every caller) makes raw `requests.get()` calls
+to `data.alpaca.markets/v2/stocks/bars` in batches of 10 tickers, with
+a bare `except Exception: continue` per batch — any failure (429 rate
+limit, timeout, transient 5xx) is silently discarded, collapsing to an
+empty `all_bars` dict and the content-free "Could not fetch training
+bars" message. Separately, and more importantly: this function is NEVER
+throttled. `alpaca_rate_limiter.py` (FROZEN, not edited) provides
+`install_global_throttle()` — a monkey-patch on `requests.get/post/
+delete` that auto-throttles any `alpaca.markets` URL to 180/min — but
+it is only ever called from `bot_engine.py`'s module-level import
+(line 67-68). `ml_model_v2.train_model()` is invoked two ways: (a) via
+the long-running daemon process, where `bot_engine.py` has already run
+and the throttle is installed, and (b) via `ml_retrain_safe.py`
+(confirmed by tracing `server/bot.ts`'s two call sites, ~line 4136 and
+~4512: both do `execPythonSerialized("python3 ml_retrain_safe.py")`,
+never an RPC route — `voltrade_daemon.py` has no retrain route at
+all). `ml_retrain_safe.py` is a **fresh Python subprocess every single
+retrain** (hourly Tier-3 + 4am daily) and its only import chain is
+`numpy` -> `lightgbm` -> `from ml_model_v2 import train_model` — it
+never imports `bot_engine`, so the throttle was never installed in this
+path. Net effect: every retrain's `_fetch_training_bars()` burst (up to
+10 raw HTTP requests in quick succession) ran completely unthrottled,
+concurrently with the daemon's own already-throttled Tier-2 scan
+traffic sharing the same `ALPACA_KEY` (confirmed in the audit log: a
+`TIER2 "Scanned 11931 stocks"` line landed in the same ~1min window as
+a `TIER3-ML-ERROR` line) — a plausible, evidence-consistent trigger for
+intermittent 429s that the bare `except: continue` then hid completely.
+
+FIX (own PR, one logical change — two parts of the same defect, same
+file, same call path):
+1. `ml_model_v2.py` now calls `install_global_throttle()` at module
+   import time, guarded by the identical try/except ImportError pattern
+   `bot_engine.py` already uses. Idempotent (`alpaca_rate_limiter`'s own
+   `_patched` guard) — a no-op when the daemon path already installed
+   it.
+2. `_fetch_training_bars()` now returns `(bars, last_error)` instead of
+   a bare dict: non-200 responses capture `HTTP <status>: <body[:180]>`,
+   exceptions capture `<type>: <message>`, and `last_error` is `None`
+   whenever at least one batch succeeded. `train_model()`'s single call
+   site now folds `last_error` into the `"reason"` field (e.g. "Could
+   not fetch training bars (HTTP 429: ...)") instead of the bare
+   message. The one other call site (`ml_diagnostics.py`'s smoke test,
+   found via grep — `_fetch_training_bars` has exactly two callers in
+   the whole repo) updated to unpack the tuple and surface
+   `fetch_error` in its own diagnostic output, which is directly useful
+   there since that tool's entire purpose is diagnosability.
+
+RATCHET: `test_ml_retrain_throttle.py` (NEW, 5 tests). The centerpiece
+test reproduces `ml_retrain_safe.py`'s EXACT process shape — a
+subprocess that runs `import ml_model_v2, alpaca_rate_limiter; print(
+alpaca_rate_limiter._patched)` and asserts `True` — not a mock, the
+real fresh-interpreter scenario the bug lived in. Three more tests pin
+`_fetch_training_bars`'s HTTP-error/exception/success return shapes via
+`mock.patch.object`. One more confirms `train_model()`'s `reason` field
+survives the real cause through to the caller. A/B-verified via `git
+stash push -- ml_model_v2.py ml_diagnostics.py`: all 5 fail against the
+pre-fix code (`ValueError: not enough values to unpack` for the
+tuple-shape tests, `False` printed for the subprocess test, and a
+downstream `AttributeError: 'tuple' object has no attribute 'get'`
+inside `_build_training_data` for the end-to-end test — a real crash,
+not a graceful skip, underscoring why the pre-fix code path was this
+fragile); all 5 pass post-fix; stash popped to restore the fix.
+
+SIDE-EFFECT CAUGHT BY THE FULL GATE, not self-introduced: fixing the
+bare `except: continue` to capture and use the exception dropped
+`ml_model_v2.py`'s silent-except count from 25 to 24, tripping
+`test_silent_except_ratchet.py`'s exact-pin assertion (that test's own
+failure message names the fix: "lower the pin to 24"). Lowered the pin
+in the same PR per that test's own instruction — this is the ratchet
+tightening in the direction it's designed to reward, not a weakening.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): unthrottled subprocess call
+-> plausible 429 during concurrent Tier-2 load -> silently empty
+`all_bars` -> `train_model()` early-returns "failed" every time this
+coincides -> `model_age_hours` climbs past its normal cadence (confirmed
+live: 26.1h vs. the ~1h cadence Tier-3 targets) -> stale model serves
+predictions trained on older market conditions, a live regression
+against the HONESTY METRIC (claimed hourly-fresh vs. actual day-plus-
+stale) -> because `ml_retrain_safe.py`'s subprocess is now throttled to
+180/min AND any residual failure carries its real cause, a future
+recurrence is either prevented outright or, if Alpaca's true
+cross-process 200/min limit is still exceeded by the daemon+subprocess
+combined load, immediately diagnosable instead of another silent
+"failed" ai audit line.
+
+RESIDUAL RISK, stated honestly (not fixed this session, deliberately
+scoped out — a second logical change): `alpaca_throttle`'s token
+bucket is a single in-process object. The daemon and the
+`ml_retrain_safe.py` subprocess now each throttle themselves to 180/min
+independently, but do NOT coordinate with each other — if both are
+bursting near their own 180/min ceiling at the same moment, the
+combined real load against the shared `ALPACA_KEY` could still exceed
+Alpaca's actual 200/min account-wide limit. A true fix would need a
+cross-process shared limiter (file-lock-based token bucket, or routing
+`ml_retrain_safe.py`'s data fetch through the daemon's RPC instead of a
+raw subprocess) — real architectural work, not appropriate to bundle
+into this fix. Filed as the concrete next step below if the new
+diagnosable `last_error` field shows further HTTP 429s post-deploy.
+
+GATES: `pip install -r requirements.txt openpyxl` (same recurring sandbox
+gap every recent session has logged) then `python3 -m pytest -q` — 751
+passed, 2 skipped (746 baseline + 5 new, zero regressions; includes the
+`test_silent_except_ratchet.py` pin fix). `npm install` (486 packages,
+also re-synced `package-lock.json`'s stale 1.0.380 version field to
+1.0.384, the same harmless `npm install` byproduct prior sessions have
+logged). `npx tsc --noEmit` — 66 errors, unchanged from the pre-existing
+baseline (zero TS files touched by this fix; only `package.json`/
+`package-lock.json` changed on the JS side). `npx tsx --test
+server/*.test.ts` — 719 passed, 0 failed (no regressions; this file's
+tests are unrelated to the Python change, run for completeness since
+`npm install` touched `package-lock.json`). `npm run build` — clean,
+both client + server bundles (dist/index.cjs 12.6mb, pre-existing size
+warning). No client/ files touched — visual harness does not apply.
+Version bumped 1.0.383 -> 1.0.384 per PROMOTION RULE 4.
+
+BACKTEST: N/A — this is infrastructure/reliability plumbing (a retrain
+subprocess's own HTTP throttling and error visibility), not a
+trading/scoring/sizing change; PROMOTION RULE 3's Sharpe/drawdown
+comparison doesn't apply, same reasoning the 2026-07-07 SIP-stdout-
+corruption ML-retrain fix and the 2026-07-15 KNOWN BROKEN #17
+visibility fix both used for analogous ML-plumbing fixes.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before evidence): once
+deployed, `/api/diag/audit?type=TIER3-ML-ERROR&limit=20` should show
+either (a) zero further "Could not fetch training bars" entries over
+the next 24h, or (b) if the residual cross-process risk above is real,
+future entries should now carry a specific diagnosable cause (e.g. "HTTP
+429: ...") instead of the bare content-free message — and
+`/api/diag/ml`'s `model_age_hours` should stop climbing past ~1-2h. A
+future session should check both and, if (b) occurs with an HTTP 429
+specifically, treat the cross-process shared-limiter gap above as the
+next KNOWN BROKEN item with the evidence already in hand.
