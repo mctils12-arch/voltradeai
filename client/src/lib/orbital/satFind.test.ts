@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   searchSats, SAT_GROUPS, groupMask, maskCount, applyGroupSentinel,
-  spreadIndices, GROUP_ARC_CAP,
+  spreadIndices, GROUP_ARC_CAP, collapseStationComplexes, isStationComplex,
 } from './satFind.js';
 import { SAT_STRIDE } from './satBuffer.js';
 
@@ -58,4 +58,27 @@ test('spreadIndices: even deterministic sample under the cap', () => {
   assert.equal(chosen[0], 0);
   assert.ok(chosen[GROUP_ARC_CAP - 1] >= 190, 'covers the tail, not just the head');
   assert.deepEqual(spreadIndices([1, 2, 3]), [1, 2, 3], 'small groups pass through whole');
+});
+
+test("station collapse: one physical station = one object; keeper = lowest NORAD; strangers untouched", () => {
+  const mk = (noradId: number, name: string) => ({ noradId, name } as any);
+  const gp = [
+    mk(25575, "ISS (UNITY)"),
+    mk(25544, "ISS (ZARYA)"),
+    mk(49044, "ISS (NAUKA)"),
+    mk(48274, "CSS (TIANHE)"),
+    mk(54216, "CSS (MENGTIAN)"),
+    mk(52085, "PROGRESS-MS 19"),   // visiting vehicle — own name, stays
+    mk(44713, "STARLINK-1007"),
+  ];
+  const out = collapseStationComplexes(gp);
+  assert.deepEqual(out.map((g: any) => g.noradId), [25544, 48274, 52085, 44713],
+    "ZARYA + TIANHE keep their stations; modules dropped; others untouched");
+  // no station entries at all → identity (no accidental filtering)
+  const plain = [mk(1, "A"), mk(2, "B")];
+  assert.deepEqual(collapseStationComplexes(plain), plain);
+  assert.equal(isStationComplex("ISS (ZARYA)"), true);
+  assert.equal(isStationComplex("CSS (TIANHE)"), true);
+  assert.equal(isStationComplex("PROGRESS-MS 19"), false);
+  assert.equal(isStationComplex(null), false);
 });

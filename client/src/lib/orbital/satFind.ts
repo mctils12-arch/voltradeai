@@ -105,3 +105,38 @@ export function spreadIndices(members: number[], cap: number = GROUP_ARC_CAP): n
   for (let k = 0; k < cap; k++) out.push(members[Math.floor(k * step)]);
   return out;
 }
+
+/**
+ * STATION COMPLEX COLLAPSE (human-directed 2026-07-16: "I just want the
+ * one full [station] that is up there currently and get rid of the rest"):
+ * the ISS and CSS are each ONE physical station, but their modules are
+ * cataloged as separate objects (ISS (ZARYA)/(UNITY)/(NAUKA)…,
+ * CSS (TIANHE)/(WENTIAN)/(MENGTIAN)) — rendering several co-orbiting
+ * "satellites" for one station is LESS truthful, not more. Entries whose
+ * name matches a station prefix collapse to ONE keeper: the lowest NORAD
+ * id present, i.e. the station's first-launched core module (ISS → ZARYA
+ * 25544). Genuinely separate visiting vehicles (Dragon, Soyuz, Progress,
+ * Cygnus) have their own catalog names and are untouched. The detail card
+ * states the collapse; the keeper carries the real station model.
+ */
+const STATION_PREFIXES = [/^ISS \(/i, /^CSS \(/i];
+
+export function collapseStationComplexes(gp: GpRecord[]): GpRecord[] {
+  const keeper = new Map<number, number>();
+  for (const g of gp) {
+    const i = STATION_PREFIXES.findIndex((re) => re.test((g.name ?? '').trim()));
+    if (i < 0) continue;
+    const cur = keeper.get(i);
+    if (cur === undefined || g.noradId < cur) keeper.set(i, g.noradId);
+  }
+  if (!keeper.size) return gp;
+  return gp.filter((g) => {
+    const i = STATION_PREFIXES.findIndex((re) => re.test((g.name ?? '').trim()));
+    return i < 0 || keeper.get(i) === g.noradId;
+  });
+}
+
+/** True when this entry is a station-complex keeper (for the card note). */
+export function isStationComplex(name: string | null | undefined): boolean {
+  return STATION_PREFIXES.some((re) => re.test((name ?? '').trim()));
+}
