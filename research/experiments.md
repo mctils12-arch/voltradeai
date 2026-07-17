@@ -19126,3 +19126,91 @@ a future session cross-checking `/api/data/dossier?lat=..&lon=..`
 against a known HIFLD plant coordinate (no `entity` param) should get a
 non-empty `nearest_sites`/`hazards` section, confirming the wiring works
 live and not just in the unit-tested/build-clean sandbox checks above.
+
+---
+
+## 2026-07-17 [REPAIR] — KNOWN BROKEN #18 CLOSED: ≥24h live confirmation the shadowFleet O(n²) fix (v1.0.307) actually stopped the event-loop stalls; docs-only session, no code changed
+
+TERRITORY: research/*.md only (SHARED per WORKSTREAM PARTITION) — no
+FROZEN, T-BOT, T-CLIENT, or T-DATACORE files touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in
+full; `/api/health` — `status: ok`, `bot.liveness.dark: false` (no
+LIVENESS ALARM), `scanner.consecutiveFailures: 0`, `drawdownPct: 0.0` —
+current process `uptime_s: 559` at check time (a normal deploy restart
+to v1.0.376, confirmed via `/api/diag/audit?type=STARTUP/SHUTDOWN` —
+graceful SIGTERM then clean boot, nothing anomalous). Loop-health ratio,
+last 10 tagged entries (2026-07-12 through 2026-07-14): 4 REPAIR /
+5 PRODUCT / 1 RESEARCH — under the 7/10 thrash threshold, no
+meta-problem override triggered. KNOWN BROKEN scan: #10 (dead
+SCORE_BAND_MAX/MAX_CHANGE_PCT config) remains gated on ≥90 days of
+shadow_portfolio backfill history, not yet ripe; #20 (master_kill_switch
+threshold judgment call) is a RULE-REVIEW item needing counterfactual
+evidence, not a repair; #21 was confirmed resolved by the two
+immediately-prior sessions (v1.0.310/v1.0.311) — this session's own
+live `/api/diag/scanner` check reconfirmed it: `dataSourceErrors.
+stock_details` now shows a REAL per-ticker message ("'RKLZ' has no
+options market...") instead of the permanent empty `{}`, exactly the
+hypothesis the 2026-07-14 session logged. #18 was the one item with an
+explicit, cheap, actionable, DATED next step still outstanding — the
+2026-07-14 02:35 UTC update's own words: "next session should re-check
+and, if the pattern holds..., mark RESOLVED" — the clear highest-value
+primary action per SESSION BUDGET ("judge a matured experiment" ranks
+above starting new work).
+
+CHECK PERFORMED: queried production directly, ~4 days after v1.0.307
+(the shadowFleet spatial-grid fix) merged/deployed 2026-07-13 16:33:50
+UTC. `type=TIER2-ERROR` and `type=STREAM-DISCONNECT` — **zero** entries
+of either kind anywhere in the retained audit history since the deploy
+(both previously fired on tight ~10-30min cadences with near-100%
+recurrence for days). `type=DB-SLOW-WRITE` and `type=TMP-CLEANUP` — still
+zero, consistent with the two earlier REFUTED theories (tmpCleanup sync
+fs, SQLite sync writes via `db`) staying refuted, not re-litigated.
+`type=EVENTLOOP-LAG` — exactly 3 entries in the whole retained window,
+all on 2026-07-16 (20:32/22:30 UTC) and 2026-07-17 (00:23 UTC),
+magnitude 506-614ms — two orders of magnitude below the pre-fix
+60,000-98,000ms stalls, not on the ~600s cadence, and already discounted
+by the 2026-07-14 update as ordinary GC/scheduling noise (its own stated
+threshold for "not the tracked defect"). Verified the type-filtered
+`/api/diag/audit` endpoint genuinely scans past the immediate-recent
+window rather than truncating to it: the EVENTLOOP-LAG query surfaced
+entries from 2026-07-16 even though an unfiltered `limit=200` query on
+the same endpoint only reached back ~67 minutes (high base traffic from
+T2-FAIL/RULES entries fills the unfiltered window fast) — so the
+type-scoped zero-counts for TIER2-ERROR/STREAM-DISCONNECT are a real
+absence over the full ~4-day span, not an artifact of a shallow scan.
+
+VERDICT: KNOWN BROKEN #18 CLOSED. Four consecutive days clean on the two
+symptoms that defined the defect (TIER2-ERROR daemon timeouts,
+STREAM-DISCONNECT reconnect cycles) — well past the "several days
+clean" bar the item set for itself on 2026-07-13. Root cause stands as
+confirmed: `server/shadowFleet.ts`'s O(n²) all-pairs hull-swap
+identity-candidate scan inside `refreshShadowStats`'s 10-minute poller,
+fixed by the spatial-grid rewrite in v1.0.307 — not either of the two
+earlier, correctly-refuted hypotheses. `research/open_questions.md`
+item #18 updated in place (heading changed to `[FOUND 2026-07-10,
+RESOLVED 2026-07-17, v1.0.307 — confirmed live]`, closing UPDATE
+appended) rather than rewritten, per the append-only spirit for
+research/* SHARED files.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): none — this session reads
+production diagnostics and updates two research/*.md files; it does not
+touch scoring, sizing, execution, or any code path. Zero effect on any
+live trading decision.
+
+BACKTEST: N/A — pure documentation/verification session, no
+strategy/parameter/measurement code touched.
+
+GATES: no code changed, so `python3 -m pytest -q` / `npx tsx --test
+server/*.test.ts` / `npx tsc --noEmit` / `npm run build` were not
+re-run — nothing in this PR could regress them. Visual harness not
+applicable (no client/ files touched).
+
+HYPOTHESIS (stated before the next check, per REASONING STANDARD #10):
+with KNOWN BROKEN #18 now closed, a future session should NOT see
+TIER2-ERROR/STREAM-DISCONNECT recur on the old ~10-30min cadence; if it
+does, per this item's own 2026-07-13 note that would be a NEW, fourth
+mechanism to investigate from scratch (the O(n²) shadowFleet path is
+directly measured and fixed, not just theorized), not a reopening of
+the resolved theory. Occasional sub-2s EVENTLOOP-LAG blips (GC/scheduler
+noise) are expected to continue indefinitely and are not actionable.
