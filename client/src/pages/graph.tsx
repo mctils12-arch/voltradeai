@@ -13,9 +13,9 @@
 // The hops selector instead controls how many entities/edges the reachable-
 // network count includes, stated explicitly so it's never misleading.
 import { useEffect, useState } from "react";
-import { ArrowLeft, Search, Share2, Building2, User, Factory, Ship } from "lucide-react";
+import { ArrowLeft, Search, Share2, Building2, User, Factory, Ship, Landmark } from "lucide-react";
 
-type NodeType = "company" | "person" | "facility" | "vessel";
+type NodeType = "company" | "person" | "facility" | "vessel" | "institution";
 type EdgeType = "insider_of" | "operates" | "calls_at" | "owns";
 
 interface GNode { id: string; type: NodeType; label: string; attrs: Record<string, any>; }
@@ -26,7 +26,7 @@ interface GEdge {
 }
 interface Counts {
   nodes: number; edges: number;
-  company: number; person: number; facility: number; vessel: number;
+  company: number; person: number; facility: number; vessel: number; institution: number;
   insider_of: number; operates: number; calls_at: number; owns: number;
 }
 interface Summary { kind: string; counts?: Counts; caveat?: string; warming_up?: boolean; }
@@ -35,8 +35,8 @@ interface Neighborhood {
   nodes?: GNode[]; edges?: GEdge[]; error?: string;
 }
 
-const TYPE_ICON: Record<NodeType, any> = { company: Building2, person: User, facility: Factory, vessel: Ship };
-const TYPE_LABEL: Record<NodeType, string> = { company: "Company", person: "Person", facility: "Facility", vessel: "Vessel" };
+const TYPE_ICON: Record<NodeType, any> = { company: Building2, person: User, facility: Factory, vessel: Ship, institution: Landmark };
+const TYPE_LABEL: Record<NodeType, string> = { company: "Company", person: "Person", facility: "Facility", vessel: "Vessel", institution: "Institution" };
 const REL_LABEL: Record<EdgeType, { fwd: string; rev: string }> = {
   insider_of: { fwd: "insider of", rev: "has insider" },
   operates: { fwd: "operates", rev: "operated by" },
@@ -133,6 +133,7 @@ export default function GraphView({ onBack }: { onBack: () => void }) {
             <span><User size={12} /> {summary.counts.person.toLocaleString()} people</span>
             <span><Factory size={12} /> {summary.counts.facility.toLocaleString()} facilities</span>
             <span><Ship size={12} /> {summary.counts.vessel.toLocaleString()} vessels</span>
+            <span><Landmark size={12} /> {summary.counts.institution.toLocaleString()} institutions</span>
           </div>
         )}
 
@@ -178,6 +179,13 @@ export default function GraphView({ onBack }: { onBack: () => void }) {
               {center.type === "person" && <span className="vt-filings-sub">CIK {center.attrs?.cik}</span>}
               {center.type === "company" && center.attrs?.parent && (
                 <span className="vt-filings-sub">parent: {center.attrs.parent}</span>
+              )}
+              {center.type === "institution" && (
+                <span className="vt-filings-sub">
+                  {center.attrs?.gem_entity_type}
+                  {center.attrs?.headquarters_country ? ` · ${center.attrs.headquarters_country}` : ""}
+                  {" · not a US SEC-reporting company"}
+                </span>
               )}
             </div>
             <div className="vt-filings-sub">

@@ -3072,6 +3072,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-graph-typebadge[data-type="person"] { background: var(--accent-purple); }
 .vt-graph-typebadge[data-type="facility"] { background: var(--accent-orange); }
 .vt-graph-typebadge[data-type="vessel"] { background: var(--accent-green); }
+.vt-graph-typebadge[data-type="institution"] { background: var(--accent-red); }
 .vt-graph-centerlabel { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .vt-graph-connections { display: flex; flex-direction: column; gap: 6px; }
 .vt-graph-conn-row {

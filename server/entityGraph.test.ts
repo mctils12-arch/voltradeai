@@ -157,33 +157,65 @@ test("graph is marked RAW with a caveat naming provenance/staleness caveats", ()
 const gemEntities = [
   { "Entity ID": "E1", "Full Name": "Big Utility Corp", "US SEC Central Index Key": "0000001305" },
   { "Entity ID": "E2", "Full Name": "Mega Holdings Inc", "US SEC Central Index Key": "0001432290" },
-  { "Entity ID": "E3", "Full Name": "No CIK Government Fund" }, // no CIK field at all
-  { "Entity ID": "E4", "Full Name": "Not Found Co", "US SEC Central Index Key": "not found" },
+  { "Entity ID": "E3", "Full Name": "No CIK Government Fund", "Entity Type": "state", "Headquarters Country": "United States" }, // no CIK field at all
+  { "Entity ID": "E4", "Full Name": "Not Found Co", "US SEC Central Index Key": "not found", "Entity Type": "legal entity", "Headquarters Country": "Canada" },
+  { "Entity ID": "E5", "Full Name": "Untracked Foreign Parent" }, // neither end of its edge below resolves to a CIK
+  { "Entity ID": "E6", "Full Name": "Untracked Private Holdco" },
 ];
 const gemEdges = [
   { "Subject Entity ID": "E1", "Subject Entity Name": "Big Utility Corp", "Interested Party ID": "E2", "Interested Party Name": "Mega Holdings Inc", "% Share of Ownership": 12.6, "Share Imputed?": "known value, not imputed", "Data Source URL": "https://example.test/src" },
-  { "Subject Entity ID": "E1", "Subject Entity Name": "Big Utility Corp", "Interested Party ID": "E3", "Interested Party Name": "No CIK Government Fund", "% Share of Ownership": 40 }, // owner has no CIK -> honest gap, skipped
-  { "Subject Entity ID": "E4", "Subject Entity Name": "Not Found Co", "Interested Party ID": "E2", "Interested Party Name": "Mega Holdings Inc", "% Share of Ownership": 5 }, // subject CIK is the literal "not found" sentinel -> skipped
+  { "Subject Entity ID": "E1", "Subject Entity Name": "Big Utility Corp", "Interested Party ID": "E3", "Interested Party Name": "No CIK Government Fund", "% Share of Ownership": 40 }, // owner has no CIK -> CIK-anchored on the subject side, owner becomes an institution node
+  { "Subject Entity ID": "E4", "Subject Entity Name": "Not Found Co", "Interested Party ID": "E2", "Interested Party Name": "Mega Holdings Inc", "% Share of Ownership": 5 }, // subject CIK is the literal "not found" sentinel -> CIK-anchored on the owner side, subject becomes an institution node
+  { "Subject Entity ID": "E6", "Subject Entity Name": "Untracked Private Holdco", "Interested Party ID": "E5", "Interested Party Name": "Untracked Foreign Parent", "% Share of Ownership": 100 }, // NEITHER end has a CIK -> no anchor, still an honest gap, skipped
 ];
 const gemFixture = { provenance: { attribution: "Global Energy Monitor", license: "CC BY 4.0", release: "test", built_at: "2026-07-07T03:06:32Z" }, entities: gemEntities, entity_edges: gemEdges };
 
-test("owns edges: only pairs where BOTH ends resolve to a real CIK are included; the rest are honest gaps", async () => {
+test("owns edges: an edge is kept whenever AT LEAST ONE end resolves to a real CIK; the neither-end-CIK case is still an honest gap", async () => {
   const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: gemFixture, cikTickerMap: new Map() });
-  assert.equal(g.counts.owns, 1); // only E2->E1 has both ends CIK-resolved
-  const edge = g.edges.find((e) => e.type === "owns")!;
-  assert.equal(edge.from, "company:cik:0001432290"); // owner (Interested Party) -> Subject
-  assert.equal(edge.to, "company:cik:0000001305");
-  assert.equal(edge.attrs.share_pct, 12.6);
-  assert.equal(edge.confidence, "high");
-  assert.equal(edge.source.includes("Global Energy Monitor"), true);
-  assert.equal(edge.first_seen, "2026-07-07T03:06:32Z"); // GEM's own release date, not entity_map.json's
-  assert.equal(edge.last_seen, "2026-07-07T03:06:32Z");
+  assert.equal(g.counts.owns, 3); // E2->E1 (both CIK), E3->E1 (owner uncertain), E2->E4 (subject uncertain); E5->E6 dropped
+  const ownsEdges = g.edges.filter((e) => e.type === "owns");
+  assert.equal(ownsEdges.some((e) => e.from === "institution:E5" || e.to === "institution:E6"), false);
+
+  const bothCik = ownsEdges.find((e) => e.from === "company:cik:0001432290" && e.to === "company:cik:0000001305")!;
+  assert.ok(bothCik);
+  assert.equal(bothCik.attrs.share_pct, 12.6);
+  assert.equal(bothCik.confidence, "high");
+  assert.equal(bothCik.source.includes("Global Energy Monitor"), true);
+  assert.equal(bothCik.first_seen, "2026-07-07T03:06:32Z"); // GEM's own release date, not entity_map.json's
+  assert.equal(bothCik.last_seen, "2026-07-07T03:06:32Z");
+
+  const ownerIsInstitution = ownsEdges.find((e) => e.to === "company:cik:0000001305" && e.from === "institution:E3")!;
+  assert.ok(ownerIsInstitution);
+  assert.equal(ownerIsInstitution.attrs.share_pct, 40);
+  assert.equal(ownerIsInstitution.confidence, "medium"); // no "Share Imputed?" field -> not the known-value string
+
+  const subjectIsInstitution = ownsEdges.find((e) => e.from === "company:cik:0001432290" && e.to === "institution:E4")!;
+  assert.ok(subjectIsInstitution);
+  assert.equal(subjectIsInstitution.attrs.share_pct, 5);
 });
 
-test("owns edges: a resolvable CIK->ticker mapping lands the node on the SAME id the EDGAR/insider join would use", async () => {
+test("owns edges: the non-CIK side of a CIK-anchored edge becomes an honestly-typed institution node, never a company node", async () => {
+  const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: gemFixture, cikTickerMap: new Map() });
+  assert.equal(g.counts.institution, 2); // E3 (state) + E4 (legal entity, "not found" CIK) — E5/E6 never enter the graph
+  assert.equal(g.nodes.some((n) => n.id === "institution:E5" || n.id === "institution:E6"), false);
+
+  const state = g.nodes.find((n) => n.id === "institution:E3")!;
+  assert.equal(state.type, "institution");
+  assert.equal(state.label, "No CIK Government Fund");
+  assert.equal(state.attrs.gem_entity_type, "state");
+  assert.equal(state.attrs.headquarters_country, "United States");
+  assert.equal(state.attrs.cik_verified, false);
+  assert.equal(g.nodes.some((n) => n.type === "company" && n.id === "company:E3"), false); // never mistyped as company
+
+  const legalEntity = g.nodes.find((n) => n.id === "institution:E4")!;
+  assert.equal(legalEntity.attrs.gem_entity_type, "legal entity");
+  assert.equal(legalEntity.attrs.headquarters_country, "Canada");
+});
+
+test("owns edges: a resolvable CIK->ticker mapping lands the CIK-verified node on the SAME id the EDGAR/insider join would use", async () => {
   const cikTickerMap = new Map([["1432290", "MEGA"]]); // getCikTickerMap keys are un-padded, per sec8kEarnings.ts
   const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: gemFixture, cikTickerMap });
-  const edge = g.edges.find((e) => e.type === "owns")!;
+  const edge = g.edges.find((e) => e.type === "owns" && e.attrs.share_pct === 12.6)!;
   assert.equal(edge.from, "company:MEGA");
   const node = g.nodes.find((n) => n.id === "company:MEGA");
   assert.ok(node);
@@ -193,5 +225,6 @@ test("owns edges: a resolvable CIK->ticker mapping lands the node on the SAME id
 test("owns edges: null gemOwnership (disk read unavailable/skipped) yields zero owns edges, never throws", async () => {
   const g = await buildGraph({ sites: [], plants: [], entities: [], form4Filings: [], portVisitsByPort: new Map(), gemOwnership: null });
   assert.equal(g.counts.owns, 0);
+  assert.equal(g.counts.institution, 0);
   assert.equal(g.edges.some((e) => e.type === "owns"), false);
 });
