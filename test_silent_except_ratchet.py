@@ -66,7 +66,7 @@ BASELINE = {
     "macro_data.py": 4,
     "ml_diagnostics.py": 3,
     "ml_model.py": 12,
-    "ml_model_v2.py": 25,
+    "ml_model_v2.py": 24,
     "ml_retrain_safe.py": 1,
     "ml_status.py": 2,
     "ml_toggle.py": 1,
