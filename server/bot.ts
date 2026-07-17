@@ -310,8 +310,32 @@ const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_confi
 // The QQQ floor deploys 70-90% of equity — these safety nets MUST
 // be above that or they block the core strategy.
 // MAX_TOTAL_EXPOSURE here (0.30) is for ACTIVE satellite trades only
-// (QQQ/SVXY/SPY excluded via MANAGED_TICKERS). system_config.py's
-// 0.95 controls total portfolio including floor.
+// (floor + legacy leg tickers excluded via FLOOR_AND_LEG_TICKERS below).
+// system_config.py's 0.95 controls total portfolio including floor.
+
+// Passive floor-basket + legacy leg tickers — managed by bot_engine.py's
+// _manage_spy_floor()/_manage_defensive_floor() regime-driven rebalancing,
+// not by the active-trade stop-loss/take-profit/scale-out/time-stop/heat-cap
+// machinery below. MUST mirror bot_engine.py's FLOOR_AND_LEG_TICKERS
+// (system_config.BASE_CONFIG's FLOOR_BASKET keys + FLOOR_TICKER +
+// DEFENSIVE_FLOOR_TICKER, plus legacy SVXY) — update both together whenever
+// FLOOR_BASKET changes.
+// R-FIX 2026-07-17: this was hardcoded to {"QQQ","SVXY","SPY"} in three
+// separate places here and never updated when FLOOR_BASKET (SMH/KWEB/VXUS)
+// shipped 2026-04-22, nor for DEFENSIVE_FLOOR_TICKER (GLD) — syncMonitoredPositions
+// was letting those into monitoredPositions, so checkPositionOnTick's WS-driven
+// exit logic applied active TIME STOP/STOP LOSS checks to them, causing
+// repeated erroneous round-trip sells on the passive floor basket (5x VXUS +
+// 1x SMH in one live session). executeTrades' totalDeployed heat-cap also
+// over-counted floor market value as active capital. See
+// research/experiments.md 2026-07-17.
+const FLOOR_AND_LEG_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD"]);
+
+// Defensive-floor candidates that were evaluated and rejected in favor of GLD
+// (see system_config.py DEFENSIVE_FLOOR_TICKER comment: "TLT/VIXY/SH/SQQQ all
+// decay") — used only by syncMonitoredPositions' TIME-EXIT staleness check, in
+// case one is ever held again. Not part of FLOOR_AND_LEG_TICKERS itself.
+const LEGACY_DEFENSIVE_CANDIDATE_TICKERS = new Set(["VTI", "IWM", "TLT", "IEF", "SCHP"]);
 
 // ─── ET Hour Helper + Order Params — extracted to ./orderParams (see top imports) for unit testing ──
 
@@ -3664,8 +3688,8 @@ else:
     const positions = await alpaca("/v2/positions").catch(() => []);
     const held = Array.isArray(positions) ? positions.map((p: any) => p.symbol) : [];
     // Count stock and options positions separately
-    // Exclude floor + third-leg positions from active trading heat check.
-    const MANAGED_TICKERS = new Set(["QQQ", "SVXY", "SPY"]);
+    // Exclude floor + third-leg positions from active trading heat check
+    // (FLOOR_AND_LEG_TICKERS, module scope).
     const stockPositions = Array.isArray(positions)
       ? positions.filter((p: any) => (p.asset_class || "us_equity") === "us_equity").length
       : held.length;
@@ -3683,7 +3707,7 @@ else:
     let optionsSlotsUsed = optionsPositions;
     let totalDeployed = Array.isArray(positions)
       ? positions.reduce((sum: number, p: any) => {
-          if (MANAGED_TICKERS.has(p.symbol)) return sum; // Don't count floor/leg positions
+          if (FLOOR_AND_LEG_TICKERS.has(p.symbol)) return sum; // Don't count floor/leg positions
           return sum + Math.abs(parseFloat(p.market_value || "0"));
         }, 0)
       : 0;
@@ -4634,12 +4658,11 @@ except: print('{}')
         stopState = JSON.parse(stdout.trim());
       } catch (_) {}
 
-      const MANAGED_TICKERS = new Set(["QQQ", "SVXY", "SPY"]);
       const activeTickers = new Set<string>();
 
       for (const pos of positions) {
         const ticker = pos.symbol || "";
-        if (MANAGED_TICKERS.has(ticker)) continue;
+        if (FLOOR_AND_LEG_TICKERS.has(ticker)) continue;
 
         activeTickers.add(ticker);
         const current = parseFloat(pos.current_price || "0");
@@ -4654,8 +4677,13 @@ except: print('{}')
         // Skips ETF floor holdings.
         // ══════════════════════════════════════════════════════════════
         try {
-          const floorTickers = new Set(["QQQ", "SPY", "GLD", "VTI", "VXUS", "IWM", "TLT", "IEF", "SCHP", "SMH", "KWEB"]);
-          if (!floorTickers.has(ticker)) {
+          // Positions in FLOOR_AND_LEG_TICKERS already `continue`d above and
+          // never reach this loop body — LEGACY_DEFENSIVE_CANDIDATE_TICKERS
+          // additionally exempts defensive-floor candidates (VTI/IWM/TLT/
+          // IEF/SCHP) that were evaluated and rejected in favor of GLD
+          // (system_config.py DEFENSIVE_FLOOR_TICKER) but are kept here in
+          // case one is ever held again.
+          if (!LEGACY_DEFENSIVE_CANDIDATE_TICKERS.has(ticker)) {
             const entryTime = pos.created_at || pos.submitted_at;
             if (entryTime) {
               const ageDays = (Date.now() - new Date(entryTime).getTime()) / (1000 * 60 * 60 * 24);

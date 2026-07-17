@@ -1697,6 +1697,32 @@
     later in the day once several hourly DIAGNOSTIC entries have
     accumulated post-restart.
 
+22. **[FIXED 2026-07-17, v1.0.380 — pending live confirmation] Floor-basket
+    ETFs (SMH/KWEB/VXUS/GLD) were subject to active stop-loss/take-profit/
+    time-stop logic meant only for actively-traded satellite positions.**
+    Found live via `/api/diag/audit`: 5x erroneous "WS TIME STOP" sells of
+    VXUS + 1x "WS STOP LOSS" sell of SMH in a single session (2026-07-17,
+    market hours), each immediately re-bought by `_manage_spy_floor()`'s
+    drift rebalancer. Root cause: `FLOOR_AND_LEG_TICKERS`
+    (`bot_engine.py`) and its Node mirror `MANAGED_TICKERS` (three call
+    sites in `server/bot.ts`) were hardcoded to `{"QQQ","SVXY","SPY"}` and
+    never updated when `system_config.py`'s `FLOOR_BASKET`
+    (SMH/KWEB/VXUS) shipped 2026-04-22, nor for `DEFENSIVE_FLOOR_TICKER`
+    (GLD) — full trace in `research/experiments.md` 2026-07-17 (session
+    3). FIX: `bot_engine.py`'s set moved to module scope, derived from
+    `BASE_CONFIG` so it can't drift stale again; `server/bot.ts` given a
+    single shared `FLOOR_AND_LEG_TICKERS` constant used at all three call
+    sites instead of three independent literals. Ratcheted by
+    `test_floor_basket_stops.py` (Python, 5 tests) and
+    `server/floorBasketExemption.test.ts` (TS, 4 tests), both A/B-verified
+    to fail pre-fix. **NEXT CHECK**: once deployed, query
+    `/api/diag/audit?type=WS-EXIT&limit=20` — should show zero further
+    TIME STOP/STOP LOSS entries for QQQ/SMH/KWEB/VXUS/GLD; any future exit
+    on those tickers should only come from `_manage_spy_floor()`/
+    `_manage_defensive_floor()`'s own regime-change path. Mark RESOLVED
+    once confirmed clean for a few live trading days, per KNOWN BROKEN
+    #18's "re-check and mark RESOLVED" precedent.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

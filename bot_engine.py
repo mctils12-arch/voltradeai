@@ -102,6 +102,23 @@ except ImportError:
     _HAS_SYSTEM_CONFIG = False
     BASE_CONFIG = {}
 
+# ── Floor-basket + legacy leg tickers ─────────────────────────────────────
+# Managed by _manage_spy_floor()/_manage_defensive_floor()'s own regime-driven
+# rebalancing — manage_positions() must NOT apply active stop-loss/take-profit/
+# scale-out/time-stop logic to these. Derived from BASE_CONFIG so a future
+# FLOOR_BASKET change can't silently drift this stale again.
+# R-FIX 2026-07-17: this was hardcoded to {"QQQ","SVXY","SPY"} and never
+# updated when FLOOR_BASKET (SMH/KWEB/VXUS) shipped 2026-04-22, nor for
+# DEFENSIVE_FLOOR_TICKER (GLD) — manage_positions() was applying active exit
+# logic to those, causing repeated erroneous TIME STOP / STOP LOSS round-trips
+# on the passive floor basket. See research/experiments.md 2026-07-17.
+FLOOR_AND_LEG_TICKERS = (
+    {"SVXY", "SPY"}
+    | {t for t in BASE_CONFIG.get("FLOOR_BASKET", {}) if t != "CASH"}
+    | {BASE_CONFIG.get("FLOOR_TICKER", "QQQ")}
+    | {BASE_CONFIG.get("DEFENSIVE_FLOOR_TICKER", "GLD")}
+)
+
 # ── Markov regime detector ───────────────────────────────────────────
 try:
     from markov_regime import get_regime as _get_markov_regime
@@ -1834,8 +1851,8 @@ def manage_positions():
     # Regime-adaptive scale-out thresholds
     scale_out_2r = 3.0 if is_bullish else (1.5 if is_bearish else 2.0)
 
-    # Tickers managed by other components — do NOT apply stop/TP logic to these
-    FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "SPY"}  # SQQQ/SPXS removed (convexity overlay now uses QQQ puts, not inverse ETFs)
+    # Tickers managed by other components — do NOT apply stop/TP logic to these.
+    # FLOOR_AND_LEG_TICKERS is module-level (derived from BASE_CONFIG, see above).
 
     for pos in positions:
         ticker = pos.get("symbol", "")
