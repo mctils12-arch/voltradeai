@@ -19317,3 +19317,161 @@ not the artificially line-vertex-only subset the old filter produced;
 a future session cross-checking a full-state or regional seed run
 against an independent tower-density estimate would confirm this
 either holds or reveals a new gap.
+
+---
+
+## 2026-07-17 (session 3) [REPAIR] — floor-basket ETFs (SMH/KWEB/VXUS/GLD) were subject to active stop-loss/time-stop logic, causing live erroneous round-trip sells; found via /api/diag/audit during market hours (v1.0.380, T-BOT)
+
+TERRITORY: T-BOT (bot_engine.py, server/bot.ts outside frozen paths) per
+WORKSTREAM PARTITION.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in full;
+`research/experiments.md` tail + `research/open_questions.md` KNOWN BROKEN
+section + `research/wishlist.md` read. Loop-health ratio, last 10 tagged
+entries (2026-07-12 through 2026-07-17 session 2): 5 REPAIR / 4 PRODUCT /
+1 PIPELINE — under the 7/10 thrash threshold, no meta-problem override.
+`/api/health`: `status: ok`, `bot.liveness.dark: false`, `drawdownPct:
+"0.0"`, `scanner.consecutiveFailures: 0` — no LIVENESS ALARM. Per SESSION
+BUDGET ("fix a bug seen in audit logs" ranks above starting new work),
+pulled `/api/diag/audit?limit=60` as the session's first live check.
+
+PROBLEM FOUND IN THE AUDIT LOG (not assumed — read live production data
+first): the sampled 60-entry window showed `POS-MONITOR-SYNC: bot_engine
+flagged VXUS (time_stop) — WS monitor should handle` recurring on nearly
+every Tier-1 cycle. Widening to `/api/diag/audit?type=WS-EXIT&limit=100`
+confirmed it was not just a sync-log artifact: **5 separate "WS TIME STOP"
+sells of 43 shares VXUS** (13:31, 13:50, 14:21, 14:58, 15:33 UTC, all
+2026-07-17, all "held since 2026-07-07") **and 1 "WS STOP LOSS" sell of 25
+shares SMH** (12:10 UTC), all live, all today, mid-session (market open).
+`/api/diag/positions-detail` confirmed the account currently holds QQQ/SMH/
+KWEB/VXUS — i.e. the SPY-floor basket (`FLOOR_BASKET_ENABLED=True`,
+`system_config.py` BASE_CONFIG) is live and these are its members, being
+sold and (per the recurring "held since 2026-07-07" entry date) repeatedly
+re-bought by the floor rebalancer.
+
+ROOT CAUSE (READ BEFORE WRITE — traced the actual current code, not
+memory): `bot_engine.py`'s `manage_positions()` (the function whose whole
+purpose is to skip active stop/TP/time-stop logic for passively-managed
+tickers) had `FLOOR_AND_LEG_TICKERS = {"QQQ", "SVXY", "SPY"}` — hardcoded
+and never updated when `FLOOR_BASKET` (SMH 15%, KWEB 10%, VXUS 15%,
+alongside QQQ 50%) shipped 2026-04-22, nor for `DEFENSIVE_FLOOR_TICKER`
+(GLD). `server/bot.ts` had the IDENTICAL stale set in THREE separate
+places: `syncMonitoredPositions()`'s `MANAGED_TICKERS` (gates whether a
+position ever enters `monitoredPositions` — the map `checkPositionOnTick`,
+the sole executor of stop-loss/take-profit/trailing-stop/time-stop exits
+per this file's own design comment, reads), `executeTrades()`'s
+`MANAGED_TICKERS` (gates `totalDeployed`, the active-trade heat-cap total),
+and a THIRD, already-correct `floorTickers` set used only for the 14-day
+TIME-EXIT staleness check (`{"QQQ","SPY","GLD","VTI","VXUS","IWM","TLT",
+"IEF","SCHP","SMH","KWEB"}` — proof someone updated ONE of the three lists
+in this file for the floor basket and missed the other two — textbook
+copy-paste drift). Net effect: SMH/KWEB/VXUS/GLD were fully subject to
+`checkPositionOnTick`'s regime-aware trailing-stop/scale-out/take-profit/
+time-stop machinery, live, on every WS bar tick — for a **passive,
+regime-rebalanced basket meant to be held for 70-90% of equity**, not
+actively risk-managed per-position.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1), traced two steps: (1) WS fires an
+erroneous exit on a floor-basket ETF (confirmed: 5x VXUS, 1x SMH today) ->
+(2) `_manage_spy_floor()`'s drift-threshold rebalancer (runs every ~5min
+Tier-2 cycle) sees the basket underweight vs. its regime target and rebuys
+-> (3) round-trip friction (spread + slippage on every erroneous sell +
+rebuy, 6 times today alone) directly degrades the floor basket's measured
+10-year-backtested edge (18.7% CAGR vs. SPY 12.3%, system_config.py
+comment) since that backtest assumed a HELD position, not a churned one ->
+(4) each erroneous exit also calls `recordExitFill`/`track_fill` with a
+`time_stop`/`stop_loss` reason and a `pnl_pct` near zero — a passive
+rebalance mislabeled as an active trading decision, poisoning
+`trade_feedback`'s reason-code distribution (GOAL Priority 2: integrity of
+learning outranks Priority 3 growth, and this bug actively violates it on
+every firing). Separately, `executeTrades()`'s `totalDeployed` heat-cap was
+over-counting SMH/KWEB/VXUS market value (~$35.7k in today's snapshot) as
+"active satellite capital" against `MAX_TOTAL_EXPOSURE` — no `HEAT-CAP`
+audit entries were found yet (`/api/diag/audit?type=HEAT-CAP&limit=20`
+empty), so this second effect had not yet visibly throttled new trades
+today, but was a live latent risk of the same root cause, fixed in the
+same PR (same conceptual bug, three call sites in the same file — not a
+bundle of unrelated changes).
+
+FIX: `bot_engine.py` — `FLOOR_AND_LEG_TICKERS` moved to module scope,
+derived from `BASE_CONFIG.get("FLOOR_BASKET")` (minus CASH) +
+`FLOOR_TICKER` + `DEFENSIVE_FLOOR_TICKER` + legacy SVXY/SPY, so a future
+`FLOOR_BASKET` edit can't silently drift this stale again. `server/bot.ts`
+— single shared module-level `FLOOR_AND_LEG_TICKERS` constant
+(`{"QQQ","SVXY","SPY","SMH","KWEB","VXUS","GLD"}`, mirroring the Python
+side — TS can't import a Python dict at this call frequency, so this is a
+hand-kept mirror with an explicit "update both together" comment, same
+pattern as other cross-language duplication in this file per the
+CODEBASE MAP's own warning) used at all three call sites; the legacy
+TIME-EXIT-only extras (VTI/IWM/TLT/IEF/SCHP — defensive-floor candidates
+evaluated and rejected in favor of GLD) kept as a separate
+`LEGACY_DEFENSIVE_CANDIDATE_TICKERS` set so that check's existing (already
+correct) exemption scope is unchanged, not narrowed.
+
+RATCHET: `test_floor_basket_stops.py` (NEW, 5 tests) — pins
+`FLOOR_AND_LEG_TICKERS`'s exact expected membership derived from live
+`BASE_CONFIG`, and an end-to-end test calling the REAL `manage_positions()`
+(mocking `get_alpaca_positions`/`_get_atr`/`macro_data.get_macro_snapshot`
+only) proving a 10-day-held, flat-P&L VXUS position produces zero actions
+while an identical AAPL control position DOES get flagged `time_stop` —
+the control proves the harness would have caught the bug, not just that
+the skip code path is reachable. `server/floorBasketExemption.test.ts`
+(NEW, 4 tests, source-inspection style matching the `wsPositionFeed.test.ts`
+precedent) — pins the shared constant's membership, asserts no stale
+`new Set(["QQQ","SVXY","SPY"])` literal survives at any call site, and pins
+both `syncMonitoredPositions` and `executeTrades` reference the shared
+constant. A/B-verified via `git stash`: all 9 new tests (5 Python + 4 TS)
+FAIL against the pre-fix code (Python failure output literally reproduces
+the live "TIME STOP: 10 days held... capital locked up" message pattern
+seen in production), all 9 PASS post-fix.
+
+GATES: `python3 -m pytest -q` — 746 passed, 2 skipped (741 baseline + 5
+new; sandbox needed `pip install -r requirements.txt` + `openpyxl`, same
+gap the 2026-07-17 session-2 entry noted). `npx tsx --test server/*.test.ts`
+— 713 passed, 0 failed (709 baseline + 4 new). `npx tsc --noEmit` — 66
+errors, confirmed byte-identical to the `git stash` baseline (line numbers
+only shift by the added lines) after fixing one self-introduced regression
+mid-session: an initial draft used `new Set([...FLOOR_AND_LEG_TICKERS,
+...])` (spread of a `Set` inside a `Set` literal), which tripped TS2802
+under this repo's non-`downlevelIteration` tsconfig — caught by the
+before/after `tsc` diff itself, fixed by using a second plain `Set` +
+`||`-chained `.has()` checks instead of spreading. `npm run build` clean,
+both client + server bundles (dist/index.cjs 10.4mb, pre-existing size
+warning unrelated to this change). No client/ files touched — visual
+harness does not apply. Version bumped 1.0.379 -> 1.0.380 per PROMOTION
+RULE 4 (package.json + package-lock.json, the latter also re-synced its
+stale 1.0.375 version field to match, a byproduct of `npm install` in this
+fresh sandbox — same harmless byproduct the 2026-07-10 R19 session noted).
+
+BACKTEST: N/A per PROMOTION RULE 3's own carve-out — this restores the
+floor basket to its already-documented, already-backtested intended
+behavior (a HELD passive allocation; system_config.py's 18.7%-CAGR 10-year
+backtest assumed no active-logic churn on these tickers) rather than
+introducing a new threshold, rule, or strategy. It does not touch any
+scoring/sizing/threshold value — RULE REVIEW's evidence-gate does not
+apply to a mechanical skip-list correctness fix, same reasoning
+KNOWN BROKEN #3 (2026-07-11, CSP cascade fix) used for an analogous case.
+
+MARKET-HOURS NOTE (per this run's own instruction): this session ran
+during market hours (~12:00-12:20pm ET). Judged this an exception to
+"prepare PR but wait for merge until after 4pm ET unless critical": the
+bug was actively, repeatedly firing in real time (6 confirmed erroneous
+exits in under 3 hours, ~1 every 20-40min matching the WS bar-check
+cadence) and directly violates GOAL Priority 2 (integrity of learning)
+on every firing via mislabeled `trade_feedback` records, plus ongoing
+round-trip friction against Priority 3 (compounding growth) — waiting
+~4 more hours for market close would have let the defect recur roughly
+6-8 more times before any fix could land. AUTONOMY AUTHORIZATION permits
+self-merge once CI is green and PROMOTION RULES are satisfied (no FROZEN
+path touched, no test weakened, one logical change); merging now rather
+than holding.
+
+HYPOTHESIS (per REASONING STANDARD #10, stated before evidence): once
+deployed, `/api/diag/audit?type=WS-EXIT&limit=20` should show zero further
+"WS TIME STOP"/"WS STOP LOSS" entries for QQQ/SMH/KWEB/VXUS/GLD going
+forward (any future exit on those tickers should only ever come from
+`_manage_spy_floor()`/`_manage_defensive_floor()`'s own regime-change exit
+path, which uses distinct order-submission code, not the WS `checkPositionOnTick`
+path) — a future session should re-query this after a few days of live
+data and close this item if confirmed, per KNOWN BROKEN #18's own
+"re-check and mark RESOLVED" precedent.
