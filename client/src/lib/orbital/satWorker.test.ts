@@ -9,6 +9,7 @@ import { lonLatToMercator, mercatorToLonLat, readSatAt } from './satBuffer.ts';
 import {
   SAT_STRIDE,
   SENTINEL_SKIP,
+  VEL_SAMPLE_MS,
   orbitClassCode,
   packPositions,
   analyzePopulation,
@@ -129,6 +130,90 @@ test('packPositions: real ISS propagates to a plausible LEO slot (round-trip)', 
   assert.ok(Math.abs(geo.lonDeg - 61.1089) < 0.02, `lon ${geo.lonDeg}`);
   assert.ok(Math.abs(geo.latDeg - -8.8584) < 0.02, `lat ${geo.latDeg}`);
   assert.ok(Math.abs(s.altMeters / 1000 - 421.437) < 0.5, `alt ${s.altMeters}`);
+});
+
+// --------------------------------------------------------------------------
+// GLIDE velocity (fields [4..6]) — finite difference of two REAL propagations
+// --------------------------------------------------------------------------
+
+test('packPositions: writes per-second finite-difference velocity from a second propagation', () => {
+  // Time-dependent stub: drifts +0.36 deg lon, -0.18 deg lat, +1 km alt per second.
+  const stub: PropagationDeps = {
+    propagate: (_g, t) => ({ lonDeg: 10 + 0.36 * (t / 1000), latDeg: -0.18 * (t / 1000), altKm: 500 + t / 1000 }),
+  };
+  const r = packPositions([gp(1)], 0, stub);
+  const s = readSatAt(r.buffer, 0);
+  // 0.36 deg/s lon == 0.001 mercator-x units/s exactly (0.36/360).
+  assert.ok(Math.abs(s.velX - 0.001) < 1e-7, `velX ${s.velX}`);
+  // lat -> mercY is nonlinear; verify against the exact projected delta.
+  const m0 = lonLatToMercator(10, 0);
+  const m1 = lonLatToMercator(10 + 0.36 * (VEL_SAMPLE_MS / 1000), -0.18 * (VEL_SAMPLE_MS / 1000));
+  const expVy = ((m1.y - m0.y) * 1000) / VEL_SAMPLE_MS;
+  assert.ok(Math.abs(s.velY - expVy) < 1e-9, `velY ${s.velY} vs ${expVy}`);
+  assert.ok(Math.abs(s.velAlt - 1000) < 1e-3, `velAlt ${s.velAlt} (1 km/s = 1000 m/s)`);
+  // tick position itself is untouched by the velocity sampling
+  assert.ok(Math.abs(s.mercX - m0.x) < 1e-7 && Math.abs(s.mercY - m0.y) < 1e-7);
+});
+
+test('packPositions: antimeridian crossing yields a small wrapped velocity, never a world-traverse', () => {
+  // 0.36 deg/s eastward across lon 180: x goes 0.9999... -> 0.0004...
+  const stub: PropagationDeps = {
+    propagate: (_g, t) => ({ lonDeg: 179.9 + 0.36 * (t / 1000), latDeg: 0, altKm: 500 }),
+  };
+  const s = readSatAt(packPositions([gp(1)], 0, stub).buffer, 0);
+  assert.ok(Math.abs(s.velX - 0.001) < 1e-7, `wrapped velX ${s.velX} (unwrapped would be ~ -2/s)`);
+});
+
+test('packPositions: failed second sample (decay boundary) -> zero velocity, position still shown', () => {
+  const stub: PropagationDeps = {
+    propagate: (_g, t) => (t === 0 ? { lonDeg: 5, latDeg: 5, altKm: 700 } : null),
+  };
+  const r = packPositions([gp(1)], 0, stub);
+  assert.equal(r.shown, 1, 'the real tick position still renders');
+  const s = readSatAt(r.buffer, 0);
+  assert.equal(s.valid, true);
+  assert.deepEqual([s.velX, s.velY, s.velAlt], [0, 0, 0], 'hold at the real position — no fabricated rate');
+});
+
+test('packPositions: sentinel slots carry zero velocity (nothing to glide)', () => {
+  const r = packPositions([gp(1)], 0, { propagate: () => null });
+  const s = readSatAt(r.buffer, 0);
+  assert.equal(s.valid, false);
+  assert.deepEqual([s.velX, s.velY, s.velAlt], [0, 0, 0]);
+});
+
+test('GLIDE HONESTY: tick position + velocity·1s matches a REAL propagation 1s later to <100 m (ISS)', () => {
+  // The glide the shader draws must be physics, not decoration: extrapolating
+  // the packed velocity a full second (2× the 500 ms sampling interval, and
+  // well past a 60 fps frame) must land within 100 m of where SGP4 actually
+  // puts the ISS. Measured at this fixture: ~0.2-0.3 m total error (float32
+  // buffer quantization + first-order truncation) — the 100 m bound leaves
+  // two orders of magnitude of headroom, not a tuned pass.
+  const t0 = ISS_EPOCH_MS + 90 * 60000;
+  const s = readSatAt(packPositions([ISS], t0).buffer, 0);
+  assert.equal(s.valid, true);
+  const predX = ((s.mercX + s.velX * 1) % 1 + 1) % 1;
+  const predY = s.mercY + s.velY * 1;
+  const predAltM = s.altMeters + s.velAlt * 1;
+  const truth = propagate(ISS, t0 + 1000)!;
+  assert.ok(truth, 'reference propagation must succeed');
+  const pll = mercatorToLonLat(predX, predY);
+  // great-circle horizontal error at the satellite's orbital radius + radial error
+  const R = 6_371_000 + truth.altKm * 1000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(pll.latDeg - truth.latDeg);
+  const dLon = toRad(pll.lonDeg - truth.lonDeg);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(truth.latDeg)) * Math.cos(toRad(pll.latDeg)) * Math.sin(dLon / 2) ** 2;
+  const horizM = 2 * R * Math.asin(Math.sqrt(a));
+  const altErrM = predAltM - truth.altKm * 1000;
+  const totalM = Math.hypot(horizM, altErrM);
+  assert.ok(
+    totalM < 100,
+    `1s glide error ${totalM.toFixed(2)} m must be < 100 m (measured ~0.23 m at this fixture; ` +
+      `horiz ${horizM.toFixed(2)} m, alt ${altErrM.toFixed(2)} m) — the glide must be honest physics`,
+  );
 });
 
 // --------------------------------------------------------------------------

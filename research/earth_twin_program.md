@@ -637,6 +637,41 @@ Every body: real position or absent — never decorative placement.
 
 ## RESUME STATE (update every session that touches this program)
 
+- 2026-07-16 MILITARY INSTALLATIONS layer (human-specced, data agent
+  running): static reference geography, polar-stations seeded pattern,
+  quarterly manual refresh, NO scheduler. Sources by priority: DoD
+  open data > OSM military=base/landuse=military (one Overpass pull,
+  ODbL credit) > officially-acknowledged foreign installations with
+  source_url. HARD RULES (human, standing, outranks the general
+  cross-tie principle): never infer/estimate locations; never derive
+  from imagery analysis; NO joins to live aircraft/vessels and NO
+  correlation features EVER (registry carries noCrossTies — future
+  sessions must honor it; popup = name/nation/branch/type/source link
+  ONLY, no timeline block); installation-level granularity only.
+  Schema + banner text in the registry entry. PARENT WIRING NEXT:
+  polygons at high zoom / centroids at low, muted nation palette
+  (NOT red/threat), default OFF, legend + provenance banner, drive
+  assertions, report-back to the human (per-source counts, drops,
+  OSM query cost, default-off confirmation).
+
+
+- 2026-07-16 SMOOTH SKY (human: "for all satellites can we make them
+  move smoothly … interpret where they would go … still use the data
+  we get"): agent building per-frame VELOCITY GLIDE in the worktree —
+  worker ticks stay 1Hz exact SGP4/SDP4 anchors; each record gains
+  real velocity; the satLayer shader extrapolates base + vel·dt per
+  frame (capped 2.5s — beyond that the glide would be fiction),
+  continuous repaint ONLY while the orbital layer is on (this
+  RESOLVES the charter's 1Hz-repaint reconsideration). Honesty: the
+  glide is first-order real physics between real samples (agent must
+  measure and pin the 1s error <100m vs true propagation); pick/
+  follow consumers keep exact-tick truth. INTEGRATION (parent):
+  setTickTime call in datamap onmessage per agent report, gates,
+  drive smoothness assertion, harness (perf note: repaint only with
+  layer on — defaults unaffected), PR. Then consider the same glide
+  for the FOLLOWED craft model + aircraft points (same pattern).
+
+
 - 2026-07-16 O7 SEAMLESS CONTINUUM (human, verbatim: "I want it not as
   a separate feature just part of the whole system"): replace the
   inspect CHIP-as-mode with zoom-driven auto-handoff — while sat-locked,

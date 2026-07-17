@@ -24,6 +24,11 @@ export interface FollowTarget {
  * position buffer. null = no honest position this tick (sentinel slot —
  * deep-space/invalid — or a bad index): the caller must NOT move the
  * camera on a null, never guess.
+ *
+ * GLIDE NOTE (2026-07-17): this deliberately returns the EXACT-TICK
+ * propagated position, NOT the between-tick display glide the point layer's
+ * shader applies (satLayer u_dtSec) — consumers of followTarget/readSatAt
+ * get physics-tick truth; the glide is a render-only smoothing.
  */
 export function followTarget(
   buffer: ArrayLike<number> | null,
