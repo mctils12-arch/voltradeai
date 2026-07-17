@@ -34,6 +34,7 @@ echo "filtering power features (streaming, low RAM) ..."
 osmium tags-filter "$PBF" \
   w/power=line,minor_line,cable \
   nwr/power=substation,plant \
+  n/power=tower \
   -o power_filtered.osm.pbf --overwrite
 
 echo "exporting GeoJSONSeq ..."

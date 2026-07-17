@@ -328,10 +328,10 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
   grid-detector-v0** — BLOCKED only on the launch path (RUNPOD_API_KEY is
   in Railway not the session → needs a server-side launcher routine
   calling authorize_job first, OR the key added to the session;
-  BLOCKED-FOR-MIKE). (3b) fix build_power_tiles.sh osmium filter to add
-  `power=tower` (currently substation-only seeds); (3c) fetch Duke-US zips
-  to make substations trainable; (4) Phase B1 VERIFY spec. Polygon arbiter
-  for ambiguous pools: EIA Atlas BA layer (re-check ~late July).
+  BLOCKED-FOR-MIKE). (3b) [SHIPPED 2026-07-17, v1.0.377] — see
+  experiments.md; (3c) fetch Duke-US zips to make substations trainable;
+  (4) Phase B1 VERIFY spec. Polygon arbiter for ambiguous pools: EIA
+  Atlas BA layer (re-check ~late July).
 
 As of 2026-07-12 (claude/google-maps-api-railway-9d2wwg):
 

@@ -19214,3 +19214,106 @@ mechanism to investigate from scratch (the O(n²) shadowFleet path is
 directly measured and fixed, not just theorized), not a reopening of
 the resolved theory. Occasional sub-2s EVENTLOOP-LAG blips (GC/scheduler
 noise) are expected to continue indefinitely and are not actionable.
+
+---
+
+## 2026-07-17 (session 2) [PIPELINE] — GRID VISION (3b) SHIPPED, v1.0.377: build_power_tiles.sh's osmium filter now keeps power=tower nodes, closing the national-scale seed gap grid_vision.md's NEXT list flagged
+
+TERRITORY: T-DATACORE (scripts/ pipeline tooling per WORKSTREAM
+PARTITION) — no FROZEN, T-BOT, or T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full; `/api/health` — `status:
+ok`, `bot.liveness.dark: false`, `drawdownPct: "0.0"`, `scanner.
+consecutiveFailures: 0` — no LIVENESS ALARM, product work proceeds per
+the routine's own instruction not to preempt DAILY repair duty when
+nothing is broken. KNOWN BROKEN scan: #18 was CLOSED by the immediately
+prior same-day session (docs-only, this file's entry directly above);
+#10/#20 remain correctly gated on evidence not yet ripe (unchanged).
+PLATFORM INTEGRATION PROGRAM queue is clear except P5 (HUMAN-GATED).
+Picked GRID VISION's own explicit, dated, actionable NEXT-list item
+(3b) — the SESSION BUDGET rule ranks a queued item above starting new
+research.
+
+PROBLEM: `scripts/build_power_tiles.sh`'s osmium tags-filter kept
+`w/power=line,minor_line,cable` and `nwr/power=substation,plant` but
+never `power=tower` — the exact gap `scripts/gridvision_chips.py`'s own
+docstring already flagged ("NOTE build_power_tiles.sh's default filter
+omits power=tower"). This matters because national-scale ML seed
+generation (grid_vision_phaseb.md) must come from the Geofabrik PBF
+pipeline, not Overpass — data_census.md's own failure-mode register
+bans bulk Overpass extraction (fair-use + shared-instance limits;
+Overpass is for small-bbox freshness diffs only). Without this fix,
+`gridvision_chips.py` had no path to tower seeds at country scale, only
+the small-bbox Overpass query documented as its fallback.
+
+FIX: added `n/power=tower \` (node-only — towers are point features,
+confirmed via data_census.md's taginfo read: "towers 18.4M nodes") to
+the filter in `scripts/build_power_tiles.sh`. Updated
+`gridvision_chips.py`'s now-stale docstring note (it described the gap
+as still-open) to record the fix and re-frame Overpass as a
+freshness-diff convenience, not the only path to tower seeds.
+
+LIVE VERIFICATION (this session, real binaries + real OSM data — same
+rigor the script's own header claims for its 2026-07-06 proof, no
+fabrication): apt-installed osmium-tool + tippecanoe in the session
+container; downloaded the real Geofabrik Rhode Island extract (51.7MB,
+smallest US state, chosen for a fast iteration loop with genuine grid
+infrastructure). Ground truth: 5,490 `power=tower` nodes exist in the
+raw RI extract (`osmium tags-filter ri.osm.pbf n/power=tower`). OLD
+filter (pre-fix): 5,476 tower nodes survived only incidentally, as
+vertices osmium already keeps to complete the filtered line ways'
+geometry — a REAL gap of 14 towers (~0.25% in this state) that are not
+vertices of any `line`/`minor_line`/`cable` way in scope (isolated
+towers, or towers only connected to substation-tagged infrastructure).
+NEW filter (post-fix): all 5,490/5,490 present — closes the gap
+completely, confirming this is a genuine correctness fix, not a no-op
+(counted via a small Python pass over the exported GeoJSONSeq, not
+eyeballed). Ran the FULL script end-to-end post-fix
+(`bash scripts/build_power_tiles.sh north-america/us/rhode-island
+power_ri`) — filter → GeoJSONSeq export → tippecanoe tiling all
+completed cleanly, produced a valid 1.7MB `power_ri.pmtiles`. Cleaned
+up the apt packages and scratch files afterward (not part of the
+shipped diff).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): checked whether adding tower
+nodes to the SAME filter that feeds the live `/data` map tilesets
+(`power_us.pmtiles` etc., not just the ML seed path) could regress the
+map. Read `client/src/pages/datamap.tsx`'s power-layer styling
+(~line 3405-3520): it filters the `power` source-layer on `line`/
+`minor_line`/`cable` (line layer) and `substation`/`plant` (fill
+layers) only — there is no `tower` match rule, so tower point features
+now present in the tile sit unrendered, matching the pre-existing,
+already-documented plan in data_census.md's GRID GEOMETRY note
+("towers only z>=12" decimation gate) — this fix closes exactly the gap
+that gate was written in anticipation of. Client-side tower rendering
+(a SYMBOLS NOT DOTS-compliant point layer + minzoom gate + legend
+entry) is NOT part of this change — out of scope for (3b), which is
+about the ML seed pipeline; flagged here as the natural follow-up
+whenever the live map wants to show towers, not silently bundled into
+this PR (one logical change per CLAUDE.md).
+
+BACKTEST: N/A — data pipeline/tooling fix, zero trading, sizing,
+scoring, or execution code touched; ladder gate 1 (ground-truth
+validation) is unaffected/not yet reached for this root, this only
+improves seed COVERAGE for the chip-index step that feeds toward it.
+
+GATES: `python3 -m pytest -q` — 741 passed, 2 skipped (baseline;
+required installing `openpyxl` + full `requirements.txt` into this
+session's Python, a pre-existing sandbox gap unrelated to this change —
+confirmed by reproducing the same collection error against the
+pre-change `git stash` baseline before installing). `test_gridvision_
+chips.py` specifically: 8/8 passed both before and after (only a
+docstring changed in that file; zero functional code touched). No
+TypeScript/client files touched, so `tsc`/`npx tsx --test`/`npm run
+build`/visual harness do not apply. Version bumped 1.0.376 -> 1.0.377
+per PROMOTION RULE 4.
+
+HYPOTHESIS (per REASONING STANDARD #10, stated before a future check):
+a future Phase B national-scale seed-generation run using
+`build_power_tiles.sh`'s GeoJSONSeq output should now yield tower seed
+counts consistent with OSM's true tower density per region (this
+session's RI ground-truth check: 5,490 towers/1,545 km^2 land area),
+not the artificially line-vertex-only subset the old filter produced;
+a future session cross-checking a full-state or regional seed run
+against an independent tower-density estimate would confirm this
+either holds or reveals a new gap.
