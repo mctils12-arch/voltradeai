@@ -42,6 +42,138 @@ pages — one data-scale TTI failure falsified by clean re-run
 follow-camera (sat-UX directive section 3) — agent to launch on this
 state; then B2 scale sliders.
 
+## 2026-07-18 [PIPELINE] — GMET methane-plume RAW API route, T-DATACORE (v1.0.401, scheduled [PRODUCT] session)
+
+TERRITORY: T-DATACORE (server/gemMethane.ts, no client/ touched this PR).
+
+Session type per the invoking prompt: [PRODUCT] — advance datacore/ +
+/data toward a full product. Pre-work checks: KNOWN BROKEN reviewed
+(nothing newly critical; #23 bars_feed() fix and #18's O(n^2) fix both
+already landed 2026-07-18 per this branch's own recent history — the
+one still-open item is #18's RECURRENCE note in commit ef52439,
+"Daemon timeout ... continuously since 2026-07-18T13:35Z, live at
+session end" with a new diagnostic probe shipped but not yet a fix;
+noted here, not chased — this is a T-BOT repair item for a DAILY/
+repair-tagged session, and per CLAUDE.md a [PRODUCT] session does not
+preempt repair duty unless the break blocks product work, which it
+does not). Surveyed research/wishlist.md, data_census.md, and
+open_questions.md via a research subagent (parallelized to protect
+context) for the single highest-value ready-now product action.
+
+FINDING: two GEM (Global Energy Monitor) tracker artifacts —
+`datacore/gem/methane_emitters.json.gz` (GMET plumes) and
+`datacore/gem/coal_mine_features.geojson.gz` — have sat fully ingested
+on disk since the 2026-07-16 GEM-COMPLETE wave (v1.0.176/178) but were
+never read by any server route. wishlist.md's own CENSUS #5 GEM
+COMPLETE entry still listed "(d) GMET plumes as a dated map/event
+layer" as an open follow-up; the 2026-07-17 entity-graph session had
+picked `ownership.json.gz` instead on the stated premise that the
+other follow-ups "need re-pulling large files from Mike's Drive" —
+verified this session that premise was WRONG for plumes/coal-mines
+specifically (only the pipelines PMTiles item (a) actually needs an
+absent 68-72MB GIS file; ownership/plumes/coal-mines were all part of
+the same already-ingested delivery).
+
+SHIPPED: `server/gemMethane.ts` (new) — `normalizePlumes()` maps GEM's
+raw spreadsheet columns ("GEM Methane Plume ID", "Emissions (kg/hr)",
+etc.) to a clean camelCase schema, dropping rows with no id or no
+origin coordinates (drop-not-infer, matches military_installations.ts/
+usgsQuakes.ts precedent) and preserving GEM's own null cells honestly
+(398/3474 rows have no modeled emissions rate — left `null`, never
+fabricated). `loadGemMethane()`/`cachedGemMethane()` read + gunzip the
+already-committed `datacore/gem/methane_emitters.json.gz` via the
+existing `repoDataPath()` resolver (same pattern
+`entityGraph.ts`'s `loadGemOwnership` already established for the
+sibling `ownership.json.gz`), cached in memory for the process
+lifetime since this is a STATIC reference dataset (GEM ships new GMET
+releases ~2x/year, human-triggered re-ingest via
+`scripts/gem_ingest.py`) — not a live-polled feed, so no boot-poll
+loop or archive-append machinery was built (would be dead weight for
+data that only changes on a manual re-ingest). New route
+`GET /api/data/methane-plumes` (`server/routes.ts`), inline next to
+the `military_installations`/`nukefacilities` static-reference routes
+it mirrors — `kind: "raw", predictive: false`, GEM's own CC BY 4.0
+license/attribution/release carried through.
+
+SCOPE (deliberate, one logical change): only the `plumes` sheet from
+the multi-sheet GMET file is read. The same file's pipelines/
+lng_terminals/coal_mines/extraction_areas/reserves sheets are
+untouched — separate datasets, future PRs if there's concrete use.
+No `/data` map layer this session (T-CLIENT territory; same API-first
+sequencing precedent `usgsQuakes.ts`/`ndbcBuoys.ts` used before their
+map layers shipped as their own PRs) — wishlist.md's GEM COMPLETE
+entry updated to reflect this route as shipped, with the map layer
+filed as the concrete next step.
+
+RATCHET: `server/gemMethane.test.ts`, 9 new tests — raw-column mapping
+correctness, GEM-blank-cell null honesty, drop-no-id/drop-no-coords,
+empty/garbage-input safety, gz-fixture round trip incl. provenance,
+missing-file and corrupt-file degrade-to-null (never throws, same
+contract as `loadGemOwnership`), and a cache-identity check against
+the real checked-in fixture (doubles as a live integration check —
+3473 of 3474 real plumes pass the coordinate filter, 1 dropped for a
+missing origin lat/lon).
+
+R14 PACKAGING (checked directly, not assumed — the exact lesson this
+rule exists for): added `datacore/gem/methane_emitters.json.gz` to
+`script/build.ts`'s runtime-file staging list (same line pattern as
+the already-staged `ownership.json.gz`); verified `dist/datacore/gem/
+methane_emitters.json.gz` exists post-build.
+
+GATES: `npx tsx --test server/gemMethane.test.ts` 9/9. `npx tsx --test
+server/*.test.ts` 788 passed / 0 failed (779 pre-session-visible
+baseline this session actually ran + 9 new; the last logged baseline
+in this file was 703/5-failed pre-`npm install`, this session ran a
+fresh `npm install` — 486 packages — which is why `npx tsc --noEmit`
+now shows 68 errors instead of the vite/node-type-entry-missing 3;
+none of the 68 mention `gemMethane.ts` or the `routes.ts`/`build.ts`
+diff, confirmed by direct grep). `python3 -m pytest -q` (after
+`pip install -r requirements.txt openpyxl pytest`) — 756 passed, 2
+skipped, byte-identical to the pre-session baseline (zero Python
+touched). `npm run build` clean; `dist/datacore/gem/
+methane_emitters.json.gz` staged (confirmed above). LIVE END-TO-END
+SMOKE TEST (beyond mocked-fetch unit tests): booted `dist/index.cjs`
+on a scratch port and `curl`'d the real route —
+`{"kind":"raw","predictive":false,"count":3473,"license":"CC BY 4.0
+(per-release Copyright sheets)", ...}` with a real sample row
+(CarbonMapper Global Airborne Observatory detection, California,
+2020-11-09). Version bumped 1.0.399 -> 1.0.400 per PROMOTION RULE 4
+(`package.json` + `package-lock.json`, both version fields;
+`origin/main` re-fetched immediately before bumping — confirmed still
+at 1.0.399/fc005c4, no advance since session start). COLLISION
+(discovered at merge time, not before): the auto-merge check failed
+with "Pull Request has merge conflicts" — PR #532 (celestial v2 B1 +
+card system) had landed on `main` in the interim, also claiming
+1.0.400. Re-versioned to 1.0.401 on rebase (same collision protocol
+`fc005c4`'s own message documents for #529/#530) — see the entry
+immediately above this one for #532's content; `research/
+experiments.md`'s conflict resolved keep-both (MERGE-ORDER PROTOCOL
+rule 3), #532's entry kept first since it merged to `main` first.
+
+BACKTEST: N/A — RAW ground-truth reference-data route, no scoring/
+sizing/trading-logic path touched, same reasoning every other DATA
+STREAM EXPANSION build in this log has used for PROMOTION RULE 3.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before any downstream use):
+not itself a signal — RAW satellite-detected methane-plume events by
+infrastructure type/operator geography. Gate-1/gate-2 candidate once a
+map layer exists to inspect it: co-locate plume density/rate against
+GEM's own oil_gas_extraction/coal_mine registries (same release
+family, joinable by proximity) as an operator-level emissions-exposure
+proxy — ESG/regulatory-risk-adjacent, not yet attempted, filed as a
+new open_questions.md candidate below its own EVERYTHING-GRAPH cross-
+tie section rather than assumed here.
+
+NEXT: (1) `/data` map layer (dated point events, magnitude-style
+sizing on `emissionsKgHr` where non-null, "unknown" honesty state
+where GEM has no modeled rate yet) — clean small T-CLIENT follow-up,
+same earthquakes/buoys precedent; (2) coal-mine boundary layer from
+the sibling `coal_mine_features.geojson.gz` (2,116 features, also
+already on disk, also an open GEM follow-up) — equally ready-now,
+ranked second this session only because it's static geometry rather
+than a temporal event stream; (3) the proximity join named above once
+(1) exists to visually sanity-check it against.
+
 ## 2026-07-18 [REPAIR] — RELEASE BLOCKER: spaceFrame page-freeze root-caused to a floating-point fixed point (v1.0.397, T-CLIENT, agent + parent verify)
 
 Human report: Chrome "Page Unresponsive" at /app#/data on v1.0.396.

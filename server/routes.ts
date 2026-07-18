@@ -39,6 +39,7 @@ import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
+import { cachedGemMethane } from "./gemMethane";
 import { buildDossier } from "./dossier";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
@@ -2452,6 +2453,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: d.count,
       installations: d.installations,
       provenance: d.provenance,
+    });
+  });
+
+  // GEM Methane Emitters Tracker (GMET) — dated satellite methane-plume
+  // observations, RAW/FACTUAL (CarbonMapper/GHGSat-class detections as
+  // catalogued by Global Energy Monitor, CC BY 4.0). STATIC reference
+  // dataset (see server/gemMethane.ts) — re-ingested on GEM's ~2x/year
+  // release cadence via scripts/gem_ingest.py, not a live poll.
+  app.get("/api/data/methane-plumes", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemMethane();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Methane Emitters Tracker (GMET)",
+                         warming_up: true, count: 0, plumes: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Methane Emitters Tracker (GMET), satellite plume detections "
+        + "from CarbonMapper/GHGSat-class providers as catalogued by GEM",
+      attribution: hit.provenance?.attribution,
+      license: hit.provenance?.license,
+      release: hit.provenance?.release,
+      count: hit.plumes.length,
+      plumes: hit.plumes,
     });
   });
 

@@ -4991,3 +4991,53 @@ built bundle). `npm run visual -- --page data` run this session (see
 experiments.md for the full result) — the CSS-only addition is one new
 attribute-selector rule scoped to `.vt-graph-typebadge[data-type=
 "institution"]`, not reachable from the default `/data` map render path.
+
+## [GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY · filed 2026-07-18, gate 0/2 — unattempted] Does satellite-detected plume density/rate near a GEM-catalogued oil/gas/coal asset track that operator's own emissions disclosures?
+
+Filed alongside `server/gemMethane.ts` shipping (`/api/data/methane-plumes`,
+research/experiments.md 2026-07-18 [PIPELINE] entry) — a HYPOTHESIS, not
+attempted this session (REASONING STANDARD #10: stated before any
+downstream use). GEM's GMET file ships 3,473 geolocated, dated satellite
+methane-plume detections (CarbonMapper/GHGSat-class, `infrastructureType`
+tagged for ~82% of rows: wellpad/pipeline/livestock/coal-mine/etc.) in the
+SAME release family as GEM's own `oil_gas_extraction` (7,673 fields w/ WKT
+outlines), `gas_pipelines` (4,246 segments, Owner/Parent fields), and
+`coal_mine_tracker` (5,382 active mines) registries — all joinable by
+proximity to the plume's `lat`/`lon`.
+
+HYPOTHESIS: an operator (via GEM's Owner/Parent fields, joinable further
+to a CIK via the GEOT ownership crosswalk `entityGraph.ts` already reads)
+whose facilities show elevated nearby plume detection RATE or magnitude
+is exposed to real regulatory/ESG/methane-fee risk (EPA's Methane
+Emissions Reduction Program fee structure is public) — a second-order
+question (REASONING STANDARD #5): why would this be tradeable rather
+than already priced in? Plausible answer: CarbonMapper/GHGSat detections
+are irregular-cadence aerial/satellite overflights, not continuous
+monitoring — a company's OWN emissions disclosures (10-K/ESG reports,
+often annual and self-reported) may lag or understate what an independent
+satellite catches between filing periods, so a persistent divergence
+(plume-implied rate >> disclosed rate, sustained across repeat detections)
+could be the actual signal, not raw plume presence.
+
+LADDER PATH (not started — gate 0, needs the join built first):
+GATE 1 (ground truth): the plume detections ARE the ground truth (GEM
+attributes each to CarbonMapper's/GHGSat's own calibrated instrument
+readings, with a stated uncertainty field) — no separate verification
+needed, unlike e.g. tank-shadow inference. GATE 2 (signal): would need
+(a) the proximity join (plume -> nearest GEM asset within some radius,
+TBD threshold, honestly excluding ambiguous multi-asset clusters), (b)
+enough repeat-detection history per asset to compute a rate (single
+detections are noise), (c) a same-universe base rate per REASONING
+STANDARD #3 (do names with ANY nearby plume underperform peers with
+none, before conditioning on rate/magnitude at all?), (d) matching
+against each operator's actual disclosed methane intensity where public
+— CURRENTLY UNSOURCED, a real gap this hypothesis would need to solve
+before it clears gate 2, not merely proximity to price.
+
+NOT STARTED: no map layer exists yet to even visually sanity-check
+clustering (filed as the concrete NEXT step in the same experiments.md
+entry). Discount heavily per REASONING STANDARD #4 — GHG/ESG-materiality
+angles are a crowded, well-covered thesis space in institutional research;
+"nobody noticed" is not a credible answer here, so the real edge (if any)
+is narrowly in the disclosure-lag mechanism above, not in discovering the
+plumes exist.
