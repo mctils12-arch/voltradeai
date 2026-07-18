@@ -1284,7 +1284,6 @@ export default function DataMapPage() {
   const inspectSyncTimerRef = useRef<number | null>(null);
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectView, setInspectView] = useState<InspectView>("orbit");
-  const [inspectCaption, setInspectCaption] = useState<string>("");
   const closeInspectRef = useRef<() => void>(() => {});
   const openInspectRef = useRef<() => void>(() => {});
   // GENERIC_MESH_LABEL lives in the lazily-loaded module; cached after the
@@ -1390,7 +1389,6 @@ export default function DataMapPage() {
         try { (map as any)[h]?.disable(); } catch {}
       }
       setInspectView("orbit");
-      setInspectCaption(`${handle.getProvenance()} Craft: ${label}.`);
       setInspectOpen(true);
       // 1 Hz sync: (a) the real .vtm model often lands AFTER the follow
       // starts — swap it in when the model layer has it; (b) a mid-session
@@ -1408,7 +1406,6 @@ export default function DataMapPage() {
         if (cur.mesh && cur.mesh !== (h as any).__lastMesh) {
           (h as any).__lastMesh = cur.mesh;
           h.setMesh(cur.mesh, cur.label);
-          setInspectCaption(`${h.getProvenance()} Craft: ${cur.label}.`);
         }
       }, 1000);
     } catch (e) {
@@ -1426,7 +1423,6 @@ export default function DataMapPage() {
     if (!h) return;
     h.setView(v);
     setInspectView(v);
-    setInspectCaption(`${h.getProvenance()} Craft: ${h.getMeshLabel()}.`);
   }, []);
   // any teardown path that unmounts the page must not leak the overlay
   useEffect(() => () => { closeInspectRef.current(); }, []);
@@ -8918,14 +8914,9 @@ export default function DataMapPage() {
           </div>
         </div>
       )}
-      {inspectOpen && (
-        // provenance caption (design 1e; the retired scene's discipline —
-        // every simplification labeled, on screen, always)
-        <div className="vt-inspect-caption" role="note">
-          <div className="vt-inspect-caption-head">COMPUTED EPHEMERIS VIEW</div>
-          <div className="vt-inspect-caption-body">{inspectCaption}</div>
-        </div>
-      )}
+      {/* (the "COMPUTED EPHEMERIS VIEW" methodology caption is DELETED —
+          human review 2026-07-18, space_view_handoff item 1: no on-screen
+          essay; honesty lives in the card's chips + the one-line credit) */}
       {detail && detailMin && (
         // O6 minimize (human-requested): the card collapses to a pill so the
         // globe shows through — the focus/follow keeps running underneath;

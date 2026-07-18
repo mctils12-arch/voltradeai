@@ -2438,34 +2438,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-inspect-viewbtn:hover { color: #fff; }
 .vt-inspect-viewbtn.on { background: #2f7cf0; color: #fff; font-weight: 600; }
 
-/* provenance caption, bottom-left (design 1e; caption discipline — the
-   honesty machinery stays on screen, PREMIUM EXPERIENCE STANDARD (c)) */
-.vt-inspect-caption {
-  position: absolute; left: 32px; bottom: 32px; z-index: 30;
-  max-width: min(600px, calc(100vw - 64px));
-  background: rgba(6, 10, 18, 0.85);
-  border: 1px solid rgba(120, 168, 255, 0.12); border-radius: 10px;
-  padding: 12px 14px;
-}
-.vt-inspect-caption-head {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px; letter-spacing: 0.18em; color: #7f9cc9; margin-bottom: 6px;
-}
-.vt-inspect-caption-body {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px; color: #d99a4e; line-height: 1.55;
-}
+/* (the "COMPUTED EPHEMERIS VIEW" methodology caption + its phone offset
+   are DELETED — human review 2026-07-18, space_view_handoff item 1) */
 @media (max-width: 767px) {
-  /* phone: the card is a bottom sheet — the caption docks compact at the
-     top-left instead so neither covers the other */
   .vt-inspect-chrome { top: 70px; }
-  .vt-inspect-caption {
-    /* below the stacked back pill + view toggle (~70+42+10+42 = 164px
-       from the map top, +64px site header) — measured, drive-probed */
-    left: 8px; right: 8px; bottom: auto; top: 232px; max-width: none;
-    padding: 8px 10px;
-  }
-  .vt-inspect-caption-body { font-size: 9px; line-height: 1.45; }
 }
 
 /* W2 debug fps readout — behind ?fps=1 / localStorage vt-fps=1 only */
