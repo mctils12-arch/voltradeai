@@ -76,6 +76,24 @@ function sweep(store: WindowStore, now: number, windowMs: number) {
 
 const globalStore: WindowStore = new Map();
 let lastSweep = 0;
+// Hard cap (parent-review fix 2026-07-18): under the pre-existing
+// `trust proxy: true` (Bug 36), req.ip is client-influenced via
+// X-Forwarded-For — an attacker rotating spoofed XFF values creates one
+// bucket per fake identity between sweeps. Cap + oldest-first eviction
+// keeps that a nuisance, not a memory attack. (Identity rotation also
+// evades per-IP limits themselves — documented in antiScraping.ts; the
+// robust quota layer is per API key on /api/v1.)
+const GLOBAL_STORE_CAP = 100_000;
+
+function capStore(store: Map<string, unknown>, cap: number) {
+  if (store.size <= cap) return;
+  const drop = store.size - Math.floor(cap * 0.9);
+  let i = 0;
+  for (const k of store.keys()) {
+    if (i++ >= drop) break;
+    store.delete(k);
+  }
+}
 
 /**
  * Generous global limiter. Mount with app.use(globalRateLimit()).
@@ -90,6 +108,7 @@ export function globalRateLimit(
       lastSweep = now;
       sweep(globalStore, now, 60_000);
     }
+    capStore(globalStore, GLOBAL_STORE_CAP);
     const cls = routeClass(req.path);
     const limit = limits[cls] || limits.default;
     const key = cls + "|" + hashIp(req.ip || req.socket?.remoteAddress || undefined);
@@ -190,9 +209,24 @@ export function createStrictAuthLimiter(
 ): StrictAuthLimiter {
   const attempts: WindowStore = new Map();
   const locks = new Map<string, LockState>();
+  // Expired-state sweep (parent-review fix 2026-07-18): neither map evicted,
+  // so every IP that ever touched an auth path stayed in memory forever.
+  // Attempts drop once their window is empty; lock records are kept for 24h
+  // past expiry so repeat offenders still escalate the backoff exponent.
+  const LOCK_MEMORY_MS = 24 * 60 * 60_000;
+  let lastAuthSweep = 0;
 
   function middleware(req: Request, res: Response, next: NextFunction) {
     const now = nowFn();
+    if (now - lastAuthSweep > 600_000) {
+      lastAuthSweep = now;
+      sweep(attempts, now, cfg.windowMs);
+      locks.forEach((l, k) => {
+        if (l.lockedUntil + LOCK_MEMORY_MS < now) locks.delete(k);
+      });
+      capStore(attempts, 20_000);
+      capStore(locks, 20_000);
+    }
     const ipHash = hashIp(req.ip || req.socket?.remoteAddress || undefined);
 
     // 1) Currently locked out?

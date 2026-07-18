@@ -70,11 +70,32 @@ export interface RequestFeatures {
 }
 
 /**
- * Pure instantaneous score for a request's features. Stateless: velocity and
- * breadth are passed in already-computed. Exposed for unit testing the
- * scoring logic in isolation.
+ * STATIC score — properties of the CLIENT (UA class, absent headers), not of
+ * this request's behavior. Parent-review fix (2026-07-18): these must inform
+ * the verdict but NEVER accumulate into the per-IP score — accumulating them
+ * blocked any headless browser after ~3 API calls and any curl/script API
+ * customer after ~10, punishing exactly the legitimate scripted clients the
+ * /api/v1 product exists for (and our own Playwright test harness). Max
+ * static score (headless + missing Accept = 80) sits BELOW throttleScore by
+ * design: client identity alone never trips the ladder; it only lowers how
+ * much real abusive BEHAVIOR is needed to trip it.
  */
-export function scoreFeatures(f: RequestFeatures, cfg = AS_CONFIG): number {
+export function staticScore(f: RequestFeatures): number {
+  let s = 0;
+  if (f.uaClass === "headless") s += 60;
+  if (f.uaClass === "bot") s += 25;
+  if (f.uaClass === "cli") s += 20;
+  if (f.missingUa) s += 40;
+  if (f.missingAccept) s += 20;
+  return s;
+}
+
+/**
+ * BEHAVIORAL score — evidence from what this request is doing (velocity,
+ * endpoint-sweep breadth, honeypot). This part accumulates per IP (with
+ * decay): sustained abuse escalates, one-off bursts wash out.
+ */
+export function behavioralScore(f: RequestFeatures, cfg = AS_CONFIG): number {
   if (f.honeypot) return cfg.honeypotScore;
   let s = 0;
   // Velocity: ramp between soft and hard thresholds.
@@ -85,12 +106,17 @@ export function scoreFeatures(f: RequestFeatures, cfg = AS_CONFIG): number {
   if (f.breadth > cfg.breadthSoft) {
     s += Math.min(80, ((f.breadth - cfg.breadthSoft) / Math.max(1, cfg.breadthHard - cfg.breadthSoft)) * 80);
   }
-  if (f.uaClass === "headless") s += 60;
-  if (f.uaClass === "bot") s += 25;
-  if (f.uaClass === "cli") s += 20;
-  if (f.missingUa) s += 40;
-  if (f.missingAccept) s += 20;
   return s;
+}
+
+/**
+ * Combined instantaneous view of one request (static + behavioral) — used by
+ * tests and ops introspection. The stateful ladder in evaluate() accumulates
+ * ONLY the behavioral part; see staticScore's rationale.
+ */
+export function scoreFeatures(f: RequestFeatures, cfg = AS_CONFIG): number {
+  if (f.honeypot) return cfg.honeypotScore;
+  return behavioralScore(f, cfg) + staticScore(f);
 }
 
 // ── Per-IP state ────────────────────────────────────────────────────────────
@@ -106,6 +132,35 @@ interface IpRec {
 }
 
 const ipStore = new Map<string, IpRec>();
+
+// ── Store hygiene (parent-review fix 2026-07-18) ────────────────────────────
+// Nothing ever removed records, so every distinct IP (or, under the
+// pre-existing `trust proxy: true` — Bug 36 — every SPOOFED X-Forwarded-For
+// value an attacker rotates through) lived in memory forever. Idle sweep +
+// hard cap bound the store. HONESTY NOTE on identity: with trust proxy
+// enabled, req.ip is client-influenced via XFF, so per-IP scoring deters
+// naive scrapers, not adversaries who rotate identities — robust quotas
+// belong at the API-key layer (/api/v1). These caps ensure identity
+// rotation cannot become a memory attack either.
+const IP_STORE_CAP = 50_000;
+const IP_IDLE_MS = 10 * AS_CONFIG.windowMs; // ~100s quiet → score has decayed to ~0
+let lastIpSweep = 0;
+
+function sweepIpStore(now: number) {
+  ipStore.forEach((r, k) => {
+    if (r.blockedUntil <= now && now - r.lastSeen > IP_IDLE_MS) ipStore.delete(k);
+  });
+  // Hard cap: Map iteration is insertion order (≈ oldest first) — evict down
+  // to 90% so eviction cost amortizes instead of running per request.
+  if (ipStore.size > IP_STORE_CAP) {
+    const drop = ipStore.size - Math.floor(IP_STORE_CAP * 0.9);
+    let i = 0;
+    for (const k of ipStore.keys()) {
+      if (i++ >= drop) break;
+      ipStore.delete(k);
+    }
+  }
+}
 
 function getRec(ipHash: string, now: number): IpRec {
   let r = ipStore.get(ipHash);
@@ -142,6 +197,10 @@ export interface EvalResult {
  * the ladder verdict. Separated from Express so tests can drive it directly.
  */
 export function evaluate(req: { path: string; headers: Record<string, any>; ip?: string }, now: number): EvalResult {
+  if (now - lastIpSweep > 60_000) {
+    lastIpSweep = now;
+    sweepIpStore(now);
+  }
   const ipHash = hashIp(req.ip || undefined);
   const r = getRec(ipHash, now);
   decayScore(r, now);
@@ -192,21 +251,24 @@ export function evaluate(req: { path: string; headers: Record<string, any>; ip?:
 
   if (honeypot) r.honeypotHits++;
 
-  const instant = scoreFeatures(features);
-  r.score += instant;
+  // Only BEHAVIORAL evidence accumulates; the client's static suspicion
+  // (UA class / absent headers) is applied to THIS verdict without
+  // compounding — see staticScore's rationale.
+  r.score += behavioralScore(features);
   r.lastSeen = now;
+  const effective = r.score + staticScore(features);
 
   let verdict: Verdict = "allow";
-  if (r.score >= AS_CONFIG.blockScore || honeypot) {
+  if (effective >= AS_CONFIG.blockScore || honeypot) {
     verdict = "block";
     r.blockedUntil = now + AS_CONFIG.blockTtlMs;
     r.blocked++;
-  } else if (r.score >= AS_CONFIG.throttleScore) {
+  } else if (effective >= AS_CONFIG.throttleScore) {
     verdict = "throttle";
     r.throttled++;
   }
 
-  return { verdict, score: r.score, ipHash, features };
+  return { verdict, score: effective, ipHash, features };
 }
 
 // ── Express middleware ──────────────────────────────────────────────────────
@@ -282,4 +344,10 @@ export function antiScrapingSnapshot(now = Date.now()): AntiScrapingSnapshot {
 
 export function _resetAntiScraping() {
   ipStore.clear();
+  lastIpSweep = 0;
+}
+
+/** Test-only view of store size (hygiene assertions). */
+export function _ipStoreSize(): number {
+  return ipStore.size;
 }

@@ -110,6 +110,14 @@ const routeCounts = new Map<string, number>();
 const uniquesByDay = new Map<string, Set<string>>();
 // cap retained days so the map cannot grow unbounded.
 const DAY_CAP = 90;
+// Cardinality caps (parent-review fix 2026-07-18): the SPA catch-all serves
+// 200 for ANY path, so a random-path flood would otherwise grow routeCounts
+// without bound; spoofed X-Forwarded-For rotation (trust proxy is on —
+// Bug 36) would grow a day's uniques set the same way. Routes beyond the cap
+// tally under "(other)" — counted honestly, not dropped; uniques beyond the
+// cap stop registering (the day reads as "at least N").
+const ROUTE_CAP = 2000;
+const DAY_UNIQUES_CAP = 200_000;
 
 function dayKey(t: number): string {
   return new Date(t).toISOString().slice(0, 10);
@@ -132,7 +140,8 @@ export function isPageView(method: string, route: string): boolean {
 
 function recordPageView(route: string, ipHash: string, t: number) {
   totalPageViews++;
-  routeCounts.set(route, (routeCounts.get(route) || 0) + 1);
+  const key = routeCounts.has(route) || routeCounts.size < ROUTE_CAP ? route : "(other)";
+  routeCounts.set(key, (routeCounts.get(key) || 0) + 1);
   const dk = dayKey(t);
   let set = uniquesByDay.get(dk);
   if (!set) {
@@ -144,7 +153,7 @@ function recordPageView(route: string, ipHash: string, t: number) {
       uniquesByDay.delete(oldest);
     }
   }
-  set.add(ipHash);
+  if (set.size < DAY_UNIQUES_CAP || set.has(ipHash)) set.add(ipHash);
 }
 
 export interface AnalyticsSnapshot {

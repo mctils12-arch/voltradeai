@@ -36,6 +36,7 @@ import {
   HONEYPOT_PATHS,
   AS_CONFIG,
   _resetAntiScraping,
+  _ipStoreSize,
 } from "./antiScraping";
 import { registerRobots, buildRobotsTxt } from "./robots";
 import { registerAdminStats } from "./adminStats";
@@ -197,18 +198,67 @@ test("scorer flags velocity, headless UA, and honeypot", () => {
   assert.equal(scoreFeatures({ uaClass: "browser", missingUa: false, missingAccept: false, velocity: 30, breadth: 20, honeypot: false }), 0);
 });
 
-test("anti-scraping walks log -> throttle -> block ladder", () => {
+test("anti-scraping walks log -> throttle -> block ladder on BEHAVIORAL evidence (catalogue sweep)", () => {
   _resetAntiScraping();
-  // Each headless + missing-accept request scores 60+20 = 80; same clock => no decay.
-  const mk = (n: number) => evaluate({ path: "/api/data", headers: { "user-agent": "HeadlessChrome/120" }, ip: "9.9.9.9" }, n);
-  const r1 = mk(1000); // 80  → allow (log)
-  assert.equal(r1.verdict, "allow");
-  const r2 = mk(1000); // 160 → throttle (>=100)
-  assert.equal(r2.verdict, "throttle");
-  const r3 = mk(1000); // 240 → block (>=200), offender persisted
-  assert.equal(r3.verdict, "block");
-  const snap = antiScrapingSnapshot(1000);
+  // A real scraper signature: a cli client sweeping many distinct /api
+  // endpoints at high velocity in one window. Behavioral overage accumulates
+  // → allow first, then throttle, then block with the offender persisted.
+  const verdicts: string[] = [];
+  for (let i = 0; i < 400; i++) {
+    const r = evaluate(
+      { path: `/api/endpoint-${i}`, headers: { "user-agent": "curl/8.0", accept: "*/*" }, ip: "9.9.9.9" },
+      1000 + i, // 400 hits in ~0.4s — far over velocitySoft within one window
+    );
+    verdicts.push(r.verdict);
+    if (r.verdict === "block") break;
+  }
+  assert.equal(verdicts[0], "allow", "first request only logs");
+  assert.ok(verdicts.includes("throttle"), "sustained sweep gets throttled before blocking");
+  assert.equal(verdicts[verdicts.length - 1], "block", "sustained sweep ends blocked");
+  const snap = antiScrapingSnapshot(2000);
   assert.ok(snap.activeOffenders >= 1, "offender persisted with TTL");
+});
+
+// ── Parent-review regressions (2026-07-18): static client signals must not
+// compound. The original scorer accumulated the +60 headless / +20 cli UA
+// score PER REQUEST, blocking any headless browser after ~3 API calls (our
+// own Playwright harness) and any curl/script API customer after ~10 — the
+// exact legitimate clients of the /api/v1 product. ──
+test("REGRESSION: headless browser at human map-load rate is never throttled", () => {
+  _resetAntiScraping();
+  let now = 10_000;
+  for (let i = 0; i < 80; i++) {
+    const r = evaluate(
+      { path: `/api/data/layer-${i % 50}`, headers: { "user-agent": "Mozilla/5.0 HeadlessChrome/120", accept: "application/json" }, ip: "7.7.7.7" },
+      now,
+    );
+    assert.equal(r.verdict, "allow", `headless at human rate must stay allowed (req ${i}, score ${r.score})`);
+    now += 250; // 4 req/s — a busy multi-layer /data hydration
+  }
+});
+
+test("REGRESSION: cli API customer at modest sustained rate stays allowed", () => {
+  _resetAntiScraping();
+  let now = 50_000;
+  for (let i = 0; i < 120; i++) {
+    const r = evaluate(
+      { path: "/api/v1/signals", headers: { "user-agent": "python-requests/2.32", accept: "application/json" }, ip: "6.6.6.6" },
+      now,
+    );
+    assert.equal(r.verdict, "allow", `scripted API customer must stay allowed (req ${i}, score ${r.score})`);
+    now += 1000; // 1 req/s, all day long — a paying customer's poller
+  }
+});
+
+test("ip store hygiene: idle records are swept; blocked offenders survive the sweep", () => {
+  _resetAntiScraping();
+  evaluate({ path: "/api/a", headers: { "user-agent": "Mozilla/5.0", accept: "*/*" }, ip: "1.1.1.1" }, 1000);
+  evaluate({ path: HONEYPOT_PATHS[0], headers: { "user-agent": "curl/8.0" }, ip: "2.2.2.2" }, 1000); // blocked offender
+  assert.equal(_ipStoreSize(), 2);
+  // 200s later another IP arrives → sweep runs: idle 1.1.1.1 dropped, the
+  // still-blocked offender kept.
+  evaluate({ path: "/api/b", headers: { "user-agent": "Mozilla/5.0", accept: "*/*" }, ip: "3.3.3.3" }, 201_000);
+  assert.equal(_ipStoreSize(), 2, "idle record swept; offender + newcomer remain");
 });
 
 test("honeypot hit blocks immediately and persists offender", async () => {
