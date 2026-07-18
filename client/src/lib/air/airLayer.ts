@@ -37,8 +37,20 @@ import { lonLatToMercator } from '../orbital/satBuffer.js';
 import { mercatorToSphere } from '../orbital/occlusion.js';
 import { MAX_AIR_GLIDE_SEC, airGlideDtSec, mercVelPerSec, shouldGlidePerFrame } from './airGlide.js';
 
-/** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above. */
-export const AIR_3D_MIN_ZOOM = 8;
+/** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above.
+ *
+ *  DELIBERATELY FRACTIONAL (2026-07-18 vanish fix, drive-reproduced): the
+ *  2D icon layer's maxzoom is this value, and MapLibre's worker skips
+ *  building SYMBOL BUCKETS in any tile whose integer zoom >= the layer's
+ *  maxzoom (isHidden(tileZoom) uses >=), while the tile cover switches to
+ *  z8 tiles at map zoom ~7.95 (+0.05 cover bias). With the old integer 8,
+ *  map zooms [7.95, 8.0) displayed z8 tiles containing NO icon buckets and
+ *  the 3D layer wasn't drawing yet — planes VANISHED in the dead band
+ *  (velocity whiskers survived: the vec layer has no maxzoom). At 8.05 the
+ *  z8 tiles DO build buckets (8 < 8.05), icons run to exactly 8.05, and
+ *  the 3D gate uses the SAME constant — no gap, no overlap. The repo's
+ *  4.5 lowZoom split is fractional for the same structural reason. */
+export const AIR_3D_MIN_ZOOM = 8.05;
 
 /** floats per instance: mercX, mercY, altMeters, headingDeg, band, shape,
  *  velX, velY. vel* are DISPLAY-ONLY dead-reckoning rates in normalized-

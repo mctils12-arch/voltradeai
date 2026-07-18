@@ -144,6 +144,16 @@ test('API smoke (no GL): counts, zoom gate semantics, no-instance render is a no
   assert.ok(AIR_3D_MIN_ZOOM >= 6 && AIR_3D_MIN_ZOOM <= 12, 'hand-off in the regional-zoom band');
 });
 
+test('hand-off zoom is FRACTIONAL — integer maxzoom creates a vanish dead band (2026-07-18 regression)', () => {
+  // MapLibre's worker skips symbol buckets in tiles whose integer zoom >=
+  // the layer's maxzoom, while the tile cover switches to that integer
+  // level ~0.05 below it: an integer hand-off leaves a [N-0.05, N) band
+  // with NO icons and NO 3D silhouettes (drive-reproduced at [7.95, 8)).
+  const frac = AIR_3D_MIN_ZOOM - Math.floor(AIR_3D_MIN_ZOOM);
+  assert.ok(frac > 0, 'strictly above its integer tile level, or z-N tiles carry no icon buckets');
+  assert.ok(frac <= 0.5, 'a hair above — the hand-off stays "at z8" as designed');
+});
+
 test('glide packing: broadcast velocity → merc-per-second fields; frozen rows pack 0', () => {
   const { inst } = buildAircraftInstances([
     { lon: 0, lat: 0, altitude_m: 10000, heading: 90, velocity_ms: 250 },   // due east at the equator

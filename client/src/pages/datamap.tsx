@@ -4650,6 +4650,7 @@ export default function DataMapPage() {
     // before the first payload; instances rebuilt from each fresh snapshot.
     const airLayer = new AirLayer({ id: "aircraft-3d" });
     try { map.addLayer(airLayer); } catch {}
+    (window as any).__vtAir = airLayer; // harness seam (prod-inert, like __vtMap)
     let airRows: any[] = []; // index-aligned to the instance buffer (picking)
 
     const wire = () => wireLivePoints({
@@ -4841,6 +4842,7 @@ export default function DataMapPage() {
       try { map.off("mouseout", hideHoverTip); } catch {}
       if (hoverFrame != null) cancelAnimationFrame(hoverFrame);
       hideHoverTip();
+      try { delete (window as any).__vtAir; } catch {}
       try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
     };
   }, [enabled.aircraft, mapReady, wireLivePoints, setStatus, airFilter]);
