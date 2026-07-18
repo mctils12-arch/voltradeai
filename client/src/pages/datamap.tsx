@@ -100,6 +100,10 @@ import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, type LodE
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
+// Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
+// block logging — a recurrence of the v1.0.396 freeze surfaces in the
+// console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
+import { startLongTaskWatchdog, longTaskWatchdogArmed } from "@/lib/longTasks";
 // PERF session #2 (user-reported lag/freezes): pure, tested guards for the
 // live-points tick pipeline — vector-build gating below visibility,
 // count quantization so the render bail engages, redundant-refetch skip.
@@ -1303,6 +1307,13 @@ export default function DataMapPage() {
         window.localStorage?.getItem("vt-fps") === "1";
     } catch { return false; }
   });
+  // §6 long-task watchdog: observe >50ms main-thread blocks for the page's
+  // lifetime (dev / ?lt only — longTaskWatchdogArmed gates, so prod mounts
+  // nothing and pays nothing).
+  useEffect(() => {
+    if (!longTaskWatchdogArmed()) return;
+    return startLongTaskWatchdog();
+  }, []);
   const [panelOpen, setPanelOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   // Legend v3: collapsible as one unit so it never fights the panel for
