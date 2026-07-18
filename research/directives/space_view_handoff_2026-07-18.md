@@ -19,6 +19,10 @@ Current site behavior: zoomed-out "gray blobs" space view → replace with this 
 3. **HUD strings** already match your vocabulary ("at Earth · camera N AU out", LOD hints, RAW badges).
 
 ## Open todos
+- Inspect view fixes (from user review of live site, 2026-07-18):
+  1. DELETE the "COMPUTED EPHEMERIS VIEW / LIVE FOLLOW…" methodology text block from the inspect view — no on-screen essay.
+  2. ONE inspect entry point only — remove the duplicate (card button vs toolbar "inspect" do different things today); a single Inspect action.
+  3. Inspect renders the craft over the REAL Earth — the existing live globe with sat imagery + active layers — not the simplified blue ephemeris globe. Keep the Orbit/Onboard toggle and Back to map.
 - Release tracking gesture (click empty space → back to Sun frame).
 - Real sat catalog passthrough instead of demo shells.
 - Optional: bloom postprocess + ESO/Gaia pano for richer galaxy; moons of Mars/Jupiter/Saturn.
