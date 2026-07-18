@@ -1311,6 +1311,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // DOMAIN — sprint W3 2026-07-17). Same self-hosted slim-compile pattern
   // (376KB, scripts/boundaries_admin1_build.py). Day-cached, fetched only
   // when the layer is enabled (zero-cost-when-off).
+  // Celestial catalog RELAY (human-approved mirror, 2026-07-18): CelesTrak
+  // firewalls Railway egress (R17), so the celestial-catalog-mirror GitHub
+  // workflow publishes the catalogs to the celestial-catalog-data branch
+  // every 6h; this route relays them from GitHub raw with an in-memory hour
+  // cache. The CLIENT uses this only when its direct CelesTrak fetch fails
+  // (fetch ladder in datamap) — the mirror's fetched_at rides a header so
+  // the client can state the catalog's true age honestly.
+  const CATALOG_RAW_BASE = "https://raw.githubusercontent.com/mctils12-arch/voltradeai/celestial-catalog-data";
+  const catalogRelayCache: Record<string, { at: number; body: string; fetchedAt: string } | undefined> = {};
+  const relayCatalog = async (file: string, contentType: string, res: any) => {
+    try {
+      const hit = catalogRelayCache[file];
+      if (!hit || Date.now() - hit.at > 3600_000) {
+        const [fr, mr] = await Promise.all([
+          fetch(`${CATALOG_RAW_BASE}/${file}`, { signal: AbortSignal.timeout(30000) }),
+          fetch(`${CATALOG_RAW_BASE}/meta.json`, { signal: AbortSignal.timeout(15000) }),
+        ]);
+        if (!fr.ok) throw new Error(`mirror ${file} ${fr.status}`);
+        const body = await fr.text();
+        const meta = mr.ok ? await mr.json().catch(() => null) : null;
+        catalogRelayCache[file] = { at: Date.now(), body, fetchedAt: meta?.fetched_at || "" };
+      }
+      const c = catalogRelayCache[file]!;
+      res.set("Cache-Control", "public, max-age=3600");
+      res.set("Content-Type", contentType);
+      if (c.fetchedAt) res.set("x-catalog-fetched-at", c.fetchedAt);
+      res.send(c.body);
+    } catch (e: any) {
+      // honest 503: the mirror branch may not exist until the workflow's
+      // first run — the client ladder falls through to its stale cache.
+      res.status(503).json({ error: "catalog mirror unavailable", detail: String(e?.message || e) });
+    }
+  };
+  app.get("/api/data/orbital/catalog", (_req, res) => void relayCatalog("gp_active.json", "application/json", res));
+  app.get("/api/data/orbital/satcat", (_req, res) => void relayCatalog("satcat.csv", "text/csv", res));
+
   app.get("/api/data/boundaries_admin1", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     res.json({ kind: "raw", source: "Natural Earth 1:50m admin-1 (public domain)", ...(datacoreBoundariesAdmin1 as any) });

@@ -73,13 +73,13 @@ export async function idbGetCatalog<T>(key: string): Promise<CachedCatalog<T> | 
   });
 }
 
-export async function idbSetCatalog<T>(key: string, data: T): Promise<void> {
+export async function idbSetCatalog<T>(key: string, data: T, at: number = Date.now()): Promise<void> {
   const db = await openDb();
   if (!db) return;
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put({ at: Date.now(), data }, key);
+      tx.objectStore(STORE).put({ at, data }, key);
       tx.oncomplete = () => { resolve(); db.close(); };
       tx.onerror = () => { resolve(); db.close(); };
     } catch {

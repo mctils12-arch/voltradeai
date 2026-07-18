@@ -24,17 +24,23 @@
 // and at the seam (CSS scale = 1) the camera is handed back to MapLibre at
 // the zoom floor: the exact reverse of entry, no chip, no flash.
 //
-// TRUE SCALE EVERYWHERE — THE CAMERA DOES THE COMPRESSING. Every body sits
-// at its real ephemeris position (lib/celestial/solarSystem.ts — Schlyter/
-// van Flandern low-precision theory, arcmin-class) and is drawn at its true
-// physical radius under a plain perspective projection. Space is NEVER
-// compressed — which is what future-proofs per-body map layers (a Moon tile
-// pyramid can anchor at the Moon exactly the way the maplibre canvas anchors
-// at Earth today; see the body registry). The physical payoff is free: from
-// lunar distance Earth is a ~1.9° disc — real, no compression needed.
+// USER-CONTROLLED SCALE (B2, directive §2, 2026-07-18 — supersedes v1's
+// fixed true scale): every body's TRUE position still comes from the real
+// ephemeris (lib/celestial/solarSystem.ts — Schlyter/van Flandern, arcmin-
+// class), but the RENDER LAYOUT flows through lib/celestial/scaleModel.ts:
+// a distance-compression slider c (0 = true 1:1, 1 = Mercury→Neptune in one
+// view) and a body-size multiplier s (1–2500×, Sun capped, the map-anchor
+// body exempt — scaleModel's header carries the full mapping rationale).
+// THE RULE: the LAYOUT may compress; the NUMBERS never lie — labels, the
+// status line and the scale bar always print TRUE ephemeris distances
+// (dual-space camera: one (focus, dir, dist) pose evaluated against both
+// the compressed and the true positions). At the TRUE SCALE preset
+// (c=0, s=1) the mapping is the exact identity and this frame renders
+// bit-identically to the B1 true-scale frame; satellites (the Moon) ride
+// their parent at the TRUE local offset at every c, so the physical payoff
+// stays free: from lunar distance Earth is a ~1.9° disc — the live one.
 // Exponential zoom (each wheel tick MULTIPLIES camera distance) is what
-// makes 12 orders of magnitude traversable; the geometry itself is never
-// touched.
+// makes 12 orders of magnitude traversable.
 //
 // FLOATING ORIGIN (B1 precision audit, 2026-07-18 — directive §1 "camera-
 // relative rendering with double-precision origin offsets on CPU, single-
@@ -51,9 +57,13 @@
 // (sub-pixel projection stability at 30 AU under micro camera moves).
 //
 // HONESTY RAILS
-// - Bodies smaller than MARKER_MAX_DISC_PX on screen carry a labeled marker
-//   (reticle + name + camera distance) — styled as a marker, never a fake
-//   disc. Nothing is ever invisible, nothing is ever inflated.
+// - Bodies smaller than MARKER_MAX_DISC_PX RENDERED on screen carry a
+//   labeled marker (reticle + name + TRUE camera distance) — styled as a
+//   marker, never a fake disc. Nothing is ever invisible; enlargement only
+//   ever happens through the user's own size slider, and whenever the
+//   layout is not true 1:1 the caption says so in amber, verbatim from the
+//   directive: "distances/sizes compressed for visibility — labels always
+//   show real values".
 // - No starfield: a decorative random sky would violate "real position or
 //   absent" (the retired solarView made the same choice; a real bright-star
 //   catalog remains future work). Black is honest.
@@ -99,6 +109,31 @@ import {
 import { gmstDeg } from "./ephemeris.js";
 import { fmtKm, getUnits, type UnitSystem } from "../units.js";
 import { ZOOM_STEP_PER_NOTCH, zoomStepFactor } from "./zoomSeam.js";
+import {
+  applyDistanceCompression,
+  renderedDiscPx,
+  clampScaleState,
+  getCelestialScale,
+  isTrueScale,
+  SUN_SIZE_MULT_CAP,
+  type ScaleState,
+  type ScaleBodyIn,
+} from "./scaleModel.js";
+
+// B2 scale system: the user-controlled layout mapping is re-exported so the
+// frame's public surface keeps one name per contract (the zoomSeam pattern).
+export {
+  SCALE_PRESET_TRUE,
+  SCALE_PRESET_VISIBLE,
+  SIZE_MULT_MIN,
+  SIZE_MULT_MAX,
+  SUN_SIZE_MULT_CAP,
+  SIZE_APPARENT_CAP_PX,
+  compressDistance,
+  renderedDiscPx,
+  isTrueScale,
+  type ScaleState,
+} from "./scaleModel.js";
 
 // the seam's zoom math is shared with datamap's input wiring (see
 // zoomSeam.ts header) — re-exported so this module's public surface and
@@ -559,6 +594,10 @@ export interface SpaceBodyDef {
    *  map canvas (Earth today); null = shaded true-scale sphere only. A
    *  future Moon tile pyramid becomes an anchor here, nowhere else. */
   mapAnchor: "maplibre" | null;
+  /** B2: satellites name their primary here and RIDE it through distance
+   *  compression at the TRUE local offset (scaleModel.ts header states
+   *  why); absent ⇒ the body's heliocentric radius is what compresses. */
+  parentId?: string | null;
 }
 
 /** Approximate naked-eye display colors — presentation only, not data. */
@@ -607,6 +646,7 @@ export function defaultBodyRegistry(): SpaceBodyDef[] {
     color: BODY_COLOR[id],
     emissive: id === "sun" ? true : undefined,
     mapAnchor: id === "earth" ? ("maplibre" as const) : null,
+    parentId: id === "moon" ? "earth" : null,
   }));
 }
 
@@ -644,6 +684,9 @@ export interface SpaceFrameOptions {
   /** initial sky-clock ms (time axis; default Date.now()). */
   timeMs?: number;
   fovDeg?: number;
+  /** B2 initial scale state (default: the persisted preference — VISIBLE on
+   *  first run). Layout only; labels/scale bar stay true regardless. */
+  scale?: ScaleState;
   /** the body registry (default: defaultBodyRegistry() — Sun/Moon/Earth +
    *  the 8 planets). Must contain exactly one emissive body (the light
    *  source) and at most one mapAnchor body. */
@@ -669,6 +712,9 @@ export interface SpaceFrameHandle {
   /** wheel/pinch/button impulse — multiplies camera distance (exponential
    *  zoom; buttons/keys convert to deltaY via zoomSeam.ZOOM_BUTTON_DELTAY). */
   nudgeZoom(deltaY: number): void;
+  /** B2: live scale update (slider drags). rAF-coalesced like any input —
+   *  layout re-flows next frame; ephemeris and labels are untouched. */
+  setScale(st: ScaleState): void;
   getState(): SpaceFrameState;
   dispose(): void;
 }
@@ -678,18 +724,28 @@ export interface SpaceFrameBodyState {
   name: string;
   screenX: number;
   screenY: number;
+  /** RENDERED disc px (B2: true disc through renderedDiscPx — the anchor
+   *  and any body at/above the apparent cap render true). */
   discPx: number;
   behind: boolean;
   marker: boolean;
   /** camera-relative illuminated fraction (real phase from HERE). */
   litFraction: number;
+  /** TRUE camera→body distance, meters — what the label prints. THE
+   *  NUMBERS NEVER LIE: computed from real ephemeris positions with the
+   *  camera at its real distance from the focus body, at every c/s. */
   distM: number;
+  /** camera→body distance in the compressed LAYOUT, meters (what the
+   *  projection used). Equals distM at c=0. */
+  layoutDistM: number;
 }
 
 export interface SpaceFrameState {
   timeMs: number;
   focusId: string;
   distM: number;
+  /** B2: the scale state the frame rendered with this frame. */
+  scale: ScaleState;
   flying: boolean;
   /** true while the rAF loop is live (flights/input); idle frames cost 0. */
   animating: boolean;
@@ -740,11 +796,47 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   const sunDef = defs.find((d) => d.emissive) ?? defs[0];
   const anchorDef = defs.find((d) => d.mapAnchor === "maplibre") ?? defs[0];
   const radiusM = (id: string): number => (defById.get(id)?.radiusKm ?? 1) * 1000;
+
+  // ── B2 scale state (layout only — the numbers never lie) ──
+  let scaleSt: ScaleState = clampScaleState(opts.scale ?? getCelestialScale());
+
+  // TRUE positions, memoized per instant (labels, scale bar, honesty).
+  const trueMemo: { t: number; pos: Record<string, Vec3> } = { t: Number.NaN, pos: {} };
   const positionsNow = (t: number): Record<string, Vec3> => {
-    const pos: Record<string, Vec3> = {};
-    for (const d of defs) pos[d.id] = d.ephemeris(t);
-    return pos;
+    if (trueMemo.t !== t) {
+      for (const d of defs) trueMemo.pos[d.id] = d.ephemeris(t);
+      trueMemo.t = t;
+    }
+    return trueMemo.pos;
   };
+  // COMPRESSED layout positions, memoized per (instant, c) into preallocated
+  // vectors — a slider drag re-flows ten pows and allocates nothing.
+  const scaleInput: ScaleBodyIn[] = defs.map((d) => ({
+    id: d.id,
+    parentId: d.parentId ?? null,
+    pos: { x: 0, y: 0, z: 0 },
+  }));
+  const layoutMemo: { t: number; c: number; pos: Record<string, Vec3> } = { t: Number.NaN, c: Number.NaN, pos: {} };
+  for (const d of defs) layoutMemo.pos[d.id] = { x: 0, y: 0, z: 0 };
+  const layoutNow = (t: number): Record<string, Vec3> => {
+    if (layoutMemo.t !== t || layoutMemo.c !== scaleSt.c) {
+      const truePos = positionsNow(t);
+      for (const si of scaleInput) si.pos = truePos[si.id];
+      applyDistanceCompression(scaleInput, scaleSt.c, layoutMemo.pos);
+      layoutMemo.t = t;
+      layoutMemo.c = scaleSt.c;
+    }
+    return layoutMemo.pos;
+  };
+  // rendered disc from the true radius at the LAYOUT distance, through the
+  // B2 size pipeline (anchor exempt, Sun capped, apparent cap; s=1 identity)
+  const discPxOf = (id: string, layoutDistM: number, k: number): number =>
+    renderedDiscPx(
+      bodyDiscPx(radiusM(id), layoutDistM, k),
+      scaleSt.s,
+      defById.get(id)?.mapAnchor === "maplibre",
+      !!defById.get(id)?.emissive,
+    );
 
   // ── camera: focus body + unit dir (target→camera) + distance ──
   const seam0 = opts.getMapSeam();
@@ -845,7 +937,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   // in progress first, freezing its blended camera as the new start) ──
   function beginFlight(toId: string, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean }): void {
     cancelFlight();
-    const pos = positionsNow(timeMs);
+    // flights fly through DRAWN space (layout) — a fly-to must land on the
+    // body where it is rendered; framing math uses TRUE radii, and the
+    // apparent-size cap renders true discs at arrival range, so the
+    // FRAME_DISC_FRACTION landing is exact at any c/s
+    const pos = layoutNow(timeMs);
     const from = pos[focusId];
     const to = pos[toId];
     let toDir: Vec3;
@@ -885,10 +981,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     kick();
   }
 
-  /** freeze a mid-flight pose into plain camera state (wheel takes over). */
+  /** freeze a mid-flight pose into plain camera state (wheel takes over).
+   *  Runs in layout space — dist becomes the camera's one shared distance-
+   *  from-focus parameter, identical in both spaces thereafter. */
   function cancelFlight(): void {
     if (!flight) return;
-    const pos = positionsNow(timeMs);
+    const pos = layoutNow(timeMs);
     const s = easeInOutCubic((performance.now() - flight.startedAt) / flight.durMs);
     const target = add(
       scale3(pos[flight.fromId], 1 - s),
@@ -912,18 +1010,29 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     resizeBacking();
     const { w, h } = cssSize();
     kNow = perspectiveScalePx(fovDeg, h);
-    const pos = positionsNow(timeMs);
+    // B2 dual-space rule: LAYOUT positions (compressed) are what the frame
+    // DRAWS; TRUE positions are what the frame SAYS (labels, status line,
+    // scale bar). At c=0 the two are the same values, bit-exact.
+    const posT = positionsNow(timeMs);
+    const pos = layoutNow(timeMs);
     const axis = earthAxisEcl(timeMs);
 
-    // flight progression
+    // flight progression — camera pose derived in BOTH spaces from the one
+    // shared (focus/blend, dir, dist) parameterization
     let camPos: Vec3;
+    let camTrue: Vec3;
     let viewDir: Vec3;
     if (flight) {
       const raw = (performance.now() - flight.startedAt) / flight.durMs;
       const s = easeInOutCubic(raw);
       const target = add(scale3(pos[flight.fromId], 1 - s), scale3(pos[flight.toId], s));
       viewDir = slerpUnit(flight.fromDir, flight.toDir, s);
-      camPos = add(target, scale3(viewDir, expLerp(flight.fromDist, flight.toDist, s)));
+      const dd = expLerp(flight.fromDist, flight.toDist, s);
+      camPos = add(target, scale3(viewDir, dd));
+      camTrue = add(
+        add(scale3(posT[flight.fromId], 1 - s), scale3(posT[flight.toId], s)),
+        scale3(viewDir, dd),
+      );
       if (raw >= 1) {
         focusId = flight.toId;
         dir = flight.toDir;
@@ -939,10 +1048,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           );
         }
         camPos = add(pos[focusId], scale3(dir, dist));
+        camTrue = add(posT[focusId], scale3(dir, dist));
         viewDir = dir;
       }
     } else {
       camPos = add(pos[focusId], scale3(dir, dist));
+      camTrue = add(posT[focusId], scale3(dir, dist));
       viewDir = dir;
     }
     const basis = camBasis(viewDir, axis);
@@ -953,28 +1064,32 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     ctx.fillStyle = "#020409";
     ctx.fillRect(0, 0, w, h);
 
-    // ── project every body; depth-sort far→near for painter's occlusion ──
+    // ── project every body; depth-sort far→near for painter's occlusion.
+    // Geometry (projection, disc, occlusion, shading) is LAYOUT space;
+    // distM carried per body is the TRUE camera distance (label truth). ──
     const sunPos = pos[sunDef.id];
     const drawn: Array<{
       id: string; p: ProjectedPoint; discPx: number; distM: number;
-      lit: number; behind: boolean;
+      layoutDistM: number; lit: number; behind: boolean;
     }> = [];
     for (const def of defs) {
       const bp = pos[def.id];
       const rel = sub(bp, camPos);
-      const distM = len3(rel);
+      const layoutDistM = len3(rel);
       const p = projectPoint(bp, camPos, basis, kNow, cx, cy);
       const behind = !(p.depth > 0);
       const toSun = def.emissive ? v3(0, 0, 1) : norm3(sub(sunPos, bp));
       const toCam = norm3(scale3(rel, -1));
       drawn.push({
-        id: def.id, p, distM,
-        discPx: bodyDiscPx(radiusM(def.id), distM, kNow),
+        id: def.id, p,
+        distM: len3(sub(posT[def.id], camTrue)),
+        layoutDistM,
+        discPx: discPxOf(def.id, layoutDistM, kNow),
         lit: def.emissive ? 1 : apparentLitFraction(toSun, toCam),
         behind,
       });
     }
-    drawn.sort((a, b) => b.distM - a.distM);
+    drawn.sort((a, b) => b.layoutDistM - a.layoutDistM);
 
     const margin = 60;
     const onScreen = drawn.filter(
@@ -1084,23 +1199,41 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const focus = drawn.find((d) => d.id === focusId)!;
     ctx.fillStyle = "rgba(160,175,198,0.8)";
     ctx.fillText(
-      `${flight ? "flying to" : "at"} ${defById.get(flight ? flight.toId : focusId)!.name} · camera ${fmtSpaceDistance(flight ? len3(sub(camPos, pos[flight.toId])) : focus.distM)} out`,
+      `${flight ? "flying to" : "at"} ${defById.get(flight ? flight.toId : focusId)!.name} · camera ${fmtSpaceDistance(flight ? len3(sub(camTrue, posT[flight.toId])) : focus.distM)} out`,
       72, 38,
     );
     // honesty caption — persistent, every frame; wraps to three lines on
-    // narrow viewports so nothing ever clips off-screen (390px flawless)
-    const capLines = w < 700
-      ? [
-          "TRUE SCALE — real ephemeris positions & sizes",
-          "the camera does the compressing · sub-pixel bodies get markers",
-          "Schlyter/van Flandern (~arcmin) · Moon phase real",
-        ]
-      : [
-          "TRUE SCALE — real ephemeris positions & sizes · the camera does the compressing",
-          "markers flag bodies smaller than a pixel · Schlyter/van Flandern (~arcmin) · Moon phase real",
-        ];
+    // narrow viewports so nothing ever clips off-screen (390px flawless).
+    // B2: the caption tracks the scale state truthfully — TRUE SCALE keeps
+    // the B1 caption; ANY compression switches to the directive's own
+    // wording, amber (the SIGNAL/warning hue) so a compressed layout can
+    // never pass itself off as the true-scale view.
+    const trueNow = isTrueScale(scaleSt);
+    const capLines = trueNow
+      ? (w < 700
+        ? [
+            "TRUE SCALE — real ephemeris positions & sizes",
+            "the camera does the compressing · sub-pixel bodies get markers",
+            "Schlyter/van Flandern (~arcmin) · Moon phase real",
+          ]
+        : [
+            "TRUE SCALE — real ephemeris positions & sizes · the camera does the compressing",
+            "markers flag bodies smaller than a pixel · Schlyter/van Flandern (~arcmin) · Moon phase real",
+          ])
+      : (w < 700
+        ? [
+            "distances/sizes compressed for visibility",
+            "— labels always show real values",
+            `compression ${Math.round(scaleSt.c * 100)}% · size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · Earth (live map) true`,
+          ]
+        : [
+            "distances/sizes compressed for visibility — labels always show real values",
+            `compression ${Math.round(scaleSt.c * 100)}% · body size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · Earth (live map) always true · Schlyter/van Flandern (~arcmin)`,
+          ]);
     capLines.forEach((line, i) => {
-      ctx.fillStyle = i === 0 ? "rgba(160,175,198,0.8)" : "rgba(140,155,178,0.65)";
+      ctx.fillStyle = trueNow
+        ? (i === 0 ? "rgba(160,175,198,0.8)" : "rgba(140,155,178,0.65)")
+        : (i < capLines.length - 1 ? "rgba(251,178,76,0.9)" : "rgba(251,178,76,0.6)");
       ctx.fillText(line, 16, h - 16 - (capLines.length - 1 - i) * 14);
     });
 
@@ -1189,6 +1322,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       timeMs,
       focusId,
       distM: dist,
+      scale: { c: scaleSt.c, s: scaleSt.s },
       flying: !!flight,
       animating: !!flight || performance.now() - lastInputAt < 200,
       renderMsLast,
@@ -1208,6 +1342,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         marker: markerIds.has(d.id),
         litFraction: d.lit,
         distM: d.distM,
+        layoutDistM: d.layoutDistM,
       })),
     };
   }
@@ -1301,10 +1436,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const rect = container.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    // nearest-first hit test: disc radius or the marker reticle, min 10px
+    // nearest-first hit test: disc radius or the marker reticle, min 10px.
+    // Sorted by LAYOUT distance — visual nearest wins (what you clicked is
+    // what you saw; true and layout ordering can differ under compression)
     const hits = lastState.bodies
       .filter((b) => !b.behind && Number.isFinite(b.screenX))
-      .sort((a, b) => a.distM - b.distM);
+      .sort((a, b) => a.layoutDistM - b.layoutDistM);
     for (const b of hits) {
       const r = Math.max(b.discPx / 2, 10);
       if (Math.hypot(mx - b.screenX, my - b.screenY) <= r + 4) {
@@ -1339,8 +1476,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     );
     // come straight down the camera→anchor ray — the map recenters beneath
     // you, so you land above wherever you flew; leaving without flying
-    // returns you exactly where you entered
-    const pos = positionsNow(timeMs);
+    // returns you exactly where you entered. Layout space: the ray must
+    // point at the anchor where it is DRAWN (the seam itself is scale-
+    // invariant — compression never touches the camera→anchor distance,
+    // and the anchor body is never size-scaled).
+    const pos = layoutNow(timeMs);
     const camNow = add(pos[focusId], scale3(dir, dist));
     const homeDir = norm3(sub(camNow, pos[anchorDef.id]));
     beginFlight(anchorDef.id, { toDir: homeDir, toDist: target, exitOnArrival: true });
@@ -1365,6 +1505,15 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     nudgeZoom(deltaY: number): void {
       lastInputAt = performance.now();
       nudge(deltaY);
+    },
+    setScale(st: ScaleState): void {
+      const ns = clampScaleState(st);
+      if (ns.c === scaleSt.c && ns.s === scaleSt.s) return;
+      scaleSt = ns;
+      // rAF-coalesced like any input: a slider drag firing faster than the
+      // display refresh re-flows the layout at most once per frame
+      lastInputAt = performance.now();
+      kick();
     },
     getState(): SpaceFrameState {
       if (!lastState) draw();

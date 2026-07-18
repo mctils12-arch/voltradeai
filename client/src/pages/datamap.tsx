@@ -42,7 +42,7 @@ import {
 // GPU-instanced points. REAL positions only — SGP4 near-earth + SDP4 deep space
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer, tickAnchorFromEpoch } from "@/lib/orbital/satLayer";
-import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
+import { fetchGp, fetchSatcat, parseGp, parseSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
 import { idbGetCatalog, idbSetCatalog, catalogPlan, staleCatalogNote } from "@/lib/orbital/gpCache";
 // ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
 // not a side viewer): the followed satellite resolves to a lit, tumbling
@@ -52,6 +52,8 @@ import { ArcLayer, defaultWallRamp } from "@/lib/orbital/arcLayer";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
+import { buildFormMesh } from "@/lib/orbital/model3d";
+import type { FollowCameraHandle, InspectView } from "@/lib/orbital/followCamera";
 import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
@@ -106,6 +108,16 @@ import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
 // statically importable (tiny, pure) while the space frame itself stays a
 // lazy chunk; spaceFrame re-exports these same names for its tests.
 import { ZOOM_BUTTON_DELTAY, wheelDeltaForFactor, SEAM_ENTRY_DELTAY } from "@/lib/celestial/zoomSeam";
+// Celestial v2 B2 (2026-07-18): user-controlled scale for the space view —
+// pure mapping + persisted preference store (localStorage, the units.ts
+// pattern), statically importable for the LAYERS-panel CELESTIAL section
+// while the space frame stays a lazy chunk (same split as zoomSeam above).
+// The layout may compress; the numbers never lie.
+import {
+  getCelestialScale, setCelestialScale, subscribeCelestialScale,
+  sizeSliderToMult, multToSizeSlider, isTrueScale,
+  SCALE_PRESET_TRUE, SCALE_PRESET_VISIBLE, SUN_SIZE_MULT_CAP,
+} from "@/lib/celestial/scaleModel";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
 // block logging — a recurrence of the v1.0.396 freeze surfaces in the
 // console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
@@ -271,6 +283,13 @@ function ensureSatcat(): Promise<void> {
         if (rows.length) void idbSetCatalog("satcat", rows);
         return rows;
       } catch (e) {
+        try {
+          const r = await fetch("/api/data/orbital/satcat");
+          if (r.ok) {
+            const rows = parseSatcat(await r.text());
+            if (rows.length) { void idbSetCatalog("satcat", rows); return rows; }
+          }
+        } catch { /* fall through */ }
         if (persisted && persisted.data.length) return persisted.data; // last-good, aged, real
         throw e;
       }
@@ -1223,6 +1242,172 @@ export default function DataMapPage() {
           (map as any).getVerticalFieldOfView?.(), 65);
     map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
+  // ── INSPECT FOLLOW-CAMERA (satellite-UX directive 2026-07-18 §3, design
+  // screen 1e; celestial_v2_program.md SAT-UX slice). The human's history:
+  // the SEPARATE O7 scene was retired for discontinuity, then the map-native
+  // ease above was found insufficient ("clicking Inspect, the satellite
+  // leaves the frame entirely"). Resolution: a WebGL overlay whose camera is
+  // ATTACHED to the live moving craft (lib/orbital/followCamera) — time
+  // never stops, the sat flies its real SGP4 orbit, the terminator advances.
+  // inspectCraft() above is KEPT verbatim as the GL-failure fallback (the
+  // latch pattern): if the overlay can't render, Inspect degrades to the
+  // plain close-orbit ease instead of a black screen.
+  // Downstream traces: (1) while active, followTick suppresses its camera
+  // easeTo (model anchor + nadir keep updating) so "Back to map" can restore
+  // the EXACT stored camera; (2) map input handlers are disabled
+  // (spaceFrame precedent) and the zoom-seam listeners guard on
+  // inspectActiveRef so a wheel can never enter the space frame mid-inspect;
+  // (3) stopFollow closes the inspect first — card ✕ / Esc / tap-away /
+  // layer-off / LOD-hide all land back on the exact prior camera.
+  const inspectActiveRef = useRef(false);
+  const inspectHandleRef = useRef<FollowCameraHandle | null>(null);
+  const inspectPrevCamRef = useRef<{ lng: number; lat: number; zoom: number; bearing: number; pitch: number } | null>(null);
+  const inspectSyncTimerRef = useRef<number | null>(null);
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [inspectView, setInspectView] = useState<InspectView>("orbit");
+  const [inspectCaption, setInspectCaption] = useState<string>("");
+  const closeInspectRef = useRef<() => void>(() => {});
+  const openInspectRef = useRef<() => void>(() => {});
+  // GENERIC_MESH_LABEL lives in the lazily-loaded module; cached after the
+  // first open so inspectMeshNow stays synchronous (same text until then).
+  const GENERIC_MESH_LABEL_REF = useRef(
+    "Generic bus + solar panels — representative placeholder only (no catalogued class for this object); not imagery of this unit");
+  /** The craft mesh + honest caption for the inspect view: real model >
+   *  catalogued class form > generic bus+panels (labeled placeholder). */
+  const inspectMeshNow = useCallback((): { mesh: any; label: string } => {
+    const model = satModelLayerRef.current;
+    const f = satFollowRef.current;
+    const real = model?.getRealMesh() ?? null;
+    if (real && f) {
+      return { mesh: real, label: realModelLabel(f.noradId, f.name) ?? "verified public model (simplified for display)" };
+    }
+    const form = model?.getForm() ?? null;
+    const active = model?.getActiveMesh() ?? null;
+    if (form && active) return { mesh: active, label: formLabel(form) };
+    return { mesh: buildFormMesh("smallsat"), label: GENERIC_MESH_LABEL_REF.current };
+  }, []);
+  const closeInspect = useCallback(() => {
+    if (!inspectActiveRef.current) return;
+    inspectActiveRef.current = false;
+    setInspectOpen(false);
+    if (inspectSyncTimerRef.current != null) { window.clearInterval(inspectSyncTimerRef.current); inspectSyncTimerRef.current = null; }
+    const handle = inspectHandleRef.current;
+    inspectHandleRef.current = null;
+    try { handle?.dispose(); } catch {}
+    try { delete (window as any).__vtInspect; } catch {}
+    const container = mapContainer.current;
+    try { container?.classList.remove("vt-inspect-active"); } catch {}
+    const map = mapRef.current;
+    if (map) {
+      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
+        try { (map as any)[h]?.enable(); } catch {}
+      }
+      // EXACT prior camera (directive §3 / drive f): jumpTo — no ease, no
+      // drift; the next followTick may then resume tracking (pre-inspect
+      // behavior, since the follow itself never stopped).
+      const prev = inspectPrevCamRef.current;
+      if (prev) {
+        try { map.jumpTo({ center: [prev.lng, prev.lat], zoom: prev.zoom, bearing: prev.bearing, pitch: prev.pitch }); } catch {}
+      }
+    }
+    inspectPrevCamRef.current = null;
+  }, []);
+  useEffect(() => { closeInspectRef.current = closeInspect; }, [closeInspect]);
+  const openInspect = useCallback(async () => {
+    const map = mapRef.current;
+    const container = mapContainer.current;
+    const f = satFollowRef.current;
+    if (!map || !container || !f || inspectActiveRef.current) return;
+    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+    if (!t) return; // no honest live position this tick — nothing to attach to
+    inspectActiveRef.current = true;
+    try {
+      // lazy: the map bundle grows by nothing until someone actually inspects
+      const mod = await import("@/lib/orbital/followCamera");
+      GENERIC_MESH_LABEL_REF.current = mod.GENERIC_MESH_LABEL;
+      if (!inspectActiveRef.current || !satFollowRef.current) { inspectActiveRef.current = false; return; }
+      // store the EXACT camera to restore, then freeze any running ease so
+      // nothing moves underneath the overlay
+      const c = map.getCenter();
+      inspectPrevCamRef.current = { lng: c.lng, lat: c.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+      try { map.stop(); } catch {}
+      const { mesh, label } = inspectMeshNow();
+      const handle = mod.mountFollowCamera(container, {
+        mesh,
+        meshLabel: label,
+        // LIVE state every frame: exact-tick buffer position + the worker's
+        // real velocity glide (the same math the map layer's shader applies)
+        getState: () => {
+          const layer = satLayerRef.current;
+          const fol = satFollowRef.current;
+          if (!layer || !fol) return null;
+          return mod.glidedCraftState(
+            layer.getPositions(), fol.index, layer.getTickTime(), performance.now(),
+            Date.now() + (Number((window as any).__vtInspectTimeOffsetMs) || 0), // prod-inert test seam (drive d)
+          );
+        },
+        // onboard markers read the RAW tick (a group chip is display-only —
+        // real objects are never hidden from the sky you stand in)
+        getNeighborBuffer: () => satRawPosRef.current ?? satLayerRef.current?.getPositions() ?? null,
+        selfIndex: f.index,
+        getTimeMs: () => Date.now() + (Number((window as any).__vtInspectTimeOffsetMs) || 0),
+        initialView: "orbit",
+      });
+      if (handle.getRenderFailed()) {
+        // GL latch at mount → the kept fallback: plain close-orbit map ease
+        try { handle.dispose(); } catch {}
+        inspectActiveRef.current = false;
+        inspectPrevCamRef.current = null;
+        inspectCraft();
+        return;
+      }
+      inspectHandleRef.current = handle;
+      (window as any).__vtInspect = handle; // harness seam (prod-inert, like __vtMap/__vtSpace)
+      container.classList.add("vt-inspect-active");
+      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
+        try { (map as any)[h]?.disable(); } catch {}
+      }
+      setInspectView("orbit");
+      setInspectCaption(`${handle.getProvenance()} Craft: ${label}.`);
+      setInspectOpen(true);
+      // 1 Hz sync: (a) the real .vtm model often lands AFTER the follow
+      // starts — swap it in when the model layer has it; (b) a mid-session
+      // GL failure latches → fall back to the map ease instead of a dead
+      // black overlay.
+      inspectSyncTimerRef.current = window.setInterval(() => {
+        const h = inspectHandleRef.current;
+        if (!h) return;
+        if (h.getRenderFailed()) {
+          closeInspectRef.current();
+          inspectCraft();
+          return;
+        }
+        const cur = inspectMeshNow();
+        if (cur.mesh && cur.mesh !== (h as any).__lastMesh) {
+          (h as any).__lastMesh = cur.mesh;
+          h.setMesh(cur.mesh, cur.label);
+          setInspectCaption(`${h.getProvenance()} Craft: ${cur.label}.`);
+        }
+      }, 1000);
+    } catch (e) {
+      // degrade, never break: the kept map-ease fallback
+      inspectActiveRef.current = false;
+      inspectPrevCamRef.current = null;
+      // eslint-disable-next-line no-console
+      console.error("inspect follow-camera failed to mount (falling back to map ease):", e);
+      inspectCraft();
+    }
+  }, [inspectCraft, inspectMeshNow]);
+  useEffect(() => { openInspectRef.current = () => { void openInspect(); }; }, [openInspect]);
+  const setInspectViewMode = useCallback((v: InspectView) => {
+    const h = inspectHandleRef.current;
+    if (!h) return;
+    h.setView(v);
+    setInspectView(v);
+    setInspectCaption(`${h.getProvenance()} Craft: ${h.getMeshLabel()}.`);
+  }, []);
+  // any teardown path that unmounts the page must not leak the overlay
+  useEffect(() => () => { closeInspectRef.current(); }, []);
   // CONTINUOUS SPACE FRAME (human-approved 2026-07-18 — the third "no
   // separate scenes" directive, same precedent as INSPECT IS THE MAP above):
   // the O6-7 separate solar-system scene (lib/celestial/solarView) is
@@ -1286,6 +1471,9 @@ export default function DataMapPage() {
       const axis = getTimeAxis();
       const handle = mountSpaceFrame(container, {
         timeMs: axis.mode === "historical" ? axis.atMs : Date.now(),
+        // B2: layout scale from the persisted preference (VISIBLE default);
+        // labels/scale bar stay true regardless — layout only
+        scale: getCelestialScale(),
         getMapSeam: () => {
           const c = map.getCenter();
           return { zoom: map.getZoom(), minZoom: map.getMinZoom(), centerLatDeg: c.lat, centerLonDeg: c.lng };
@@ -1319,11 +1507,13 @@ export default function DataMapPage() {
         try { handle.setTime(a.mode === "historical" ? a.atMs : Date.now()); } catch {}
       });
       const offUnits = subscribeUnits(() => { try { handle.render(); } catch {} });
+      // B2: panel slider/preset changes re-flow the space layout live
+      const offScale = subscribeCelestialScale(() => { try { handle.setScale(getCelestialScale()); } catch {} });
       const iv = window.setInterval(() => {
         if (getTimeAxis().mode === "live") { try { handle.setTime(Date.now()); } catch {} }
       }, 60_000);
       spaceCleanupRef.current = () => {
-        offAxis(); offUnits(); window.clearInterval(iv);
+        offAxis(); offUnits(); offScale(); window.clearInterval(iv);
         try { delete (window as any).__vtSpace; } catch {}
       };
       container.classList.add("vt-space-active");
@@ -1390,6 +1580,15 @@ export default function DataMapPage() {
   const [histPlay, setHistPlay] = useState(false);
   const [legendOpen, setLegendOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  // Celestial v2 B2: the CELESTIAL panel section's view of the persisted
+  // scale state. Store-of-record is lib/celestial/scaleModel.ts (localStorage
+  // — the vt-units pattern); the space frame subscribes separately inside
+  // enterSpace, so slider moves re-flow the layout live when it's mounted
+  // and simply persist when it isn't.
+  const [celScale, setCelScaleView] = useState(getCelestialScale());
+  useEffect(() => subscribeCelestialScale(() => setCelScaleView(getCelestialScale())), []);
+  // collapsed by default, like every non-base/live panel group
+  const [celOpen, setCelOpen] = useState(false);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetailState] = useState<Detail | null>(null);
   // TAP-AWAY DISMISS (2026-07-18 directive §1: "Dismiss via ✕, tap-away, and
@@ -1941,6 +2140,9 @@ export default function DataMapPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // inspect follow-camera: Esc = Back to map ONLY (directive §3) — the
+      // card and the follow stay; a second Esc then does the full teardown.
+      if (inspectActiveRef.current) { closeInspectRef.current(); return; }
       // space frame: Escape = fly home — a continuous flight back through
       // the seam (the frame exits itself on landing), never a scene cut
       if (spaceActiveRef.current) { try { spaceHandleRef.current?.flyHome(); } catch {} return; }
@@ -2045,6 +2247,7 @@ export default function DataMapPage() {
     let acc = 0;
     let timer: number | null = null;
     const onWheel = (e: WheelEvent) => {
+      if (inspectActiveRef.current) return; // inspect overlay owns its own wheel
       if (spaceActiveRef.current || e.deltaY <= 0) return;
       if (!atFloor()) { acc = 0; return; }
       acc += e.deltaY;
@@ -2056,6 +2259,7 @@ export default function DataMapPage() {
     // handler, and stopPropagation keeps it (and the frame's body-click
     // hit test on the container) from double-acting.
     const onCtrlClick = (e: MouseEvent) => {
+      if (inspectActiveRef.current) return; // map ctrls are hidden during inspect anyway
       const btn = (e.target as HTMLElement | null)?.closest?.(
         ".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out",
       );
@@ -2074,6 +2278,7 @@ export default function DataMapPage() {
     // keyboard +/- (the map's own keyboard handler is disabled in space;
     // typing surfaces — inputs, the analyst pane — are never hijacked)
     const onKeyDown = (e: KeyboardEvent) => {
+      if (inspectActiveRef.current) return; // inspect: keyboard zoom stays out of the seam
       const zin = e.key === "+" || e.key === "=";
       const zout = e.key === "-" || e.key === "_";
       if ((!zin && !zout) || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -2102,6 +2307,7 @@ export default function DataMapPage() {
       }
     };
     const onPointerMove = (e: PointerEvent) => {
+      if (inspectActiveRef.current) return; // pinch belongs to the inspect overlay
       if (spaceActiveRef.current || e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touches.size !== 2) return;
@@ -3401,6 +3607,11 @@ export default function DataMapPage() {
         }
       } catch { /* marker is chrome */ }
       if (!t) return; // sentinel this tick — ring cleared, camera stays put
+      // INSPECT FOLLOW-CAMERA: while the overlay owns the view, the MAP
+      // camera must not move — "Back to map" restores the exact stored
+      // camera. The overlay reads the live buffer itself; anchor/nadir
+      // updates above keep the map layers honest underneath.
+      if (inspectActiveRef.current) return;
       // O6-1: camera tracks only while locked — after a drag the focus
       // persists (arc + moving model) from anywhere on the globe.
       if (!f.lockMode) {
@@ -3438,6 +3649,10 @@ export default function DataMapPage() {
     };
     const stopFollow = () => {
       if (!satFollowRef.current) return;
+      // the inspect overlay cannot outlive its follow — close it FIRST so
+      // the camera restore below lands on the stored pre-inspect pose
+      // (card ✕ / Esc / tap-away / layer-off / LOD-hide all route here)
+      closeInspectRef.current();
       // ticks stop with the follow — restore the ground-clamped camera NOW
       try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
       satFollowRef.current = null;
@@ -3629,12 +3844,31 @@ export default function DataMapPage() {
                 void idbSetCatalog("gp:active", gp);
               }
             } catch (e) {
-              if (persisted && persisted.data.length) {
+              // MIRROR rung (human-approved 2026-07-18): our origin relays a
+              // 6h GitHub-fetched CelesTrak mirror — covers a blocked or
+              // unreachable CelesTrak even for a first-ever visitor.
+              let mirrored: GpRecord[] | null = null;
+              let mirroredAt = 0;
+              try {
+                const r = await fetch("/api/data/orbital/catalog", { signal });
+                if (r.ok) {
+                  mirroredAt = Date.parse(r.headers.get("x-catalog-fetched-at") || "") || Date.now();
+                  const rows = parseGp(await r.json());
+                  if (rows.length) mirrored = rows;
+                }
+              } catch { /* fall through to stale cache */ }
+              if (mirrored) {
+                gp = mirrored;
+                orbitalGpCache = { at: mirroredAt, gp };
+                void idbSetCatalog("gp:active", gp, mirroredAt);
+                const ageMs = Date.now() - mirroredAt;
+                if (ageMs > 30 * 60_000) staleCatalogAgeMs = ageMs; // honest age when the mirror itself is old
+              } else if (persisted && persisted.data.length) {
                 gp = persisted.data; // last-good fallback — real elements, aged, labeled below
                 orbitalGpCache = { at: persisted.at, gp };
                 staleCatalogAgeMs = Date.now() - persisted.at;
               } else {
-                throw e; // nothing cached — resilient-load backoff keeps retrying
+                throw e; // nothing cached anywhere — resilient-load backoff keeps retrying
               }
             }
           }
@@ -4046,7 +4280,9 @@ export default function DataMapPage() {
           ];
         })(),
         sourceTag: "SGP4",
-        actions: t ? [{ label: "Inspect", primary: true, run: () => inspectCraft() }] : undefined,
+        // Inspect = the follow-camera overlay (directive §3); the plain
+        // close-orbit ease survives inside openInspect as the GL-fail fallback
+        actions: t ? [{ label: "Inspect", primary: true, run: () => openInspectRef.current() }] : undefined,
         facts: ([
           aps ? { label: "Apogee", value: fmtKm(aps.apogeeKm) } : null,
           aps ? { label: "Perigee", value: fmtKm(aps.perigeeKm) } : null,
@@ -5629,16 +5865,16 @@ export default function DataMapPage() {
   }, [enabled.sites, mapReady, setStatus]);
 
   // ── US power plants (RAW; static reference data, WRI GPPD CC BY 4.0) ──
-  // ~9.8k plants: maplibre native clustering keeps low zooms legible and
-  // cheap on phones (DESIGN.md performance budget — clustering is
-  // client-side, the server serves one cached static JSON). Unclustered
-  // points render fuel-type SDF silhouettes with per-feature tint.
+  // ~9.8k plants rendered as fuel-type SDF silhouettes with per-feature
+  // tint at EVERY zoom; density is handled by the symbol collision cull
+  // (no count-cluster circles — human-directed 2026-07-18), matching the
+  // grid/substation layers. Server serves one cached static JSON.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.powerplants) {
       try {
-        for (const l of ["pp-points", "pp-cluster-count", "pp-clusters"]) if (map.getLayer(l)) map.removeLayer(l);
+        if (map.getLayer("pp-points")) map.removeLayer("pp-points");
         if (map.getSource("powerplants")) map.removeSource("powerplants");
       } catch {}
       setStatus("powerplants", "off");
@@ -5655,9 +5891,13 @@ export default function DataMapPage() {
         if (signal.aborted) return;
         if (!d.plants) throw new Error("no plants in response");
         if (map.getSource("powerplants")) return;
+        // NO COUNT-CLUSTER BUBBLES (human-directed 2026-07-18: "get rid of
+        // the circles that show how many there are in a region"): plants
+        // render as their fuel symbols at every zoom, decluttered by the
+        // collision cull (the grid/substation precedent) — smaller when
+        // dense, filling in as you zoom, never a count circle.
         map.addSource("powerplants", {
           type: "geojson",
-          cluster: true, clusterMaxZoom: 7, clusterRadius: 50,
           data: {
             type: "FeatureCollection",
             features: d.plants.map(([name, mw, fuel, owner, lat, lon, verified]: [string, number, string, string, number, number, number], idx: number) => ({
@@ -5678,48 +5918,20 @@ export default function DataMapPage() {
           } as any,
         });
         map.addLayer({
-          id: "pp-clusters", type: "circle", source: "powerplants",
-          filter: ["has", "point_count"],
-          paint: {
-            "circle-color": "rgba(77,159,255,0.28)",
-            "circle-stroke-color": "rgba(124,196,255,0.85)",
-            "circle-stroke-width": 1.4,
-            "circle-radius": ["step", ["get", "point_count"], 12, 25, 16, 100, 21, 500, 27],
-          },
-        });
-        map.addLayer({
-          id: "pp-cluster-count", type: "symbol", source: "powerplants",
-          filter: ["has", "point_count"],
-          layout: {
-            "text-field": ["get", "point_count_abbreviated"],
-            "text-font": ["Open Sans Semibold"],
-            "text-size": 11,
-            "text-allow-overlap": true,
-          },
-          paint: { "text-color": "#eef3fb" },
-        });
-        map.addLayer({
           id: "pp-points", type: "symbol", source: "powerplants",
-          filter: ["!", ["has", "point_count"]],
           layout: {
             "icon-image": ["get", "icon"],
-            "icon-size": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 10, 0.8],
-            "icon-allow-overlap": true,
-            "icon-ignore-placement": true,
+            // low-zoom sizes shrink (aircraft fill-rate precedent) and the
+            // collision cull decides density — bigger plants win nothing;
+            // it's spatial, honest, and circle-free
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 6, 0.5, 10, 0.8],
+            "icon-allow-overlap": false,
           },
           paint: {
             "icon-color": ["get", "color"],
             "icon-halo-color": "rgba(5,10,19,0.95)",
             "icon-halo-width": 1.3,
           },
-        });
-        const detachClusters = attachLayerInteractions(map, "pp-clusters", (e: any) => {
-          const f = e.features?.[0];
-          if (!f) return;
-          const src: any = map.getSource("powerplants");
-          src.getClusterExpansionZoom(f.properties.cluster_id, (err: any, zoom: number) => {
-            if (!err) map.easeTo({ center: f.geometry.coordinates, zoom: zoom + 0.3 });
-          });
         });
         const detachPoints = attachLayerInteractions(map, "pp-points", (e: any) => {
           const f = e.features?.[0];
@@ -5754,7 +5966,7 @@ export default function DataMapPage() {
           });
           fetchDossier(dossierKey, `facility:plant:${p.plantId}`, e.lngLat?.lat, e.lngLat?.lng);
         });
-        detach = () => { detachClusters(); detachPoints(); };
+        detach = () => { detachPoints(); };
         setStatus("powerplants", "active", d.count ?? d.plants.length,
           `top ${d.verified_count ?? 100} by MW imagery-verified · rest approximate`);
       },
@@ -8046,7 +8258,7 @@ export default function DataMapPage() {
           rule: display dates where available; unknown states stay loud).
           Hidden while the space frame owns the viewport — a capture-date
           for a shrinking-globe map reads as noise; returns at the seam. */}
-      {enabled.imagery && !spaceActive && (
+      {enabled.imagery && !spaceActive && !inspectOpen && (
         <div className="vt-imagery-date-chip" data-testid="imagery-date" role="status"
              title="Capture date of the Esri World Imagery at the view centre — dates vary within a view and by zoom level">
           {imageryDate.label}
@@ -8140,7 +8352,10 @@ export default function DataMapPage() {
           bottom-center segmented control. No tactical filters. Hidden while
           the space frame owns the viewport (a style switcher for a
           shrinking-globe map is meta-noise; returns at the seam). */}
-      {!spaceActive && (
+      {/* also hidden while the inspect follow-camera owns the viewport —
+          a map style switcher under a craft render is meta-noise, and the
+          provenance caption needs the bottom edge clear (design 1e) */}
+      {!spaceActive && !inspectOpen && (
       <div className="vt-preset-switch" role="group" aria-label="Map style preset">
         {([
           ["natural", "Natural"],
@@ -8255,6 +8470,95 @@ export default function DataMapPage() {
               <span className="vt-streams-launch-sub">gate-2 FAILED · non-predictive reading</span>
             </button>
             {PANEL_GROUPS.map((g) => renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id)))}
+            {/* CELESTIAL section (celestial v2 B2/§7, 2026-07-18) — the
+                space view's scale controls, styled as a panel group. Not a
+                registry layer: it controls the client-side space frame, so
+                it renders unconditionally (always ACTIVE — the state applies
+                the moment you zoom out past the globe, and pre-setting it
+                before entering space is exactly how presets are meant to be
+                used; disabling it on the map would just add a dead state).
+                Honesty: the descriptions are the directive's own wording;
+                the render cost is stated measured, and excluded from the
+                load badge above because the frame is not a data layer and
+                costs 0 while idle (render-on-demand, no rAF loop). */}
+            <div className="vt-layer-group" data-vt-celestial>
+              <button className="vt-layer-group-head" aria-expanded={celOpen}
+                      onClick={() => setCelOpen((v) => !v)}>
+                <span className={`vt-layer-group-chev${celOpen ? "" : " closed"}`}>▾</span>
+                <span>Celestial — space view</span>
+                <span className="vt-layer-group-count" data-vt-celestial-state>
+                  {isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
+                </span>
+              </button>
+              {celOpen && (
+                <>
+                  <div className="vt-layer-row" data-vt-control="celestial_scale">
+                    <span className="vt-layer-ic"><Moon size={15} /></span>
+                    <span className="vt-layer-name">
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Solar-system scale</span>
+                      <span className="vt-kind-badge raw">RAW</span>
+                      <span className="vt-layer-status">
+                        <i style={{ background: spaceActive ? "#4ade80" : "#6680a0" }} />{" "}
+                        {spaceActive ? "active — in space view" : "applies past the globe (keep zooming out)"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="vt-layer-desc" role="note"
+                       style={{ fontFamily: "var(--font-mono)", color: "var(--accent-orange)", fontSize: "10.5px" }}>
+                    {isTrueScale(celScale)
+                      ? "true 1:1 — real ephemeris distances and sizes; sub-pixel bodies carry markers"
+                      : "distances/sizes compressed for visibility — labels always show real values"}
+                  </div>
+                  <div className="vt-field-controls" role="group" aria-label="Celestial scale controls">
+                    <label className="vt-field-slider">
+                      <span>{celScale.c === 0 ? "distance true 1:1" : `compression ${Math.round(celScale.c * 100)}%`}</span>
+                      <input
+                        type="range" min={0} max={100} step={1}
+                        value={Math.round(celScale.c * 100)}
+                        aria-label="Distance compression"
+                        data-vt-celestial-dist
+                        onChange={(e) => setCelestialScale({ c: Number(e.target.value) / 100 })}
+                      />
+                    </label>
+                    <label className="vt-field-slider">
+                      <span>body size ×{Math.round(celScale.s)}</span>
+                      <input
+                        type="range" min={0} max={100} step={1}
+                        value={multToSizeSlider(celScale.s)}
+                        aria-label="Body size multiplier"
+                        data-vt-celestial-size
+                        onChange={(e) => setCelestialScale({ s: sizeSliderToMult(Number(e.target.value)) })}
+                      />
+                    </label>
+                    <span style={{ display: "inline-flex", gap: 6 }}>
+                      <button
+                        className={`vt-preset-pill${isTrueScale(celScale) ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={isTrueScale(celScale)}
+                        data-vt-celestial-true
+                        onClick={() => setCelestialScale(SCALE_PRESET_TRUE)}>
+                        TRUE SCALE
+                      </button>
+                      <button
+                        className={`vt-preset-pill${celScale.c === SCALE_PRESET_VISIBLE.c && celScale.s === SCALE_PRESET_VISIBLE.s ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={celScale.c === SCALE_PRESET_VISIBLE.c && celScale.s === SCALE_PRESET_VISIBLE.s}
+                        data-vt-celestial-visible
+                        onClick={() => setCelestialScale(SCALE_PRESET_VISIBLE)}>
+                        VISIBLE
+                      </button>
+                    </span>
+                    <span className="vt-field-note">
+                      TRUE SCALE: everything at real 1:1 — planets go sub-pixel, markers + labels carry the
+                      view. VISIBLE (default): all 8 planets in one view. Sun capped ×{SUN_SIZE_MULT_CAP};
+                      Earth (the live map) always true size. Setting persists.
+                    </span>
+                    <span className="vt-field-note">
+                      render cost: 0 while idle (draws only on input/flight; ~0.1 ms/frame measured) — not
+                      counted in the load badge; the space frame is not a data layer.
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
             {/* SELF-SEE FOR UNKNOWN GROUPS (BUILD ORDER 4 #2 — caught live by
                 the layer-scale synthetic harness, not assumed): a registry-
                 native `group` value the client doesn't have a PANEL_GROUPS
@@ -8286,7 +8590,7 @@ export default function DataMapPage() {
       </div>
 
       {/* Detail card — side card on desktop, bottom sheet on phone */}
-      {satFollowing && (
+      {satFollowing && !inspectOpen && (
         // O6 follow tools (human-requested): minimizable cluster — re-lock
         // the camera on the object, zoom in/out AROUND it, toggle the exact
         // ground spot it's passing over.
@@ -8349,6 +8653,37 @@ export default function DataMapPage() {
               </button>
             </>
           )}
+        </div>
+      )}
+      {inspectOpen && (
+        // INSPECT CHROME (design screen 1e): back pill + view toggle,
+        // top-center over the follow-camera canvas. The §1 card stays
+        // rendered (left-anchored, z-index above the canvas) — available
+        // without covering the craft.
+        <div className="vt-inspect-chrome">
+          <button className="vt-inspect-back" onClick={() => closeInspectRef.current()}>
+            <span className="vt-inspect-back-dot" aria-hidden>●</span> Back to map
+          </button>
+          <div className="vt-inspect-views" role="tablist" aria-label="Inspect view">
+            <button role="tab" aria-selected={inspectView === "orbit"}
+                    className={`vt-inspect-viewbtn${inspectView === "orbit" ? " on" : ""}`}
+                    onClick={() => setInspectViewMode("orbit")}>
+              Orbit
+            </button>
+            <button role="tab" aria-selected={inspectView === "onboard"}
+                    className={`vt-inspect-viewbtn${inspectView === "onboard" ? " on" : ""}`}
+                    onClick={() => setInspectViewMode("onboard")}>
+              Onboard
+            </button>
+          </div>
+        </div>
+      )}
+      {inspectOpen && (
+        // provenance caption (design 1e; the retired scene's discipline —
+        // every simplification labeled, on screen, always)
+        <div className="vt-inspect-caption" role="note">
+          <div className="vt-inspect-caption-head">COMPUTED EPHEMERIS VIEW</div>
+          <div className="vt-inspect-caption-body">{inspectCaption}</div>
         </div>
       )}
       {detail && detailMin && (

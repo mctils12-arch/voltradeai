@@ -614,3 +614,75 @@ test("floating origin: sub-pixel projection stability at Neptune range (30 AU)",
     close(Math.abs(d), expected, expected * 0.2, "swing tracks the analytic rate");
   }
 });
+
+// ── B2 scale system: compressed layout, TRUE labels (the numbers never lie) ─
+
+test("B2 registry: the Moon declares Earth as parent (rides it through compression)", () => {
+  const reg = defaultBodyRegistry();
+  for (const b of reg) {
+    assert.equal(b.parentId ?? null, b.id === "moon" ? "earth" : null, `${b.id} parentId`);
+  }
+});
+
+test("B2 dual space: at c=1 the layout compresses while the label distance stays true", async () => {
+  const { applyDistanceCompression } = await import("./scaleModel.js");
+  const t = Date.UTC(2026, 6, 18, 12);
+  const reg = defaultBodyRegistry();
+  const truePos = Object.fromEntries(reg.map((b) => [b.id, b.ephemeris(t)]));
+  const layout = applyDistanceCompression(
+    reg.map((b) => ({ id: b.id, parentId: b.parentId ?? null, pos: truePos[b.id] })),
+    1,
+  );
+  // the camera the frame uses: (focus=earth, dir, dist) evaluated in BOTH
+  // spaces — dist is the seam-entry ~3.35e8 m
+  const dir = entryCameraDir(37.5, -96.77, t);
+  const dist = 3.35e8;
+  const at = (p: Vec3, base: Vec3): Vec3 => ({ x: base.x + dir.x * dist - p.x, y: base.y + dir.y * dist - p.y, z: base.z + dir.z * dist - p.z });
+  const len = (v: Vec3): number => Math.hypot(v.x, v.y, v.z);
+  for (const id of ["venus", "mars", "jupiter", "neptune"]) {
+    const trueD = len(at(truePos[id], truePos.earth));
+    const layoutD = len(at(layout[id], layout.earth));
+    // the DRAWN distance is compressed… (venus' compressed orbit sits near
+    // Earth's, so its divergence is geometry-dependent — the outer bodies'
+    // is structural and large)
+    if (id !== "venus") {
+      assert.ok(Math.abs(layoutD - trueD) / trueD > 0.1,
+        `${id}: layout ${(layoutD / AU_M).toFixed(3)} AU diverges from true ${(trueD / AU_M).toFixed(3)} AU at c=1`);
+    }
+    // …and the LABEL distance (true positions, same camera pose) is the real
+    // geocentric-ish distance: within the camera offset of the ephemeris value
+    const geo = len({ x: truePos[id].x - truePos.earth.x, y: truePos[id].y - truePos.earth.y, z: truePos[id].z - truePos.earth.z });
+    assert.ok(Math.abs(trueD - geo) <= dist + 1,
+      `${id}: true label distance within the camera offset of the ephemeris (${(trueD / AU_M).toFixed(4)} vs ${(geo / AU_M).toFixed(4)} AU)`);
+  }
+  // the Moon rides Earth at the TRUE offset — the B1 lunar payoff survives c=1
+  const moonOffTrue = len({ x: truePos.moon.x - truePos.earth.x, y: truePos.moon.y - truePos.earth.y, z: truePos.moon.z - truePos.earth.z });
+  const moonOffLayout = len({ x: layout.moon.x - layout.earth.x, y: layout.moon.y - layout.earth.y, z: layout.moon.z - layout.earth.z });
+  close(moonOffLayout, moonOffTrue, 1e-3, "moon local offset true at c=1");
+});
+
+test("B2 TRUE preset is the exact identity: c=0 layout equals the ephemeris bit-for-bit", async () => {
+  const { applyDistanceCompression } = await import("./scaleModel.js");
+  const t = Date.UTC(2026, 0, 3, 6);
+  const reg = defaultBodyRegistry();
+  const truePos = Object.fromEntries(reg.map((b) => [b.id, b.ephemeris(t)]));
+  const layout = applyDistanceCompression(
+    reg.map((b) => ({ id: b.id, parentId: b.parentId ?? null, pos: truePos[b.id] })),
+    0,
+  );
+  for (const b of reg) {
+    assert.equal(layout[b.id].x, truePos[b.id].x, `${b.id} x identity`);
+    assert.equal(layout[b.id].y, truePos[b.id].y, `${b.id} y identity`);
+    assert.equal(layout[b.id].z, truePos[b.id].z, `${b.id} z identity`);
+  }
+});
+
+test("B2 seam invariance: the anchor's disc ignores the size slider at every scale state", async () => {
+  const { renderedDiscPx: rd, SCALE_PRESET_VISIBLE: vis } = await import("./scaleModel.js");
+  // Earth's seam disc (≈51.4px) and its fade-band discs render TRUE at any s
+  for (const disc of [51.36, MAP_FADE_HI_PX, MAP_FADE_LO_PX, 3.8]) {
+    for (const s of [1, vis.s, 2500]) {
+      assert.equal(rd(disc, s, true, false), disc, `anchor disc ${disc}px true at s=${s}`);
+    }
+  }
+});
