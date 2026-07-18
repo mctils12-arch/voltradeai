@@ -88,6 +88,7 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pickNearestSatelliteScreen, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays } from "@/lib/orbital/propagate";
+import { apsidesKm, orbitalSpeedKmh, periodMinutes } from "@/lib/orbital/satDerived";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // EARTH TWIN A1 (E0-2, research/earth_twin_program.md): camera-altitude LOD
@@ -124,7 +125,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 // and returns a detach() the effect cleanup calls — no more stacking.
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
-import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits } from "@/lib/units";
+import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
 // 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
 // decode table, color expression, and legend all derive from the SAME
@@ -282,11 +283,28 @@ interface LayerMeta {
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
+/** One stat chip / details fact (satellite-UX design 2026-07-18 §1). */
+interface DetailKV { label: string; value: string }
+/** Card action button — always visible without scrolling (design 1a/1f/1g). */
+interface DetailAction { label: string; primary?: boolean; run: () => void }
+
 interface Detail {
   kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation";
   title: string;
   subtitle: string;
   body: string;
+  /** Compact vitals — ONE row of ≤4 chips always visible under the header
+   *  (design 1a: ALT · SPEED · INCL · PERIOD). Values pre-formatted through
+   *  lib/units.ts where a unit applies. Cards WITHOUT stats default their
+   *  Details open (content still scrolls INSIDE the card, capped ~60vh). */
+  stats?: DetailKV[];
+  /** Structured key/value grid at the top of the Details expander
+   *  (design 1b: apogee/perigee/RAAN/… for satellites). */
+  facts?: DetailKV[];
+  /** Small mono source tag right of the action row (SGP4 / ADS-B / EIA…). */
+  sourceTag?: string;
+  /** Action buttons (Inspect etc.) rendered in the always-visible row. */
+  actions?: DetailAction[];
   /** Optional external source link shown in the card footer (e.g. the
    *  military-installations source_url — its citable provenance). */
   sourceUrl?: string;
@@ -1326,7 +1344,19 @@ export default function DataMapPage() {
   const [legendOpen, setLegendOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
-  const [detail, setDetail] = useState<Detail | null>(null);
+  const [detail, setDetailState] = useState<Detail | null>(null);
+  // TAP-AWAY DISMISS (2026-07-18 directive §1: "Dismiss via ✕, tap-away, and
+  // Esc"): every setDetail bumps a sequence counter, so a map-click listener
+  // can tell "some layer handler claimed this click" (seq moved — MapLibre
+  // fires all click handlers synchronously) from "nothing claimed it" (seq
+  // unchanged → close the open card) WITHOUT wrapping 40+ call sites.
+  const detailSeqRef = useRef(0);
+  const detailRef = useRef<Detail | null>(null);
+  const setDetail = useCallback((v: React.SetStateAction<Detail | null>) => {
+    detailSeqRef.current++;
+    setDetailState(v);
+  }, []);
+  useEffect(() => { detailRef.current = detail; }, [detail]);
   const applySatGroup = useCallback((key: string | null) => {
     const gp = orbitalGpRef.current;
     const mask = key && gp ? groupMask(gp, key) : null;
@@ -1381,6 +1411,30 @@ export default function DataMapPage() {
   // O6 minimize: collapse the card to a pill (focus keeps running); a NEW
   // detail always restores the full card so fresh clicks are never hidden.
   const [detailMin, setDetailMin] = useState(false);
+  // DETAILS expander (design 1a↔1b): cards WITH a stat-chip row open compact;
+  // cards without chips open with Details expanded (their content would
+  // otherwise be a bare header) — either way the expanded body scrolls
+  // INSIDE the card, never past the viewport. On phone the same flag doubles
+  // as the bottom sheet's collapsed/expanded state (design 1c↔1d).
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  // bottom-sheet drag handle (phone): drag up = expand, drag down = collapse
+  // (a second down-drag dismisses), tap = toggle.
+  const sheetDragY = useRef<number | null>(null);
+  const onHandleDown = useCallback((e: React.PointerEvent) => {
+    sheetDragY.current = e.clientY;
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  }, []);
+  const onHandleUp = useCallback((e: React.PointerEvent) => {
+    const start = sheetDragY.current;
+    sheetDragY.current = null;
+    if (start == null) return;
+    const dy = e.clientY - start;
+    if (dy > 40) {
+      if (detailsOpen) setDetailsOpen(false);
+      else { setDetail(null); setDetailMin(false); }
+    } else if (dy < -40) setDetailsOpen(true);
+    else setDetailsOpen((v) => !v);
+  }, [detailsOpen, setDetail]);
   // O6 round 6: the card is DRAGGABLE by its header (human: the card must
   // never block the flight track you're inspecting). Direct style mutation
   // (tools-cluster precedent); a NEW detail resets to the default spot.
@@ -1407,6 +1461,10 @@ export default function DataMapPage() {
   const onCardHeadUp = useCallback(() => { detailDrag.current = null; }, []);
   useEffect(() => {
     setDetailMin(false);
+    // compact by default when the card has a chip row; expanded otherwise
+    // (deps stay title/kind so async enrichments — dossier/trail merges —
+    // never yank the expander or the dragged position out from the user)
+    setDetailsOpen(!(detailRef.current?.stats && detailRef.current.stats.length > 0));
     const el = detailCardRef.current;
     if (el) { el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; }
   }, [detail?.title, detail?.kind]);
@@ -1839,6 +1897,32 @@ export default function DataMapPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // TAP-AWAY DISMISS (2026-07-18 directive §1): a map click that NO layer
+  // handler claims closes the open card — same teardown as the ✕. MapLibre
+  // dispatches all click handlers synchronously, and every handler that
+  // opens/replaces a card goes through setDetail (which bumps detailSeqRef),
+  // so "seq unchanged one tick later" = genuinely empty ground. The
+  // satellite layer's own empty-ground coverage report keeps priority (it
+  // sets a card, so the seq moves and this dismisser stays silent).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const onClick = () => {
+      const seq = detailSeqRef.current;
+      window.setTimeout(() => {
+        if (detailSeqRef.current !== seq) return; // a handler claimed the click
+        if (!detailRef.current) return;           // nothing open
+        setDetail(null);
+        setDetailMin(false);
+        clearTrail();
+        stopSatFocusRef.current?.();
+      }, 60);
+    };
+    map.on("click", onClick);
+    return () => { try { map.off("click", onClick); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
 
   // CONTINUOUS ZOOM SEAM: at the zoom floor further wheel-out is inert to
   // MapLibre — read the raw gesture and hand the SAME motion straight to the
@@ -3667,16 +3751,51 @@ export default function DataMapPage() {
         satModelLayerRef.current?.setAnchor({ mercX: t.mercX, mercY: t.mercY, altMeters: s.altMeters });
       }
       const realLabel = realModelLabel(g.noradId, g.name ?? sc?.name);
+      // design 1a chip row + 1b details grid: chips are live/derived vitals
+      // through the units formatters; period/inclination values moved from
+      // the old body prose INTO the chips (still reachable, now glanceable).
+      const aps = apsidesKm(g.meanMotion, g.ecc);
+      const spdKmh = orbitalSpeedKmh(g.meanMotion, altKm);
+      const perMin = periodMinutes(g.meanMotion);
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
-        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls}${altKm != null ? ` · ${fmtKm(altKm)} altitude` : ""}`,
+        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls}${op?.company ? ` · ${op.company}` : sc?.owner ? ` · ${sc.owner}` : ""}`,
+        // chips carry their unit in the LABEL (design 1a: "ALT MI · 254") —
+        // values still come from the units formatters, splitUnit only
+        // re-typesets (units directive 2026-07-13 upheld).
+        stats: (() => {
+          const alt = altKm != null ? splitUnit(fmtKm(altKm)) : { num: "—", unit: null };
+          const spd = spdKmh != null ? splitUnit(fmtKmh(spdKmh)) : { num: "—", unit: null };
+          return [
+            { label: `Alt${alt.unit ? ` ${alt.unit}` : ""}`, value: alt.num },
+            { label: `Spd${spd.unit ? ` ${spd.unit}` : ""}`, value: spd.num },
+            { label: "Incl", value: g.inclination != null ? `${g.inclination.toFixed(1)}°` : "—" },
+            { label: "Period min", value: perMin != null ? perMin.toFixed(1) : "—" },
+          ];
+        })(),
+        sourceTag: "SGP4",
+        actions: t ? [{ label: "Inspect", primary: true, run: () => inspectCraft() }] : undefined,
+        facts: ([
+          aps ? { label: "Apogee", value: fmtKm(aps.apogeeKm) } : null,
+          aps ? { label: "Perigee", value: fmtKm(aps.perigeeKm) } : null,
+          g.ecc != null ? { label: "Eccentricity", value: g.ecc.toFixed(7) } : null,
+          g.raan != null ? { label: "RAAN", value: `${g.raan.toFixed(4)}°` } : null,
+          g.argp != null ? { label: "Arg perigee", value: `${g.argp.toFixed(4)}°` } : null,
+          g.meanAnomaly != null ? { label: "Mean anomaly", value: `${g.meanAnomaly.toFixed(4)}°` } : null,
+          g.meanMotion != null ? { label: "Mean motion", value: `${g.meanMotion.toFixed(4)} rev/d` } : null,
+          g.bstar != null ? { label: "B* drag", value: g.bstar.toExponential(4) } : null,
+          g.epoch ? { label: "Epoch", value: `${String(g.epoch).slice(0, 16)}Z` } : null,
+          ageDays != null ? { label: "TLE age", value: ageDays < 1 ? `${(ageDays * 24).toFixed(1)} h` : `${ageDays.toFixed(1)} d` } : null,
+          sc?.intlDes ? { label: "Intl desig", value: sc.intlDes } : null,
+          sc?.launchDate ? { label: "Launch", value: sc.launchDate } : null,
+          sc?.objectType ? { label: "Object", value: sc.objectType } : null,
+          { label: "NORAD ID", value: String(g.noradId) },
+        ].filter(Boolean)) as DetailKV[],
         body: [
-          `NORAD catalog ID: ${g.noradId}`,
           ...satelliteIdentityLines(sc, op, satcatState),
-          g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
-          g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
-          ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
+          ageDays != null ? "Element-set age above: orbit uncertainty grows with age." : null,
+          aps ? "Apogee/perigee/speed are derived from the catalogued elements (two-body a·(1±e), vis-viva) — stated derivations, not measured downlink values." : null,
           t
             ? "FOLLOWING — the camera tracks this object as it moves (updates each second). Drag to look elsewhere: the focus and orbit track stay until you close this card (✕)."
             : "No live position this tick (incomplete or decayed elements, or filtered out by a group chip) — identity only, nothing followed.",
@@ -3687,7 +3806,7 @@ export default function DataMapPage() {
           isStationComplex(g.name)
             ? "One station, one object: modules cataloged separately (e.g. UNITY, NAUKA) are collapsed into this single entry — visiting vehicles stay separate."
             : null,
-          "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
+          "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim. TLE via CelesTrak · refreshed ~6h.",
         ].filter(Boolean).join("\n"),
         links: [{
           label: "CelesTrak catalog entry",
@@ -7900,7 +8019,15 @@ export default function DataMapPage() {
         </div>
       )}
       {detail && !detailMin && (
-        <div ref={detailCardRef} className="vt-site-card" role="dialog" aria-label={detail.title}>
+        <div ref={detailCardRef}
+             className={`vt-site-card${!detailsOpen ? " vt-card-closed" : ""}`}
+             role="dialog" aria-label={detail.title}>
+          {/* phone bottom-sheet drag handle (design 1c/1d): tap or drag up =
+              expand, drag down = collapse then dismiss. display:none ≥768px. */}
+          <button className="vt-card-handle" aria-label={detailsOpen ? "Collapse details sheet" : "Expand details sheet"}
+                  onPointerDown={onHandleDown} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}>
+            <i aria-hidden />
+          </button>
           <div className="vt-site-card-head" style={{ cursor: "grab", touchAction: "none" }}
                title="Drag to move"
                onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
@@ -7919,6 +8046,46 @@ export default function DataMapPage() {
               <X size={17} />
             </button>
           </div>
+          {/* ONE row of stat chips — the whole default card (design 1a) */}
+          {detail.stats && detail.stats.length > 0 && (
+            <div className="vt-card-stats">
+              {detail.stats.slice(0, 4).map((s) => (
+                <div key={s.label} className="vt-card-stat">
+                  <span className="vt-card-stat-l">{s.label}</span>
+                  <span className="vt-card-stat-v">{s.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* actions + source tag — always visible without scrolling */}
+          {((detail.actions && detail.actions.length > 0) || detail.sourceTag) && (
+            <div className="vt-card-actions">
+              {(detail.actions ?? []).map((a) => (
+                <button key={a.label}
+                        className={`vt-card-actbtn${a.primary ? " vt-card-actbtn-primary" : ""}`}
+                        onClick={a.run}>
+                  {a.label}
+                </button>
+              ))}
+              {detail.sourceTag && <span className="vt-card-srctag">{detail.sourceTag}</span>}
+            </div>
+          )}
+          <button className="vt-card-details-toggle" aria-expanded={detailsOpen}
+                  onClick={() => setDetailsOpen((v) => !v)}>
+            {detailsOpen ? "DETAILS ▴" : "DETAILS ▾"}
+          </button>
+          {detailsOpen && (
+          <div className="vt-card-detbody om-sb">
+          {detail.facts && detail.facts.length > 0 && (
+            <div className="vt-card-facts">
+              {detail.facts.map((f) => (
+                <div key={f.label} className="vt-card-fact">
+                  <div className="vt-card-fact-l">{f.label}</div>
+                  <div className="vt-card-fact-v">{f.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
           {detail.sourceUrl && (
             <a className="vt-site-card-link" href={detail.sourceUrl} target="_blank" rel="noopener noreferrer">
@@ -8096,6 +8263,8 @@ export default function DataMapPage() {
                 </span>
               )}
             </p>
+          )}
+          </div>
           )}
         </div>
       )}

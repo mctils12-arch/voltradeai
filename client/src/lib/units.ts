@@ -103,6 +103,21 @@ export function fmtKmh(kmh: number | null | undefined, system: UnitSystem = curr
     : `${Number(kmh).toFixed(0)} km/h`;
 }
 
+/** Split a formatter's OUTPUT into { num, unit } for stat-chip layouts where
+ *  the unit belongs in the LABEL ("ALT MI / 254" — satellite-UX design
+ *  2026-07-18 §1). The value is still produced by the unit-system formatter —
+ *  this only re-typesets it (plus thousands grouping on big integers, e.g.
+ *  "17139" → "17,139"). "no data" and non-numeric strings pass through whole. */
+export function splitUnit(formatted: string): { num: string; unit: string | null } {
+  const i = formatted.lastIndexOf(" ");
+  if (i <= 0) return { num: formatted, unit: null };
+  const rawNum = formatted.slice(0, i);
+  const unit = formatted.slice(i + 1);
+  if (!/^-?[\d.,]+$/.test(rawNum)) return { num: formatted, unit: null };
+  const num = /^-?\d{5,}$/.test(rawNum) ? Number(rawNum).toLocaleString("en-US") : rawNum;
+  return { num, unit };
+}
+
 /** Temperature in °C → "28.3 °C" | "82.9 °F". */
 export function fmtCelsius(c: number | null | undefined, digits = 1, system: UnitSystem = current): string {
   if (bad(c)) return "no data";

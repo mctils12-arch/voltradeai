@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  fmtKm, fmtMeters, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius,
+  fmtKm, fmtMeters, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, splitUnit,
   getUnits, setUnits, subscribeUnits, readUnitsPref,
 } from './units.ts';
 
@@ -52,4 +52,14 @@ test('preference: default imperial, set/get round-trip, subscribers fire once pe
   setUnits('metric');
   assert.equal(fires, 2);                     // unsubscribed
   setUnits('imperial');                       // restore default for other tests
+});
+
+// ── splitUnit (satellite-UX 2026-07-18: unit moves into the chip LABEL) ──
+test('splitUnit re-typesets formatter output without changing the conversion', () => {
+  assert.deepEqual(splitUnit('254 mi'), { num: '254', unit: 'mi' });
+  assert.deepEqual(splitUnit('17139 mph'), { num: '17,139', unit: 'mph' });
+  assert.deepEqual(splitUnit('27600 km/h'), { num: '27,600', unit: 'km/h' });
+  assert.deepEqual(splitUnit('92.9 min'), { num: '92.9', unit: 'min' });
+  assert.deepEqual(splitUnit('no data'), { num: 'no data', unit: null });
+  assert.deepEqual(splitUnit('51.6°'), { num: '51.6°', unit: null });
 });
