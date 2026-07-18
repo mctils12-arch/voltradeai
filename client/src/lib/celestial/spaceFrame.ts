@@ -29,7 +29,7 @@
 // ephemeris (lib/celestial/solarSystem.ts — Schlyter/van Flandern, arcmin-
 // class), but the RENDER LAYOUT flows through lib/celestial/scaleModel.ts:
 // a distance-compression slider c (0 = true 1:1, 1 = Mercury→Neptune in one
-// view) and a body-size multiplier s (1–2500×, Sun capped, the map-anchor
+// view) and a body-size multiplier s (1–5000×, Sun capped, the map-anchor
 // body exempt — scaleModel's header carries the full mapping rationale).
 // THE RULE: the LAYOUT may compress; the NUMBERS never lie — labels, the
 // status line and the scale bar always print TRUE ephemeris distances
@@ -131,6 +131,7 @@ import {
   getCelestialScale,
   isTrueScale,
   SUN_SIZE_MULT_CAP,
+  SIZE_REL_EARTH_KM,
   type ScaleState,
   type ScaleBodyIn,
 } from "./scaleModel.js";
@@ -932,11 +933,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return layoutMemo.pos;
   };
   // rendered disc from the true radius at the LAYOUT distance, through the
-  // B2 size pipeline (anchor exempt, Sun capped, apparent cap; s=1 identity)
+  // B2 size pipeline (anchor exempt, Sun capped, apparent cap; s=1 identity;
+  // reference response curve m^0.78·rel^−0.22 — rel in Earth radii)
   const discPxOf = (id: string, layoutDistM: number, k: number): number =>
     renderedDiscPx(
       bodyDiscPx(radiusM(id), layoutDistM, k),
       scaleSt.s,
+      (defById.get(id)?.radiusKm ?? SIZE_REL_EARTH_KM) / SIZE_REL_EARTH_KM,
       defById.get(id)?.mapAnchor === "maplibre",
       !!defById.get(id)?.emissive,
     );

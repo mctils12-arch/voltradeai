@@ -745,8 +745,8 @@ test("B2 seam invariance: the anchor's disc ignores the size slider at every sca
   const { renderedDiscPx: rd, SCALE_PRESET_VISIBLE: vis } = await import("./scaleModel.js");
   // Earth's seam disc (≈51.4px) and its fade-band discs render TRUE at any s
   for (const disc of [51.36, MAP_FADE_HI_PX, MAP_FADE_LO_PX, 3.8]) {
-    for (const s of [1, vis.s, 2500]) {
-      assert.equal(rd(disc, s, true, false), disc, `anchor disc ${disc}px true at s=${s}`);
+    for (const s of [1, vis.s, 5000]) {
+      assert.equal(rd(disc, s, 1, true, false), disc, `anchor disc ${disc}px true at s=${s}`);
     }
   }
 });

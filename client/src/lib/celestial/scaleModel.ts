@@ -39,8 +39,25 @@
 //    per-system local mapping plugs in later if B3's curated moons ever
 //    need one.
 //
-// ── BODY SIZE (the s slider, [1, 2500]) ─────────────────────────────────────
+// ── BODY SIZE (the s slider, [1, 5000]) ─────────────────────────────────────
 // Multiplies RENDERED disc diameters so planets read at solar-system zoom.
+//
+// RESPONSE CURVE (SPACE VIEW VISUAL UPGRADE, human directive 2026-07-18 —
+// reconciled with the confirmed reference scene research/directives/
+// space_view_reference_2026-07-18.html): the reference renders a body at
+// display radius ∝ (rel·m)^0.78 (rel = radius in Earth radii, m = the
+// slider multiplier 1..5000, mid-slider ≈ ×648 — the value the human's
+// screenshot confirmed). Its display/true enlargement factor is therefore
+//   mEff = m^0.78 · rel^(−0.22)
+// — big bodies get proportionally LESS enlargement, compressing the
+// giant/terrestrial size ratio so both read at once. Adopted here, with
+// OUR standing guards kept on top (the reconciliation rule: the reference
+// wins on the LOOK, this system wins on the honesty guarantees):
+//  · m = 1 is the EXACT identity (special-cased — the reference's own
+//    "true scale" is rel^0.78, which is NOT 1:1; ours is), and mEff is
+//    floored at 1 (the slider only ever enlarges);
+//  · the apparent cap, anchor exemption, and Sun cap below all still
+//    apply unchanged.
 // Two guards keep it honest and keep every B1 contract intact:
 //  · APPARENT CAP: enlargement never pushes a disc past SIZE_APPARENT_CAP_PX,
 //    and a body whose TRUE disc is already at/above the cap renders at its
@@ -83,14 +100,22 @@ export const AU_M = 149_597_870_700;
 // ── scale state ─────────────────────────────────────────────────────────────
 
 /** c: distance compression 0 (true 1:1) → 1 (fully compressed).
- *  s: body-size multiplier on rendered diameters, 1 (true) → 2500. */
+ *  s: body-size multiplier on rendered diameters, 1 (true) → 5000. */
 export interface ScaleState {
   c: number;
   s: number;
 }
 
 export const SIZE_MULT_MIN = 1;
-export const SIZE_MULT_MAX = 2500;
+export const SIZE_MULT_MAX = 5000;
+
+/** The reference response curve exponents: mEff = m^0.78 · rel^(−0.22)
+ *  (see the BODY SIZE header note). */
+export const SIZE_RESPONSE_EXP = 0.78;
+export const SIZE_REL_EXP = 0.22;
+
+/** rel is measured in Earth mean radii (the reference's convention). */
+export const SIZE_REL_EARTH_KM = 6371;
 
 /** The Sun's own multiplier ceiling (directive §2: "Sun capped separately
  *  so it never swallows the inner system"). 20 R☉ = 0.093 AU — under a
@@ -122,11 +147,14 @@ export function clampScaleState(st: Partial<ScaleState> | null | undefined): Sca
 export const SCALE_PRESET_TRUE: ScaleState = Object.freeze({ c: 0, s: 1 });
 
 /** The startup default. c = 1 fits all eight planets in one view from
- *  ~15 AU; s = 400 renders the giants as 10–25 px discs at that framing
- *  while the terrestrials sit at/under the marker threshold — so the B1
- *  marker honesty machinery stays visibly exercised, and every fly-to
- *  arrival still frames the TRUE disc (apparent cap). */
-export const SCALE_PRESET_VISIBLE: ScaleState = Object.freeze({ c: 1, s: 400 });
+ *  ~15 AU; s = 647 is the reference's own default (slider 76 → ×647; the
+ *  human's confirmed screenshot showed ×648 — one rounding hair off the
+ *  same slider stop, and 647 round-trips the slider exactly) — through the response
+ *  curve the giants render ~10–17 px at that framing while terrestrials
+ *  sit at 1–3 px, so the B1 marker honesty machinery stays visibly
+ *  exercised, and every fly-to arrival still frames the TRUE disc
+ *  (apparent cap). */
+export const SCALE_PRESET_VISIBLE: ScaleState = Object.freeze({ c: 1, s: 647 });
 
 export function isTrueScale(st: ScaleState): boolean {
   return st.c === 0 && st.s === 1;
@@ -220,14 +248,17 @@ export function applyDistanceCompression(
  * Rendered disc diameter (px) from the TRUE disc diameter (px, computed by
  * the frame's projection at the body's LAYOUT distance). Pure screen-space:
  *  · map-anchor bodies: always the true disc (see header — seam integrity);
+ *  · s = 1: the exact identity (TRUE preset renders bit-identically);
  *  · true disc ≥ SIZE_APPARENT_CAP_PX: true disc (close range stays real);
- *  · else: min(mult · trueDisc, cap), with the Sun's mult capped at
- *    SUN_SIZE_MULT_CAP.
+ *  · else: min(mEff · trueDisc, cap) with the REFERENCE response curve
+ *    mEff = max(1, m^0.78 · rel^(−0.22)) (rel = body radius in Earth
+ *    radii; the Sun's m additionally capped at SUN_SIZE_MULT_CAP).
  * Continuous and monotone in trueDiscPx; identity at s = 1.
  */
 export function renderedDiscPx(
   trueDiscPx: number,
   sizeMult: number,
+  relEarthRadii: number,
   isMapAnchor: boolean,
   isEmissive: boolean,
 ): number {
@@ -235,11 +266,15 @@ export function renderedDiscPx(
   if (isMapAnchor) return trueDiscPx;
   let m = Math.min(SIZE_MULT_MAX, Math.max(SIZE_MULT_MIN, sizeMult));
   if (isEmissive) m = Math.min(m, SUN_SIZE_MULT_CAP);
+  if (m === 1) return trueDiscPx; // exact identity
   if (trueDiscPx >= SIZE_APPARENT_CAP_PX) return trueDiscPx;
-  return Math.min(m * trueDiscPx, SIZE_APPARENT_CAP_PX);
+  const rel = relEarthRadii > 0 && Number.isFinite(relEarthRadii) ? relEarthRadii : 1;
+  const mEff = Math.max(1, Math.pow(m, SIZE_RESPONSE_EXP) * Math.pow(rel, -SIZE_REL_EXP));
+  return Math.min(mEff * trueDiscPx, SIZE_APPARENT_CAP_PX);
 }
 
-// ── size-slider mapping (log scale: ×1 → ×2500 across 0..100) ──────────────
+// ── size-slider mapping (log scale: ×1 → ×5000 across 0..100 — the
+// reference's own 10^((pct/100)·3.699) curve, since 3.699 = log10(5000)) ────
 
 export function sizeSliderToMult(v: number): number {
   const vv = Math.min(100, Math.max(0, v));
