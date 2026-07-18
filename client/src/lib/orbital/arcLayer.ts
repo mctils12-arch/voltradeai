@@ -17,6 +17,12 @@
 // upgrade for free: satellite orbit arcs, group orbits, aircraft 3D
 // trails, curtain ribs.
 //
+// 2026-07-16 second draw mode: ALTITUDE CURTAIN WALLS (setWalls) — solid
+// world-space quads from the ground up to the flight path, colored by an
+// altitude ramp (VeloViewer-style; see the WALL section below). Same
+// vertex layout and shader: side = 0 zeroes the screen extrusion, so the
+// one program draws both ribbons and walls in a single indexed call.
+//
 // Line-specific choices (unchanged semantics from the GL_LINES version):
 // - Segments, not strips: a quad is emitted only between two consecutive
 //   GOOD samples that don't jump the antimeridian (|dx| > 0.5 in mercator)
@@ -104,6 +110,98 @@ export function buildArcVertices(arcs: Arc[]): Float32Array {
     }
   }
   return new Float32Array(out);
+}
+
+// ---------------------------------------------------------------------------
+// ALTITUDE CURTAIN WALLS — EARTH TWIN (2026-07-16, VeloViewer-style 3D ride
+// maps): a SOLID filled surface from the ground up to the flight path,
+// colored by altitude. Unlike the ribbons above these are WORLD-SPACE quads
+// (no screen extrusion): for each consecutive good point pair the quad
+// [top_i, bottom_i, top_j, bottom_j] where top = the point at its altitude
+// and bottom = the SAME mercator at 0. Both rows go through projectTileFor3D
+// exactly like the ribbon path — same vertex layout, same shader, same
+// GLOBE far-side fragment-discard cull (vertices never snapped): a wall
+// vertex sets side = 0 (zeroes the extrusion offset AND v_edge, so no rim
+// fade eats the ramp alpha) and a_other = itself. ARC_GAP breaks the
+// curtain honestly — quads are emitted per surviving segment and indexed
+// per-quad (buildArcIndices), so no triangle can span a gap by construction.
+// Per-vertex COLOR comes from a caller-supplied altitude ramp evaluated
+// CPU-side at build time; bottom vertices keep the top's hue at lower alpha
+// so the wall reads as a translucent curtain.
+// ---------------------------------------------------------------------------
+
+export interface Wall {
+  /** interleaved [mercX, mercY, altMeters] triplets — same format as Arc.pts. */
+  pts: Float32Array;
+}
+
+/** altitude (meters) → RGBA in 0..1, evaluated CPU-side per point at build. */
+export type WallRamp = (altMeters: number) => [number, number, number, number];
+
+/** curtain alpha multipliers on the ramp's alpha: top edge at the flight
+ *  path vs bottom edge at the ground — the fade is what makes the wall read
+ *  as a translucent curtain instead of an opaque slab. */
+export const WALL_ALPHA_TOP = 0.55;
+export const WALL_ALPHA_BOTTOM = 0.25;
+
+/** LOW→CRUISE hand-off altitude — the SAME 3000 m the air layer bands use
+ *  (airLayer.ts buildAirInstances: alt < 3000 → LOW). */
+export const WALL_CRUISE_ALT_M = 3000;
+
+// exact AIR band stops — airLayer.ts BAND_COLORS[1] (low amber #fbb24c) and
+// [2] (cruise blue #4d9fff); arcLayer.test.ts pins equality against the
+// exported BAND_COLORS so map silhouettes and curtain never disagree.
+const WALL_LOW_RGB: [number, number, number] = [0.98, 0.7, 0.3];
+const WALL_CRUISE_RGB: [number, number, number] = [0.3, 0.62, 1.0];
+
+/** Default altitude ramp: low amber at 0 m → cruise blue at 3000 m+ (linear
+ *  in between, clamped) — the same semantics the AIR altitude bands encode,
+ *  so a wall and the aircraft silhouette above it always agree. Alpha 1;
+ *  WALL_ALPHA_TOP/BOTTOM apply on top at build time. */
+export function defaultWallRamp(altMeters: number): [number, number, number, number] {
+  const t = Math.min(1, Math.max(0, altMeters / WALL_CRUISE_ALT_M));
+  return [
+    WALL_LOW_RGB[0] + (WALL_CRUISE_RGB[0] - WALL_LOW_RGB[0]) * t,
+    WALL_LOW_RGB[1] + (WALL_CRUISE_RGB[1] - WALL_LOW_RGB[1]) * t,
+    WALL_LOW_RGB[2] + (WALL_CRUISE_RGB[2] - WALL_LOW_RGB[2]) * t,
+    1,
+  ];
+}
+
+/** Pure: walls → packed vertex array in the SAME 13-float ribbon layout,
+ *  4 verts per surviving segment: [top_i, bottom_i, top_j, bottom_j]
+ *  (exported for tests). side/dirSign/width are all 0 — side 0 zeroes the
+ *  screen extrusion (world-space quad) and the edge rim; a_other = self.
+ *  Gap/antimeridian split rules are IDENTICAL to buildArcVertices.
+ *  Preallocated single pass — rebuild-per-tick is trivial (≤2000 pts is
+ *  well under a millisecond; measured in arcLayer.test.ts). */
+export function buildWallVertices(walls: Wall[], ramp: WallRamp = defaultWallRamp): Float32Array {
+  let maxSegs = 0;
+  for (const w of walls) maxSegs += Math.max(0, Math.floor(w.pts.length / 3) - 1);
+  const out = new Float32Array(maxSegs * ARC_VERTS_PER_SEG * ARC_VERT_STRIDE);
+  let o = 0;
+  const put = (x: number, y: number, alt: number, c: [number, number, number, number], aMul: number): void => {
+    out[o++] = x; out[o++] = y; out[o++] = alt;
+    out[o++] = x; out[o++] = y; out[o++] = alt; // a_other = self (unused at side 0)
+    out[o++] = 0; out[o++] = 0; out[o++] = 0;   // side 0, dirSign 0, width 0
+    out[o++] = c[0]; out[o++] = c[1]; out[o++] = c[2]; out[o++] = c[3] * aMul;
+  };
+  for (const wall of walls) {
+    const p = wall.pts;
+    const n = Math.floor(p.length / 3);
+    for (let i = 0; i + 1 < n; i++) {
+      const a = i * 3, b = a + 3;
+      if (p[a + 2] === ARC_GAP || p[b + 2] === ARC_GAP) continue; // honest gap
+      if (Math.abs(p[a] - p[b]) > 0.5) continue; // antimeridian jump
+      const ca = ramp(p[a + 2]);
+      const cb = ramp(p[b + 2]);
+      put(p[a], p[a + 1], p[a + 2], ca, WALL_ALPHA_TOP);    // top_i at altitude
+      put(p[a], p[a + 1], 0, ca, WALL_ALPHA_BOTTOM);        // bottom_i at ground
+      put(p[b], p[b + 1], p[b + 2], cb, WALL_ALPHA_TOP);    // top_j
+      put(p[b], p[b + 1], 0, cb, WALL_ALPHA_BOTTOM);        // bottom_j
+    }
+  }
+  return o === out.length ? out : out.slice(0, o);
 }
 
 /** Pure: index buffer for `segCount` quads — two triangles each, sharing the
@@ -213,6 +311,8 @@ export class ArcLayer implements CustomLayerInterface {
   private uProjTrans: WebGLUniformLocation | null = null;
   private uProjFallback: WebGLUniformLocation | null = null;
 
+  private arcVerts: Float32Array | null = null;
+  private wallVerts: Float32Array | null = null;
   private verts: Float32Array | null = null;
   private indices: Uint32Array | null = null;
   private dirty = false;
@@ -242,8 +342,36 @@ export class ArcLayer implements CustomLayerInterface {
 
   /** Replace the displayed arcs (null/[] clears — layer costs nothing). */
   setArcs(arcs: Arc[] | null): void {
-    this.verts = arcs && arcs.length ? buildArcVertices(arcs) : null;
-    this.indices = this.verts && this.verts.length
+    this.arcVerts = arcs && arcs.length ? buildArcVertices(arcs) : null;
+    this.rebuild();
+  }
+
+  /** Replace the displayed altitude-curtain walls (null/[] clears). The
+   *  ramp colors each vertex by its point's altitude, CPU-side at build
+   *  time (default: low amber → cruise blue, the AIR band stops). Walls
+   *  coexist with arcs — the parent rebuilds via setWalls on every live
+   *  tick; the build is a preallocated single pass (≤2000 pts is well
+   *  under 1 ms, measured in arcLayer.test.ts). */
+  setWalls(walls: Wall[] | null, opts: { ramp?: WallRamp } = {}): void {
+    this.wallVerts = walls && walls.length ? buildWallVertices(walls, opts.ramp) : null;
+    this.rebuild();
+  }
+
+  /** Recombine arc + wall vertices into the single interleaved buffer.
+   *  Both use the same 13-float layout and per-quad index pattern, so one
+   *  index buffer over the total quad count covers both draw sets. */
+  private rebuild(): void {
+    const a = this.arcVerts && this.arcVerts.length ? this.arcVerts : null;
+    const w = this.wallVerts && this.wallVerts.length ? this.wallVerts : null;
+    if (a && w) {
+      const combined = new Float32Array(a.length + w.length);
+      combined.set(a);
+      combined.set(w, a.length);
+      this.verts = combined;
+    } else {
+      this.verts = a ?? w;
+    }
+    this.indices = this.verts
       ? buildArcIndices(this.verts.length / ARC_VERT_STRIDE / ARC_VERTS_PER_SEG)
       : null;
     this.dirty = this.verts != null;
