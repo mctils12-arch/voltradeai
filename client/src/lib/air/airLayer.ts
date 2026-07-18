@@ -311,8 +311,11 @@ void main() { o = v_color; }`;
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
-// altitude bands — same meanings as the 2D layer's ALT_COLOR
-const BAND_COLORS: [number, number, number, number][] = [
+// altitude bands — same meanings as the 2D layer's ALT_COLOR.
+// Exported (2026-07-16) so the aircraft altitude-curtain default ramp in
+// orbital/arcLayer.ts can be TEST-PINNED against these exact stops — map
+// silhouettes and curtain wall must always agree on band colors.
+export const BAND_COLORS: [number, number, number, number][] = [
   [0.4, 0.5, 0.63, 0.95],   // ground grey-blue (#6680a0)
   [0.98, 0.7, 0.3, 0.95],   // low amber (#fbb24c)
   [0.3, 0.62, 1.0, 0.95],   // cruise blue (#4d9fff)

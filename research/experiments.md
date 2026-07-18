@@ -3,6 +3,29 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Altitude curtain WALLS live: clicked plane's 3D track gets its solid ground curtain (v1.0.388, T-CLIENT)
+
+The queue's curtain-walls item (library built in worktree commit fdf60af,
+2026-07-16 — setWalls second draw mode, 14 tests incl. geometry + 0.49ms/
+2000pt perf pin) is now INTEGRATED: the aircraft trail's every-3rd-point
+rib lines are replaced by the solid VeloViewer-style wall from ground to
+flight path, colored by REAL altitude through the same AIR band stops as
+the plane silhouettes (defaultWallRamp test-pinned to airLayer
+BAND_COLORS; the ramp unscales the 1.3x terrain exaggeration so 3000m
+stays cruise-blue). Both trail teardown paths clear walls with arcs.
+Legend + card copy updated.
+
+DRIVE (real dist, live feed): clicked a real Delta B739 over Kansas,
+track endpoint intercepted with a synthetic 0->9000m climb (40 pts,
+honestly labeled in the card note), aircraft-trail-3d mounted, curtain
+pixel-verified at pitch 65, zero page errors. TWO reusable drive
+lessons filed: (1) map.project() returns CONTAINER-relative coords — a
+page with a top nav needs the container-rect offset or mouse clicks
+silently land ~56px off the target (two runs "missed" this way while
+DOM+GL hit-tests both said the plane was there); (2) queryRenderedFeatures
+can't see DOM overlays — pick features in clear map space before
+clicking. Harness 23/23 pages, 0 hard failures. arcLayer 14/14.
+
 ## 2026-07-18 [PRODUCT] — Sprint wave 2 / W1 INTEGRATION: always-on realistic celestial sky, cartoon sun/moon removed, paths toggle (v1.0.387, T-CLIENT, human-directed sprint)
 
 The W1 half the human explicitly showed a screenshot to reject ("what we
