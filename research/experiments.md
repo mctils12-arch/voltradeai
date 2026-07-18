@@ -3,6 +3,27 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [REPAIR] — Satellite catalog outage: no persistent cache tripped CelesTrak's over-fetch IP block (v1.0.401, T-CLIENT)
+
+Human report (live production): satellites layer dead at "still
+retrying automatically". Root cause chain: fetchGp cached in-memory
+only -> every reload refetched the full ~13MB catalog -> a day of
+testing tripped CelesTrak's documented over-fetch IP block on the
+human's address (sandbox IP still 200 — the asymmetry that confirmed
+it) -> each auto-retry refetched again, deepening the block. Testing
+blind spot exposed: every prior drive injected __vtOrbitalGpFixture,
+so the REAL fetch path was never exercised end-to-end.
+
+FIX: lib/orbital/gpCache.ts — IndexedDB persistent cache for GP +
+SATCAT. Fresh = ZERO network (politeness core); stale = refetch +
+persist; refetch failure = last-good REAL elements served with age
+surfaced honestly in the layer note; IDB errors degrade to no-cache.
+Pure policy unit-tested; end-to-end drive proves the triple (fetch
+once -> zero-network reload -> blocked refetch still live from
+last-good + honest note). 207/207 orbital suites. Server relay for the
+nothing-cached-during-outage gap filed in wishlist.md (GitHub Actions
+fetch cron recommended — needs frozen-path approval).
+
 ## 2026-07-18 [PRODUCT] — Design-doc card system + Celestial v2 B1: one camera, no button (v1.0.400, T-CLIENT, two agents + parent integration)
 
 CARD SYSTEM (design source: the human's Claude Design project, 7
