@@ -26,6 +26,14 @@ export const DIAG_PROBES = [
   // no order placement. Paper-account book contents are the accepted
   // (and now explicitly authorized) exposure.
   "orders", "positions-detail",
+  // ADDED 2026-07-18 (scheduled-routine session, REPAIR — KNOWN BROKEN #18
+  // recurrence investigation): scan_market's daemon-thread path already
+  // persists per-phase wall-clock timings to survive a 300s daemon-timeout
+  // kill (TIMING-DISK 2026-04-23, bot_engine.py), but nothing exposed that
+  // file outside the container. Read-only passthrough of the last scan's
+  // phase breakdown — no trading/order data, same posture as the other
+  // probes.
+  "timings",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

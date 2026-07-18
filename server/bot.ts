@@ -9,7 +9,7 @@ import { getDisplaySide } from "../shared/inverseEtfs";
 import { evaluateDrawdown } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
@@ -2239,8 +2239,35 @@ print(json.dumps(s))
             dataSourceErrors: tier2LastDataSourceErrors,
           }));
         }
+        case "timings": {
+          // REPAIR 2026-07-18 (KNOWN BROKEN #18 recurrence investigation):
+          // scan_market's daemon-thread path (bot_engine.py, TIMING-DISK
+          // 2026-04-23) already persists per-phase wall-clock timings to
+          // /data/voltrade/voltrade_scan_timings.json (or /tmp locally) on
+          // every phase boundary — written incrementally, so it survives a
+          // 300s daemon-timeout kill and shows exactly which phase a stuck
+          // scan reached. Mirrors the read-only file lookup /api/system/
+          // snapshot already does (TIMING-FILE-DIRECT 2026-04-23) but
+          // without requiring the owner cookie, so a token-only session can
+          // read it too.
+          try {
+            const timingPaths = [
+              "/data/voltrade/voltrade_scan_timings.json",
+              "/tmp/voltrade_scan_timings.json",
+            ];
+            for (const tpath of timingPaths) {
+              if (fs.existsSync(tpath)) {
+                const raw = fs.readFileSync(tpath, "utf8");
+                return res.json(sanitizeDiag({ probe: "timings", found: true, ...JSON.parse(raw) }));
+              }
+            }
+            return res.json({ probe: "timings", found: false });
+          } catch (e: any) {
+            return res.json({ probe: "timings", found: false, error: sanitizeDiag(String(e?.message || e)) });
+          }
+        }
         default:
-          return res.status(404).json({ error: "unknown probe", probes: ["audit", "ml", "daemon", "positions", "scanner"] });
+          return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
       }
     } catch (e: any) {
       return res.status(500).json({ error: sanitizeDiag(String(e?.message || e)) });

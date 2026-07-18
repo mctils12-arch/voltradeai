@@ -3,6 +3,142 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 (session 2, scheduled-routine) [REPAIR] — KNOWN BROKEN #18 RECURRENCE (live, ongoing): Tier2 full-scan "Daemon timeout" back since 13:35Z, ruled out the O(n²) mechanism, shipped a `timings` diag probe to confirm the leading rate-limiter-contention hypothesis (v1.0.398, T-BOT — server/bot.ts + server/diag.ts)
+
+TERRITORY: T-BOT (`server/bot.ts` outside frozen paths) per the WORKSTREAM
+PARTITION — `server/diag.ts` is a small shared-adjacent file but is the
+diag-probe whitelist `bot.ts`'s own route already depends on, edited in the
+same PR as its only caller (not a separate SHARED-file change).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`
+read from the top (this file's own "newest at top" convention) — the
+single existing entry today is the KNOWN BROKEN #23 `bars_feed()` fix
+(v1.0.397), already on this branch's HEAD (`be0a6b6`) before this session
+started. `research/open_questions.md` KNOWN BROKEN section read in full
+(items 1-23). `research/wishlist.md` skimmed for anything blocking.
+
+LOOP-HEALTH RATIO, last 10 entries (from the top, correct order): this
+morning's bars_feed REPAIR, solarView retired PRODUCT, Aircraft round
+PRODUCT, Satellite UX round PRODUCT, Wind-fleet audit PIPELINE, Settlement-
+stress composite PIPELINE, Savannah River dedupe PIPELINE, Position audit
+60-plant PIPELINE, D3 ground-lock drag-release REPAIR, Viewport aircraft
+tiling PIPELINE — 2/10 REPAIR, well under the 7/10 thrash threshold; no
+meta-problem override.
+
+GIT STATE NOTE (worth recording — not this session's action, just an
+observed fact): `origin/main` was still at `5ee770c` (v1.0.372, 2026-07-16)
+when this session started, ~25 commits behind this branch's HEAD
+(`be0a6b6`, v1.0.397) despite PRs #505-529 all showing `closed`/
+`merged:false` via the GitHub API — an out-of-band merge mechanism this
+session doesn't control. Mid-session, `origin/main` fast-forwarded to
+`be0a6b6` on its own (confirmed via `git fetch`), so by the time this PR
+opens, main and this branch's pre-PR HEAD are identical.
+
+WHAT WAS FOUND: `/api/health` (DIAG_TOKEN available) showed
+`scanner.status: "degraded"`, `consecutiveFailures: 6` — live, current,
+matches the LIVENESS ALARM clause's explicit "degraded state on
+/api/health" callout. `/api/diag/audit?type=TIER2-ERROR&token=$DIAG_TOKEN`
+showed 16 consecutive "Daemon run_full_scan failed: Daemon timeout"
+entries, one every scan attempt since **2026-07-18T13:35:06Z**, continuing
+through session end (~16:01:57Z and counting — 2.5h+ of zero successful
+Tier2 full scans during market hours). This is the exact symptom KNOWN
+BROKEN #18 tracked across three prior mechanisms (tmpCleanup sync fs →
+refuted; SQLite sync writes → refuted; shadowFleet O(n²) → confirmed fixed
+2026-07-13, RESOLVED 2026-07-17 after 4 clean days). That item's own
+closing note predicted: "a future recurrence would be a new, fourth
+mechanism, not a reopening of the O(n²) theory" — per RECURRENCE ESCALATES
+this became a root-cause investigation, not a blind re-patch.
+
+INVESTIGATION (full trace filed as a new UPDATE under KNOWN BROKEN #18 in
+open_questions.md — not duplicated here in full): checked every symptom the
+three prior mechanisms would produce before guessing. `STREAM-DISCONNECT`
+— zero entries (the O(n²) bug's signature symptom, absent). `EVENTLOOP-LAG`
+— two sub-second blips only, nowhere near the 60-98s magnitude or ~600s
+cadence the O(n²) bug produced. `DB-SLOW-WRITE`/`TMP-CLEANUP` — both zero
+(both stay refuted). Reconstructed the exact onset via `TIER2` audit lines:
+last successful scan completed 13:25:05Z (~63s, normal); the next attempt
+started 13:30:06Z and never finished — first timeout fired exactly 300s
+later. `active_dispatches` reads a flat "2" on every occurrence (this
+health-probe call + the one genuinely-still-running scan) — not climbing,
+which rules out unbounded zombie-thread pileup as well as the three prior
+mechanisms.
+
+HYPOTHESIS (REASONING STANDARD #1, downstream chain traced two steps,
+stated before shipping — NOT YET DIRECTLY MEASURED): this morning's own
+KNOWN BROKEN #23 fix (`bars_feed()`, merged ~11:20-11:30Z) is the proximate
+trigger. Before that fix, all 29 `/v2/stocks/bars` call sites 400'd
+instantly (cheap). After it, all 29 now succeed — real network round-trips
+through the single process-wide `alpaca_throttle` bucket
+(`alpaca_rate_limiter.py`, 180 req/min, FROZEN — cannot be loosened even if
+this is confirmed as the cause). `bot_engine.py` alone has several of these
+sites inside `deep_score`'s per-candidate loop and floor-basket/correlation
+checks that used to fail instantly and now perform real throttled calls, on
+top of whatever Tier 1 (30s cadence) is also now succeeding at through the
+same shared bucket. More real, rate-limited traffic sharing one budget
+during actual market hours is a coherent explanation for a full scan's
+snapshot/deep-score phase queuing long enough to blow through the 300s
+outer bound — consistent with the ~2h delay between the fix going live and
+the first timeout, and with the complete absence of any event-loop/DB
+stall symptom (the Node process isn't blocked; the daemon thread is
+genuinely waiting on I/O). This is this morning's own fix's downstream cost
+that its own PR did not anticipate — an honest miss, logged rather than
+hidden, per the REASONING STANDARD's spirit.
+
+WHAT SHIPPED (diagnostic-only, no trading/scoring/timeout-threshold
+change): a new token-gated `timings` probe on `/api/diag/:probe`
+(`server/diag.ts` DIAG_PROBES whitelist + `server/bot.ts` case) that reads
+`bot_engine.py`'s already-existing `voltrade_scan_timings.json` (TIMING-
+DISK 2026-04-23 — persists per-phase wall-clock timings specifically so
+they survive a timeout kill) — previously only reachable via the
+owner-cookie-gated `/api/system/snapshot`, now readable by a DIAG_TOKEN
+session too. Mirrors this item's own eventLoopLag.ts/dbWriteTiming.ts
+precedent: build the direct measurement before proposing a fix, since two
+of the three prior mechanisms on this exact item were period-matching
+guesses that turned out wrong.
+
+RATCHET: `server/diag.test.ts` gained a dedicated test (the existing
+generic "every whitelisted probe has a case" test already covers basic
+wiring) asserting the new block checks both `/data/voltrade` and `/tmp`
+paths, passes through `sanitizeDiag`, and reports `found: false` rather
+than erroring pre-first-scan.
+
+GATES: `npm install` (fresh — node_modules absent this session).
+`npx tsx --test server/diag.test.ts` — 10/10 pass (9 prior + 1 new).
+`npx tsx --test server/*.test.ts` — 779/779 pass (778 baseline + 1 new,
+zero regressions). `npx tsc --noEmit` — 68 errors, unchanged baseline (all
+pre-existing `Buffer.trim()`/unrelated noise; none in the new `timings`
+block). `pip install -r requirements.txt openpyxl pytest` then
+`python3 -m pytest -q` — 756 passed, 2 skipped, unchanged (no Python files
+touched). Version bumped 1.0.397 -> 1.0.398 (`package.json` +
+`package-lock.json` re-synced) per PROMOTION RULE 4, read-and-increment at
+commit time.
+
+BACKTEST: N/A — read-only diagnostic surface, no trading/scoring/sizing/
+threshold code touched; PROMOTION RULE 3's Sharpe/drawdown comparison
+doesn't apply (same reasoning as every other diag-probe PR on this item).
+
+MARKET-HOURS NOTE (per this session's own scheduling instructions): this PR
+is diagnostic-only and touches zero trading/order logic, so it carries no
+execution risk — but per instructions it is being opened, not merged,
+during market hours; merge can wait until after 4:00 PM ET. The live
+scanner degradation itself is NOT fixed by this PR (it can't be, without
+the direct measurement this PR is built to gather) — Tier 2 full scans
+remain degraded in production right now. Flagged to the human directly
+(this is exactly the LIVENESS ALARM clause's "degraded state on
+/api/health... surfaced loudly" case), separately from the PR.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before confirmation): once
+deployed, the next `TIER2-ERROR` occurrence's `/api/diag/timings` read
+should show `last_phase_completed` sitting at a snapshot-fetch/deep-score
+phase with `duration_sec` far above the ~4-60s normal range, confirming the
+rate-limiter-contention theory — the fix would then be deduplicating the
+many redundant same-symbol (VXX/SPY/QQQ/TLT/HYG) bars fetches scattered
+across ~7 files with no shared cache (mutable territory; the rate limiter
+itself is frozen). A `last_phase_completed` reading with no nearby Alpaca
+I/O would refute this and reopen the search for a genuinely different
+(now truly fourth) mechanism. Full trace filed in open_questions.md's KNOWN
+BROKEN #18 update.
+
 ## 2026-07-18 (session, scheduled-routine) [REPAIR] — KNOWN BROKEN #23: `/v2/stocks/bars` rejects `feed=delayed_sip` with HTTP 400 — VXX/SPY regime detection + ML training silently degraded account-wide, not just ML retrain (v1.0.397, T-BOT + shared alpaca_feed.py infra)
 
 TERRITORY: primarily T-BOT (bot_engine.py, ml_model_v2.py, instrument_selector.py)
