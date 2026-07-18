@@ -1,0 +1,345 @@
+// Continuous space frame — pure view-math tests. mountSpaceFrame needs a DOM
+// and is exercised by the integration drives (real dist + SwiftShader);
+// everything mathematical here is hermetic and pinned. Same node:test style
+// as ephemeris.test.ts / solarSystem.test.ts. The layoutLabelOffsets and
+// distance-label suites are salvaged from the retired solarView.test.ts —
+// the semantics travel with the code.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  perspectiveScalePx,
+  bodyDiscPx,
+  distanceForDiscPx,
+  zoomStepFactor,
+  ZOOM_STEP_PER_NOTCH,
+  mapGlobeDiscPx,
+  mapAnchorOpacity,
+  MAP_FADE_HI_PX,
+  MAP_FADE_LO_PX,
+  markerNeeded,
+  MARKER_MAX_DISC_PX,
+  apparentLitFraction,
+  obliquityDeg,
+  eclFromEq,
+  eqFromEcl,
+  earthAxisEcl,
+  entryCameraDir,
+  subCameraLatLon,
+  slerpUnit,
+  rotateAbout,
+  easeInOutCubic,
+  expLerp,
+  flyDurationMs,
+  camBasis,
+  northRollDeg,
+  projectPoint,
+  layoutLabelOffsets,
+  LABEL_COLLIDE_PX,
+  fmtSpaceDistance,
+  FRAME_DISC_FRACTION,
+  MIN_DISTANCE_RADII,
+  DEFAULT_FOV_DEG,
+  type Vec3,
+} from "./spaceFrame.js";
+import { solarSystemState, BODY_RADIUS_M, AU_M } from "./solarSystem.js";
+import { subsolarPoint } from "./ephemeris.js";
+
+const close = (a: number, b: number, tol: number, msg: string): void =>
+  assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b} (tol ${tol})`);
+
+// ── projection ──────────────────────────────────────────────────────────────
+
+test("perspective disc: exact round trip and the true angular sizes", () => {
+  const k = perspectiveScalePx(DEFAULT_FOV_DEG, 900);
+  // round trip disc ↔ distance at several scales
+  for (const disc of [1, 51.36, 300, 612]) {
+    const d = distanceForDiscPx(BODY_RADIUS_M.earth, disc, k);
+    close(bodyDiscPx(BODY_RADIUS_M.earth, d, k), disc, 1e-9, `round trip at ${disc}px`);
+  }
+  // THE PHYSICAL PAYOFF, pinned: from mean lunar distance (384,400 km) Earth
+  // subtends ~1.9° — a real disc, no compression needed.
+  const lunar = 384_400_000;
+  const angularDeg = 2 * Math.asin(BODY_RADIUS_M.earth / lunar) * (180 / Math.PI);
+  close(angularDeg, 1.9, 0.05, "Earth from the Moon ≈ 1.9°");
+  const px = bodyDiscPx(BODY_RADIUS_M.earth, lunar, k);
+  close(px, 2 * k * Math.tan((angularDeg / 2) * Math.PI / 180), 1e-9, "px = 2k·tan(θ/2)... exact form");
+  assert.ok(px > 40 && px < 50, `≈45px at 900px viewport (${px.toFixed(1)})`);
+  // inside-the-body guard
+  assert.equal(bodyDiscPx(BODY_RADIUS_M.earth, BODY_RADIUS_M.earth / 2, k), Number.POSITIVE_INFINITY);
+});
+
+test("projectPoint: center/off-axis orientation and behind-camera contract", () => {
+  // dir is target→camera: camera at +y looking back at the origin, z-up ref
+  const basis = camBasis({ x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+  const cam: Vec3 = { x: 0, y: 1000, z: 0 };
+  const k = 500;
+  const center = projectPoint({ x: 0, y: 0, z: 0 }, cam, basis, k, 400, 300);
+  close(center.x, 400, 1e-9, "target dead-center x");
+  close(center.y, 300, 1e-9, "target dead-center y");
+  close(center.depth, 1000, 1e-9, "depth = distance along view axis");
+  // +z world (up-reference) → screen up (smaller y)
+  const up = projectPoint({ x: 0, y: 0, z: 100 }, cam, basis, k, 400, 300);
+  assert.ok(up.y < 300, "up-reference projects screen-up");
+  // behind the camera → depth ≤ 0, NaN screen coords
+  const behind = projectPoint({ x: 0, y: 2000, z: 0 }, cam, basis, k, 400, 300);
+  assert.ok(behind.depth <= 0 && Number.isNaN(behind.x), "behind flagged, never drawn");
+});
+
+test("camBasis: orthonormal, up from the reference axis, roll 0 by construction", () => {
+  const axis = earthAxisEcl(Date.UTC(2026, 6, 18));
+  for (const dir of [
+    { x: 1, y: 0, z: 0 },
+    { x: 0.3, y: -0.8, z: 0.5 },
+    { x: -0.6, y: 0.6, z: 0.2 },
+  ] as Vec3[]) {
+    const n = Math.hypot(dir.x, dir.y, dir.z);
+    const d = { x: dir.x / n, y: dir.y / n, z: dir.z / n };
+    const b = camBasis(d, axis);
+    const dp = (a: Vec3, c: Vec3): number => a.x * c.x + a.y * c.y + a.z * c.z;
+    close(dp(b.f, b.r), 0, 1e-12, "f⊥r");
+    close(dp(b.f, b.u), 0, 1e-12, "f⊥u");
+    close(dp(b.r, b.u), 0, 1e-12, "r⊥u");
+    close(Math.hypot(b.u.x, b.u.y, b.u.z), 1, 1e-12, "unit up");
+    // the axis-referenced up puts the axis in the (f,u) plane → roll is 0:
+    // this is why the live map needs NO CSS rotation (map draws north-up)
+    close(northRollDeg(b, axis), 0, 1e-9, "north roll 0");
+  }
+  // degenerate: looking straight down the axis still yields a valid basis
+  const b = camBasis(earthAxisEcl(0), earthAxisEcl(0));
+  assert.ok(Number.isFinite(b.r.x) && Math.hypot(b.r.x, b.r.y, b.r.z) > 0.99, "degenerate fallback");
+});
+
+// ── exponential zoom ────────────────────────────────────────────────────────
+
+test("zoomStepFactor: one notch multiplies by 1.18; multiplicative in deltaY", () => {
+  close(zoomStepFactor(100), ZOOM_STEP_PER_NOTCH, 1e-12, "one notch out");
+  close(zoomStepFactor(-100), 1 / ZOOM_STEP_PER_NOTCH, 1e-12, "one notch in");
+  close(zoomStepFactor(0), 1, 1e-12, "no delta");
+  // trackpad glide: many small deltas compose to the same curve
+  close(zoomStepFactor(40) * zoomStepFactor(60), zoomStepFactor(100), 1e-12, "composition");
+});
+
+test("expLerp: geometric interpolation (uniform feel across magnitudes)", () => {
+  close(expLerp(1e6, 1e12, 0), 1e6, 1, "start");
+  close(expLerp(1e6, 1e12, 1), 1e12, 1, "end");
+  close(expLerp(1e6, 1e12, 0.5), 1e9, 1e3, "midpoint = geometric mean");
+});
+
+test("easeInOutCubic: clamped, symmetric, monotone", () => {
+  assert.equal(easeInOutCubic(-1), 0);
+  assert.equal(easeInOutCubic(0), 0);
+  assert.equal(easeInOutCubic(1), 1);
+  assert.equal(easeInOutCubic(2), 1);
+  close(easeInOutCubic(0.5), 0.5, 1e-12, "midpoint");
+  let prev = -1;
+  for (let t = 0; t <= 1.001; t += 0.05) {
+    const v = easeInOutCubic(t);
+    assert.ok(v >= prev, "monotone");
+    prev = v;
+  }
+});
+
+test("flyDurationMs: clamped to [1100, 3200], grows with ratio and swing", () => {
+  assert.ok(flyDurationMs(1, 0) >= 1100);
+  assert.ok(flyDurationMs(1e9, 180) <= 3200);
+  assert.ok(flyDurationMs(1000, 0) > flyDurationMs(10, 0), "longer hop, longer fly");
+  assert.ok(flyDurationMs(10, 120) > flyDurationMs(10, 0), "bigger swing, longer fly");
+});
+
+// ── the seam ────────────────────────────────────────────────────────────────
+
+test("map globe disc: pins the measured maplibre values", () => {
+  // measured on the real map (probe 2026-07-18): zoom −2, lat 37.5 → ≈51.4px
+  close(mapGlobeDiscPx(-2, 37.5), 51.36, 0.05, "zoom floor at lat 37.5");
+  // equator at zoom 0: 512/π
+  close(mapGlobeDiscPx(0, 0), 512 / Math.PI, 1e-9, "equator zoom 0");
+  // the seam is scale-continuous by construction: entry camera distance
+  // reproduces the map's disc exactly
+  const k = perspectiveScalePx(DEFAULT_FOV_DEG, 900);
+  const d0 = distanceForDiscPx(BODY_RADIUS_M.earth, mapGlobeDiscPx(-2, 37.5), k);
+  close(bodyDiscPx(BODY_RADIUS_M.earth, d0, k) / mapGlobeDiscPx(-2, 37.5), 1, 1e-12, "entry scale = 1");
+  // and that camera sits inside lunar orbit — the Moon is immediately near
+  assert.ok(d0 < 3.85e8, `entry camera ${(d0 / 1e6).toFixed(0)} Mm — inside lunar distance`);
+});
+
+test("crossfade: live map above HI, impostor below LO — and the lunar payoff stays live", () => {
+  assert.equal(mapAnchorOpacity(MAP_FADE_HI_PX), 1);
+  assert.equal(mapAnchorOpacity(MAP_FADE_HI_PX + 100), 1);
+  assert.equal(mapAnchorOpacity(MAP_FADE_LO_PX), 0);
+  assert.equal(mapAnchorOpacity(2), 0);
+  const mid = mapAnchorOpacity((MAP_FADE_HI_PX + MAP_FADE_LO_PX) / 2);
+  assert.ok(mid > 0.4 && mid < 0.6, "smoothstep midpoint");
+  // THE CONTRACT: from lunar distance (even apogee) at every canonical
+  // harness viewport height, Earth's disc stays ABOVE the fade band — the
+  // Earth you see from the Moon is the live map, not the impostor.
+  const apogee = 406_700_000;
+  for (const h of [844, 1024, 900]) {
+    const k = perspectiveScalePx(DEFAULT_FOV_DEG, h);
+    const disc = bodyDiscPx(BODY_RADIUS_M.earth, apogee, k);
+    assert.ok(disc > MAP_FADE_HI_PX, `live from the Moon at h=${h} (${disc.toFixed(1)}px)`);
+  }
+});
+
+test("marker threshold: sub-2px bodies are flagged, never inflated", () => {
+  assert.equal(markerNeeded(MARKER_MAX_DISC_PX - 0.01), true);
+  assert.equal(markerNeeded(MARKER_MAX_DISC_PX), false);
+  assert.equal(markerNeeded(0.001), true);
+  // at a whole-system distance (30 AU) every planet is honestly sub-pixel
+  const k = perspectiveScalePx(DEFAULT_FOV_DEG, 900);
+  for (const id of ["mercury", "venus", "earth", "moon", "mars"] as const) {
+    assert.ok(markerNeeded(bodyDiscPx(BODY_RADIUS_M[id], 30 * AU_M, k)), `${id} marked at 30 AU`);
+  }
+});
+
+test("fly-to framing: aspect-safe fraction of the SHORT side, floored at closest approach", () => {
+  // at 1440×900 the framing sits ≈4.5 radii out (the number in the docs)
+  const k = perspectiveScalePx(DEFAULT_FOV_DEG, 900);
+  const d = distanceForDiscPx(BODY_RADIUS_M.moon, FRAME_DISC_FRACTION * 900, k);
+  close(d / BODY_RADIUS_M.moon, 4.5, 0.15, "≈4.5 body radii at 1440×900");
+  assert.ok(d / BODY_RADIUS_M.moon > MIN_DISTANCE_RADII, "framing outside closest approach");
+});
+
+// ── phase / lighting ────────────────────────────────────────────────────────
+
+test("apparentLitFraction: full toward the sun, new opposite, half at quadrature", () => {
+  const sun: Vec3 = { x: 1, y: 0, z: 0 };
+  close(apparentLitFraction(sun, { x: 1, y: 0, z: 0 }), 1, 1e-12, "camera sunward: full");
+  close(apparentLitFraction(sun, { x: -1, y: 0, z: 0 }), 0, 1e-12, "camera anti-sun: new");
+  close(apparentLitFraction(sun, { x: 0, y: 1, z: 0 }), 0.5, 1e-12, "quadrature: half");
+});
+
+test("camera-relative Moon phase reproduces the Earth-observed illumination", () => {
+  // from Earth's position, apparentLitFraction(sun→moon, earth→moon) must
+  // equal the classic elongation-based illuminated fraction to a few %
+  for (const t of [Date.UTC(2026, 0, 3), Date.UTC(2026, 6, 18), Date.UTC(2026, 9, 26, 12)]) {
+    const state = solarSystemState(t);
+    const moon = state.find((b) => b.id === "moon")!;
+    const earth = state.find((b) => b.id === "earth")!;
+    const sun = state.find((b) => b.id === "sun")!;
+    const unit = (a: Vec3): Vec3 => {
+      const l = Math.hypot(a.x, a.y, a.z) || 1;
+      return { x: a.x / l, y: a.y / l, z: a.z / l };
+    };
+    const toSun = unit({ x: sun.helioAu.x - moon.helioAu.x, y: sun.helioAu.y - moon.helioAu.y, z: sun.helioAu.z - moon.helioAu.z });
+    const toEarth = unit({ x: earth.helioAu.x - moon.helioAu.x, y: earth.helioAu.y - moon.helioAu.y, z: earth.helioAu.z - moon.helioAu.z });
+    const geometric = apparentLitFraction(toSun, toEarth);
+    // independent classic form: (1 − cos elongation)/2 from ecliptic longitudes
+    const lonM = Math.atan2(moon.geoAu.y, moon.geoAu.x);
+    const lonS = Math.atan2(sun.geoAu.y, sun.geoAu.x);
+    const classic = (1 - Math.cos(lonM - lonS)) / 2;
+    close(geometric, classic, 0.03, `phase agreement at ${new Date(t).toISOString()}`);
+  }
+});
+
+// ── frames: ecliptic ↔ equatorial ↔ Earth lat/lon ───────────────────────────
+
+test("obliquity and the Earth axis: (0, sin ε, cos ε) in the ecliptic frame", () => {
+  const t = Date.UTC(2026, 6, 18);
+  close(obliquityDeg(t), 23.4358, 0.01, "mean obliquity 2026");
+  const axis = earthAxisEcl(t);
+  const e = obliquityDeg(t) * Math.PI / 180;
+  close(axis.x, 0, 1e-12, "axis x");
+  close(axis.y, Math.sin(e), 1e-12, "axis y = sin ε");
+  close(axis.z, Math.cos(e), 1e-12, "axis z = cos ε");
+});
+
+test("eclFromEq/eqFromEcl: exact inverses, length-preserving", () => {
+  const t = Date.UTC(2026, 3, 1, 6);
+  for (const veq of [
+    { x: 1, y: 0, z: 0 },
+    { x: 0.2, y: -0.7, z: 0.68 },
+    { x: -0.5, y: 0.5, z: -0.7 },
+  ] as Vec3[]) {
+    const back = eqFromEcl(eclFromEq(veq, t), t);
+    close(back.x, veq.x, 1e-12, "x round trip");
+    close(back.y, veq.y, 1e-12, "y round trip");
+    close(back.z, veq.z, 1e-12, "z round trip");
+  }
+});
+
+test("entryCameraDir ↔ subCameraLatLon: round trip over the globe", () => {
+  const t = Date.UTC(2026, 6, 18, 15, 30);
+  for (const [lat, lon] of [[37.5, -96.77], [0, 0], [-33.9, 151.2], [64.1, -21.9], [85, 179]] as const) {
+    const dir = entryCameraDir(lat, lon, t);
+    close(Math.hypot(dir.x, dir.y, dir.z), 1, 1e-12, "unit dir");
+    const back = subCameraLatLon(dir, t);
+    close(back.latDeg, lat, 1e-9, `lat round trip @${lat},${lon}`);
+    close(back.lonDeg, lon, 1e-9, `lon round trip @${lat},${lon}`);
+  }
+});
+
+test("TERMINATOR CONSISTENCY: the space-frame Sun agrees with the map's subsolar point", () => {
+  // Two independent truncations (Schlyter system state vs the Meeus-derived
+  // ephemeris.ts the map terminator uses) must put the Sun over the same
+  // spot to ~1° — this is the honesty seam that makes the terminator painted
+  // on the shrinking globe agree with where the Sun hangs in the frame.
+  for (const t of [Date.UTC(2026, 0, 15, 3), Date.UTC(2026, 6, 18, 15, 30), Date.UTC(2026, 10, 2, 21)]) {
+    const state = solarSystemState(t);
+    const sun = state.find((b) => b.id === "sun")!;
+    const earth = state.find((b) => b.id === "earth")!;
+    const toSun: Vec3 = {
+      x: sun.helioAu.x - earth.helioAu.x,
+      y: sun.helioAu.y - earth.helioAu.y,
+      z: sun.helioAu.z - earth.helioAu.z,
+    };
+    const fromFrame = subCameraLatLon(toSun, t);
+    const fromMap = subsolarPoint(t);
+    close(fromFrame.latDeg, fromMap.latDeg, 1, `subsolar lat @${new Date(t).toISOString()}`);
+    const dLon = Math.abs(((fromFrame.lonDeg - fromMap.lonDeg + 540) % 360) - 180);
+    assert.ok(dLon < 1, `subsolar lon @${new Date(t).toISOString()} (Δ${dLon.toFixed(3)}°)`);
+  }
+});
+
+// ── rotation / interpolation primitives ─────────────────────────────────────
+
+test("rotateAbout: Rodrigues rotation, right-handed", () => {
+  const z: Vec3 = { x: 0, y: 0, z: 1 };
+  const r = rotateAbout({ x: 1, y: 0, z: 0 }, z, 90);
+  close(r.x, 0, 1e-12, "x→y (90° about z) x");
+  close(r.y, 1, 1e-12, "x→y (90° about z) y");
+  const back = rotateAbout(r, z, -90);
+  close(back.x, 1, 1e-12, "inverse rotation");
+});
+
+test("slerpUnit: endpoints, constant angular rate, antiparallel fallback", () => {
+  const a: Vec3 = { x: 1, y: 0, z: 0 };
+  const b: Vec3 = { x: 0, y: 1, z: 0 };
+  close(slerpUnit(a, b, 0).x, 1, 1e-12, "t=0 → a");
+  close(slerpUnit(a, b, 1).y, 1, 1e-12, "t=1 → b");
+  const mid = slerpUnit(a, b, 0.5);
+  close(Math.atan2(mid.y, mid.x) * 180 / Math.PI, 45, 1e-9, "midpoint at 45°");
+  close(Math.hypot(mid.x, mid.y, mid.z), 1, 1e-12, "stays unit");
+  // antiparallel: deterministic, unit-length, passes through a waypoint
+  const anti = slerpUnit(a, { x: -1, y: 0, z: 0 }, 0.5);
+  close(Math.hypot(anti.x, anti.y, anti.z), 1, 1e-9, "antiparallel midpoint unit");
+  assert.ok(Math.abs(anti.x) < 1e-6, "antiparallel midpoint ⊥ endpoints");
+});
+
+// ── salvaged from the retired solarView (same tested semantics) ─────────────
+
+test("layoutLabelOffsets: markers never move — only colliding LABELS stack", () => {
+  assert.deepEqual(layoutLabelOffsets([{ x: 100, y: 100 }, { x: 300, y: 100 }]), [0, 0]);
+  assert.deepEqual(layoutLabelOffsets([{ x: 100, y: 100 }, { x: 101, y: 100 }]), [0, LABEL_COLLIDE_PX]);
+  assert.deepEqual(
+    layoutLabelOffsets([{ x: 50, y: 50 }, { x: 51, y: 50 }, { x: 49, y: 51 }]),
+    [0, LABEL_COLLIDE_PX, 2 * LABEL_COLLIDE_PX],
+  );
+  assert.deepEqual(
+    layoutLabelOffsets([{ x: 49, y: 51 }, { x: 51, y: 50 }, { x: 50, y: 50 }]),
+    [0, LABEL_COLLIDE_PX, 2 * LABEL_COLLIDE_PX],
+  );
+  assert.deepEqual(
+    layoutLabelOffsets([{ x: 0, y: 0 }, { x: LABEL_COLLIDE_PX, y: 0 }]),
+    [0, 0],
+  );
+  assert.deepEqual(layoutLabelOffsets([]), []);
+  assert.deepEqual(layoutLabelOffsets([{ x: 5, y: 5 }]), [0]);
+});
+
+test("distance labels: units-preference formatter below 0.01 AU, AU above", () => {
+  const moon = fmtSpaceDistance(384_400_000);
+  assert.ok(/mi$|km$/.test(moon), `moon label carries a unit (${moon})`);
+  assert.ok(!moon.includes("AU"));
+  assert.equal(fmtSpaceDistance(1.5 * AU_M), "1.500 AU");
+  assert.equal(fmtSpaceDistance(30 * AU_M), "30.00 AU");
+});
