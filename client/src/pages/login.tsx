@@ -837,12 +837,6 @@ export default function LoginPage({ onLogin }: LoginProps) {
       <div className="hud-label-tl" style={{ position: "absolute", top: 16, left: 16, zIndex: 20, fontSize: 12, color: "#4d9fff", opacity: 0.5, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.15em", fontWeight: 600 }}>
         VOLTRADEAI
       </div>
-      <div className="hud-status-bl" style={{ position: "absolute", bottom: 16, left: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.1em" }}>
-        SYS: ONLINE | ML: 36 FEATURES | ALPACA: CONNECTED
-      </div>
-      <div className="hud-status-br" style={{ position: "absolute", bottom: 16, right: 16, zIndex: 20, fontSize: 9, color: "#3a4a5c", fontFamily: "'JetBrains Mono', monospace" }}>
-        v2.0 // PAPER TRADING MODE
-      </div>
 
       <style>{`
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
@@ -859,19 +853,6 @@ export default function LoginPage({ onLogin }: LoginProps) {
             left: auto !important;
             right: 16px !important;
             top: 16px !important;
-          }
-          .hud-status-bl, .hud-status-br {
-            left: 50% !important;
-            right: auto !important;
-            transform: translateX(-50%);
-            text-align: center;
-            white-space: nowrap;
-          }
-          .hud-status-bl {
-            bottom: 28px !important;
-          }
-          .hud-status-br {
-            bottom: 12px !important;
           }
         }
       `}</style>
@@ -890,12 +871,6 @@ export default function LoginPage({ onLogin }: LoginProps) {
         backdropFilter: "blur(12px)",
         margin: "0 1rem",
       }}>
-        <div style={{ textAlign: "center", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: 9, letterSpacing: "0.2em", color: "#4d9fff", opacity: 0.4, fontFamily: "'JetBrains Mono', monospace" }}>
-            TOP SECRET // AUTHORIZED PERSONNEL ONLY
-          </span>
-        </div>
-
         <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
           <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "0.08em", fontFamily: "'Inter', 'JetBrains Mono', sans-serif" }}>
             <span style={{ color: "#ffffff" }}>VolTrade</span>
