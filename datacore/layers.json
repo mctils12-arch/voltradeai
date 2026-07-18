@@ -1370,6 +1370,17 @@
    "field": false
   },
   {
+   "id": "celestial_paths",
+   "name": "Celestial paths",
+   "kind": "raw",
+   "status": "live",
+   "group": "base",
+   "costTier": "light",
+   "source": "astronomy-engine ephemeris (computed, MIT) \u2014 no feed",
+   "description": "Ecliptic and Moon/planet sky tracks drawn on the always-on celestial sky, from real ephemeris in a frozen sidereal frame; segments below the horizon fade out. Reference lines, not observations. Computed on-device \u2014 zero network cost.",
+   "field": false
+  },
+  {
    "id": "places",
    "name": "Places & labels",
    "kind": "raw",

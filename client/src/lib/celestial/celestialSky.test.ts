@@ -332,6 +332,9 @@ test("mountCelestialSky latches renderFailed with no DOM and never throws", () =
   assert.equal(handle.getRenderFailed(), true, "no DOM ⇒ renderFailed latched");
   assert.doesNotThrow(() => handle.render(), "render is a no-op, never throws");
   assert.doesNotThrow(() => handle.setTime(Date.now()), "setTime never throws");
+  // paths API (sprint W1 toggle) exists and is safe on the inert handle
+  assert.equal(handle.getPathsVisible(), false, "paths default OFF");
+  assert.doesNotThrow(() => handle.setPathsVisible(true), "setPathsVisible never throws");
   assert.doesNotThrow(() => handle.dispose(), "dispose never throws");
   assert.equal(handle.getState().bodies, SKY_BODIES.length);
 });

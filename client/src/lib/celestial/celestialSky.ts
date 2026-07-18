@@ -517,8 +517,30 @@ void main() {
 
 /** All fragment-shader sources, exported so the shader-contract test can assert
  *  every one declares highp and none uses mediump. */
-export const CELESTIAL_FRAGMENT_SHADERS: readonly string[] = [SUN_FS, MOON_FS, PLANET_FS];
-export const CELESTIAL_VERTEX_SHADERS: readonly string[] = [BILLBOARD_VS];
+// sky-path polyline (paths toggle): position on the sky sphere + per-vertex
+// alpha baked at build time (horizon fade), tinted per path by uniform.
+const LINE_VS = `#version 300 es
+precision highp float;
+in vec3 a_pos;
+in float a_alpha;
+uniform mat4 u_viewProj;
+out float v_alpha;
+void main() {
+  gl_Position = u_viewProj * vec4(a_pos, 1.0);
+  v_alpha = a_alpha;
+}`;
+const LINE_FS = `#version 300 es
+precision highp float;
+in float v_alpha;
+uniform vec3 u_color;
+uniform float u_alpha;
+out vec4 outColor;
+void main() {
+  outColor = vec4(u_color, v_alpha * u_alpha);
+}`;
+
+export const CELESTIAL_FRAGMENT_SHADERS: readonly string[] = [SUN_FS, MOON_FS, PLANET_FS, LINE_FS];
+export const CELESTIAL_VERTEX_SHADERS: readonly string[] = [BILLBOARD_VS, LINE_VS];
 
 // ── camera view fed by the parent each frame ─────────────────────────────────
 
@@ -550,6 +572,10 @@ export interface CelestialSkyHandle {
   /** true after a GL failure — scene disabled, page continues (modelLayer latch). */
   getRenderFailed(): boolean;
   getState(): { bodies: number; lastEphemerisMs: number };
+  /** paths toggle (default OFF): ecliptic + per-body sky tracks as dim
+   *  polylines on the same sky sphere/projection as the bodies. */
+  setPathsVisible(visible: boolean): void;
+  getPathsVisible(): boolean;
 }
 
 interface GlProgram {
@@ -652,6 +678,8 @@ export function mountCelestialSky(
     dispose() { disposed = true; },
     getRenderFailed: () => renderFailed,
     getState: () => ({ bodies: SKY_BODIES.length, lastEphemerisMs }),
+    setPathsVisible() { /* disabled */ },
+    getPathsVisible: () => false,
   });
   if (!doc) { renderFailed = true; return inert(); }
 
@@ -670,7 +698,19 @@ export function mountCelestialSky(
   let sunProg: GlProgram | null = null;
   let moonProg: GlProgram | null = null;
   let planetProg: GlProgram | null = null;
+  let lineProg: GlProgram | null = null;
   let bufQuad: WebGLBuffer | null = null;
+  let bufPaths: WebGLBuffer | null = null;
+
+  // ── paths toggle state (default OFF — zero cost until enabled) ──
+  let pathsVisible = false;
+  let pathsDirty = true;
+  // observer/time the current path buffer was built for; rebuilt when the
+  // observer moves >0.5° or the sky clock drifts >60s (paths change slowly)
+  let pathsBuiltLat = 0, pathsBuiltLon = 0, pathsBuiltMs = 0;
+  interface PathRange { start: number; count: number; color: readonly [number, number, number] }
+  let pathRanges: PathRange[] = [];
+  const ECLIPTIC_COLOR: readonly [number, number, number] = [0.95, 0.85, 0.5];
 
   function compile(vsSrc: string, fsSrc: string, attrs: string[], unis: string[]): GlProgram {
     const g = gl!;
@@ -711,6 +751,9 @@ export function mountCelestialSky(
       ["u_viewProj", "u_center", "u_right", "u_up", "u_radius", "u_facing", "u_sun", "u_earthshine", "u_alpha"]);
     planetProg = compile(BILLBOARD_VS, PLANET_FS, BILLBOARD_ATTRS,
       ["u_viewProj", "u_center", "u_right", "u_up", "u_radius", "u_facing", "u_sun", "u_color", "u_bright", "u_alpha"]);
+    lineProg = compile(LINE_VS, LINE_FS, ["a_pos", "a_alpha"],
+      ["u_viewProj", "u_color", "u_alpha"]);
+    bufPaths = gl.createBuffer();
     bufQuad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, bufQuad);
     gl.bufferData(gl.ARRAY_BUFFER,
@@ -737,6 +780,44 @@ export function mountCelestialSky(
     if (elDeg >= 0) return 1;
     return (elDeg + HORIZON_FADE_DEG) / HORIZON_FADE_DEG;
   };
+
+  // ── path polylines (paths toggle) ──
+  // Built only while visible, and only when the observer moved >0.5° or the
+  // sky clock drifted >60s — ~10 ephemeris path evaluations, never per frame.
+  function buildPaths(view: SkyView): void {
+    const g = gl!;
+    const verts: number[] = [];
+    pathRanges = [];
+    const push = (pts: Array<{ azDeg: number; elDeg: number }>, color: readonly [number, number, number]) => {
+      if (!pts.length) return;
+      const start = verts.length / 4;
+      for (const p of pts) {
+        const d = directionVector(p.azDeg, p.elDeg);
+        verts.push(
+          d[0] * SKY_SPHERE_RADIUS, d[1] * SKY_SPHERE_RADIUS, d[2] * SKY_SPHERE_RADIUS,
+          horizonAlpha(p.elDeg), // below-horizon segments fade out honestly
+        );
+      }
+      pathRanges.push({ start, count: pts.length, color });
+    };
+    push(eclipticPath(view.timeMs, view.observerLatDeg, view.observerLonDeg, 180), ECLIPTIC_COLOR);
+    for (const def of SKY_BODIES) {
+      push(bodySkyPath(view.timeMs, view.observerLatDeg, view.observerLonDeg, def.id, 120), def.color);
+    }
+    g.bindBuffer(g.ARRAY_BUFFER, bufPaths);
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array(verts), g.DYNAMIC_DRAW);
+    pathsBuiltLat = view.observerLatDeg;
+    pathsBuiltLon = view.observerLonDeg;
+    pathsBuiltMs = view.timeMs;
+    pathsDirty = false;
+  }
+
+  function pathsStale(view: SkyView): boolean {
+    return pathsDirty ||
+      Math.abs(view.observerLatDeg - pathsBuiltLat) > 0.5 ||
+      Math.abs(view.observerLonDeg - pathsBuiltLon) > 0.5 ||
+      Math.abs(view.timeMs - pathsBuiltMs) > 60_000;
+  }
 
   // scratch billboard basis (no per-frame allocation)
   const scratchRight: [number, number, number] = [0, 0, 0];
@@ -791,6 +872,27 @@ export function mountCelestialSky(
 
     const sun = bodyDir[0]; // Sun is index 0 in SKY_BODIES
     const glare = glareIntensity(lookDir, sun, view.fovDeg);
+
+    // ── PATHS (under the bodies so discs draw over their own tracks) ──
+    if (pathsVisible && lineProg && bufPaths) {
+      if (pathsStale(view)) buildPaths(view);
+      if (pathRanges.length) {
+        const p = lineProg;
+        g.useProgram(p.prog);
+        g.blendFunc(g.SRC_ALPHA, g.ONE_MINUS_SRC_ALPHA);
+        g.uniformMatrix4fv(p.unis.u_viewProj, false, viewProj);
+        g.bindBuffer(g.ARRAY_BUFFER, bufPaths);
+        g.enableVertexAttribArray(p.attrs.a_pos);
+        g.vertexAttribPointer(p.attrs.a_pos, 3, g.FLOAT, false, 16, 0);
+        g.enableVertexAttribArray(p.attrs.a_alpha);
+        g.vertexAttribPointer(p.attrs.a_alpha, 1, g.FLOAT, false, 16, 12);
+        for (const r of pathRanges) {
+          g.uniform3f(p.unis.u_color, r.color[0], r.color[1], r.color[2]);
+          g.uniform1f(p.unis.u_alpha, 0.55);
+          g.drawArrays(g.LINE_STRIP, r.start, r.count);
+        }
+      }
+    }
 
     const bindQuad = (p: GlProgram): void => {
       g.bindBuffer(g.ARRAY_BUFFER, bufQuad);
@@ -907,12 +1009,20 @@ export function mountCelestialSky(
       if (gl) {
         try {
           if (bufQuad) gl.deleteBuffer(bufQuad);
-          for (const p of [sunProg, moonProg, planetProg]) if (p) gl.deleteProgram(p.prog);
+          if (bufPaths) gl.deleteBuffer(bufPaths);
+          for (const p of [sunProg, moonProg, planetProg, lineProg]) if (p) gl.deleteProgram(p.prog);
         } catch { /* context already lost */ }
       }
       try { canvas.remove(); } catch { /* detached */ }
     },
     getRenderFailed: () => renderFailed,
     getState: () => ({ bodies: SKY_BODIES.length, lastEphemerisMs }),
+    setPathsVisible(visible: boolean): void {
+      if (visible === pathsVisible) return;
+      pathsVisible = visible;
+      if (visible) pathsDirty = true; // rebuild on re-enable (time/observer moved)
+      drawFrame();
+    },
+    getPathsVisible: () => pathsVisible,
   };
 }

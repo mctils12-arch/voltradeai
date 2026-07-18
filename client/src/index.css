@@ -3443,9 +3443,6 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-keys-usage-bar { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
 .vt-keys-usage-day { font-size: 9px; color: var(--text-tertiary); margin-top: 4px; }
 
-/* O6-7 tier 1: sun/moon overhead-point markers (color emoji via DOM) */
-.vt-celestial-marker {
-  font-size: 22px; line-height: 1; cursor: pointer;
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6));
-  user-select: none;
-}
+/* W1: the always-on celestial sky canvas — under the UI overlays (which
+   carry z-index 30+), over the map canvas; never eats gestures. */
+.vt-celestial-sky { z-index: 5; }

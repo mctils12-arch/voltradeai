@@ -1146,3 +1146,15 @@ Every body: real position or absent — never decorative placement.
   natural next real-model candidate now that the mesh tool is
   generalized and reusable (queue carried over from the v1.0.339/341
   NEXT notes above).
+- 2026-07-18 (human sprint W1, T-CLIENT): CELESTIAL CONTEXT SHIPPED —
+  the charter's "celestial context (sun/moon/planets)" line is now
+  live: always-on celestialSky overlay (astronomy-engine, real
+  apparent sizes/phase/flare, own async chunk) mounted over the map
+  camera; cartoon ☀️/🌗 daynight markers REMOVED (human rejection);
+  celestial_paths registry toggle (ecliptic + body tracks, default
+  off, computed-ephemeris provenance). Wave-1 of the same sprint
+  (#518, v1.0.386) shipped state borders, military symbols,
+  sign-in cleanup, fps debug flag, security hardening (see
+  experiments.md 2026-07-18 entries for both waves). Sun render
+  pixel-proven via drive-side subsolar math + render()+toDataURL
+  same-task capture (new reusable GL-overlay assertion technique).

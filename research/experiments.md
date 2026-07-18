@@ -3,6 +3,44 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Sprint wave 2 / W1 INTEGRATION: always-on realistic celestial sky, cartoon sun/moon removed, paths toggle (v1.0.387, T-CLIENT, human-directed sprint)
+
+The W1 half the human explicitly showed a screenshot to reject ("what we
+have now i dont like and want removed") is done: the daynight layer's
+emoji ☀️/🌗 DOM markers are deleted (terminator shade kept — it is the
+night-side readout) and client/src/lib/celestial/celestialSky.ts (agent
+library, 2026-07-18, merged unwired in #518) now mounts ALWAYS-ON over
+the map: real astronomy-engine ephemeris, true apparent angular sizes
+(0.35° render floor for planets, stated), real moon phase + earthshine,
+sun flare growing toward the look direction. Observer = map center;
+lookAz = bearing, lookEl = pitch−90, fov normalized rad/deg defensively.
+Dynamic import → astronomy-engine lives in its own ~49KB-gzip chunk.
+
+PATHS TOGGLE ("turn on the path of everything"): added a GL line-strip
+pass INSIDE the library (same sphere/projection as the bodies — the
+screenshot proof: the ecliptic passes exactly through the sun's disc),
+ecliptic + per-body tracks, per-vertex horizon fade, rebuilt only on
+>0.5° observer moves or >60s clock drift. Registry layer
+celestial_paths (raw/base/default OFF, computed-ephemeris provenance,
+"reference lines, not observations" honesty rail, test-pinned along
+with marker-removal-never-returns).
+
+VALIDATION (drive 13/13, real dist): handle mounted always-on, GL
+healthy under SwiftShader (highp contract held), 9 bodies, markers
+gone, terminator intact, SUN PIXEL-PROVEN — drive computes the subsolar
+point itself (NOAA low-precision), parks the observer 86° away looking
+at it at pitch 80: 0.09% of the band lit (~292px ≈ exactly a 13px disc
++ bloom at 37° fov/900px) vs 0.000% aimed away; paths add pixels and
+toggle both ways; zero page errors. Sky canvas read via render()+
+toDataURL in one JS task (no preserveDrawingBuffer needed) — new
+technique, reusable for any GL overlay assertion. Tests 44/44
+(registry + celestial incl. new pins).
+
+REMAINING SPRINT BACKLOG after this: wind-farm audit re-run (pre-
+compaction agent output lost), curtain walls (fdf60af), viewport
+aircraft tiling (c34c9f3), D3 drag-release, GEBCO region expansion,
+solar label polish.
+
 ## 2026-07-18 [PRODUCT] — Realism/Perf/Security sprint wave 1: W3 state borders, W4 military symbol, W5 sign-in text removal, W2 fps flag, W6 security hardening (v1.0.386, T-CLIENT+shared, human-directed sprint)
 
 HUMAN SPRINT SPEC (2026-07-17, verbatim priorities W1–W7; "no run caps,
