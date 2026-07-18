@@ -3,6 +3,26 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [REPAIR] — D3 ground-lock drag-release: root-caused and fixed with instrumentation evidence (v1.0.390, T-CLIENT)
+
+The v1.0.370 filing hypothesized drags beginning mid-ease miss their
+dragstart. INSTRUMENTED (24 randomized-phase drags against an actively
+easing ground-locked follow, real built dist): 2/24 real canvas drags
+produced pointerdown with ZERO MapLibre gesture events (no dragstart,
+no user movestart) — and notably both at movingAtStart=false, so the
+handler pipeline drops gestures independent of the ease (SwiftShader
+amplifies; the human's live "doesn't work to follow" reports match).
+FIX per the filed plan: DOM-level pan detection on the map canvas —
+primary-button press + >4px movement with the button held → release
+the ground lock; clicks (no movement) and rotate (right/ctrl-drag)
+keep their existing semantics. RE-RUN: dragstart still missed 2/24
+(upstream behavior unchanged) but lock-stuck 0/24 — the detector
+released both. Regression: the drive stays in scratchpad
+(drive_d3.mjs); the hardened slow-drag D3 check in drive_follow.mjs
+continues to gate follow behavior. Ratchet honesty: this repair's
+regression coverage is drive-level, not unit-level — GL canvas
+gestures aren't unit-testable; the drive is the test.
+
 ## 2026-07-18 [PIPELINE] — Viewport aircraft tiling live: whole visible range, not one 250nm disc (v1.0.389, T-DATACORE server side)
 
 The queue's viewport-tiling item (library + routes rewire built in
