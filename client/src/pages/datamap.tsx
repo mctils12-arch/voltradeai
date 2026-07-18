@@ -1254,21 +1254,6 @@ export default function DataMapPage() {
       try { container.classList.remove("vt-solar-active"); } catch {}
     }
   }, []);
-  const applySatGroup = useCallback((key: string | null) => {
-    setSatGroup(key);
-    setSatGroupOrbits(false);
-    const gp = orbitalGpRef.current;
-    const mask = key && gp ? groupMask(gp, key) : null;
-    satGroupMaskRef.current = mask;
-    const count = mask ? maskCount(mask) : null;
-    setSatGroupCount(count);
-    satGroupInfoRef.current = mask && key
-      ? { label: SAT_GROUPS.find((g) => g.key === key)?.label ?? key, count: count ?? 0 }
-      : null;
-    // O8: the filter applies/clears THIS frame (re-derives the layer buffer
-    // from the retained raw tick) — not on the next 1Hz worker tick.
-    satRepushRef.current?.();
-  }, []);
   // O5-2b: the on-map 3D form layer for the followed satellite (one instance,
   // same lifecycle as satLayerRef).
   const satModelLayerRef = useRef<SatModelLayer | null>(null);
@@ -1311,6 +1296,40 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const applySatGroup = useCallback((key: string | null) => {
+    const gp = orbitalGpRef.current;
+    const mask = key && gp ? groupMask(gp, key) : null;
+    const count = mask ? maskCount(mask) : null;
+    // O8 TAKE-ME-THERE (live report 2026-07-18: the ISS chip "does not send
+    // you to the satellite and it's hard to find"): a group that resolves to
+    // exactly ONE catalog object (ISS after the station collapse) is a
+    // shortcut, not a filter — do what searching it does: end the old
+    // focus/card and any active filter, then focus + follow + zoom. Multi-
+    // object groups keep the filter behavior (and the finder lists their
+    // members as the click path).
+    if (mask && count === 1 && focusSatByIndexRef.current) {
+      setSatGroup(null);
+      setSatGroupOrbits(false);
+      setSatGroupCount(null);
+      satGroupMaskRef.current = null;
+      satGroupInfoRef.current = null;
+      satRepushRef.current?.(); // clear any prior filter THIS frame — the focus below reads the buffer
+      stopSatFocusRef.current?.();
+      setDetail(null);
+      focusSatByIndexRef.current(mask.indexOf(1));
+      return;
+    }
+    setSatGroup(key);
+    setSatGroupOrbits(false);
+    satGroupMaskRef.current = mask;
+    setSatGroupCount(count);
+    satGroupInfoRef.current = mask && key
+      ? { label: SAT_GROUPS.find((g) => g.key === key)?.label ?? key, count: count ?? 0 }
+      : null;
+    // O8: the filter applies/clears THIS frame (re-derives the layer buffer
+    // from the retained raw tick) — not on the next 1Hz worker tick.
+    satRepushRef.current?.();
+  }, []);
   // O6-3 SatFinder entrance (search hits + group-member list), hardened by
   // two live-report fixes: (2026-07-16) searching while an old focus card
   // was open left the STALE card up — hard-swap: end the old focus, drop

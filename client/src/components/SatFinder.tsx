@@ -5,7 +5,7 @@
 // the orbits toggle plots the group's real SGP4 tracks, RAAN-colored so
 // planes read apart, CAP DISCLOSED when it bites.
 import { memo, useMemo, useState } from "react";
-import { searchSats, SAT_GROUPS, type SatSearchHit } from "@/lib/orbital/satFind";
+import { searchSats, SAT_GROUPS, groupMemberHits, type SatSearchHit } from "@/lib/orbital/satFind";
 import type { GpRecord } from "@/lib/orbital/tle";
 
 export interface SatFinderProps {
@@ -35,6 +35,14 @@ export const SatFinder = memo(function SatFinder(props: SatFinderProps) {
   const activeGrp = props.activeGroup
     ? SAT_GROUPS.find((g) => g.key === props.activeGroup) ?? null
     : null;
+  // O8 (live report 2026-07-18: "it's hard to find"): while a chip filters
+  // the sky, the finder lists the group's members as a direct click-to-focus
+  // path — a filter must never leave the user hunting dots.
+  const members = useMemo(
+    () => (props.activeGroup ? groupMemberHits(props.gp, props.activeGroup) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.gp, props.gpVersion, props.activeGroup],
+  );
   return (
     <div className="vt-satfinder" data-vt-satfinder>
       <input
@@ -73,6 +81,21 @@ export const SatFinder = memo(function SatFinder(props: SatFinderProps) {
           </button>
         )}
       </div>
+      {activeGrp && q.trim().length < 2 && members && members.total > 0 && (
+        <div className="vt-satfinder-hits">
+          {members.hits.map((h) => (
+            <button key={h.noradId} className="vt-satfinder-hit"
+                    onClick={() => props.onFind(h.index)}>
+              {h.name} <span className="vt-satfinder-id">#{h.noradId}</span>
+            </button>
+          ))}
+          {members.total > members.hits.length && (
+            <span className="vt-legend-note">
+              first {members.hits.length} of {members.total.toLocaleString()} {activeGrp.label} members — type above to narrow
+            </span>
+          )}
+        </div>
+      )}
       {props.activeGroup && (
         <span className="vt-legend-note">
           {`showing only ${SAT_GROUPS.find((g) => g.key === props.activeGroup)?.label ?? props.activeGroup}`}

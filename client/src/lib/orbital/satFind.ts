@@ -75,6 +75,34 @@ export function maskCount(mask: Uint8Array | null): number {
 }
 
 /**
+ * A group's members as clickable search-style hits (capped for the panel)
+ * plus the TRUE total — O8, live report 2026-07-18: a chip that only
+ * filtered the sky left the user hunting dots ("it's hard to find"), so the
+ * finder lists the filtered group's members as a direct click-to-focus path.
+ * Indices stay aligned with `gp` (and therefore the worker buffer).
+ */
+export function groupMemberHits(
+  gp: GpRecord[] | null,
+  key: string,
+  limit = 8,
+): { hits: SatSearchHit[]; total: number } {
+  if (!gp || !gp.length) return { hits: [], total: 0 };
+  const grp = SAT_GROUPS.find((g) => g.key === key);
+  if (!grp) return { hits: [], total: 0 };
+  const hits: SatSearchHit[] = [];
+  let total = 0;
+  for (let i = 0; i < gp.length; i++) {
+    const g = gp[i];
+    if (!grp.test((g.name || '').toUpperCase())) continue;
+    total++;
+    if (hits.length < limit) {
+      hits.push({ index: i, noradId: g.noradId, name: g.name || `NORAD ${g.noradId}` });
+    }
+  }
+  return { hits, total };
+}
+
+/**
  * Filter the live position buffer to a group by writing the SENTINEL class
  * code (-1) into non-members — the exact semantics the layer/picker already
  * honor for deep-space/invalid slots. Returns a COPY; the worker's buffer
