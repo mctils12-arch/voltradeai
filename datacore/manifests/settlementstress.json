@@ -1,0 +1,24 @@
+{
+ "stream": "settlementstress",
+ "storage": "one plain JSONL per TRADE date under <archive>/settlementstress/ (<YYYY-MM-DD>.jsonl, small — a few dozen rows at most, may be empty on a genuine no-overlap day); date-level dedup, never recomputed once archived with complete inputs",
+ "written_by": "server/settlementStress.ts refreshSettlementStress (6h boot poll, runs after finraQuery/finraShortVolume/secFtd's own pollers). Pure LOCAL JOIN over three already-archived free streams — makes zero network calls itself, zero incremental API cost.",
+ "source": "Derived/computed — not a fetched source. Joins datacore/finrathreshold (FINRA Query API thresholdList), datacore/finrashortvol (FINRA CNMS daily short volume), datacore/secftd (SEC CNS fails-to-deliver half-month files). A date is only archived once its short-vol day AND covering FTD half-month period are both already archived by their own pollers — otherwise skipped and retried on the next pass, never interpolated.",
+ "license": "Inherits the licensing of its three FINRA/SEC ingredients (all free with attribution / US-government public domain) — no additional license terms introduced by the join itself.",
+ "attribution": "FINRA Query API (threshold list, short volume) + U.S. Securities and Exchange Commission (CNS fails-to-deliver)",
+ "schema_version": 1,
+ "field_map": {
+  "date": "trade date this row was computed for",
+  "symbol/name": "issuer symbol + name, from the threshold-list row",
+  "persistence_days": "consecutive ARCHIVED days (may undercount across a poll gap, never fabricated) the symbol has appeared on the Reg SHO threshold list, counting backward from date",
+  "ftd_qty/ftd_delta": "SEC FTD balance (level) for the half-month period covering date, and its delta vs. the prior half-month (delta from a 0 balance if no prior-period record exists — an early-history limitation, not an assumption of zero fails)",
+  "short_ratio/short_vol_percentile": "short_vol/total_vol for date, and its cross-sectional percentile (0-100) among symbols meeting finrashortvol's own liquidity floor",
+  "composite_score": "persistence_days x (short_vol_percentile/100) x sign(ftd_delta)*log1p(|ftd_delta|) — a RANKING AID for the future gate-2 correlation test only, not a claimed trading signal"
+ },
+ "confidence_model": "COMPUTED, gate-1 feature construction. HYPOTHESIS (gate-locked, unchanged from the census #4/#6 filing): threshold-list persistence x FTD balance delta x short-vol ratio percentile identifies settlement stress none of the three sources shows alone. Nothing here has been checked against forward returns or a random-entry base rate — that is gate 2, blocked on accumulating dated history (same readiness bar as every other rejected_*/shadow bucket). NOT wired into deep_score or any order path; NOT surfaced on /data (RAW OVERLAYS vs SIGNALS: an unvalidated derived score is neither category yet).",
+ "geo_fields": [],
+ "entity_key": "date + symbol",
+ "sentiment": null,
+ "started": "2026-07-18",
+ "cadence": "6h poll, but only ever advances on ingredient trading-day/half-month cadence (effectively daily/semi-monthly)",
+ "_note": "Universal archive envelope (approved 2026-07-04). Built as the queued SETTLEMENT-STRESS COMPOSITE item filed in wishlist.md's DATACORE MAXIMUS block once its three ingredients landed (census builds #4/#6)."
+}

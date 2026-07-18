@@ -108,13 +108,34 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   to finrashortvol growth, acceptable; state the estimate in the
   manifest. blocksSummary (192/mo) + monthlySummary (63k/mo) ride
   along trivially in the same module.
-- SETTLEMENT-STRESS COMPOSITE [RESEARCH] (queued): ingredients all
-  recording (finrathreshold + secftd + finrashortvol). Gate-1 plan:
-  threshold-persistence (consecutive days listed) x FTD balance
-  DELTA (it's a level — diff it) x short-vol ratio percentile;
-  base-rate control = same-universe random entry (REASONING STANDARD
-  #3); needs the env-gated backfills for depth — design can precede
-  data.
+- SETTLEMENT-STRESS COMPOSITE [PIPELINE]: SHIPPED 2026-07-18 (v1.0.392,
+  scheduled-routine [PIPELINE] session) — server/settlementStress.ts +
+  datacore/manifests/settlementstress.json. Pure local JOIN over the
+  three already-archived ingredients (finrathreshold + secftd +
+  finrashortvol), zero incremental network/API cost, wired into the
+  boot-poll battery in server/routes.ts right after bootFtdPoll().
+  Computes, per trade date, the intersection of symbols on the
+  threshold list AND carrying an FTD balance for the covering
+  half-month period AND an eligible short-vol reading; composite_score
+  = persistence_days x (short_vol_percentile/100) x
+  sign(ftd_delta)*log1p(|ftd_delta|). GATE 1 ONLY — see the module
+  docstring and manifest confidence_model: not checked against forward
+  returns, not wired into deep_score/any order path, NOT surfaced on
+  /data (unvalidated derived score, neither RAW nor SIGNAL yet). 7 new
+  tests in server/settlementStress.test.ts, all A/B-relevant join edge
+  cases covered (persistence streak + archive gap, FTD delta incl.
+  missing-prior-period, liquidity-floor exclusion, 3-way intersection,
+  archive dedup, refresh only-advances-when-ingredients-ready). NOTE
+  for future test authors: finraQuery.ts/secFtd.ts export
+  _reset*ForTests() (used here via beforeEach); finraShortVolume.ts
+  does not, so its archive dedup is process-global regardless of
+  baseDir — this file's dates were chosen to never collide across
+  tests, same precedent already documented in
+  finraShortVolume.test.ts. GATE 2 NEXT STEP (unchanged from the
+  original queue entry): once enough dated history has accumulated in
+  datacore/settlementstress/, test composite_score (or its rank) vs.
+  forward N/5/20-day returns against a same-universe random-entry base
+  rate (REASONING STANDARD #3) before this is ever considered a signal.
 - CENSUS BUILD #7 EU MACRO: SHIPPED v1.0.175 — server/euMacro.ts +
   /api/data/eu-macro (ECB EXR/EST/ILM + Eurostat sts_inpr_m + BBK
   Bund 10y; keyless, per-series attribution verified, vintage-honest;
