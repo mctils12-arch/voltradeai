@@ -29,6 +29,12 @@ export const SatFinder = memo(function SatFinder(props: SatFinderProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.gp, props.gpVersion, q],
   );
+  // O8 (live report 2026-07-18): search always covers the FULL catalog, even
+  // while a group chip narrows the sky — clicking an outside hit clears the
+  // filter (the parent's findSat), and the hit row SAYS so up front.
+  const activeGrp = props.activeGroup
+    ? SAT_GROUPS.find((g) => g.key === props.activeGroup) ?? null
+    : null;
   return (
     <div className="vt-satfinder" data-vt-satfinder>
       <input
@@ -45,6 +51,9 @@ export const SatFinder = memo(function SatFinder(props: SatFinderProps) {
             <button key={h.noradId} className="vt-satfinder-hit"
                     onClick={() => { props.onFind(h.index); setQ(""); }}>
               {h.name} <span className="vt-satfinder-id">#{h.noradId}</span>
+              {activeGrp && !activeGrp.test(h.name.toUpperCase()) && (
+                <span className="vt-satfinder-id"> · outside {activeGrp.label} — focusing clears the filter</span>
+              )}
             </button>
           ))}
         </div>

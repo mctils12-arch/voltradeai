@@ -656,9 +656,9 @@ interface LegendPanelProps {
   satArcInfo: { shown: number; total: number } | null;
   applySatGroup: (key: string | null) => void;
   setSatGroupOrbits: React.Dispatch<React.SetStateAction<boolean>>;
-  stopSatFocusRef: React.RefObject<(() => void) | null>;
-  focusSatByIndexRef: React.RefObject<((index: number) => void) | null>;
-  setDetail: React.Dispatch<React.SetStateAction<Detail | null>>;
+  /** parent's findSat — ends the old focus/card, clears an excluding group
+   *  filter, then focuses (one path for search hits + group members). */
+  onFindSat: (index: number) => void;
   seafloorConfShares: Record<string, Record<string, number>>;
 }
 
@@ -667,7 +667,7 @@ const LegendPanel = memo(function LegendPanel({
   nightlightsDate, aerosolDate, vegetationDate, soilmoistureDate, no2Date,
   firetempScanTime, tempUnitF, windArrows, orbitalGpRef, gpVersion,
   satGroup, satGroupCount, satGroupOrbits, satArcInfo, applySatGroup,
-  setSatGroupOrbits, stopSatFocusRef, focusSatByIndexRef, setDetail,
+  setSatGroupOrbits, onFindSat,
   seafloorConfShares,
 }: LegendPanelProps) {
   return (
@@ -941,14 +941,7 @@ const LegendPanel = memo(function LegendPanel({
                 groupCount={satGroupCount}
                 orbitsOn={satGroupOrbits}
                 arcInfo={satArcInfo}
-                onFind={(i) => {
-                  // live bug: searching while an old focus card was
-                  // open left the STALE card up — hard-swap: end the
-                  // old focus, drop the old card, then focus fresh.
-                  stopSatFocusRef.current?.();
-                  setDetail(null);
-                  focusSatByIndexRef.current?.(i);
-                }}
+                onFind={onFindSat}
                 onGroup={applySatGroup}
                 onOrbits={setSatGroupOrbits}
               />
@@ -1071,6 +1064,15 @@ export default function DataMapPage() {
   const focusSatByIndexRef = useRef<((index: number) => void) | null>(null);
   const satGroupMaskRef = useRef<Uint8Array | null>(null);
   const satGroupInfoRef = useRef<{ label: string; count: number } | null>(null);
+  // O8 (live report 2026-07-18): the last RAW worker tick buffer, BEFORE the
+  // group sentinel copy. The worker always propagates the WHOLE sky (the
+  // group chip is a display-only filter), so retaining the raw tick lets
+  // (a) a chip change re-derive the layer buffer THIS frame instead of
+  // waiting up to a full 1s tick, and (b) search/coverage read the full
+  // catalog while the display stays filtered. Cost: one extra retained
+  // Float32Array only while a filter is active (~340KB at 12k objects).
+  const satRawPosRef = useRef<Float32Array | null>(null);
+  const satRepushRef = useRef<(() => void) | null>(null);
   const [satGroup, setSatGroup] = useState<string | null>(null);
   const [satGroupOrbits, setSatGroupOrbits] = useState(false);
   const [satGroupCount, setSatGroupCount] = useState<number | null>(null);
@@ -1263,6 +1265,9 @@ export default function DataMapPage() {
     satGroupInfoRef.current = mask && key
       ? { label: SAT_GROUPS.find((g) => g.key === key)?.label ?? key, count: count ?? 0 }
       : null;
+    // O8: the filter applies/clears THIS frame (re-derives the layer buffer
+    // from the retained raw tick) — not on the next 1Hz worker tick.
+    satRepushRef.current?.();
   }, []);
   // O5-2b: the on-map 3D form layer for the followed satellite (one instance,
   // same lifecycle as satLayerRef).
@@ -1306,6 +1311,23 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
+  // O6-3 SatFinder entrance (search hits + group-member list), hardened by
+  // two live-report fixes: (2026-07-16) searching while an old focus card
+  // was open left the STALE card up — hard-swap: end the old focus, drop
+  // the old card, then focus fresh. (2026-07-18) SEARCH OVERRIDES FILTER:
+  // the finder searches the FULL catalog, so a hit OUTSIDE the active group
+  // chip clears the filter first — otherwise the target's buffer slot is
+  // sentineled and the focus dead-ends as "no live position" while the old
+  // object stays on screen (the reported bug). Clearing goes through
+  // applySatGroup, whose instant repush restores the slot before focusSat
+  // reads the buffer.
+  const findSat = useCallback((index: number) => {
+    stopSatFocusRef.current?.();
+    setDetail(null);
+    const gmask = satGroupMaskRef.current;
+    if (gmask && !gmask[index]) applySatGroup(null);
+    focusSatByIndexRef.current?.(index);
+  }, [applySatGroup]);
   // O6 minimize: collapse the card to a pill (focus keeps running); a NEW
   // detail always restores the full card so fresh clicks are never hidden.
   const [detailMin, setDetailMin] = useState(false);
@@ -2913,6 +2935,8 @@ export default function DataMapPage() {
       // O6-3: masks are index-aligned to THIS gp load — never survive it
       satGroupMaskRef.current = null;
       satGroupInfoRef.current = null;
+      satRawPosRef.current = null;
+      satRepushRef.current = null;
       setSatGroup(null);
       setSatGroupOrbits(false);
       setSatGroupCount(null);
@@ -3069,6 +3093,9 @@ export default function DataMapPage() {
     let lodPaused = false;
     let lodLastOpacity = -1; // sentinel: first applyLod() always applies
     let lastCounts = { shown: 0, skipped: 0 };
+    // O8: the last tick's full meta, so a filter change can re-push the
+    // retained raw buffer with honest counts without waiting for a tick.
+    let lastMeta: { shown: number; deepSpaceSkipped: number; invalidSkipped: number } | null = null;
     // O6-2: per-index class forms (null until SATCAT lands); minis appear
     // in the close-zoom band without a click — catalogued classes only.
     let miniForms: (FormKind | null)[] | null = null;
@@ -3118,6 +3145,22 @@ export default function DataMapPage() {
             : `${lastCounts.shown.toLocaleString()} live (near-earth SGP4 + deep-space SDP4)${lastCounts.skipped ? ` · ${lastCounts.skipped.toLocaleString()} not rendered (incomplete/decayed elements)` : ""}`);
       }
     };
+    // O8 (live report 2026-07-18): re-derive the layer's display buffer from
+    // the retained RAW tick + the CURRENT group mask, immediately. Called by
+    // applySatGroup so activating/clearing a chip takes effect this frame —
+    // critically, clearing a filter restores every slot BEFORE a follow-up
+    // focusSat() reads the buffer (the search-overrides-filter path). No
+    // setTickTime: positions are from the same physics tick, so the shader's
+    // velocity glide anchor stays honest.
+    const repushPositions = () => {
+      const layer = satLayerRef.current;
+      const raw = satRawPosRef.current;
+      if (!layer || !raw || !lastMeta) return;
+      const gmask = satGroupMaskRef.current;
+      layer.updatePositions(gmask ? applyGroupSentinel(raw, gmask) : raw, lastMeta);
+      publishOrbitalStatus();
+    };
+    satRepushRef.current = repushPositions;
     const applyLod = () => {
       const layer = satLayerRef.current;
       if (!layer) return;
@@ -3196,8 +3239,12 @@ export default function DataMapPage() {
             // common case). If the tick rate here ever changes, this must
             // change with it.
             // O6-3: an active group filter hides non-members via the layer's
-            // own sentinel semantics (copy — the worker buffer stays whole)
+            // own sentinel semantics (copy — the worker buffer stays whole).
+            // O8: the raw tick is retained so filter changes / search /
+            // coverage can read the whole sky between ticks (satRawPosRef).
             let posBuf = new Float32Array(m.buf);
+            satRawPosRef.current = posBuf;
+            lastMeta = { shown: m.shown, deepSpaceSkipped: m.deepSpaceSkipped, invalidSkipped: m.invalidSkipped };
             const gmask = satGroupMaskRef.current;
             if (gmask) posBuf = applyGroupSentinel(posBuf, gmask);
             satLayerRef.current?.updatePositions(posBuf, {
@@ -7484,8 +7531,7 @@ export default function DataMapPage() {
               satGroup={satGroup} satGroupCount={satGroupCount}
               satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
               applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
-              stopSatFocusRef={stopSatFocusRef} focusSatByIndexRef={focusSatByIndexRef}
-              setDetail={setDetail} seafloorConfShares={seafloorConfShares}
+              onFindSat={findSat} seafloorConfShares={seafloorConfShares}
             />
           </div>
         )}
