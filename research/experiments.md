@@ -3,6 +3,42 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — ONE CONTINUOUS ZOOM: the live map IS the Earth in true-scale space; solarView retired (v1.0.396, T-CLIENT, agent + parent review)
+
+Human vision (this session, "figure out what would be best… in the
+future i would want layers for the planets and the moon"): the separate
+true-scale solar handoff was honest but unusable (Earth disc 0.000px)
+and — like inspectScene before it — a SEPARATE THING. Design decision
+(human-approved): TRUE SCALE EVERYWHERE, THE CAMERA DOES THE
+COMPRESSING — real ephemeris positions/sizes, never compressed space
+(future-proofs per-body map layers); exponential zoom (x1.18/notch);
+click-to-fly; labeled reticle markers for sub-pixel bodies. Physical
+payoff preserved: from the Moon, Earth is a 1.9-degree disc — REAL, no
+compression needed, and it is THE LIVE MAP (the maplibre canvas itself
+CSS-scales into space as the Earth anchor; impostor crossfade only
+below 24px).
+
+SHIPPED (agent, 5 commits, parent-reviewed): spaceFrame.ts (+24 tests)
+— heliocentric camera, log-space fly-to, Lambert-shaded spheres under
+the real Sun vector (Moon phase is GEOMETRY: measured lit fraction
+0.704 vs 0.707 ephemeris, pixel-verified), no decorative starfield
+(black is honest), persistent TRUE-SCALE caption; datamap wheel-seam
+continuity (no chip, no flash, Escape = continuous fly home; solarView
++ tests + CSS deleted); body REGISTRY {id, radiusKm, ephemeris,
+mapAnchor} — a future Moon tile pyramid becomes an anchor by
+declaration. Drives 33/33 desktop + 7/7 phone (the phone drive caught
+a REAL seam bug — Earth-passing flights ejected early; fixed with a
+truth-table-pinned seamExitArmed predicate). Perf: idle render 0.10ms
+median on SwiftShader (render-on-demand, no rAF while idle). Suites:
+celestial 55/55, client 331/331 in-worktree, server 778/778, tsc
+baseline. KEY FINDINGS filed in the lib header: maplibre zoom floor is
+latitude-compensated (seam math works on apparent disc, not zoom);
+globe canvas is transparent around the disc (what makes the
+composition possible); known limits stated (map composites above the
+frame; no off-screen pointers; pinch-at-floor uses the chip).
+research/solar_view_spike.md is SUPERSEDED by this architecture (line
+appended there).
+
 ## 2026-07-18 [PRODUCT] — Aircraft round (live report): glide between polls, hand-off vanish root-caused, curtain reaches the plane; + far-sat framing (v1.0.395, T-CLIENT, agent + parent)
 
 Human live report: planes "stopped moving and disappeared", curtain

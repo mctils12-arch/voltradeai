@@ -1158,3 +1158,15 @@ Every body: real position or absent — never decorative placement.
   experiments.md 2026-07-18 entries for both waves). Sun render
   pixel-proven via drive-side subsolar math + render()+toDataURL
   same-task capture (new reusable GL-overlay assertion technique).
+- 2026-07-18 (feedback rounds, T-CLIENT): the human's continuity
+  directive completed its arc — THREE separate scenes retired in one
+  day (inspectScene #526, solarView in the space-frame PR) and the
+  live report's aircraft/satellite items all shipped (#526 #527:
+  glide, vanish root cause, curtain continuity, chips/search/tracks/
+  coverage, altitude-based framing). NEW ARCHITECTURE: spaceFrame.ts
+  — ONE CONTINUOUS ZOOM from street to Neptune, true scale, the live
+  map canvas IS the Earth anchor, body registry ready for future
+  Moon/planet map layers (human forward-requirement). Position
+  integrity: full wind fleet OSM-verified (#525, 24 overrides).
+  DEFERRED with evidence: satellite frame-cost profiling (three
+  sandbox attempts each failed differently; needs a fresh container).

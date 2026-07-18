@@ -2342,16 +2342,21 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   user-select: none; flex: none;
 }
 
-/* O6-7 tier 2 — true-scale solar-system handoff (lib/celestial/solarView) */
-.vt-solar-view {
-  z-index: 30; opacity: 1;
-  transition: opacity 0.25s ease;
-  animation: vt-solar-in 0.25s ease;
-}
-@keyframes vt-solar-in { from { opacity: 0; } to { opacity: 1; } }
-/* zoom chevrons pointing at a hidden map are a lie */
-.vt-solar-active .maplibregl-ctrl { display: none; }
-.vt-solar-chip {
+/* CONTINUOUS SPACE FRAME (lib/celestial/spaceFrame — replaces the retired
+   solarView scene): the frame's canvas is the container's FIRST child so the
+   globe-transparent map canvas composites over it, and the LIVE map canvas
+   is CSS-posed per frame (inline transform/opacity) as the Earth anchor. */
+/* zoom chevrons pointing at a shrinking map are a lie */
+.vt-space-active .maplibregl-ctrl { display: none; }
+/* the always-on celestial sky renders the FROM-THE-GROUND view (topocentric
+   az/el) — wrong once the camera leaves Earth; the frame draws the same
+   bodies from the camera's true position instead. Suspended, not disposed:
+   it resumes instantly at the seam. */
+.vt-space-active .vt-celestial-sky { display: none; }
+/* (the style-preset switch and imagery-date chip are SIBLINGS of the map
+   container, not descendants — they hide via !spaceActive in JSX instead) */
+.vt-space-active .maplibregl-canvas { will-change: transform, opacity; }
+.vt-space-chip {
   position: absolute; z-index: 31;
   left: 50%; transform: translateX(-50%); bottom: 118px;
   padding: 6px 14px; border-radius: 999px;
@@ -2361,8 +2366,7 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
   backdrop-filter: blur(6px);
 }
-.vt-solar-chip:hover { border-color: var(--accent, #4d9fff); color: var(--accent, #4d9fff); }
-.vt-solar-chip-back { bottom: auto; top: 64px; }
+.vt-space-chip:hover { border-color: var(--accent, #4d9fff); color: var(--accent, #4d9fff); }
 
 /* W2 debug fps readout — behind ?fps=1 / localStorage vt-fps=1 only */
 .vt-fps-chip {
