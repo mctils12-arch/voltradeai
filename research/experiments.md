@@ -3,6 +3,72 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Realism/Perf/Security sprint wave 1: W3 state borders, W4 military symbol, W5 sign-in text removal, W2 fps flag, W6 security hardening (v1.0.386, T-CLIENT+shared, human-directed sprint)
+
+HUMAN SPRINT SPEC (2026-07-17, verbatim priorities W1–W7; "no run caps,
+larger PRs" — bundling in this PR is human-authorized): this wave ships
+everything except W1 (celestial sky — library DONE by subagent, 20/20
+tests; integration is the NEXT PR because it rewires the daynight effect
+and adds the astronomy-engine dep — too much to strap onto this one).
+
+SHIPPED (one PR, per-change commits):
+- W4: military centroids render as a shield/crossed-swords SDF symbol
+  (`vt-military` in mapIcons.ts), nation-tinted; polygons untouched per
+  the human's exact words; legend chips now render the same icon via
+  iconDataURL (one icon source by construction).
+- W5: login.tsx minus exactly the 3 trading-era strings + their dead
+  CSS; drive asserts strings absent AND card/brand intact at 390/1440.
+  bot.tsx's PAPER TRADING label kept — it is the honest mode indicator,
+  not decoration.
+- W3: state/province borders — NE 1:50m admin-1 lines compiled slim by
+  scripts/boundaries_admin1_build.py (581 feats, 376KB, 4dp; script KEPT
+  this time, unlike the 2026-07-04 ad-hoc admin-0 compile), served at
+  /api/data/boundaries_admin1, registry default-OFF, thin/dim under the
+  country borders in hierarchy, fade-in zoom 2→4. Registry test pins
+  artifact+route+wiring+default-off.
+- W2: SMOOTH SKY (v1.0.381) already satisfied worker+interpolation; the
+  missing spec item was the debug fps counter → FpsChip behind ?fps=1 /
+  localStorage vt-fps=1, rAF loop never mounts unflagged.
+- W6 (subagent a42c10b, cherry-picked 603b327): securityHeaders (CSP
+  report-only default, SECURITY_CSP_ENFORCE=1 to enforce; HSTS https-
+  only), generous global rate limits, strict auth limiter w/ exponential
+  lockout + constant generic message + hashed-IP audit events, anti-
+  scraping ladder (log→429→403+TTL) w/ honeypots, robots.txt, request
+  log + first-party analytics (hashed IPs only), token-gated admin
+  stats (404 when ADMIN_STATS_TOKEN unset), /terms ToS (server-rendered)
+  + footer links + hidden honeypot link. FROZEN auth.ts/billing.ts
+  untouched (0-line diff, verified).
+
+PARENT-REVIEW CATCH (the wave's most important finding): the agent's
+scorer accumulated STATIC client signals per request — headless UA +60
+each call ⇒ any headless browser blocked after ~4 API calls (our own
+harness/drives!), curl/python +20 each ⇒ paying /api/v1 script
+customers blocked after ~10. Fixed by splitting static (informs verdict,
+never compounds, max 80 < throttle 100) from behavioral (accumulates
+with 30s half-life). Also bounded every store the agent left unbounded
+(ipStore, globalStore, attempts, locks, routeCounts, day-uniques) —
+with trust-proxy on, X-Forwarded-For rotation must never become a
+memory attack; XFF spoofing honesty documented in-code (per-IP deters
+naive scrapers; real quotas belong at the API-key layer). Lesson
+re-confirmed: subagent output ships only after parent review — a
+security feature that blocks the product's own legitimate clients is a
+liveness bug wearing armor.
+
+GATES: server tests 49/49 (18 security + 23 registry + 6 military +
+compression + a new registry test for admin-1); build clean; drive
+24/24 (login 390/1440, admin-1 renders 145 border features over the US,
+mil-inst-pt is symbol+vt-military with 67 rendered in the strait
+cluster, legend from shared registry, fps chip on/off, /terms served,
+AND the headless drive session itself drew zero 429/403 through the new
+middleware — end-to-end proof of the scorer fix); visual harness 0 hard
+failures (re-run after final client edits).
+
+NEXT: W1 integration (remove cartoon sun/moon sprites, keep terminator,
+mount celestialSky always-on, paths toggle default-off, npm i
+astronomy-engine — interop shim note in the agent report is load-
+bearing), then backlog (wind-farm audit integration, curtain walls,
+viewport tiling, D3 drag-release).
+
 ## 2026-07-17 [PIPELINE] — Everything Graph: `owns` broadened to any CIK-anchored edge via a new `institution` node type (v1.0.375, T-DATACORE, scheduled-routine session)
 
 TERRITORY: T-DATACORE (server/entityGraph.ts + its own client display in
