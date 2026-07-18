@@ -13,7 +13,7 @@ RANKED TOP-5 of this section (signal × uncrowdedness × build ease):
 1. JODI oil/gas, 2. ECB Data Portal, 3. Eurostat, 4. Bundesbank,
 5. UN Comtrade preview.
 
-1. **JODI oil/gas** — world_Primary_CSV.zip (23MB→283MB CSV), keyless
+1. **JODI oil/gas [BUILT v1.0.169]** — world_Primary_CSV.zip (23MB→283MB CSV), keyless
    static file, monthly (~19th, 2-mo lag), 2002+. Flat CSV:
    REF_AREA,TIME_PERIOD,ENERGY_PRODUCT,FLOW_BREAKDOWN(CLOSTLV=closing
    stocks),OBS_VALUE. Free w/ acknowledgment. SIGNAL: non-OECD
@@ -64,7 +64,7 @@ for the top-5 (all keyless); WTO key only if ever wanted (skip).
 RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
 3. FINRA Query API cluster, 4. SEC FTD, 5. SEC MIDAS.
 
-1. **OCC daily options volume** ⚠️ ARCHIVE-NOW (2-year purge) —
+1. **OCC daily options volume [BUILT v1.0.165, /api/data/occ-volume]** ⚠️ ARCHIVE-NOW (2-year purge) —
    marketdata.theocc.com/volume-query probed 200 (5MB CSV/day, all
    symbols; per-symbol variant works). Keyless. Fields: qty,
    underlying, actype C=customer/F=firm/M=market-maker, put/call, per
@@ -85,7 +85,7 @@ RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
    needs a dedicated pipeline (volume budget!), underlier parsing is
    real work. www.dtcc.com itself 403s (Akamai); CFTC-side slices
    503 from this environment.
-3. **FINRA Query API cluster** — api.finra.org keyless, probed 200:
+3. **FINRA Query API cluster [BUILT — part 1 short-interest/threshold, part 2 weekly/monthly/blocks summaries]** — api.finra.org keyless, probed 200:
    consolidatedShortInterest (bi-monthly, 2017-12→present, 204
    settlement dates, days-to-cover precomputed),
    weeklySummary/monthlySummary/blocksSummary (ATS/dark-pool venue
@@ -94,11 +94,11 @@ RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
    COMPOSITION shift pre-announcement × Form 4 clusters is not.
    Threshold persistence × FTD × daily short volume = the
    settlement-stress composite nobody computes.
-4. **SEC fails-to-deliver** — sec.gov cnsfails zips probed 200
+4. **SEC fails-to-deliver [BUILT v1.0.171, server/secFtd.ts]** — sec.gov cnsfails zips probed 200
    (bi-monthly halves, 2004→present, public domain, resale-safe).
    SIGNAL: raw FTD spikes maximally crowded; edge only in the
    composite above.
-5. **SEC MIDAS** — quarterly per-security per-day lit/hidden/odd-lot/
+5. **SEC MIDAS [BUILT v1.0.265, server/secMidas.ts]** — quarterly per-security per-day lit/hidden/odd-lot/
    cancel metrics, probed 200 (2013→2025Q4, 68MB CSV/quarter, public
    domain). SIGNAL: cross-sectional HFT-colonization score
    (cancel/trade ratio) = a FILTER protecting EDGE DOCTRINE #2 (which
@@ -125,29 +125,38 @@ RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
 
 RANKED: 1. EPA CAMD CEMS, 2. Global Energy Monitor, 3. ENTSO-E.
 
-1. **EPA CAMD CEMS** ★ THE STANDOUT — api.epa.gov/easey probed 200
-   with DEMO_KEY: UNIT-LEVEL HOURLY power-plant operations
-   (grossLoad MW, opTime, SO2/CO2/NOx mass, heat input, fuel, unit
-   type) for every US Part-75 plant; bulk files to 1995. Free
-   api.data.gov key (1,000 req/hr). Public domain. SIGNAL:
+1. **EPA CAMD CEMS ★ THE STANDOUT [BUILT v1.0.385, server/epaCamd.ts,
+   /api/data/plant-operations — TX pilot]** — api.epa.gov/easey probed
+   200 with DEMO_KEY: UNIT-LEVEL power-plant operations (grossLoad MW,
+   opTime, SO2/CO2/NOx mass, heat input, fuel, unit type) for every US
+   Part-75 plant; bulk files to 1995. Public domain. SIGNAL:
    grossLoad×opTime = DIRECT plant-utilization ground truth —
    ladder-gate-1 truth source for the whole power vertical
    (validates GPPD/satellite-thermal inferences) + merchant-generator
-   earnings estimates. Cadence honesty: quarterly-complete with
-   partial earlier arrival (June-30 data seen July-6; 30-day
-   post-quarter deadline). FREE KEY → BLOCKED-FOR-MIKE.
-2. **Global Energy Monitor** — March 2026 release: 182,400 facilities,
-   22,296 GW, 200 countries, unit-level with status
+   earnings estimates. CORRECTED cadence honesty (live-probed
+   2026-07-18, supersedes the original "hourly"/"partial earlier
+   arrival" framing above): this is QUARTERLY data — the in-progress
+   quarter is rejected outright by the live API (the completed prior
+   quarter is the upper bound), not partially available early. "FREE
+   KEY → BLOCKED-FOR-MIKE" was ALSO stale: the shared DEMO_KEY works
+   today (live-verified, 445 facility rows + 9,009 daily unit-rows for
+   one TX quarter in one call each) — a dedicated api.data.gov key
+   (wishlist 9a, still worth getting) only raises the ceiling past the
+   TX pilot, it was never a hard blocker on building this.
+2. **Global Energy Monitor [BUILT v1.0.176, scripts/gem_ingest.py —
+   9b resolved, Mike enabled Drive access]** — March 2026 release:
+   182,400 facilities, 22,296 GW, 200 countries, unit-level with status
    (announced/construction/operating). CC BY 4.0 (no share-alike!) —
-   joinable into proprietary products with attribution. Form-fill
-   (name/email) for download link → BLOCKED-FOR-MIKE (2 min).
+   joinable into proprietary products with attribution.
    SIGNAL: status transitions per owner ticker = capex/commissioning
    timelines.
-3. **ENTSO-E Transparency** — web-api.tp.entsoe.eu alive (probed:
-   token-enforced XML). FREE token: register + email, ≤3 working
-   days → BLOCKED-FOR-MIKE. Hourly EU load/generation/prices by
-   bidding zone, 2015→. 400 req/min. SIGNAL: EU zonal spreads →
-   utilities, gas, carbon.
+3. **ENTSO-E Transparency [BUILT v1.0.186, server/euLoad.ts,
+   /api/data/eu-load — token resolved 2026-07-07]** — web-api.tp.entsoe.eu
+   alive (probed: token-enforced XML). Hourly EU load/generation/prices
+   by bidding zone, 2015→. 400 req/min. SIGNAL: EU zonal spreads →
+   utilities, gas, carbon. Shipped: actual total load (A65/A16) for 8
+   zones; generation mix + day-ahead prices filed as follow-ups (same
+   token, separate builds, not yet built).
 4. **OSM power features** — Overpass main instance probed 200 (1.2s);
    CRITICAL OPS FINDINGS: no-User-Agent = 406; both community
    mirrors UNREACHABLE from our proxy (mirror failover is worthless

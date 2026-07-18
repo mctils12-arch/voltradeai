@@ -67,6 +67,7 @@ import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
+import { bootEpaCamdPoll, latestEpaCamd, aggregateByFacility, epaCamdUsingDemoKey } from "./epaCamd";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { floodZoneAt } from "./femaFlood";
@@ -2290,6 +2291,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.stats.length,
       note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; latest_forecast_mwh is EIA's day-ahead forecast FOR THE SAME HOUR as latest_mwh (null when not yet published); the US48 forecast aggregate back-fills progressively as BAs report, so it can understate near the leading edge; industrial-activity nowcast signals stay gate-locked until ladder validation",
       respondents: hit.stats,
+    });
+  });
+
+  // EPA CAMD CEMS unit-level plant operations (RAW ground truth — data
+  // census SECTION 3 item 1, "the standout"; gate-1 truth source for the
+  // power-vertical satellite/imagery inference roots, not itself a
+  // trading signal). v1 pilot scope: stateCode=TX. Quarterly cadence —
+  // see the manifest/module docstring for why this is NOT daily/real-time
+  // despite per-day granularity in each record.
+  bootEpaCamdPoll();
+  app.get("/api/data/plant-operations", (_req, res) => {
+    const hit = latestEpaCamd();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "EPA CAMD CEMS", warming_up: true, state: "TX", facilities: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "U.S. EPA Clean Air Markets Division (CAMD) — Continuous Emissions Monitoring, unit-level daily",
+      attribution: "U.S. EPA Clean Air Markets Division (CAMD)",
+      state: "TX",
+      note: "Per-facility rollup (sum grossLoad MW-days, sum operating hours) of the newest archived quarter — direct plant-utilization ground truth from EPA's own unit-level CEMS reporting. RAW, no predictive claim; any trading signal built from this stays gate-2-locked.",
+      key_mode: epaCamdUsingDemoKey() ? "shared api.data.gov DEMO_KEY (rate-limited)" : "dedicated key",
+      time: hit.at,
+      year: hit.year,
+      quarter: hit.quarter,
+      unit_days: hit.rows.length,
+      facilities: aggregateByFacility(hit.rows),
     });
   });
 

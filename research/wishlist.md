@@ -262,6 +262,22 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   ladder path in open_questions.md. NEXT unclaimed DATACORE MAXIMUS
   item: EPA CAMD/ENTSO-E, both gated on Mike's keys (see 9a/9c above)
   — nothing else queued in this program as of this session.
+- **EPA CAMD CEMS: SHIPPED 2026-07-18 (v1.0.385)** — the "gated on
+  Mike's keys" framing above was STALE, corrected this session: the
+  shared api.data.gov DEMO_KEY was live-probed and works today (no
+  Railway key needed to build or run this). server/epaCamd.ts +
+  GET /api/data/plant-operations, TX pilot scope, quarterly cadence
+  (corrected from the census's original hourly/partial-arrival framing
+  — live-probed 2026-07-18: the in-progress quarter is rejected
+  outright by the real API). Full trace in experiments.md. 9a (a
+  dedicated EPA_CAMD_API_KEY) is still worth getting from Mike to widen
+  past TX and drop shared-DEMO_KEY collision risk, but is no longer a
+  hard blocker — see 9a's own updated entry below. NOTE: 9c (ENTSO-E)
+  was ALSO already resolved 2026-07-07 (server/euLoad.ts, /api/data/
+  eu-load) — this section's own "EPA CAMD/ENTSO-E, both gated on
+  Mike's keys" line two entries up had gone stale in two different
+  directions at once; nothing in the DATACORE MAXIMUS program is
+  actually key-blocked as of this session.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
@@ -351,11 +367,15 @@ data); full-state discovery sweeps use the same account later.
 ## BLOCKED-FOR-MIKE — DATACORE MAXIMUS census additions (2026-07-06;
 ## each unlocks a census top-10 item; routed around meanwhile)
 
-9a. **EPA CAMD key (api.data.gov, instant, free)** — unlocks census
-    #2: unit-level HOURLY power-plant utilization (grossLoad×opTime),
-    history to 1995 — the ground-truth source for the whole power
-    vertical. Signup: api.data.gov/signup → set EPA_CAMD_API_KEY in
-    Railway. Highest-value single key in the census.
+9a. **EPA CAMD key (api.data.gov, instant, free)** — REVISED
+    2026-07-18: this does NOT unblock anything anymore — the pipeline
+    shipped this session (v1.0.385, server/epaCamd.ts) running on the
+    shared DEMO_KEY, live-verified working. What a dedicated key still
+    buys: raising the ceiling past the current TX-only pilot scope
+    (DEMO_KEY is a globally shared, tightly rate-limited key — ~30
+    req/hr / ~50 req/day across every caller worldwide) and removing
+    shared-key collision risk. Signup: api.data.gov/signup → set
+    EPA_CAMD_API_KEY in Railway whenever convenient, no urgency.
 9b. **Global Energy Monitor download (form-fill, 2 min)** — name +
     email at globalenergymonitor.org/projects/global-integrated-power-tracker/download-data
     → forward the xlsx link (or the file) — CC BY 4.0, 182k
