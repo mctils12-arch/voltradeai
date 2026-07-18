@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   searchSats, SAT_GROUPS, groupMask, maskCount, applyGroupSentinel,
   spreadIndices, GROUP_ARC_CAP, collapseStationComplexes, isStationComplex,
+  groupMemberHits,
 } from './satFind.js';
 import { SAT_STRIDE } from './satBuffer.js';
 
@@ -49,6 +50,19 @@ test('applyGroupSentinel: non-members get the sentinel class, members untouched,
   assert.equal(out[2 * SAT_STRIDE + 3], 0);
   assert.equal(buf[1 * SAT_STRIDE + 3], 0, 'source buffer untouched');
   assert.equal(applyGroupSentinel(buf, null), buf, 'no mask = passthrough, no copy');
+});
+
+test('groupMemberHits: members as clickable hits, capped with an honest total, buffer-aligned indices', () => {
+  const { hits, total } = groupMemberHits(GP as any, 'starlink');
+  assert.deepEqual(hits.map((h) => h.noradId), [44713, 44714]);
+  assert.equal(total, 2);
+  const capped = groupMemberHits(GP as any, 'starlink', 1);
+  assert.equal(capped.hits.length, 1, 'cap limits the list');
+  assert.equal(capped.total, 2, 'cap never hides the true count');
+  assert.deepEqual(groupMemberHits(GP as any, 'glonass'), { hits: [], total: 0 }, 'unknown group = empty, never a guess');
+  assert.deepEqual(groupMemberHits(null, 'starlink'), { hits: [], total: 0 });
+  assert.equal(groupMemberHits(GP as any, 'iss').hits[0].index, 0, 'index aligned with gp (worker-buffer contract)');
+  assert.equal(groupMemberHits(GP as any, 'planet').hits[0].index, 4, 'index aligned for later entries too');
 });
 
 test('spreadIndices: even deterministic sample under the cap', () => {

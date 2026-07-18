@@ -57,7 +57,7 @@ import { readSatAt } from "@/lib/orbital/satBuffer";
 import { mercatorToSphere } from "@/lib/orbital/occlusion";
 import { nightPolygon } from "@/lib/celestial/ephemeris";
 import { SatFinder } from "@/components/SatFinder";
-import { classFormNamed, formLabel, buildFormMesh } from "@/lib/orbital/model3d";
+import { classFormNamed, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
 import { AIRLINE_PRESETS, applyAirlineFilter } from "@/lib/air/airFilter";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
@@ -656,9 +656,9 @@ interface LegendPanelProps {
   satArcInfo: { shown: number; total: number } | null;
   applySatGroup: (key: string | null) => void;
   setSatGroupOrbits: React.Dispatch<React.SetStateAction<boolean>>;
-  stopSatFocusRef: React.RefObject<(() => void) | null>;
-  focusSatByIndexRef: React.RefObject<((index: number) => void) | null>;
-  setDetail: React.Dispatch<React.SetStateAction<Detail | null>>;
+  /** parent's findSat — ends the old focus/card, clears an excluding group
+   *  filter, then focuses (one path for search hits + group members). */
+  onFindSat: (index: number) => void;
   seafloorConfShares: Record<string, Record<string, number>>;
 }
 
@@ -667,7 +667,7 @@ const LegendPanel = memo(function LegendPanel({
   nightlightsDate, aerosolDate, vegetationDate, soilmoistureDate, no2Date,
   firetempScanTime, tempUnitF, windArrows, orbitalGpRef, gpVersion,
   satGroup, satGroupCount, satGroupOrbits, satArcInfo, applySatGroup,
-  setSatGroupOrbits, stopSatFocusRef, focusSatByIndexRef, setDetail,
+  setSatGroupOrbits, onFindSat,
   seafloorConfShares,
 }: LegendPanelProps) {
   return (
@@ -941,14 +941,7 @@ const LegendPanel = memo(function LegendPanel({
                 groupCount={satGroupCount}
                 orbitsOn={satGroupOrbits}
                 arcInfo={satArcInfo}
-                onFind={(i) => {
-                  // live bug: searching while an old focus card was
-                  // open left the STALE card up — hard-swap: end the
-                  // old focus, drop the old card, then focus fresh.
-                  stopSatFocusRef.current?.();
-                  setDetail(null);
-                  focusSatByIndexRef.current?.(i);
-                }}
+                onFind={onFindSat}
                 onGroup={applySatGroup}
                 onOrbits={setSatGroupOrbits}
               />
@@ -1071,6 +1064,15 @@ export default function DataMapPage() {
   const focusSatByIndexRef = useRef<((index: number) => void) | null>(null);
   const satGroupMaskRef = useRef<Uint8Array | null>(null);
   const satGroupInfoRef = useRef<{ label: string; count: number } | null>(null);
+  // O8 (live report 2026-07-18): the last RAW worker tick buffer, BEFORE the
+  // group sentinel copy. The worker always propagates the WHOLE sky (the
+  // group chip is a display-only filter), so retaining the raw tick lets
+  // (a) a chip change re-derive the layer buffer THIS frame instead of
+  // waiting up to a full 1s tick, and (b) search/coverage read the full
+  // catalog while the display stays filtered. Cost: one extra retained
+  // Float32Array only while a filter is active (~340KB at 12k objects).
+  const satRawPosRef = useRef<Float32Array | null>(null);
+  const satRepushRef = useRef<(() => void) | null>(null);
   const [satGroup, setSatGroup] = useState<string | null>(null);
   const [satGroupOrbits, setSatGroupOrbits] = useState(false);
   const [satGroupCount, setSatGroupCount] = useState<number | null>(null);
@@ -1112,63 +1114,31 @@ export default function DataMapPage() {
     el.style.transform = "none"; // resting spot centers via translateX
   }, []);
   const onToolsUp = useCallback(() => { satToolsDrag.current = null; }, []);
-  // O7 INSPECT MODE (human: "look at the sat render model … camera angle
-  // looking away from the earth … see the moon with the ISS in view"):
-  // solarView-style handoff to lib/orbital/inspectScene — a free-orbit
-  // camera around the CRAFT with real-ephemeris Sun/Moon/terminator.
-  // The map camera structurally can't do this (it always looks at the
-  // ground; zooming dives below the craft — the reported snap-back).
-  const inspectActiveRef = useRef(false);
-  const inspectHandleRef = useRef<import("@/lib/orbital/inspectScene").InspectHandle | null>(null);
-  const inspectMeshRef = useRef<{ mesh: any; label: string } | null>(null);
-  const [inspectActive, setInspectActive] = useState(false);
-  const [inspectNote, setInspectNote] = useState<string | null>(null);
-  const exitInspectRef = useRef<() => void>(() => {});
-  const exitInspect = useCallback(() => {
-    if (!inspectActiveRef.current) return;
-    inspectActiveRef.current = false;
-    setInspectActive(false);
-    const h = inspectHandleRef.current;
-    inspectHandleRef.current = null;
-    try { h?.dispose(); } catch {}
-    mapContainer.current?.classList.remove("vt-inspect-active");
+  // INSPECT IS THE MAP (human, third repetition 2026-07-18: "i want that to
+  // be part of the system not a separate thing so you can inspect as it
+  // moves around the earth and see it on the map"). The O7 separate
+  // free-orbit scene (lib/orbital/inspectScene) is RETIRED — the map-native
+  // follow already orbits the craft itself (setCenterElevation puts the
+  // camera center AT the craft: rotate/tilt orbit it, zoom approaches it)
+  // over the live map, with the always-on celestial sky supplying the real
+  // Sun/Moon context toward the horizon. inspectCraft() below is the one
+  // affordance kept from the old chip: a single ease into the close-orbit
+  // framing — same camera model, no mode switch, the Earth keeps moving
+  // underneath. What the map camera structurally cannot do (look fully
+  // AWAY from the ground, pitch past the horizon) stays honestly out of
+  // scope rather than living in a disconnected scene the human rejected.
+  const inspectCraft = useCallback(() => {
     const map = mapRef.current;
-    if (map) {
-      for (const k of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
-        try { (map as any)[k]?.enable(); } catch {}
-      }
-    }
-  }, []);
-  useEffect(() => { exitInspectRef.current = exitInspect; }, [exitInspect]);
-  const enterInspect = useCallback(async () => {
-    const map = mapRef.current;
-    const container = mapContainer.current;
     const f = satFollowRef.current;
-    if (!map || !container || !f || inspectActiveRef.current) return;
-    inspectActiveRef.current = true;
-    try {
-      const mod = await import("@/lib/orbital/inspectScene");
-      setInspectNote(mod.INSPECT_PROVENANCE); // honesty caption, lazy with the chunk
-      const handle = mod.mount(container, {
-        mesh: inspectMeshRef.current?.mesh ?? null,
-        meshLabel: inspectMeshRef.current?.label ?? "representative form",
-        getState: () => {
-          const t = followTarget(satLayerRef.current?.getPositions() ?? null, satFollowRef.current?.index ?? -1);
-          return t
-            ? { latDeg: t.latDeg, lonDeg: t.lonDeg, altMeters: t.altKm * 1000, timeMs: Date.now() }
-            : { latDeg: 0, lonDeg: 0, altMeters: 400_000, timeMs: Date.now() };
-        },
-      });
-      inspectHandleRef.current = handle;
-      container.classList.add("vt-inspect-active");
-      for (const k of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
-        try { (map as any)[k]?.disable(); } catch {}
-      }
-      setInspectActive(true);
-    } catch {
-      inspectActiveRef.current = false;
-      try { container.classList.remove("vt-inspect-active"); } catch {}
-    }
+    if (!map || !f) return;
+    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+    if (!t) return;
+    // ensure the craft-centered lock so the ease orbits the craft, not ground
+    if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
+    const altKmNow = t.altKm;
+    // close-orbit framing: LEO reads big; MEO/GEO back out enough to frame
+    const zoom = altKmNow < 3000 ? 6.5 : altKmNow < 45000 ? 3.2 : 1.8;
+    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
   // O6-7 tier 2 (charter: "zoom out far enough … literally accurate scale"):
   // past the globe's zoom floor the viewport hands off to the true-scale
@@ -1252,18 +1222,6 @@ export default function DataMapPage() {
       try { container.classList.remove("vt-solar-active"); } catch {}
     }
   }, []);
-  const applySatGroup = useCallback((key: string | null) => {
-    setSatGroup(key);
-    setSatGroupOrbits(false);
-    const gp = orbitalGpRef.current;
-    const mask = key && gp ? groupMask(gp, key) : null;
-    satGroupMaskRef.current = mask;
-    const count = mask ? maskCount(mask) : null;
-    setSatGroupCount(count);
-    satGroupInfoRef.current = mask && key
-      ? { label: SAT_GROUPS.find((g) => g.key === key)?.label ?? key, count: count ?? 0 }
-      : null;
-  }, []);
   // O5-2b: the on-map 3D form layer for the followed satellite (one instance,
   // same lifecycle as satLayerRef).
   const satModelLayerRef = useRef<SatModelLayer | null>(null);
@@ -1306,6 +1264,57 @@ export default function DataMapPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const applySatGroup = useCallback((key: string | null) => {
+    const gp = orbitalGpRef.current;
+    const mask = key && gp ? groupMask(gp, key) : null;
+    const count = mask ? maskCount(mask) : null;
+    // O8 TAKE-ME-THERE (live report 2026-07-18: the ISS chip "does not send
+    // you to the satellite and it's hard to find"): a group that resolves to
+    // exactly ONE catalog object (ISS after the station collapse) is a
+    // shortcut, not a filter — do what searching it does: end the old
+    // focus/card and any active filter, then focus + follow + zoom. Multi-
+    // object groups keep the filter behavior (and the finder lists their
+    // members as the click path).
+    if (mask && count === 1 && focusSatByIndexRef.current) {
+      setSatGroup(null);
+      setSatGroupOrbits(false);
+      setSatGroupCount(null);
+      satGroupMaskRef.current = null;
+      satGroupInfoRef.current = null;
+      satRepushRef.current?.(); // clear any prior filter THIS frame — the focus below reads the buffer
+      stopSatFocusRef.current?.();
+      setDetail(null);
+      focusSatByIndexRef.current(mask.indexOf(1));
+      return;
+    }
+    setSatGroup(key);
+    setSatGroupOrbits(false);
+    satGroupMaskRef.current = mask;
+    setSatGroupCount(count);
+    satGroupInfoRef.current = mask && key
+      ? { label: SAT_GROUPS.find((g) => g.key === key)?.label ?? key, count: count ?? 0 }
+      : null;
+    // O8: the filter applies/clears THIS frame (re-derives the layer buffer
+    // from the retained raw tick) — not on the next 1Hz worker tick.
+    satRepushRef.current?.();
+  }, []);
+  // O6-3 SatFinder entrance (search hits + group-member list), hardened by
+  // two live-report fixes: (2026-07-16) searching while an old focus card
+  // was open left the STALE card up — hard-swap: end the old focus, drop
+  // the old card, then focus fresh. (2026-07-18) SEARCH OVERRIDES FILTER:
+  // the finder searches the FULL catalog, so a hit OUTSIDE the active group
+  // chip clears the filter first — otherwise the target's buffer slot is
+  // sentineled and the focus dead-ends as "no live position" while the old
+  // object stays on screen (the reported bug). Clearing goes through
+  // applySatGroup, whose instant repush restores the slot before focusSat
+  // reads the buffer.
+  const findSat = useCallback((index: number) => {
+    stopSatFocusRef.current?.();
+    setDetail(null);
+    const gmask = satGroupMaskRef.current;
+    if (gmask && !gmask[index]) applySatGroup(null);
+    focusSatByIndexRef.current?.(index);
+  }, [applySatGroup]);
   // O6 minimize: collapse the card to a pill (focus keeps running); a NEW
   // detail always restores the full card so fresh clicks are never hidden.
   const [detailMin, setDetailMin] = useState(false);
@@ -1754,9 +1763,7 @@ export default function DataMapPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // O7: leaving inspect is the first Escape meaning, then solar
-      if (inspectActiveRef.current) { exitInspectRef.current(); return; }
-      // O6-7 tier 2: leaving the solar system is the next Escape meaning
+      // O6-7 tier 2: leaving the solar system is the first Escape meaning
       if (solarActiveRef.current) { exitSolarRef.current(); return; }
       setDetail(null);
       clearTrail();
@@ -2913,6 +2920,8 @@ export default function DataMapPage() {
       // O6-3: masks are index-aligned to THIS gp load — never survive it
       satGroupMaskRef.current = null;
       satGroupInfoRef.current = null;
+      satRawPosRef.current = null;
+      satRepushRef.current = null;
       setSatGroup(null);
       setSatGroupOrbits(false);
       setSatGroupCount(null);
@@ -2999,7 +3008,6 @@ export default function DataMapPage() {
       } catch {}
     };
     const stopFollow = () => {
-      exitInspectRef.current(); // leaving the follow always leaves inspect
       if (!satFollowRef.current) return;
       // ticks stop with the follow — restore the ground-clamped camera NOW
       try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
@@ -3069,6 +3077,9 @@ export default function DataMapPage() {
     let lodPaused = false;
     let lodLastOpacity = -1; // sentinel: first applyLod() always applies
     let lastCounts = { shown: 0, skipped: 0 };
+    // O8: the last tick's full meta, so a filter change can re-push the
+    // retained raw buffer with honest counts without waiting for a tick.
+    let lastMeta: { shown: number; deepSpaceSkipped: number; invalidSkipped: number } | null = null;
     // O6-2: per-index class forms (null until SATCAT lands); minis appear
     // in the close-zoom band without a click — catalogued classes only.
     let miniForms: (FormKind | null)[] | null = null;
@@ -3118,6 +3129,22 @@ export default function DataMapPage() {
             : `${lastCounts.shown.toLocaleString()} live (near-earth SGP4 + deep-space SDP4)${lastCounts.skipped ? ` · ${lastCounts.skipped.toLocaleString()} not rendered (incomplete/decayed elements)` : ""}`);
       }
     };
+    // O8 (live report 2026-07-18): re-derive the layer's display buffer from
+    // the retained RAW tick + the CURRENT group mask, immediately. Called by
+    // applySatGroup so activating/clearing a chip takes effect this frame —
+    // critically, clearing a filter restores every slot BEFORE a follow-up
+    // focusSat() reads the buffer (the search-overrides-filter path). No
+    // setTickTime: positions are from the same physics tick, so the shader's
+    // velocity glide anchor stays honest.
+    const repushPositions = () => {
+      const layer = satLayerRef.current;
+      const raw = satRawPosRef.current;
+      if (!layer || !raw || !lastMeta) return;
+      const gmask = satGroupMaskRef.current;
+      layer.updatePositions(gmask ? applyGroupSentinel(raw, gmask) : raw, lastMeta);
+      publishOrbitalStatus();
+    };
+    satRepushRef.current = repushPositions;
     const applyLod = () => {
       const layer = satLayerRef.current;
       if (!layer) return;
@@ -3196,8 +3223,12 @@ export default function DataMapPage() {
             // common case). If the tick rate here ever changes, this must
             // change with it.
             // O6-3: an active group filter hides non-members via the layer's
-            // own sentinel semantics (copy — the worker buffer stays whole)
+            // own sentinel semantics (copy — the worker buffer stays whole).
+            // O8: the raw tick is retained so filter changes / search /
+            // coverage can read the whole sky between ticks (satRawPosRef).
             let posBuf = new Float32Array(m.buf);
+            satRawPosRef.current = posBuf;
+            lastMeta = { shown: m.shown, deepSpaceSkipped: m.deepSpaceSkipped, invalidSkipped: m.invalidSkipped };
             const gmask = satGroupMaskRef.current;
             if (gmask) posBuf = applyGroupSentinel(posBuf, gmask);
             satLayerRef.current?.updatePositions(posBuf, {
@@ -3260,6 +3291,14 @@ export default function DataMapPage() {
       if (!satFollowRef.current) arcs.setArcs(null);
       return;
     }
+    // O8 (live report 2026-07-18, "the track feature looks to be gone"):
+    // while a follow is live, its single amber arc owns the layer (focusSat
+    // set it) — do NOT rebuild group arcs over it. `satFollowing` in the
+    // deps re-runs this effect when the follow ENDS, so closing the card
+    // RESTORES the group orbits instead of leaving the orbits toggle ON
+    // with zero tracks rendered (the old dead state: stopFollow cleared
+    // arcs and nothing ever rebuilt them until the toggle was flicked).
+    if (satFollowRef.current) return;
     const gp = orbitalGpRef.current;
     const mask = satGroupMaskRef.current;
     if (!gp || !mask) return;
@@ -3277,7 +3316,7 @@ export default function DataMapPage() {
     }
     arcs.setArcs(list.length ? list : null);
     setSatArcInfo({ shown: list.length, total: members.length });
-  }, [satGroup, satGroupOrbits, mapReady, gpVersion]);
+  }, [satGroup, satGroupOrbits, mapReady, gpVersion, satFollowing]);
 
   // ── satellite click-to-identify (ORBITAL O3; research/orbital_program.md's
   // "O3 picking" recipe). SatLayer is a raw custom WebGL layer with no
@@ -3345,25 +3384,20 @@ export default function DataMapPage() {
         let atPoint: unknown[] = [];
         try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch { /* style mid-swap */ }
         if (!coverageQueryAllowed(atPoint)) return;
-        // O6-3 honesty guard: with a constellation filter active the live
-        // buffer only CONTAINS that group — a coverage query over it would
-        // report "no Starlink elements had a valid position", which reads
-        // as an outage instead of a filter (live bug, screenshot-confirmed).
-        const grpInfo = satGroupInfoRef.current;
-        if (grpInfo && grpInfo.label !== "Starlink") {
-          setDetail({
-            kind: "coverage",
-            title: "Starlink coverage",
-            subtitle: `${clickLL.lat.toFixed(2)}°, ${clickLL.lng.toFixed(2)}°`,
-            body: `Coverage query unavailable while the sky is filtered to ${grpInfo.label} — the live buffer only holds that constellation. Clear the group chip to query Starlink coverage here.`,
-          });
-          return;
-        }
         // O7 STARLINK COVERAGE: reuse this tick's already-propagated buffer
         // to answer "does Starlink cover this ground point right now" rather
         // than leaving the click a pure no-op.
+        // O8 (live report 2026-07-18, replaces the O6-3 instruction card):
+        // a group chip must not dead-end this click. The DISPLAY buffer is
+        // sentineled to the group, but the worker always propagates the
+        // whole sky (the filter is a display-only copy) — so with a chip
+        // active the query reads the retained RAW tick buffer instead: one
+        // click, a real numeric answer, the map stays filtered, and the
+        // card states the bypass.
+        const grpInfo = satGroupInfoRef.current;
+        const covBuf = grpInfo ? satRawPosRef.current ?? positions : positions;
         const { visible, totalModeled } = siteCoverageReport(
-          positions, layer.getStride(), gp, clickLL.lat, clickLL.lng,
+          covBuf, layer.getStride(), gp, clickLL.lat, clickLL.lng,
         );
         const nearest = visible.slice(0, 5);
         setDetail({
@@ -3378,6 +3412,9 @@ export default function DataMapPage() {
                 : `${visible.length} of ${totalModeled} modeled Starlinks currently cover this point (>=${STARLINK_MIN_ELEV_DEG}° elevation mask).`,
             ...nearest.map((s) =>
               `${s.name ?? `NORAD ${s.noradId}`}: ${s.elevationDeg.toFixed(1)}° elevation, ${fmtKm(s.rangeKm)} range`),
+            grpInfo
+              ? `Sky is filtered to ${grpInfo.label} right now — this query bypassed the filter and read the full live catalog (the map stays filtered as you set it).`
+              : null,
             "Geometric visibility only (published ~25° user-terminal mask) — no link-budget, beam-steering, or cell-capacity model; real SGP4 position, no predictive claim.",
           ].filter(Boolean).join("\n"),
         });
@@ -3444,11 +3481,6 @@ export default function DataMapPage() {
         // (unknown class = honest ring-only follow, never a guessed spacecraft)
         const focusForm = sc ? classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name) : null;
         satModelLayerRef.current?.setForm(focusForm);
-        // O7 inspect: the scene shows whatever the map honestly shows — the
-        // class form now, upgraded in place if the real asset loads below
-        inspectMeshRef.current = focusForm
-          ? { mesh: buildFormMesh(focusForm), label: formLabel(focusForm) }
-          : null;
         // O5-3b: REAL model where a verified public asset exists. Cleared
         // FIRST so the previous target's model never rides this orbit.
         satModelLayerRef.current?.setRealMesh(null);
@@ -3460,9 +3492,6 @@ export default function DataMapPage() {
             if (!mesh) return; // fetch/decode failed → representative form stays
             if (satFollowRef.current?.noradId !== wantNorad) return;
             satModelLayerRef.current?.setRealMesh(mesh);
-            const lbl = realModelLabel(wantNorad, g.name ?? sc?.name) ?? "real model";
-            inspectMeshRef.current = { mesh, label: lbl };
-            try { inspectHandleRef.current?.setMesh(mesh, lbl); } catch {}
           });
         }
         // O6 ring fix: seed the altitude-anchored ring/model IMMEDIATELY
@@ -7362,15 +7391,6 @@ export default function DataMapPage() {
           ⬤ Back to Earth
         </button>
       )}
-      {inspectActive && (
-        <>
-          <button className="vt-solar-chip vt-solar-chip-back" onClick={exitInspect}
-                  title="Back to the map (Escape works too)">
-            ⬤ Back to map
-          </button>
-          {inspectNote && <div className="vt-inspect-note">{inspectNote}</div>}
-        </>
-      )}
 
       {!mapReady && !mapError && (
         <div className="vt-map-skeleton" aria-label="Map loading">
@@ -7484,8 +7504,7 @@ export default function DataMapPage() {
               satGroup={satGroup} satGroupCount={satGroupCount}
               satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
               applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
-              stopSatFocusRef={stopSatFocusRef} focusSatByIndexRef={focusSatByIndexRef}
-              setDetail={setDetail} seafloorConfShares={seafloorConfShares}
+              onFindSat={findSat} seafloorConfShares={seafloorConfShares}
             />
           </div>
         )}
@@ -7549,8 +7568,8 @@ export default function DataMapPage() {
                 ⌖ ground spot
               </button>
               <button className="vt-satfinder-chip"
-                      title="Orbit the craft itself — look any direction including away from Earth; real-ephemeris Sun, Moon, and terminator"
-                      onClick={() => void enterInspect()}>
+                      title="Ease into close orbit around the craft — on the live map: rotate to circle it, tilt toward the horizon for the real Sun/Moon, zoom approaches the craft itself"
+                      onClick={inspectCraft}>
                 ⟳ inspect
               </button>
             </>
