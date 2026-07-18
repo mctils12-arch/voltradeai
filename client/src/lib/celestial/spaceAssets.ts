@@ -248,17 +248,24 @@ export function createSpaceTextureManager(base: string = SPACE_TEXTURE_BASE): Sp
   };
 
   async function decodeToTex(blob: Blob, cap: { w: number; h: number }, tier: string): Promise<TexImage> {
-    let srcW = 0;
-    let srcH = 0;
-    let draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
+    // decode (and rescale) OFF the main thread when createImageBitmap
+    // exists; the main thread then only ever touches one BAND at a time —
+    // a small band canvas is blitted 1:1 and read back, so each raster
+    // flush + copy is a bounded task (no whole-image flush ever happens).
+    let bmp: ImageBitmap | HTMLImageElement;
     if (typeof createImageBitmap === "function") {
-      const bmp = await createImageBitmap(blob); // decode OFF the main thread
-      srcW = bmp.width;
-      srcH = bmp.height;
-      draw = (ctx, w, h) => {
-        ctx.drawImage(bmp, 0, 0, w, h);
-        try { bmp.close(); } catch { /* already closed */ }
-      };
+      let full = await createImageBitmap(blob);
+      const scale = Math.min(1, cap.w / full.width, cap.h / full.height);
+      if (scale < 1) {
+        const scaled = await createImageBitmap(full, {
+          resizeWidth: Math.max(1, Math.round(full.width * scale)),
+          resizeHeight: Math.max(1, Math.round(full.height * scale)),
+          resizeQuality: "high",
+        });
+        try { full.close(); } catch { /* closed */ }
+        full = scaled;
+      }
+      bmp = full;
     } else {
       // fallback (no createImageBitmap): <img> decode — main thread, stated
       mainThreadDecode = true;
@@ -267,29 +274,39 @@ export function createSpaceTextureManager(base: string = SPACE_TEXTURE_BASE): Sp
       img.src = url;
       await img.decode();
       URL.revokeObjectURL(url);
-      srcW = img.naturalWidth;
-      srcH = img.naturalHeight;
-      draw = (ctx, w, h) => ctx.drawImage(img, 0, 0, w, h);
+      bmp = img;
     }
+    const srcW = "width" in bmp ? bmp.width : 1;
+    const srcH = "height" in bmp ? bmp.height : 1;
     const scale = Math.min(1, cap.w / srcW, cap.h / srcH);
     const w = Math.max(1, Math.round(srcW * scale));
     const h = Math.max(1, Math.round(srcH * scale));
+    const oneToOne = w === srcW && h === srcH;
+    const out = new Uint8ClampedArray(w * h * 4);
+    const bandRows = Math.max(16, Math.floor(300_000 / Math.max(1, w)));
     const cv = document.createElement("canvas");
     cv.width = w;
-    cv.height = h;
+    cv.height = Math.min(h, bandRows);
     const ctx = cv.getContext("2d", { willReadFrequently: true })!;
-    draw(ctx, w, h);
-    // banded readback: each getImageData stays a small main-thread task
-    const out = new Uint8ClampedArray(w * h * 4);
-    const bandRows = Math.max(32, Math.floor(1_000_000 / Math.max(1, w)));
     for (let y = 0; y < h; y += bandRows) {
       const rows = Math.min(bandRows, h - y);
       const t0 = performance.now();
-      const band = ctx.getImageData(0, y, w, rows);
-      out.set(band.data, y * w * 4);
+      ctx.clearRect(0, 0, w, rows);
+      if (oneToOne) {
+        // 1:1 band blit (bitmap already at target size — the normal path)
+        ctx.drawImage(bmp as CanvasImageSource, 0, y, w, rows, 0, 0, w, rows);
+      } else {
+        // <img> fallback only: scale the matching source strip
+        ctx.drawImage(bmp as CanvasImageSource, 0, y / scale, srcW, rows / scale, 0, 0, w, rows);
+      }
+      const band = ctx.getImageData(0, 0, w, rows);
+      out.set(band.data.subarray(0, rows * w * 4), y * w * 4);
       const ms = performance.now() - t0;
       if (ms > maxChunkMs) maxChunkMs = ms;
       if (y + rows < h) await new Promise((r) => setTimeout(r, 0)); // yield
+    }
+    if ("close" in bmp) {
+      try { (bmp as ImageBitmap).close(); } catch { /* closed */ }
     }
     return { data: out, width: w, height: h, tier };
   }

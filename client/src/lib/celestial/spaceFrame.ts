@@ -179,6 +179,8 @@ import {
 } from "./spaceAssets.js";
 import {
   buildSphereLUT,
+  createEmptySphereLUT,
+  fillSphereLUTRows,
   composeTexturedSprite,
   ringBandsFromTextures,
   ringCircle3D,
@@ -270,10 +272,19 @@ export const LABEL_BOX_W_PX = 130;
  *  upscaled beyond it (smooth sphere — visually lossless, 4x+ cheaper). */
 export const SPRITE_MAX_SHADE_RADIUS = 180;
 
-/** TEXTURED bodies shade to a larger cap (surface detail rewards it); the
- *  LUT build at this radius (~200k px of atan2/asin) is the worst textured
- *  main-thread task and stays under the 16ms budget. */
+/** TEXTURED bodies shade to a larger cap (surface detail rewards it).
+ *  Full-res sprites are NEVER built in one task: motion frames use the
+ *  FAST tier synchronously, and the full tier streams in as row-chunked
+ *  macrotasks (each bounded) once the pose settles. */
 export const TEXTURE_MAX_SHADE_RADIUS = 224;
+
+/** The synchronous sprite tier: small enough that a per-frame rebuild
+ *  (time-warp spin, flights) stays a bounded main-thread task. */
+export const FAST_SHADE_RADIUS = 112;
+
+/** Row-chunk budget for the async full-res upgrade pipeline, pixels per
+ *  macrotask (LUT fill ≈ compose ≈ a few ms each at this size). */
+export const UPGRADE_CHUNK_PX = 45_000;
 
 /** A textured body's dot-label glyph renders while its disc is under this
  *  size (the reference's .lbl dot: a 9px annotation ring ON the body). */
@@ -879,8 +890,11 @@ export function bodyCardInfo(id: string, timeMs: number): BodyCardInfo | null {
     orbitRow = fmtOrbitPeriod(PLANET_ORBIT_PERIOD_DAYS[id as Exclude<BodyId, "sun">]);
     radiusKm = BODY_RADIUS_M[id as BodyId] / 1000;
   }
+  // stated frame: tilt is measured to the ECLIPTIC (fact sheets quote the
+  // orbit plane — within ~2-3° for the planets, and honesty demands the
+  // frame be named rather than approximated silently)
   const tilt = hasRotationModel(id)
-    ? `${spinObliquityDeg(axisEclOfDate(id as RotationBodyId, timeMs), rotationRateDegPerDay(id as RotationBodyId)).toFixed(1)}°`
+    ? `${spinObliquityDeg(axisEclOfDate(id as RotationBodyId, timeMs), rotationRateDegPerDay(id as RotationBodyId)).toFixed(1)}° to ecliptic`
     : "—";
   return {
     id,
@@ -1534,7 +1548,78 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return c;
   }
 
-  /** textured body sprite: LUT (geometry) + compose (texel×Lambert). */
+  /**
+   * Textured body sprite — TWO TIERS so no main-thread task busts the
+   * frame budget:
+   *  · FAST tier (≤ FAST_SHADE_RADIUS): built synchronously — bounded
+   *    cost even when rebuilt every frame (time-warp spin, flights);
+   *  · FULL tier (≤ TEXTURE_MAX_SHADE_RADIUS): streamed by the upgrade
+   *    pipeline below in row-chunked macrotasks (LUT fill then compose,
+   *    ≤ UPGRADE_CHUNK_PX each) once the same pose is requested on two
+   *    consecutive settled draws — a spinning warp body keeps its fast
+   *    sprite and never wastes upgrade work.
+   */
+  interface SpriteUpgrade {
+    key: string;
+    def: SpaceBodyDef;
+    shadeR: number;
+    sunCam: Vec3;
+    axisCam: Vec3;
+    nodeCam: Vec3;
+    wq: number;
+    tex: TexImage;
+    bump: TexImage | null;
+    lut: SphereLUT;
+    lutRow: number;
+    composeRow: number;
+    canvas: HTMLCanvasElement;
+    img: ImageData;
+  }
+  let upgrade: SpriteUpgrade | null = null;
+  let upgradeTimer: ReturnType<typeof setTimeout> | null = null;
+  const lastFullReq = new Map<string, string>();
+
+  function pumpUpgrade(): void {
+    upgradeTimer = null;
+    if (!upgrade || disposed) return;
+    const u = upgrade;
+    const rows = Math.max(4, Math.round(UPGRADE_CHUNK_PX / u.lut.size));
+    const t0 = performance.now();
+    if (u.lutRow < u.lut.size) {
+      fillSphereLUTRows(u.lut, u.axisCam, u.nodeCam, u.lutRow, u.lutRow + rows);
+      u.lutRow += rows;
+      const ms = performance.now() - t0;
+      if (ms > lutBuildMsMax) lutBuildMsMax = ms;
+    } else if (u.composeRow < u.lut.size) {
+      composeTexturedSprite(
+        u.lut, u.tex, u.wq, u.def.emissive ? null : u.sunCam, u.img.data,
+        {
+          bump: u.bump, bumpStrength: 1.2,
+          rowStart: u.composeRow, rowEnd: u.composeRow + rows,
+        },
+      );
+      u.composeRow += rows;
+      const ms = performance.now() - t0;
+      if (ms > spriteBuildMsMax) spriteBuildMsMax = ms;
+    } else {
+      u.canvas.getContext("2d")!.putImageData(u.img, 0, 0);
+      if (spriteCache.size > 48) spriteCache.clear();
+      spriteCache.set(u.key, u.canvas);
+      upgrade = null;
+      kick(); // the next draw picks up the full-res sprite
+      return;
+    }
+    upgradeTimer = setTimeout(pumpUpgrade, 0);
+  }
+
+  function spriteKey(id: string, tier: string, shadeR: number, wq: number, sunCam: Vec3, axisCam: Vec3): string {
+    const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
+    return (
+      `${id}|t${tier}|${shadeR}|${wq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}` +
+      `|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}`
+    );
+  }
+
   function texturedSprite(
     def: SpaceBodyDef,
     radiusPx: number,
@@ -1546,23 +1631,48 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     bump: TexImage | null,
   ): HTMLCanvasElement {
     const rq = Math.max(2, Math.round(Math.exp(Math.round(Math.log(radiusPx) / 0.06) * 0.06)));
-    const shadeR = Math.min(rq, TEXTURE_MAX_SHADE_RADIUS);
+    const fullR = Math.min(rq, TEXTURE_MAX_SHADE_RADIUS);
+    const fastR = Math.min(rq, FAST_SHADE_RADIUS);
     const wq = Math.round(wDeg * 2) / 2; // 0.5° spin quantum (sub-texel @1k)
-    const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
-    const key =
-      `${def.id}|t${tex.tier}|${shadeR}|${wq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}` +
-      `|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}`;
+    const wantTangents = def.id === "moon" && !!bump;
+    // 1) full-res already composed for this pose? use it
+    const fullKey = spriteKey(def.id, tex.tier, fullR, wq, sunCam, axisCam);
+    const fullHit = spriteCache.get(fullKey);
+    if (fullHit) return fullHit;
+    // 2) settled pose seen twice → stream the full tier in the background
+    const settled = !flight && performance.now() - lastInputAt >= 160;
+    if (settled && fullR > fastR) {
+      if (lastFullReq.get(def.id) === fullKey) {
+        if (!upgrade || upgrade.key !== fullKey) {
+          const size = Math.max(2, Math.round(fullR)) * 2 + 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = size;
+          canvas.height = size;
+          upgrade = {
+            key: fullKey, def, shadeR: fullR, sunCam, axisCam, nodeCam, wq, tex, bump,
+            lut: createEmptySphereLUT(fullR, wantTangents),
+            lutRow: 0, composeRow: 0, canvas,
+            img: canvas.getContext("2d")!.createImageData(size, size),
+          };
+          if (!upgradeTimer) upgradeTimer = setTimeout(pumpUpgrade, 0);
+        }
+      } else {
+        lastFullReq.set(def.id, fullKey);
+        kick(); // one more draw re-requests this pose and starts the stream
+      }
+    }
+    // 3) synchronous FAST tier (bounded task; per-frame safe under warp)
+    const key = spriteKey(def.id, tex.tier, fastR, wq, sunCam, axisCam);
     const hit = spriteCache.get(key);
     if (hit) return hit;
     if (spriteCache.size > 48) spriteCache.clear();
-    const wantTangents = def.id === "moon" && !!bump;
     const lutKey =
-      `${shadeR}|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}` +
+      `${fastR}|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}` +
       `|${q2(nodeCam.x)},${q2(nodeCam.y)},${q2(nodeCam.z)}|b${wantTangents ? 1 : 0}`;
     let ent = lutCache.get(def.id);
     if (!ent || ent.key !== lutKey) {
       const t0 = performance.now();
-      ent = { key: lutKey, lut: buildSphereLUT(shadeR, axisCam, nodeCam, wantTangents) };
+      ent = { key: lutKey, lut: buildSphereLUT(fastR, axisCam, nodeCam, wantTangents) };
       const ms = performance.now() - t0;
       if (ms > lutBuildMsMax) lutBuildMsMax = ms;
       if (lutCache.size > 4) lutCache.clear();
@@ -2511,6 +2621,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       container.removeEventListener("click", onClick);
       spriteCache.clear();
       lutCache.clear();
+      upgrade = null;
+      if (upgradeTimer) {
+        clearTimeout(upgradeTimer);
+        upgradeTimer = null;
+      }
       skyCanvas = null;
       skyRays = null;
       ringBands = null;

@@ -105,36 +105,45 @@ export interface SphereLUT {
   mask: Uint8Array;
 }
 
-/**
- * Build the per-pixel geometry LUT for a sphere of shaded radius `shadeR`
- * whose spin axis and W=0 node direction are `axisCam`/`nodeCam` (unit,
- * CAMERA space — orthogonal by construction upstream: the IAU node lies in
- * the body's equator plane). The trig-heavy step: one atan2 + asin per
- * disc pixel, rebuilt only when the axis moves in camera space (camera
- * orbits), never when the body spins.
- */
-export function buildSphereLUT(
-  shadeR: number,
-  axisCam: Vec3,
-  nodeCam: Vec3,
-  withTangents = false,
-): SphereLUT {
+/** Allocate an empty LUT (fill it with fillSphereLUTRows — chunkable). */
+export function createEmptySphereLUT(shadeR: number, withTangents = false): SphereLUT {
   const R = Math.max(2, Math.round(shadeR));
   const size = R * 2 + 2;
   const n = size * size;
-  const nx = new Float32Array(n);
-  const ny = new Float32Array(n);
-  const nz = new Float32Array(n);
-  const lonNode = new Float32Array(n);
-  const lat = new Float32Array(n);
-  const mask = new Uint8Array(n);
-  const ex = withTangents ? new Float32Array(n) : null;
-  const ey = withTangents ? new Float32Array(n) : null;
-  const ez = withTangents ? new Float32Array(n) : null;
+  return {
+    shadeR: R,
+    size,
+    nx: new Float32Array(n),
+    ny: new Float32Array(n),
+    nz: new Float32Array(n),
+    lonNode: new Float32Array(n),
+    lat: new Float32Array(n),
+    ex: withTangents ? new Float32Array(n) : null,
+    ey: withTangents ? new Float32Array(n) : null,
+    ez: withTangents ? new Float32Array(n) : null,
+    mask: new Uint8Array(n),
+  };
+}
+
+/**
+ * Fill LUT rows [rowStart, rowEnd) — the trig-heavy step, chunkable across
+ * macrotasks so no single main-thread task exceeds the frame budget.
+ */
+export function fillSphereLUTRows(
+  lut: SphereLUT,
+  axisCam: Vec3,
+  nodeCam: Vec3,
+  rowStart: number,
+  rowEnd: number,
+): void {
+  const { shadeR: R, size, nx, ny, nz, lonNode, lat, mask, ex, ey, ez } = lut;
+  const withTangents = !!ex;
   const Z = norm3(axisCam);
   const X = norm3(nodeCam);
   const Y = cross(Z, X); // node frame: lonNode = atan2(n·Y, n·X)
-  for (let py = 0; py < size; py++) {
+  const y0 = Math.max(0, rowStart);
+  const y1 = Math.min(size, rowEnd);
+  for (let py = y0; py < y1; py++) {
     for (let px = 0; px < size; px++) {
       const x = (px - R - 1) / R;
       const y = -(py - R - 1) / R; // screen y down → up
@@ -162,7 +171,26 @@ export function buildSphereLUT(
       }
     }
   }
-  return { shadeR: R, size, nx, ny, nz, lonNode, lat, ex, ey, ez, mask };
+}
+
+/**
+ * Build the per-pixel geometry LUT for a sphere of shaded radius `shadeR`
+ * whose spin axis and W=0 node direction are `axisCam`/`nodeCam` (unit,
+ * CAMERA space — orthogonal by construction upstream: the IAU node lies in
+ * the body's equator plane). The trig-heavy step: one atan2 + asin per
+ * disc pixel, rebuilt only when the axis moves in camera space (camera
+ * orbits), never when the body spins. One-shot convenience over the
+ * chunkable create/fill pair.
+ */
+export function buildSphereLUT(
+  shadeR: number,
+  axisCam: Vec3,
+  nodeCam: Vec3,
+  withTangents = false,
+): SphereLUT {
+  const lut = createEmptySphereLUT(shadeR, withTangents);
+  fillSphereLUTRows(lut, axisCam, nodeCam, 0, lut.size);
+  return lut;
 }
 
 /** The untextured sprite shader's exact lighting curve (soft terminator
@@ -186,7 +214,7 @@ export function composeTexturedSprite(
   wDeg: number,
   lightCam: Vec3 | null,
   out: Uint8ClampedArray,
-  opts?: { bump?: TexLike | null; bumpStrength?: number },
+  opts?: { bump?: TexLike | null; bumpStrength?: number; rowStart?: number; rowEnd?: number },
 ): void {
   const { size, nx, ny, nz, lonNode, lat, mask, ex, ey, ez } = lut;
   const tw = tex.width;
@@ -195,8 +223,9 @@ export function composeTexturedSprite(
   const bump = opts?.bump ?? null;
   const bk = opts?.bumpStrength ?? 1.2;
   const s = lightCam ? norm3(lightCam) : null;
-  const n = size * size;
-  for (let i = 0; i < n; i++) {
+  const i0 = Math.max(0, opts?.rowStart ?? 0) * size;
+  const n = Math.min(size, opts?.rowEnd ?? size) * size;
+  for (let i = i0; i < n; i++) {
     const o = i * 4;
     if (!mask[i]) {
       out[o + 3] = 0;
