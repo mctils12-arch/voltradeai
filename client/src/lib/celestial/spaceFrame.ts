@@ -409,6 +409,18 @@ export function projectPoint(
  * order: each label steps down past every earlier label's occupied row
  * until it finds a free slot, so any cluster resolves to a clean readable
  * stack with no overprint.
+ *
+ * TERMINATION GUARANTEE (the v1.0.396 freeze, root-caused 2026-07-18): a
+ * move must STRICTLY INCREASE y or it is not a move. In doubles, yj +
+ * LABEL_COLLIDE_PX can round DOWN so that (yj+14) − yj < 14 — e.g. yj =
+ * 507.7892615010763 steps to 521.7892615010762, difference
+ * 13.999999999999943 — so the un-guarded loop re-detected the collision it
+ * had just resolved, reassigned the identical y, set moved, and spun the
+ * `while` forever: one synchronous infinite loop inside draw() = Chrome's
+ * "Page Unresponsive" kill dialog. The guard restores the proof: y only
+ * ever steps to a strictly larger member of the finite set {yj + 14}, so
+ * the loop is bounded at i moves per label regardless of rounding. A label
+ * landing on the fixed point stays put — one float-ulp of overlap, invisible.
  */
 export function layoutLabelStacks(
   anchors: { x: number; y: number }[],
@@ -423,8 +435,14 @@ export function layoutLabelStacks(
       for (let j = 0; j < i; j++) {
         const yj = anchors[j].y + offsets[j];
         if (Math.abs(anchors[i].x - anchors[j].x) < boxW && Math.abs(y - yj) < LABEL_COLLIDE_PX) {
-          y = yj + LABEL_COLLIDE_PX; // step below the occupied row, re-scan
-          moved = true;
+          const ny = yj + LABEL_COLLIDE_PX; // step below the occupied row, re-scan
+          if (ny > y) {
+            y = ny;
+            moved = true;
+          }
+          // ny <= y ⇒ float fixed point (yj+14 rounded to ≤ y): already at
+          // the required clearance to double precision — moving would not
+          // advance y, and flagging `moved` here is exactly what froze v1
         }
       }
     }

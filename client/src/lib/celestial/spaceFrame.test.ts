@@ -407,6 +407,45 @@ test("layoutLabelStacks: bodies never move — colliding label ROWS stack into f
   assert.deepEqual(layoutLabelStacks([{ x: 5, y: 5 }]), [0]);
 });
 
+test("layoutLabelStacks: float fixed point terminates (the v1.0.396 freeze)", () => {
+  // Root-caused 2026-07-18 with CDP Debugger.pause on the hung production
+  // build: yj + LABEL_COLLIDE_PX rounds DOWN in doubles so the stepped
+  // label still "collides" with the row it just cleared — the un-guarded
+  // while(moved) loop reassigned the identical y forever, freezing the
+  // main thread inside draw(). Minimal repro: two co-located labels AT the
+  // fixed-point row. Pin the arithmetic first so the repro can never rot:
+  const yj = 507.7892615010763; // captured from the live hang (row j=7)
+  assert.ok(yj + LABEL_COLLIDE_PX - yj < LABEL_COLLIDE_PX,
+    "precondition: yj+14 rounds below a full 14px step (the fixed point)");
+  const off = layoutLabelStacks([{ x: 734, y: yj }, { x: 734, y: yj }]);
+  assert.equal(off[0], 0);
+  close(off[1], LABEL_COLLIDE_PX, 1e-9, "collider steps one row despite the rounding");
+
+  // the FULL 9-anchor cluster captured from the hung frame (fly-home from
+  // the 46.79 AU ceiling, all planet labels bunched at screen center) —
+  // must terminate and keep every colliding pair ≥ one row apart (float ulp)
+  const captured = [
+    { x: 296.79522785883955, y: 582.83788911509 },
+    { x: 824.9470585240113, y: 465.7892615010763 },
+    { x: 712.6186448368059, y: 434.31606905960007 },
+    { x: 743.7449151024564, y: 428.8568344688953 },
+    { x: 737.340879383839, y: 427.50977870705674 },
+    { x: 479.85371824806964, y: 431.78774920442225 },
+    { x: 756.2369562475345, y: 425.17322912657295 },
+    { x: 734.066901292434, y: 422.0088203633746 },
+    { x: 734, y: 421.99999999999994 },
+  ];
+  const offs = layoutLabelStacks(captured); // hung forever before the guard
+  for (let i = 0; i < captured.length; i++) {
+    for (let j = 0; j < i; j++) {
+      if (Math.abs(captured[i].x - captured[j].x) >= 130) continue;
+      const sep = Math.abs(captured[i].y + offs[i] - (captured[j].y + offs[j]));
+      assert.ok(sep >= LABEL_COLLIDE_PX - 1e-9,
+        `rows ${j}/${i} separated to double precision (${sep})`);
+    }
+  }
+});
+
 test("distance labels: units-preference formatter below 0.01 AU, AU above", () => {
   const moon = fmtSpaceDistance(384_400_000);
   assert.ok(/mi$|km$/.test(moon), `moon label carries a unit (${moon})`);
