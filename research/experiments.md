@@ -3,6 +3,45 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Aircraft round (live report): glide between polls, hand-off vanish root-caused, curtain reaches the plane; + far-sat framing (v1.0.395, T-CLIENT, agent + parent)
+
+Human live report: planes "stopped moving and disappeared", curtain
+"cuts off", "sharp angles", and far-satellite clicks zoomed PAST the
+craft. SHIPPED (agent 4 commits + parent framing fix):
+- GLIDE: dead-reckoning along BROADCAST track/speed between 15s polls
+  (satellite SMOOTH SKY honesty model: real velocity extrapolation,
+  25s hard cap then freeze — never invented turns; frozen when
+  on-ground/no-broadcast). 2D 3.3Hz viewport setData + 3D per-frame
+  shader glide, paths identical by construction (<1e-6 pinned); CPU
+  picks take dtSec so clicks agree with glided pixels.
+- VANISH ROOT CAUSE (drive-reproduced at every pitch): MapLibre skips
+  symbol buckets in tiles whose INTEGER zoom >= layer maxzoom, and z8
+  tile cover arrives at map zoom ~7.95 — iconMaxZoom 8 left a
+  [7.95,8.0) dead band where icons vanished but whiskers survived
+  (exactly the production screenshots). Fix: fractional
+  AIR_3D_MIN_ZOOM 8.05, one constant drives icon cap + 3D gates —
+  atomic swap, planes visible at EVERY zoom/pitch step tested.
+- CURTAIN CONTINUITY: session breadcrumbs (bounded, deduped, archive
+  never reordered/smoothed — sharp angles between sparse archive fixes
+  are honest and now LABELED as 1-5min sampling) + dead-reckoned tail
+  carrying the curtain to the DRAWN plane, snapping each poll. Real
+  bug found by probe: first-paint clearTrail nulled the track cache ->
+  crumbs-only repaints (2 quads vs 31) until the 30s refresh — fixed.
+- PERF: pan medians IDENTICAL to pre-change base on SwiftShader A/B
+  (33.3ms @390); a caught regression (empty-viewport setData 2x idle)
+  fixed before ship. Client lib suites 316/316 (air 8->30 tests);
+  final hand-off drive 35/35.
+- FAR-SAT FRAMING (parent): zoomForCameraAltitudeKm (exact inverse of
+  cameraAltitudeMeters, <1% round-trip pinned) — focus parks at 2.3x
+  craft altitude, inspect ease 1.8x; GEO drive: camera 82,293km vs
+  35,786km shell, HEO 266,966km. No more zooming past the craft.
+Harness 23/23, 0 hard failures. HONEST LIMITS recorded: 30s server
+cache vs 15s poll means glide can freeze ~5s pre-snapshot (freeze over
+fiction); vessels not given glide (sub-pixel at their zooms).
+NEXT: universe-continuum agent out (retire solarView; true-scale space,
+exponential zoom, click-to-fly, live-map Earth anchor; human-approved
+design 2026-07-18 incl. future Moon/planet map-layer registry).
+
 ## 2026-07-18 [PRODUCT] — Satellite UX round (live report): chips take you there, search never dead-ends, tracks restore, coverage bypasses filters, INSPECT IS THE MAP (v1.0.394, T-CLIENT, agent O8 + parent inspect retirement)
 
 Human live report (screenshots): ISS chip didn't go to the station;

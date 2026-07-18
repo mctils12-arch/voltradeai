@@ -10,6 +10,7 @@ import {
   metersPerPixel,
   cameraAltitudeMeters,
   cameraAltitudeKmFromMap,
+  zoomForCameraAltitudeKm,
   lodOpacity,
   type LodEnvelope,
   type MapLike,
@@ -107,4 +108,15 @@ test("lodOpacity: hard step without fadeBand; honesty fail-open rules", () => {
   assert.equal(lodOpacity({}, 5), 1, "empty envelope gates nothing");
   assert.equal(lodOpacity(hard, null), 1, "unmeasurable camera = FAIL OPEN, never hide data on broken math");
   assert.equal(lodOpacity(hard, Number.NaN), 1, "NaN camera = fail open");
+});
+
+test("zoomForCameraAltitudeKm inverts cameraAltitudeMeters (craft framing never dives inside the orbit shell)", () => {
+  for (const altKm of [900, 2400, 35786 * 2.3, 120000]) {
+    for (const lat of [0, 38, -62]) {
+      const zoom = zoomForCameraAltitudeKm(altKm, lat, 900);
+      const back = cameraAltitudeMeters({ zoom, latDeg: lat, canvasHeightPx: 900 }) / 1000;
+      assert.ok(Math.abs(back - altKm) / altKm < 0.01,
+        `round-trip alt ${altKm}km lat ${lat}: zoom ${zoom.toFixed(2)} -> ${back.toFixed(0)}km`);
+    }
+  }
 });

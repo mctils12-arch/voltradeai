@@ -102,8 +102,15 @@ test('pickNearestAircraft: nearest within tolerance, honest miss outside it', ()
 
 test('shader contract: altitude-aware projection, GLOBE-guarded cull identical to the orbital layers, bearing-relative rotation, w-scaled offsets', () => {
   const src = AIR_VERT_SRC('/* prelude stub */', '#define GLOBE');
-  assert.ok(src.includes('projectTileFor3D(a_inst.xy, a_inst.z * u_altScale * a_altFrac)'),
-    'anchor = position + REAL altitude (terrain-exaggeration matched, drop-line fraction)');
+  assert.ok(src.includes('projectTileFor3D(g_xy, a_inst.z * u_altScale * a_altFrac)'),
+    'anchor = GLIDED position + REAL altitude (terrain-exaggeration matched, drop-line fraction)');
+  // GLIDE contract (the satLayer shader-glide pattern): dead-reckoned
+  // anchor = poll position + broadcast velocity × capped elapsed seconds,
+  // antimeridian-wrapped and pole-clamped; the far-side cull tests the
+  // GLIDED position (cull where drawn, not where polled).
+  assert.ok(src.includes('fract(a_inst.x + a_vel.x * u_dtSec)'), 'X glides and wraps the antimeridian');
+  assert.ok(src.includes('clamp(a_inst.y + a_vel.y * u_dtSec, 0.0, 1.0)'), 'Y glides and clamps at the poles');
+  assert.ok(src.includes('projectToSphere(g_xy)'), 'far-side cull uses the glided position');
   const ifdef = src.indexOf('#ifdef GLOBE');
   const endif = src.indexOf('#endif');
   const outside = src.slice(0, ifdef) + src.slice(endif);
@@ -135,6 +142,60 @@ test('API smoke (no GL): counts, zoom gate semantics, no-instance render is a no
   layer.render(explodingGl as any, {} as any);
   assert.equal(layer.getRenderFailed(), false);
   assert.ok(AIR_3D_MIN_ZOOM >= 6 && AIR_3D_MIN_ZOOM <= 12, 'hand-off in the regional-zoom band');
+});
+
+test('hand-off zoom is FRACTIONAL — integer maxzoom creates a vanish dead band (2026-07-18 regression)', () => {
+  // MapLibre's worker skips symbol buckets in tiles whose integer zoom >=
+  // the layer's maxzoom, while the tile cover switches to that integer
+  // level ~0.05 below it: an integer hand-off leaves a [N-0.05, N) band
+  // with NO icons and NO 3D silhouettes (drive-reproduced at [7.95, 8)).
+  const frac = AIR_3D_MIN_ZOOM - Math.floor(AIR_3D_MIN_ZOOM);
+  assert.ok(frac > 0, 'strictly above its integer tile level, or z-N tiles carry no icon buckets');
+  assert.ok(frac <= 0.5, 'a hair above — the hand-off stays "at z8" as designed');
+});
+
+test('glide packing: broadcast velocity → merc-per-second fields; frozen rows pack 0', () => {
+  const { inst } = buildAircraftInstances([
+    { lon: 0, lat: 0, altitude_m: 10000, heading: 90, velocity_ms: 250 },   // due east at the equator
+    { lon: 0, lat: 0, altitude_m: 0, heading: 90, velocity_ms: 250, on_ground: true }, // ground → frozen
+    { lon: 0, lat: 0, altitude_m: 8000, heading: null, velocity_ms: 250 },  // no track → frozen
+    { lon: 0, lat: 0, altitude_m: 8000, heading: 90, velocity_ms: null },   // no speed → frozen
+  ]);
+  const vx = inst[6], vy = inst[7];
+  assert.ok(vx > 0, 'eastbound velX positive');
+  assert.ok(Math.abs(vy) < 1e-9, 'due-east at the equator: no Y drift');
+  // 250 m/s eastward = 250/40075017 of the world circumference per second
+  assert.ok(Math.abs(vx - 250 / 40_075_017) / (250 / 40_075_017) < 0.01, 'velX magnitude ≈ ground speed');
+  for (const i of [1, 2, 3]) {
+    assert.equal(inst[i * AIR_INST_STRIDE + 6], 0, `frozen row ${i}: velX 0 (never a guessed vector)`);
+    assert.equal(inst[i * AIR_INST_STRIDE + 7], 0, `frozen row ${i}: velY 0`);
+  }
+});
+
+test('pick agrees with the glided pixels: dtSec moves the pick point exactly like the shader', () => {
+  const { inst } = buildAircraftInstances([
+    { lon: -100, lat: 40, altitude_m: 10000, heading: 90, velocity_ms: 250 },
+  ]);
+  const base = lonLatToMercator(-100, 40);
+  const glided = { x: base.x + inst[6] * 20, y: base.y + inst[7] * 20 };
+  assert.ok(Math.abs(glided.x - base.x) > 1e-6, '20s at 250 m/s is a real displacement in mercator');
+  assert.equal(pickNearestAircraft(inst, glided.x, glided.y, 1e-7, 20), 0, 'glided pick hits at the drawn spot');
+  assert.equal(pickNearestAircraft(inst, glided.x, glided.y, 1e-7, 0), -1, 'unglided pick misses the drawn spot');
+  assert.equal(pickNearestAircraft(inst, base.x, base.y, 1e-7, 0), 0, 'dt 0 = the pre-glide behavior');
+});
+
+test('glide anchor + repaint tick: honest cap, unwired = pre-glide behavior', () => {
+  let t = 1000;
+  const layer = new AirLayer({ now: () => t });
+  assert.equal(layer.getGlideDtSec(), 0, 'unwired layer glides zero');
+  layer.setTickTime();
+  t += 5000;
+  assert.equal(layer.getGlideDtSec(), 5, 'elapsed seconds since the anchor');
+  t += 60_000;
+  assert.equal(layer.getGlideDtSec(), 25, 'clamps at MAX_AIR_GLIDE_SEC — past a missed poll the display freezes');
+  // glideRepaintTick without a map/instances is a safe no-op (parent may
+  // tick before the first payload)
+  layer.glideRepaintTick();
 });
 
 test('pickNearestAircraftScreen: altitude displacement respected (the 45°-tilt click fix)', () => {

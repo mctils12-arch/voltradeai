@@ -72,6 +72,15 @@ import { followTarget } from "@/lib/orbital/follow";
 // EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
 // real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
 import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
+// DEAD-RECKONING GLIDE (2026-07-18 "planes stopped moving"): between-poll
+// extrapolation along the BROADCAST track/speed, capped then frozen — the
+// satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
+import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, airGlideDtSec } from "@/lib/air/airGlide";
+// SESSION BREADCRUMBS (2026-07-18 "the data is cut off"): while a plane's
+// card is open, each live poll appends its REAL fix so the 3D trail +
+// altitude curtain reach the plane's CURRENT position instead of ending at
+// the last archived sample (1-5 min behind at cruise).
+import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -87,7 +96,7 @@ import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // (pure, tested). orbital_sats is the first consumer: the population fades
 // out near the ground and pauses its worker (zero cost), returning on zoom
 // out — a render choice, always reversible, surfaced on-panel, never silent.
-import { cameraAltitudeKmFromMap, lodOpacity, type LodEnvelope } from "@/lib/lod";
+import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, type LodEnvelope } from "@/lib/lod";
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
@@ -1136,8 +1145,12 @@ export default function DataMapPage() {
     // ensure the craft-centered lock so the ease orbits the craft, not ground
     if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
     const altKmNow = t.altKm;
-    // close-orbit framing: LEO reads big; MEO/GEO back out enough to frame
-    const zoom = altKmNow < 3000 ? 6.5 : altKmNow < 45000 ? 3.2 : 1.8;
+    // close-orbit framing from altitude (same guarantee as focus framing:
+    // the camera never dives inside the craft's orbit shell)
+    const zoom = altKmNow < 3000 ? 6.5
+      : zoomForCameraAltitudeKm(altKmNow * 1.8, t.latDeg,
+          map.getCanvas()?.height ?? 900,
+          (map as any).getVerticalFieldOfView?.(), 65);
     map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
   // O6-7 tier 2 (charter: "zoom out far enough … literally accurate scale"):
@@ -1807,6 +1820,17 @@ export default function DataMapPage() {
     };
   }, [mapReady, enterSolar]);
 
+  // SESSION BREADCRUMBS state (2026-07-18): the followed aircraft's live
+  // fixes this session (display-only; the archive stays the recorded
+  // truth), and the last fetched archived track so a fresh crumb can
+  // repaint the merged trail WITHOUT hitting the track endpoint.
+  const airCrumbsRef = useRef<{ id: string | null; crumbs: Crumb[] }>({ id: null, crumbs: [] });
+  const archivedTrackRef = useRef<{ kind: string; id: string; raw: TrackPoint[] } | null>(null);
+  // The followed plane's latest REAL fix + its broadcast dead-reckoning
+  // rate + the receipt anchor — lets the curtain tail meet the plane where
+  // it is DRAWN between polls (the same glide the plane renders with).
+  const airFollowLiveRef = useRef<{ id: string; fix: Crumb; vel: { dLon: number; dLat: number } | null; anchorMs: number } | null>(null);
+
   const clearTrail = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -1815,22 +1839,22 @@ export default function DataMapPage() {
       if (map.getSource("trail")) map.removeSource("trail");
     } catch {}
     try { airTrail3dRef.current?.setArcs(null); airTrail3dRef.current?.setWalls(null); } catch {}
+    // NOTE: archivedTrackRef is deliberately NOT cleared here. paintTrack's
+    // first-paint setup branch calls clearTrail before adding the source —
+    // clearing the cache there wiped the archived points showTrail had just
+    // stored, so every follow-tick repainted crumbs-only until the 30s
+    // refresh (probe-caught: ArcLayer held 2 quads instead of ~30). The
+    // cache is read only under a {kind,id} match while that card is open —
+    // a stale entry can never be misused.
   };
 
-  /** Fetch the archived track and paint/refresh the trail. On refresh the
-   *  existing geojson source is UPDATED via setData (no layer churn).
-   *  Returns the note + newest position time so the card can show live
-   *  freshness. ([REPAIR 2026-07-05]: the trail was fetched ONCE at
-   *  selection and never again — a static snapshot while the aircraft
-   *  kept moving; see the refresh effect below.) */
-  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string):
-      Promise<{ note: string; lastT?: number }> => {
+  /** Paint/refresh the trail layers from a (possibly crumb-extended) point
+   *  list — extracted from showTrail so a live breadcrumb can repaint
+   *  without a refetch. Returns the newest position time. */
+  const paintTrack = (kind: "aircraft" | "vessels" | "trains", raw: TrackPoint[]): number | undefined => {
     const map = mapRef.current;
-    if (!map) return { note: "" };
+    if (!map) return undefined;
     try {
-      const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
-      const d = await r.json();
-      const raw = (d.points || []) as Array<{ lo: number; la: number; t?: number }>;
       const pts = raw.map((p) => [p.lo, p.la]);
       const lastT = raw.length ? raw[raw.length - 1].t : undefined;
       const feature = {
@@ -1892,8 +1916,69 @@ export default function DataMapPage() {
         try { airTrail3dRef.current?.setArcs(null); airTrail3dRef.current?.setWalls(null); } catch {}
       }
       (window as any).__vtTrailLen = pts.length; // harness ratchet reads this
+      return lastT;
+    } catch { return undefined; }
+  };
+
+  /** Compose the followed aircraft's display track — archived history +
+   *  session crumbs + a dead-reckoned TAIL to where the plane is DRAWN
+   *  right now (the same broadcast-velocity glide the plane itself renders
+   *  with, same MAX_AIR_GLIDE_SEC cap; altitude held at the last broadcast
+   *  value — vertical rate isn't in the feed, never invented) — and paint
+   *  it. Snaps to the real fix on every poll. Without the tail the curtain
+   *  would end up to a glide-cap behind the moving plane at high zoom —
+   *  the reported "data is cut off" gap. */
+  const paintFollowedTrail = () => {
+    const fid = airCrumbsRef.current.id;
+    if (!fid) return;
+    const at = archivedTrackRef.current;
+    const base = at && at.kind === "aircraft" && at.id === fid ? at.raw : [];
+    let track = mergeTrackWithCrumbs(base, airCrumbsRef.current.crumbs);
+    const lv = airFollowLiveRef.current;
+    if (lv && lv.id === fid && lv.vel) {
+      const dt = airGlideDtSec(performance.now(), lv.anchorMs);
+      if (dt > 0) {
+        track = track.concat({
+          lo: lv.fix.lo + lv.vel.dLon * dt,
+          la: lv.fix.la + lv.vel.dLat * dt,
+          al: lv.fix.al, t: lv.fix.t + dt,
+        });
+      }
+    }
+    paintTrack("aircraft", track);
+  };
+
+  /** Fetch the archived track, merge the session's live breadcrumbs for the
+   *  followed aircraft (mergeTrackWithCrumbs — archived history untouched,
+   *  crumbs only extend past its newest sample), and paint/refresh the
+   *  trail. On refresh the existing geojson source is UPDATED via setData
+   *  (no layer churn). Returns the note + newest position time so the card
+   *  can show live freshness. ([REPAIR 2026-07-05]: the trail was fetched
+   *  ONCE at selection and never again — a static snapshot while the
+   *  aircraft kept moving; see the refresh effect below.) */
+  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string):
+      Promise<{ note: string; lastT?: number }> => {
+    if (!mapRef.current) return { note: "" };
+    try {
+      const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
+      const d = await r.json();
+      const raw = (d.points || []) as TrackPoint[];
+      archivedTrackRef.current = { kind, id, raw };
+      const followed = kind === "aircraft" && airCrumbsRef.current.id === id;
+      const merged = followed ? mergeTrackWithCrumbs(raw, airCrumbsRef.current.crumbs) : raw;
+      let lastT: number | undefined;
+      if (followed) {
+        paintFollowedTrail(); // includes the dead-reckoned tail to the drawn plane
+        lastT = merged.length ? merged[merged.length - 1].t : undefined;
+      } else {
+        lastT = paintTrack(kind, merged);
+      }
+      const liveN = merged.length - raw.length;
       return {
-        note: d.note || (pts.length ? `${pts.length} archived positions (our own feed history)` : ""),
+        note: d.note || (merged.length
+          ? `${raw.length} archived positions (our own feed history, sampled ~1-5 min at cruise)` +
+            (liveN > 0 ? ` + ${liveN} live fixes this session` : "")
+          : ""),
         lastT,
       };
     } catch { return { note: "trail unavailable" }; }
@@ -1928,6 +2013,20 @@ export default function DataMapPage() {
   // honest without hammering the tiny track endpoint).
   const detailTrailId = detail?.trailId;
   const detailTrailKind = detail?.trailKind;
+  // Breadcrumb ownership follows the open card: a fresh aircraft card
+  // starts an empty session buffer for that hex; closing the card (or
+  // following a non-aircraft) drops it — crumbs never outlive the follow.
+  useEffect(() => {
+    if (detailTrailKind === "aircraft" && detailTrailId) {
+      if (airCrumbsRef.current.id !== detailTrailId) {
+        airCrumbsRef.current = { id: detailTrailId, crumbs: [] };
+        airFollowLiveRef.current = null;
+      }
+    } else {
+      airCrumbsRef.current = { id: null, crumbs: [] };
+      airFollowLiveRef.current = null;
+    }
+  }, [detailTrailId, detailTrailKind]);
   useEffect(() => {
     if (!detailTrailId || !detailTrailKind) return;
     const iv = setInterval(async () => {
@@ -3472,9 +3571,17 @@ export default function DataMapPage() {
         try {
           const altKmNow = s.altMeters / 1000;
           const cur = map.getZoom() ?? 0;
-          const zoom = altKmNow < 3000 ? Math.max(cur, 4.3)     // LEO: get close
-            : altKmNow < 45000 ? Math.max(Math.min(cur, 2.4), 2.2) // MEO/GEO band
-            : Math.min(cur, 1.4);                                // extreme apogee: back out to frame it
+          // FRAMING FROM ALTITUDE (live report 2026-07-18: far/GEO clicks
+          // zoomed PAST the craft — camera inside the orbit shell, craft
+          // behind it). Camera parks at 2.3x the craft's altitude: in front
+          // of the camera at ANY orbit height. LEO keeps a close floor so
+          // low craft still read big.
+          const frameZoom = zoomForCameraAltitudeKm(
+            Math.max(altKmNow * 2.3, 900), t.latDeg,
+            map.getCanvas()?.height ?? 900,
+            (map as any).getVerticalFieldOfView?.(), map.getPitch?.());
+          const zoom = altKmNow < 3000 ? Math.max(cur, Math.min(frameZoom, 4.3))
+            : Math.max(Math.min(cur, frameZoom), Math.min(frameZoom, 1.0));
           map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, duration: 1200 });
         } catch {}
         // O5-2b: the on-map 3D form — ONLY when the catalog knows the class
@@ -4320,6 +4427,24 @@ export default function DataMapPage() {
      *  everything. At the default z3.6 view, 10k overlapping icons were
      *  pure overdraw. */
     lowZoom?: { splitZoom: number; keepFraction: number };
+    /** DEAD-RECKONING GLIDE (2026-07-18, "planes stopped moving"): between
+     *  polls, re-ship the source at stepMs with each row extrapolated along
+     *  its BROADCAST velocity (velOf; null = frozen — never a guessed
+     *  vector), capped at maxSec then FROZEN (honesty cap — see airGlide).
+     *  Runs only in [minZoom, iconMaxZoom) where the motion is visible and
+     *  the icons own the map (above, the 3D layer glides in-shader), and
+     *  only over rows within the padded viewport — the setData payload
+     *  stays a few hundred features, not the full 10k snapshot. Rebuilds
+     *  THROUGH toFeatures/toVectors via withRows, so glided symbols and
+     *  velocity whiskers can never drift apart. */
+    glide?: {
+      rows: (d: any) => any[];
+      withRows: (d: any, rows: any[]) => any;
+      velOf: (row: any) => { dLon: number; dLat: number } | null;
+      minZoom: number;
+      maxSec: number;
+      stepMs: number;
+    };
   }) => {
     const map = mapRef.current;
     const { id } = opts;
@@ -4373,6 +4498,14 @@ export default function DataMapPage() {
     let lastFetch: FetchFootprint | null = null;
     let lastPayload: any = null;
     let vectorsCurrent = false;
+    // glide state: when the current payload's positions were received, the
+    // last dt actually shipped (lets the stepper stop once frozen at the
+    // cap instead of re-shipping identical frames forever), and whether the
+    // last step shipped an empty set (skip repeat empty setDatas — measured
+    // at ~2x idle frame cost on an empty viewport under SwiftShader).
+    let glideAnchor: number | null = null;
+    let lastGlideDt = -1;
+    let lastGlideEmpty = false;
 
     // add-or-update the velocity-vector source/layer from a payload — shared
     // by the tick path (zoom high enough) and the zoomend lazy build.
@@ -4432,6 +4565,8 @@ export default function DataMapPage() {
           lastFetch = fetchFootprint(c.lat, c.lng, map.getZoom(), b.getNorth(), b.getSouth(), b.getEast(), b.getWest());
         } catch {}
         lastPayload = dd;
+        glideAnchor = performance.now(); // fresh REAL positions — glide restarts from truth
+        lastGlideDt = -1;
 
         // Honest feed states (DESIGN.md): partial coverage + staleness shown.
         let note: string | undefined;
@@ -4485,6 +4620,55 @@ export default function DataMapPage() {
     };
     load();
     const iv = window.setInterval(load, opts.intervalMs);
+    // GLIDE stepper (~3.3Hz): dead-reckoned setData between polls. Skips
+    // whenever it could not be seen (hidden tab, mid-gesture — symbols ride
+    // the camera transform anyway, outside the visible-glide zoom band) or
+    // could not be honest (no payload, frozen at the cap). Downstream chain
+    // (REASONING STANDARD): setData → geojson source re-tile of a few
+    // hundred viewport rows (~1-3ms worker-side, measured in the drive);
+    // the delta-poll cursor is untouched (server-time based) and the next
+    // real payload rebuilds from truth, snapping the glide to zero.
+    let glideIv: number | undefined;
+    if (opts.glide) {
+      const g = opts.glide;
+      glideIv = window.setInterval(() => {
+        if (stop || document.hidden || glideAnchor == null || !lastPayload) return;
+        try { if (map.isMoving()) return; } catch {}
+        const z = map.getZoom();
+        if (!(z >= g.minZoom)) return;                       // sub-pixel motion — pure cost
+        if (opts.iconMaxZoom != null && z >= opts.iconMaxZoom) return; // 3D silhouettes own it
+        const dt = Math.min((performance.now() - glideAnchor) / 1000, g.maxSec);
+        if (dt <= 0 || dt === lastGlideDt) return;           // frozen at the honesty cap
+        lastGlideDt = dt;
+        const src: any = map.getSource(srcId);
+        if (!src) return;
+        let s: number, n2: number, w2: number, e2: number;
+        try {
+          const b = map.getBounds();
+          const mLat = (b.getNorth() - b.getSouth()) * 0.3;  // 30% margin: pans inside
+          const mLon = (b.getEast() - b.getWest()) * 0.3;    // coverage refill next step
+          s = b.getSouth() - mLat; n2 = b.getNorth() + mLat;
+          w2 = b.getWest() - mLon; e2 = b.getEast() + mLon;
+        } catch { return; }
+        // bounds unwrap past ±180 — test lon and its ±360 aliases so a
+        // viewport straddling the antimeridian never DROPS the wrapped side
+        const inLon = (lo: number) => (lo >= w2 && lo <= e2) || (lo + 360 >= w2 && lo + 360 <= e2) || (lo - 360 >= w2 && lo - 360 <= e2);
+        const glided: any[] = [];
+        for (const row of g.rows(lastPayload)) {
+          if (row.lat == null || row.lon == null || row.lat < s || row.lat > n2 || !inLon(row.lon)) continue;
+          const v = g.velOf(row);
+          glided.push(v ? { ...row, lon: row.lon + v.dLon * dt, lat: row.lat + v.dLat * dt } : row);
+        }
+        if (glided.length === 0 && lastGlideEmpty) return; // nothing to move, nothing to clear
+        lastGlideEmpty = glided.length === 0;
+        const gliddedPayload = g.withRows(lastPayload, glided);
+        src.setData({ type: "FeatureCollection", features: opts.toFeatures(gliddedPayload) });
+        if (opts.toVectors && shouldBuildVectors(z)) {
+          const vsrc: any = map.getSource(vecSrc);
+          if (vsrc) vsrc.setData({ type: "FeatureCollection", features: opts.toVectors(gliddedPayload) });
+        }
+      }, g.stepMs);
+    }
     // Trailing debounce ([REPAIR 2026-07-05] map perf): bare moveend fired a
     // full fetch + 10k-feature rebuild on EVERY camera settle — each wheel
     // step during a zoom was a fetch. Same 400ms pattern the wx-grid effect
@@ -4521,6 +4705,7 @@ export default function DataMapPage() {
     return () => {
       teardown();
       window.clearInterval(iv);
+      if (glideIv != null) window.clearInterval(glideIv);
       window.clearTimeout(moveDebounce);
       document.removeEventListener("visibilitychange", onVisible);
       try { map.off("moveend", onMove); } catch {}
@@ -4561,6 +4746,7 @@ export default function DataMapPage() {
     // before the first payload; instances rebuilt from each fresh snapshot.
     const airLayer = new AirLayer({ id: "aircraft-3d" });
     try { map.addLayer(airLayer); } catch {}
+    (window as any).__vtAir = airLayer; // harness seam (prod-inert, like __vtMap)
     let airRows: any[] = []; // index-aligned to the instance buffer (picking)
 
     const wire = () => wireLivePoints({
@@ -4576,9 +4762,50 @@ export default function DataMapPage() {
         const built = buildAircraftInstances(d.aircraft || []);
         airRows = built.rows;
         airLayer.setInstances(built.inst, built.groups);
+        airLayer.setTickTime(); // glide anchor: these positions are true NOW
         // match the terrain mesh's vertical exaggeration so a plane above a
         // peak stays above the exaggerated peak (never-intersect-mountains)
         try { airLayer.setAltScale(map.getTerrain() ? 1.3 : 1); } catch {}
+        // SESSION BREADCRUMB: while this plane's card is open, append its
+        // fresh REAL fix and repaint the merged trail + curtain so they
+        // reach the CURRENT position (the archive lags 1-5 min at cruise).
+        // pushCrumb dedupes the server-cache window (same snapshot time).
+        try {
+          const fid = airCrumbsRef.current.id;
+          if (fid) {
+            const live = (d.aircraft || []).find((x: any) => x.icao24 === fid);
+            if (live && live.lat != null && live.lon != null) {
+              const t = Number.isFinite(d.time) ? Number(d.time) : Date.now() / 1000;
+              const fix: Crumb = {
+                lo: live.lon, la: live.lat,
+                al: live.on_ground ? 0 : (live.altitude_m ?? null), t,
+              };
+              // tail anchor: the same fresh-fix instant the plane's own
+              // glide anchors at (setTickTime above)
+              airFollowLiveRef.current = {
+                id: fid, fix, anchorMs: performance.now(),
+                vel: glideDegPerSec(live.lat, live.heading, live.velocity_ms, live.on_ground),
+              };
+              const before = airCrumbsRef.current.crumbs;
+              const after = pushCrumb(before, fix);
+              if (after !== before) {
+                airCrumbsRef.current.crumbs = after;
+                setDetail(prev => prev && prev.trailId === fid ? { ...prev, trailLastT: t } : prev);
+              }
+              paintFollowedTrail(); // fresh fix and/or re-anchored tail
+            }
+          }
+        } catch { /* trail continuity must never break the tick */ }
+      },
+      // 2D glide: same dead-reckoning the 3D shader applies (one honesty
+      // model, two renderers) — icons stop jumping poll-to-poll at z5.5-8.
+      glide: {
+        rows: (d: any) => d.aircraft || [],
+        withRows: (d: any, rows: any[]) => ({ ...d, aircraft: rows }),
+        velOf: (a: any) => glideDegPerSec(a.lat, a.heading, a.velocity_ms, a.on_ground),
+        minZoom: AIR_GLIDE_2D_MIN_ZOOM,
+        maxSec: MAX_AIR_GLIDE_SEC,
+        stepMs: AIR_GLIDE_STEP_MS,
       },
       toFeatures: (d) => (d.aircraft || []).map((a: any) => {
         const cls = classifyAircraft(a.type, a.category);
@@ -4629,7 +4856,8 @@ export default function DataMapPage() {
           subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
           body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
                 `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
-                `trail is our own archived feed history — the 3D line + solid ground curtain climb at the RECORDED altitude, colored by the same low/cruise bands as the planes (gaps where altitude wasn't broadcast).`,
+                `trail is our own archived feed history — the 3D line + solid ground curtain climb at the RECORDED altitude, colored by the same low/cruise bands as the planes (gaps where altitude wasn't broadcast). ` +
+                `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence.`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
@@ -4665,16 +4893,19 @@ export default function DataMapPage() {
     // Globe mode projects instances with the frame matrix (screen-space);
     // mercator mode keeps the ground pick.
     const pickAir = (e: any, tolPx: number): number => {
+      // pick at the GLIDED position — the pixels are dead-reckoned up to
+      // MAX_AIR_GLIDE_SEC ahead of the poll positions (many px at z8+)
+      const dtSec = airLayer.getGlideDtSec();
       const matrix = airLayer.getGlobeProjection();
       if (matrix) {
         const canvas = map.getCanvas();
         return pickNearestAircraftScreen(
           airLayer.getInstances(), matrix, e.point.x, e.point.y,
-          canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx);
+          canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx, dtSec);
       }
       const ll = map.unproject(e.point);
       const merc = lonLatToMercator(ll.lng, ll.lat);
-      return pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, pixelToleranceToMercUnits(tolPx, map.getZoom()));
+      return pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, pixelToleranceToMercUnits(tolPx, map.getZoom()), dtSec);
     };
     const onAir3dClick = (e: any) => {
       if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
@@ -4725,13 +4956,25 @@ export default function DataMapPage() {
     };
     map.on("mousemove", onAir3dMove);
     map.on("mouseout", hideHoverTip);
+    // 3D glide low-rate repaint (~3.3Hz): re-evaluates u_dtSec between polls
+    // at z8+ where the silhouettes own the map; the layer upgrades itself to
+    // per-frame self-repaint at close zooms (shouldGlidePerFrame) and stops
+    // at the honesty cap. No-op below the hand-off or with no planes. The
+    // same tick keeps the followed plane's curtain tail meeting the drawn
+    // (glided) plane — a <1ms wall rebuild, only while a card is open.
+    const glideRepaintIv = window.setInterval(() => {
+      airLayer.glideRepaintTick();
+      try { if (!document.hidden && airFollowLiveRef.current) paintFollowedTrail(); } catch {}
+    }, AIR_GLIDE_STEP_MS);
     return () => {
       stopWire();
+      window.clearInterval(glideRepaintIv);
       try { map.off("click", onAir3dClick); } catch {}
       try { map.off("mousemove", onAir3dMove); } catch {}
       try { map.off("mouseout", hideHoverTip); } catch {}
       if (hoverFrame != null) cancelAnimationFrame(hoverFrame);
       hideHoverTip();
+      try { delete (window as any).__vtAir; } catch {}
       try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
     };
   }, [enabled.aircraft, mapReady, wireLivePoints, setStatus, airFilter]);
