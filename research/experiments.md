@@ -3,6 +3,26 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [REPAIR] — Catalog mirror v2: relay retargeted to the PUBLIC voltradeai-catalog repo (v1.0.404, T-DATACORE)
+
+The v1.0.403 mirror ran green (run #1: 12k GP records validated,
+force-pushed to celestial-catalog-data) but production still 503'd:
+voltradeai is PRIVATE, and raw.githubusercontent.com 404s private
+content without credentials Railway doesn't have — a design flaw in
+the v1 relay, found by end-to-end production probe, not by CI (the
+sandbox test that "verified" the relay only exercised the honest-503
+path). Human chose the fix (same-day AskUserQuestion): a PUBLIC
+mirror repo, mctils12-arch/voltradeai-catalog — CelesTrak data is
+public and CelesTrak encourages mirroring; zero secrets, no expiry.
+The GitHub App cannot create repos (403), so the human creates it;
+this change retargets CATALOG_RAW_BASE at its data branch NOW —
+failures are never cached, so production recovers with no further
+deploy the moment the public mirror's first run lands. Remaining
+once the repo exists: push the self-contained mirror workflow there,
+dispatch it, verify production 200, then ask the human to approve
+deleting the now-dead workflow in THIS repo (frozen path — needs its
+own approval; until then it burns 4 pointless CelesTrak fetches/day).
+
 ## 2026-07-18 [PRODUCT] — Celestial v2 B2 + catalog MIRROR + inspect follow-camera + power-plant declutter (v1.0.403, T-CLIENT, batched per the celestial-v2 directive)
 
 Four slices, one PR (human directive authorizes batching within the
