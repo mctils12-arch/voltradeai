@@ -7553,8 +7553,10 @@ export default function DataMapPage() {
       <div ref={airHoverTipRef} className="vt-air-hover-tip" style={{ display: "none" }} />
 
       {/* Phase 3a imagery capture-date chip (DESIGN.md imagery-honesty
-          rule: display dates where available; unknown states stay loud) */}
-      {enabled.imagery && (
+          rule: display dates where available; unknown states stay loud).
+          Hidden while the space frame owns the viewport — a capture-date
+          for a shrinking-globe map reads as noise; returns at the seam. */}
+      {enabled.imagery && !spaceActive && (
         <div className="vt-imagery-date-chip" data-testid="imagery-date" role="status"
              title="Capture date of the Esri World Imagery at the view centre — dates vary within a view and by zoom level">
           {imageryDate.label}
@@ -7645,7 +7647,10 @@ export default function DataMapPage() {
         </div>
       )}
       {/* Style presets (worldview-globe G1) — real-first geographic looks,
-          bottom-center segmented control. No tactical filters. */}
+          bottom-center segmented control. No tactical filters. Hidden while
+          the space frame owns the viewport (a style switcher for a
+          shrinking-globe map is meta-noise; returns at the seam). */}
+      {!spaceActive && (
       <div className="vt-preset-switch" role="group" aria-label="Map style preset">
         {([
           ["natural", "Natural"],
@@ -7663,6 +7668,7 @@ export default function DataMapPage() {
           </button>
         ))}
       </div>
+      )}
 
       <div ref={mapContainer} className="vt-map-canvas" />
       {fpsDebug && <FpsChip />}

@@ -1,9 +1,10 @@
 // Continuous space frame — pure view-math tests. mountSpaceFrame needs a DOM
 // and is exercised by the integration drives (real dist + SwiftShader);
 // everything mathematical here is hermetic and pinned. Same node:test style
-// as ephemeris.test.ts / solarSystem.test.ts. The layoutLabelOffsets and
-// distance-label suites are salvaged from the retired solarView.test.ts —
-// the semantics travel with the code.
+// as ephemeris.test.ts / solarSystem.test.ts. The label-stacking and
+// distance-label suites descend from the retired solarView.test.ts — the
+// guarantees travel with the code (stacking upgraded to box-aware after
+// drive round 1 caught text overprint the point rule could not see).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -33,7 +34,7 @@ import {
   camBasis,
   northRollDeg,
   projectPoint,
-  layoutLabelOffsets,
+  layoutLabelStacks,
   LABEL_COLLIDE_PX,
   fmtSpaceDistance,
   FRAME_DISC_FRACTION,
@@ -356,23 +357,38 @@ test("registry ephemeris: positions are exactly the solarSystem.ts state (meters
 
 // ── salvaged from the retired solarView (same tested semantics) ─────────────
 
-test("layoutLabelOffsets: markers never move — only colliding LABELS stack", () => {
-  assert.deepEqual(layoutLabelOffsets([{ x: 100, y: 100 }, { x: 300, y: 100 }]), [0, 0]);
-  assert.deepEqual(layoutLabelOffsets([{ x: 100, y: 100 }, { x: 101, y: 100 }]), [0, LABEL_COLLIDE_PX]);
+test("layoutLabelStacks: bodies never move — colliding label ROWS stack into free slots", () => {
+  // far apart horizontally (beyond a text row's width) → no offset
+  assert.deepEqual(layoutLabelStacks([{ x: 100, y: 100 }, { x: 300, y: 100 }]), [0, 0]);
+  // co-located anchors → the later label steps one row down
+  assert.deepEqual(layoutLabelStacks([{ x: 100, y: 100 }, { x: 101, y: 100 }]), [0, LABEL_COLLIDE_PX]);
+  // BOX-aware (the drive-round-1 cluster): anchors 15-25px apart never
+  // collided under the old point rule while their ~130px text overprinted —
+  // they must stack now
+  const cluster = layoutLabelStacks([{ x: 712, y: 467 }, { x: 720, y: 477 }, { x: 725, y: 491 }]);
+  const rows = cluster.map((o, i) => [467, 477, 491][i] + o);
+  rows.sort((a, b) => a - b);
+  for (let i = 1; i < rows.length; i++) {
+    assert.ok(rows[i] - rows[i - 1] >= LABEL_COLLIDE_PX, `rows ${i - 1}/${i} separated (${rows.join(",")})`);
+  }
+  // three mutually co-located labels → a clean descending stack
   assert.deepEqual(
-    layoutLabelOffsets([{ x: 50, y: 50 }, { x: 51, y: 50 }, { x: 49, y: 51 }]),
-    [0, LABEL_COLLIDE_PX, 2 * LABEL_COLLIDE_PX],
+    layoutLabelStacks([{ x: 50, y: 50 }, { x: 51, y: 50 }, { x: 49, y: 51 }]),
+    [0, LABEL_COLLIDE_PX, 2 * LABEL_COLLIDE_PX - 1],
   );
+  // slot-filling: a label DROPS INTO the free gap between occupied rows
+  // (rows at 0 and 28: the third label steps off row 0 and fits at 14)
   assert.deepEqual(
-    layoutLabelOffsets([{ x: 49, y: 51 }, { x: 51, y: 50 }, { x: 50, y: 50 }]),
-    [0, LABEL_COLLIDE_PX, 2 * LABEL_COLLIDE_PX],
+    layoutLabelStacks([{ x: 0, y: 0 }, { x: 0, y: 2 * LABEL_COLLIDE_PX }, { x: 0, y: 0 }]),
+    [0, 0, LABEL_COLLIDE_PX],
   );
-  assert.deepEqual(
-    layoutLabelOffsets([{ x: 0, y: 0 }, { x: LABEL_COLLIDE_PX, y: 0 }]),
-    [0, 0],
-  );
-  assert.deepEqual(layoutLabelOffsets([]), []);
-  assert.deepEqual(layoutLabelOffsets([{ x: 5, y: 5 }]), [0]);
+  // beyond the box width horizontally at identical y → independent
+  assert.deepEqual(layoutLabelStacks([{ x: 0, y: 0 }, { x: 200, y: 0 }], 130), [0, 0]);
+  // custom box width is honored
+  assert.deepEqual(layoutLabelStacks([{ x: 0, y: 0 }, { x: 50, y: 0 }], 40), [0, 0]);
+  // degenerate inputs never throw
+  assert.deepEqual(layoutLabelStacks([]), []);
+  assert.deepEqual(layoutLabelStacks([{ x: 5, y: 5 }]), [0]);
 });
 
 test("distance labels: units-preference formatter below 0.01 AU, AU above", () => {

@@ -102,9 +102,11 @@ export const MARKER_MAX_DISC_PX = 2;
 /** Live-map ↔ impostor crossfade band, in Earth-disc CSS px. Above HI the
  *  live map is fully opaque (from lunar distance Earth is ~45px at 900px
  *  viewport height — deliberately above HI, so the Earth you see from the
- *  Moon is the live one). Below LO the impostor carries the disc alone. */
-export const MAP_FADE_HI_PX = 34;
-export const MAP_FADE_LO_PX = 22;
+ *  Moon is the live one; the chip fly-out's 2.2×-lunar framing at ~20px
+ *  stays mostly live too). Below LO — where the map would be a sub-14px
+ *  blob with no legible content — the impostor carries the disc alone. */
+export const MAP_FADE_HI_PX = 24;
+export const MAP_FADE_LO_PX = 14;
 
 /** Fly-to arrival framing: the target's disc spans this fraction of the
  *  viewport's SHORT side (aspect-safe — phones frame as well as 1440), and
@@ -123,9 +125,14 @@ export const ARRIVAL_LOOKBACK_OFFSET_DEG = 15;
  *  and the floor is per-body (MIN_DISTANCE_RADII). */
 export const MAX_CAMERA_DISTANCE_M = 7e12;
 
-/** Labels within this many px of an earlier label stack downward (salvaged
- *  from the retired solarView — same tested semantics). */
+/** One label row's height, px — vertical collision distance for stacking. */
 export const LABEL_COLLIDE_PX = 14;
+
+/** One label row's nominal text width, px — horizontal collision distance.
+ *  (The retired solarView stacked on POINT distance only; a whole-system
+ *  cluster puts anchors 15-25px apart with ~130px of text overprinting —
+ *  drive round 1 showed exactly that, so the stacker is box-aware now.) */
+export const LABEL_BOX_W_PX = 130;
 
 /** Bodies drawn per-pixel are shaded at most at this sprite radius and
  *  upscaled beyond it (smooth sphere — visually lossless, 4x+ cheaper). */
@@ -375,20 +382,34 @@ export function projectPoint(
 }
 
 /**
- * Per-body vertical label offsets so colliding labels STACK instead of
- * overprinting — markers never move, only the text anchors (salvaged
- * verbatim from the retired solarView; same tests travel with it).
+ * Per-label vertical offsets so colliding labels STACK instead of
+ * overprinting — markers/bodies never move, only where their text anchors
+ * (the retired solarView's tested guarantee, upgraded from point-distance
+ * to BOX collision: two label ROWS collide when their anchors are within a
+ * row's width horizontally and a row's height vertically). Greedy in input
+ * order: each label steps down past every earlier label's occupied row
+ * until it finds a free slot, so any cluster resolves to a clean readable
+ * stack with no overprint.
  */
-export function layoutLabelOffsets(positions: { x: number; y: number }[]): number[] {
-  const offsets = new Array(positions.length).fill(0);
-  for (let i = 0; i < positions.length; i++) {
-    let stack = 0;
-    for (let j = 0; j < i; j++) {
-      const dx = positions[i].x - positions[j].x;
-      const dy = positions[i].y - positions[j].y;
-      if (Math.hypot(dx, dy) < LABEL_COLLIDE_PX) stack++;
+export function layoutLabelStacks(
+  anchors: { x: number; y: number }[],
+  boxW = LABEL_BOX_W_PX,
+): number[] {
+  const offsets = new Array(anchors.length).fill(0);
+  for (let i = 0; i < anchors.length; i++) {
+    let y = anchors[i].y;
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (let j = 0; j < i; j++) {
+        const yj = anchors[j].y + offsets[j];
+        if (Math.abs(anchors[i].x - anchors[j].x) < boxW && Math.abs(y - yj) < LABEL_COLLIDE_PX) {
+          y = yj + LABEL_COLLIDE_PX; // step below the occupied row, re-scan
+          moved = true;
+        }
+      }
     }
-    offsets[i] = stack * LABEL_COLLIDE_PX;
+    offsets[i] = y - anchors[i].y;
   }
   return offsets;
 }
@@ -874,18 +895,38 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       }
     }
 
-    // markers + labels (near→far so close bodies claim label space first)
+    // markers + labels (near→far so close bodies claim label space first);
+    // stacking runs on the label ANCHORS (right of each disc/marker), box-
+    // aware — a big disc's label can collide with a distant body's label.
+    // The live-map anchor composites ABOVE this canvas, so its opaque disc
+    // would swallow any label row it covers (drive round 2: the Moon's limb
+    // label vanished under the live Earth) — seed PHANTOM occupied rows
+    // spanning that disc so labels step around it. Capped: a near-seam disc
+    // filling the screen needs no label choreography.
     const labeled = [...onScreen].reverse();
-    const offsets = layoutLabelOffsets(labeled.map((d) => ({ x: d.p.x, y: d.p.y })));
+    const anchorDrawn = onScreen.find((d) => d.id === anchorDef.id);
+    const phantoms: { x: number; y: number }[] = [];
+    if (anchorDrawn && anchorDrawn.discPx >= 16 && mapAnchorOpacity(anchorDrawn.discPx) > 0.05) {
+      const reach = anchorDrawn.discPx / 2 + 7;
+      for (let py = anchorDrawn.p.y - reach; py <= anchorDrawn.p.y + reach && phantoms.length < 14; py += LABEL_COLLIDE_PX) {
+        phantoms.push({ x: anchorDrawn.p.x - LABEL_BOX_W_PX / 2, y: py });
+      }
+    }
+    const offsets = layoutLabelStacks([
+      ...phantoms,
+      ...labeled.map((d) => ({ x: d.p.x + Math.max(d.discPx / 2, 8) + 6, y: d.p.y })),
+    ]).slice(phantoms.length);
     ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
     let markers = 0;
+    const markerIds = new Set<string>(); // getState reports what was DRAWN
     labeled.forEach((d, i) => {
       const r = d.discPx / 2;
       const isMarker = markerNeeded(d.discPx);
       if (isMarker) {
         markers++;
+        markerIds.add(d.id);
         // reticle: ring + 4 ticks OUTSIDE the (sub-pixel) body — reads as an
         // annotation, never as a disc
         const ring = 8;
@@ -918,20 +959,33 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       ctx.fillText(`${defById.get(d.id)!.name} · ${fmtSpaceDistance(d.distM)}${extra}`, anchorX, ly);
     });
 
-    // ── chrome ──
+    // ── chrome (x=72 clears the page's left button rail; the bottom-left
+    // caption slot is free because the parent hides the map-meta overlays
+    // — preset switch, imagery-date chip — while the frame is active) ──
     ctx.fillStyle = "rgba(210,222,238,0.85)";
-    ctx.fillText(new Date(timeMs).toISOString().replace(/\.\d{3}Z$/, "Z"), 16, 22);
+    ctx.fillText(new Date(timeMs).toISOString().replace(/\.\d{3}Z$/, "Z"), 72, 22);
     const focus = drawn.find((d) => d.id === focusId)!;
     ctx.fillStyle = "rgba(160,175,198,0.8)";
     ctx.fillText(
       `${flight ? "flying to" : "at"} ${defById.get(flight ? flight.toId : focusId)!.name} · camera ${fmtSpaceDistance(flight ? len3(sub(camPos, pos[flight.toId])) : focus.distM)} out`,
-      16, 38,
+      72, 38,
     );
-    // honesty caption — persistent, both lines, every frame
-    ctx.fillStyle = "rgba(160,175,198,0.8)";
-    ctx.fillText("TRUE SCALE — real ephemeris positions & sizes · the camera does the compressing", 16, h - 30);
-    ctx.fillStyle = "rgba(140,155,178,0.65)";
-    ctx.fillText("markers flag bodies smaller than a pixel · Schlyter/van Flandern (~arcmin) · Moon phase real", 16, h - 16);
+    // honesty caption — persistent, every frame; wraps to three lines on
+    // narrow viewports so nothing ever clips off-screen (390px flawless)
+    const capLines = w < 700
+      ? [
+          "TRUE SCALE — real ephemeris positions & sizes",
+          "the camera does the compressing · sub-pixel bodies get markers",
+          "Schlyter/van Flandern (~arcmin) · Moon phase real",
+        ]
+      : [
+          "TRUE SCALE — real ephemeris positions & sizes · the camera does the compressing",
+          "markers flag bodies smaller than a pixel · Schlyter/van Flandern (~arcmin) · Moon phase real",
+        ];
+    capLines.forEach((line, i) => {
+      ctx.fillStyle = i === 0 ? "rgba(160,175,198,0.8)" : "rgba(140,155,178,0.65)";
+      ctx.fillText(line, 16, h - 16 - (capLines.length - 1 - i) * 14);
+    });
 
     // ── the Earth anchor: pose the LIVE MAP as the Earth ──
     const seam = opts.getMapSeam();
@@ -992,7 +1046,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         screenY: d.p.y,
         discPx: d.discPx,
         behind: d.behind,
-        marker: !d.behind && markerNeeded(d.discPx),
+        // true ⇔ this body's marker was actually DRAWN this frame (in front,
+        // inside the render margin, sub-threshold) — the render truth,
+        // never a recomputation that could drift from it
+        marker: markerIds.has(d.id),
         litFraction: d.lit,
         distM: d.distM,
       })),

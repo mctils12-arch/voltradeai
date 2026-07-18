@@ -2353,6 +2353,8 @@ a, button, [role="button"], input { transition: all 150ms ease; }
    bodies from the camera's true position instead. Suspended, not disposed:
    it resumes instantly at the seam. */
 .vt-space-active .vt-celestial-sky { display: none; }
+/* (the style-preset switch and imagery-date chip are SIBLINGS of the map
+   container, not descendants — they hide via !spaceActive in JSX instead) */
 .vt-space-active .maplibregl-canvas { will-change: transform, opacity; }
 .vt-space-chip {
   position: absolute; z-index: 31;
