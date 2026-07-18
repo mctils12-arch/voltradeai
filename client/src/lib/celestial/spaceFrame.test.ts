@@ -51,6 +51,7 @@ import {
 } from "./spaceFrame.js";
 import { solarSystemState, BODY_RADIUS_M, BODY_ORDER, AU_M } from "./solarSystem.js";
 import { subsolarPoint } from "./ephemeris.js";
+import { MOON_IDS, MOONS, moonLocalOffsetEclM, moonOrbitPeriodDays } from "./moons.js";
 
 const close = (a: number, b: number, tol: number, msg: string): void =>
   assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b} (tol ${tol})`);
@@ -340,9 +341,9 @@ test("seamExitArmed: only idle-at-anchor or the fly-home flight can exit (phone-
 
 // ── the body registry (future-proofing contract) ────────────────────────────
 
-test("defaultBodyRegistry: all ten bodies declared, Earth is the only map anchor, the Sun the only light", () => {
+test("defaultBodyRegistry: all eighteen bodies declared (B3 adds the curated moons), Earth is the only map anchor, the Sun the only light", () => {
   const reg = defaultBodyRegistry();
-  assert.deepEqual(reg.map((b) => b.id), [...BODY_ORDER], "same canonical order");
+  assert.deepEqual(reg.map((b) => b.id), [...BODY_ORDER, ...MOON_IDS], "canonical order + curated moons");
   const anchors = reg.filter((b) => b.mapAnchor === "maplibre");
   assert.equal(anchors.length, 1, "exactly one live-map anchor");
   assert.equal(anchors[0].id, "earth", "the anchor is Earth (today)");
@@ -350,10 +351,19 @@ test("defaultBodyRegistry: all ten bodies declared, Earth is the only map anchor
   const emissive = reg.filter((b) => b.emissive);
   assert.equal(emissive.length, 1, "exactly one light source");
   assert.equal(emissive[0].id, "sun");
-  // true radii, never invented: km = the ephemeris lib's meters / 1000
+  // true radii, never invented: solar-system bodies from the ephemeris
+  // lib's meters, curated moons from the cited JPL phys_par table
   for (const b of reg) {
-    close(b.radiusKm, BODY_RADIUS_M[b.id as keyof typeof BODY_RADIUS_M] / 1000, 1e-9, `${b.id} radius`);
+    const wantKm = (MOON_IDS as readonly string[]).includes(b.id)
+      ? MOONS[b.id as keyof typeof MOONS].radiusKm
+      : BODY_RADIUS_M[b.id as keyof typeof BODY_RADIUS_M] / 1000;
+    close(b.radiusKm, wantKm, 1e-9, `${b.id} radius`);
     assert.ok(/^#[0-9a-f]{6}$/i.test(b.color), `${b.id} presentation color`);
+  }
+  // B3: every body except the Sun declares its orbit-line period
+  for (const b of reg) {
+    if (b.id === "sun") assert.equal(b.orbitPeriodDays ?? null, null, "no Sun orbit line");
+    else assert.ok((b.orbitPeriodDays ?? 0) > 0, `${b.id} orbit period declared`);
   }
 });
 
@@ -363,6 +373,15 @@ test("registry ephemeris: positions are exactly the solarSystem.ts state (meters
   const state = solarSystemState(t);
   for (const b of reg) {
     const p = b.ephemeris(t);
+    if ((MOON_IDS as readonly string[]).includes(b.id)) {
+      // B3 curated moon: parent's solarSystem position + the JPL local offset
+      const par = state.find((s) => s.id === MOONS[b.id as keyof typeof MOONS].parent)!;
+      const o = moonLocalOffsetEclM(b.id as never, t);
+      close(p.x, par.helioAu.x * AU_M + o.x, 1, `${b.id} x rides its parent`);
+      close(p.y, par.helioAu.y * AU_M + o.y, 1, `${b.id} y rides its parent`);
+      close(p.z, par.helioAu.z * AU_M + o.z, 1, `${b.id} z rides its parent`);
+      continue;
+    }
     const ref = state.find((s) => s.id === b.id)!;
     close(p.x, ref.helioAu.x * AU_M, 1, `${b.id} x`);
     close(p.y, ref.helioAu.y * AU_M, 1, `${b.id} y`);
@@ -617,10 +636,55 @@ test("floating origin: sub-pixel projection stability at Neptune range (30 AU)",
 
 // ── B2 scale system: compressed layout, TRUE labels (the numbers never lie) ─
 
-test("B2 registry: the Moon declares Earth as parent (rides it through compression)", () => {
+test("B2/B3 registry: every satellite declares its primary (rides it through compression)", () => {
   const reg = defaultBodyRegistry();
   for (const b of reg) {
-    assert.equal(b.parentId ?? null, b.id === "moon" ? "earth" : null, `${b.id} parentId`);
+    const want = b.id === "moon"
+      ? "earth"
+      : (MOON_IDS as readonly string[]).includes(b.id)
+        ? MOONS[b.id as keyof typeof MOONS].parent
+        : null;
+    assert.equal(b.parentId ?? null, want, `${b.id} parentId`);
+  }
+});
+
+test("B3 moons ride compression: at c=1 each curated moon keeps its TRUE local offset from its compressed parent", async () => {
+  const { applyDistanceCompression } = await import("./scaleModel.js");
+  const t = Date.UTC(2026, 6, 18, 12);
+  const reg = defaultBodyRegistry();
+  const truePos = Object.fromEntries(reg.map((b) => [b.id, b.ephemeris(t)]));
+  const layout = applyDistanceCompression(
+    reg.map((b) => ({ id: b.id, parentId: b.parentId ?? null, pos: truePos[b.id] })),
+    1,
+  );
+  for (const id of MOON_IDS) {
+    const parent = MOONS[id].parent;
+    const offTrue = {
+      x: truePos[id].x - truePos[parent].x,
+      y: truePos[id].y - truePos[parent].y,
+      z: truePos[id].z - truePos[parent].z,
+    };
+    const offLayout = {
+      x: layout[id].x - layout[parent].x,
+      y: layout[id].y - layout[parent].y,
+      z: layout[id].z - layout[parent].z,
+    };
+    close(offLayout.x, offTrue.x, 1e-3, `${id} local x true at c=1`);
+    close(offLayout.y, offTrue.y, 1e-3, `${id} local y true at c=1`);
+    close(offLayout.z, offTrue.z, 1e-3, `${id} local z true at c=1`);
+    // and the offset magnitude is the JPL ellipse, not an invented one
+    const r = Math.hypot(offTrue.x, offTrue.y, offTrue.z);
+    assert.ok(
+      r > MOONS[id].aKm * 1000 * (1 - MOONS[id].e) * 0.99 &&
+      r < MOONS[id].aKm * 1000 * (1 + MOONS[id].e) * 1.01,
+      `${id} offset on its ellipse (${(r / 1000).toFixed(0)} km)`,
+    );
+  }
+  // orbit-line periods: the registry's sampling windows match the moons lib
+  for (const b of defaultBodyRegistry()) {
+    if ((MOON_IDS as readonly string[]).includes(b.id)) {
+      close(b.orbitPeriodDays!, moonOrbitPeriodDays(b.id as never), 1e-9, `${b.id} orbit period`);
+    }
   }
 });
 

@@ -119,6 +119,34 @@ import {
   type ScaleState,
   type ScaleBodyIn,
 } from "./scaleModel.js";
+// B3 (directive §3, 2026-07-18): curated moons as real ephemeris bodies
+// (JPL mean elements — moons.ts header carries the citations), IAU axial
+// tilt + true rotation states (rotation.ts — pck00011/WGCCRE 2015), and
+// precomputed orbit-ellipse polylines that flow through the same layout
+// compression as body positions (orbitPath.ts).
+import {
+  MOON_IDS,
+  MOONS,
+  MOON_COLOR,
+  MOON_NAME,
+  moonLocalOffsetEclM,
+  moonOrbitPeriodDays,
+  type MoonId,
+} from "./moons.js";
+import {
+  hasRotationModel,
+  axisEclOfDate,
+  primeMeridianDeg as iauPrimeMeridianDeg,
+} from "./rotation.js";
+import {
+  sampleOrbitPolyline,
+  layoutOrbitPolyline,
+  orbitPolylineStale,
+  getOrbitPathsPref,
+  ORBIT_SAMPLES_PLANET,
+  ORBIT_SAMPLES_MOON,
+  type OrbitPolyline,
+} from "./orbitPath.js";
 
 // B2 scale system: the user-controlled layout mapping is re-exported so the
 // frame's public surface keeps one name per contract (the zoomSeam pattern).
@@ -598,6 +626,10 @@ export interface SpaceBodyDef {
    *  compression at the TRUE local offset (scaleModel.ts header states
    *  why); absent ⇒ the body's heliocentric radius is what compresses. */
   parentId?: string | null;
+  /** B3: one full orbit-line period, days (planets: sidereal year; moons:
+   *  the closed-ellipse anomalistic period). Absent/null ⇒ no orbit line
+   *  (the Sun). */
+  orbitPeriodDays?: number | null;
 }
 
 /** Approximate naked-eye display colors — presentation only, not data. */
@@ -620,11 +652,30 @@ const NAMES: Record<BodyId, string> = {
   uranus: "Uranus", neptune: "Neptune",
 };
 
+/** Sidereal orbital periods, days (NSSDC planetary fact sheets) — the
+ *  B3 orbit-line sampling windows. The Moon's is the sidereal month (its
+ *  drawn line is one month of the real perturbed geocentric path). */
+export const PLANET_ORBIT_PERIOD_DAYS: Record<Exclude<BodyId, "sun">, number> = {
+  mercury: 87.969,
+  venus: 224.701,
+  earth: 365.256,
+  moon: 27.3217,
+  mars: 686.980,
+  jupiter: 4332.589,
+  saturn: 10759.22,
+  uranus: 30685.4,
+  neptune: 60189.0,
+};
+
 /**
  * The default registry: Sun, Moon, Earth and the 8 planets from the
- * solarSystem.ts ephemeris (Schlyter/van Flandern, arcmin-class). All ten
+ * solarSystem.ts ephemeris (Schlyter/van Flandern, arcmin-class), plus —
+ * since B3 — the curated moons (Io, Europa, Ganymede, Callisto, Titan,
+ * Triton, Phobos, Deimos) at their JPL mean-element positions riding
+ * their parents (moons.ts carries the citations). All solar-system
  * ephemeris fns share one single-instant memo — solarSystemState computes
- * the whole system at once, and flights evaluate every frame.
+ * the whole system at once, and flights evaluate every frame; each moon
+ * adds one cheap local Kepler solve on top of the shared memo.
  */
 export function defaultBodyRegistry(): SpaceBodyDef[] {
   let memo: { t: number; pos: Record<string, Vec3> } | null = null;
@@ -638,7 +689,7 @@ export function defaultBodyRegistry(): SpaceBodyDef[] {
     }
     return memo.pos;
   };
-  return BODY_ORDER.map((id) => ({
+  const core: SpaceBodyDef[] = BODY_ORDER.map((id) => ({
     id,
     name: NAMES[id],
     radiusKm: BODY_RADIUS_M[id] / 1000,
@@ -647,7 +698,23 @@ export function defaultBodyRegistry(): SpaceBodyDef[] {
     emissive: id === "sun" ? true : undefined,
     mapAnchor: id === "earth" ? ("maplibre" as const) : null,
     parentId: id === "moon" ? "earth" : null,
+    orbitPeriodDays: id === "sun" ? null : PLANET_ORBIT_PERIOD_DAYS[id],
   }));
+  const moons: SpaceBodyDef[] = MOON_IDS.map((id: MoonId) => ({
+    id,
+    name: MOON_NAME[id],
+    radiusKm: MOONS[id].radiusKm,
+    ephemeris: (timeMs: number) => {
+      const p = at(timeMs)[MOONS[id].parent];
+      const o = moonLocalOffsetEclM(id, timeMs);
+      return v3(p.x + o.x, p.y + o.y, p.z + o.z);
+    },
+    color: MOON_COLOR[id],
+    mapAnchor: null,
+    parentId: MOONS[id].parent,
+    orbitPeriodDays: moonOrbitPeriodDays(id),
+  }));
+  return [...core, ...moons];
 }
 
 // ── mount ───────────────────────────────────────────────────────────────────
@@ -687,6 +754,9 @@ export interface SpaceFrameOptions {
   /** B2 initial scale state (default: the persisted preference — VISIBLE on
    *  first run). Layout only; labels/scale bar stay true regardless. */
   scale?: ScaleState;
+  /** B3 initial orbit-paths visibility (default: the persisted preference —
+   *  ON on first run). */
+  orbitPaths?: boolean;
   /** the body registry (default: defaultBodyRegistry() — Sun/Moon/Earth +
    *  the 8 planets). Must contain exactly one emissive body (the light
    *  source) and at most one mapAnchor body. */
@@ -715,6 +785,9 @@ export interface SpaceFrameHandle {
   /** B2: live scale update (slider drags). rAF-coalesced like any input —
    *  layout re-flows next frame; ephemeris and labels are untouched. */
   setScale(st: ScaleState): void;
+  /** B3: toggle the orbit-ellipse polylines (cached lines restyle, never
+   *  resample, on scale changes — the charter's slider rule). */
+  setOrbitPaths(on: boolean): void;
   getState(): SpaceFrameState;
   dispose(): void;
 }
@@ -738,6 +811,18 @@ export interface SpaceFrameBodyState {
   /** camera→body distance in the compressed LAYOUT, meters (what the
    *  projection used). Equals distM at c=0. */
   layoutDistM: number;
+  /** B3: spin-axis unit vector (ecliptic of date) from the IAU model —
+   *  null for bodies without a rotation model. Time-derived from the one
+   *  simulation clock like everything else. */
+  axisEcl: Vec3 | null;
+  /** B3: IAU prime-meridian angle W, degrees [0,360) — the body's true
+   *  rotation state (Moon tidally locked by the real constants). B4/B5
+   *  surface rendering consumes axisEcl + this pair. */
+  primeMeridianDeg: number | null;
+  /** B3: true when this satellite's marker+label were folded into its
+   *  parent's "+N moons" note because it projects inside the parent's
+   *  drawn footprint (the body pixel itself still renders). */
+  insideParent: boolean;
 }
 
 export interface SpaceFrameState {
@@ -754,6 +839,9 @@ export interface SpaceFrameState {
   /** the scale bar as DRAWN this frame (render truth for the harness):
    *  mi/km per the units preference near bodies, AU at system range. */
   scaleBar: { widthPx: number; label: string } | null;
+  /** B3 orbit-line render state: toggle + how many of the registry's
+   *  lines are sampled and cached (they stream in one per macrotask). */
+  orbitPaths: { on: boolean; ready: number; total: number };
   anchor: (EarthAnchor & { subLatDeg: number; subLonDeg: number }) | null;
   bodies: SpaceFrameBodyState[];
 }
@@ -837,6 +925,129 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       defById.get(id)?.mapAnchor === "maplibre",
       !!defById.get(id)?.emissive,
     );
+
+  // ── B3 orbit-ellipse polylines: sampled ONCE per body from the real
+  // ephemeris (one body per macrotask — no >16ms main-thread work), cached,
+  // and only RE-LAID-OUT when the compression slider moves (memoized per c).
+  // Resampled only when the sim clock drifts past the staleness window. ──
+  let orbitsOn = opts.orbitPaths ?? getOrbitPathsPref();
+  interface OrbitEntry {
+    line: OrbitPolyline;
+    /** heliocentric lines: compressed layout memo (satellite lines never
+     *  compress — true offsets ride the parent's layout position). */
+    layout: Float64Array | null;
+    layoutC: number;
+  }
+  const orbitCache = new Map<string, OrbitEntry>();
+  const orbitTotal = defs.filter((d) => d.orbitPeriodDays).length;
+  let orbitJob: ReturnType<typeof setTimeout> | null = null;
+  function nextOrbitBody(): SpaceBodyDef | null {
+    for (const d of defs) {
+      if (!d.orbitPeriodDays) continue;
+      const e = orbitCache.get(d.id);
+      if (!e || orbitPolylineStale(e.line.sampledAtMs, timeMs)) return d;
+    }
+    return null;
+  }
+  function scheduleOrbitSampling(): void {
+    if (orbitJob || disposed || !orbitsOn || !nextOrbitBody()) return;
+    orbitJob = setTimeout(() => {
+      orbitJob = null;
+      if (disposed || !orbitsOn) return;
+      const def = nextOrbitBody();
+      if (!def) return;
+      const parentId = def.parentId ?? null;
+      const parentDef = parentId ? defById.get(parentId) : null;
+      const line = sampleOrbitPolyline(
+        def.id,
+        parentId,
+        def.ephemeris,
+        parentDef ? parentDef.ephemeris : null,
+        timeMs,
+        def.orbitPeriodDays!,
+        parentId ? ORBIT_SAMPLES_MOON : ORBIT_SAMPLES_PLANET,
+      );
+      orbitCache.set(def.id, { line, layout: null, layoutC: Number.NaN });
+      kick(); // paint the new line
+      scheduleOrbitSampling(); // chain: next body on its own macrotask
+    }, 0);
+  }
+
+  /** rgba() from a #rrggbb presentation color at the path alpha. */
+  function pathStroke(hex: string, alpha: number): string {
+    return `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${alpha})`;
+  }
+
+  /**
+   * Stroke every cached orbit line in the CURRENT layout space (same
+   * dual-space rule as bodies: geometry compressed, numbers elsewhere stay
+   * true). Inline projection — no per-vertex allocation. Segments crossing
+   * behind the camera break the stroke instead of smearing across it.
+   */
+  function drawOrbitPaths(
+    c2d: CanvasRenderingContext2D,
+    pos: Record<string, Vec3>,
+    camPos: Vec3,
+    basis: CamBasis,
+    k: number,
+    cx: number,
+    cy: number,
+  ): void {
+    c2d.lineWidth = 1;
+    for (const def of defs) {
+      const entry = orbitCache.get(def.id);
+      if (!entry) continue;
+      const parentId = entry.line.parentId;
+      let px = 0;
+      let py = 0;
+      let pz = 0;
+      let verts: Float64Array;
+      if (parentId) {
+        const pp = pos[parentId];
+        if (!pp) continue;
+        // skip when the whole local orbit is sub-pixel from here
+        const pdx = pp.x - camPos.x;
+        const pdy = pp.y - camPos.y;
+        const pdz = pp.z - camPos.z;
+        const pDist = Math.hypot(pdx, pdy, pdz);
+        if (pDist > 0 && (entry.line.maxRadiusM / pDist) * k < 2) continue;
+        px = pp.x;
+        py = pp.y;
+        pz = pp.z;
+        verts = entry.line.pts; // TRUE offsets — the parented layout rule
+      } else {
+        if (entry.layoutC !== scaleSt.c) {
+          entry.layout = layoutOrbitPolyline(entry.line.pts, scaleSt.c, entry.layout ?? undefined);
+          entry.layoutC = scaleSt.c;
+        }
+        verts = entry.layout!;
+      }
+      c2d.strokeStyle = pathStroke(def.color, 0.3);
+      c2d.beginPath();
+      let open = false;
+      const n = verts.length / 3;
+      for (let i = 0; i <= n; i++) {
+        const j = (i % n) * 3; // wrap: join last→first to close the loop
+        const wx = px + verts[j] - camPos.x;
+        const wy = py + verts[j + 1] - camPos.y;
+        const wz = pz + verts[j + 2] - camPos.z;
+        const depth = wx * basis.f.x + wy * basis.f.y + wz * basis.f.z;
+        if (depth <= 0) {
+          open = false;
+          continue;
+        }
+        const sx = cx + (k * (wx * basis.r.x + wy * basis.r.y + wz * basis.r.z)) / depth;
+        const sy = cy - (k * (wx * basis.u.x + wy * basis.u.y + wz * basis.u.z)) / depth;
+        if (!open) {
+          c2d.moveTo(sx, sy);
+          open = true;
+        } else {
+          c2d.lineTo(sx, sy);
+        }
+      }
+      c2d.stroke();
+    }
+  }
 
   // ── camera: focus body + unit dir (target→camera) + distance ──
   const seam0 = opts.getMapSeam();
@@ -1064,6 +1275,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     ctx.fillStyle = "#020409";
     ctx.fillRect(0, 0, w, h);
 
+    // ── B3 orbit ellipses (under the bodies) — cached polylines in the
+    // current layout space; sampling streams in one body per macrotask ──
+    if (orbitsOn) {
+      scheduleOrbitSampling();
+      drawOrbitPaths(ctx, pos, camPos, basis, kNow, cx, cy);
+    }
+
     // ── project every body; depth-sort far→near for painter's occlusion.
     // Geometry (projection, disc, occlusion, shading) is LAYOUT space;
     // distM carried per body is the TRUE camera distance (label truth). ──
@@ -1134,7 +1352,26 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // label vanished under the live Earth) — seed PHANTOM occupied rows
     // spanning that disc so labels step around it. Capped: a near-seam disc
     // filling the screen needs no label choreography.
-    const labeled = [...onScreen].reverse();
+    // B3: a satellite projecting INSIDE its parent's drawn footprint is not
+    // separable at this zoom — its reticle+label would overprint the parent
+    // (four identical reticles on Jupiter's pixel at system zoom). Fold it
+    // into the parent's label as "+N moons" instead: nothing is invisible
+    // (the honesty rail), and zooming toward the parent resolves the moons
+    // back into their own markers/labels the moment they separate.
+    const insideParent = new Set<string>();
+    const foldedMoons = new Map<string, number>();
+    for (const d of onScreen) {
+      const parentId = defById.get(d.id)?.parentId;
+      if (!parentId) continue;
+      const par = drawn.find((x) => x.id === parentId);
+      if (!par || par.behind || !Number.isFinite(par.p.x)) continue;
+      const sep = Math.hypot(d.p.x - par.p.x, d.p.y - par.p.y);
+      if (sep < Math.max(par.discPx / 2, 8) + 4) {
+        insideParent.add(d.id);
+        foldedMoons.set(parentId, (foldedMoons.get(parentId) ?? 0) + 1);
+      }
+    }
+    const labeled = [...onScreen].reverse().filter((d) => !insideParent.has(d.id));
     const anchorDrawn = onScreen.find((d) => d.id === anchorDef.id);
     const phantoms: { x: number; y: number }[] = [];
     if (anchorDrawn && anchorDrawn.discPx >= 16 && mapAnchorOpacity(anchorDrawn.discPx) > 0.05) {
@@ -1187,7 +1424,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         d.id === anchorDef.id && mapAnchorOpacity(d.discPx) < 0.5
           ? " · live map resumes on approach"
           : "";
-      ctx.fillText(`${defById.get(d.id)!.name} · ${fmtSpaceDistance(d.distM)}${extra}`, anchorX, ly);
+      // B3: satellites folded into this body's footprint surface here —
+      // never silently absent (zoom/fly closer and they resolve)
+      const folded = foldedMoons.get(d.id) ?? 0;
+      const moonsNote = folded ? ` · +${folded} moon${folded > 1 ? "s" : ""}` : "";
+      ctx.fillText(`${defById.get(d.id)!.name} · ${fmtSpaceDistance(d.distM)}${extra}${moonsNote}`, anchorX, ly);
     });
 
     // ── chrome (x=72 clears the page's left button rail; the bottom-left
@@ -1328,6 +1569,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       renderMsLast,
       markers,
       scaleBar: scaleBarOut,
+      orbitPaths: { on: orbitsOn, ready: orbitCache.size, total: orbitTotal },
       anchor: anchorOut,
       bodies: drawn.map((d) => ({
         id: d.id,
@@ -1343,6 +1585,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         litFraction: d.lit,
         distM: d.distM,
         layoutDistM: d.layoutDistM,
+        // B3 rotation state (IAU pole + W at the sim-clock instant) — the
+        // orientation truth B4/B5 surfaces will render from
+        axisEcl: hasRotationModel(d.id) ? axisEclOfDate(d.id, timeMs) : null,
+        primeMeridianDeg: hasRotationModel(d.id) ? iauPrimeMeridianDeg(d.id, timeMs) : null,
+        insideParent: insideParent.has(d.id),
       })),
     };
   }
@@ -1515,6 +1762,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       lastInputAt = performance.now();
       kick();
     },
+    setOrbitPaths(on: boolean): void {
+      if (on === orbitsOn) return;
+      orbitsOn = on;
+      lastInputAt = performance.now();
+      kick(); // paths appear (sampling streams in) or vanish next frame
+    },
     getState(): SpaceFrameState {
       if (!lastState) draw();
       return lastState!;
@@ -1524,6 +1777,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       disposed = true;
       if (rafId) cancelAnimationFrame(rafId);
       rafId = 0;
+      if (orbitJob) {
+        clearTimeout(orbitJob);
+        orbitJob = null;
+      }
       try { ro?.disconnect(); } catch { /* already gone */ }
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("pointerdown", onPointerDown);
