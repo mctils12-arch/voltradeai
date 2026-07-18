@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -133,6 +133,17 @@ import {
 // B3 orbit-ellipse paths preference (persisted; the frame samples/caches
 // the polylines — this is just the toggle store, statically importable).
 import { getOrbitPathsPref, setOrbitPathsPref, subscribeOrbitPathsPref } from "@/lib/celestial/orbitPath";
+// SPACE VIEW VISUAL UPGRADE (2026-07-18): scene-toggle preference stores +
+// the license credit strings (import-light — manifest/prefs only; textures
+// and the render machinery live in the lazy space-frame chunk and load
+// NOTHING until the frame mounts).
+import {
+  getMilkyWayPref, setMilkyWayPref, subscribeMilkyWayPref,
+  getEclipticGridPref, setEclipticGridPref, subscribeEclipticGridPref,
+  getMotionTrailsPref, setMotionTrailsPref, subscribeMotionTrailsPref,
+  getBodyLabelsPref, setBodyLabelsPref, subscribeBodyLabelsPref,
+  SPACE_IMAGERY_CREDIT,
+} from "@/lib/celestial/spaceAssets";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
 // block logging — a recurrence of the v1.0.396 freeze surfaces in the
 // console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
@@ -1453,6 +1464,7 @@ export default function DataMapPage() {
     if (!spaceActiveRef.current) return;
     spaceActiveRef.current = false;
     setSpaceActive(false);
+    setSpaceFocus(null); // body card never outlives the space view
     const container = mapContainer.current;
     const handle = spaceHandleRef.current;
     spaceHandleRef.current = null;
@@ -1504,6 +1516,16 @@ export default function DataMapPage() {
         scale: getCelestialScale(),
         // B3: orbit-ellipse polylines per the persisted toggle
         orbitPaths: getOrbitPathsPref(),
+        // 2026-07-18 scene toggles (persisted): panorama/grid/trails/labels
+        milkyWay: getMilkyWayPref(),
+        eclipticGrid: getEclipticGridPref(),
+        motionTrails: getMotionTrailsPref(),
+        bodyLabels: getBodyLabelsPref(),
+        // the footer's "time ×N" reads the ONE sim clock's rate (display
+        // only — the frame never owns time)
+        getTimeRate: () => getSimClock().rate,
+        // body card: fly-to opens it, release/fly-home closes it
+        onFocusBody: (id) => setSpaceFocus(id),
         getMapSeam: () => {
           const c = map.getCenter();
           return { zoom: map.getZoom(), minZoom: map.getMinZoom(), centerLatDeg: c.lat, centerLonDeg: c.lng };
@@ -1541,6 +1563,11 @@ export default function DataMapPage() {
       const offScale = subscribeCelestialScale(() => { try { handle.setScale(getCelestialScale()); } catch {} });
       // B3: orbit-paths toggle applies live
       const offOrbits = subscribeOrbitPathsPref(() => { try { handle.setOrbitPaths(getOrbitPathsPref()); } catch {} });
+      // 2026-07-18 scene toggles apply live while mounted
+      const offGalaxy = subscribeMilkyWayPref(() => { try { handle.setMilkyWay(getMilkyWayPref()); } catch {} });
+      const offGrid = subscribeEclipticGridPref(() => { try { handle.setEclipticGrid(getEclipticGridPref()); } catch {} });
+      const offTrails = subscribeMotionTrailsPref(() => { try { handle.setMotionTrails(getMotionTrailsPref()); } catch {} });
+      const offLabels = subscribeBodyLabelsPref(() => { try { handle.setBodyLabels(getBodyLabelsPref()); } catch {} });
       const iv = window.setInterval(() => {
         if (getTimeAxis().mode === "live") { try { handle.setTime(simNow()); } catch {} }
       }, 60_000);
@@ -1568,6 +1595,7 @@ export default function DataMapPage() {
       armWarp(); // entering space while already warped keeps time flowing
       spaceCleanupRef.current = () => {
         offAxis(); offUnits(); offScale(); offOrbits(); offSim();
+        offGalaxy(); offGrid(); offTrails(); offLabels();
         window.clearInterval(iv);
         if (warpRaf) { cancelAnimationFrame(warpRaf); warpRaf = 0; }
         try { delete (window as any).__vtSpace; } catch {}
@@ -1659,6 +1687,30 @@ export default function DataMapPage() {
   }, [simIsReal]);
   const [celOrbits, setCelOrbitsView] = useState(getOrbitPathsPref());
   useEffect(() => subscribeOrbitPathsPref(() => setCelOrbitsView(getOrbitPathsPref())), []);
+  // SPACE VIEW VISUAL UPGRADE (2026-07-18): the scene toggles' panel view
+  // (stores of record in lib/celestial/spaceAssets.ts — persisted).
+  const [celGalaxy, setCelGalaxyView] = useState(getMilkyWayPref());
+  useEffect(() => subscribeMilkyWayPref(() => setCelGalaxyView(getMilkyWayPref())), []);
+  const [celGrid, setCelGridView] = useState(getEclipticGridPref());
+  useEffect(() => subscribeEclipticGridPref(() => setCelGridView(getEclipticGridPref())), []);
+  const [celTrails, setCelTrailsView] = useState(getMotionTrailsPref());
+  useEffect(() => subscribeMotionTrailsPref(() => setCelTrailsView(getMotionTrailsPref())), []);
+  const [celLabels, setCelLabelsView] = useState(getBodyLabelsPref());
+  useEffect(() => subscribeBodyLabelsPref(() => setCelLabelsView(getBodyLabelsPref())), []);
+  // the space frame's focused body → the body info card (reference
+  // #bodycard). Focus comes from the frame's onFocusBody; the card's
+  // values re-read every second while open (live true distances).
+  const [spaceFocus, setSpaceFocus] = useState<string | null>(null);
+  const [spaceCard, setSpaceCard] = useState<import("@/lib/celestial/spaceFrame").BodyCardInfo | null>(null);
+  useEffect(() => {
+    if (!spaceActive || !spaceFocus) { setSpaceCard(null); return; }
+    const read = (): void => {
+      try { setSpaceCard(spaceHandleRef.current?.getBodyCard(spaceFocus) ?? null); } catch { /* frame gone */ }
+    };
+    read();
+    const iv = window.setInterval(read, 1000);
+    return () => window.clearInterval(iv);
+  }, [spaceActive, spaceFocus]);
   // collapsed by default, like every non-base/live panel group
   const [celOpen, setCelOpen] = useState(false);
   const [showRawInfo, setShowRawInfo] = useState(false);
@@ -8648,7 +8700,9 @@ export default function DataMapPage() {
                 <span className={`vt-layer-group-chev${celOpen ? "" : " closed"}`}>▾</span>
                 <span>Celestial — space view</span>
                 <span className="vt-layer-group-count" data-vt-celestial-state>
-                  {isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
+                  {/* reference "N/7 ON" family: our five scene toggles */}
+                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels].filter(Boolean).length}/5 ON
+                  {" · "}{isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
                 </span>
               </button>
               {celOpen && (
@@ -8749,6 +8803,64 @@ export default function DataMapPage() {
                       moons), drawn in whatever compression the slider is set to. Setting persists.
                     </span>
                   </div>
+                  {/* SPACE SCENE toggles (2026-07-18 reference reconciliation):
+                      motion trails, the Milky Way panorama, the ecliptic grid
+                      and body labels — persisted prefs applied live by the
+                      frame. data-vt-control, never data-vt-layer. */}
+                  <div className="vt-layer-row" data-vt-control="celestial_scene">
+                    <span className="vt-layer-ic"><Sparkles size={15} /></span>
+                    <span className="vt-layer-name">
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Space scene</span>
+                      <span className="vt-kind-badge raw">RAW</span>
+                      <span className="vt-layer-status">
+                        <i style={{ background: celTrails || celGalaxy || celGrid || celLabels ? "#4ade80" : "#6680a0" }} />{" "}
+                        trails · galaxy · grid · labels
+                      </span>
+                    </span>
+                  </div>
+                  <div className="vt-field-controls" role="group" aria-label="Space scene toggles">
+                    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+                      <button
+                        className={`vt-preset-pill${celTrails ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={celTrails}
+                        data-vt-celestial-trails
+                        onClick={() => setMotionTrailsPref(!celTrails)}>
+                        TRAILS
+                      </button>
+                      <button
+                        className={`vt-preset-pill${celGalaxy ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={celGalaxy}
+                        data-vt-celestial-galaxy
+                        onClick={() => setMilkyWayPref(!celGalaxy)}>
+                        MILKY WAY
+                      </button>
+                      <button
+                        className={`vt-preset-pill${celGrid ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={celGrid}
+                        data-vt-celestial-gridtoggle
+                        onClick={() => setEclipticGridPref(!celGrid)}>
+                        AU GRID
+                      </button>
+                      <button
+                        className={`vt-preset-pill${celLabels ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={celLabels}
+                        data-vt-celestial-labels
+                        onClick={() => setBodyLabelsPref(!celLabels)}>
+                        LABELS
+                      </button>
+                    </span>
+                    <span className="vt-field-note">
+                      trails: 60° trailing arc of each real orbit — direction of travel at a glance.
+                      Milky Way: 8k panorama © Solar System Scope (CC-BY 4.0, solarsystemscope.com),
+                      aligned to the real galactic plane, fades in past 8 AU camera altitude. AU grid:
+                      range rings + bearing spokes (off by default). Labels: names with real distances —
+                      sub-pixel honesty markers stay on either way. Settings persist.
+                    </span>
+                    <span className="vt-field-note">
+                      {SPACE_IMAGERY_CREDIT}. Textures load only in the space view (progressive tiers;
+                      the 8k Moon only while the Moon is focused — unloaded on exit).
+                    </span>
+                  </div>
                   {/* B3 SIMULATION TIME (directive §3): one clock drives
                       planet/moon positions, rotations, the terminator, moon
                       phase AND the satellite propagation epoch together.
@@ -8796,6 +8908,22 @@ export default function DataMapPage() {
                         ⟲ now
                       </button>
                     </span>
+                    {/* the reference's continuous "time ×" dial (1×–316k,
+                        log) — a second input to the SAME clock the pills
+                        set; satellites ride the existing warp path. */}
+                    <label className="vt-field-slider">
+                      <span>{simSt.rate === 0 ? "time paused" : `time ×${Math.round(simSt.rate).toLocaleString("en-US")}`}</span>
+                      <input
+                        type="range" min={0} max={100} step={1}
+                        value={simSt.rate <= 1 ? 0 : Math.min(100, Math.round((Math.log10(simSt.rate) / 5.5) * 100))}
+                        aria-label="Simulation time multiplier"
+                        data-vt-sim-slider
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setSimRate(v <= 0 ? 1 : Math.round(Math.pow(10, (v / 100) * 5.5)));
+                        }}
+                      />
+                    </label>
                     <span className="vt-field-note">
                       one simulation clock drives planet + moon positions, rotations, Earth&apos;s terminator,
                       moon phase and the live satellites&apos; propagation epoch together. Warped satellites are
@@ -8835,6 +8963,40 @@ export default function DataMapPage() {
           </div>
         )}
       </div>
+
+      {/* SPACE VIEW body info card (reference #bodycard, 2026-07-18):
+          opens on fly-to, closes on release/fly-home/exit. Real IAU +
+          ephemeris values, units-formatted, distances re-read every
+          second while open. Desktop: right-anchored compact card;
+          phone: the standard bottom sheet (vt-site-card media query). */}
+      {spaceActive && spaceCard && (
+        <div className="vt-site-card vt-space-card" role="dialog"
+             aria-label={`${spaceCard.name} — body data`} data-vt-space-card>
+          <div className="vt-site-card-head">
+            <div>
+              <div className="vt-site-card-title">{spaceCard.name}</div>
+              <div className="vt-site-card-cat">{spaceCard.typeLabel} · TRACKED</div>
+            </div>
+            <button className="vt-icon-btn" aria-label="Close body card"
+                    onClick={() => setSpaceFocus(null)}>
+              <X size={14} />
+            </button>
+          </div>
+          <div className="vt-card-detbody om-sb">
+            <div className="vt-card-facts">
+              {spaceCard.rows.map((r) => (
+                <div className="vt-card-fact" key={r.label}>
+                  <div className="vt-card-fact-l">{r.label}</div>
+                  <div className="vt-card-fact-v">{r.value}</div>
+                </div>
+              ))}
+            </div>
+            <p className="vt-card-fresh" style={{ padding: "10px 0 0" }}>
+              IAU rotation model · Schlyter/van Flandern ephemeris (~arcmin) · distances live
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Detail card — side card on desktop, bottom sheet on phone */}
       {satFollowing && !inspectOpen && (
