@@ -87,7 +87,7 @@ import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // (pure, tested). orbital_sats is the first consumer: the population fades
 // out near the ground and pauses its worker (zero cost), returning on zoom
 // out — a render choice, always reversible, surfaced on-panel, never silent.
-import { cameraAltitudeKmFromMap, lodOpacity, type LodEnvelope } from "@/lib/lod";
+import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, type LodEnvelope } from "@/lib/lod";
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
@@ -1136,8 +1136,12 @@ export default function DataMapPage() {
     // ensure the craft-centered lock so the ease orbits the craft, not ground
     if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
     const altKmNow = t.altKm;
-    // close-orbit framing: LEO reads big; MEO/GEO back out enough to frame
-    const zoom = altKmNow < 3000 ? 6.5 : altKmNow < 45000 ? 3.2 : 1.8;
+    // close-orbit framing from altitude (same guarantee as focus framing:
+    // the camera never dives inside the craft's orbit shell)
+    const zoom = altKmNow < 3000 ? 6.5
+      : zoomForCameraAltitudeKm(altKmNow * 1.8, t.latDeg,
+          map.getCanvas()?.height ?? 900,
+          (map as any).getVerticalFieldOfView?.(), 65);
     map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
   // O6-7 tier 2 (charter: "zoom out far enough … literally accurate scale"):
@@ -3472,9 +3476,17 @@ export default function DataMapPage() {
         try {
           const altKmNow = s.altMeters / 1000;
           const cur = map.getZoom() ?? 0;
-          const zoom = altKmNow < 3000 ? Math.max(cur, 4.3)     // LEO: get close
-            : altKmNow < 45000 ? Math.max(Math.min(cur, 2.4), 2.2) // MEO/GEO band
-            : Math.min(cur, 1.4);                                // extreme apogee: back out to frame it
+          // FRAMING FROM ALTITUDE (live report 2026-07-18: far/GEO clicks
+          // zoomed PAST the craft — camera inside the orbit shell, craft
+          // behind it). Camera parks at 2.3x the craft's altitude: in front
+          // of the camera at ANY orbit height. LEO keeps a close floor so
+          // low craft still read big.
+          const frameZoom = zoomForCameraAltitudeKm(
+            Math.max(altKmNow * 2.3, 900), t.latDeg,
+            map.getCanvas()?.height ?? 900,
+            (map as any).getVerticalFieldOfView?.(), map.getPitch?.());
+          const zoom = altKmNow < 3000 ? Math.max(cur, Math.min(frameZoom, 4.3))
+            : Math.max(Math.min(cur, frameZoom), Math.min(frameZoom, 1.0));
           map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, duration: 1200 });
         } catch {}
         // O5-2b: the on-map 3D form — ONLY when the catalog knows the class

@@ -41,6 +41,30 @@ export function metersPerPixel(latDeg: number, zoom: number): number {
   return (METERS_PER_PIXEL_Z0 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
 }
 
+/**
+ * INVERSE of cameraAltitudeMeters: the zoom that puts the camera at a given
+ * altitude. Exists for craft FRAMING (live report 2026-07-18: clicking a
+ * far/GEO satellite zoomed the camera INSIDE its orbit shell — the craft
+ * ended up behind the camera and "you have to zoom back to see it").
+ * Framing at cameraAlt = k × craftAlt guarantees the craft is in front of
+ * the camera at any orbit height, instead of hardcoded per-band zooms.
+ */
+export function zoomForCameraAltitudeKm(
+  altKm: number,
+  latDeg: number,
+  canvasHeightPx: number,
+  fovDeg?: number,
+  pitchDeg?: number,
+): number {
+  const fov = fovDeg ?? DEFAULT_FOV_DEG;
+  const pitchRad = (((pitchDeg ?? 0) * Math.PI) / 180);
+  const halfFovRad = (fov * Math.PI) / 360;
+  const cameraToCenterPx = (0.5 * Math.max(1, canvasHeightPx)) / Math.tan(halfFovRad);
+  const mppTarget = (altKm * 1000) / (Math.max(0.1, Math.cos(pitchRad)) * cameraToCenterPx);
+  const mpp0 = metersPerPixel(latDeg, 0);
+  return Math.log2(mpp0 / Math.max(1e-9, mppTarget));
+}
+
 export interface CameraAltitudeInput {
   zoom: number;
   latDeg: number;
