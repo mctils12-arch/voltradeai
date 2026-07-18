@@ -38,20 +38,30 @@ test("position provenance: top plants imagery-verified, audit artifact present",
 
 test("OSM position overrides applied (position audit 2026-07-18)", () => {
   // 4 wind plants were 5-22km from their real farms (registry-chain error;
-  // research/position_audit_2026-07-18.md). The overrides file is the
-  // provenance record; the shipped rows must carry the corrected coords —
-  // this catches a rebuild that silently drops position_overrides.json.
+  // research/position_audit_2026-07-18.md), then the full-fleet batch audit
+  // (research/position_audit_wind_fleet_2026-07-18.md) added 20 more
+  // (7-53km errors). The overrides file is the provenance record; the
+  // shipped rows must carry the corrected coords — this catches a rebuild
+  // that silently drops position_overrides.json.
   const ov = JSON.parse(fs.readFileSync(
     path.join(here, "..", "datacore", "powerplants", "position_overrides.json"), "utf8"));
-  assert.ok(ov.overrides.length >= 4, "override records missing");
+  assert.ok(ov.overrides.length >= 24, `expected >=24 override records, got ${ov.overrides.length}`);
   for (const o of ov.overrides) {
     assert.ok(o.gppd_idnr && o.name && o.from?.length === 2 && o.to?.length === 2 && o.evidence,
       `override record incomplete: ${o.name}`);
-    const row = data.plants.find((p: any) => p[0] === o.name);
-    assert.ok(row, `override target not in dataset: ${o.name}`);
+    const rows = data.plants.filter((p: any) => p[0] === o.name);
+    assert.equal(rows.length, 1, `override target must match exactly one row: ${o.name} (${rows.length})`);
+    const row = rows[0];
     assert.equal(row[4], Math.round(o.to[0] * 1e4) / 1e4, `${o.name}: lat not overridden`);
     assert.equal(row[5], Math.round(o.to[1] * 1e4) / 1e4, `${o.name}: lon not overridden`);
   }
+  // batch-audit canaries: biggest fix (53km) and an exact-name eastern fix.
+  const ranchero = ov.overrides.find((o: any) => o.gppd_idnr === "USA0062259");
+  assert.ok(ranchero, "Ranchero override record missing");
+  assert.deepEqual(ranchero.to, [31.0154, -101.7187], "Ranchero corrected coordinate drifted");
+  const galactic = ov.overrides.find((o: any) => o.gppd_idnr === "USA0062161");
+  assert.ok(galactic, "Galactic Wind override record missing");
+  assert.deepEqual(galactic.to, [43.173, -89.5607], "Galactic Wind corrected coordinate drifted");
 });
 
 test("attribution ships with the data (CC BY 4.0 requires it)", () => {
