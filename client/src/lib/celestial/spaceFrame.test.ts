@@ -39,9 +39,10 @@ import {
   FRAME_DISC_FRACTION,
   MIN_DISTANCE_RADII,
   DEFAULT_FOV_DEG,
+  defaultBodyRegistry,
   type Vec3,
 } from "./spaceFrame.js";
-import { solarSystemState, BODY_RADIUS_M, AU_M } from "./solarSystem.js";
+import { solarSystemState, BODY_RADIUS_M, BODY_ORDER, AU_M } from "./solarSystem.js";
 import { subsolarPoint } from "./ephemeris.js";
 
 const close = (a: number, b: number, tol: number, msg: string): void =>
@@ -313,6 +314,44 @@ test("slerpUnit: endpoints, constant angular rate, antiparallel fallback", () =>
   const anti = slerpUnit(a, { x: -1, y: 0, z: 0 }, 0.5);
   close(Math.hypot(anti.x, anti.y, anti.z), 1, 1e-9, "antiparallel midpoint unit");
   assert.ok(Math.abs(anti.x) < 1e-6, "antiparallel midpoint ⊥ endpoints");
+});
+
+// ── the body registry (future-proofing contract) ────────────────────────────
+
+test("defaultBodyRegistry: all ten bodies declared, Earth is the only map anchor, the Sun the only light", () => {
+  const reg = defaultBodyRegistry();
+  assert.deepEqual(reg.map((b) => b.id), [...BODY_ORDER], "same canonical order");
+  const anchors = reg.filter((b) => b.mapAnchor === "maplibre");
+  assert.equal(anchors.length, 1, "exactly one live-map anchor");
+  assert.equal(anchors[0].id, "earth", "the anchor is Earth (today)");
+  assert.ok(reg.filter((b) => b.mapAnchor === null).length === reg.length - 1, "all others null");
+  const emissive = reg.filter((b) => b.emissive);
+  assert.equal(emissive.length, 1, "exactly one light source");
+  assert.equal(emissive[0].id, "sun");
+  // true radii, never invented: km = the ephemeris lib's meters / 1000
+  for (const b of reg) {
+    close(b.radiusKm, BODY_RADIUS_M[b.id as keyof typeof BODY_RADIUS_M] / 1000, 1e-9, `${b.id} radius`);
+    assert.ok(/^#[0-9a-f]{6}$/i.test(b.color), `${b.id} presentation color`);
+  }
+});
+
+test("registry ephemeris: positions are exactly the solarSystem.ts state (meters), memo-consistent", () => {
+  const reg = defaultBodyRegistry();
+  const t = Date.UTC(2026, 6, 18, 12);
+  const state = solarSystemState(t);
+  for (const b of reg) {
+    const p = b.ephemeris(t);
+    const ref = state.find((s) => s.id === b.id)!;
+    close(p.x, ref.helioAu.x * AU_M, 1, `${b.id} x`);
+    close(p.y, ref.helioAu.y * AU_M, 1, `${b.id} y`);
+    close(p.z, ref.helioAu.z * AU_M, 1, `${b.id} z`);
+  }
+  // the shared single-instant memo returns identical objects on repeat calls
+  assert.equal(reg[3].ephemeris(t), reg[3].ephemeris(t), "memoized instant");
+  // and moves when time moves
+  const later = reg[4].ephemeris(t + 86_400_000);
+  const now = reg[4].ephemeris(t);
+  assert.ok(Math.hypot(later.x - now.x, later.y - now.y, later.z - now.z) > 1e8, "bodies move");
 });
 
 // ── salvaged from the retired solarView (same tested semantics) ─────────────

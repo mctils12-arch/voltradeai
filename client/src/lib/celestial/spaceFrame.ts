@@ -54,13 +54,28 @@
 // hidden by the opaque globe disc. Off-screen bodies get no edge pointers
 // (click-to-fly + markers make everything reachable; scope decision).
 //
+// FUTURE-PROOF BODY REGISTRY — bodies are DECLARED, not hardcoded. Each body
+// is a SpaceBodyDef {id, name, radiusKm, ephemeris(timeMs)→meters, color,
+// emissive?, mapAnchor} and the frame renders whatever registry it is given
+// (defaultBodyRegistry() = Sun/Moon/Earth + the 8 planets from
+// solarSystem.ts). mapAnchor names which live map surface anchors at the
+// body: "maplibre" (Earth today — THE map canvas, posed by the parent via
+// applyEarthAnchor) or null (shaded true-scale sphere only). Because space
+// is true-scale, a later Moon tile pyramid becomes a second anchor by
+// declaration alone — no camera, projection, or seam change; the anchor
+// machinery (pose + crossfade + seam) already runs off the registry entry,
+// not off "Earth". The camera's up-reference stays Earth's spin axis (north
+// up) for now; a per-anchor axis is a registry field away when a non-Earth
+// anchor ships.
+//
 // Interop: mountSpaceFrame(container, opts) → handle (setTime/render/
-// flyTo/flyHome/flyOut/nudgeZoom/getState/dispose) — the solarView/
-// celestialSky mount-handle idiom. All view math is exported pure for tests.
+// flyTo/flyHome/flyOut/nudgeZoom/getState/dispose) — the celestialSky
+// mount-handle idiom. All view math is exported pure for tests.
 
 import {
   solarSystemState,
   BODY_RADIUS_M,
+  BODY_ORDER,
   AU_M,
   type BodyId,
 } from "./solarSystem.js";
@@ -386,7 +401,32 @@ export function fmtSpaceDistance(meters: number): string {
   return `${au.toFixed(au < 10 ? 3 : 2)} AU`;
 }
 
-// ── body table (true radii + presentation colors) ───────────────────────────
+// ── the body registry ───────────────────────────────────────────────────────
+
+/**
+ * A body the frame renders. Everything the frame needs is declared here —
+ * adding a body (or giving one a live map surface) is a registry entry,
+ * never an architecture change.
+ */
+export interface SpaceBodyDef {
+  id: string;
+  name: string;
+  /** true physical radius, km (the drawn size IS this, always). */
+  radiusKm: number;
+  /** heliocentric ecliptic-of-date position, METERS, at timeMs. Real
+   *  ephemeris or nothing — a body with no computable position does not
+   *  belong in the registry. */
+  ephemeris: (timeMs: number) => Vec3;
+  /** approximate naked-eye display color — presentation only, not data. */
+  color: string;
+  /** self-luminous: rendered as a glow (no phase) and used as the frame's
+   *  light source. Exactly one emissive body per registry (the Sun). */
+  emissive?: boolean;
+  /** which live map surface anchors at this body: "maplibre" = the parent's
+   *  map canvas (Earth today); null = shaded true-scale sphere only. A
+   *  future Moon tile pyramid becomes an anchor here, nowhere else. */
+  mapAnchor: "maplibre" | null;
+}
 
 /** Approximate naked-eye display colors — presentation only, not data. */
 const BODY_COLOR: Record<BodyId, string> = {
@@ -408,17 +448,33 @@ const NAMES: Record<BodyId, string> = {
   uranus: "Uranus", neptune: "Neptune",
 };
 
-/** One-instant memo of the whole system in heliocentric ecliptic METERS —
- *  solarSystemState is sub-ms but flights evaluate every frame. */
-let stateMemo: { t: number; pos: Record<BodyId, Vec3> } | null = null;
-function positionsAt(timeMs: number): Record<BodyId, Vec3> {
-  if (stateMemo && stateMemo.t === timeMs) return stateMemo.pos;
-  const pos = {} as Record<BodyId, Vec3>;
-  for (const b of solarSystemState(timeMs)) {
-    pos[b.id] = v3(b.helioAu.x * AU_M, b.helioAu.y * AU_M, b.helioAu.z * AU_M);
-  }
-  stateMemo = { t: timeMs, pos };
-  return pos;
+/**
+ * The default registry: Sun, Moon, Earth and the 8 planets from the
+ * solarSystem.ts ephemeris (Schlyter/van Flandern, arcmin-class). All ten
+ * ephemeris fns share one single-instant memo — solarSystemState computes
+ * the whole system at once, and flights evaluate every frame.
+ */
+export function defaultBodyRegistry(): SpaceBodyDef[] {
+  let memo: { t: number; pos: Record<string, Vec3> } | null = null;
+  const at = (timeMs: number): Record<string, Vec3> => {
+    if (!memo || memo.t !== timeMs) {
+      const pos: Record<string, Vec3> = {};
+      for (const b of solarSystemState(timeMs)) {
+        pos[b.id] = v3(b.helioAu.x * AU_M, b.helioAu.y * AU_M, b.helioAu.z * AU_M);
+      }
+      memo = { t: timeMs, pos };
+    }
+    return memo.pos;
+  };
+  return BODY_ORDER.map((id) => ({
+    id,
+    name: NAMES[id],
+    radiusKm: BODY_RADIUS_M[id] / 1000,
+    ephemeris: (timeMs: number) => at(timeMs)[id],
+    color: BODY_COLOR[id],
+    emissive: id === "sun" ? true : undefined,
+    mapAnchor: id === "earth" ? ("maplibre" as const) : null,
+  }));
 }
 
 // ── mount ───────────────────────────────────────────────────────────────────
@@ -453,6 +509,10 @@ export interface SpaceFrameOptions {
   /** initial sky-clock ms (time axis; default Date.now()). */
   timeMs?: number;
   fovDeg?: number;
+  /** the body registry (default: defaultBodyRegistry() — Sun/Moon/Earth +
+   *  the 8 planets). Must contain exactly one emissive body (the light
+   *  source) and at most one mapAnchor body. */
+  bodies?: SpaceBodyDef[];
   getMapSeam: () => MapSeamState;
   /** apply the anchor to the maplibre canvas; null ⇒ release (dispose). */
   applyEarthAnchor: (a: EarthAnchor | null) => void;
@@ -468,7 +528,7 @@ export interface SpaceFrameHandle {
   render(): void;
   /** log-space fly to a body, arriving at the FRAME_DISC_FRACTION framing
    *  with the look-back offset (the place you left hangs beside the target). */
-  flyTo(id: BodyId): void;
+  flyTo(id: string): void;
   /** fly home to the seam and hand the camera back to the map. */
   flyHome(): void;
   /** chip path: one continuous outward fly to an Earth+Moon framing. */
@@ -480,7 +540,7 @@ export interface SpaceFrameHandle {
 }
 
 export interface SpaceFrameBodyState {
-  id: BodyId;
+  id: string;
   name: string;
   screenX: number;
   screenY: number;
@@ -494,7 +554,7 @@ export interface SpaceFrameBodyState {
 
 export interface SpaceFrameState {
   timeMs: number;
-  focusId: BodyId;
+  focusId: string;
   distM: number;
   flying: boolean;
   /** true while the rAF loop is live (flights/input); idle frames cost 0. */
@@ -506,8 +566,8 @@ export interface SpaceFrameState {
 }
 
 interface FlightState {
-  fromId: BodyId;
-  toId: BodyId;
+  fromId: string;
+  toId: string;
   fromDir: Vec3;
   toDir: Vec3;
   fromDist: number;
@@ -536,13 +596,26 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   container.insertBefore(canvas, container.firstChild);
   const ctx = canvas.getContext("2d");
 
+  // ── the registry: which bodies exist, who lights them, who carries the
+  // live map (Earth today) — declaration, not architecture ──
+  const defs = opts.bodies && opts.bodies.length ? opts.bodies : defaultBodyRegistry();
+  const defById = new Map(defs.map((d) => [d.id, d] as const));
+  const sunDef = defs.find((d) => d.emissive) ?? defs[0];
+  const anchorDef = defs.find((d) => d.mapAnchor === "maplibre") ?? defs[0];
+  const radiusM = (id: string): number => (defById.get(id)?.radiusKm ?? 1) * 1000;
+  const positionsNow = (t: number): Record<string, Vec3> => {
+    const pos: Record<string, Vec3> = {};
+    for (const d of defs) pos[d.id] = d.ephemeris(t);
+    return pos;
+  };
+
   // ── camera: focus body + unit dir (target→camera) + distance ──
   const seam0 = opts.getMapSeam();
   const entryDiscPx = mapGlobeDiscPx(seam0.zoom, seam0.centerLatDeg);
-  let focusId: BodyId = "earth";
+  let focusId: string = anchorDef.id;
   let dir = entryCameraDir(seam0.centerLatDeg, seam0.centerLonDeg, timeMs);
   let kNow = perspectiveScalePx(fovDeg, container.clientHeight || 600);
-  let dist = distanceForDiscPx(BODY_RADIUS_M.earth, entryDiscPx, kNow);
+  let dist = distanceForDiscPx(radiusM(anchorDef.id), entryDiscPx, kNow);
   let flight: FlightState | null = null;
   let renderMsLast = 0;
   let lastState: SpaceFrameState | null = null;
@@ -555,12 +628,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   // ── sprite cache: per-body shaded sphere, keyed on quantized size+light ──
   const spriteCache = new Map<string, HTMLCanvasElement>();
 
-  function shadedSprite(id: BodyId, radiusPx: number, sunCam: Vec3): HTMLCanvasElement {
+  function shadedSprite(def: SpaceBodyDef, radiusPx: number, sunCam: Vec3): HTMLCanvasElement {
     // quantize: 6% radius steps, 0.06 light-direction steps — a flight
     // re-shades a handful of times, idle frames reuse the cache
     const rq = Math.max(2, Math.round(Math.exp(Math.round(Math.log(radiusPx) / 0.06) * 0.06)));
     const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
-    const key = `${id}|${rq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}`;
+    const key = `${def.id}|${rq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}`;
     const hit = spriteCache.get(key);
     if (hit) return hit;
     if (spriteCache.size > 48) spriteCache.clear(); // tiny working set, no LRU needed
@@ -570,7 +643,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     c.width = size;
     c.height = size;
     const cc = c.getContext("2d")!;
-    if (id === "sun") {
+    if (def.emissive) {
       // emissive: limb-darkened radial glow, no phase (presentation of a
       // light source; the SIZE is the true disc)
       const g = cc.createRadialGradient(shadeR + 1, shadeR + 1, 0, shadeR + 1, shadeR + 1, shadeR);
@@ -585,7 +658,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // Lambert-lit sphere under the REAL sun direction (camera frame):
       // the phase and terminator orientation are geometry, not paint.
       const img = cc.createImageData(size, size);
-      const color = BODY_COLOR[id];
+      const color = def.color;
       const cr = parseInt(color.slice(1, 3), 16);
       const cg = parseInt(color.slice(3, 5), 16);
       const cb = parseInt(color.slice(5, 7), 16);
@@ -633,9 +706,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
   // ── flight construction (always from the LIVE pose: cancels any flight
   // in progress first, freezing its blended camera as the new start) ──
-  function beginFlight(toId: BodyId, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean }): void {
+  function beginFlight(toId: string, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean }): void {
     cancelFlight();
-    const pos = positionsAt(timeMs);
+    const pos = positionsNow(timeMs);
     const from = pos[focusId];
     const to = pos[toId];
     let toDir: Vec3;
@@ -652,9 +725,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       toDir = rotateAbout(away, camBasis(away, axis).u, ARRIVAL_LOOKBACK_OFFSET_DEG);
       const { w, h } = cssSize();
       toDist = o?.toDist ?? Math.max(
-        MIN_DISTANCE_RADII * BODY_RADIUS_M[toId],
+        MIN_DISTANCE_RADII * radiusM(toId),
         distanceForDiscPx(
-          BODY_RADIUS_M[toId],
+          radiusM(toId),
           FRAME_DISC_FRACTION * Math.min(w, h),
           perspectiveScalePx(fovDeg, h),
         ),
@@ -678,7 +751,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   /** freeze a mid-flight pose into plain camera state (wheel takes over). */
   function cancelFlight(): void {
     if (!flight) return;
-    const pos = positionsAt(timeMs);
+    const pos = positionsNow(timeMs);
     const s = easeInOutCubic((performance.now() - flight.startedAt) / flight.durMs);
     const target = add(
       scale3(pos[flight.fromId], 1 - s),
@@ -691,7 +764,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     flight = null;
     // re-anchor the frozen pose on the new focus body
     const rel = sub(cam, pos[focusId]);
-    dist = Math.max(len3(rel), MIN_DISTANCE_RADII * BODY_RADIUS_M[focusId]);
+    dist = Math.max(len3(rel), MIN_DISTANCE_RADII * radiusM(focusId));
     dir = norm3(rel);
   }
 
@@ -702,7 +775,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     resizeBacking();
     const { w, h } = cssSize();
     kNow = perspectiveScalePx(fovDeg, h);
-    const pos = positionsAt(timeMs);
+    const pos = positionsNow(timeMs);
     const axis = earthAxisEcl(timeMs);
 
     // flight progression
@@ -723,7 +796,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         if (exiting) {
           // landing at the seam: one final anchor apply below, then exit
           dist = distanceForDiscPx(
-            BODY_RADIUS_M.earth,
+            radiusM(anchorDef.id),
             mapGlobeDiscPx(opts.getMapSeam().zoom, opts.getMapSeam().centerLatDeg) + 0.5,
             kNow,
           );
@@ -744,23 +817,23 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     ctx.fillRect(0, 0, w, h);
 
     // ── project every body; depth-sort far→near for painter's occlusion ──
-    const sunPos = pos.sun;
+    const sunPos = pos[sunDef.id];
     const drawn: Array<{
-      id: BodyId; p: ProjectedPoint; discPx: number; distM: number;
+      id: string; p: ProjectedPoint; discPx: number; distM: number;
       lit: number; behind: boolean;
     }> = [];
-    for (const id of Object.keys(pos) as BodyId[]) {
-      const bp = pos[id];
+    for (const def of defs) {
+      const bp = pos[def.id];
       const rel = sub(bp, camPos);
       const distM = len3(rel);
       const p = projectPoint(bp, camPos, basis, kNow, cx, cy);
       const behind = !(p.depth > 0);
-      const toSun = id === "sun" ? v3(0, 0, 1) : norm3(sub(sunPos, bp));
+      const toSun = def.emissive ? v3(0, 0, 1) : norm3(sub(sunPos, bp));
       const toCam = norm3(scale3(rel, -1));
       drawn.push({
-        id, p, distM,
-        discPx: bodyDiscPx(BODY_RADIUS_M[id], distM, kNow),
-        lit: id === "sun" ? 1 : apparentLitFraction(toSun, toCam),
+        id: def.id, p, distM,
+        discPx: bodyDiscPx(radiusM(def.id), distM, kNow),
+        lit: def.emissive ? 1 : apparentLitFraction(toSun, toCam),
         behind,
       });
     }
@@ -777,9 +850,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       const r = d.discPx / 2;
       if (r >= 3) {
         // sun direction in camera coords for the sprite shader
-        const toSunW = d.id === "sun" ? basis.f : norm3(sub(sunPos, pos[d.id]));
+        const def = defById.get(d.id)!;
+        const toSunW = def.emissive ? basis.f : norm3(sub(sunPos, pos[d.id]));
         const sunCam = v3(dot(toSunW, basis.r), dot(toSunW, basis.u), -dot(toSunW, basis.f));
-        const sprite = shadedSprite(d.id, r, sunCam);
+        const sprite = shadedSprite(def, r, sunCam);
         // the sprite's shaded disc has radius (sprite.width/2 − 1); scale the
         // whole sprite so THAT maps to exactly r (the +1 border must not
         // shrink the drawn body — true size is the contract)
@@ -787,14 +861,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         const box = (r / shadeR) * sprite.width;
         ctx.drawImage(sprite, d.p.x - box / 2, d.p.y - box / 2, box, box);
       } else if (r >= 0.5) {
-        ctx.fillStyle = BODY_COLOR[d.id];
+        ctx.fillStyle = defById.get(d.id)!.color;
         ctx.beginPath();
         ctx.arc(d.p.x, d.p.y, r, 0, Math.PI * 2);
         ctx.fill();
       } else if (r > 0) {
         // honestly sub-pixel: one dim pixel, never inflated (marker below)
         ctx.globalAlpha = 0.9;
-        ctx.fillStyle = BODY_COLOR[d.id];
+        ctx.fillStyle = defById.get(d.id)!.color;
         ctx.fillRect(Math.round(d.p.x), Math.round(d.p.y), 1, 1);
         ctx.globalAlpha = 1;
       }
@@ -838,10 +912,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       }
       ctx.fillStyle = "rgba(210,222,238,0.92)";
       const extra =
-        d.id === "earth" && mapAnchorOpacity(d.discPx) < 0.5
+        d.id === anchorDef.id && mapAnchorOpacity(d.discPx) < 0.5
           ? " · live map resumes on approach"
           : "";
-      ctx.fillText(`${NAMES[d.id]} · ${fmtSpaceDistance(d.distM)}${extra}`, anchorX, ly);
+      ctx.fillText(`${defById.get(d.id)!.name} · ${fmtSpaceDistance(d.distM)}${extra}`, anchorX, ly);
     });
 
     // ── chrome ──
@@ -850,7 +924,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const focus = drawn.find((d) => d.id === focusId)!;
     ctx.fillStyle = "rgba(160,175,198,0.8)";
     ctx.fillText(
-      `${flight ? "flying to" : "at"} ${NAMES[flight ? flight.toId : focusId]} · camera ${fmtSpaceDistance(flight ? len3(sub(camPos, pos[flight.toId])) : focus.distM)} out`,
+      `${flight ? "flying to" : "at"} ${defById.get(flight ? flight.toId : focusId)!.name} · camera ${fmtSpaceDistance(flight ? len3(sub(camPos, pos[flight.toId])) : focus.distM)} out`,
       16, 38,
     );
     // honesty caption — persistent, both lines, every frame
@@ -861,13 +935,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
     // ── the Earth anchor: pose the LIVE MAP as the Earth ──
     const seam = opts.getMapSeam();
-    const earth = drawn.find((d) => d.id === "earth")!;
+    const earth = drawn.find((d) => d.id === anchorDef.id)!;
     const mapDisc = mapGlobeDiscPx(seam.zoom, seam.centerLatDeg);
     let anchorOut: SpaceFrameState["anchor"] = null;
     if (!earth.behind && Number.isFinite(earth.p.x)) {
       const cssScale = earth.discPx / mapDisc;
       const opacity = mapAnchorOpacity(earth.discPx);
-      const sub_ = subCameraLatLon(norm3(sub(camPos, pos.earth)), timeMs);
+      const sub_ = subCameraLatLon(norm3(sub(camPos, pos[anchorDef.id])), timeMs);
       const anchor: EarthAnchor = {
         visible: Math.abs(earth.p.x - cx) < w * 2 && Math.abs(earth.p.y - cy) < h * 2,
         dxPx: earth.p.x - cx,
@@ -893,7 +967,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         opts.recenterMap(Math.max(-85, Math.min(85, sub_.latDeg)), sub_.lonDeg);
       }
       // ── the seam, inward: scale crossing 1 hands the camera back ──
-      if (cssScale > 1.0001 && focusId === "earth" && !exited) {
+      if (cssScale > 1.0001 && focusId === anchorDef.id && !exited) {
         exited = true;
         opts.onExitToMap();
       }
@@ -913,7 +987,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       anchor: anchorOut,
       bodies: drawn.map((d) => ({
         id: d.id,
-        name: NAMES[d.id],
+        name: defById.get(d.id)!.name,
         screenX: d.p.x,
         screenY: d.p.y,
         discPx: d.discPx,
@@ -954,7 +1028,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // draw()) hands back to the map long before this floor could bind
     dist = Math.min(
       MAX_CAMERA_DISTANCE_M,
-      Math.max(MIN_DISTANCE_RADII * BODY_RADIUS_M[focusId], dist * zoomStepFactor(deltaY)),
+      Math.max(MIN_DISTANCE_RADII * radiusM(focusId), dist * zoomStepFactor(deltaY)),
     );
     kick();
   }
@@ -985,7 +1059,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         cancelFlight();
         dist = Math.min(
           MAX_CAMERA_DISTANCE_M,
-          Math.max(MIN_DISTANCE_RADII * BODY_RADIUS_M[focusId], dist * (pinchDist / d2)),
+          Math.max(MIN_DISTANCE_RADII * radiusM(focusId), dist * (pinchDist / d2)),
         );
         kick();
       }
@@ -1021,7 +1095,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     for (const b of hits) {
       const r = Math.max(b.discPx / 2, 10);
       if (Math.hypot(mx - b.screenX, my - b.screenY) <= r + 4) {
-        if (b.id === "earth") flyHome();
+        if (b.id === anchorDef.id) flyHome();
         else if (b.id !== focusId || flight) beginFlight(b.id);
         return;
       }
@@ -1046,17 +1120,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     cancelFlight(); // freeze any flight first: home starts from the LIVE pose
     const seam = opts.getMapSeam();
     const target = distanceForDiscPx(
-      BODY_RADIUS_M.earth,
+      radiusM(anchorDef.id),
       mapGlobeDiscPx(seam.zoom, seam.centerLatDeg) + 0.5, // land just inside the seam
       perspectiveScalePx(fovDeg, cssSize().h),
     );
-    // come straight down the camera→Earth ray — the map recenters beneath
+    // come straight down the camera→anchor ray — the map recenters beneath
     // you, so you land above wherever you flew; leaving without flying
     // returns you exactly where you entered
-    const pos = positionsAt(timeMs);
+    const pos = positionsNow(timeMs);
     const camNow = add(pos[focusId], scale3(dir, dist));
-    const homeDir = norm3(sub(camNow, pos.earth));
-    beginFlight("earth", { toDir: homeDir, toDist: target, exitOnArrival: true });
+    const homeDir = norm3(sub(camNow, pos[anchorDef.id]));
+    beginFlight(anchorDef.id, { toDir: homeDir, toDist: target, exitOnArrival: true });
   }
 
   draw(); // first frame: anchor at scale 1/opacity 1 — the seam, untouched
@@ -1069,20 +1143,24 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     render(): void {
       draw();
     },
-    flyTo(id: BodyId): void {
-      if (exited) return;
-      if (id === "earth") return flyHome();
+    flyTo(id: string): void {
+      if (exited || !defById.has(id)) return;
+      if (id === anchorDef.id) return flyHome();
       beginFlight(id);
     },
     flyHome,
     flyOut(): void {
       if (exited) return;
-      // continuous outward fly on the current ray to an Earth+Moon framing
-      // (2.2× the REAL current lunar distance — from ephemeris, not a const)
+      // continuous outward fly on the current ray to a framing that shows
+      // the anchor with its nearest companion (Earth+Moon today: 2.2× the
+      // REAL current lunar distance — from ephemeris, not a constant)
       cancelFlight();
-      const pos = positionsAt(timeMs);
-      const lunar = len3(sub(pos.moon, pos.earth));
-      beginFlight("earth", { toDir: dir, toDist: 2.2 * lunar });
+      const pos = positionsNow(timeMs);
+      const moonDef = defById.get("moon");
+      const out = moonDef
+        ? 2.2 * len3(sub(pos[moonDef.id], pos[anchorDef.id]))
+        : 60 * radiusM(anchorDef.id);
+      beginFlight(anchorDef.id, { toDir: dir, toDist: out });
     },
     nudgeZoom(deltaY: number): void {
       lastInputAt = performance.now();
