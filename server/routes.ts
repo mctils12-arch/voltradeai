@@ -40,6 +40,7 @@ import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { cachedGemMethane } from "./gemMethane";
+import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
   validateWxTile, owmTileUrl, classifyOwmStatus, owmStatusNote, makeTileCache,
@@ -1312,29 +1313,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // (376KB, scripts/boundaries_admin1_build.py). Day-cached, fetched only
   // when the layer is enabled (zero-cost-when-off).
   // Celestial catalog RELAY (human-approved mirror, 2026-07-18): CelesTrak
-  // firewalls Railway egress (R17), so a GitHub Actions cron mirrors the
-  // catalogs every 6h and this route relays them from GitHub raw with an
-  // in-memory hour cache. The CLIENT uses this only when its direct
-  // CelesTrak fetch fails (fetch ladder in datamap) — the mirror's
-  // fetched_at rides a header so the client can state the catalog's true
-  // age honestly.
-  // 2026-07-18 v2 (human-approved same day): the mirror lives in the
-  // PUBLIC voltradeai-catalog repo (data branch, force-pushed) — the
-  // first design mirrored into THIS repo, which is private, and raw
-  // access 404s on private repos without credentials Railway doesn't
-  // have. Failures are never cached, so this recovers without a deploy
-  // the moment the public mirror exists.
-  const CATALOG_RAW_BASE = "https://raw.githubusercontent.com/mctils12-arch/voltradeai-catalog/data";
+  // firewalls Railway egress (R17), so the celestial-catalog-mirror GitHub
+  // workflow publishes the catalogs to this repo's celestial-catalog-data
+  // branch every 6h and this route relays them with an in-memory hour
+  // cache. The CLIENT uses this only when its direct CelesTrak fetch fails
+  // (fetch ladder in datamap) — the mirror's fetched_at rides a header so
+  // the client can state the catalog's true age honestly.
+  // AUTH ("use railway", human-directed 2026-07-18): the repo is private,
+  // so the relay authenticates with the GITHUB_CATALOG_TOKEN Railway env
+  // var (fine-grained PAT, Contents: read-only on voltradeai only) through
+  // the documented contents API. URL/header planning is pure and tested in
+  // server/catalogMirror.ts (full design history there). Failures are
+  // never cached, so the relay recovers with no deploy the moment the
+  // token lands in Railway.
   const catalogRelayCache: Record<string, { at: number; body: string; fetchedAt: string } | undefined> = {};
   const relayCatalog = async (file: string, contentType: string, res: any) => {
     try {
       const hit = catalogRelayCache[file];
       if (!hit || Date.now() - hit.at > 3600_000) {
+        const tok = process.env.GITHUB_CATALOG_TOKEN || "";
+        const fp = catalogFetchPlan(file, tok);
+        const mp = catalogFetchPlan("meta.json", tok);
         const [fr, mr] = await Promise.all([
-          fetch(`${CATALOG_RAW_BASE}/${file}`, { signal: AbortSignal.timeout(30000) }),
-          fetch(`${CATALOG_RAW_BASE}/meta.json`, { signal: AbortSignal.timeout(15000) }),
+          fetch(fp.url, { headers: fp.headers, signal: AbortSignal.timeout(30000) }),
+          fetch(mp.url, { headers: mp.headers, signal: AbortSignal.timeout(15000) }),
         ]);
-        if (!fr.ok) throw new Error(`mirror ${file} ${fr.status}`);
+        if (!fr.ok) throw new Error(`mirror ${file} ${fr.status} (${fp.source}${fp.source === "public-raw" ? ", no GITHUB_CATALOG_TOKEN set" : ""})`);
         const body = await fr.text();
         const meta = mr.ok ? await mr.json().catch(() => null) : null;
         catalogRelayCache[file] = { at: Date.now(), body, fetchedAt: meta?.fetched_at || "" };
