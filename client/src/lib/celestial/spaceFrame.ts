@@ -81,11 +81,26 @@
 // hidden by the opaque globe disc. Off-screen bodies get no edge pointers
 // (click-to-fly + markers make everything reachable; scope decision).
 //
+// B3 — ORBITS / ROTATION / MOONS / TIME (directive §3, 2026-07-18): the
+// registry gains the eight curated moons (Io, Europa, Ganymede, Callisto,
+// Titan, Triton, Phobos, Deimos — JPL mean elements, moons.ts) riding their
+// parents through compression; every body exposes its IAU rotation state
+// (axisEcl + prime meridian W — rotation.ts, pck00011/WGCCRE 2015; the Moon
+// tidally locked by the real constants) in getState() for B4/B5 surfaces to
+// render from; orbit-ellipse polylines are sampled ONCE per body from the
+// real ephemeris (one body per macrotask, cached, re-laid-out — never
+// resampled — on scale changes) and drawn under the bodies; and the frame's
+// time is fed by the ONE simulation clock (simClock.ts) via setTime — at 1×
+// real time everything renders exactly as before. A satellite projecting
+// inside its parent's drawn footprint folds into the parent's label as
+// "+N moons" (nothing invisible; zooming resolves them back out).
+//
 // FUTURE-PROOF BODY REGISTRY — bodies are DECLARED, not hardcoded. Each body
 // is a SpaceBodyDef {id, name, radiusKm, ephemeris(timeMs)→meters, color,
-// emissive?, mapAnchor} and the frame renders whatever registry it is given
-// (defaultBodyRegistry() = Sun/Moon/Earth + the 8 planets from
-// solarSystem.ts). mapAnchor names which live map surface anchors at the
+// emissive?, mapAnchor, parentId?, orbitPeriodDays?} and the frame renders
+// whatever registry it is given (defaultBodyRegistry() = Sun/Moon/Earth +
+// the 8 planets from solarSystem.ts + the curated moons from moons.ts).
+// mapAnchor names which live map surface anchors at the
 // body: "maplibre" (Earth today — THE map canvas, posed by the parent via
 // applyEarthAnchor) or null (shaded true-scale sphere only). Because space
 // is true-scale, a later Moon tile pyramid becomes a second anchor by
