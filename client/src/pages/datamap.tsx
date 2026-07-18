@@ -8144,6 +8144,16 @@ export default function DataMapPage() {
               ))}
             </div>
           )}
+          {/* live-trail freshness — honesty machinery stays on the COMPACT
+              card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
+              freshness), never buried behind the expander */}
+          {detail.trailLastT != null && (
+            <p className="vt-card-fresh">
+              <span className="vt-trail-freshness" data-testid="trail-freshness" data-tick={freshTick}>
+                last position {formatAge(detail.trailLastT)}
+              </span>
+            </p>
+          )}
           {/* actions + source tag — always visible without scrolling */}
           {((detail.actions && detail.actions.length > 0) || detail.sourceTag) && (
             <div className="vt-card-actions">
@@ -8343,12 +8353,8 @@ export default function DataMapPage() {
           {detail.trailNote && (
             <p className="vt-site-card-trail">
               Trail: {detail.trailNote}
-              {detail.trailLastT && (
-                <span className="vt-trail-freshness" data-testid="trail-freshness" data-tick={freshTick}>
-                  {" · "}last position {formatAge(detail.trailLastT)}
-                  {" (trail extends live; gaps = coverage/sampling, not necessarily staleness)"}
-                </span>
-              )}
+              {detail.trailLastT != null &&
+                " (trail extends live; gaps = coverage/sampling, not necessarily staleness)"}
             </p>
           )}
           </div>
