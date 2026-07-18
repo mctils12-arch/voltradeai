@@ -1302,6 +1302,111 @@
     new, fourth mechanism, not a reopening of the O(n²) theory (per this
     item's own 2026-07-13 note).
 
+    UPDATE 2026-07-18 (this session, scheduled-routine, [REPAIR]) —
+    RECURRENCE CONFIRMED, EXACTLY AS THIS ITEM'S OWN 2026-07-13 NOTE
+    ANTICIPATED: A NEW (FOURTH) MECHANISM, NOT A REOPENING OF THE O(n²)
+    THEORY. Live `/api/health` at session start showed
+    `scanner.status: "degraded"`, `consecutiveFailures: 6` — the exact
+    `TIER2-ERROR "Daemon timeout"` symptom this item tracks, now
+    recurring continuously since **2026-07-18T13:35:06Z** (16 entries by
+    16:01:57Z, every attempt failing, ~2.5h and counting at session end,
+    STILL ONGOING). Per RECURRENCE ESCALATES this was treated as a
+    root-cause investigation, not a blind re-patch of the O(n²) fix
+    (which is a different file/mechanism and already directly measured
+    as fixed).
+    FIRST STEP (per this item's own established discipline — check the
+    instruments already built before guessing): queried every symptom
+    the three prior mechanisms would produce. `type=STREAM-DISCONNECT` —
+    **zero** entries (the O(n²) fix's signature symptom is completely
+    absent this time — strong evidence this is NOT that mechanism
+    recurring). `type=EVENTLOOP-LAG` — only two small sub-second blips
+    (778ms, 513ms), nowhere near the 60-98 SECOND magnitude the O(n²)
+    bug produced, and not on its ~600s cadence. `type=DB-SLOW-WRITE` and
+    `type=TMP-CLEANUP` — both zero (both theories stay refuted, as
+    expected). This is a genuinely different symptom shape: no
+    coincident event-loop stall of any meaningful size, meaning the
+    Node process itself is NOT blocked — the daemon RPC is just
+    taking longer than 300s to actually finish its work.
+    TIMING RECONSTRUCTION (via `type=TIER2` success/failure audit lines):
+    the last SUCCESSFUL full scan completed at 13:25:05Z ("Scanned 11924
+    stocks... via daemon", ~63s wall time — consistent with this
+    function's own documented "~4-60s" normal range). The very next scan
+    started at 13:30:06Z and **never completed** — first timeout logged
+    at 13:35:06Z, exactly 300s later (Node's own `pythonCall` timeout).
+    Every subsequent attempt (16 total by session end) failed the same
+    way, spaced >=6 minutes apart (always >300s — meaning at most one
+    stuck dispatch's zombie thread can still be alive when the next
+    attempt starts, which is exactly why `active_dispatches` reads a flat
+    "2" — [this health-probe call] + [the one genuinely-still-running
+    scan] — every single time, never climbing, ruling out unbounded
+    zombie-thread pileup as well).
+    HYPOTHESIS (NOT YET DIRECTLY MEASURED — same honest posture every
+    prior update on this item has taken before its instrument existed):
+    **this morning's own KNOWN BROKEN #23 fix (`bars_feed()`, v1.0.397,
+    merged ~11:20-11:30Z) is the proximate trigger.** Downstream chain
+    (REASONING STANDARD #1, traced two steps, stated before shipping):
+    before that fix, all 29 `/v2/stocks/bars` call sites 400'd
+    immediately (fast failure) — so every VXX/SPY/regime/floor-basket/
+    correlation bars fetch across `bot_engine.py`, `macro_data.py`,
+    `options_scanner.py`, `instrument_selector.py`, `vol_surface.py`,
+    `intraday_shorts.py`, `shadow_portfolio.py` etc. was cheap. After the
+    fix, all 29 sites now SUCCEED — each is a real network round-trip
+    through the single process-wide `alpaca_throttle` token bucket
+    (`alpaca_rate_limiter.py`, 180 req/min, FROZEN PATH — a shared
+    `threading.Lock` + bucket every Alpaca caller in the process
+    contends for). `bot_engine.py` alone has bars-fetch call sites inside
+    `deep_score`'s per-candidate loop and the floor-basket/correlation
+    checks (lines ~837, ~1360, ~1467, ~2198, ~3970, ~4529, ~4935) that
+    previously failed instantly and now perform real throttled requests
+    — on top of whatever Tier 1 (30s cadence) and Tier 3 (hourly) are
+    also now successfully doing through the same shared bucket. More
+    real traffic sharing one 180/min budget, concentrated during actual
+    market hours, is a coherent and structurally-motivated (REASONING
+    STANDARD #5: an honest "why now" — the fix itself is what changed)
+    explanation for a full scan's snapshot-fetch/deep-score phase
+    queuing behind that contention long enough to blow through the 300s
+    outer bound — consistent with the ~2h delay between the fix going
+    live and the first timeout (traffic had to accumulate) and with
+    zero event-loop/DB symptoms (the Node process isn't stalled; the
+    daemon thread is genuinely waiting on rate-limited I/O). NOT proof —
+    an alternative explanation (Alpaca-side latency degradation coincident
+    with, but unrelated to, this morning's fix) has not been ruled out.
+    INSTRUMENT SHIPPED (own PR, v1.0.398, visibility-only — no trading/
+    scoring/timeout-threshold change, mirroring this item's own
+    eventLoopLag.ts/dbWriteTiming.ts precedent of building the direct
+    measurement before proposing a fix): `bot_engine.py`'s
+    `_scan_market_inner()` (TIMING-DISK 2026-04-23) already persists a
+    per-phase wall-clock breakdown to `voltrade_scan_timings.json`
+    specifically so it survives a timeout kill — but nothing exposed
+    that file outside the container except the owner-cookie-gated
+    `/api/system/snapshot`. Added a new token-gated `timings` probe to
+    `/api/diag/:probe` (`server/diag.ts` DIAG_PROBES whitelist +
+    `server/bot.ts` case, same read-only file lookup
+    `/api/system/snapshot` already does, same `sanitizeDiag` pass-through
+    every other probe uses) so a DIAG_TOKEN session — not just an owner
+    cookie — can read exactly which phase the next stuck scan reached
+    without needing dashboard access.
+    RATCHET: `server/diag.test.ts` — new probe pinned in `DIAG_PROBES`
+    (covered by the existing generic "every whitelisted probe has a case"
+    test) plus a dedicated test asserting the block checks both the
+    `/data/voltrade` and `/tmp` paths, passes through `sanitizeDiag`, and
+    reports `found: false` rather than erroring when no scan has run yet.
+    NOT YET LIVE-CONFIRMED. NEXT STEP for whichever session catches the
+    next occurrence (or checks in once this deploys, given the scanner is
+    STILL degraded as of session end): query
+    `/api/diag/timings?token=$DIAG_TOKEN` at/near a live timeout — if
+    `last_phase_completed` sits at "quick_scan"/snapshot-fetch with a
+    `duration_sec` far above the ~4-60s normal range, that CONFIRMS the
+    rate-limiter-contention hypothesis and the fix becomes deduplicating
+    the many redundant same-symbol (VXX/SPY/QQQ/TLT/HYG) bars fetches
+    that are now scattered across ~7 files with no shared cache (a
+    MUTABLE-territory fix — `alpaca_rate_limiter.py` itself is frozen and
+    cannot be loosened). If `last_phase_completed` instead sits somewhere
+    that does no Alpaca I/O (e.g. deep in `deep_score`'s scoring math with
+    no bars call nearby), that refutes this hypothesis and reopens the
+    search for a genuinely different (now actually a fourth) mechanism —
+    do not assume either answer before reading the probe.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

@@ -127,6 +127,19 @@ test("orderRow/positionRow: garbage numerics become null, never NaN (NaN breaks 
   assert.ok(!JSON.stringify({ o, p }).includes("NaN"));
 });
 
+test("timings probe (2026-07-18, KNOWN BROKEN #18 recurrence investigation): reads voltrade_scan_timings.json read-only, sanitized, both data-dir and /tmp fallback checked", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("timings"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const start = bot.indexOf('case "timings"');
+  const end = bot.indexOf('default:', start);
+  assert.ok(start > 0 && end > start, "timings probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("/data/voltrade/voltrade_scan_timings.json"), "must check the Railway volume path first");
+  assert.ok(block.includes("/tmp/voltrade_scan_timings.json"), "must fall back to /tmp for local/no-volume runs");
+  assert.ok(block.includes("sanitizeDiag"), "timings probe must pass the sanitizer like every other probe");
+  assert.ok(block.includes("found: false"), "must report found:false rather than erroring when no scan has run yet");
+});
+
 test("2026-07-07 widening is wired: orders + positions-detail probes exist, whitelisted, and the summary probe stays aggregate-only", () => {
   assert.ok((DIAG_PROBES as readonly string[]).includes("orders"));
   assert.ok((DIAG_PROBES as readonly string[]).includes("positions-detail"));
