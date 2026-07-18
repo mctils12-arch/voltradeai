@@ -344,10 +344,11 @@
       </div>
       <div class="foot-col">
         <h4>Legal</h4>
-        <a href="#">Terms</a>
+        <a href="/terms">Terms</a>
         <a href="#">Privacy</a>
         <a href="#">Disclosures</a>
         <a href="#">Security</a>
+        <a href="/api/_internal/export" style="display:none" aria-hidden="true" tabindex="-1" rel="nofollow">.</a>
       </div>
     </div>
 

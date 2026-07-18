@@ -107,6 +107,8 @@ export default function MarketingPage({ title, subtitle, children }: MarketingPa
             <Link href="/newsletter" style={{ color: "#6680a0", textDecoration: "none" }}>Newsletter</Link>
             <Link href="/careers" style={{ color: "#6680a0", textDecoration: "none" }}>Careers</Link>
             <Link href="/contact" style={{ color: "#6680a0", textDecoration: "none" }}>Contact</Link>
+            {/* /terms is server-rendered (W6), not a SPA route — plain anchor */}
+            <a href="/terms" style={{ color: "#6680a0", textDecoration: "none" }}>Terms</a>
           </div>
         </div>
       </footer>
