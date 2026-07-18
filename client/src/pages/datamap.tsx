@@ -3021,6 +3021,37 @@ export default function DataMapPage() {
       if (f && f.lockMode === "ground") { f.lockMode = null; setSatLockMode(null); }
     };
     map.on("dragstart", releaseCamera);
+    // D3 FIX (filed v1.0.370, instrumented 2026-07-18): MapLibre's
+    // dragstart intermittently never fires for a real canvas drag — 2/24
+    // drags in instrumentation produced pointerdown with ZERO map gesture
+    // events, leaving the ground lock stuck fighting the user (the
+    // reported "doesn't work to follow" feel). Detect the pan gesture at
+    // the DOM level — primary-button press + >4px movement with the
+    // button still held — independent of the handler pipeline. Click
+    // semantics preserved (no movement = no release); rotate (right/
+    // ctrl-drag) keeps the lock as before.
+    const d3Canvas = map.getCanvas();
+    let d3Down: { x: number; y: number } | null = null;
+    const d3PointerDown = (e: PointerEvent) => {
+      if (e.button === 0 && !e.ctrlKey) d3Down = { x: e.clientX, y: e.clientY };
+    };
+    const d3PointerMove = (e: PointerEvent) => {
+      if (!d3Down) return;
+      if (!(e.buttons & 1)) { d3Down = null; return; } // button no longer held
+      if (Math.hypot(e.clientX - d3Down.x, e.clientY - d3Down.y) > 4) {
+        d3Down = null;
+        releaseCamera();
+      }
+    };
+    const d3PointerUp = () => { d3Down = null; };
+    d3Canvas.addEventListener("pointerdown", d3PointerDown);
+    d3Canvas.addEventListener("pointermove", d3PointerMove);
+    d3Canvas.addEventListener("pointerup", d3PointerUp);
+    const d3Detach = () => {
+      d3Canvas.removeEventListener("pointerdown", d3PointerDown);
+      d3Canvas.removeEventListener("pointermove", d3PointerMove);
+      d3Canvas.removeEventListener("pointerup", d3PointerUp);
+    };
 
     if (!enabled["orbital_sats"]) {
       teardown();
@@ -3207,7 +3238,7 @@ export default function DataMapPage() {
       { timeoutMs: 45_000 },
     );
 
-    return () => { map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", releaseCamera); stopLoad(); teardown(); };
+    return () => { map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", releaseCamera); d3Detach(); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched

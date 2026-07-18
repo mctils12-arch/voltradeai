@@ -11,6 +11,11 @@ Sources (per DESIGN.md REFERENCE DATA ACCURACY):
  3. datacore/powerplants/imagery_verified.json — plant ids whose position
     was verified against imagery (facility visibly at the point). Top 100
     by MW verified 2026-07-04 (100/100 after EIA correction).
+ 4. datacore/powerplants/position_overrides.json — OSM-derived coordinate
+    fixes for registry-mispositioned plants (position audit 2026-07-18,
+    research/position_audit_2026-07-18.md). Applied AFTER the GPPD/EIA
+    choice, keyed by gppd_idnr, only while the registry value still equals
+    the recorded bad coordinate — an upstream fix disables the override.
 
 Row format: [name, capacity_mw, fuel, owner, lat, lon, verified]
   verified: 1 = imagery-verified · 0 = approximate (registry-reported)
@@ -57,8 +62,12 @@ def main(src: str, eia_xlsx: str | None) -> None:
     eia = load_eia(eia_xlsx) if eia_xlsx else {}
     verified_path = os.path.join(DST_DIR, "imagery_verified.json")
     verified = set(json.load(open(verified_path))["ids"]) if os.path.exists(verified_path) else set()
+    overrides_path = os.path.join(DST_DIR, "position_overrides.json")
+    overrides = {}
+    if os.path.exists(overrides_path):
+        overrides = {o["gppd_idnr"]: o for o in json.load(open(overrides_path))["overrides"]}
 
-    plants, eia_used = [], 0
+    plants, eia_used, overrides_used = [], 0, 0
     with open(src, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             if row["country"] != "USA":
@@ -76,6 +85,12 @@ def main(src: str, eia_xlsx: str | None) -> None:
             if code is not None and code in eia:
                 lat, lon = eia[code]
                 eia_used += 1
+            ov = overrides.get(idnr)
+            if ov and abs(lat - ov["from"][0]) < 0.02 and abs(lon - ov["from"][1]) < 0.02:
+                # registry still carries the audited-bad coordinate -> apply the
+                # OSM-derived fix; if upstream moved it, the override self-disables.
+                lat, lon = ov["to"]
+                overrides_used += 1
             fuel = FUEL_CODE.get(row["primary_fuel"], "other")
             plants.append([row["name"].strip()[:60], mw, fuel,
                            (row.get("owner") or "").strip()[:60],
@@ -98,7 +113,7 @@ def main(src: str, eia_xlsx: str | None) -> None:
     dst = os.path.join(DST_DIR, "us_power_plants.json")
     with open(dst, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"{len(plants)} plants ({eia_used} EIA-located, {out['verified_count']} imagery-verified) -> {dst} ({os.path.getsize(dst)//1024} KB)")
+    print(f"{len(plants)} plants ({eia_used} EIA-located, {out['verified_count']} imagery-verified, {overrides_used} position-overridden) -> {dst} ({os.path.getsize(dst)//1024} KB)")
 
 
 if __name__ == "__main__":
