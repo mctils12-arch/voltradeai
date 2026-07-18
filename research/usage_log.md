@@ -135,3 +135,11 @@ row when they close; the weekly review reads the trend)
   fall-through making each run heavier. Watch the next 2-3 daily
   readings; if 5-hour peaks spike past ~80%, throttle per drop order
   (product-pm → edge-late → product-eve) before touching the core.
+
+## 2026-07-18 (incidental, session screenshot ~20:35Z)
+Banner in the human's screenshot: "You've used 87% of your Fable 5
+limit — resets Sun, Jul 19, 2:00 AM". Session-tier limit, not the
+weekly plan reading. Response (same-day per the loop): throttled
+fall-through for the rest of this session — finish queued work only
+(catalog-mirror auth fix + B3 integration already in flight), no new
+speculative slices until after the reset.

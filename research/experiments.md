@@ -3,6 +3,23 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [REPAIR] — Catalog mirror v3: authenticated relay via Railway token ("use railway", v1.0.405, T-DATACORE)
+
+The human rejected creating a public mirror repo and chose Railway
+credentials ("use railway"). v3: server/catalogMirror.ts (pure,
+3 tests) plans the fetch — with GITHUB_CATALOG_TOKEN set (fine-
+grained PAT, Contents: read-only, voltradeai only), the relay reads
+this repo's celestial-catalog-data branch through the documented
+contents API with the raw media type (required for 1–100MB files;
+GP is ~13MB) + mandatory User-Agent (api.github.com rejects UA-less
+requests). Tokenless fallback keeps the public-repo raw URL (zero
+harm, still honest-503). Mirror data verified present pre-ship via
+the API: 16,065 GP records + 69,927 SATCAT lines fetched 19:54Z.
+Failures never cached → production recovers with NO deploy the
+moment the human adds the token in Railway. Remaining human step:
+create the PAT + Railway var (exact steps given in chat). Gates:
+build clean, server suite 791 pass. Backtest n/a.
+
 ## 2026-07-18 [REPAIR] — Catalog mirror v2: relay retargeted to the PUBLIC voltradeai-catalog repo (v1.0.404, T-DATACORE)
 
 The v1.0.403 mirror ran green (run #1: 12k GP records validated,
